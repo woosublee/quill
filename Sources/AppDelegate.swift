@@ -218,6 +218,7 @@ private func showNoteBrowserWindow() {
         }
     }
 
+
     func showSetupWindow() {
         NSApp.setActivationPolicy(.regular)
 

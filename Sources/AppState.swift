@@ -498,9 +498,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             holdKey: holdShortcutStorageKey,
             toggleKey: toggleShortcutStorageKey
         )
-        let savedHoldCustomShortcut = Self.loadShortcut(forKey: savedHoldCustomShortcutStorageKey)
+        let storedSavedHoldCustomShortcut = Self.loadShortcut(forKey: savedHoldCustomShortcutStorageKey)
+        let storedSavedToggleCustomShortcut = Self.loadShortcut(forKey: savedToggleCustomShortcutStorageKey)
+        let savedHoldCustomShortcut = storedSavedHoldCustomShortcut?.binding
             ?? (shortcuts.hold.isCustom ? shortcuts.hold : nil)
-        let savedToggleCustomShortcut = Self.loadShortcut(forKey: savedToggleCustomShortcutStorageKey)
+        let savedToggleCustomShortcut = storedSavedToggleCustomShortcut?.binding
             ?? (shortcuts.toggle.isCustom ? shortcuts.toggle : nil)
         let customVocabulary = UserDefaults.standard.string(forKey: customVocabularyStorageKey) ?? ""
         let customSystemPrompt = UserDefaults.standard.string(forKey: customSystemPromptStorageKey) ?? ""
@@ -609,7 +611,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         refreshAvailableMicrophones()
         installAudioDeviceObservers()
 
-        if shortcuts.didMigrateLegacyValue {
+        if shortcuts.didUpdateStoredValues {
             persistShortcut(shortcuts.hold, key: holdShortcutStorageKey)
             persistShortcut(shortcuts.toggle, key: toggleShortcutStorageKey)
         }
@@ -656,7 +658,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private struct StoredShortcutConfiguration {
         let hold: ShortcutBinding
         let toggle: ShortcutBinding
-        let didMigrateLegacyValue: Bool
+        let didUpdateStoredValues: Bool
     }
 
     private static func loadStoredAPIBaseURL(account: String) -> String {
@@ -667,9 +669,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private static func loadShortcutConfiguration(holdKey: String, toggleKey: String) -> StoredShortcutConfiguration {
-        if let hold = loadShortcut(forKey: holdKey),
-           let toggle = loadShortcut(forKey: toggleKey) {
-            return StoredShortcutConfiguration(hold: hold, toggle: toggle, didMigrateLegacyValue: false)
+        if let holdResult = loadShortcut(forKey: holdKey),
+           let toggleResult = loadShortcut(forKey: toggleKey) {
+            return StoredShortcutConfiguration(
+                hold: holdResult.binding,
+                toggle: toggleResult.binding,
+                didUpdateStoredValues: holdResult.didNormalize || toggleResult.didNormalize
+            )
         }
 
         let legacyPreset = ShortcutPreset(
@@ -677,14 +683,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         ) ?? .fnKey
         let hold = legacyPreset.binding
         let toggle = hold.withAddedModifiers(.command)
-        return StoredShortcutConfiguration(hold: hold, toggle: toggle, didMigrateLegacyValue: true)
+        return StoredShortcutConfiguration(hold: hold, toggle: toggle, didUpdateStoredValues: true)
     }
 
-    private static func loadShortcut(forKey key: String) -> ShortcutBinding? {
+    private static func loadShortcut(forKey key: String) -> (binding: ShortcutBinding, didNormalize: Bool)? {
         guard let data = UserDefaults.standard.data(forKey: key) else {
             return nil
         }
-        return try? JSONDecoder().decode(ShortcutBinding.self, from: data)
+        guard let decoded = try? JSONDecoder().decode(ShortcutBinding.self, from: data) else {
+            return nil
+        }
+        let normalized = decoded.normalizedForStorageMigration()
+        return (binding: normalized, didNormalize: normalized != decoded)
     }
 
     private func persistAPIBaseURL(_ value: String) {
@@ -706,7 +716,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func persistShortcut(_ binding: ShortcutBinding, key: String) {
-        guard let data = try? JSONEncoder().encode(binding) else { return }
+        let normalizedBinding = binding.normalizedForStorageMigration()
+        guard let data = try? JSONEncoder().encode(normalizedBinding) else { return }
         UserDefaults.standard.set(data, forKey: key)
     }
 
@@ -1225,6 +1236,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @discardableResult
     func setShortcut(_ binding: ShortcutBinding, for role: ShortcutRole) -> String? {
+        let binding = binding.normalizedForStorageMigration()
         let nextHoldShortcut = role == .hold ? binding : holdShortcut
         let nextToggleShortcut = role == .toggle ? binding : toggleShortcut
         let otherBinding = role == .hold ? toggleShortcut : holdShortcut
