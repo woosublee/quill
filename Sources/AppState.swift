@@ -432,6 +432,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     var mcpLastRecordingFailed: Bool = false
     var onTranscriptionCompleted: ((String, String) -> Void)?
     @Published var hasAccessibility = false
+    @Published var hotkeyMonitoringErrorMessage: String?
     @Published var isDebugOverlayActive = false
     @Published var selectedSettingsTab: SettingsTab? = .general
     @Published var pipelineHistory: [PipelineHistoryItem] = []
@@ -1174,6 +1175,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     var shortcutStatusText: String {
+        if hotkeyMonitoringErrorMessage != nil {
+            return "Global shortcuts unavailable"
+        }
+
         switch (hasEnabledHoldShortcut, hasEnabledToggleShortcut) {
         case (true, true):
             return "Hold \(holdShortcut.displayName) or tap \(toggleShortcut.displayName) to dictate"
@@ -1316,6 +1321,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     func stopHotkeyMonitoring() {
         shouldMonitorHotkeys = false
+        hotkeyMonitoringErrorMessage = nil
         hotkeyManager.onShortcutEvent = nil
         hotkeyManager.onEscapeKeyPressed = nil
         hotkeyManager.stop()
@@ -1337,7 +1343,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return
         }
 
-        hotkeyManager.start(configuration: ShortcutConfiguration(hold: holdShortcut, toggle: toggleShortcut))
+        do {
+            try hotkeyManager.start(configuration: ShortcutConfiguration(hold: holdShortcut, toggle: toggleShortcut))
+            hotkeyMonitoringErrorMessage = nil
+        } catch {
+            hotkeyMonitoringErrorMessage = error.localizedDescription
+            os_log(.error, log: recordingLog, "Hotkey monitoring failed to start: %{public}@", error.localizedDescription)
+        }
     }
 
     private func handleShortcutEvent(_ event: ShortcutEvent) {
@@ -1626,6 +1638,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return
         }
         os_log(.info, log: recordingLog, "accessibility check passed: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
+        guard ensureScreenCaptureAccess() else { return }
+        os_log(.info, log: recordingLog, "screen capture check passed: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
         let selectionSnapshot = scheduledSelectionSnapshot ?? contextService.collectSelectionSnapshot()
         let manualCommandRequested = scheduledSelectionSnapshot == nil
             ? hotkeyManager.currentPressedModifiers.contains(commandModeManualModifier.shortcutModifier)
@@ -1641,6 +1655,24 @@ final class AppState: ObservableObject, @unchecked Sendable {
         os_log(.info, log: recordingLog, "mic access check passed: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
         beginRecording(triggerMode: triggerMode)
         os_log(.info, log: recordingLog, "startRecording() finished: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
+    }
+
+    private func ensureScreenCaptureAccess() -> Bool {
+        let granted = hasScreenCapturePermission()
+        hasScreenRecordingPermission = granted
+        guard granted else {
+            let message = "Screen recording permission not granted. Enable in System Settings > Privacy & Security > Screen Recording."
+            errorMessage = message
+            statusText = "Screenshot Required"
+            activeRecordingTriggerMode = nil
+            currentSessionIntent = .dictation
+            shortcutSessionController.reset()
+            playAlertSound(named: "Basso")
+            showScreenshotPermissionAlert(message: message)
+            return false
+        }
+
+        return true
     }
 
     private func ensureMicrophoneAccess() -> Bool {
@@ -2357,6 +2389,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         os_log(.error, "Screenshot capture issue: %{public}@", message)
 
         if isScreenCapturePermissionError(message) && !hasShownScreenshotPermissionAlert {
+            hasScreenRecordingPermission = false
+            errorMessage = message
             hasShownScreenshotPermissionAlert = true
 
             // Permission errors are fatal — stop recording
