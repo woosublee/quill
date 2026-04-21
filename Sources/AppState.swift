@@ -110,6 +110,20 @@ private struct PendingClipboardRestore {
     let expectedChangeCount: Int
 }
 
+private struct RetrySnapshot {
+    let item: PipelineHistoryItem
+    let audioURL: URL
+    let restoredContext: AppContext
+    let restoredIntent: SessionIntent
+    let transcriptionLanguage: TranscriptionLanguage
+    let localTranscriptionModel: TranscriptionModel
+    let useLocalTranscription: Bool
+    let customVocabulary: String
+    let customSystemPrompt: String
+    let postProcessingEnabled: Bool
+    let localWhisperPath: String?
+}
+
 private enum CommandInvocation: String {
     case automatic
     case manual
@@ -456,6 +470,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var contextCaptureTask: Task<AppContext?, Never>?
     private var capturedContext: AppContext?
     private var hasShownScreenshotPermissionAlert = false
+    private var isEscapeCancelAlertPresented = false
     private var audioDeviceObservers: [NSObjectProtocol] = []
     private var needsMicrophoneRefreshAfterRecording = false
     private let pipelineHistoryStore = PipelineHistoryStore()
@@ -813,11 +828,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
             postProcessingStatus: item.postProcessingStatus,
             debugStatus: item.debugStatus,
             customVocabulary: item.customVocabulary,
+            customSystemPrompt: item.customSystemPrompt,
             audioFileName: item.audioFileName,
             usedLocalTranscription: item.usedLocalTranscription,
             usedContextCapture: item.usedContextCapture,
             usedPostProcessing: item.usedPostProcessing,
             transcriptionLanguageCode: item.transcriptionLanguageCode,
+            localTranscriptionModelID: item.localTranscriptionModelID,
             transcriptFileName: item.transcriptFileName
         )
         do {
@@ -831,29 +848,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     func retryTranscription(item: PipelineHistoryItem) {
-        guard let audioFileName = item.audioFileName else { return }
         guard !retryingItemIDs.contains(item.id) else { return }
 
-        retryingItemIDs.insert(item.id)
-
-        let audioURL = Self.audioStorageDirectory().appendingPathComponent(audioFileName)
-        guard FileManager.default.fileExists(atPath: audioURL.path) else {
-            retryingItemIDs.remove(item.id)
-            errorMessage = "Audio file not found for retry."
+        let snapshot: RetrySnapshot
+        do {
+            snapshot = try makeRetrySnapshot(for: item)
+        } catch {
+            errorMessage = error.localizedDescription
             return
         }
 
-        let restoredContext = AppContext(
-            appName: nil,
-            bundleIdentifier: nil,
-            windowTitle: nil,
-            selectedText: nil,
-            currentActivity: item.contextSummary,
-            contextPrompt: item.contextPrompt,
-            screenshotDataURL: item.contextScreenshotDataURL,
-            screenshotMimeType: item.contextScreenshotDataURL != nil ? "image/jpeg" : nil,
-            screenshotError: nil
-        )
+        retryingItemIDs.insert(item.id)
 
         let postProcessingService = PostProcessingService(
             apiKey: apiKey,
@@ -861,8 +866,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
             preferredModel: postProcessingModel,
             preferredFallbackModel: postProcessingFallbackModel
         )
-        let capturedCustomVocabulary = customVocabulary
-        let capturedCustomSystemPrompt = customSystemPrompt
 
         Task { [weak self] in
             guard let self else { return }
@@ -870,85 +873,171 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 let transcriptionService = try TranscriptionService(
                     apiKey: apiKey,
                     baseURL: apiBaseURL,
-                    useLocalTranscription: useLocalTranscription,
-                    localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath,
-                    transcriptionLanguage: transcriptionLanguage,
-                    localTranscriptionModel: localTranscriptionModel,
+                    useLocalTranscription: snapshot.useLocalTranscription,
+                    localWhisperPath: snapshot.localWhisperPath,
+                    transcriptionLanguage: snapshot.transcriptionLanguage,
+                    localTranscriptionModel: snapshot.localTranscriptionModel,
                     transcriptionModel: transcriptionModel
                 )
-                let rawTranscript = try await transcriptionService.transcribe(fileURL: audioURL)
+                let rawTranscript = try await transcriptionService.transcribe(fileURL: snapshot.audioURL)
 
-                let finalTranscript: String
-                let processingStatus: String
-                let postProcessingPrompt: String
-                let restoredIntent = SessionIntent.fromPersisted(
-                    intent: item.intent,
-                    selectedText: item.selectedText
-                )
-                let result = await self.processTranscript(
+                let result = await self.processTranscriptForRetry(
                     rawTranscript,
-                    intent: restoredIntent,
-                    context: restoredContext,
-                    postProcessingService: postProcessingService,
-                    customVocabulary: capturedCustomVocabulary,
-                    customSystemPrompt: capturedCustomSystemPrompt
+                    snapshot: snapshot,
+                    postProcessingService: postProcessingService
                 )
-                finalTranscript = result.finalTranscript
-                processingStatus = result.outcome.statusMessage(isRetry: true)
-                postProcessingPrompt = result.prompt
+                let updatedItem = PipelineHistoryItem(
+                    intent: snapshot.item.intent,
+                    selectedText: snapshot.item.selectedText,
+                    id: snapshot.item.id,
+                    timestamp: snapshot.item.timestamp,
+                    rawTranscript: rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines),
+                    postProcessedTranscript: result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines),
+                    postProcessingPrompt: result.prompt,
+                    contextSummary: snapshot.item.contextSummary,
+                    contextPrompt: snapshot.item.contextPrompt,
+                    contextScreenshotDataURL: snapshot.item.contextScreenshotDataURL,
+                    contextScreenshotStatus: snapshot.item.contextScreenshotStatus,
+                    postProcessingStatus: result.outcome.statusMessage(isRetry: true),
+                    debugStatus: "Retried",
+                    customVocabulary: snapshot.customVocabulary,
+                    customSystemPrompt: snapshot.customSystemPrompt,
+                    audioFileName: snapshot.item.audioFileName,
+                    usedLocalTranscription: snapshot.useLocalTranscription,
+                    usedContextCapture: snapshot.item.usedContextCapture,
+                    usedPostProcessing: snapshot.postProcessingEnabled,
+                    transcriptionLanguageCode: snapshot.transcriptionLanguage.code,
+                    localTranscriptionModelID: snapshot.localTranscriptionModel.id,
+                    transcriptFileName: snapshot.item.transcriptFileName
+                )
 
                 await MainActor.run {
-                    let updatedItem = PipelineHistoryItem(
-                        intent: item.intent,
-                        selectedText: item.selectedText,
-                        id: item.id,
-                        timestamp: item.timestamp,
-                        rawTranscript: rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines),
-                        postProcessedTranscript: finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines),
-                        postProcessingPrompt: postProcessingPrompt,
-                        contextSummary: item.contextSummary,
-                        contextPrompt: item.contextPrompt,
-                        contextScreenshotDataURL: item.contextScreenshotDataURL,
-                        contextScreenshotStatus: item.contextScreenshotStatus,
-                        postProcessingStatus: processingStatus,
-                        debugStatus: "Retried",
-                        customVocabulary: item.customVocabulary,
-                        audioFileName: item.audioFileName
-                    )
                     do {
                         try pipelineHistoryStore.update(updatedItem)
                         pipelineHistory = pipelineHistoryStore.loadAllHistory()
                     } catch {
                         errorMessage = "Failed to save retry result: \(error.localizedDescription)"
                     }
-                    retryingItemIDs.remove(item.id)
+                    retryingItemIDs.remove(snapshot.item.id)
                 }
             } catch {
+                let updatedItem = PipelineHistoryItem(
+                    intent: snapshot.item.intent,
+                    selectedText: snapshot.item.selectedText,
+                    id: snapshot.item.id,
+                    timestamp: snapshot.item.timestamp,
+                    rawTranscript: snapshot.item.rawTranscript,
+                    postProcessedTranscript: snapshot.item.postProcessedTranscript,
+                    postProcessingPrompt: snapshot.item.postProcessingPrompt,
+                    contextSummary: snapshot.item.contextSummary,
+                    contextPrompt: snapshot.item.contextPrompt,
+                    contextScreenshotDataURL: snapshot.item.contextScreenshotDataURL,
+                    contextScreenshotStatus: snapshot.item.contextScreenshotStatus,
+                    postProcessingStatus: "Error: \(error.localizedDescription)",
+                    debugStatus: "Retry failed",
+                    customVocabulary: snapshot.customVocabulary,
+                    customSystemPrompt: snapshot.customSystemPrompt,
+                    audioFileName: snapshot.item.audioFileName,
+                    usedLocalTranscription: snapshot.useLocalTranscription,
+                    usedContextCapture: snapshot.item.usedContextCapture,
+                    usedPostProcessing: snapshot.postProcessingEnabled,
+                    transcriptionLanguageCode: snapshot.transcriptionLanguage.code,
+                    localTranscriptionModelID: snapshot.localTranscriptionModel.id,
+                    transcriptFileName: snapshot.item.transcriptFileName
+                )
+
                 await MainActor.run {
-                    let updatedItem = PipelineHistoryItem(
-                        intent: item.intent,
-                        selectedText: item.selectedText,
-                        id: item.id,
-                        timestamp: item.timestamp,
-                        rawTranscript: item.rawTranscript,
-                        postProcessedTranscript: item.postProcessedTranscript,
-                        postProcessingPrompt: item.postProcessingPrompt,
-                        contextSummary: item.contextSummary,
-                        contextPrompt: item.contextPrompt,
-                        contextScreenshotDataURL: item.contextScreenshotDataURL,
-                        contextScreenshotStatus: item.contextScreenshotStatus,
-                        postProcessingStatus: "Error: \(error.localizedDescription)",
-                        debugStatus: "Retry failed",
-                        customVocabulary: item.customVocabulary,
-                        audioFileName: item.audioFileName
-                    )
                     do {
                         try pipelineHistoryStore.update(updatedItem)
                         pipelineHistory = pipelineHistoryStore.loadAllHistory()
                     } catch {}
-                    retryingItemIDs.remove(item.id)
+                    retryingItemIDs.remove(snapshot.item.id)
                 }
             }
+        }
+    }
+
+    private func makeRetrySnapshot(for item: PipelineHistoryItem) throws -> RetrySnapshot {
+        guard let audioFileName = item.audioFileName else {
+            throw TranscriptionError.submissionFailed("Audio file not found for retry.")
+        }
+
+        let audioURL = Self.audioStorageDirectory().appendingPathComponent(audioFileName)
+        guard FileManager.default.fileExists(atPath: audioURL.path) else {
+            throw TranscriptionError.submissionFailed("Audio file not found for retry.")
+        }
+
+        return RetrySnapshot(
+            item: item,
+            audioURL: audioURL,
+            restoredContext: AppContext(
+                appName: nil,
+                bundleIdentifier: nil,
+                windowTitle: nil,
+                selectedText: nil,
+                currentActivity: item.contextSummary,
+                contextPrompt: item.contextPrompt,
+                screenshotDataURL: item.contextScreenshotDataURL,
+                screenshotMimeType: item.contextScreenshotDataURL != nil ? "image/jpeg" : nil,
+                screenshotError: nil
+            ),
+            restoredIntent: SessionIntent.fromPersisted(intent: item.intent, selectedText: item.selectedText),
+            transcriptionLanguage: TranscriptionLanguage.find(code: item.transcriptionLanguageCode),
+            localTranscriptionModel: TranscriptionModel.find(id: item.localTranscriptionModelID),
+            useLocalTranscription: item.usedLocalTranscription,
+            customVocabulary: item.customVocabulary,
+            customSystemPrompt: item.customSystemPrompt,
+            postProcessingEnabled: item.usedPostProcessing,
+            localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath
+        )
+    }
+
+    private func processTranscriptForRetry(
+        _ rawTranscript: String,
+        snapshot: RetrySnapshot,
+        postProcessingService: PostProcessingService
+    ) async -> (finalTranscript: String, outcome: TranscriptProcessingOutcome, prompt: String) {
+        let trimmedRawTranscript = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedRawTranscript.isEmpty else {
+            return ("", .skippedEmptyRawTranscript, "")
+        }
+
+        if case .command(let invocation, let selectedText) = snapshot.restoredIntent {
+            do {
+                let result = try await postProcessingService.commandTransform(
+                    selectedText: selectedText,
+                    voiceCommand: rawTranscript,
+                    context: snapshot.restoredContext,
+                    customVocabulary: snapshot.customVocabulary
+                )
+                return (result.transcript, .commandModeSucceeded(invocation: invocation), result.prompt)
+            } catch {
+                os_log(.error, log: recordingLog, "Edit mode failed: %{public}@", error.localizedDescription)
+                return (selectedText, .commandModeFailedFallback(invocation: invocation), "")
+            }
+        }
+
+        if let macro = findMatchingMacro(for: trimmedRawTranscript) {
+            os_log(.info, log: recordingLog, "Voice macro triggered: %{public}@", macro.command)
+            return (macro.payload, .voiceMacro(command: macro.command), "")
+        }
+
+        if !snapshot.postProcessingEnabled {
+            return (rawTranscript, .postProcessingDisabled, "")
+        }
+
+        do {
+            let result = try await postProcessingService.postProcess(
+                transcript: trimmedRawTranscript,
+                context: snapshot.restoredContext,
+                customVocabulary: snapshot.customVocabulary,
+                customSystemPrompt: snapshot.customSystemPrompt
+            )
+            return (result.transcript, .postProcessingSucceeded, result.prompt)
+        } catch {
+            os_log(.error, log: recordingLog, "Post-processing failed: %{public}@", error.localizedDescription)
+            return (trimmedRawTranscript, .postProcessingFailedFallback, "")
         }
     }
 
@@ -1272,17 +1361,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func handleEscapeKeyPress() -> Bool {
-        if isTranscribing {
-            cancelTranscription()
-            return true
-        }
-
-        if pendingShortcutStartMode == .toggle || activeRecordingTriggerMode == .toggle {
-            cancelToggleShortcutSession()
-            return true
-        }
-
-        return false
+        guard shouldConfirmEscapeCancellation else { return false }
+        presentEscapeCancellationAlert()
+        return true
     }
 
     func toggleRecording() {
@@ -1312,6 +1393,41 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func handleOverlayStopButtonPressed() {
         guard isRecording, activeRecordingTriggerMode == .toggle else { return }
         stopAndTranscribe()
+    }
+
+    private var shouldConfirmEscapeCancellation: Bool {
+        guard !isEscapeCancelAlertPresented else { return false }
+        if isRecording || isTranscribing {
+            return true
+        }
+        return pendingShortcutStartMode == .toggle || activeRecordingTriggerMode == .toggle
+    }
+
+    private func presentEscapeCancellationAlert() {
+        guard !isEscapeCancelAlertPresented else { return }
+        isEscapeCancelAlertPresented = true
+
+        let alert = NSAlert()
+        alert.messageText = "Cancel current recording?"
+        alert.informativeText = "Press Cancel to keep recording, or Stop Recording to discard the current recording session."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Stop Recording")
+        alert.addButton(withTitle: "Cancel")
+        alert.icon = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)
+
+        let response = alert.runModal()
+        isEscapeCancelAlertPresented = false
+
+        guard response == .alertFirstButtonReturn else { return }
+
+        if isTranscribing {
+            cancelTranscription()
+            return
+        }
+
+        if isRecording || pendingShortcutStartMode == .toggle || activeRecordingTriggerMode == .toggle {
+            cancelToggleShortcutSession()
+        }
     }
 
     private func cancelToggleShortcutSession() {
@@ -2047,7 +2163,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             postProcessingPrompt: "",
                             context: resolvedContext,
                             processingStatus: "Error: \(error.localizedDescription)",
-                            intent: self.currentSessionIntent,
+                            intent: sessionIntent,
                             audioFileName: savedAudioFile?.fileName
                         )
                         self.audioRecorder.cleanup()
@@ -2106,11 +2222,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
             postProcessingStatus: processingStatus,
             debugStatus: debugStatusMessage,
             customVocabulary: customVocabulary,
+            customSystemPrompt: customSystemPrompt,
             audioFileName: audioFileName,
             usedLocalTranscription: useLocalTranscription,
             usedContextCapture: !disableContextCapture,
             usedPostProcessing: !disablePostProcessing,
             transcriptionLanguageCode: transcriptionLanguage.code,
+            localTranscriptionModelID: localTranscriptionModel.id,
             transcriptFileName: transcriptFileName
         )
         do {

@@ -116,7 +116,8 @@ class TranscriptionService {
                 "--model", localTranscriptionModel.id,
                 "--output-format", "json",
                 "--output-dir", outputDir.path,
-                "--condition-on-previous-text", "False"
+                "--condition-on-previous-text", "False",
+                "--verbose", "False"
             ]
             if let langCode = transcriptionLanguage.whisperArgument {
                 arguments += ["--language", langCode]
@@ -135,20 +136,55 @@ class TranscriptionService {
             }
 
             process.waitUntilExit()
+            try Task.checkCancellation()
+
+            let stdoutText = String(
+                data: stdout.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let stderrText = String(
+                data: stderr.fileHandleForReading.readDataToEndOfFile(),
+                encoding: .utf8
+            )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+            if stderrText.contains("No such file or directory: 'ffmpeg'") {
+                throw TranscriptionError.submissionFailed("ffmpeg not found. Install ffmpeg and try local transcription again.")
+            }
 
             guard process.terminationStatus == 0 else {
-                let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
-                let errorText = String(data: errorData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let errorText = stderrText.isEmpty ? stdoutText : stderrText
                 throw TranscriptionError.submissionFailed("mlx_whisper failed (exit \(process.terminationStatus)): \(errorText)")
             }
 
             let inputName = fileURL.deletingPathExtension().lastPathComponent
-            let outputFile = outputDir.appendingPathComponent(inputName).appendingPathExtension("json")
+            let expectedOutputFile = outputDir.appendingPathComponent(inputName).appendingPathExtension("json")
+            let outputFile: URL?
+            if FileManager.default.fileExists(atPath: expectedOutputFile.path) {
+                outputFile = expectedOutputFile
+            } else {
+                let jsonFiles = (try? FileManager.default.contentsOfDirectory(at: outputDir, includingPropertiesForKeys: nil))?
+                    .filter { $0.pathExtension.lowercased() == "json" } ?? []
+                if jsonFiles.count == 1 {
+                    outputFile = jsonFiles[0]
+                } else {
+                    outputFile = nil
+                }
+            }
 
-            guard let jsonData = try? Data(contentsOf: outputFile),
+            guard let outputFile,
+                  let jsonData = try? Data(contentsOf: outputFile),
                   let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
                   let text = json["text"] as? String else {
-                throw TranscriptionError.pollFailed("mlx_whisper produced no output")
+                if !stderrText.isEmpty {
+                    throw TranscriptionError.submissionFailed(stderrText)
+                }
+                if stdoutText.contains("Skipping ") {
+                    throw TranscriptionError.submissionFailed(stdoutText)
+                }
+                let jsonCount = ((try? FileManager.default.contentsOfDirectory(at: outputDir, includingPropertiesForKeys: nil)) ?? [])
+                    .filter { $0.pathExtension.lowercased() == "json" }
+                    .count
+                throw TranscriptionError.pollFailed("mlx_whisper produced no usable output (json files: \(jsonCount))")
             }
 
             if self.isHallucination(text: text, json: json) {
