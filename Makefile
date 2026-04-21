@@ -16,7 +16,7 @@ ARCH ?= $(shell uname -m)
 ICON_SOURCE = Resources/AppIcon-Source.png
 ICON_ICNS = Resources/AppIcon.icns
 
-.PHONY: all clean run icon dmg codesign-dmg notarize
+.PHONY: all clean run icon dmg codesign-dmg notarize install
 
 all: $(APP_EXECUTABLE_TARGET)
 
@@ -53,6 +53,7 @@ endif
 	@plutil -replace CFBundleExecutable -string "$(APP_NAME)" "$(CONTENTS)/Info.plist"
 	@plutil -replace CFBundleIdentifier -string "$(BUNDLE_ID)" "$(CONTENTS)/Info.plist"
 	@cp $(ICON_ICNS) "$(RESOURCES)/"
+	@xattr -cr "$(APP_BUNDLE)"
 	@codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" --entitlements Quill.entitlements "$(APP_BUNDLE)"
 	@echo "Built $(APP_BUNDLE)"
 
@@ -108,6 +109,10 @@ notarize:
 
 clean:
 	rm -rf $(BUILD_DIR)
+
+install: all
+	@cp -R "$(APP_BUNDLE)" /Applications/
+	@echo "Installed $(APP_NAME).app to /Applications"
 
 run: all
 	open "$(APP_BUNDLE)"
