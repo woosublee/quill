@@ -13,7 +13,7 @@ private struct SetupProviderSettingsSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Advanced Provider Settings")
                     .font(.title2.weight(.semibold))
-                Text("Use these fields when pointing FreeFlow at another OpenAI-compatible provider or when you need custom model IDs.")
+                Text("Use these fields when pointing Quill at another OpenAI-compatible provider or when you need custom model IDs.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

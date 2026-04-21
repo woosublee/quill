@@ -62,30 +62,34 @@ struct ProviderSettingsFields: View {
 
     private func commitTranscriptionModel() {
         let trimmed = transcriptionModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        transcriptionModelDraft = trimmed
-        guard appState.transcriptionModel != trimmed else { return }
-        appState.transcriptionModel = trimmed
+        let resolved = trimmed.isEmpty ? AppState.defaultTranscriptionModel : trimmed
+        transcriptionModelDraft = resolved
+        guard appState.transcriptionModel != resolved else { return }
+        appState.transcriptionModel = resolved
     }
 
     private func commitPostProcessingModel() {
         let trimmed = postProcessingModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        postProcessingModelDraft = trimmed
-        guard appState.postProcessingModel != trimmed else { return }
-        appState.postProcessingModel = trimmed
+        let resolved = trimmed.isEmpty ? AppState.defaultPostProcessingModel : trimmed
+        postProcessingModelDraft = resolved
+        guard appState.postProcessingModel != resolved else { return }
+        appState.postProcessingModel = resolved
     }
 
     private func commitPostProcessingFallbackModel() {
         let trimmed = postProcessingFallbackModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        postProcessingFallbackModelDraft = trimmed
-        guard appState.postProcessingFallbackModel != trimmed else { return }
-        appState.postProcessingFallbackModel = trimmed
+        let resolved = trimmed.isEmpty ? AppState.defaultPostProcessingFallbackModel : trimmed
+        postProcessingFallbackModelDraft = resolved
+        guard appState.postProcessingFallbackModel != resolved else { return }
+        appState.postProcessingFallbackModel = resolved
     }
 
     private func commitContextModel() {
         let trimmed = contextModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        contextModelDraft = trimmed
-        guard appState.contextModel != trimmed else { return }
-        appState.contextModel = trimmed
+        let resolved = trimmed.isEmpty ? AppState.defaultContextModel : trimmed
+        contextModelDraft = resolved
+        guard appState.contextModel != resolved else { return }
+        appState.contextModel = resolved
     }
 
     var body: some View {
@@ -678,7 +682,7 @@ struct GeneralSettingsView: View {
 
     private var apiKeySection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("FreeFlow uses the configured transcription model with your selected OpenAI-compatible provider.")
+            Text("Quill uses the configured transcription model with your selected OpenAI-compatible provider.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

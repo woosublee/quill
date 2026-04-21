@@ -111,6 +111,7 @@ clean:
 	rm -rf $(BUILD_DIR)
 
 install: all
+	@rm -rf "/Applications/$(APP_NAME).app"
 	@cp -R "$(APP_BUNDLE)" /Applications/
 	@echo "Installed $(APP_NAME).app to /Applications"
 
