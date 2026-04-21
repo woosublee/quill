@@ -848,6 +848,7 @@ struct GeneralSettingsView: View {
                     .toggleStyle(.checkbox)
                     .labelsHidden()
             }
+            .padding(.top, 4)
         }
     }
 

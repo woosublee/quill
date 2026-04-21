@@ -374,11 +374,6 @@ struct SetupView: View {
                     .font(.title)
                     .fontWeight(.bold)
 
-            Text("Quill uses Groq for fast, high-accuracy transcription.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
                 Text("Enter an API key for your OpenAI-compatible provider. If you are not using Groq, expand the advanced provider settings and enter that provider's base URL and model IDs before continuing.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
