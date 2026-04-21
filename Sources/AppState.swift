@@ -291,18 +291,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var isCommandModeEnabled: Bool {
         didSet {
             UserDefaults.standard.set(isCommandModeEnabled, forKey: commandModeEnabledStorageKey)
+            restartHotkeyMonitoring()
         }
     }
 
     @Published var commandModeStyle: CommandModeStyle {
         didSet {
             UserDefaults.standard.set(commandModeStyle.rawValue, forKey: commandModeStyleStorageKey)
+            restartHotkeyMonitoring()
         }
     }
 
     @Published private(set) var commandModeManualModifier: CommandModeManualModifier {
         didSet {
             UserDefaults.standard.set(commandModeManualModifier.rawValue, forKey: commandModeManualModifierStorageKey)
+            restartHotkeyMonitoring()
         }
     }
 
@@ -1368,16 +1371,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return "That modifier is already part of the tap shortcut."
         }
 
-        let derivedHold = holdBinding.withAddedModifiers(manualModifier)
-        if !holdBinding.isDisabled && derivedHold.conflicts(with: toggleBinding) {
-            return "That modifier would make the command hold shortcut conflict with an existing dictation shortcut."
-        }
-
-        let derivedToggle = toggleBinding.withAddedModifiers(manualModifier)
-        if !toggleBinding.isDisabled && derivedToggle.conflicts(with: holdBinding) {
-            return "That modifier would make the command tap shortcut conflict with an existing dictation shortcut."
-        }
-
         return nil
     }
 
@@ -1412,6 +1405,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
         restartHotkeyMonitoring()
     }
 
+    private var activeShortcutConfiguration: ShortcutConfiguration {
+        let permittedAdditionalExactMatchModifiers: ShortcutModifiers
+        if isCommandModeEnabled, commandModeStyle == .manual {
+            permittedAdditionalExactMatchModifiers = commandModeManualModifier.shortcutModifier
+        } else {
+            permittedAdditionalExactMatchModifiers = []
+        }
+
+        return ShortcutConfiguration(
+            hold: holdShortcut,
+            toggle: toggleShortcut,
+            permittedAdditionalExactMatchModifiers: permittedAdditionalExactMatchModifiers
+        )
+    }
+
     private func restartHotkeyMonitoring() {
         guard shouldMonitorHotkeys, !isCapturingShortcut, !isAwaitingMicrophonePermission else {
             hotkeyManager.stop()
@@ -1419,7 +1427,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         do {
-            try hotkeyManager.start(configuration: ShortcutConfiguration(hold: holdShortcut, toggle: toggleShortcut))
+            try hotkeyManager.start(configuration: activeShortcutConfiguration)
             hotkeyMonitoringErrorMessage = nil
         } catch {
             hotkeyMonitoringErrorMessage = error.localizedDescription
