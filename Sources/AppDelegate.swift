@@ -258,7 +258,9 @@ private func showNoteBrowserWindow() {
         }
 
         if !AXIsProcessTrusted() {
-            appState.showAccessibilityAlert()
+            Task { @MainActor in
+                appState.showAccessibilityAlert()
+            }
         }
     }
 
