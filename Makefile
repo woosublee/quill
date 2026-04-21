@@ -16,7 +16,7 @@ ARCH ?= $(shell uname -m)
 ICON_SOURCE = Resources/AppIcon-Source.png
 ICON_ICNS = Resources/AppIcon.icns
 
-.PHONY: all clean run icon dmg codesign-dmg notarize install
+.PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run
 
 all: $(APP_EXECUTABLE_TARGET)
 
@@ -111,9 +111,19 @@ clean:
 	rm -rf $(BUILD_DIR)
 
 install: all
-	@rm -rf "/Applications/$(APP_NAME).app"
-	@cp -R "$(APP_BUNDLE)" /Applications/
+	@mkdir -p "/Applications/$(APP_NAME).app"
+	@ditto "$(APP_BUNDLE)" "/Applications/$(APP_NAME).app"
 	@echo "Installed $(APP_NAME).app to /Applications"
+
+reset-permissions:
+	tccutil reset All "$(BUNDLE_ID)"
+
+install-and-run: install
+	@if pgrep -fl "/Applications/$(APP_NAME).app|$(APP_NAME)" >/dev/null; then \
+		pkill -f "/Applications/$(APP_NAME).app|$(APP_NAME)"; \
+		sleep 1; \
+	fi
+	@open "/Applications/$(APP_NAME).app"
 
 run: all
 	open "$(APP_BUNDLE)"

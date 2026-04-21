@@ -2079,6 +2079,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     func showMicrophonePermissionAlert() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.showMicrophonePermissionAlert()
+            }
+            return
+        }
+
         let alert = NSAlert()
         alert.messageText = "Microphone Permission Required"
         alert.informativeText = "Quill cannot record audio without Microphone access.\n\nGo to System Settings > Privacy & Security > Microphone and enable Quill."
@@ -2094,6 +2101,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     func showAccessibilityAlert() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.showAccessibilityAlert()
+            }
+            return
+        }
+
         let alert = NSAlert()
         alert.messageText = "Accessibility Permission Required"
         alert.informativeText = "Quill cannot type transcriptions without Accessibility access.\n\nGo to System Settings > Privacy & Security > Accessibility and enable Quill."
@@ -2896,6 +2910,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func showScreenshotPermissionAlert(message: String) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.showScreenshotPermissionAlert(message: message)
+            }
+            return
+        }
+
         let alert = NSAlert()
         alert.messageText = "Screen Recording Permission Required"
         alert.informativeText = "\(message)\n\nQuill requires Screen Recording permission to capture screenshots for context-aware transcription.\n\nGo to System Settings > Privacy & Security > Screen Recording and enable Quill."

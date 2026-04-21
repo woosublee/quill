@@ -590,7 +590,7 @@ private struct NoteListRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .frame(maxWidth: .infinity, minHeight: 64, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 80, maxHeight: 80, alignment: .topLeading)
         .background {
             RoundedRectangle(cornerRadius: 8)
                 .fill(
