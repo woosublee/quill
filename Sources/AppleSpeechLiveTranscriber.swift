@@ -8,6 +8,10 @@ private let speechLog = OSLog(subsystem: "com.woosublee.quill", category: "Apple
 // 실시간 전사를 지원하는 모든 백엔드가 따르는 프로토콜
 protocol LiveTranscriber: AnyObject {
     var onPartialResult: ((String) -> Void)? { get set }
+    /// true이면 이 트랜스크라이버가 마이크 캡처와 파일 저장을 직접 처리 (AudioRecorder 불필요)
+    var handlesRecording: Bool { get }
+    /// finalize() 후 저장된 오디오 파일 URL (handlesRecording == true일 때만 유효)
+    var recordedAudioURL: URL? { get }
     func start(locale: Locale) async throws
     func append(_ sampleBuffer: CMSampleBuffer)
     func finalize() async throws -> String
@@ -26,17 +30,20 @@ extension TranscriptionModel {
 
 final class AppleSpeechLiveTranscriber: LiveTranscriber {
     var onPartialResult: ((String) -> Void)?
+    let handlesRecording = true
+    private(set) var recordedAudioURL: URL?
 
     private var recognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
+    private var audioEngine: AVAudioEngine?
+    private var audioFile: AVAudioFile?
+    private var tempFileURL: URL?
 
     private let lock = OSAllocatedUnfairLock(initialState: ())
     private var finalizeContinuation: CheckedContinuation<String, Error>?
     private var finalResult: Result<String, Error>?
     private var latestTranscript: String = ""
-    private var cachedConverter: AVAudioConverter?
-    private var appendCount = 0
 
     // endAudio() 후 결과가 돌아오지 않을 때 대기하는 최대 시간
     private static let finalizeTimeoutSeconds: TimeInterval = 10
@@ -57,7 +64,9 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
         self.recognizer = recognizer
 
         let request = SFSpeechAudioBufferRecognitionRequest()
-        request.requiresOnDeviceRecognition = true
+        if recognizer.supportsOnDeviceRecognition {
+            request.requiresOnDeviceRecognition = true
+        }
         request.addsPunctuation = true
         request.shouldReportPartialResults = true
         self.recognitionRequest = request
@@ -68,79 +77,38 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             self?.handleTaskResult(result, error: error)
         }
-        os_log(.default, log: speechLog, "recognition task created state=%ld",
-               recognitionTask?.state.rawValue ?? -1)
+
+        // AVAudioEngine으로 마이크를 직접 탭 — SFSpeechRecognizer 공급 + 파일 저장을 하나의 세션으로 처리
+        let engine = AVAudioEngine()
+        let inputNode = engine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+        os_log(.default, log: speechLog, "engine input format sampleRate=%.0f channels=%d",
+               format.sampleRate, format.channelCount)
+
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".wav")
+        let audioFile = try AVAudioFile(forWriting: tempURL, settings: format.settings)
+        self.tempFileURL = tempURL
+        self.audioFile = audioFile
+
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak request] buffer, _ in
+            request?.append(buffer)
+            try? audioFile.write(from: buffer)
+        }
+
+        engine.prepare()
+        try engine.start()
+        self.audioEngine = engine
+        os_log(.default, log: speechLog, "AVAudioEngine started")
     }
 
-    // Called from AudioRecorder's sampleBufferQueue
-    func append(_ sampleBuffer: CMSampleBuffer) {
-        guard let request = recognitionRequest else { return }
-        guard let pcmBuffer = convertToSpeechBuffer(sampleBuffer) else { return }
-        request.append(pcmBuffer)
-        appendCount += 1
-        if appendCount == 1 || appendCount % 100 == 0 {
-            os_log(.default, log: speechLog, "appended buffer #%d frameLength=%d",
-                   appendCount, pcmBuffer.frameLength)
-        }
-    }
-
-    // CMSampleBuffer(Float32 interleaved) → AVAudioPCMBuffer(Float32 non-interleaved mono)
-    // SFSpeechRecognizer는 non-interleaved native-rate 버퍼에서 안정적으로 동작함
-    private func convertToSpeechBuffer(_ sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {
-        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer) else { return nil }
-        let srcFormat = AVAudioFormat(cmAudioFormatDescription: formatDescription)
-        let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
-        guard frameCount > 0 else { return nil }
-
-        // 소스 버퍼 생성 (AudioRecorder의 interleaved Float32 포맷)
-        guard let srcBuffer = AVAudioPCMBuffer(pcmFormat: srcFormat, frameCapacity: frameCount) else { return nil }
-        srcBuffer.frameLength = frameCount
-        let copyStatus = CMSampleBufferCopyPCMDataIntoAudioBufferList(
-            sampleBuffer, at: 0, frameCount: Int32(frameCount), into: srcBuffer.mutableAudioBufferList
-        )
-        guard copyStatus == noErr else { return nil }
-
-        // 이미 non-interleaved mono면 그대로 반환
-        if !srcFormat.isInterleaved && srcFormat.channelCount == 1 {
-            return srcBuffer
-        }
-
-        // non-interleaved mono Float32로 변환 (변환기 캐싱으로 매 버퍼마다 재생성 방지)
-        if cachedConverter == nil {
-            let dstFormat = AVAudioFormat(
-                commonFormat: .pcmFormatFloat32,
-                sampleRate: srcFormat.sampleRate,
-                channels: 1,
-                interleaved: false
-            )
-            guard let dstFormat else { return nil }
-            cachedConverter = AVAudioConverter(from: srcFormat, to: dstFormat)
-            os_log(.default, log: speechLog, "converter created sampleRate=%.0f", srcFormat.sampleRate)
-        }
-        guard let converter = cachedConverter,
-              let dstBuffer = AVAudioPCMBuffer(pcmFormat: converter.outputFormat, frameCapacity: frameCount) else { return nil }
-
-        var error: NSError?
-        let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
-            outStatus.pointee = .haveData
-            return srcBuffer
-        }
-        let status = converter.convert(to: dstBuffer, error: &error, withInputFrom: inputBlock)
-        if let error {
-            os_log(.error, log: speechLog, "audio conversion failed: %{public}@", error.localizedDescription)
-            return nil
-        }
-        if appendCount <= 1 {
-            os_log(.default, log: speechLog,
-                   "convert status=%ld srcFrames=%d dstFrames=%d",
-                   status.rawValue, frameCount, dstBuffer.frameLength)
-        }
-        guard dstBuffer.frameLength > 0 else { return nil }
-        return dstBuffer
-    }
+    // AVAudioEngine이 마이크를 직접 탭하므로 AudioRecorder 버퍼는 사용하지 않음
+    func append(_ sampleBuffer: CMSampleBuffer) {}
 
     func finalize() async throws -> String {
-        os_log(.default, log: speechLog, "finalize() called endAudio()")
+        os_log(.default, log: speechLog, "finalize() called")
+        stopEngine()
+        recordedAudioURL = tempFileURL
         recognitionRequest?.endAudio()
 
         if let existing = lock.withLock({ finalResult }) {
@@ -176,10 +144,24 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
     }
 
     func cancel() {
+        stopEngine()
         recognitionTask?.cancel()
-        cachedConverter = nil
+        if let url = tempFileURL {
+            try? FileManager.default.removeItem(at: url)
+            tempFileURL = nil
+        }
+        recordedAudioURL = nil
         let latest = lock.withLock { latestTranscript }
         resumeAll(with: .success(latest))
+    }
+
+    private func stopEngine() {
+        guard let engine = audioEngine else { return }
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop()
+        audioFile = nil
+        audioEngine = nil
+        os_log(.default, log: speechLog, "AVAudioEngine stopped")
     }
 
     private func handleTaskResult(_ result: SFSpeechRecognitionResult?, error: Error?) {
@@ -187,7 +169,6 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
             let text = result.bestTranscription.formattedString
             lock.withLock { latestTranscript = text }
             os_log(.default, log: speechLog, "result isFinal=%d text=%{public}@", result.isFinal, text)
-            // partial이든 final이든 UI 업데이트 — macOS는 partial 결과를 잘 안 보내므로 final도 반영
             onPartialResult?(text)
             if result.isFinal {
                 resumeAll(with: .success(text))
@@ -198,7 +179,7 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
                    nsError.domain, nsError.code, nsError.localizedDescription)
             if nsError.code == 1110 || nsError.code == 203 {
                 os_log(.default, log: speechLog, "handled silent error code=%ld", nsError.code)
-                resumeAll(with: .success(""))
+                resumeAll(with: .success(lock.withLock { latestTranscript }))
             } else {
                 resumeAll(with: .failure(error))
             }
