@@ -80,6 +80,15 @@ struct MenuBarView: View {
             }
             .disabled(false)
 
+            if let hotkeyError = appState.hotkeyMonitoringErrorMessage {
+                Divider()
+                Text(hotkeyError)
+                    .foregroundStyle(.red)
+                    .font(.caption)
+                    .padding(.horizontal, 16)
+                    .lineLimit(3)
+            }
+
             if let error = appState.errorMessage {
                 Divider()
                 Text(error)
@@ -292,9 +301,4 @@ struct MenuBarView: View {
         }
         .padding(4)
     }
-}
-
-extension Notification.Name {
-    static let showSetup = Notification.Name("showSetup")
-    static let showSettings = Notification.Name("showSettings")
 }
