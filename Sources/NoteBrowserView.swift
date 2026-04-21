@@ -586,10 +586,11 @@ private struct NoteListRow: View {
                         .multilineTextAlignment(.leading)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 64, alignment: .topLeading)
         .background {
             RoundedRectangle(cornerRadius: 8)
                 .fill(
@@ -697,6 +698,9 @@ private struct NoteDetailView: View {
                 customTitle: titleStore.title(for: item.id),
                 onDismiss: { showExportSheet = false }
             )
+        }
+        .onReceive(appState.$retryingItemIDs) { ids in
+            isRetrying = ids.contains(item.id)
         }
         .confirmationDialog("노트를 삭제할까요?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
             Button("삭제", role: .destructive) { onDelete() }
@@ -1004,14 +1008,7 @@ private struct NoteDetailView: View {
     }
 
     private func retryTranscription() {
-        isRetrying = true
         appState.retryTranscription(item: item)
-        Task {
-            while appState.retryingItemIDs.contains(item.id) {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-            }
-            await MainActor.run { isRetrying = false }
-        }
     }
 
     private func copyContent() {

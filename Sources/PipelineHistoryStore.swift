@@ -93,8 +93,21 @@ final class PipelineHistoryStore {
                 entity.rawTranscript = item.rawTranscript
                 entity.postProcessedTranscript = item.postProcessedTranscript
                 entity.postProcessingPrompt = item.postProcessingPrompt
+                entity.contextSummary = item.contextSummary
+                entity.contextPrompt = item.contextPrompt
+                entity.contextScreenshotDataURL = item.contextScreenshotDataURL
+                entity.contextScreenshotStatus = item.contextScreenshotStatus
                 entity.postProcessingStatus = item.postProcessingStatus
                 entity.debugStatus = item.debugStatus
+                entity.customVocabulary = item.customVocabulary
+                entity.customSystemPrompt = item.customSystemPrompt
+                entity.audioFileName = item.audioFileName
+                entity.usedLocalTranscription = item.usedLocalTranscription
+                entity.usedContextCapture = item.usedContextCapture
+                entity.usedPostProcessing = item.usedPostProcessing
+                entity.transcriptionLanguageCode = item.transcriptionLanguageCode
+                entity.localTranscriptionModelID = item.localTranscriptionModelID
+                entity.transcriptFileName = item.transcriptFileName
                 try saveContext()
             } catch {
                 thrownError = error
@@ -197,11 +210,13 @@ final class PipelineHistoryStore {
                 entity.postProcessingStatus = item.postProcessingStatus
                 entity.debugStatus = item.debugStatus
                 entity.customVocabulary = item.customVocabulary
+                entity.customSystemPrompt = item.customSystemPrompt
                 entity.audioFileName = item.audioFileName
                 entity.usedLocalTranscription = item.usedLocalTranscription
                 entity.usedContextCapture = item.usedContextCapture
                 entity.usedPostProcessing = item.usedPostProcessing
                 entity.transcriptionLanguageCode = item.transcriptionLanguageCode
+                entity.localTranscriptionModelID = item.localTranscriptionModelID
                 entity.transcriptFileName = item.transcriptFileName
                 try saveContext()
             } catch {
@@ -274,11 +289,13 @@ final class PipelineHistoryStore {
             postProcessingStatus: entity.postProcessingStatus ?? "",
             debugStatus: entity.debugStatus ?? "",
             customVocabulary: entity.customVocabulary ?? "",
+            customSystemPrompt: entity.customSystemPrompt ?? "",
             audioFileName: entity.audioFileName,
             usedLocalTranscription: entity.usedLocalTranscription,
             usedContextCapture: entity.usedContextCapture,
             usedPostProcessing: entity.usedPostProcessing,
             transcriptionLanguageCode: entity.transcriptionLanguageCode ?? "auto",
+            localTranscriptionModelID: entity.localTranscriptionModelID ?? TranscriptionModel.default.id,
             transcriptFileName: entity.transcriptFileName
         )
     }
@@ -305,11 +322,13 @@ final class PipelineHistoryStore {
             makeAttribute(name: "postProcessingStatus", type: .stringAttributeType, isOptional: false),
             makeAttribute(name: "debugStatus", type: .stringAttributeType, isOptional: false),
             makeAttribute(name: "customVocabulary", type: .stringAttributeType, isOptional: false),
+            makeAttribute(name: "customSystemPrompt", type: .stringAttributeType, isOptional: false, defaultValue: ""),
             makeAttribute(name: "audioFileName", type: .stringAttributeType, isOptional: true),
             makeAttribute(name: "usedLocalTranscription", type: .booleanAttributeType, isOptional: false),
             makeAttribute(name: "usedContextCapture", type: .booleanAttributeType, isOptional: false),
             makeAttribute(name: "usedPostProcessing", type: .booleanAttributeType, isOptional: false),
             makeAttribute(name: "transcriptionLanguageCode", type: .stringAttributeType, isOptional: true),
+            makeAttribute(name: "localTranscriptionModelID", type: .stringAttributeType, isOptional: false, defaultValue: "mlx-community/whisper-large-v3-turbo"),
             makeAttribute(name: "transcriptFileName", type: .stringAttributeType, isOptional: true),
         ]
 
@@ -348,10 +367,12 @@ final class PipelineHistoryEntry: NSManagedObject {
     @NSManaged var postProcessingStatus: String?
     @NSManaged var debugStatus: String?
     @NSManaged var customVocabulary: String?
+    @NSManaged var customSystemPrompt: String?
     @NSManaged var audioFileName: String?
     @NSManaged var usedLocalTranscription: Bool
     @NSManaged var usedContextCapture: Bool
     @NSManaged var usedPostProcessing: Bool
     @NSManaged var transcriptionLanguageCode: String?
+    @NSManaged var localTranscriptionModelID: String?
     @NSManaged var transcriptFileName: String?
 }

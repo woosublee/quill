@@ -21,11 +21,13 @@ struct PipelineHistoryItem: Identifiable, Codable {
     let postProcessingStatus: String
     let debugStatus: String
     let customVocabulary: String
+    let customSystemPrompt: String
     let audioFileName: String?
     let usedLocalTranscription: Bool
     let usedContextCapture: Bool
     let usedPostProcessing: Bool
     let transcriptionLanguageCode: String
+    let localTranscriptionModelID: String
     let transcriptFileName: String?
 
     init(
@@ -43,11 +45,13 @@ struct PipelineHistoryItem: Identifiable, Codable {
         postProcessingStatus: String,
         debugStatus: String,
         customVocabulary: String,
+        customSystemPrompt: String = "",
         audioFileName: String? = nil,
         usedLocalTranscription: Bool = false,
         usedContextCapture: Bool = true,
         usedPostProcessing: Bool = true,
         transcriptionLanguageCode: String = "auto",
+        localTranscriptionModelID: String = "mlx-community/whisper-large-v3-turbo",
         transcriptFileName: String? = nil
     ) {
         self.intent = intent
@@ -64,11 +68,13 @@ struct PipelineHistoryItem: Identifiable, Codable {
         self.postProcessingStatus = postProcessingStatus
         self.debugStatus = debugStatus
         self.customVocabulary = customVocabulary
+        self.customSystemPrompt = customSystemPrompt
         self.audioFileName = audioFileName
         self.usedLocalTranscription = usedLocalTranscription
         self.usedContextCapture = usedContextCapture
         self.usedPostProcessing = usedPostProcessing
         self.transcriptionLanguageCode = transcriptionLanguageCode
+        self.localTranscriptionModelID = localTranscriptionModelID
         self.transcriptFileName = transcriptFileName
     }
 }
