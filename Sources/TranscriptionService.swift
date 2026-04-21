@@ -135,17 +135,24 @@ class TranscriptionService {
                 throw TranscriptionError.submissionFailed("mlx_whisper not found at \(whisperBin). Install with: pipx install mlx-whisper")
             }
 
+            let stdoutReader = Task.detached(priority: .userInitiated) {
+                String(
+                    data: stdout.fileHandleForReading.readDataToEndOfFile(),
+                    encoding: .utf8
+                )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            }
+            let stderrReader = Task.detached(priority: .userInitiated) {
+                String(
+                    data: stderr.fileHandleForReading.readDataToEndOfFile(),
+                    encoding: .utf8
+                )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            }
+
             process.waitUntilExit()
             try Task.checkCancellation()
 
-            let stdoutText = String(
-                data: stdout.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8
-            )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let stderrText = String(
-                data: stderr.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8
-            )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let stdoutText = await stdoutReader.value
+            let stderrText = await stderrReader.value
 
             if stderrText.contains("No such file or directory: 'ffmpeg'") {
                 throw TranscriptionError.submissionFailed("ffmpeg not found. Install ffmpeg and try local transcription again.")
