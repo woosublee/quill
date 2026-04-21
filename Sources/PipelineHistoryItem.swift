@@ -51,7 +51,7 @@ struct PipelineHistoryItem: Identifiable, Codable {
         usedContextCapture: Bool = true,
         usedPostProcessing: Bool = true,
         transcriptionLanguageCode: String = "auto",
-        localTranscriptionModelID: String = "mlx-community/whisper-large-v3-turbo",
+        localTranscriptionModelID: String? = nil,
         transcriptFileName: String? = nil
     ) {
         self.intent = intent
@@ -74,7 +74,7 @@ struct PipelineHistoryItem: Identifiable, Codable {
         self.usedContextCapture = usedContextCapture
         self.usedPostProcessing = usedPostProcessing
         self.transcriptionLanguageCode = transcriptionLanguageCode
-        self.localTranscriptionModelID = localTranscriptionModelID
+        self.localTranscriptionModelID = localTranscriptionModelID ?? "mlx-community/whisper-large-v3-turbo"
         self.transcriptFileName = transcriptFileName
     }
 }

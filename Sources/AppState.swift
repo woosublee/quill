@@ -869,6 +869,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         Task { [weak self] in
             guard let self else { return }
+
+            let updatedItem: PipelineHistoryItem
             do {
                 let transcriptionService = try TranscriptionService(
                     apiKey: apiKey,
@@ -880,79 +882,38 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     transcriptionModel: transcriptionModel
                 )
                 let rawTranscript = try await transcriptionService.transcribe(fileURL: snapshot.audioURL)
-
                 let result = await self.processTranscriptForRetry(
                     rawTranscript,
                     snapshot: snapshot,
                     postProcessingService: postProcessingService
                 )
-                let updatedItem = PipelineHistoryItem(
-                    intent: snapshot.item.intent,
-                    selectedText: snapshot.item.selectedText,
-                    id: snapshot.item.id,
-                    timestamp: snapshot.item.timestamp,
+                updatedItem = self.makeRetryHistoryItem(
+                    from: snapshot,
                     rawTranscript: rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines),
                     postProcessedTranscript: result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines),
                     postProcessingPrompt: result.prompt,
-                    contextSummary: snapshot.item.contextSummary,
-                    contextPrompt: snapshot.item.contextPrompt,
-                    contextScreenshotDataURL: snapshot.item.contextScreenshotDataURL,
-                    contextScreenshotStatus: snapshot.item.contextScreenshotStatus,
                     postProcessingStatus: result.outcome.statusMessage(isRetry: true),
-                    debugStatus: "Retried",
-                    customVocabulary: snapshot.customVocabulary,
-                    customSystemPrompt: snapshot.customSystemPrompt,
-                    audioFileName: snapshot.item.audioFileName,
-                    usedLocalTranscription: snapshot.useLocalTranscription,
-                    usedContextCapture: snapshot.item.usedContextCapture,
-                    usedPostProcessing: snapshot.postProcessingEnabled,
-                    transcriptionLanguageCode: snapshot.transcriptionLanguage.code,
-                    localTranscriptionModelID: snapshot.localTranscriptionModel.id,
-                    transcriptFileName: snapshot.item.transcriptFileName
+                    debugStatus: "Retried"
                 )
-
-                await MainActor.run {
-                    do {
-                        try pipelineHistoryStore.update(updatedItem)
-                        pipelineHistory = pipelineHistoryStore.loadAllHistory()
-                    } catch {
-                        errorMessage = "Failed to save retry result: \(error.localizedDescription)"
-                    }
-                    retryingItemIDs.remove(snapshot.item.id)
-                }
             } catch {
-                let updatedItem = PipelineHistoryItem(
-                    intent: snapshot.item.intent,
-                    selectedText: snapshot.item.selectedText,
-                    id: snapshot.item.id,
-                    timestamp: snapshot.item.timestamp,
+                updatedItem = self.makeRetryHistoryItem(
+                    from: snapshot,
                     rawTranscript: snapshot.item.rawTranscript,
                     postProcessedTranscript: snapshot.item.postProcessedTranscript,
                     postProcessingPrompt: snapshot.item.postProcessingPrompt,
-                    contextSummary: snapshot.item.contextSummary,
-                    contextPrompt: snapshot.item.contextPrompt,
-                    contextScreenshotDataURL: snapshot.item.contextScreenshotDataURL,
-                    contextScreenshotStatus: snapshot.item.contextScreenshotStatus,
                     postProcessingStatus: "Error: \(error.localizedDescription)",
-                    debugStatus: "Retry failed",
-                    customVocabulary: snapshot.customVocabulary,
-                    customSystemPrompt: snapshot.customSystemPrompt,
-                    audioFileName: snapshot.item.audioFileName,
-                    usedLocalTranscription: snapshot.useLocalTranscription,
-                    usedContextCapture: snapshot.item.usedContextCapture,
-                    usedPostProcessing: snapshot.postProcessingEnabled,
-                    transcriptionLanguageCode: snapshot.transcriptionLanguage.code,
-                    localTranscriptionModelID: snapshot.localTranscriptionModel.id,
-                    transcriptFileName: snapshot.item.transcriptFileName
+                    debugStatus: "Retry failed"
                 )
+            }
 
-                await MainActor.run {
-                    do {
-                        try pipelineHistoryStore.update(updatedItem)
-                        pipelineHistory = pipelineHistoryStore.loadAllHistory()
-                    } catch {}
-                    retryingItemIDs.remove(snapshot.item.id)
+            await MainActor.run {
+                do {
+                    try self.pipelineHistoryStore.update(updatedItem)
+                    self.pipelineHistory = self.pipelineHistoryStore.loadAllHistory()
+                } catch {
+                    self.errorMessage = "Failed to save retry result: \(error.localizedDescription)"
                 }
+                self.retryingItemIDs.remove(snapshot.item.id)
             }
         }
     }
@@ -989,6 +950,40 @@ final class AppState: ObservableObject, @unchecked Sendable {
             customSystemPrompt: item.customSystemPrompt,
             postProcessingEnabled: item.usedPostProcessing,
             localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath
+        )
+    }
+
+    private func makeRetryHistoryItem(
+        from snapshot: RetrySnapshot,
+        rawTranscript: String,
+        postProcessedTranscript: String,
+        postProcessingPrompt: String?,
+        postProcessingStatus: String,
+        debugStatus: String
+    ) -> PipelineHistoryItem {
+        PipelineHistoryItem(
+            intent: snapshot.item.intent,
+            selectedText: snapshot.item.selectedText,
+            id: snapshot.item.id,
+            timestamp: snapshot.item.timestamp,
+            rawTranscript: rawTranscript,
+            postProcessedTranscript: postProcessedTranscript,
+            postProcessingPrompt: postProcessingPrompt,
+            contextSummary: snapshot.item.contextSummary,
+            contextPrompt: snapshot.item.contextPrompt,
+            contextScreenshotDataURL: snapshot.item.contextScreenshotDataURL,
+            contextScreenshotStatus: snapshot.item.contextScreenshotStatus,
+            postProcessingStatus: postProcessingStatus,
+            debugStatus: debugStatus,
+            customVocabulary: snapshot.customVocabulary,
+            customSystemPrompt: snapshot.customSystemPrompt,
+            audioFileName: snapshot.item.audioFileName,
+            usedLocalTranscription: snapshot.useLocalTranscription,
+            usedContextCapture: snapshot.item.usedContextCapture,
+            usedPostProcessing: snapshot.postProcessingEnabled,
+            transcriptionLanguageCode: snapshot.transcriptionLanguage.code,
+            localTranscriptionModelID: snapshot.localTranscriptionModel.id,
+            transcriptFileName: snapshot.item.transcriptFileName
         )
     }
 
