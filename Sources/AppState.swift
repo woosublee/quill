@@ -2397,6 +2397,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     } else {
                         resolvedContext = self.fallbackContextAtStop()
                     }
+                    let errorAudioFile = transcriber.recordedAudioURL.flatMap { url -> SavedAudioFile? in
+                        let saved = Self.saveAudioFile(from: url)
+                        try? FileManager.default.removeItem(at: url)
+                        return saved
+                    }
                     await MainActor.run {
                         self.recordPipelineHistoryEntry(
                             rawTranscript: "",
@@ -2405,7 +2410,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             context: resolvedContext,
                             processingStatus: "Error: \(error.localizedDescription)",
                             intent: self.currentSessionIntent,
-                            audioFileName: nil
+                            audioFileName: errorAudioFile?.fileName
                         )
                         self.audioRecorder.cleanup()
                         self.refreshAvailableMicrophonesIfNeeded()
