@@ -470,6 +470,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var transcriptionTask: Task<Void, Never>?
     private var liveTranscriber: (any LiveTranscriber)?
     private var liveNoteID: UUID?
+    private var isCancelConfirmationShowing = false
     private var transcribingAudioFileName: String?
     private var overlayTranscriptionID: UUID = UUID()
     private var contextService: AppContextService
