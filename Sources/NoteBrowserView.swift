@@ -96,6 +96,7 @@ private enum TranscriptStatus {
 
 private func transcriptStatus(for item: PipelineHistoryItem, retrying: Set<UUID>) -> TranscriptStatus {
     if retrying.contains(item.id) { return .progress }
+    if item.postProcessingStatus == "live-recording" { return .progress }
     if item.postProcessingStatus.hasPrefix("Error:") { return .fail }
     return .done
 }
@@ -578,13 +579,12 @@ private struct NoteListRow: View {
                     .foregroundStyle(isSelected ? .white : .primary)
                     .lineLimit(1)
 
-                if !notePreview.isEmpty {
-                    Text(notePreview)
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(isSelected ? Color.white.opacity(0.72) : .secondary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                }
+                Text(notePreview.isEmpty ? " " : notePreview)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(isSelected ? Color.white.opacity(0.72) : .secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .opacity(notePreview.isEmpty ? 0 : 1)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
@@ -611,10 +611,7 @@ private struct NoteListRow: View {
                 .fill(isSelected ? Color.white.opacity(0.5) : Color.green)
                 .frame(width: 6, height: 6)
         case .progress:
-            ProgressView()
-                .controlSize(.mini)
-                .scaleEffect(0.7)
-                .tint(isSelected ? .white : .orange)
+            YellowSpinner(color: isSelected ? .white : .yellow)
         case .fail:
             Circle()
                 .fill(isSelected ? Color.white.opacity(0.5) : Color.red)
@@ -635,7 +632,11 @@ private struct NoteListRow: View {
 
     private var autoTitle: String {
         let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        if content.isEmpty { return status == .fail ? "전사 실패" : "(내용 없음)" }
+        if content.isEmpty {
+            if status == .fail { return "전사 실패" }
+            if status == .progress { return "녹음 중..." }
+            return "(내용 없음)"
+        }
         let firstLine = content.components(separatedBy: .newlines)
             .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? content
         let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
@@ -672,6 +673,7 @@ private struct NoteDetailView: View {
     @State private var showDeleteConfirmation = false
 
     private var isError: Bool { item.postProcessingStatus.hasPrefix("Error:") }
+    private var isLiveRecording: Bool { item.postProcessingStatus == "live-recording" }
     private var canRetry: Bool { item.audioFileName != nil }
     private var displayContent: String { loadedContent ?? item.postProcessedTranscript }
 
@@ -722,7 +724,9 @@ private struct NoteDetailView: View {
                     .textCase(.uppercase)
                     .kerning(0.5)
                 statusBadges
-                if isError {
+                if isLiveRecording {
+                    LiveRecordingBadge()
+                } else if isError {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 10, weight: .light))
                         .foregroundStyle(.red.opacity(0.6))
@@ -1493,5 +1497,46 @@ private struct NoteTextView: NSViewRepresentable {
             RunLoop.current.add(timer, forMode: .common)
             debounceTimer = timer
         }
+    }
+}
+
+// MARK: - Shared Indicators
+
+private struct YellowSpinner: View {
+    var color: Color = .yellow
+    @State private var rotation: Double = 0
+
+    var body: some View {
+        Circle()
+            .trim(from: 0, to: 0.65)
+            .stroke(color, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+            .frame(width: 8, height: 8)
+            .rotationEffect(.degrees(rotation))
+            .onAppear {
+                withAnimation(.linear(duration: 0.75).repeatForever(autoreverses: false)) {
+                    rotation = 360
+                }
+            }
+    }
+}
+
+// MARK: - Live Recording Badge
+
+private struct LiveRecordingBadge: View {
+    @State private var pulsing = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(Color.red)
+                .frame(width: 5, height: 5)
+                .opacity(pulsing ? 0.3 : 1.0)
+                .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulsing)
+                .onAppear { pulsing = true }
+            Text("REC")
+                .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.red.opacity(0.7))
+        }
+        .help("실시간 전사 중")
     }
 }

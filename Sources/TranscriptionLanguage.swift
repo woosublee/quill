@@ -1,4 +1,5 @@
 import Foundation
+import Speech
 
 struct TranscriptionLanguage: Identifiable, Hashable, Codable {
     let code: String      // mlx-whisper에 넘기는 언어 코드 (e.g. "ko")
@@ -28,5 +29,18 @@ struct TranscriptionLanguage: Identifiable, Hashable, Codable {
     // mlx-whisper에 넘길 인자값 (auto이면 language 옵션 생략)
     var whisperArgument: String? {
         code == "auto" ? nil : code
+    }
+
+    // SFSpeechRecognizer에 넘길 Locale (auto이면 시스템 언어 사용)
+    // 언어 코드만 있는 경우 SFSpeechRecognizer가 지원하는 전체 로케일 중 가장 근접한 것을 선택
+    var sfSpeechLocale: Locale {
+        if code == "auto" { return .current }
+        let requested = Locale(identifier: code)
+        let supported = SFSpeechRecognizer.supportedLocales()
+        // 정확히 일치하는 로케일이 있으면 그대로 사용
+        if supported.contains(requested) { return requested }
+        // 언어 코드가 같은 로케일 중 첫 번째 선택 (예: "ko" → "ko-KR")
+        let lang = requested.language.languageCode?.identifier ?? code
+        return supported.first { $0.language.languageCode?.identifier == lang } ?? requested
     }
 }

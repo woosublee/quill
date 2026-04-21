@@ -468,6 +468,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var recordingInitializationTimer: DispatchSourceTimer?
     private var transcribingIndicatorTask: Task<Void, Never>?
     private var transcriptionTask: Task<Void, Never>?
+    private var liveTranscriber: (any LiveTranscriber)?
+    private var liveNoteID: UUID?
     private var transcribingAudioFileName: String?
     private var overlayTranscriptionID: UUID = UUID()
     private var contextService: AppContextService
@@ -1541,6 +1543,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         activeRecordingTriggerMode = nil
         audioRecorder.onRecordingReady = nil
         audioRecorder.onRecordingFailure = nil
+        audioRecorder.onAudioBuffer = nil
+        liveTranscriber?.cancel()
+        liveTranscriber = nil
+        if let id = liveNoteID {
+            liveNoteID = nil
+            pipelineHistory.removeAll { $0.id == id }
+            try? pipelineHistoryStore.delete(id: id)
+        }
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
         cancelRecordingInitializationTimer()
@@ -1941,26 +1951,71 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         // Start engine on background thread so UI isn't blocked
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self else { return }
-            let t0 = CFAbsoluteTimeGetCurrent()
-            do {
-                try self.audioRecorder.startRecording(deviceUID: deviceUID)
-                os_log(.info, log: recordingLog, "audioRecorder.startRecording() done: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
-                DispatchQueue.main.async {
-                    guard self.isRecording, self.activeRecordingTriggerMode != nil else { return }
-                    self.startContextCapture()
-                    self.audioLevelCancellable = self.audioRecorder.$audioLevel
-                        .receive(on: DispatchQueue.main)
-                        .sink { [weak self] level in
-                            self?.overlayManager.updateAudioLevel(level)
+        if useLocalTranscription, let transcriber = localTranscriptionModel.makeLiveTranscriber() {
+            // Live transcription: initialize before recording starts so the request is ready
+            // to receive buffers from the very first sample
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await transcriber.start(locale: transcriptionLanguage.sfSpeechLocale)
+                    self.liveTranscriber = transcriber
+                    self.audioRecorder.onAudioBuffer = { [weak transcriber] buffer in
+                        transcriber?.append(buffer)
+                    }
+
+                    // 녹음 시작 전 예비 노트를 생성해 Note Browser에 즉시 표시
+                    let liveID = UUID()
+                    transcriber.onPartialResult = { [weak self] text in
+                        Task { @MainActor [weak self] in
+                            self?.updateLiveNoteTranscript(text)
                         }
+                    }
+                    await MainActor.run {
+                        self.createLiveNote(id: liveID)
+                    }
+
+                    let t0 = CFAbsoluteTimeGetCurrent()
+                    try self.audioRecorder.startRecording(deviceUID: deviceUID)
+                    os_log(.info, log: recordingLog, "audioRecorder.startRecording() done: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
+                    await MainActor.run {
+                        guard self.isRecording, self.activeRecordingTriggerMode != nil else { return }
+                        self.startContextCapture()
+                        self.audioLevelCancellable = self.audioRecorder.$audioLevel
+                            .receive(on: DispatchQueue.main)
+                            .sink { [weak self] level in
+                                self?.overlayManager.updateAudioLevel(level)
+                            }
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.cancelRecordingInitializationTimer()
+                        guard self.isRecording || self.activeRecordingTriggerMode != nil else { return }
+                        self.handleRecordingFailure(error)
+                    }
                 }
-            } catch {
-                DispatchQueue.main.async {
-                    self.cancelRecordingInitializationTimer()
-                    guard self.isRecording || self.activeRecordingTriggerMode != nil else { return }
-                    self.handleRecordingFailure(error)
+            }
+        } else {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                guard let self else { return }
+                let t0 = CFAbsoluteTimeGetCurrent()
+                do {
+                    try self.audioRecorder.startRecording(deviceUID: deviceUID)
+                    os_log(.info, log: recordingLog, "audioRecorder.startRecording() done: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
+                    DispatchQueue.main.async {
+                        guard self.isRecording, self.activeRecordingTriggerMode != nil else { return }
+                        self.startContextCapture()
+                        self.audioLevelCancellable = self.audioRecorder.$audioLevel
+                            .receive(on: DispatchQueue.main)
+                            .sink { [weak self] level in
+                                self?.overlayManager.updateAudioLevel(level)
+                            }
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        self.cancelRecordingInitializationTimer()
+                        guard self.isRecording || self.activeRecordingTriggerMode != nil else { return }
+                        self.handleRecordingFailure(error)
+                    }
                 }
             }
         }
@@ -2245,20 +2300,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let capturedTranscriptionModel = self.transcriptionModel
             let capturedCustomVocabulary = self.customVocabulary
             let capturedCustomSystemPrompt = self.customSystemPrompt
+            let capturedLiveTranscriber = self.liveTranscriber
+            self.liveTranscriber = nil
+            self.audioRecorder.onAudioBuffer = nil
             self.transcriptionTask = Task { [weak self] in
                 guard let self else { return }
                 do {
-                    let transcriptionService = try TranscriptionService(
-                        apiKey: capturedApiKey,
-                        baseURL: capturedApiBaseURL,
-                        useLocalTranscription: capturedUseLocalTranscription,
-                        localWhisperPath: capturedLocalWhisperPath.isEmpty ? nil : capturedLocalWhisperPath,
-                        transcriptionLanguage: capturedTranscriptionLanguage,
-                        localTranscriptionModel: capturedLocalTranscriptionModel,
-                        transcriptionModel: capturedTranscriptionModel
-                    )
-                    async let transcript = transcriptionService.transcribe(fileURL: transcriptionFileURL)
-                    let rawTranscript = try await transcript
+                    let rawTranscript: String
+                    let liveResult = try await capturedLiveTranscriber?.finalize()
+                    if let text = liveResult, !text.isEmpty {
+                        rawTranscript = text
+                    } else {
+                        let transcriptionService = try TranscriptionService(
+                            apiKey: capturedApiKey,
+                            baseURL: capturedApiBaseURL,
+                            useLocalTranscription: capturedUseLocalTranscription,
+                            localWhisperPath: capturedLocalWhisperPath.isEmpty ? nil : capturedLocalWhisperPath,
+                            transcriptionLanguage: capturedTranscriptionLanguage,
+                            localTranscriptionModel: capturedLocalTranscriptionModel,
+                            transcriptionModel: capturedTranscriptionModel
+                        )
+                        rawTranscript = try await transcriptionService.transcribe(fileURL: transcriptionFileURL)
+                    }
                     try Task.checkCancellation()
                     let appContext: AppContext
                     if let sessionContext {
@@ -2403,6 +2466,68 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    // 라이브 전사 시작 시 Note Browser에 즉시 표시될 예비 노트 생성
+    private func createLiveNote(id: UUID) {
+        liveNoteID = id
+        let entry = PipelineHistoryItem(
+            id: id,
+            timestamp: Date(),
+            rawTranscript: "",
+            postProcessedTranscript: "",
+            postProcessingPrompt: nil,
+            contextSummary: "",
+            contextPrompt: nil,
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "",
+            postProcessingStatus: "live-recording",
+            debugStatus: "",
+            customVocabulary: "",
+            usedLocalTranscription: true,
+            usedContextCapture: false,
+            usedPostProcessing: false,
+            transcriptionLanguageCode: transcriptionLanguage.code
+        )
+        do {
+            let removed = try pipelineHistoryStore.append(entry, maxCount: maxPipelineHistoryCount)
+            for f in removed { Self.deleteAudioFile(f) }
+            pipelineHistory = pipelineHistoryStore.loadAllHistory()
+        } catch {
+            liveNoteID = nil
+        }
+    }
+
+    // 라이브 전사 partial 결과로 노트 텍스트 업데이트
+    @MainActor
+    private func updateLiveNoteTranscript(_ text: String) {
+        guard let id = liveNoteID,
+              let index = pipelineHistory.firstIndex(where: { $0.id == id }) else { return }
+        let existing = pipelineHistory[index]
+        let updated = PipelineHistoryItem(
+            intent: existing.intent,
+            selectedText: existing.selectedText,
+            id: existing.id,
+            timestamp: existing.timestamp,
+            rawTranscript: existing.rawTranscript,
+            postProcessedTranscript: text,
+            postProcessingPrompt: existing.postProcessingPrompt,
+            contextSummary: existing.contextSummary,
+            contextPrompt: existing.contextPrompt,
+            contextScreenshotDataURL: existing.contextScreenshotDataURL,
+            contextScreenshotStatus: existing.contextScreenshotStatus,
+            postProcessingStatus: "live-recording",
+            debugStatus: existing.debugStatus,
+            customVocabulary: existing.customVocabulary,
+            audioFileName: existing.audioFileName,
+            usedLocalTranscription: existing.usedLocalTranscription,
+            usedContextCapture: existing.usedContextCapture,
+            usedPostProcessing: existing.usedPostProcessing,
+            transcriptionLanguageCode: existing.transcriptionLanguageCode,
+            transcriptFileName: existing.transcriptFileName
+        )
+        // DB write 없이 메모리만 업데이트 — partial 결과는 최종 저장 시 반영됨
+        pipelineHistory[index] = updated
+    }
+
     private func recordPipelineHistoryEntry(
         rawTranscript: String,
         postProcessedTranscript: String,
@@ -2416,10 +2541,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
             rawTranscript: rawTranscript,
             postProcessedTranscript: postProcessedTranscript
         )
-        let newEntry = PipelineHistoryItem(
+        let existingID = liveNoteID
+        liveNoteID = nil
+        let entry = PipelineHistoryItem(
             intent: intent.persistedIntent,
             selectedText: intent.persistedSelectedText,
-            timestamp: Date(),
+            id: existingID ?? UUID(),
+            timestamp: existingID != nil
+                ? (pipelineHistory.first(where: { $0.id == existingID })?.timestamp ?? Date())
+                : Date(),
             rawTranscript: "",
             postProcessedTranscript: postProcessedTranscript,
             postProcessingPrompt: postProcessingPrompt,
@@ -2441,9 +2571,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
             transcriptFileName: transcriptFileName
         )
         do {
-            let removedAudioFileNames = try pipelineHistoryStore.append(newEntry, maxCount: maxPipelineHistoryCount)
-            for audioFileName in removedAudioFileNames {
-                Self.deleteAudioFile(audioFileName)
+            if existingID != nil {
+                try pipelineHistoryStore.update(entry)
+            } else {
+                let removedAudioFileNames = try pipelineHistoryStore.append(entry, maxCount: maxPipelineHistoryCount)
+                for audioFileName in removedAudioFileNames {
+                    Self.deleteAudioFile(audioFileName)
+                }
             }
             pipelineHistory = pipelineHistoryStore.loadAllHistory()
         } catch {
