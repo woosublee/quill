@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import Speech
 import os.log
 
 private let transcriptionLog = OSLog(subsystem: "com.zachlatta.freeflow", category: "Transcription")
@@ -91,8 +92,53 @@ class TranscriptionService {
         }
     }
 
-    // Run mlx_whisper locally and return transcript text
+    // Run local transcription: Apple Speech or mlx_whisper
     private func transcribeAudioLocally(fileURL: URL) async throws -> String {
+        if localTranscriptionModel.isAppleSpeech {
+            return try await transcribeWithAppleSpeech(fileURL: fileURL)
+        }
+        return try await transcribeWithMlxWhisper(fileURL: fileURL)
+    }
+
+    private func transcribeWithAppleSpeech(fileURL: URL) async throws -> String {
+        let authStatus = await withCheckedContinuation { (continuation: CheckedContinuation<SFSpeechRecognizerAuthorizationStatus, Never>) in
+            SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
+        }
+        guard authStatus == .authorized else {
+            throw TranscriptionError.submissionFailed("Speech recognition permission denied. Enable it in System Settings > Privacy & Security > Speech Recognition.")
+        }
+
+        let locale = transcriptionLanguage.sfSpeechLocale
+        guard let recognizer = SFSpeechRecognizer(locale: locale), recognizer.isAvailable else {
+            throw TranscriptionError.submissionFailed("Apple Speech Recognizer not available for locale '\(locale.identifier)'")
+        }
+
+        let request = SFSpeechURLRecognitionRequest(url: fileURL)
+        request.requiresOnDeviceRecognition = true
+        request.addsPunctuation = true
+        request.shouldReportPartialResults = false
+
+        return try await withCheckedThrowingContinuation { continuation in
+            var resumed = false
+            recognizer.recognitionTask(with: request) { result, error in
+                guard !resumed else { return }
+                if let error = error {
+                    resumed = true
+                    continuation.resume(throwing: TranscriptionError.transcriptionFailed(error.localizedDescription))
+                    return
+                }
+                if let result = result, result.isFinal {
+                    resumed = true
+                    let text = result.bestTranscription.formattedString
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    continuation.resume(returning: text)
+                }
+            }
+        }
+    }
+
+    // Run mlx_whisper locally and return transcript text
+    private func transcribeWithMlxWhisper(fileURL: URL) async throws -> String {
         try await Task.detached(priority: .userInitiated) { [localWhisperPath, transcriptionLanguage, localTranscriptionModel] in
             let home = FileManager.default.homeDirectoryForCurrentUser.path
             let whisperBin = (localWhisperPath?.isEmpty == false)

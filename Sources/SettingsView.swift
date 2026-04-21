@@ -2411,7 +2411,11 @@ struct ModelRowView: View {
             .disabled(!isInstalled)
 
             // 상태 / 다운로드 버튼
-            if isDownloading {
+            if model.isAppleSpeech {
+                Label("Built-in", systemImage: "apple.logo")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else if isDownloading {
                 HStack(spacing: 4) {
                     ProgressView()
                         .controlSize(.mini)

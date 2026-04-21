@@ -94,6 +94,7 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
 
     var onRecordingReady: (() -> Void)?
     var onRecordingFailure: ((Error) -> Void)?
+    var onAudioBuffer: ((CMSampleBuffer) -> Void)?
     private var readyFired = false
     private var failureReported = false
     private static let watchdogTimeout: TimeInterval = 2.0
@@ -566,6 +567,8 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
         from connection: AVCaptureConnection
     ) {
         guard _recording.withLock({ $0 }) else { return }
+
+        onAudioBuffer?(sampleBuffer)
 
         do {
             try appendSampleBufferToFile(sampleBuffer)

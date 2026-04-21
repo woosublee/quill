@@ -1,11 +1,16 @@
 import Foundation
 
 struct TranscriptionModel: Identifiable, Hashable, Codable {
-    let id: String           // mlx-whisper에 넘기는 모델 ID
+    let id: String           // mlx-whisper에 넘기는 모델 ID (또는 "apple-speech" 센티넬)
     let displayName: String  // UI에 표시되는 이름
     let description: String  // 설명
 
     static let all: [TranscriptionModel] = [
+        TranscriptionModel(
+            id: "apple-speech",
+            displayName: "Apple Speech",
+            description: "시스템 내장 · 온디바이스 · 빠름"
+        ),
         TranscriptionModel(
             id: "mlx-community/whisper-large-v3-turbo",
             displayName: "Whisper Large v3 Turbo",
@@ -28,6 +33,8 @@ struct TranscriptionModel: Identifiable, Hashable, Codable {
         ),
     ]
 
+    var isAppleSpeech: Bool { id == "apple-speech" }
+
     static let `default` = all[0]
 
     static func find(id: String) -> TranscriptionModel {
@@ -42,6 +49,8 @@ struct TranscriptionModel: Identifiable, Hashable, Codable {
 
     // 모델 가중치 파일이 존재하는지 확인 (snapshots 또는 blobs)
     var isInstalled: Bool {
+        if isAppleSpeech { return true }
+
         let cacheDir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".cache/huggingface/hub")
             .appendingPathComponent(cacheDirectoryName)
