@@ -64,9 +64,6 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
         self.recognizer = recognizer
 
         let request = SFSpeechAudioBufferRecognitionRequest()
-        if recognizer.supportsOnDeviceRecognition {
-            request.requiresOnDeviceRecognition = true
-        }
         request.addsPunctuation = true
         request.shouldReportPartialResults = true
         self.recognitionRequest = request
