@@ -4,7 +4,7 @@ import Combine
 
 // MCP server over HTTP (localhost:3457)
 // Claude Code MCP config:
-//   { "mcpServers": { "freeflow": { "url": "http://localhost:3457" } } }
+//   { "mcpServers": { "quill": { "url": "http://localhost:3457" } } }
 
 final class MCPServer {
     static let port: UInt16 = 3457

@@ -77,6 +77,29 @@ Some day!
 
 **Update:** You can now use a custom model with FreeFlow by configuring the LLM API URL in the FreeFlow settings to use Ollama. Thank you @taciturnaxolotl!
 
+## Claude Code MCP Setup
+
+Quill exposes a local MCP server at `http://localhost:3457` while the app is running.
+
+To connect Quill to Claude Code, run:
+
+```bash
+claude mcp add -s user -t http quill http://localhost:3457
+```
+
+Then:
+
+1. Install and launch Quill
+2. Complete the app setup if prompted
+3. Keep Quill running
+4. Ask Claude to use the `quill` MCP server
+
+### Notes
+
+- Quill MCP does not require a separate MCP API key.
+- This is a user-scoped local connection.
+- Each person should run Quill on their own machine and register their own local `quill` MCP server.
+
 ## License
 
 Licensed under the MIT license.
