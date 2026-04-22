@@ -571,6 +571,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         for removedAssets in removedStoredFiles {
             Self.deleteStoredFiles(removedAssets)
         }
+        let referencedStoredFiles = pipelineHistoryStore.referencedStoredFiles()
+        Self.sweepOrphanStoredFiles(
+            referencedAudioFileNames: referencedStoredFiles.audioFileNames,
+            referencedTranscriptFileNames: referencedStoredFiles.transcriptFileNames
+        )
         let savedHistory = pipelineHistoryStore.loadAllHistory()
 
         let selectedMicrophoneID = UserDefaults.standard.string(forKey: selectedMicrophoneStorageKey) ?? "default"
@@ -799,6 +804,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         }
         return dir
+    }
+
+    private static func sweepOrphanStoredFiles(referencedAudioFileNames: Set<String>, referencedTranscriptFileNames: Set<String>) {
+        let fileManager = FileManager.default
+        if let audioFiles = try? fileManager.contentsOfDirectory(atPath: audioStorageDirectory().path) {
+            for fileName in audioFiles where !referencedAudioFileNames.contains(fileName) {
+                deleteAudioFile(fileName)
+            }
+        }
+        if let transcriptFiles = try? fileManager.contentsOfDirectory(atPath: transcriptStorageDirectory().path) {
+            for fileName in transcriptFiles where !referencedTranscriptFileNames.contains(fileName) {
+                deleteTranscriptFile(fileName)
+            }
+        }
     }
 
     static func saveTranscriptFile(rawTranscript: String, postProcessedTranscript: String) -> String? {
