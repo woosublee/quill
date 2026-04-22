@@ -1966,6 +1966,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         }
                     }
 
+                    transcriber.onAudioLevel = { [weak self] level in
+                        self?.overlayManager.updateAudioLevel(level)
+                    }
+
                     // 녹음 시작 전 예비 노트를 생성해 Note Browser에 즉시 표시
                     let liveID = UUID()
                     transcriber.onPartialResult = { [weak self] text in

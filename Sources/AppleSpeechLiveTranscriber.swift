@@ -8,6 +8,7 @@ private let speechLog = OSLog(subsystem: "com.woosublee.quill", category: "Apple
 // 실시간 전사를 지원하는 모든 백엔드가 따르는 프로토콜
 protocol LiveTranscriber: AnyObject {
     var onPartialResult: ((String) -> Void)? { get set }
+    var onAudioLevel: ((Float) -> Void)? { get set }
     /// true이면 이 트랜스크라이버가 마이크 캡처와 파일 저장을 직접 처리 (AudioRecorder 불필요)
     var handlesRecording: Bool { get }
     /// finalize() 후 저장된 오디오 파일 URL (handlesRecording == true일 때만 유효)
@@ -30,6 +31,7 @@ extension TranscriptionModel {
 
 final class AppleSpeechLiveTranscriber: LiveTranscriber {
     var onPartialResult: ((String) -> Void)?
+    var onAudioLevel: ((Float) -> Void)?
     let handlesRecording = true
     private(set) var recordedAudioURL: URL?
 
@@ -41,6 +43,7 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
     private var tempFileURL: URL?
 
     private let lock = OSAllocatedUnfairLock(initialState: ())
+    private let levelNormalizerLock = OSAllocatedUnfairLock(initialState: LiveAudioLevelNormalizer())
     private var finalizeContinuation: CheckedContinuation<String, Error>?
     private var finalResult: Result<String, Error>?
     private var latestTranscript: String = ""
@@ -88,9 +91,10 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
         self.tempFileURL = tempURL
         self.audioFile = audioFile
 
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak request] buffer, _ in
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self, weak request] buffer, _ in
             request?.append(buffer)
             try? audioFile.write(from: buffer)
+            self?.onAudioLevel?(self?.normalizedLevel(from: buffer) ?? 0)
         }
 
         engine.prepare()
@@ -141,6 +145,7 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
     }
 
     func cancel() {
+        onAudioLevel?(0)
         stopEngine()
         recognitionTask?.cancel()
         if let url = tempFileURL {
@@ -159,6 +164,28 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
         audioFile = nil
         audioEngine = nil
         os_log(.default, log: speechLog, "AVAudioEngine stopped")
+    }
+
+    private func normalizedLevel(from buffer: AVAudioPCMBuffer) -> Float {
+        guard let channelData = buffer.floatChannelData else { return 0 }
+        let channelCount = Int(buffer.format.channelCount)
+        let frameLength = Int(buffer.frameLength)
+        guard channelCount > 0, frameLength > 0 else { return 0 }
+
+        var sumOfSquares: Float = 0
+        for channel in 0..<channelCount {
+            let samples = channelData[channel]
+            for index in 0..<frameLength {
+                let sample = samples[index]
+                sumOfSquares += sample * sample
+            }
+        }
+
+        let sampleCount = Float(channelCount * frameLength)
+        let rms = sqrtf(sumOfSquares / max(sampleCount, 1))
+        return levelNormalizerLock.withLock {
+            $0.normalizedLevel(forRMS: rms)
+        }
     }
 
     private func handleTaskResult(_ result: SFSpeechRecognitionResult?, error: Error?) {
