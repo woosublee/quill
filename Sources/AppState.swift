@@ -1563,7 +1563,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         if let id = liveNoteID {
             liveNoteID = nil
             pipelineHistory.removeAll { $0.id == id }
-            _ = try? pipelineHistoryStore.delete(id: id)
+            if let deletedAssets = try? pipelineHistoryStore.delete(id: id) {
+                Self.deleteStoredFiles(deletedAssets)
+            }
         }
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
@@ -2795,9 +2797,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
             pipelineHistory = pipelineHistoryStore.loadAllHistory()
         } catch {
-            if let transcriptFileName {
-                Self.deleteTranscriptFile(transcriptFileName)
-            }
+            Self.deleteStoredFiles(audioFileName: audioFileName, transcriptFileName: transcriptFileName)
             errorMessage = "Unable to save run history entry: \(error.localizedDescription)"
         }
 
