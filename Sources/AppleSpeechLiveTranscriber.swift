@@ -40,6 +40,7 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
         var channelCount: AVAudioChannelCount = 0
         var commonFormat: AVAudioCommonFormat = .otherFormat
         var isInterleaved = false
+        var format: AVAudioFormat?
         var buffer: AVAudioPCMBuffer?
     }
 
@@ -138,8 +139,13 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
     func cancel() {
         onAudioLevel?(0)
         recognitionTask?.cancel()
+        let latest = lock.withLock { () -> String in
+            recognitionRequest = nil
+            cachedPCMBufferState.buffer = nil
+            cachedPCMBufferState.format = nil
+            return latestTranscript
+        }
         recordedAudioURL = nil
-        let latest = lock.withLock { latestTranscript }
         resumeAll(with: .success(latest))
     }
 
@@ -186,10 +192,14 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
                 cachedPCMBufferState.channelCount = sampleFormat.channelCount
                 cachedPCMBufferState.commonFormat = sampleFormat.commonFormat
                 cachedPCMBufferState.isInterleaved = sampleFormat.isInterleaved
+                cachedPCMBufferState.format = sampleFormat
                 cachedPCMBufferState.buffer = nil
             }
+            guard let cachedFormat = cachedPCMBufferState.format else {
+                return nil
+            }
             if cachedPCMBufferState.buffer == nil || cachedPCMBufferState.buffer?.frameCapacity ?? 0 < frameCount {
-                cachedPCMBufferState.buffer = AVAudioPCMBuffer(pcmFormat: sampleFormat, frameCapacity: frameCount)
+                cachedPCMBufferState.buffer = AVAudioPCMBuffer(pcmFormat: cachedFormat, frameCapacity: frameCount)
             }
             cachedPCMBufferState.buffer?.frameLength = frameCount
             return cachedPCMBufferState.buffer
