@@ -811,14 +811,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private static func sweepOrphanStoredFiles(referencedAudioFileNames: Set<String>, referencedTranscriptFileNames: Set<String>) {
         let fileManager = FileManager.default
-        if let audioFiles = try? fileManager.contentsOfDirectory(atPath: audioStorageDirectory().path) {
+        let now = Date()
+        let gracePeriod: TimeInterval = 300
+        let audioDirectory = audioStorageDirectory()
+        if let audioFiles = try? fileManager.contentsOfDirectory(atPath: audioDirectory.path) {
             for fileName in audioFiles where !referencedAudioFileNames.contains(fileName) {
-                deleteAudioFile(fileName)
+                let fileURL = audioDirectory.appendingPathComponent(fileName)
+                guard let attributes = try? fileManager.attributesOfItem(atPath: fileURL.path),
+                      let modificationDate = attributes[.modificationDate] as? Date,
+                      now.timeIntervalSince(modificationDate) > gracePeriod else { continue }
+                try? fileManager.removeItem(at: fileURL)
             }
         }
-        if let transcriptFiles = try? fileManager.contentsOfDirectory(atPath: transcriptStorageDirectory().path) {
+        let transcriptDirectory = transcriptStorageDirectory()
+        if let transcriptFiles = try? fileManager.contentsOfDirectory(atPath: transcriptDirectory.path) {
             for fileName in transcriptFiles where !referencedTranscriptFileNames.contains(fileName) {
-                deleteTranscriptFile(fileName)
+                let fileURL = transcriptDirectory.appendingPathComponent(fileName)
+                guard let attributes = try? fileManager.attributesOfItem(atPath: fileURL.path),
+                      let modificationDate = attributes[.modificationDate] as? Date,
+                      now.timeIntervalSince(modificationDate) > gracePeriod else { continue }
+                try? fileManager.removeItem(at: fileURL)
             }
         }
     }
