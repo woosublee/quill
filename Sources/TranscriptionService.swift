@@ -442,7 +442,7 @@ class TranscriptionService {
 
     private static func sanitizeNonFiniteJSONNumbers(_ json: String) -> String {
         json.replacingOccurrences(
-            of: #"(:\s*|,\s*|\[\s*)(-?Infinity|NaN)\b"#,
+            of: #"(:\s*|,\s*|\[\s*)(-?Infinity|NaN)\b(?=\s*[,}\]])"#,
             with: "$1null",
             options: .regularExpression
         )
