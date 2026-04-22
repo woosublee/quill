@@ -32,15 +32,12 @@ extension TranscriptionModel {
 final class AppleSpeechLiveTranscriber: LiveTranscriber {
     var onPartialResult: ((String) -> Void)?
     var onAudioLevel: ((Float) -> Void)?
-    let handlesRecording = true
+    let handlesRecording = false
     private(set) var recordedAudioURL: URL?
 
     private var recognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private var audioEngine: AVAudioEngine?
-    private var audioFile: AVAudioFile?
-    private var tempFileURL: URL?
 
     private let lock = OSAllocatedUnfairLock(initialState: ())
     private let levelNormalizerLock = OSAllocatedUnfairLock(initialState: LiveAudioLevelNormalizer())
@@ -77,39 +74,17 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
         recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
             self?.handleTaskResult(result, error: error)
         }
-
-        // AVAudioEngine으로 마이크를 직접 탭 — SFSpeechRecognizer 공급 + 파일 저장을 하나의 세션으로 처리
-        let engine = AVAudioEngine()
-        let inputNode = engine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-        os_log(.default, log: speechLog, "engine input format sampleRate=%.0f channels=%d",
-               format.sampleRate, format.channelCount)
-
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString + ".wav")
-        let audioFile = try AVAudioFile(forWriting: tempURL, settings: format.settings)
-        self.tempFileURL = tempURL
-        self.audioFile = audioFile
-
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self, weak request] buffer, _ in
-            request?.append(buffer)
-            try? audioFile.write(from: buffer)
-            self?.onAudioLevel?(self?.normalizedLevel(from: buffer) ?? 0)
-        }
-
-        engine.prepare()
-        try engine.start()
-        self.audioEngine = engine
-        os_log(.default, log: speechLog, "AVAudioEngine started")
     }
 
-    // AVAudioEngine이 마이크를 직접 탭하므로 AudioRecorder 버퍼는 사용하지 않음
-    func append(_ sampleBuffer: CMSampleBuffer) {}
+    func append(_ sampleBuffer: CMSampleBuffer) {
+        guard let recognitionRequest,
+              let pcmBuffer = pcmBuffer(from: sampleBuffer) else { return }
+        recognitionRequest.append(pcmBuffer)
+        onAudioLevel?(normalizedLevel(from: pcmBuffer))
+    }
 
     func finalize() async throws -> String {
         os_log(.default, log: speechLog, "finalize() called")
-        stopEngine()
-        recordedAudioURL = tempFileURL
         recognitionRequest?.endAudio()
 
         if let existing = lock.withLock({ finalResult }) {
@@ -146,24 +121,10 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
 
     func cancel() {
         onAudioLevel?(0)
-        stopEngine()
         recognitionTask?.cancel()
-        if let url = tempFileURL {
-            try? FileManager.default.removeItem(at: url)
-            tempFileURL = nil
-        }
         recordedAudioURL = nil
         let latest = lock.withLock { latestTranscript }
         resumeAll(with: .success(latest))
-    }
-
-    private func stopEngine() {
-        guard let engine = audioEngine else { return }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        audioFile = nil
-        audioEngine = nil
-        os_log(.default, log: speechLog, "AVAudioEngine stopped")
     }
 
     private func normalizedLevel(from buffer: AVAudioPCMBuffer) -> Float {
@@ -186,6 +147,30 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
         return levelNormalizerLock.withLock {
             $0.normalizedLevel(forRMS: rms)
         }
+    }
+
+    private func pcmBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {
+        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer) else {
+            return nil
+        }
+        let sampleFormat = AVAudioFormat(cmAudioFormatDescription: formatDescription)
+        let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
+        guard frameCount > 0,
+              let pcmBuffer = AVAudioPCMBuffer(pcmFormat: sampleFormat, frameCapacity: frameCount) else {
+            return nil
+        }
+        pcmBuffer.frameLength = frameCount
+        let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
+            sampleBuffer,
+            at: 0,
+            frameCount: Int32(frameCount),
+            into: pcmBuffer.mutableAudioBufferList
+        )
+        guard status == noErr else {
+            os_log(.error, log: speechLog, "failed to copy CMSampleBuffer to PCM buffer status=%d", status)
+            return nil
+        }
+        return pcmBuffer
     }
 
     private func handleTaskResult(_ result: SFSpeechRecognitionResult?, error: Error?) {
