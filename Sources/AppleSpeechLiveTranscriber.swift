@@ -35,9 +35,18 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
     let handlesRecording = false
     private(set) var recordedAudioURL: URL?
 
+    private struct CachedPCMBufferState {
+        var sampleRate: Double = 0
+        var channelCount: AVAudioChannelCount = 0
+        var commonFormat: AVAudioCommonFormat = .otherFormat
+        var isInterleaved = false
+        var buffer: AVAudioPCMBuffer?
+    }
+
     private var recognizer: SFSpeechRecognizer?
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
+    private var cachedPCMBufferState = CachedPCMBufferState()
 
     private let lock = OSAllocatedUnfairLock(initialState: ())
     private let levelNormalizerLock = OSAllocatedUnfairLock(initialState: LiveAudioLevelNormalizer())
@@ -77,15 +86,22 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
     }
 
     func append(_ sampleBuffer: CMSampleBuffer) {
-        guard let recognitionRequest,
-              let pcmBuffer = pcmBuffer(from: sampleBuffer) else { return }
-        recognitionRequest.append(pcmBuffer)
+        guard let pcmBuffer = pcmBuffer(from: sampleBuffer) else { return }
+        let didAppend = lock.withLock { () -> Bool in
+            guard let recognitionRequest else { return false }
+            recognitionRequest.append(pcmBuffer)
+            return true
+        }
+        guard didAppend else { return }
         onAudioLevel?(normalizedLevel(from: pcmBuffer))
     }
 
     func finalize() async throws -> String {
         os_log(.default, log: speechLog, "finalize() called")
-        recognitionRequest?.endAudio()
+        lock.withLock {
+            recognitionRequest?.endAudio()
+            recognitionRequest = nil
+        }
 
         if let existing = lock.withLock({ finalResult }) {
             return try existing.get()
@@ -155,11 +171,33 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
         }
         let sampleFormat = AVAudioFormat(cmAudioFormatDescription: formatDescription)
         let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
-        guard frameCount > 0,
-              let pcmBuffer = AVAudioPCMBuffer(pcmFormat: sampleFormat, frameCapacity: frameCount) else {
+        guard frameCount > 0 else {
             return nil
         }
-        pcmBuffer.frameLength = frameCount
+
+        let pcmBuffer: AVAudioPCMBuffer? = lock.withLock {
+            let shouldResetBuffer =
+                cachedPCMBufferState.sampleRate != sampleFormat.sampleRate ||
+                cachedPCMBufferState.channelCount != sampleFormat.channelCount ||
+                cachedPCMBufferState.commonFormat != sampleFormat.commonFormat ||
+                cachedPCMBufferState.isInterleaved != sampleFormat.isInterleaved
+            if shouldResetBuffer {
+                cachedPCMBufferState.sampleRate = sampleFormat.sampleRate
+                cachedPCMBufferState.channelCount = sampleFormat.channelCount
+                cachedPCMBufferState.commonFormat = sampleFormat.commonFormat
+                cachedPCMBufferState.isInterleaved = sampleFormat.isInterleaved
+                cachedPCMBufferState.buffer = nil
+            }
+            if cachedPCMBufferState.buffer == nil || cachedPCMBufferState.buffer?.frameCapacity ?? 0 < frameCount {
+                cachedPCMBufferState.buffer = AVAudioPCMBuffer(pcmFormat: sampleFormat, frameCapacity: frameCount)
+            }
+            cachedPCMBufferState.buffer?.frameLength = frameCount
+            return cachedPCMBufferState.buffer
+        }
+
+        guard let pcmBuffer else {
+            return nil
+        }
         let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
             sampleBuffer,
             at: 0,
