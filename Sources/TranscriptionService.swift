@@ -441,10 +441,11 @@ class TranscriptionService {
     }
 
     private static func sanitizeNonFiniteJSONNumbers(_ json: String) -> String {
-        json
-            .replacingOccurrences(of: ": NaN", with: ": null")
-            .replacingOccurrences(of: ": Infinity", with: ": null")
-            .replacingOccurrences(of: ": -Infinity", with: ": null")
+        json.replacingOccurrences(
+            of: #"(:\s*|,\s*|\[\s*)(-?Infinity|NaN)\b"#,
+            with: "$1null",
+            options: .regularExpression
+        )
     }
 
     private static func normalizedBaseURL(from baseURL: String) throws -> URL {
