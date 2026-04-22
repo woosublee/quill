@@ -193,27 +193,6 @@ final class PipelineHistoryStore {
         return deletedAssets
     }
 
-    func referencedStoredFiles() -> (audioFileNames: Set<String>, transcriptFileNames: Set<String>) {
-        guard isStoreLoaded else { return ([], []) }
-
-        var audioFileNames = Set<String>()
-        var transcriptFileNames = Set<String>()
-        container.viewContext.performAndWait {
-            let request = pipelineHistoryRequest()
-            request.includesPropertyValues = true
-            guard let entities = try? container.viewContext.fetch(request) else { return }
-            for entity in entities {
-                if let audioFileName = entity.audioFileName {
-                    audioFileNames.insert(audioFileName)
-                }
-                if let transcriptFileName = entity.transcriptFileName {
-                    transcriptFileNames.insert(transcriptFileName)
-                }
-            }
-        }
-        return (audioFileNames, transcriptFileNames)
-    }
-
     private func insert(_ item: PipelineHistoryItem) throws {
         guard isStoreLoaded else { return }
 

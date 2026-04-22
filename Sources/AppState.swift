@@ -571,12 +571,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
         for removedAssets in removedStoredFiles {
             Self.deleteStoredFiles(removedAssets)
         }
-        let referencedStoredFiles = pipelineHistoryStore.referencedStoredFiles()
-        Self.sweepOrphanStoredFiles(
-            referencedAudioFileNames: referencedStoredFiles.audioFileNames,
-            referencedTranscriptFileNames: referencedStoredFiles.transcriptFileNames
-        )
         let savedHistory = pipelineHistoryStore.loadAllHistory()
+        let referencedAudioFileNames = Set(savedHistory.compactMap(\.audioFileName))
+        let referencedTranscriptFileNames = Set(savedHistory.compactMap(\.transcriptFileName))
+        Task.detached(priority: .background) {
+            Self.sweepOrphanStoredFiles(
+                referencedAudioFileNames: referencedAudioFileNames,
+                referencedTranscriptFileNames: referencedTranscriptFileNames
+            )
+        }
 
         let selectedMicrophoneID = UserDefaults.standard.string(forKey: selectedMicrophoneStorageKey) ?? "default"
 
