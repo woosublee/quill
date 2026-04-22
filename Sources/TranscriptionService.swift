@@ -199,14 +199,45 @@ class TranscriptionService {
 
             let stdoutText = await stdoutReader.value
             let stderrText = await stderrReader.value
+            let allOutputFiles = (try? FileManager.default.contentsOfDirectory(at: outputDir, includingPropertiesForKeys: nil)) ?? []
+            let jsonFiles = allOutputFiles.filter { $0.pathExtension.lowercased() == "json" }
+
+            func summarizedOutput(_ text: String) -> String {
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return "" }
+                let lines = trimmed.split(separator: "\n").map(String.init)
+                let head = lines.prefix(8).joined(separator: "\n")
+                if lines.count > 8 {
+                    return head + "\n... (\(lines.count - 8) more lines)"
+                }
+                return head
+            }
+
+            func jsonFileSummary() -> String {
+                if jsonFiles.isEmpty { return "none" }
+                return jsonFiles.map(\.lastPathComponent).joined(separator: ", ")
+            }
+
+            func summarizedJSON(at fileURL: URL?) -> String {
+                guard let fileURL,
+                      let data = try? Data(contentsOf: fileURL),
+                      let text = String(data: data, encoding: .utf8) else {
+                    return ""
+                }
+                return summarizedOutput(text)
+            }
 
             if stderrText.contains("No such file or directory: 'ffmpeg'") {
                 throw TranscriptionError.submissionFailed("ffmpeg not found. Install ffmpeg and try local transcription again.")
             }
 
             guard process.terminationStatus == 0 else {
-                let errorText = stderrText.isEmpty ? stdoutText : stderrText
-                throw TranscriptionError.submissionFailed("mlx_whisper failed (exit \(process.terminationStatus)): \(errorText)")
+                let summarizedStderr = summarizedOutput(stderrText)
+                let summarizedStdout = summarizedOutput(stdoutText)
+                let detail = !summarizedStderr.isEmpty ? summarizedStderr : summarizedStdout
+                throw TranscriptionError.submissionFailed(
+                    "mlx_whisper failed (exit \(process.terminationStatus), json files: \(jsonFiles.count) [\(jsonFileSummary())]). \(detail)"
+                )
             }
 
             let inputName = fileURL.deletingPathExtension().lastPathComponent
@@ -214,41 +245,57 @@ class TranscriptionService {
             let outputFile: URL?
             if FileManager.default.fileExists(atPath: expectedOutputFile.path) {
                 outputFile = expectedOutputFile
+            } else if jsonFiles.count == 1 {
+                outputFile = jsonFiles[0]
             } else {
-                let jsonFiles = (try? FileManager.default.contentsOfDirectory(at: outputDir, includingPropertiesForKeys: nil))?
-                    .filter { $0.pathExtension.lowercased() == "json" } ?? []
-                if jsonFiles.count == 1 {
-                    outputFile = jsonFiles[0]
-                } else {
-                    outputFile = nil
-                }
+                outputFile = nil
             }
 
-            guard let outputFile,
-                  let jsonData = try? Data(contentsOf: outputFile),
-                  let json = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-                  let text = json["text"] as? String else {
-                if !stderrText.isEmpty {
-                    throw TranscriptionError.submissionFailed(stderrText)
+            let rawJSONString = outputFile.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+            let sanitizedJSONString = rawJSONString.map(Self.sanitizeNonFiniteJSONNumbers)
+            let parsedJSONData = sanitizedJSONString?.data(using: .utf8)
+            let parsedJSONObject = parsedJSONData.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+            let parsedText = parsedJSONObject?["text"] as? String
+
+            guard outputFile != nil,
+                  let json = parsedJSONObject,
+                  let text = parsedText else {
+                let summarizedStderr = summarizedOutput(stderrText)
+                let summarizedStdout = summarizedOutput(stdoutText)
+                let summarizedJSON = summarizedJSON(at: outputFile)
+                if !summarizedJSON.isEmpty {
+                    let stderrSuffix = summarizedStderr.isEmpty ? "" : " stderr: \(summarizedStderr)"
+                    throw TranscriptionError.submissionFailed(
+                        "mlx_whisper produced unusable output (json files: \(jsonFiles.count) [\(jsonFileSummary())]). json: \(summarizedJSON)\(stderrSuffix)"
+                    )
+                }
+                if !summarizedStderr.isEmpty {
+                    throw TranscriptionError.submissionFailed(
+                        "mlx_whisper produced unusable output (json files: \(jsonFiles.count) [\(jsonFileSummary())]). stderr: \(summarizedStderr)"
+                    )
                 }
                 if stdoutText.contains("Skipping ") {
-                    throw TranscriptionError.submissionFailed(stdoutText)
+                    throw TranscriptionError.submissionFailed(
+                        "mlx_whisper skipped transcription (json files: \(jsonFiles.count) [\(jsonFileSummary())]). stdout: \(summarizedStdout)"
+                    )
                 }
-                let jsonCount = ((try? FileManager.default.contentsOfDirectory(at: outputDir, includingPropertiesForKeys: nil)) ?? [])
-                    .filter { $0.pathExtension.lowercased() == "json" }
-                    .count
-                throw TranscriptionError.pollFailed("mlx_whisper produced no usable output (json files: \(jsonCount))")
+                if !summarizedStdout.isEmpty {
+                    throw TranscriptionError.pollFailed(
+                        "mlx_whisper produced no usable output (json files: \(jsonFiles.count) [\(jsonFileSummary())]). stdout: \(summarizedStdout)"
+                    )
+                }
+                throw TranscriptionError.pollFailed("mlx_whisper produced no usable output (json files: \(jsonFiles.count) [\(jsonFileSummary())])")
             }
 
             if self.isHallucination(text: text, json: json) {
                 return ""
             }
 
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else {
-                throw TranscriptionError.pollFailed("mlx_whisper produced empty transcript")
+            let normalizedText = self.normalizedTranscriptText(text)
+            guard !normalizedText.isEmpty else {
+                return ""
             }
-            return trimmed
+            return normalizedText
         }.value
     }
 
@@ -393,6 +440,13 @@ class TranscriptionService {
             && format.commonFormat == .pcmFormatInt16
     }
 
+    private static func sanitizeNonFiniteJSONNumbers(_ json: String) -> String {
+        json
+            .replacingOccurrences(of: ": NaN", with: ": null")
+            .replacingOccurrences(of: ": Infinity", with: ": null")
+            .replacingOccurrences(of: ": -Infinity", with: ": null")
+    }
+
     private static func normalizedBaseURL(from baseURL: String) throws -> URL {
         let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -452,7 +506,7 @@ class TranscriptionService {
             if isHallucination(text: text, json: json) {
                 return ""
             }
-            return text
+            return normalizedTranscriptText(text)
         }
 
         let plainText = String(data: data, encoding: .utf8) ?? ""
@@ -495,6 +549,25 @@ class TranscriptionService {
             return false
         }
         return noSpeechProb >= hallucinationNoSpeechThreshold
+    }
+
+    private func normalizedTranscriptText(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+
+        let reducedPunctuation = trimmed.replacingOccurrences(
+            of: #"([!?.,])\1+"#,
+            with: #"$1"#,
+            options: .regularExpression
+        )
+        let collapsedWhitespace = reducedPunctuation.replacingOccurrences(
+            of: #"\s+"#,
+            with: " ",
+            options: .regularExpression
+        )
+        let normalized = collapsedWhitespace.trimmingCharacters(in: .whitespacesAndNewlines)
+        let contentOnly = normalized.trimmingCharacters(in: CharacterSet.punctuationCharacters.union(.whitespacesAndNewlines))
+        return contentOnly.isEmpty ? "" : normalized
     }
 }
 
