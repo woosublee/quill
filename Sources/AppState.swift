@@ -562,14 +562,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         let initialAccessibility = AXIsProcessTrusted()
         let initialScreenCapturePermission = CGPreflightScreenCaptureAccess()
-        var removedAudioFileNames: [String] = []
+        var removedStoredFiles: [DeletedPipelineHistoryAssets] = []
         do {
-            removedAudioFileNames = try pipelineHistoryStore.trim(to: maxPipelineHistoryCount)
+            removedStoredFiles = try pipelineHistoryStore.trim(to: maxPipelineHistoryCount)
         } catch {
             print("Failed to trim pipeline history during init: \(error)")
         }
-        for audioFileName in removedAudioFileNames {
-            Self.deleteAudioFile(audioFileName)
+        for removedAssets in removedStoredFiles {
+            Self.deleteStoredFiles(removedAssets)
         }
         let savedHistory = pipelineHistoryStore.loadAllHistory()
 
@@ -840,11 +840,24 @@ final class AppState: ObservableObject, @unchecked Sendable {
         try? FileManager.default.removeItem(at: fileURL)
     }
 
+    private static func deleteStoredFiles(audioFileName: String?, transcriptFileName: String?) {
+        if let audioFileName {
+            deleteAudioFile(audioFileName)
+        }
+        if let transcriptFileName {
+            deleteTranscriptFile(transcriptFileName)
+        }
+    }
+
+    private static func deleteStoredFiles(_ assets: DeletedPipelineHistoryAssets) {
+        deleteStoredFiles(audioFileName: assets.audioFileName, transcriptFileName: assets.transcriptFileName)
+    }
+
     func clearPipelineHistory() {
         do {
-            let removedAudioFileNames = try pipelineHistoryStore.clearAll()
-            for audioFileName in removedAudioFileNames {
-                Self.deleteAudioFile(audioFileName)
+            let removedStoredFiles = try pipelineHistoryStore.clearAll()
+            for removedAssets in removedStoredFiles {
+                Self.deleteStoredFiles(removedAssets)
             }
             pipelineHistory = []
         } catch {
@@ -855,8 +868,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func deleteHistoryEntry(id: UUID) {
         guard let index = pipelineHistory.firstIndex(where: { $0.id == id }) else { return }
         do {
-            if let audioFileName = try pipelineHistoryStore.delete(id: id) {
-                Self.deleteAudioFile(audioFileName)
+            if let deletedAssets = try pipelineHistoryStore.delete(id: id) {
+                Self.deleteStoredFiles(deletedAssets)
             }
             pipelineHistory.remove(at: index)
         } catch {
@@ -1550,7 +1563,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         if let id = liveNoteID {
             liveNoteID = nil
             pipelineHistory.removeAll { $0.id == id }
-            try? pipelineHistoryStore.delete(id: id)
+            _ = try? pipelineHistoryStore.delete(id: id)
         }
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
@@ -2682,7 +2695,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
         do {
             let removed = try pipelineHistoryStore.append(entry, maxCount: maxPipelineHistoryCount)
-            for f in removed { Self.deleteAudioFile(f) }
+            for removedAssets in removed {
+                Self.deleteStoredFiles(removedAssets)
+            }
             pipelineHistory = pipelineHistoryStore.loadAllHistory()
         } catch {
             liveNoteID = nil
@@ -2730,19 +2745,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
         intent: SessionIntent,
         audioFileName: String? = nil
     ) {
+        let existingID = liveNoteID
+        let existingEntry = existingID.flatMap { id in
+            pipelineHistory.first(where: { $0.id == id })
+        }
+        let previousTranscriptFileName = existingEntry?.transcriptFileName
         let transcriptFileName = Self.saveTranscriptFile(
             rawTranscript: rawTranscript,
             postProcessedTranscript: postProcessedTranscript
         )
-        let existingID = liveNoteID
         liveNoteID = nil
         let entry = PipelineHistoryItem(
             intent: intent.persistedIntent,
             selectedText: intent.persistedSelectedText,
             id: existingID ?? UUID(),
-            timestamp: existingID != nil
-                ? (pipelineHistory.first(where: { $0.id == existingID })?.timestamp ?? Date())
-                : Date(),
+            timestamp: existingEntry?.timestamp ?? Date(),
             rawTranscript: "",
             postProcessedTranscript: postProcessedTranscript,
             postProcessingPrompt: postProcessingPrompt,
@@ -2766,14 +2783,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
         do {
             if existingID != nil {
                 try pipelineHistoryStore.update(entry)
+                if let previousTranscriptFileName,
+                   previousTranscriptFileName != transcriptFileName {
+                    Self.deleteTranscriptFile(previousTranscriptFileName)
+                }
             } else {
-                let removedAudioFileNames = try pipelineHistoryStore.append(entry, maxCount: maxPipelineHistoryCount)
-                for audioFileName in removedAudioFileNames {
-                    Self.deleteAudioFile(audioFileName)
+                let removedStoredFiles = try pipelineHistoryStore.append(entry, maxCount: maxPipelineHistoryCount)
+                for removedAssets in removedStoredFiles {
+                    Self.deleteStoredFiles(removedAssets)
                 }
             }
             pipelineHistory = pipelineHistoryStore.loadAllHistory()
         } catch {
+            if let transcriptFileName {
+                Self.deleteTranscriptFile(transcriptFileName)
+            }
             errorMessage = "Unable to save run history entry: \(error.localizedDescription)"
         }
 

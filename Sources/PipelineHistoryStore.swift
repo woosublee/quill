@@ -1,6 +1,11 @@
 import Foundation
 import CoreData
 
+struct DeletedPipelineHistoryAssets {
+    let audioFileName: String?
+    let transcriptFileName: String?
+}
+
 final class PipelineHistoryStore {
     private let container: NSPersistentContainer
     private let isStoreLoaded: Bool
@@ -73,7 +78,7 @@ final class PipelineHistoryStore {
         return result
     }
 
-    func append(_ item: PipelineHistoryItem, maxCount: Int) throws -> [String] {
+    func append(_ item: PipelineHistoryItem, maxCount: Int) throws -> [DeletedPipelineHistoryAssets] {
         guard isStoreLoaded else { return [] }
         try insert(item)
         return try trim(to: maxCount)
@@ -116,17 +121,17 @@ final class PipelineHistoryStore {
         if let thrownError { throw thrownError }
     }
 
-    func delete(id: UUID) throws -> String? {
+    func delete(id: UUID) throws -> DeletedPipelineHistoryAssets? {
         guard isStoreLoaded else { return nil }
 
-        var deletedAudioFileName: String?
+        var deletedAssets: DeletedPipelineHistoryAssets?
         var thrownError: Error?
         container.viewContext.performAndWait {
             do {
                 let request = pipelineHistoryRequest()
                 request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
                 guard let entity = try container.viewContext.fetch(request).first else { return }
-                deletedAudioFileName = entity.audioFileName
+                deletedAssets = Self.deletedAssets(from: entity)
                 container.viewContext.delete(entity)
                 try saveContext()
             } catch {
@@ -134,20 +139,20 @@ final class PipelineHistoryStore {
             }
         }
         if let thrownError { throw thrownError }
-        return deletedAudioFileName
+        return deletedAssets
     }
 
-    func clearAll() throws -> [String] {
+    func clearAll() throws -> [DeletedPipelineHistoryAssets] {
         guard isStoreLoaded else { return [] }
 
-        var audioFileNames: [String] = []
+        var deletedAssets: [DeletedPipelineHistoryAssets] = []
         var thrownError: Error?
         container.viewContext.performAndWait {
             do {
                 let request = pipelineHistoryRequest()
                 request.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
                 guard let entities = try? container.viewContext.fetch(request) else { return }
-                audioFileNames = entities.compactMap(\.audioFileName)
+                deletedAssets = entities.map(Self.deletedAssets(from:))
                 for entity in entities {
                     container.viewContext.delete(entity)
                 }
@@ -157,17 +162,17 @@ final class PipelineHistoryStore {
             }
         }
         if let thrownError { throw thrownError }
-        return audioFileNames
+        return deletedAssets
     }
 
-    func trim(to maxCount: Int) throws -> [String] {
+    func trim(to maxCount: Int) throws -> [DeletedPipelineHistoryAssets] {
         guard isStoreLoaded else { return [] }
         guard maxCount > 0 else {
-            let audioFileNames = try clearAll()
-            return audioFileNames
+            let deletedAssets = try clearAll()
+            return deletedAssets
         }
 
-        var audioFileNames: [String] = []
+        var deletedAssets: [DeletedPipelineHistoryAssets] = []
         var thrownError: Error?
         container.viewContext.performAndWait {
             do {
@@ -175,7 +180,7 @@ final class PipelineHistoryStore {
                 request.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
                 guard let entities = try? container.viewContext.fetch(request), entities.count > maxCount else { return }
                 let dropped = entities[maxCount...]
-                audioFileNames = dropped.compactMap(\.audioFileName)
+                deletedAssets = dropped.map(Self.deletedAssets(from:))
                 for entity in dropped {
                     container.viewContext.delete(entity)
                 }
@@ -185,7 +190,7 @@ final class PipelineHistoryStore {
             }
         }
         if let thrownError { throw thrownError }
-        return audioFileNames
+        return deletedAssets
     }
 
     private func insert(_ item: PipelineHistoryItem) throws {
@@ -238,6 +243,13 @@ final class PipelineHistoryStore {
 
     private func pipelineHistoryRequest() -> NSFetchRequest<PipelineHistoryEntry> {
         NSFetchRequest<PipelineHistoryEntry>(entityName: "PipelineHistoryEntry")
+    }
+
+    private static func deletedAssets(from entity: PipelineHistoryEntry) -> DeletedPipelineHistoryAssets {
+        DeletedPipelineHistoryAssets(
+            audioFileName: entity.audioFileName,
+            transcriptFileName: entity.transcriptFileName
+        )
     }
 
     // Safe: loadPersistentStores calls back on a private queue, not the calling thread.
