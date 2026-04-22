@@ -193,6 +193,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let customContextPromptStorageKey = "custom_context_prompt"
     private let customSystemPromptLastModifiedStorageKey = "custom_system_prompt_last_modified"
     private let customContextPromptLastModifiedStorageKey = "custom_context_prompt_last_modified"
+    private let contextScreenshotMaxDimensionStorageKey = "context_screenshot_max_dimension"
     private let shortcutStartDelayStorageKey = "shortcut_start_delay"
     private let preserveClipboardStorageKey = "preserve_clipboard"
     private let alertSoundsEnabledStorageKey = "alert_sounds_enabled"
@@ -212,6 +213,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let transcribingIndicatorDelay: TimeInterval = 0.25
     private let clipboardRestoreDelay: TimeInterval = 0.15
     let maxPipelineHistoryCount = Int.max
+    static let defaultContextScreenshotMaxDimension = Int(AppContextService.defaultScreenshotMaxDimension)
+    static let contextScreenshotDimensionOptions = [1024, 768, 640, 512]
     static let defaultTranscriptionModel = "whisper-large-v3"
     static let defaultPostProcessingModel = "openai/gpt-oss-20b"
     static let defaultPostProcessingFallbackModel = "meta-llama/llama-4-scout-17b-16e-instruct"
@@ -324,6 +327,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var customContextPrompt: String {
         didSet {
             UserDefaults.standard.set(customContextPrompt, forKey: customContextPromptStorageKey)
+            rebuildContextService()
+        }
+    }
+
+    @Published var contextScreenshotMaxDimension: Int {
+        didSet {
+            let normalizedDimension = Self.normalizedContextScreenshotMaxDimension(contextScreenshotMaxDimension)
+            if normalizedDimension != contextScreenshotMaxDimension {
+                contextScreenshotMaxDimension = normalizedDimension
+            }
+            UserDefaults.standard.set(contextScreenshotMaxDimension, forKey: contextScreenshotMaxDimensionStorageKey)
             rebuildContextService()
         }
     }
@@ -521,6 +535,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let customContextPrompt = UserDefaults.standard.string(forKey: customContextPromptStorageKey) ?? ""
         let customSystemPromptLastModified = UserDefaults.standard.string(forKey: customSystemPromptLastModifiedStorageKey) ?? ""
         let customContextPromptLastModified = UserDefaults.standard.string(forKey: customContextPromptLastModifiedStorageKey) ?? ""
+        let storedContextScreenshotMaxDimension = UserDefaults.standard.object(forKey: contextScreenshotMaxDimensionStorageKey) != nil
+            ? UserDefaults.standard.integer(forKey: contextScreenshotMaxDimensionStorageKey)
+            : Self.defaultContextScreenshotMaxDimension
+        let contextScreenshotMaxDimension = Self.normalizedContextScreenshotMaxDimension(storedContextScreenshotMaxDimension)
         let shortcutStartDelay = max(0, UserDefaults.standard.double(forKey: shortcutStartDelayStorageKey))
         let isCommandModeEnabled = UserDefaults.standard.object(forKey: commandModeEnabledStorageKey) == nil
             ? false
@@ -583,11 +601,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         let selectedMicrophoneID = UserDefaults.standard.string(forKey: selectedMicrophoneStorageKey) ?? "default"
 
-        self.contextService = AppContextService(
+        self.contextService = Self.makeAppContextService(
             apiKey: apiKey,
             baseURL: apiBaseURL,
             customContextPrompt: customContextPrompt,
-            contextModel: contextModel
+            contextModel: contextModel,
+            contextScreenshotMaxDimension: contextScreenshotMaxDimension
         )
         self.hasCompletedSetup = hasCompletedSetup
         self.apiKey = apiKey
@@ -606,6 +625,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.customVocabulary = customVocabulary
         self.customSystemPrompt = customSystemPrompt
         self.customContextPrompt = customContextPrompt
+        self.contextScreenshotMaxDimension = contextScreenshotMaxDimension
         self.customSystemPromptLastModified = customSystemPromptLastModified
         self.customContextPromptLastModified = customContextPromptLastModified
         self.shortcutStartDelay = shortcutStartDelay
@@ -752,6 +772,42 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
     }
 
+    static func normalizedContextScreenshotMaxDimension(_ value: Int) -> Int {
+        contextScreenshotDimensionOptions.contains(value)
+            ? value
+            : defaultContextScreenshotMaxDimension
+    }
+
+    static func makeAppContextService(
+        apiKey: String,
+        baseURL: String,
+        customContextPrompt: String,
+        contextModel: String,
+        contextScreenshotMaxDimension: Int
+    ) -> AppContextService {
+        AppContextService(
+            apiKey: apiKey,
+            baseURL: baseURL,
+            customContextPrompt: customContextPrompt,
+            contextModel: contextModel,
+            screenshotMaxDimension: CGFloat(normalizedContextScreenshotMaxDimension(contextScreenshotMaxDimension))
+        )
+    }
+
+    func makeAppContextService() -> AppContextService {
+        Self.makeAppContextService(
+            apiKey: apiKey,
+            baseURL: apiBaseURL,
+            customContextPrompt: customContextPrompt,
+            contextModel: contextModel,
+            contextScreenshotMaxDimension: contextScreenshotMaxDimension
+        )
+    }
+
+    private func rebuildContextService() {
+        contextService = makeAppContextService()
+    }
+
     private func persistAPIBaseURL(_ value: String) {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty || trimmed == Self.defaultAPIBaseURL {
@@ -759,15 +815,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         } else {
             AppSettingsStorage.save(trimmed, account: apiBaseURLStorageKey)
         }
-    }
-
-    private func rebuildContextService() {
-        contextService = AppContextService(
-            apiKey: apiKey,
-            baseURL: apiBaseURL,
-            customContextPrompt: customContextPrompt,
-            contextModel: contextModel
-        )
     }
 
     private func persistShortcut(_ binding: ShortcutBinding, key: String) {
@@ -1160,14 +1207,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     func openAccessibilitySettings() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-        AXIsProcessTrustedWithOptions(options)
+        let trusted = AXIsProcessTrustedWithOptions(options)
+        if !trusted {
+            openPrivacySettingsPane("Privacy_Accessibility")
+        }
     }
 
     func openMicrophoneSettings() {
-        let settingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
-        if let url = settingsURL {
-            NSWorkspace.shared.open(url)
-        }
+        openPrivacySettingsPane("Privacy_Microphone")
     }
 
     func requestMicrophoneAccess(completion: @escaping (Bool) -> Void) {
@@ -1199,6 +1246,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+
     func hasScreenCapturePermission() -> Bool {
         CGPreflightScreenCaptureAccess()
     }
@@ -1209,7 +1257,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // running app (unlike the legacy CGWindowListCreateImage path).
         SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: false) { [weak self] _, _ in
             DispatchQueue.main.async {
-                self?.hasScreenRecordingPermission = CGPreflightScreenCaptureAccess()
+                let granted = CGPreflightScreenCaptureAccess()
+                self?.hasScreenRecordingPermission = granted
+                if !granted {
+                    self?.openScreenCaptureSettings()
+                }
             }
         }
 
@@ -1217,7 +1269,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     func openScreenCaptureSettings() {
-        let settingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
+        openPrivacySettingsPane("Privacy_ScreenCapture")
+    }
+
+    private func openPrivacySettingsPane(_ pane: String) {
+        let settingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)")
         if let url = settingsURL {
             NSWorkspace.shared.open(url)
         }

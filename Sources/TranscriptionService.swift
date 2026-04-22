@@ -494,9 +494,14 @@ class TranscriptionService {
     // Normal speech included audios have very low no_speech_prob.
     private let hallucinationPhrases = [
         "thank you",
+        "thank you for watching",
         "thank you very much",
         "thank you so much",
-        "you"
+        "thanks for watching",
+        "please subscribe",
+        "like and subscribe",
+        "subtitles by",
+        "subtitles by the amara.org community"
     ]
 
     private let hallucinationNoSpeechThreshold = 0.1
