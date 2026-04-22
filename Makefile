@@ -16,6 +16,7 @@ ARCH ?= $(shell uname -m)
 ICON_SOURCE = Resources/AppIcon-Source.png
 ICON_ICNS = Resources/AppIcon.icns
 
+# Usage: make install CODESIGN_IDENTITY="Apple Development: you@example.com (TEAMID)"
 .PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run
 
 all: $(APP_EXECUTABLE_TARGET)
@@ -110,6 +111,7 @@ notarize:
 clean:
 	rm -rf $(BUILD_DIR)
 
+# Overwrite the installed app in place so macOS app permissions are preserved.
 install: all
 	@mkdir -p "/Applications/$(APP_NAME).app"
 	@ditto "$(APP_BUNDLE)" "/Applications/$(APP_NAME).app"
