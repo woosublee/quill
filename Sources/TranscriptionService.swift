@@ -501,8 +501,7 @@ class TranscriptionService {
         "please subscribe",
         "like and subscribe",
         "subtitles by",
-        "subtitles by the amara.org community",
-        "you"
+        "subtitles by the amara.org community"
     ]
 
     private let hallucinationNoSpeechThreshold = 0.1
