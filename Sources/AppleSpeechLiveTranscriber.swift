@@ -3,7 +3,7 @@ import CoreMedia
 import os.log
 import Speech
 
-private let speechLog = OSLog(subsystem: "com.woosublee.quill", category: "AppleSpeech")
+private let speechLog = OSLog(subsystem: "com.zachlatta.freeflow", category: "AppleSpeech")
 
 // 실시간 전사를 지원하는 모든 백엔드가 따르는 프로토콜
 protocol LiveTranscriber: AnyObject {
@@ -201,8 +201,10 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
             let nsError = error as NSError
             os_log(.error, log: speechLog, "recognition error domain=%{public}@ code=%ld msg=%{public}@",
                    nsError.domain, nsError.code, nsError.localizedDescription)
-            if nsError.code == 1110 || nsError.code == 203 {
-                os_log(.default, log: speechLog, "handled silent error code=%ld", nsError.code)
+            let assistantNoSpeechErrorCode = 1110
+            let assistantRetryStoppedErrorCode = 203
+            if nsError.code == assistantNoSpeechErrorCode || nsError.code == assistantRetryStoppedErrorCode {
+                os_log(.default, log: speechLog, "handled Apple Speech non-fatal error code=%ld", nsError.code)
                 resumeAll(with: .success(lock.withLock { latestTranscript }))
             } else {
                 resumeAll(with: .failure(error))
