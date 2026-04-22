@@ -327,9 +327,47 @@ struct GeneralSettingsView: View {
     @State private var keyValidationSuccess = false
     @State private var customVocabularyInput: String = ""
     @State private var micPermissionGranted = false
+    @State private var showMutedHint = false
+    @State private var copiedBuildInfo = false
+    @State private var copiedBuildInfoResetWorkItem: DispatchWorkItem?
     @StateObject private var githubCache = GitHubMetadataCache.shared
     @ObservedObject private var updateManager = UpdateManager.shared
     private let freeflowRepoURL = URL(string: "https://github.com/zachlatta/freeflow")!
+
+    private var appDisplayName: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? "FreeFlow"
+    }
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+    }
+
+    private var appBuildNumber: String {
+        Bundle.main.object(forInfoDictionaryKey: "FreeFlowBuildTag") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+            ?? "unknown"
+    }
+
+    private var macOSVersion: String {
+        let version = ProcessInfo.processInfo.operatingSystemVersion
+        return "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
+    }
+
+    private var appArchitecture: String {
+        #if arch(arm64)
+        return "arm64"
+        #elseif arch(x86_64)
+        return "x86_64"
+        #else
+        return "unknown"
+        #endif
+    }
+
+    private var buildDiagnosticsText: String {
+        "\(appDisplayName) \(appVersion) (\(appBuildNumber))\nmacOS \(macOSVersion) (\(appArchitecture))"
+    }
 
     var body: some View {
         ScrollView {
@@ -344,7 +382,7 @@ struct GeneralSettingsView: View {
                     Text("Quill")
                         .font(.system(size: 20, weight: .bold, design: .rounded))
 
-                    Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")")
+                    Text("v\(appVersion)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -483,6 +521,9 @@ struct GeneralSettingsView: View {
                 }
                 SettingsCard("Permissions", icon: "lock.shield.fill") {
                     permissionsSection
+                }
+                SettingsCard("Build", icon: "info.circle.fill") {
+                    buildInfoSection
                 }
             }
             .padding(24)
@@ -676,6 +717,53 @@ struct GeneralSettingsView: View {
                 .cornerRadius(6)
             }
         }
+    }
+
+    // MARK: Build
+
+    private var buildInfoSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Build number")
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Text(appBuildNumber)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            HStack(alignment: .top, spacing: 12) {
+                Text(buildDiagnosticsText)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+
+                Spacer()
+
+                Button {
+                    copyBuildDiagnostics()
+                } label: {
+                    Label(copiedBuildInfo ? "Copied" : "Copy", systemImage: copiedBuildInfo ? "checkmark" : "doc.on.doc")
+                }
+                .font(.caption)
+            }
+        }
+    }
+
+    private func copyBuildDiagnostics() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(buildDiagnosticsText, forType: .string)
+        copiedBuildInfo = true
+
+        copiedBuildInfoResetWorkItem?.cancel()
+
+        let resetWorkItem = DispatchWorkItem {
+            copiedBuildInfo = false
+            copiedBuildInfoResetWorkItem = nil
+        }
+        copiedBuildInfoResetWorkItem = resetWorkItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: resetWorkItem)
     }
 
     // MARK: API Key
@@ -1037,11 +1125,32 @@ struct GeneralSettingsView: View {
             .disabled(!appState.alertSoundsEnabled)
             .opacity(appState.alertSoundsEnabled ? 1 : 0.5)
 
-            Button("Preview") {
-                appState.playAlertSound(named: "Tink")
+            HStack(spacing: 8) {
+                Button("Preview") {
+                    let muted = SystemAudioStatus.isDefaultOutputMuted()
+                    let volume = SystemAudioStatus.defaultOutputVolume()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showMutedHint = muted || (volume ?? 1) < 0.10
+                    }
+                    appState.playAlertSound(named: "Tink")
+                }
+                .font(.caption)
+                .disabled(!appState.alertSoundsEnabled)
+
+                if showMutedHint {
+                    HStack(spacing: 4) {
+                        Image(systemName: "speaker.slash.fill")
+                            .foregroundStyle(.orange)
+                        Text("System volume is muted or very low. Unmute to hear the preview.")
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.caption)
+                    .transition(.opacity)
+                }
             }
-            .font(.caption)
-            .disabled(!appState.alertSoundsEnabled)
+        }
+        .onChange(of: appState.alertSoundsEnabled) { enabled in
+            if !enabled { showMutedHint = false }
         }
     }
 
@@ -1534,6 +1643,45 @@ struct PromptsSettingsView: View {
 
             Divider()
 
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Screenshot Resolution")
+                    .font(.caption.weight(.semibold))
+
+                Text("Controls the maximum image dimension sent for context inference.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Picker("", selection: $appState.contextScreenshotMaxDimension) {
+                    ForEach(AppState.contextScreenshotDimensionOptions, id: \.self) { dimension in
+                        Text("\(dimension) px").tag(dimension)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accessibilityLabel("Screenshot Resolution")
+
+                HStack {
+                    if appState.contextScreenshotMaxDimension == AppState.defaultContextScreenshotMaxDimension {
+                        Label("Using default", systemImage: "checkmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Label("Using custom value", systemImage: "pencil")
+                            .font(.caption)
+                            .foregroundStyle(.blue)
+                    }
+                    Spacer()
+                    if appState.contextScreenshotMaxDimension != AppState.defaultContextScreenshotMaxDimension {
+                        Button("Reset to Default") {
+                            appState.contextScreenshotMaxDimension = AppState.defaultContextScreenshotMaxDimension
+                        }
+                        .font(.caption)
+                    }
+                }
+            }
+
+            Divider()
+
             // Test section
             VStack(alignment: .leading, spacing: 8) {
                 Text("Test Context Prompt")
@@ -1602,12 +1750,7 @@ struct PromptsSettingsView: View {
         contextTestError = nil
         contextTestPrompt = nil
 
-        let service = AppContextService(
-            apiKey: appState.apiKey,
-            baseURL: appState.apiBaseURL,
-            customContextPrompt: appState.customContextPrompt,
-            contextModel: appState.contextModel
-        )
+        let service = appState.makeAppContextService()
 
         Task {
             let context = await service.collectContext()

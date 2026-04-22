@@ -89,6 +89,15 @@ struct MenuBarView: View {
                     .lineLimit(3)
             }
 
+            if let hotkeyError = appState.hotkeyMonitoringErrorMessage {
+                Divider()
+                Text(hotkeyError)
+                    .foregroundStyle(.red)
+                    .font(.caption)
+                    .padding(.horizontal, 16)
+                    .lineLimit(3)
+            }
+
             if let error = appState.errorMessage {
                 Divider()
                 Text(error)
