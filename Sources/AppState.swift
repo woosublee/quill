@@ -966,6 +966,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         deleteStoredFiles(audioFileName: assets.audioFileName, transcriptFileName: assets.transcriptFileName)
     }
 
+    @MainActor
     private func refreshTranscribingState() {
         isTranscribing = !activeTranscriptionJobs.isEmpty
     }
@@ -1014,6 +1015,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return activeTranscriptionJobs[foregroundTranscriptionJobID]
     }
 
+    @MainActor
     private func cleanupRecorderIfIdle() {
         guard !isRecording else { return }
         audioRecorder.cleanup()
@@ -1584,9 +1586,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         hotkeyManager.onEscapeKeyPressed = { [weak self] in
             guard let self else { return false }
-            return DispatchQueue.main.sync {
-                self.handleEscapeKeyPress()
+            DispatchQueue.main.async {
+                _ = self.handleEscapeKeyPress()
             }
+            return true
         }
         restartHotkeyMonitoring()
     }
@@ -2249,6 +2252,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func handleRecordingFailure(_ error: Error) {
         cancelRecordingInitializationTimer()
         audioRecorder.onRecordingReady = nil
