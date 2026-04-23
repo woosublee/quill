@@ -2524,20 +2524,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     try Task.checkCancellation()
                     await MainActor.run {
                         guard self.isTranscribing else { return }
-                        self.lastContextSummary = appContext.contextSummary
-                        self.lastContextScreenshotDataURL = appContext.screenshotDataURL
-                        self.lastContextScreenshotStatus = appContext.screenshotError
-                            ?? "available (\(appContext.screenshotMimeType ?? "image"))"
                         let trimmedRawTranscript = parsedTranscript.transcript
                         let trimmedFinalTranscript = result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
                         let processingStatus = Self.statusMessage(
                             for: result.outcome,
                             parsedTranscript: parsedTranscript
                         )
-                        self.lastPostProcessingPrompt = result.prompt
-                        self.lastRawTranscript = trimmedRawTranscript
-                        self.lastPostProcessedTranscript = trimmedFinalTranscript
-                        self.lastPostProcessingStatus = processingStatus
                         self.recordPipelineHistoryEntry(
                             rawTranscript: trimmedRawTranscript,
                             postProcessedTranscript: trimmedFinalTranscript,
@@ -2734,6 +2726,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     try Task.checkCancellation()
 
                     await MainActor.run {
+                        guard self.isTranscribing else { return }
                         let trimmedRawTranscript = parsedTranscript.transcript
                         let trimmedFinalTranscript = result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
                         let processingStatus = Self.statusMessage(
