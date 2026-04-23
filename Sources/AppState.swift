@@ -1586,6 +1586,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         hotkeyManager.onEscapeKeyPressed = { [weak self] in
             guard let self else { return false }
+            let shouldHandle = DispatchQueue.main.sync {
+                self.shouldConfirmEscapeCancellation
+            }
+            guard shouldHandle else { return false }
             DispatchQueue.main.async {
                 _ = self.handleEscapeKeyPress()
             }
