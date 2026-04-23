@@ -140,6 +140,7 @@ final class MCPServer {
         }
     }
 
+    @MainActor
     private func dispatch(method: String, params: [String: Any]) -> [String: Any] {
         switch method {
         case "initialize":
@@ -244,6 +245,7 @@ final class MCPServer {
 
     // MARK: - Tool calls (must run on main thread)
 
+    @MainActor
     private func callTool(name: String, args: [String: Any]) -> [String: Any] {
         guard let appState else {
             return textContent("Error: Quill is not ready", isError: true)
@@ -276,9 +278,7 @@ final class MCPServer {
             guard appState.isRecording else {
                 return textContent("Not currently recording.")
             }
-            DispatchQueue.main.sync {
-                appState.stopRecordingFromMCP()
-            }
+            appState.stopRecordingFromMCP()
             return textContent("Recording stopped. Transcription in progress — listen for recording/completed event.")
 
         case "get_status":

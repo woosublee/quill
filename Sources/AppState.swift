@@ -1583,9 +1583,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         hotkeyManager.onEscapeKeyPressed = { [weak self] in
             guard let self else { return false }
-            if Thread.isMainThread {
-                return self.handleEscapeKeyPress()
-            }
             return DispatchQueue.main.sync {
                 self.handleEscapeKeyPress()
             }
@@ -1669,11 +1666,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func handleEscapeKeyPress() -> Bool {
         guard shouldConfirmEscapeCancellation else { return false }
-        DispatchQueue.main.sync {
-            self.presentEscapeCancellationAlert()
-        }
+        presentEscapeCancellationAlert()
         return true
     }
 
