@@ -150,6 +150,10 @@ final class RealtimeTranscriptionService {
                     immediateResult = .failure(RealtimeTranscriptionError.closedBeforeFinal)
                     return
                 }
+                if finalContinuation != nil {
+                    immediateResult = .failure(RealtimeTranscriptionError.notConnected)
+                    return
+                }
                 if let finalText = readyCommittedTranscriptLocked() {
                     closed = true
                     immediateResult = .success(finalText)
@@ -359,7 +363,7 @@ final class RealtimeTranscriptionService {
         default: return nil
         }
 
-        var pathComponents = components.path.split(separator: "/").map(String.init)
+        var pathComponents = components.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
         if pathComponents.suffix(2) == ["chat", "completions"] {
             pathComponents.removeLast(2)
         } else if pathComponents.suffix(2) == ["audio", "transcriptions"] {
