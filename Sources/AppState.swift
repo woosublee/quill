@@ -124,6 +124,11 @@ private struct RetrySnapshot {
     let localWhisperPath: String?
 }
 
+private struct TranscriptCommandParsingResult {
+    let transcript: String
+    let shouldPressEnterAfterPaste: Bool
+}
+
 private enum CommandInvocation: String {
     case automatic
     case manual
@@ -207,6 +212,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let contextScreenshotMaxDimensionStorageKey = "context_screenshot_max_dimension"
     private let shortcutStartDelayStorageKey = "shortcut_start_delay"
     private let preserveClipboardStorageKey = "preserve_clipboard"
+    private let pressEnterVoiceCommandStorageKey = "press_enter_voice_command_enabled"
     private let alertSoundsEnabledStorageKey = "alert_sounds_enabled"
     private let soundVolumeStorageKey = "sound_volume"
     private let voiceMacrosStorageKey = "voice_macros"
@@ -222,7 +228,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let commandModeStyleStorageKey = "command_mode_style"
     private let commandModeManualModifierStorageKey = "command_mode_manual_modifier"
     private let transcribingIndicatorDelay: TimeInterval = 0.25
-    private let clipboardRestoreDelay: TimeInterval = 0.15
+    private let pasteAfterShortcutReleaseDelay: TimeInterval = 0.03
+    private let pressEnterAfterPasteDelay: TimeInterval = 0.08
+    private let clipboardRestoreDelay: TimeInterval = 1.0
     let maxPipelineHistoryCount = Int.max
     static let defaultContextScreenshotMaxDimension = Int(AppContextService.defaultScreenshotMaxDimension)
     static let contextScreenshotDimensionOptions = [1024, 768, 640, 512]
@@ -230,6 +238,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     static let defaultPostProcessingModel = "openai/gpt-oss-20b"
     static let defaultPostProcessingFallbackModel = "meta-llama/llama-4-scout-17b-16e-instruct"
     static let defaultContextModel = "meta-llama/llama-4-scout-17b-16e-instruct"
+    private static let trailingPressEnterCommandPattern = try! NSRegularExpression(
+        pattern: #"(?i)(?:^|[ \t\r\n,;:\-]+)press[ \t\r\n]+enter[\s\p{P}]*$"#
+    )
 
     @Published var hasCompletedSetup: Bool {
         didSet {
@@ -374,6 +385,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var preserveClipboard: Bool {
         didSet {
             UserDefaults.standard.set(preserveClipboard, forKey: preserveClipboardStorageKey)
+        }
+    }
+
+    @Published var isPressEnterVoiceCommandEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(isPressEnterVoiceCommandEnabled, forKey: pressEnterVoiceCommandStorageKey)
         }
     }
 
@@ -563,6 +580,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let preserveClipboard = UserDefaults.standard.object(forKey: preserveClipboardStorageKey) == nil
             ? true
             : UserDefaults.standard.bool(forKey: preserveClipboardStorageKey)
+        let isPressEnterVoiceCommandEnabled = UserDefaults.standard.object(forKey: pressEnterVoiceCommandStorageKey) == nil
+            ? true
+            : UserDefaults.standard.bool(forKey: pressEnterVoiceCommandStorageKey)
         let useLocalTranscription = UserDefaults.standard.bool(forKey: useLocalTranscriptionStorageKey)
         let localWhisperPath = UserDefaults.standard.string(forKey: localWhisperPathStorageKey) ?? ""
         let disableContextCapture = UserDefaults.standard.bool(forKey: disableContextCaptureStorageKey)
@@ -641,6 +661,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.customContextPromptLastModified = customContextPromptLastModified
         self.shortcutStartDelay = shortcutStartDelay
         self.preserveClipboard = preserveClipboard
+        self.isPressEnterVoiceCommandEnabled = isPressEnterVoiceCommandEnabled
         self.alertSoundsEnabled = alertSoundsEnabled
         self.useLocalTranscription = useLocalTranscription
         self.localWhisperPath = localWhisperPath
@@ -1098,17 +1119,25 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     transcriptionModel: transcriptionModel
                 )
                 let rawTranscript = try await transcriptionService.transcribe(fileURL: snapshot.audioURL)
+                let parsedTranscript = Self.parseTranscriptCommands(
+                    from: rawTranscript,
+                    pressEnterCommandEnabled: self.isPressEnterVoiceCommandEnabled
+                )
                 let result = await self.processTranscriptForRetry(
-                    rawTranscript,
+                    parsedTranscript.transcript,
                     snapshot: snapshot,
                     postProcessingService: postProcessingService
                 )
                 updatedItem = self.makeRetryHistoryItem(
                     from: snapshot,
-                    rawTranscript: rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines),
+                    rawTranscript: parsedTranscript.transcript,
                     postProcessedTranscript: result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines),
                     postProcessingPrompt: result.prompt,
-                    postProcessingStatus: result.outcome.statusMessage(isRetry: true),
+                    postProcessingStatus: Self.statusMessage(
+                        for: result.outcome,
+                        parsedTranscript: parsedTranscript,
+                        isRetry: true
+                    ),
                     debugStatus: "Retried"
                 )
             } catch {
@@ -2323,6 +2352,47 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return strippedPunctuation.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private static func parseTranscriptCommands(
+        from transcript: String,
+        pressEnterCommandEnabled: Bool
+    ) -> TranscriptCommandParsingResult {
+        guard pressEnterCommandEnabled else {
+            return TranscriptCommandParsingResult(
+                transcript: transcript.trimmingCharacters(in: .whitespacesAndNewlines),
+                shouldPressEnterAfterPaste: false
+            )
+        }
+
+        let fullRange = NSRange(transcript.startIndex..<transcript.endIndex, in: transcript)
+        guard
+            let match = trailingPressEnterCommandPattern.firstMatch(in: transcript, range: fullRange),
+            let commandRange = Range(match.range, in: transcript)
+        else {
+            return TranscriptCommandParsingResult(
+                transcript: transcript.trimmingCharacters(in: .whitespacesAndNewlines),
+                shouldPressEnterAfterPaste: false
+            )
+        }
+
+        var strippedTranscript = transcript
+        strippedTranscript.removeSubrange(commandRange)
+
+        return TranscriptCommandParsingResult(
+            transcript: strippedTranscript.trimmingCharacters(in: .whitespacesAndNewlines),
+            shouldPressEnterAfterPaste: true
+        )
+    }
+
+    private static func statusMessage(
+        for outcome: TranscriptProcessingOutcome,
+        parsedTranscript: TranscriptCommandParsingResult,
+        isRetry: Bool = false
+    ) -> String {
+        let status = outcome.statusMessage(isRetry: isRetry)
+        guard parsedTranscript.shouldPressEnterAfterPaste else { return status }
+        return "\(status); detected press enter command"
+    }
+
     func playAlertSound(named name: String) {
         guard alertSoundsEnabled else { return }
 
@@ -2568,6 +2638,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     await MainActor.run {
                         self.updateTranscriptionJob(jobID) { $0.audioFileName = savedAudioFile?.fileName }
                     }
+                    let parsedTranscript = Self.parseTranscriptCommands(
+                        from: rawTranscript,
+                        pressEnterCommandEnabled: self.isPressEnterVoiceCommandEnabled
+                    )
                     try Task.checkCancellation()
                     let appContext: AppContext
                     if let sessionContext {
@@ -2582,7 +2656,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self?.debugStatusMessage = "Running post-processing"
                     }
                     let result = await self.processTranscript(
-                        rawTranscript,
+                        parsedTranscript.transcript,
                         intent: sessionIntent,
                         context: appContext,
                         postProcessingService: postProcessingService,
@@ -2591,9 +2665,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     )
                     try Task.checkCancellation()
                     await MainActor.run {
-                        let trimmedRawTranscript = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard self.isTranscribing else { return }
+                        let trimmedRawTranscript = parsedTranscript.transcript
                         let trimmedFinalTranscript = result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let processingStatus = result.outcome.statusMessage()
+                        let processingStatus = Self.statusMessage(
+                            for: result.outcome,
+                            parsedTranscript: parsedTranscript
+                        )
                         self.recordPipelineHistoryEntry(
                             jobID: jobID,
                             rawTranscript: trimmedRawTranscript,
@@ -2735,6 +2813,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         )
                         rawTranscript = try await transcriptionService.transcribe(fileURL: transcriptionFileURL)
                     }
+                    let parsedTranscript = Self.parseTranscriptCommands(
+                        from: rawTranscript,
+                        pressEnterCommandEnabled: self.isPressEnterVoiceCommandEnabled
+                    )
                     try Task.checkCancellation()
                     let appContext: AppContext
                     if let sessionContext {
@@ -2749,7 +2831,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self?.debugStatusMessage = "Running post-processing"
                     }
                     let result = await self.processTranscript(
-                        rawTranscript,
+                        parsedTranscript.transcript,
                         intent: sessionIntent,
                         context: appContext,
                         postProcessingService: postProcessingService,
@@ -2759,9 +2841,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     try Task.checkCancellation()
 
                     await MainActor.run {
-                        let trimmedRawTranscript = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard self.isTranscribing else { return }
+                        let trimmedRawTranscript = parsedTranscript.transcript
                         let trimmedFinalTranscript = result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let processingStatus = result.outcome.statusMessage()
+                        let processingStatus = Self.statusMessage(
+                            for: result.outcome,
+                            parsedTranscript: parsedTranscript
+                        )
                         self.recordPipelineHistoryEntry(
                             jobID: jobID,
                             rawTranscript: trimmedRawTranscript,
@@ -2774,6 +2860,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         )
                         self.cleanupRecorderIfIdle()
                         let completionStatusText = self.preserveClipboard ? "Pasted at cursor!" : "Copied to clipboard!"
+                        let enterOnlyStatusText = "Pressed Enter"
+                        let shouldPressEnterAfterPaste = parsedTranscript.shouldPressEnterAfterPaste
                         let shouldPersistRawDictationFallback: Bool
                         switch result.outcome {
                         case .postProcessingFailedFallback:
@@ -2781,15 +2869,38 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         default:
                             shouldPersistRawDictationFallback = false
                         }
-                        updateForegroundUI(
-                            rawTranscript: trimmedRawTranscript,
-                            finalTranscript: trimmedFinalTranscript,
-                            prompt: result.prompt,
-                            processingStatus: processingStatus,
-                            context: appContext,
-                            completionStatusText: completionStatusText,
-                            shouldPersistRawDictationFallback: shouldPersistRawDictationFallback
-                        )
+
+                        if trimmedFinalTranscript.isEmpty {
+                            self.mcpLastRecordingFailed = true
+                            self.statusText = shouldPressEnterAfterPaste ? enterOnlyStatusText : "Nothing to transcribe"
+                            self.clearPendingOverlayDismissToken()
+                            self.overlayManager.dismiss()
+                            if shouldPressEnterAfterPaste {
+                                self.pressEnterWhenShortcutReleased()
+                            }
+                        } else {
+                            self.statusText = completionStatusText
+                            if shouldPersistRawDictationFallback {
+                                self.scheduleOverlayDismissAfterFailureIndicator(after: 2.5)
+                            } else {
+                                self.clearPendingOverlayDismissToken()
+                                self.overlayManager.dismiss()
+                            }
+                            if !self.disableAutoPaste {
+                                let pendingClipboardRestore = self.writeTranscriptToPasteboard(trimmedFinalTranscript)
+                                self.pasteAtCursorWhenShortcutReleased {
+                                    if shouldPressEnterAfterPaste {
+                                        self.pressEnterAfterPaste {
+                                            self.restoreClipboardIfNeeded(pendingClipboardRestore)
+                                        }
+                                    } else {
+                                        self.restoreClipboardIfNeeded(pendingClipboardRestore)
+                                    }
+                                }
+                            }
+                        }
+
+                        self.scheduleReadyStatusReset(after: 3, matching: [completionStatusText, "Nothing to transcribe", enterOnlyStatusText])
                         completeJob(jobID)
                     }
                 } catch is CancellationError {
@@ -3208,6 +3319,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
         keyUp?.post(tap: .cgSessionEventTap)
     }
 
+    private func pressEnter() {
+        let source = CGEventSource(stateID: .hidSystemState)
+
+        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: true)
+        keyDown?.post(tap: .cgSessionEventTap)
+
+        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: false)
+        keyUp?.post(tap: .cgSessionEventTap)
+    }
+
     private func writeTranscriptToPasteboard(_ transcript: String) -> PendingClipboardRestore? {
         let pasteboard = NSPasteboard.general
         let snapshot = preserveClipboard ? PreservedPasteboardSnapshot(pasteboard: pasteboard) : nil
@@ -3222,6 +3343,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func restoreClipboardIfNeeded(_ pendingRestore: PendingClipboardRestore?) {
         guard let pendingRestore else { return }
 
+        // Some apps consume Cmd-V asynchronously, so restoring too quickly can paste
+        // the pre-dictation clipboard instead of the transcript.
         DispatchQueue.main.asyncAfter(deadline: .now() + clipboardRestoreDelay) {
             let pasteboard = NSPasteboard.general
             guard pasteboard.changeCount == pendingRestore.expectedChangeCount else { return }
@@ -3229,17 +3352,37 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    private func pasteAtCursorWhenShortcutReleased(attempt: Int = 0, completion: (() -> Void)? = nil) {
+    private func performAfterShortcutReleased(attempt: Int = 0, action: @escaping () -> Void) {
         let maxAttempts = 24
         if hotkeyManager.hasPressedShortcutInputs && attempt < maxAttempts {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) { [weak self] in
-                self?.pasteAtCursorWhenShortcutReleased(attempt: attempt + 1, completion: completion)
+                self?.performAfterShortcutReleased(attempt: attempt + 1, action: action)
             }
             return
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + pasteAfterShortcutReleaseDelay) {
+            action()
+        }
+    }
+
+    private func pasteAtCursorWhenShortcutReleased(completion: (() -> Void)? = nil) {
+        performAfterShortcutReleased { [weak self] in
             self?.pasteAtCursor()
+            completion?()
+        }
+    }
+
+    private func pressEnterWhenShortcutReleased(completion: (() -> Void)? = nil) {
+        performAfterShortcutReleased { [weak self] in
+            self?.pressEnter()
+            completion?()
+        }
+    }
+
+    private func pressEnterAfterPaste(completion: (() -> Void)? = nil) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + pressEnterAfterPasteDelay) { [weak self] in
+            self?.pressEnter()
             completion?()
         }
     }
