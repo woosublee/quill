@@ -1246,14 +1246,6 @@ struct GeneralSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Divider()
-                .padding(.vertical, 2)
-
-            Toggle("Say \"press enter\" to submit after paste", isOn: $appState.isPressEnterVoiceCommandEnabled)
-
-            Text("When the transcription ends with \"press enter\", FreeFlow removes those words before cleanup, pastes the remaining transcript, then presses Return.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 

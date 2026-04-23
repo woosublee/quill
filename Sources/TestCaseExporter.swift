@@ -147,7 +147,7 @@ struct TestCaseExporter {
             .filter { $0 != archiveWorkDir.lastPathComponent }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
-        process.arguments = ["-r", destinationTemp.path] + archiveContents
+        process.arguments = ["-r", destinationTemp.path, "--"] + archiveContents
         process.currentDirectoryURL = tempDir
         try process.run()
         process.waitUntilExit()
