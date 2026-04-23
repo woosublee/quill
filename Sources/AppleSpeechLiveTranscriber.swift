@@ -123,9 +123,10 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
             }
             group.addTask { [weak self] in
                 try await Task.sleep(nanoseconds: UInt64(Self.finalizeTimeoutSeconds * 1_000_000_000))
-                let latest = self?.lock.withLock { self?.latestTranscript ?? "" } ?? ""
+                guard let self else { return "" }
+                let latest = self.lock.withLock { self.latestTranscript }
                 os_log(.default, log: speechLog, "finalize timeout — returning latestTranscript=%{public}@", latest)
-                self?.resumeAll(with: .success(latest))
+                self.resumeAll(with: .success(latest))
                 return latest
             }
             guard let result = try await group.next() else {

@@ -9,12 +9,15 @@ enum PipelineHistoryItemIntent: String, Codable {
 struct PipelineHistoryItem: Identifiable, Codable {
     let intent: PipelineHistoryItemIntent
     let selectedText: String?
+    let capturedSelection: String?
     let id: UUID
     let timestamp: Date
     let rawTranscript: String
     let postProcessedTranscript: String
     let postProcessingPrompt: String?
+    let systemPrompt: String?
     let contextSummary: String
+    let contextSystemPrompt: String?
     let contextPrompt: String?
     let contextScreenshotDataURL: String?
     let contextScreenshotStatus: String
@@ -29,17 +32,23 @@ struct PipelineHistoryItem: Identifiable, Codable {
     let transcriptionLanguageCode: String
     let localTranscriptionModelID: String
     let transcriptFileName: String?
+    let contextAppName: String?
+    let contextBundleIdentifier: String?
+    let contextWindowTitle: String?
 
     init(
         intent: PipelineHistoryItemIntent = .dictation,
         selectedText: String? = nil,
+        capturedSelection: String? = nil,
         id: UUID = UUID(),
         timestamp: Date,
         rawTranscript: String,
         postProcessedTranscript: String,
         postProcessingPrompt: String?,
+        systemPrompt: String? = nil,
         contextSummary: String,
-        contextPrompt: String?,
+        contextSystemPrompt: String? = nil,
+        contextPrompt: String? = nil,
         contextScreenshotDataURL: String?,
         contextScreenshotStatus: String,
         postProcessingStatus: String,
@@ -52,16 +61,22 @@ struct PipelineHistoryItem: Identifiable, Codable {
         usedPostProcessing: Bool = true,
         transcriptionLanguageCode: String = "auto",
         localTranscriptionModelID: String? = nil,
-        transcriptFileName: String? = nil
+        transcriptFileName: String? = nil,
+        contextAppName: String? = nil,
+        contextBundleIdentifier: String? = nil,
+        contextWindowTitle: String? = nil
     ) {
         self.intent = intent
         self.selectedText = selectedText
+        self.capturedSelection = capturedSelection
         self.id = id
         self.timestamp = timestamp
         self.rawTranscript = rawTranscript
         self.postProcessedTranscript = postProcessedTranscript
         self.postProcessingPrompt = postProcessingPrompt
+        self.systemPrompt = systemPrompt
         self.contextSummary = contextSummary
+        self.contextSystemPrompt = contextSystemPrompt
         self.contextPrompt = contextPrompt
         self.contextScreenshotDataURL = contextScreenshotDataURL
         self.contextScreenshotStatus = contextScreenshotStatus
@@ -76,5 +91,8 @@ struct PipelineHistoryItem: Identifiable, Codable {
         self.transcriptionLanguageCode = transcriptionLanguageCode
         self.localTranscriptionModelID = localTranscriptionModelID ?? "mlx-community/whisper-large-v3-turbo"
         self.transcriptFileName = transcriptFileName
+        self.contextAppName = contextAppName
+        self.contextBundleIdentifier = contextBundleIdentifier
+        self.contextWindowTitle = contextWindowTitle
     }
 }

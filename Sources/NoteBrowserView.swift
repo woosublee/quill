@@ -1136,7 +1136,7 @@ struct NoteAudioPlayerView: View {
                   let block = CMSampleBufferGetDataBuffer(buf) {
                 let len = CMBlockBufferGetDataLength(block)
                 var data = Data(count: len)
-                data.withUnsafeMutableBytes { ptr in
+                _ = data.withUnsafeMutableBytes { ptr in
                     CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: len, destination: ptr.baseAddress!)
                 }
                 data.withUnsafeBytes { ptr in
@@ -1154,8 +1154,9 @@ struct NoteAudioPlayerView: View {
                 let rms = sqrt(samples[start..<end].map { $0 * $0 }.reduce(0, +) / Float(end - start))
                 heights.append(CGFloat(min(1.0, max(0.04, rms * 8))))
             }
+            let resolvedHeights = heights
             await MainActor.run {
-                withAnimation(.easeInOut(duration: 0.4)) { barHeights = heights }
+                withAnimation(.easeInOut(duration: 0.4)) { barHeights = resolvedHeights }
             }
         }
     }

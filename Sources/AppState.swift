@@ -134,6 +134,20 @@ private enum CommandInvocation: String {
     case manual
 }
 
+enum DictationAudioInterruptionMode: String, CaseIterable, Identifiable {
+    case mute
+    case pause
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .mute: return "Mute"
+        case .pause: return "Pause"
+        }
+    }
+}
+
 private enum SessionIntent {
     case dictation
     case command(invocation: CommandInvocation, selectedText: String)
@@ -170,6 +184,15 @@ private enum SessionIntent {
         }
     }
 
+    var isManualCommand: Bool {
+        switch self {
+        case .command(invocation: .manual, _):
+            return true
+        default:
+            return false
+        }
+    }
+
     static func fromPersisted(intent: PipelineHistoryItemIntent, selectedText: String?) -> SessionIntent {
         if intent == .commandAutomatic, let selectedText {
             return .command(invocation: .automatic, selectedText: selectedText)
@@ -193,9 +216,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
         var liveNoteID: UUID?
     }
 
+    private enum ActiveAudioInterruption {
+        case muted(previouslyMuted: Bool)
+        case paused
+    }
+
     private let apiKeyStorageKey = "groq_api_key"
     private let apiBaseURLStorageKey = "api_base_url"
     private let apiTranscriptionModelStorageKey = "api_transcription_model"
+    private let transcriptionAPIURLStorageKey = "transcription_api_url"
+    private let transcriptionAPIKeyStorageKey = "transcription_api_key"
     private let postProcessingModelStorageKey = "post_processing_model"
     private let postProcessingFallbackModelStorageKey = "post_processing_fallback_model"
     private let contextModelStorageKey = "context_model"
@@ -227,6 +257,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let commandModeEnabledStorageKey = "command_mode_enabled"
     private let commandModeStyleStorageKey = "command_mode_style"
     private let commandModeManualModifierStorageKey = "command_mode_manual_modifier"
+    private let realtimeStreamingEnabledStorageKey = "realtime_streaming_enabled"
+    private let realtimeStreamingModelStorageKey = "realtime_streaming_model"
+    private let dictationAudioInterruptionEnabledStorageKey = "dictation_audio_interruption_enabled"
+    private let dictationAudioInterruptionModeStorageKey = "dictation_audio_interruption_mode"
+    private let pendingMutedAudioRestoreStorageKey = "pending_muted_audio_restore"
     private let transcribingIndicatorDelay: TimeInterval = 0.25
     private let pasteAfterShortcutReleaseDelay: TimeInterval = 0.03
     private let pressEnterAfterPasteDelay: TimeInterval = 0.08
@@ -259,6 +294,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         didSet {
             persistAPIBaseURL(apiBaseURL)
             rebuildContextService()
+        }
+    }
+
+    @Published var transcriptionAPIURL: String {
+        didSet {
+            persistOptionalAPIValue(transcriptionAPIURL, account: transcriptionAPIURLStorageKey)
+        }
+    }
+
+    @Published var transcriptionAPIKey: String {
+        didSet {
+            persistOptionalAPIValue(transcriptionAPIKey, account: transcriptionAPIKeyStorageKey)
         }
     }
 
@@ -382,6 +429,42 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Stream audio to the transcription backend during recording via the
+    /// OpenAI Realtime WebSocket. Reduces wall-clock latency between "stop"
+    /// and text-ready because most of the transcription work happens while
+    /// the user is still speaking.
+    @Published var realtimeStreamingEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(realtimeStreamingEnabled, forKey: realtimeStreamingEnabledStorageKey)
+        }
+    }
+
+    /// Model ID the realtime WebSocket should transcribe with. Empty means
+    /// "use the server's default".
+    @Published var realtimeStreamingModel: String {
+        didSet {
+            UserDefaults.standard.set(realtimeStreamingModel, forKey: realtimeStreamingModelStorageKey)
+        }
+    }
+
+    @Published var dictationAudioInterruptionEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(
+                dictationAudioInterruptionEnabled,
+                forKey: dictationAudioInterruptionEnabledStorageKey
+            )
+        }
+    }
+
+    @Published var dictationAudioInterruptionMode: DictationAudioInterruptionMode {
+        didSet {
+            UserDefaults.standard.set(
+                dictationAudioInterruptionMode.rawValue,
+                forKey: dictationAudioInterruptionModeStorageKey
+            )
+        }
+    }
+
     @Published var preserveClipboard: Bool {
         didSet {
             UserDefaults.standard.set(preserveClipboard, forKey: preserveClipboardStorageKey)
@@ -489,6 +572,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var lastPostProcessingStatus = ""
     @Published var lastContextScreenshotDataURL: String? = nil
     @Published var lastContextScreenshotStatus = "No screenshot"
+    @Published var lastContextAppName: String = ""
+    @Published var lastContextBundleIdentifier: String = ""
+    @Published var lastContextWindowTitle: String = ""
+    @Published var lastContextSelectedText: String = ""
+    @Published var lastContextLLMPrompt: String = ""
     @Published var hasScreenRecordingPermission = false
     @Published var launchAtLogin: Bool {
         didSet { setLaunchAtLogin(launchAtLogin) }
@@ -531,11 +619,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var pendingManualCommandInvocation = false
     private var pendingShortcutStartTask: Task<Void, Never>?
     private var pendingShortcutStartMode: RecordingTriggerMode?
+    private var realtimeService: RealtimeTranscriptionService?
+    private var activeAudioInterruption: ActiveAudioInterruption?
     private var pendingOverlayDismissToken: UUID?
     private var shouldMonitorHotkeys = false
     private var isCapturingShortcut = false
     private var isAwaitingMicrophonePermission = false
     private var pendingMicrophonePermissionTriggerMode: RecordingTriggerMode?
+    private var pendingMicrophonePermissionSelectionSnapshot: AppSelectionSnapshot?
+    private var pendingMicrophonePermissionManualCommandRequested: Bool?
 
     init() {
         UserDefaults.standard.removeObject(forKey: "force_http2_transcription")
@@ -543,6 +635,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let apiKey = Self.loadStoredAPIKey(account: apiKeyStorageKey)
         let apiBaseURL = Self.loadStoredAPIBaseURL(account: "api_base_url")
         let transcriptionModel = UserDefaults.standard.string(forKey: apiTranscriptionModelStorageKey) ?? Self.defaultTranscriptionModel
+        let transcriptionAPIURL = Self.loadOptionalStoredAPIValue(account: transcriptionAPIURLStorageKey)
+        let transcriptionAPIKey = Self.loadStoredAPIKey(account: transcriptionAPIKeyStorageKey)
         let postProcessingModel = UserDefaults.standard.string(forKey: postProcessingModelStorageKey) ?? Self.defaultPostProcessingModel
         let postProcessingFallbackModel = UserDefaults.standard.string(forKey: postProcessingFallbackModelStorageKey) ?? Self.defaultPostProcessingFallbackModel
         let contextModel = UserDefaults.standard.string(forKey: contextModelStorageKey) ?? Self.defaultContextModel
@@ -580,6 +674,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let preserveClipboard = UserDefaults.standard.object(forKey: preserveClipboardStorageKey) == nil
             ? true
             : UserDefaults.standard.bool(forKey: preserveClipboardStorageKey)
+        let realtimeStreamingEnabled = UserDefaults.standard.bool(forKey: realtimeStreamingEnabledStorageKey)
+        let realtimeStreamingModel = UserDefaults.standard.string(forKey: realtimeStreamingModelStorageKey) ?? ""
+        let dictationAudioInterruptionEnabled = UserDefaults.standard.bool(
+            forKey: dictationAudioInterruptionEnabledStorageKey
+        )
+        let dictationAudioInterruptionMode = DictationAudioInterruptionMode(
+            rawValue: UserDefaults.standard.string(forKey: dictationAudioInterruptionModeStorageKey) ?? ""
+        ) ?? .mute
         let isPressEnterVoiceCommandEnabled = UserDefaults.standard.object(forKey: pressEnterVoiceCommandStorageKey) == nil
             ? true
             : UserDefaults.standard.bool(forKey: pressEnterVoiceCommandStorageKey)
@@ -631,6 +733,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         let selectedMicrophoneID = UserDefaults.standard.string(forKey: selectedMicrophoneStorageKey) ?? "default"
+        let shouldRestoreMutedAudio = UserDefaults.standard.bool(forKey: pendingMutedAudioRestoreStorageKey)
 
         self.contextService = Self.makeAppContextService(
             apiKey: apiKey,
@@ -642,6 +745,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.hasCompletedSetup = hasCompletedSetup
         self.apiKey = apiKey
         self.apiBaseURL = apiBaseURL
+        self.transcriptionAPIURL = transcriptionAPIURL
+        self.transcriptionAPIKey = transcriptionAPIKey
         self.transcriptionModel = transcriptionModel
         self.postProcessingModel = postProcessingModel
         self.postProcessingFallbackModel = postProcessingFallbackModel
@@ -661,6 +766,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.customContextPromptLastModified = customContextPromptLastModified
         self.shortcutStartDelay = shortcutStartDelay
         self.preserveClipboard = preserveClipboard
+        self.realtimeStreamingEnabled = realtimeStreamingEnabled
+        self.realtimeStreamingModel = realtimeStreamingModel
+        self.dictationAudioInterruptionEnabled = dictationAudioInterruptionEnabled
+        self.dictationAudioInterruptionMode = dictationAudioInterruptionMode
         self.isPressEnterVoiceCommandEnabled = isPressEnterVoiceCommandEnabled
         self.alertSoundsEnabled = alertSoundsEnabled
         self.useLocalTranscription = useLocalTranscription
@@ -694,6 +803,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         if savedToggleCustomShortcut.didUpdateStoredValue {
             persistOptionalShortcut(savedToggleCustomShortcut.binding, key: savedToggleCustomShortcutStorageKey)
+        }
+
+        if shouldRestoreMutedAudio {
+            _ = SystemAudioStatus.setDefaultOutputMuted(false)
+            UserDefaults.standard.removeObject(forKey: pendingMutedAudioRestoreStorageKey)
         }
 
         overlayManager.onStopButtonPressed = { [weak self] in
@@ -847,6 +961,38 @@ final class AppState: ObservableObject, @unchecked Sendable {
         } else {
             AppSettingsStorage.save(trimmed, account: apiBaseURLStorageKey)
         }
+    }
+
+    private func persistOptionalAPIValue(_ value: String, account: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            AppSettingsStorage.delete(account: account)
+        } else {
+            AppSettingsStorage.save(trimmed, account: account)
+        }
+    }
+
+    private static func loadOptionalStoredAPIValue(account: String) -> String {
+        let stored = AppSettingsStorage.load(account: account) ?? ""
+        return stored.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var resolvedTranscriptionBaseURL: String {
+        let trimmed = transcriptionAPIURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? apiBaseURL : trimmed
+    }
+
+    private var resolvedTranscriptionAPIKey: String {
+        let trimmed = transcriptionAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? apiKey : trimmed
+    }
+
+    func makeTranscriptionService() throws -> TranscriptionService {
+        try TranscriptionService(
+            apiKey: resolvedTranscriptionAPIKey,
+            baseURL: resolvedTranscriptionBaseURL,
+            transcriptionModel: transcriptionModel
+        )
     }
 
     private func persistShortcut(_ binding: ShortcutBinding, key: String) {
@@ -1114,7 +1260,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             do {
                 let transcriptionService = try TranscriptionService(
                     apiKey: apiKey,
-                    baseURL: apiBaseURL,
+                    baseURL: resolvedTranscriptionBaseURL,
                     useLocalTranscription: snapshot.useLocalTranscription,
                     localWhisperPath: snapshot.localWhisperPath,
                     transcriptionLanguage: snapshot.transcriptionLanguage,
@@ -1185,6 +1331,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 windowTitle: nil,
                 selectedText: nil,
                 currentActivity: item.contextSummary,
+                contextSystemPrompt: item.contextSystemPrompt,
                 contextPrompt: item.contextPrompt,
                 screenshotDataURL: item.contextScreenshotDataURL,
                 screenshotMimeType: item.contextScreenshotDataURL != nil ? "image/jpeg" : nil,
@@ -1789,7 +1936,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         debugStatusMessage = "Cancelled"
         statusText = "Cancelled"
         overlayManager.dismiss()
+        tearDownRealtimeService()
         audioRecorder.cancelRecording()
+        restoreAudioInterruptionIfNeeded()
         refreshAvailableMicrophonesIfNeeded()
         if !isRecording && !isTranscribing && statusText == "Cancelled" {
             scheduleReadyStatusReset(after: 2, matching: ["Cancelled"])
@@ -1970,6 +2119,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             ) else { return }
             guard ensureMicrophoneAccess() else { return }
             os_log(.info, log: recordingLog, "mic access check passed: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
+            applyAudioInterruptionIfNeeded()
             beginRecording(triggerMode: triggerMode)
             os_log(.info, log: recordingLog, "startRecording() finished: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
         }
@@ -2056,12 +2206,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 return false
             }
 
-            prepareForMicrophonePermissionPrompt(triggerMode: triggerMode)
+            prepareForMicrophonePermissionPrompt(
+                triggerMode: triggerMode,
+                selectionSnapshot: pendingSelectionSnapshot ?? contextService.collectSelectionSnapshot(),
+                manualCommandRequested: currentSessionIntent.isManualCommand
+            )
             AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
                 DispatchQueue.main.async {
                     guard let strongSelf = self else { return }
                     let pendingTriggerMode = strongSelf.pendingMicrophonePermissionTriggerMode
+                    let pendingSelectionSnapshot = strongSelf.pendingMicrophonePermissionSelectionSnapshot
+                    let pendingManualCommandRequested = strongSelf.pendingMicrophonePermissionManualCommandRequested
                     strongSelf.pendingMicrophonePermissionTriggerMode = nil
+                    strongSelf.pendingMicrophonePermissionSelectionSnapshot = nil
+                    strongSelf.pendingMicrophonePermissionManualCommandRequested = nil
                     strongSelf.isAwaitingMicrophonePermission = false
                     strongSelf.restartHotkeyMonitoring()
 
@@ -2071,8 +2229,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         if triggerMode == .toggle {
                             Task { [weak strongSelf] in
                                 guard let strongSelf else { return }
-                                guard await strongSelf.prepareRecordingStart(triggerMode: .toggle) else { return }
+                                guard await strongSelf.prepareRecordingStart(
+                                    triggerMode: .toggle,
+                                    selectionSnapshot: pendingSelectionSnapshot,
+                                    manualCommandRequested: pendingManualCommandRequested
+                                ) else { return }
                                 strongSelf.shortcutSessionController.beginManual(mode: .toggle)
+                                strongSelf.applyAudioInterruptionIfNeeded()
                                 strongSelf.beginRecording(triggerMode: .toggle)
                             }
                         } else {
@@ -2105,9 +2268,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    private func prepareForMicrophonePermissionPrompt(triggerMode: RecordingTriggerMode) {
+    private func prepareForMicrophonePermissionPrompt(
+        triggerMode: RecordingTriggerMode,
+        selectionSnapshot: AppSelectionSnapshot?,
+        manualCommandRequested: Bool?
+    ) {
         isAwaitingMicrophonePermission = true
         pendingMicrophonePermissionTriggerMode = triggerMode
+        pendingMicrophonePermissionSelectionSnapshot = selectionSnapshot
+        pendingMicrophonePermissionManualCommandRequested = manualCommandRequested
         hotkeyManager.stop()
         shortcutSessionController.reset()
         activeRecordingTriggerMode = nil
@@ -2117,6 +2286,42 @@ final class AppState: ObservableObject, @unchecked Sendable {
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
         overlayManager.dismiss()
+    }
+
+    private func applyAudioInterruptionIfNeeded() {
+        guard dictationAudioInterruptionEnabled, activeAudioInterruption == nil else { return }
+
+        switch dictationAudioInterruptionMode {
+        case .mute:
+            let wasMuted = SystemAudioStatus.isDefaultOutputMuted()
+            if wasMuted {
+                activeAudioInterruption = .muted(previouslyMuted: true)
+            } else if SystemAudioStatus.setDefaultOutputMuted(true) {
+                UserDefaults.standard.set(true, forKey: pendingMutedAudioRestoreStorageKey)
+                activeAudioInterruption = .muted(previouslyMuted: false)
+            }
+        case .pause:
+            guard SystemAudioStatus.isDefaultOutputRunningSomewhere() else { return }
+            SystemAudioStatus.sendMediaPlayPauseKey()
+            activeAudioInterruption = .paused
+        }
+    }
+
+    private func restoreAudioInterruptionIfNeeded() {
+        guard let activeAudioInterruption else { return }
+        self.activeAudioInterruption = nil
+
+        switch activeAudioInterruption {
+        case .muted(let previouslyMuted):
+            if !previouslyMuted {
+                _ = SystemAudioStatus.setDefaultOutputMuted(false)
+                UserDefaults.standard.removeObject(forKey: pendingMutedAudioRestoreStorageKey)
+            }
+        case .paused:
+            // This is a best-effort restore using a media-key toggle. If playback
+            // was manually resumed during dictation, toggling here may pause it again.
+            SystemAudioStatus.sendMediaPlayPauseKey()
+        }
     }
 
     private func beginRecording(triggerMode: RecordingTriggerMode) {
@@ -2177,6 +2382,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 self.handleRecordingFailure(error)
             }
         }
+
+        startRealtimeStreamingIfEnabled()
 
         // Start engine on background thread so UI isn't blocked
         if useLocalTranscription, let transcriber = localTranscriptionModel.makeLiveTranscriber() {
@@ -2282,7 +2489,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 Self.deleteStoredFiles(deletedAssets)
             }
         }
+        tearDownRealtimeService()
         audioRecorder.cleanup()
+        restoreAudioInterruptionIfNeeded()
         isRecording = false
         transcribingIndicatorTask?.cancel()
         transcribingIndicatorTask = nil
@@ -2514,6 +2723,33 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Await the realtime WebSocket's final transcript. If it errors out (or
+    /// was never started) fall back to the file-based POST so the user still
+    /// gets a transcript. Runs the realtime commit and file upload in that
+    /// strict order to avoid paying for both when realtime succeeds.
+    private static func resolveRawTranscript(
+        realtimeService: RealtimeTranscriptionService?,
+        fileService: TranscriptionService,
+        fileURL: URL
+    ) async throws -> String {
+        if let realtimeService {
+            do {
+                try Task.checkCancellation()
+                return try await withTaskCancellationHandler {
+                    try await realtimeService.commitAndAwaitFinal()
+                } onCancel: {
+                    realtimeService.cancel()
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                try Task.checkCancellation()
+                return try await fileService.transcribe(fileURL: fileURL)
+            }
+        }
+        return try await fileService.transcribe(fileURL: fileURL)
+    }
+
     @MainActor
     private func stopAndTranscribe() {
         cancelPendingShortcutStart()
@@ -2553,11 +2789,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let myOverlayID = UUID()
         overlayTranscriptionID = myOverlayID
         isRecording = false
+        restoreAudioInterruptionIfNeeded()
         refreshTranscribingState()
         statusText = "Preparing audio..."
         errorMessage = nil
         playAlertSound(named: "Pop")
         overlayManager.prepareForTranscribing()
+
         let postProcessingService = PostProcessingService(
             apiKey: apiKey,
             baseURL: apiBaseURL,
@@ -2565,7 +2803,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             preferredFallbackModel: postProcessingFallbackModel
         )
         let capturedApiKey = apiKey
-        let capturedApiBaseURL = apiBaseURL
+        let capturedApiBaseURL = resolvedTranscriptionBaseURL
         let capturedUseLocalTranscription = useLocalTranscription
         let capturedLocalWhisperPath = localWhisperPath
         let capturedTranscriptionLanguage = transcriptionLanguage
@@ -2586,6 +2824,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             self.lastContextScreenshotDataURL = context.screenshotDataURL
             self.lastContextScreenshotStatus = context.screenshotError
                 ?? "available (\(context.screenshotMimeType ?? "image"))"
+            self.lastContextAppName = context.appName ?? ""
+            self.lastContextBundleIdentifier = context.bundleIdentifier ?? ""
+            self.lastContextWindowTitle = context.windowTitle ?? ""
+            self.lastContextSelectedText = context.selectedText ?? ""
+            self.lastContextLLMPrompt = context.contextPrompt ?? ""
             self.lastPostProcessingPrompt = prompt
             self.lastRawTranscript = rawTranscript
             self.lastPostProcessedTranscript = finalTranscript
@@ -2690,19 +2933,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         customSystemPrompt: capturedCustomSystemPrompt
                     )
                     try Task.checkCancellation()
+                    let trimmedRawTranscript = parsedTranscript.transcript
+                    let trimmedFinalTranscript = result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let processingStatus = Self.statusMessage(
+                        for: result.outcome,
+                        parsedTranscript: parsedTranscript
+                    )
+                    let shouldPersistRawDictationFallback: Bool
+                    switch result.outcome {
+                    case .postProcessingFailedFallback:
+                        shouldPersistRawDictationFallback = !trimmedFinalTranscript.isEmpty
+                    default:
+                        shouldPersistRawDictationFallback = false
+                    }
                     await MainActor.run {
-                        guard self.isTranscribing else { return }
-                        let trimmedRawTranscript = parsedTranscript.transcript
-                        let trimmedFinalTranscript = result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let processingStatus = Self.statusMessage(
-                            for: result.outcome,
-                            parsedTranscript: parsedTranscript
-                        )
                         self.recordPipelineHistoryEntry(
                             jobID: jobID,
                             rawTranscript: trimmedRawTranscript,
                             postProcessedTranscript: trimmedFinalTranscript,
                             postProcessingPrompt: result.prompt,
+                            systemPrompt: Self.resolvedSystemPrompt(self.customSystemPrompt),
                             context: appContext,
                             processingStatus: processingStatus,
                             intent: sessionIntent,
@@ -2711,14 +2961,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.cleanupRecorderIfIdle()
                         let completionStatusText = self.preserveClipboard ? "Pasted at cursor!" : "Copied to clipboard!"
                         let enterOnlyStatusText = "Pressed Enter"
-                        let shouldPressEnterAfterPaste = parsedTranscript.shouldPressEnterAfterPaste
-                        let shouldPersistRawDictationFallback: Bool
-                        switch result.outcome {
-                        case .postProcessingFailedFallback:
-                            shouldPersistRawDictationFallback = !trimmedFinalTranscript.isEmpty
-                        default:
-                            shouldPersistRawDictationFallback = false
-                        }
                         updateForegroundUI(
                             trimmedRawTranscript,
                             trimmedFinalTranscript,
@@ -2727,7 +2969,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             appContext,
                             completionStatusText,
                             enterOnlyStatusText,
-                            shouldPressEnterAfterPaste,
+                            parsedTranscript.shouldPressEnterAfterPaste,
                             shouldPersistRawDictationFallback
                         )
                         completeJob(jobID)
@@ -2752,13 +2994,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     }
                     await MainActor.run {
                         self.updateTranscriptionJob(jobID) { $0.audioFileName = errorAudioFile?.fileName }
-                    }
-                    await MainActor.run {
                         self.recordPipelineHistoryEntry(
                             jobID: jobID,
                             rawTranscript: "",
                             postProcessedTranscript: "",
                             postProcessingPrompt: "",
+                            systemPrompt: Self.resolvedSystemPrompt(self.customSystemPrompt),
                             context: resolvedContext,
                             processingStatus: "Error: \(error.localizedDescription)",
                             intent: sessionIntent,
@@ -2797,6 +3038,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     self.overlayManager.dismiss()
                 }
                 self.mcpLastRecordingFailed = true
+                self.tearDownRealtimeService()
                 self.audioRecorder.cleanup()
                 self.refreshAvailableMicrophonesIfNeeded()
                 self.finishTranscriptionJob(jobID)
@@ -2806,6 +3048,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let savedAudioFile = Self.saveAudioFile(from: fileURL)
             let transcriptionFileURL = savedAudioFile?.fileURL ?? fileURL
             self.updateTranscriptionJob(jobID) { $0.audioFileName = savedAudioFile?.fileName }
+            let activeRealtime = self.realtimeService
+            self.realtimeService = nil
+            self.audioRecorder.onPCM16Samples = nil
 
             if self.overlayTranscriptionID == myOverlayID {
                 self.statusText = "Transcribing..."
@@ -2826,6 +3071,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
             let task = Task { [weak self] in
                 guard let self else { return }
+                defer { activeRealtime?.cancel() }
                 do {
                     let rawTranscript: String
                     let liveResult = try await capturedLiveTranscriber?.finalize()
@@ -2841,7 +3087,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             localTranscriptionModel: capturedLocalTranscriptionModel,
                             transcriptionModel: capturedTranscriptionModel
                         )
-                        rawTranscript = try await transcriptionService.transcribe(fileURL: transcriptionFileURL)
+                        rawTranscript = try await Self.resolveRawTranscript(
+                            realtimeService: activeRealtime,
+                            fileService: transcriptionService,
+                            fileURL: transcriptionFileURL
+                        )
                     }
                     let parsedTranscript = Self.parseTranscriptCommands(
                         from: rawTranscript,
@@ -2870,19 +3120,27 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     )
                     try Task.checkCancellation()
 
+                    let trimmedRawTranscript = parsedTranscript.transcript
+                    let trimmedFinalTranscript = result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let processingStatus = Self.statusMessage(
+                        for: result.outcome,
+                        parsedTranscript: parsedTranscript
+                    )
+                    let shouldPersistRawDictationFallback: Bool
+                    switch result.outcome {
+                    case .postProcessingFailedFallback:
+                        shouldPersistRawDictationFallback = !trimmedFinalTranscript.isEmpty
+                    default:
+                        shouldPersistRawDictationFallback = false
+                    }
+
                     await MainActor.run {
-                        guard self.isTranscribing else { return }
-                        let trimmedRawTranscript = parsedTranscript.transcript
-                        let trimmedFinalTranscript = result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let processingStatus = Self.statusMessage(
-                            for: result.outcome,
-                            parsedTranscript: parsedTranscript
-                        )
                         self.recordPipelineHistoryEntry(
                             jobID: jobID,
                             rawTranscript: trimmedRawTranscript,
                             postProcessedTranscript: trimmedFinalTranscript,
                             postProcessingPrompt: result.prompt,
+                            systemPrompt: Self.resolvedSystemPrompt(self.customSystemPrompt),
                             context: appContext,
                             processingStatus: processingStatus,
                             intent: sessionIntent,
@@ -2891,46 +3149,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.cleanupRecorderIfIdle()
                         let completionStatusText = self.preserveClipboard ? "Pasted at cursor!" : "Copied to clipboard!"
                         let enterOnlyStatusText = "Pressed Enter"
-                        let shouldPressEnterAfterPaste = parsedTranscript.shouldPressEnterAfterPaste
-                        let shouldPersistRawDictationFallback: Bool
-                        switch result.outcome {
-                        case .postProcessingFailedFallback:
-                            shouldPersistRawDictationFallback = !trimmedFinalTranscript.isEmpty
-                        default:
-                            shouldPersistRawDictationFallback = false
-                        }
-
-                        if trimmedFinalTranscript.isEmpty {
-                            self.mcpLastRecordingFailed = true
-                            self.statusText = shouldPressEnterAfterPaste ? enterOnlyStatusText : "Nothing to transcribe"
-                            self.clearPendingOverlayDismissToken()
-                            self.overlayManager.dismiss()
-                            if shouldPressEnterAfterPaste {
-                                self.pressEnterWhenShortcutReleased()
-                            }
-                        } else {
-                            self.statusText = completionStatusText
-                            if shouldPersistRawDictationFallback {
-                                self.scheduleOverlayDismissAfterFailureIndicator(after: 2.5)
-                            } else {
-                                self.clearPendingOverlayDismissToken()
-                                self.overlayManager.dismiss()
-                            }
-                            if !self.disableAutoPaste {
-                                let pendingClipboardRestore = self.writeTranscriptToPasteboard(trimmedFinalTranscript)
-                                self.pasteAtCursorWhenShortcutReleased {
-                                    if shouldPressEnterAfterPaste {
-                                        self.pressEnterAfterPaste {
-                                            self.restoreClipboardIfNeeded(pendingClipboardRestore)
-                                        }
-                                    } else {
-                                        self.restoreClipboardIfNeeded(pendingClipboardRestore)
-                                    }
-                                }
-                            }
-                        }
-
-                        self.scheduleReadyStatusReset(after: 3, matching: [completionStatusText, "Nothing to transcribe", enterOnlyStatusText])
+                        updateForegroundUI(
+                            trimmedRawTranscript,
+                            trimmedFinalTranscript,
+                            result.prompt,
+                            processingStatus,
+                            appContext,
+                            completionStatusText,
+                            enterOnlyStatusText,
+                            parsedTranscript.shouldPressEnterAfterPaste,
+                            shouldPersistRawDictationFallback
+                        )
                         completeJob(jobID)
                     }
                 } catch is CancellationError {
@@ -2952,6 +3181,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             rawTranscript: "",
                             postProcessedTranscript: "",
                             postProcessingPrompt: "",
+                            systemPrompt: Self.resolvedSystemPrompt(self.customSystemPrompt),
                             context: resolvedContext,
                             processingStatus: "Error: \(error.localizedDescription)",
                             intent: sessionIntent,
@@ -2998,6 +3228,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             postProcessingStatus: "live-recording",
             debugStatus: "",
             customVocabulary: "",
+            customSystemPrompt: customSystemPrompt,
             usedLocalTranscription: true,
             usedContextCapture: false,
             usedPostProcessing: false,
@@ -3022,27 +3253,41 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let updated = PipelineHistoryItem(
             intent: existing.intent,
             selectedText: existing.selectedText,
+            capturedSelection: existing.capturedSelection,
             id: existing.id,
             timestamp: existing.timestamp,
             rawTranscript: existing.rawTranscript,
             postProcessedTranscript: text,
             postProcessingPrompt: existing.postProcessingPrompt,
+            systemPrompt: existing.systemPrompt,
             contextSummary: existing.contextSummary,
+            contextSystemPrompt: existing.contextSystemPrompt,
             contextPrompt: existing.contextPrompt,
             contextScreenshotDataURL: existing.contextScreenshotDataURL,
             contextScreenshotStatus: existing.contextScreenshotStatus,
             postProcessingStatus: "live-recording",
             debugStatus: existing.debugStatus,
             customVocabulary: existing.customVocabulary,
+            customSystemPrompt: existing.customSystemPrompt,
             audioFileName: existing.audioFileName,
             usedLocalTranscription: existing.usedLocalTranscription,
             usedContextCapture: existing.usedContextCapture,
             usedPostProcessing: existing.usedPostProcessing,
             transcriptionLanguageCode: existing.transcriptionLanguageCode,
-            transcriptFileName: existing.transcriptFileName
+            localTranscriptionModelID: existing.localTranscriptionModelID,
+            transcriptFileName: existing.transcriptFileName,
+            contextAppName: existing.contextAppName,
+            contextBundleIdentifier: existing.contextBundleIdentifier,
+            contextWindowTitle: existing.contextWindowTitle
         )
         // DB write 없이 메모리만 업데이트 — partial 결과는 최종 저장 시 반영됨
         pipelineHistory[index] = updated
+    }
+
+    static func resolvedSystemPrompt(_ customSystemPrompt: String) -> String {
+        customSystemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? PostProcessingService.defaultSystemPrompt
+            : customSystemPrompt
     }
 
     @MainActor
@@ -3051,6 +3296,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         rawTranscript: String,
         postProcessedTranscript: String,
         postProcessingPrompt: String,
+        systemPrompt: String,
         context: AppContext,
         processingStatus: String,
         intent: SessionIntent,
@@ -3072,12 +3318,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let entry = PipelineHistoryItem(
             intent: intent.persistedIntent,
             selectedText: intent.persistedSelectedText,
+            capturedSelection: context.selectedText,
             id: existingID ?? UUID(),
             timestamp: existingEntry?.timestamp ?? activeTranscriptionJobs[jobID]?.startedAt ?? Date(),
-            rawTranscript: "",
+            rawTranscript: rawTranscript,
             postProcessedTranscript: postProcessedTranscript,
             postProcessingPrompt: postProcessingPrompt,
+            systemPrompt: systemPrompt,
             contextSummary: context.contextSummary,
+            contextSystemPrompt: context.contextSystemPrompt,
             contextPrompt: context.contextPrompt,
             contextScreenshotDataURL: context.screenshotDataURL,
             contextScreenshotStatus: context.screenshotError
@@ -3092,7 +3341,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             usedPostProcessing: !disablePostProcessing,
             transcriptionLanguageCode: transcriptionLanguage.code,
             localTranscriptionModelID: localTranscriptionModel.id,
-            transcriptFileName: transcriptFileName
+            transcriptFileName: transcriptFileName,
+            contextAppName: context.appName,
+            contextBundleIdentifier: context.bundleIdentifier,
+            contextWindowTitle: context.windowTitle
         )
         do {
             if existingID != nil {
@@ -3121,6 +3373,39 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    private func startRealtimeStreamingIfEnabled() {
+        guard realtimeStreamingEnabled else { return }
+        let trimmedBase = resolvedTranscriptionBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedBase.isEmpty else {
+            os_log(.info, log: recordingLog, "realtime streaming requested but base URL is empty — skipping")
+            return
+        }
+        let model = realtimeStreamingModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let config = RealtimeTranscriptionService.Configuration(
+            baseURL: trimmedBase,
+            apiKey: resolvedTranscriptionAPIKey,
+            model: model,
+            language: nil
+        )
+        let service = RealtimeTranscriptionService(config: config)
+        do {
+            try service.start()
+        } catch {
+            os_log(.error, log: recordingLog, "failed to start realtime service: %{public}@", error.localizedDescription)
+            return
+        }
+        realtimeService = service
+        audioRecorder.onPCM16Samples = { [weak service] data in
+            service?.appendPCM16(data)
+        }
+    }
+
+    private func tearDownRealtimeService() {
+        audioRecorder.onPCM16Samples = nil
+        realtimeService?.cancel()
+        realtimeService = nil
+    }
+
     private func startContextCapture() {
         contextCaptureTask?.cancel()
         capturedContext = nil
@@ -3147,6 +3432,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 self.lastContextScreenshotDataURL = context.screenshotDataURL
                 self.lastContextScreenshotStatus = context.screenshotError
                     ?? "available (\(context.screenshotMimeType ?? "image"))"
+                self.lastContextAppName = context.appName ?? ""
+                self.lastContextBundleIdentifier = context.bundleIdentifier ?? ""
+                self.lastContextWindowTitle = context.windowTitle ?? ""
+                self.lastContextSelectedText = context.selectedText ?? ""
+                self.lastContextLLMPrompt = context.contextPrompt ?? ""
                 self.lastPostProcessingStatus = "App context captured"
                 self.handleScreenshotCaptureIssue(context.screenshotError)
             }
@@ -3163,11 +3453,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
             windowTitle: windowTitle,
             selectedText: nil,
             currentActivity: "Could not refresh app context at stop time; using text-only post-processing.",
+            contextSystemPrompt: resolvedContextSystemPrompt(),
             contextPrompt: nil,
             screenshotDataURL: nil,
             screenshotMimeType: nil,
             screenshotError: "No app context captured before stop"
         )
+    }
+
+    private func resolvedContextSystemPrompt() -> String {
+        let trimmedPrompt = customContextPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedPrompt.isEmpty ? AppContextService.defaultContextPrompt : trimmedPrompt
     }
 
     private func focusedWindowTitle(for app: NSRunningApplication?) -> String? {
@@ -3228,6 +3524,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             hasShownScreenshotPermissionAlert = true
 
             // Permission errors are fatal — stop recording
+            tearDownRealtimeService()
             audioRecorder.cancelRecording()
             audioLevelCancellable?.cancel()
             audioLevelCancellable = nil
@@ -3235,6 +3532,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             contextCaptureTask = nil
             capturedContext = nil
             isRecording = false
+            restoreAudioInterruptionIfNeeded()
             shortcutSessionController.reset()
             activeRecordingTriggerMode = nil
             statusText = "Screenshot Required"
