@@ -2577,47 +2577,40 @@ final class AppState: ObservableObject, @unchecked Sendable {
         liveTranscriber = nil
         audioRecorder.onAudioBuffer = nil
 
-        @Sendable func updateForegroundUI(
-            rawTranscript: String,
-            finalTranscript: String,
-            prompt: String,
-            processingStatus: String,
-            context: AppContext,
-            completionStatusText: String,
-            enterOnlyStatusText: String,
-            shouldPressEnterAfterPaste: Bool,
-            shouldPersistRawDictationFallback: Bool
-        ) {
-            guard overlayTranscriptionID == myOverlayID else { return }
-            lastContextSummary = context.contextSummary
-            lastContextScreenshotDataURL = context.screenshotDataURL
-            lastContextScreenshotStatus = context.screenshotError
+        let updateForegroundUI: @Sendable (
+            String, String, String, String, AppContext, String, String, Bool, Bool
+        ) -> Void = { [weak self] rawTranscript, finalTranscript, prompt, processingStatus, context, completionStatusText, enterOnlyStatusText, shouldPressEnterAfterPaste, shouldPersistRawDictationFallback in
+            guard let self else { return }
+            guard self.overlayTranscriptionID == myOverlayID else { return }
+            self.lastContextSummary = context.contextSummary
+            self.lastContextScreenshotDataURL = context.screenshotDataURL
+            self.lastContextScreenshotStatus = context.screenshotError
                 ?? "available (\(context.screenshotMimeType ?? "image"))"
-            lastPostProcessingPrompt = prompt
-            lastRawTranscript = rawTranscript
-            lastPostProcessedTranscript = finalTranscript
-            lastPostProcessingStatus = processingStatus
-            lastTranscript = finalTranscript
-            debugStatusMessage = "Done"
-            statusText = completionStatusText
+            self.lastPostProcessingPrompt = prompt
+            self.lastRawTranscript = rawTranscript
+            self.lastPostProcessedTranscript = finalTranscript
+            self.lastPostProcessingStatus = processingStatus
+            self.lastTranscript = finalTranscript
+            self.debugStatusMessage = "Done"
+            self.statusText = completionStatusText
             if finalTranscript.isEmpty {
-                mcpLastRecordingFailed = true
-                statusText = shouldPressEnterAfterPaste ? enterOnlyStatusText : "Nothing to transcribe"
-                clearPendingOverlayDismissToken()
-                overlayManager.dismiss()
+                self.mcpLastRecordingFailed = true
+                self.statusText = shouldPressEnterAfterPaste ? enterOnlyStatusText : "Nothing to transcribe"
+                self.clearPendingOverlayDismissToken()
+                self.overlayManager.dismiss()
                 if shouldPressEnterAfterPaste {
-                    pressEnterWhenShortcutReleased()
+                    self.pressEnterWhenShortcutReleased()
                 }
             } else {
                 if shouldPersistRawDictationFallback {
-                    scheduleOverlayDismissAfterFailureIndicator(after: 2.5)
+                    self.scheduleOverlayDismissAfterFailureIndicator(after: 2.5)
                 } else {
-                    clearPendingOverlayDismissToken()
-                    overlayManager.dismiss()
+                    self.clearPendingOverlayDismissToken()
+                    self.overlayManager.dismiss()
                 }
-                if !disableAutoPaste {
-                    let pendingClipboardRestore = writeTranscriptToPasteboard(finalTranscript)
-                    pasteAtCursorWhenShortcutReleased {
+                if !self.disableAutoPaste {
+                    let pendingClipboardRestore = self.writeTranscriptToPasteboard(finalTranscript)
+                    self.pasteAtCursorWhenShortcutReleased {
                         if shouldPressEnterAfterPaste {
                             self.pressEnterAfterPaste {
                                 self.restoreClipboardIfNeeded(pendingClipboardRestore)
@@ -2628,15 +2621,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     }
                 }
             }
-            scheduleReadyStatusReset(after: 3, matching: [completionStatusText, "Nothing to transcribe", enterOnlyStatusText])
+            self.scheduleReadyStatusReset(after: 3, matching: [completionStatusText, "Nothing to transcribe", enterOnlyStatusText])
         }
 
-        @Sendable func completeJob(_ id: UUID) {
+        let completeJob: @Sendable (UUID) -> Void = { [weak self] id in
             Task { @MainActor in
-                finishTranscriptionJob(id)
-                if overlayTranscriptionID == myOverlayID {
-                    transcribingIndicatorTask?.cancel()
-                    transcribingIndicatorTask = nil
+                guard let self else { return }
+                self.finishTranscriptionJob(id)
+                if self.overlayTranscriptionID == myOverlayID {
+                    self.transcribingIndicatorTask?.cancel()
+                    self.transcribingIndicatorTask = nil
                 }
             }
         }
