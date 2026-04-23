@@ -1078,7 +1078,7 @@ struct GeneralSettingsView: View {
 
             Toggle("Say \"press enter\" to submit after paste", isOn: $appState.isPressEnterVoiceCommandEnabled)
 
-            Text("When the transcription ends with \"press enter\", FreeFlow removes those words before cleanup, pastes the remaining transcript, then presses Return.")
+            Text("When the transcription ends with \"press enter\", Quill removes those words before cleanup, pastes the remaining transcript, then presses Return.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

@@ -2724,7 +2724,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self?.debugStatusMessage = "Running post-processing"
                     }
                     let result = await self.processTranscript(
-                        rawTranscript,
+                        parsedTranscript.transcript,
                         intent: sessionIntent,
                         context: appContext,
                         postProcessingService: postProcessingService,
@@ -2734,9 +2734,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     try Task.checkCancellation()
 
                     await MainActor.run {
-                        let trimmedRawTranscript = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let trimmedRawTranscript = parsedTranscript.transcript
                         let trimmedFinalTranscript = result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-                        let processingStatus = result.outcome.statusMessage()
+                        let processingStatus = Self.statusMessage(
+                            for: result.outcome,
+                            parsedTranscript: parsedTranscript
+                        )
 
                         // 데이터 저장은 항상 실행
                         self.recordPipelineHistoryEntry(
