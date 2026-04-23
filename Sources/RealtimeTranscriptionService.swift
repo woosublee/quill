@@ -345,9 +345,11 @@ final class RealtimeTranscriptionService {
 
     // MARK: URL derivation
 
-    /// Turn `https://host[/prefix]` or `http://host[/prefix]` into
-    /// `wss://host[/prefix]/realtime`, reusing a trailing `/v1` prefix when
-    /// the configured base URL already includes it.
+    /// Turn a provider base URL or common OpenAI-style endpoint URL into a
+    /// realtime WebSocket URL. Accepts inputs like:
+    /// - `https://host`
+    /// - `https://host/v1`
+    /// - `https://host/v1/chat/completions`
     static func deriveWebSocketURL(
         baseURL: String,
         model: String,
@@ -365,7 +367,15 @@ final class RealtimeTranscriptionService {
 
         var path = components.path
         if path.hasSuffix("/") { path.removeLast() }
-        if path.hasSuffix("/v1") {
+        if path.hasSuffix("/chat/completions") {
+            path = String(path.dropLast("/chat/completions".count))
+        }
+        if path.hasSuffix("/audio/transcriptions") {
+            path = String(path.dropLast("/audio/transcriptions".count))
+        }
+        if path.hasSuffix("/realtime") {
+            // keep as-is
+        } else if path.hasSuffix("/v1") {
             path += "/realtime"
         } else {
             path += "/v1/realtime"

@@ -611,7 +611,9 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
         )
         guard copyStatus == noErr else { return }
 
-        let ratio = pcm16TargetFormat.sampleRate / sourceFormat.sampleRate
+        let sourceRate = sourceFormat.sampleRate
+        guard sourceRate > 0 else { return }
+        let ratio = pcm16TargetFormat.sampleRate / sourceRate
         let outputCapacity = AVAudioFrameCount(ceil(Double(frameCount) * ratio)) + 32
         if pcm16OutputBuffer == nil || pcm16OutputBuffer?.frameCapacity ?? 0 < outputCapacity {
             pcm16OutputBuffer = AVAudioPCMBuffer(pcmFormat: pcm16TargetFormat, frameCapacity: outputCapacity)

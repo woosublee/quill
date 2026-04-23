@@ -2309,6 +2309,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 _ = SystemAudioStatus.setDefaultOutputMuted(false)
             }
         case .paused:
+            // This is a best-effort restore using a media-key toggle. If playback
+            // was manually resumed during dictation, toggling here may pause it again.
             SystemAudioStatus.sendMediaPlayPauseKey()
         }
     }
