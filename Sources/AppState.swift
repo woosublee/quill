@@ -1008,6 +1008,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         refreshTranscribingState()
     }
 
+    @MainActor
     private func foregroundTranscriptionJob() -> TranscriptionJob? {
         guard let foregroundTranscriptionJobID else { return nil }
         return activeTranscriptionJobs[foregroundTranscriptionJobID]
@@ -2257,6 +2258,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         contextCaptureTask?.cancel()
         contextCaptureTask = nil
         capturedContext = nil
+        if let liveNoteID = currentRecordingLiveNoteID {
+            currentRecordingLiveNoteID = nil
+            pipelineHistory.removeAll { $0.id == liveNoteID }
+            if let deletedAssets = try? pipelineHistoryStore.delete(id: liveNoteID) {
+                Self.deleteStoredFiles(deletedAssets)
+            }
+        }
         audioRecorder.cleanup()
         isRecording = false
         transcribingIndicatorTask?.cancel()
