@@ -350,6 +350,7 @@ final class RealtimeTranscriptionService {
     /// - `https://host`
     /// - `https://host/v1`
     /// - `https://host/v1/chat/completions`
+    /// - `https://host/v1/audio/transcriptions`
     static func deriveWebSocketURL(
         baseURL: String,
         model: String,
@@ -365,22 +366,22 @@ final class RealtimeTranscriptionService {
         default: return nil
         }
 
-        var path = components.path
-        if path.hasSuffix("/") { path.removeLast() }
-        if path.hasSuffix("/chat/completions") {
-            path = String(path.dropLast("/chat/completions".count))
+        var pathComponents = components.path.split(separator: "/").map(String.init)
+        if pathComponents.suffix(2) == ["chat", "completions"] {
+            pathComponents.removeLast(2)
+        } else if pathComponents.suffix(2) == ["audio", "transcriptions"] {
+            pathComponents.removeLast(2)
         }
-        if path.hasSuffix("/audio/transcriptions") {
-            path = String(path.dropLast("/audio/transcriptions".count))
-        }
-        if path.hasSuffix("/realtime") {
+
+        if pathComponents.last == "realtime" {
             // keep as-is
-        } else if path.hasSuffix("/v1") {
-            path += "/realtime"
+        } else if pathComponents.last == "v1" {
+            pathComponents.append("realtime")
         } else {
-            path += "/v1/realtime"
+            pathComponents.append(contentsOf: ["v1", "realtime"])
         }
-        components.path = path
+
+        components.path = "/" + pathComponents.joined(separator: "/")
 
         var queryItems = components.queryItems ?? []
         if !queryItems.contains(where: { $0.name == "intent" }) {
