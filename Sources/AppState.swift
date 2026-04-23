@@ -2720,15 +2720,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             shouldPersistRawDictationFallback = false
                         }
                         updateForegroundUI(
-                            rawTranscript: trimmedRawTranscript,
-                            finalTranscript: trimmedFinalTranscript,
-                            prompt: result.prompt,
-                            processingStatus: processingStatus,
-                            context: appContext,
-                            completionStatusText: completionStatusText,
-                            enterOnlyStatusText: enterOnlyStatusText,
-                            shouldPressEnterAfterPaste: shouldPressEnterAfterPaste,
-                            shouldPersistRawDictationFallback: shouldPersistRawDictationFallback
+                            trimmedRawTranscript,
+                            trimmedFinalTranscript,
+                            result.prompt,
+                            processingStatus,
+                            appContext,
+                            completionStatusText,
+                            enterOnlyStatusText,
+                            shouldPressEnterAfterPaste,
+                            shouldPersistRawDictationFallback
                         )
                         completeJob(jobID)
                     }
