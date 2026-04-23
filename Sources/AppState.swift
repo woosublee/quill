@@ -949,6 +949,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         isTranscribing = !activeTranscriptionJobs.isEmpty
     }
 
+    @MainActor
     private func registerTranscriptionJob(
         id: UUID,
         startedAt: Date,
@@ -970,12 +971,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         refreshTranscribingState()
     }
 
+    @MainActor
     private func updateTranscriptionJob(_ id: UUID, _ mutate: (inout TranscriptionJob) -> Void) {
         guard var job = activeTranscriptionJobs[id] else { return }
         mutate(&job)
         activeTranscriptionJobs[id] = job
     }
 
+    @MainActor
     private func finishTranscriptionJob(_ id: UUID) {
         activeTranscriptionJobs.removeValue(forKey: id)
         if foregroundTranscriptionJobID == id {
@@ -1550,7 +1553,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
         }
         hotkeyManager.onEscapeKeyPressed = { [weak self] in
-            self?.handleEscapeKeyPress() ?? false
+            guard let self else { return false }
+            if Thread.isMainThread {
+                return self.handleEscapeKeyPress()
+            }
+            return DispatchQueue.main.sync {
+                self.handleEscapeKeyPress()
+            }
         }
         restartHotkeyMonitoring()
     }
@@ -1603,6 +1612,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func handleShortcutEvent(_ event: ShortcutEvent) {
         guard let action = shortcutSessionController.handle(event: event, isTranscribing: isTranscribing) else {
             return
@@ -1632,10 +1642,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private func handleEscapeKeyPress() -> Bool {
         guard shouldConfirmEscapeCancellation else { return false }
-        presentEscapeCancellationAlert()
+        DispatchQueue.main.sync {
+            self.presentEscapeCancellationAlert()
+        }
         return true
     }
 
+    @MainActor
     func toggleRecording() {
         os_log(.info, log: recordingLog, "toggleRecording() called, isRecording=%{public}d", isRecording)
         cancelPendingShortcutStart()
@@ -1655,11 +1668,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         startRecording(triggerMode: .toggle)
     }
 
+    @MainActor
     func stopRecordingFromMCP() {
         guard isRecording else { return }
         stopAndTranscribe()
     }
 
+    @MainActor
     private func handleOverlayStopButtonPressed() {
         guard isRecording, activeRecordingTriggerMode == .toggle else { return }
         stopAndTranscribe()
@@ -1673,6 +1688,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return pendingShortcutStartMode == .toggle || activeRecordingTriggerMode == .toggle
     }
 
+    @MainActor
     private func presentEscapeCancellationAlert() {
         guard !isEscapeCancelAlertPresented else { return }
         isEscapeCancelAlertPresented = true
@@ -1700,6 +1716,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func cancelToggleShortcutSession() {
         guard pendingShortcutStartMode == .toggle || activeRecordingTriggerMode == .toggle else { return }
 
@@ -1737,6 +1754,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func cancelTranscription() {
         guard let job = foregroundTranscriptionJob() else { return }
 
@@ -2144,7 +2162,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     self.currentRecordingLiveNoteID = liveID
                     transcriber.onPartialResult = { [weak self] text in
                         Task { @MainActor [weak self] in
-                            self?.updateLiveNoteTranscript(jobID: liveID, text)
+                            self?.updateLiveNoteTranscript(noteID: liveID, text)
                         }
                     }
                     await MainActor.run {
@@ -2405,6 +2423,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func stopAndTranscribe() {
         cancelPendingShortcutStart()
         cancelRecordingInitializationTimer()
@@ -2419,7 +2438,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         let sessionContext = capturedContext
         let inFlightContextTask = contextCaptureTask
-        let jobID = UUID()
+        let jobID = currentRecordingLiveNoteID ?? UUID()
         let liveNoteID = currentRecordingLiveNoteID
         currentRecordingLiveNoteID = nil
         let startedAt = Date()
@@ -2511,10 +2530,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         @Sendable func completeJob(_ id: UUID) {
-            finishTranscriptionJob(id)
-            if overlayTranscriptionID == myOverlayID {
-                transcribingIndicatorTask?.cancel()
-                transcribingIndicatorTask = nil
+            Task { @MainActor in
+                finishTranscriptionJob(id)
+                if overlayTranscriptionID == myOverlayID {
+                    transcribingIndicatorTask?.cancel()
+                    transcribingIndicatorTask = nil
+                }
             }
         }
 
@@ -2544,7 +2565,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         try? FileManager.default.removeItem(at: url)
                         return saved
                     }
-                    updateTranscriptionJob(jobID) { $0.audioFileName = savedAudioFile?.fileName }
+                    await MainActor.run {
+                        self.updateTranscriptionJob(jobID) { $0.audioFileName = savedAudioFile?.fileName }
+                    }
                     try Task.checkCancellation()
                     let appContext: AppContext
                     if let sessionContext {
@@ -2619,7 +2642,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         try? FileManager.default.removeItem(at: url)
                         return saved
                     }
-                    updateTranscriptionJob(jobID) { $0.audioFileName = errorAudioFile?.fileName }
+                    await MainActor.run {
+                        self.updateTranscriptionJob(jobID) { $0.audioFileName = errorAudioFile?.fileName }
+                    }
                     await MainActor.run {
                         self.recordPipelineHistoryEntry(
                             jobID: jobID,
@@ -2816,6 +2841,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     // 라이브 전사 시작 시 Note Browser에 즉시 표시될 예비 노트 생성
+    @MainActor
     private func createLiveNote(jobID: UUID, noteID: UUID) {
         updateTranscriptionJob(jobID) { $0.liveNoteID = noteID }
         let entry = PipelineHistoryItem(
@@ -2849,9 +2875,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     // 라이브 전사 partial 결과로 노트 텍스트 업데이트
     @MainActor
-    private func updateLiveNoteTranscript(jobID: UUID, _ text: String) {
-        guard let id = activeTranscriptionJobs[jobID]?.liveNoteID,
-              let index = pipelineHistory.firstIndex(where: { $0.id == id }) else { return }
+    private func updateLiveNoteTranscript(noteID: UUID, _ text: String) {
+        guard let index = pipelineHistory.firstIndex(where: { $0.id == noteID }) else { return }
         let existing = pipelineHistory[index]
         let updated = PipelineHistoryItem(
             intent: existing.intent,
@@ -2879,6 +2904,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         pipelineHistory[index] = updated
     }
 
+    @MainActor
     private func recordPipelineHistoryEntry(
         jobID: UUID,
         rawTranscript: String,

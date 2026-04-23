@@ -276,7 +276,9 @@ final class MCPServer {
             guard appState.isRecording else {
                 return textContent("Not currently recording.")
             }
-            appState.stopRecordingFromMCP()
+            DispatchQueue.main.sync {
+                appState.stopRecordingFromMCP()
+            }
             return textContent("Recording stopped. Transcription in progress — listen for recording/completed event.")
 
         case "get_status":
