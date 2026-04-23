@@ -261,6 +261,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let realtimeStreamingModelStorageKey = "realtime_streaming_model"
     private let dictationAudioInterruptionEnabledStorageKey = "dictation_audio_interruption_enabled"
     private let dictationAudioInterruptionModeStorageKey = "dictation_audio_interruption_mode"
+    private let pendingMutedAudioRestoreStorageKey = "pending_muted_audio_restore"
     private let transcribingIndicatorDelay: TimeInterval = 0.25
     private let pasteAfterShortcutReleaseDelay: TimeInterval = 0.03
     private let pressEnterAfterPasteDelay: TimeInterval = 0.08
@@ -732,6 +733,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         let selectedMicrophoneID = UserDefaults.standard.string(forKey: selectedMicrophoneStorageKey) ?? "default"
+        let shouldRestoreMutedAudio = UserDefaults.standard.bool(forKey: pendingMutedAudioRestoreStorageKey)
 
         self.contextService = Self.makeAppContextService(
             apiKey: apiKey,
@@ -801,6 +803,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         if savedToggleCustomShortcut.didUpdateStoredValue {
             persistOptionalShortcut(savedToggleCustomShortcut.binding, key: savedToggleCustomShortcutStorageKey)
+        }
+
+        if shouldRestoreMutedAudio {
+            _ = SystemAudioStatus.setDefaultOutputMuted(false)
+            UserDefaults.standard.removeObject(forKey: pendingMutedAudioRestoreStorageKey)
         }
 
         overlayManager.onStopButtonPressed = { [weak self] in
@@ -2290,6 +2297,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             if wasMuted {
                 activeAudioInterruption = .muted(previouslyMuted: true)
             } else if SystemAudioStatus.setDefaultOutputMuted(true) {
+                UserDefaults.standard.set(true, forKey: pendingMutedAudioRestoreStorageKey)
                 activeAudioInterruption = .muted(previouslyMuted: false)
             }
         case .pause:
@@ -2307,6 +2315,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .muted(let previouslyMuted):
             if !previouslyMuted {
                 _ = SystemAudioStatus.setDefaultOutputMuted(false)
+                UserDefaults.standard.removeObject(forKey: pendingMutedAudioRestoreStorageKey)
             }
         case .paused:
             // This is a best-effort restore using a media-key toggle. If playback
