@@ -182,6 +182,17 @@ private enum SessionIntent {
 }
 
 final class AppState: ObservableObject, @unchecked Sendable {
+    private struct TranscriptionJob {
+        let id: UUID
+        let startedAt: Date
+        let sessionIntent: SessionIntent
+        let sessionContext: AppContext?
+        let contextTask: Task<AppContext?, Never>?
+        var task: Task<Void, Never>?
+        var audioFileName: String?
+        var liveNoteID: UUID?
+    }
+
     private let apiKeyStorageKey = "groq_api_key"
     private let apiBaseURLStorageKey = "api_base_url"
     private let apiTranscriptionModelStorageKey = "api_transcription_model"
@@ -498,12 +509,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var debugOverlayTimer: Timer?
     private var recordingInitializationTimer: DispatchSourceTimer?
     private var transcribingIndicatorTask: Task<Void, Never>?
-    private var transcriptionTask: Task<Void, Never>?
     private var liveTranscriber: (any LiveTranscriber)?
-    private var liveNoteID: UUID?
+    private var currentRecordingLiveNoteID: UUID?
     private var isCancelConfirmationShowing = false
-    private var transcribingAudioFileName: String?
     private var overlayTranscriptionID: UUID = UUID()
+    private var foregroundTranscriptionJobID: UUID?
+    private var activeTranscriptionJobs: [UUID: TranscriptionJob] = [:]
     private var contextService: AppContextService
     private var contextCaptureTask: Task<AppContext?, Never>?
     private var capturedContext: AppContext?
@@ -953,6 +964,62 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private static func deleteStoredFiles(_ assets: DeletedPipelineHistoryAssets) {
         deleteStoredFiles(audioFileName: assets.audioFileName, transcriptFileName: assets.transcriptFileName)
+    }
+
+    @MainActor
+    private func refreshTranscribingState() {
+        isTranscribing = !activeTranscriptionJobs.isEmpty
+    }
+
+    @MainActor
+    private func registerTranscriptionJob(
+        id: UUID,
+        startedAt: Date,
+        sessionIntent: SessionIntent,
+        sessionContext: AppContext?,
+        contextTask: Task<AppContext?, Never>?
+    ) {
+        activeTranscriptionJobs[id] = TranscriptionJob(
+            id: id,
+            startedAt: startedAt,
+            sessionIntent: sessionIntent,
+            sessionContext: sessionContext,
+            contextTask: contextTask,
+            task: nil,
+            audioFileName: nil,
+            liveNoteID: nil
+        )
+        foregroundTranscriptionJobID = id
+        refreshTranscribingState()
+    }
+
+    @MainActor
+    private func updateTranscriptionJob(_ id: UUID, _ mutate: (inout TranscriptionJob) -> Void) {
+        guard var job = activeTranscriptionJobs[id] else { return }
+        mutate(&job)
+        activeTranscriptionJobs[id] = job
+    }
+
+    @MainActor
+    private func finishTranscriptionJob(_ id: UUID) {
+        activeTranscriptionJobs.removeValue(forKey: id)
+        if foregroundTranscriptionJobID == id {
+            foregroundTranscriptionJobID = activeTranscriptionJobs.values.max(by: { $0.startedAt < $1.startedAt })?.id
+        }
+        refreshTranscribingState()
+    }
+
+    @MainActor
+    private func foregroundTranscriptionJob() -> TranscriptionJob? {
+        guard let foregroundTranscriptionJobID else { return nil }
+        return activeTranscriptionJobs[foregroundTranscriptionJobID]
+    }
+
+    @MainActor
+    private func cleanupRecorderIfIdle() {
+        guard !isRecording else { return }
+        audioRecorder.cleanup()
+        refreshAvailableMicrophonesIfNeeded()
     }
 
     func clearPipelineHistory() {
@@ -1518,7 +1585,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
         }
         hotkeyManager.onEscapeKeyPressed = { [weak self] in
-            self?.handleEscapeKeyPress() ?? false
+            guard let self else { return false }
+            let shouldHandle = Thread.isMainThread
+                ? self.shouldConfirmEscapeCancellation
+                : DispatchQueue.main.sync {
+                    self.shouldConfirmEscapeCancellation
+                }
+            guard shouldHandle else { return false }
+            DispatchQueue.main.async {
+                _ = self.handleEscapeKeyPress()
+            }
+            return true
         }
         restartHotkeyMonitoring()
     }
@@ -1571,6 +1648,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func handleShortcutEvent(_ event: ShortcutEvent) {
         guard let action = shortcutSessionController.handle(event: event, isTranscribing: isTranscribing) else {
             return
@@ -1598,12 +1676,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func handleEscapeKeyPress() -> Bool {
         guard shouldConfirmEscapeCancellation else { return false }
         presentEscapeCancellationAlert()
         return true
     }
 
+    @MainActor
     func toggleRecording() {
         os_log(.info, log: recordingLog, "toggleRecording() called, isRecording=%{public}d", isRecording)
         cancelPendingShortcutStart()
@@ -1623,11 +1703,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         startRecording(triggerMode: .toggle)
     }
 
+    @MainActor
     func stopRecordingFromMCP() {
         guard isRecording else { return }
         stopAndTranscribe()
     }
 
+    @MainActor
     private func handleOverlayStopButtonPressed() {
         guard isRecording, activeRecordingTriggerMode == .toggle else { return }
         stopAndTranscribe()
@@ -1641,6 +1723,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return pendingShortcutStartMode == .toggle || activeRecordingTriggerMode == .toggle
     }
 
+    @MainActor
     private func presentEscapeCancellationAlert() {
         guard !isEscapeCancelAlertPresented else { return }
         isEscapeCancelAlertPresented = true
@@ -1668,6 +1751,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func cancelToggleShortcutSession() {
         guard pendingShortcutStartMode == .toggle || activeRecordingTriggerMode == .toggle else { return }
 
@@ -1679,8 +1763,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
         audioRecorder.onAudioBuffer = nil
         liveTranscriber?.cancel()
         liveTranscriber = nil
-        if let id = liveNoteID {
-            liveNoteID = nil
+        if let id = currentRecordingLiveNoteID {
+            currentRecordingLiveNoteID = nil
+            pipelineHistory.removeAll { $0.id == id }
+            if let deletedAssets = try? pipelineHistoryStore.delete(id: id) {
+                Self.deleteStoredFiles(deletedAssets)
+            }
+        }
+        if let job = foregroundTranscriptionJob(), let id = job.liveNoteID {
+            updateTranscriptionJob(job.id) { $0.liveNoteID = nil }
             pipelineHistory.removeAll { $0.id == id }
             if let deletedAssets = try? pipelineHistoryStore.delete(id: id) {
                 Self.deleteStoredFiles(deletedAssets)
@@ -1705,30 +1796,32 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func cancelTranscription() {
-        guard isTranscribing else { return }
+        guard let job = foregroundTranscriptionJob() else { return }
 
-        transcriptionTask?.cancel()
-        transcriptionTask = nil
+        job.task?.cancel()
         transcribingIndicatorTask?.cancel()
         transcribingIndicatorTask = nil
-        contextCaptureTask?.cancel()
-        contextCaptureTask = nil
-        capturedContext = nil
         shortcutSessionController.reset()
         activeRecordingTriggerMode = nil
         currentSessionIntent = .dictation
         isRecording = false
-        isTranscribing = false
         errorMessage = nil
         debugStatusMessage = "Cancelled"
         statusText = "Cancelled"
         overlayManager.dismiss()
-        audioRecorder.cleanup()
-        if let transcribingAudioFileName {
-            Self.deleteAudioFile(transcribingAudioFileName)
-            self.transcribingAudioFileName = nil
+        cleanupRecorderIfIdle()
+        if let audioFileName = job.audioFileName {
+            Self.deleteAudioFile(audioFileName)
         }
+        if let liveNoteID = job.liveNoteID {
+            pipelineHistory.removeAll { $0.id == liveNoteID }
+            if let deletedAssets = try? pipelineHistoryStore.delete(id: liveNoteID) {
+                Self.deleteStoredFiles(deletedAssets)
+            }
+        }
+        finishTranscriptionJob(job.id)
         refreshAvailableMicrophonesIfNeeded()
         if !isRecording && !isTranscribing && statusText == "Cancelled" {
             scheduleReadyStatusReset(after: 2, matching: ["Cancelled"])
@@ -1854,8 +1947,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         // 전사 중이면 오버레이 소유권만 넘기고 전사는 백그라운드에서 계속 실행
         if isTranscribing {
-            overlayTranscriptionID = UUID()  // 이전 전사의 오버레이 소유권 무효화
-            isTranscribing = false
+            overlayTranscriptionID = UUID()
+            foregroundTranscriptionJobID = nil
         }
 
         let scheduledSelectionSnapshot = pendingSelectionSnapshot
@@ -2108,13 +2201,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
                     // 녹음 시작 전 예비 노트를 생성해 Note Browser에 즉시 표시
                     let liveID = UUID()
+                    self.currentRecordingLiveNoteID = liveID
                     transcriber.onPartialResult = { [weak self] text in
                         Task { @MainActor [weak self] in
-                            self?.updateLiveNoteTranscript(text)
+                            self?.updateLiveNoteTranscript(noteID: liveID, text)
                         }
                     }
                     await MainActor.run {
-                        self.createLiveNote(id: liveID)
+                        self.createLiveNote(jobID: liveID, noteID: liveID)
                     }
 
                     let t0 = CFAbsoluteTimeGetCurrent()
@@ -2171,6 +2265,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func handleRecordingFailure(_ error: Error) {
         cancelRecordingInitializationTimer()
         audioRecorder.onRecordingReady = nil
@@ -2180,17 +2275,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         contextCaptureTask?.cancel()
         contextCaptureTask = nil
         capturedContext = nil
+        if let liveNoteID = currentRecordingLiveNoteID {
+            currentRecordingLiveNoteID = nil
+            pipelineHistory.removeAll { $0.id == liveNoteID }
+            if let deletedAssets = try? pipelineHistoryStore.delete(id: liveNoteID) {
+                Self.deleteStoredFiles(deletedAssets)
+            }
+        }
         audioRecorder.cleanup()
         isRecording = false
-        isTranscribing = false
-        transcriptionTask?.cancel()
-        transcriptionTask = nil
         transcribingIndicatorTask?.cancel()
         transcribingIndicatorTask = nil
-        if let transcribingAudioFileName {
-            Self.deleteAudioFile(transcribingAudioFileName)
-            self.transcribingAudioFileName = nil
-        }
+        refreshTranscribingState()
         activeRecordingTriggerMode = nil
         currentSessionIntent = .dictation
         shortcutSessionController.reset()
@@ -2418,6 +2514,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func stopAndTranscribe() {
         cancelPendingShortcutStart()
         cancelRecordingInitializationTimer()
@@ -2432,6 +2529,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         let sessionContext = capturedContext
         let inFlightContextTask = contextCaptureTask
+        let jobID = currentRecordingLiveNoteID ?? UUID()
+        let liveNoteID = currentRecordingLiveNoteID
+        currentRecordingLiveNoteID = nil
+        let startedAt = Date()
+        registerTranscriptionJob(
+            id: jobID,
+            startedAt: startedAt,
+            sessionIntent: sessionIntent,
+            sessionContext: sessionContext,
+            contextTask: inFlightContextTask
+        )
+        updateTranscriptionJob(jobID) { $0.liveNoteID = liveNoteID }
         capturedContext = nil
         contextCaptureTask = nil
         lastRawTranscript = ""
@@ -2444,7 +2553,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let myOverlayID = UUID()
         overlayTranscriptionID = myOverlayID
         isRecording = false
-        isTranscribing = true
+        refreshTranscribingState()
         statusText = "Preparing audio..."
         errorMessage = nil
         playAlertSound(named: "Pop")
@@ -2468,10 +2577,66 @@ final class AppState: ObservableObject, @unchecked Sendable {
         liveTranscriber = nil
         audioRecorder.onAudioBuffer = nil
 
+        let updateForegroundUI: @Sendable (
+            String, String, String, String, AppContext, String, String, Bool, Bool
+        ) -> Void = { [weak self] rawTranscript, finalTranscript, prompt, processingStatus, context, completionStatusText, enterOnlyStatusText, shouldPressEnterAfterPaste, shouldPersistRawDictationFallback in
+            guard let self else { return }
+            guard self.overlayTranscriptionID == myOverlayID else { return }
+            self.lastContextSummary = context.contextSummary
+            self.lastContextScreenshotDataURL = context.screenshotDataURL
+            self.lastContextScreenshotStatus = context.screenshotError
+                ?? "available (\(context.screenshotMimeType ?? "image"))"
+            self.lastPostProcessingPrompt = prompt
+            self.lastRawTranscript = rawTranscript
+            self.lastPostProcessedTranscript = finalTranscript
+            self.lastPostProcessingStatus = processingStatus
+            self.lastTranscript = finalTranscript
+            self.debugStatusMessage = "Done"
+            self.statusText = completionStatusText
+            if finalTranscript.isEmpty {
+                self.mcpLastRecordingFailed = true
+                self.statusText = shouldPressEnterAfterPaste ? enterOnlyStatusText : "Nothing to transcribe"
+                self.clearPendingOverlayDismissToken()
+                self.overlayManager.dismiss()
+                if shouldPressEnterAfterPaste {
+                    self.pressEnterWhenShortcutReleased()
+                }
+            } else {
+                if shouldPersistRawDictationFallback {
+                    self.scheduleOverlayDismissAfterFailureIndicator(after: 2.5)
+                } else {
+                    self.clearPendingOverlayDismissToken()
+                    self.overlayManager.dismiss()
+                }
+                if !self.disableAutoPaste {
+                    let pendingClipboardRestore = self.writeTranscriptToPasteboard(finalTranscript)
+                    self.pasteAtCursorWhenShortcutReleased {
+                        if shouldPressEnterAfterPaste {
+                            self.pressEnterAfterPaste {
+                                self.restoreClipboardIfNeeded(pendingClipboardRestore)
+                            }
+                        } else {
+                            self.restoreClipboardIfNeeded(pendingClipboardRestore)
+                        }
+                    }
+                }
+            }
+            self.scheduleReadyStatusReset(after: 3, matching: [completionStatusText, "Nothing to transcribe", enterOnlyStatusText])
+        }
+
+        let completeJob: @Sendable (UUID) -> Void = { [weak self] id in
+            Task { @MainActor in
+                guard let self else { return }
+                self.finishTranscriptionJob(id)
+                if self.overlayTranscriptionID == myOverlayID {
+                    self.transcribingIndicatorTask?.cancel()
+                    self.transcribingIndicatorTask = nil
+                }
+            }
+        }
+
         if let transcriber = capturedLiveTranscriber, transcriber.handlesRecording {
-            // AVAudioEngine 기반: AudioRecorder 없이 직접 전사 + 파일 저장
             if overlayTranscriptionID == myOverlayID {
-                transcribingAudioFileName = nil
                 statusText = "Transcribing..."
                 debugStatusMessage = "Transcribing audio"
                 transcribingIndicatorTask?.cancel()
@@ -2487,7 +2652,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     } catch {}
                 }
             }
-            transcriptionTask = Task { [weak self] in
+            let task = Task { [weak self] in
                 guard let self else { return }
                 do {
                     let rawTranscript = try await transcriber.finalize()
@@ -2495,6 +2660,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         let saved = Self.saveAudioFile(from: url)
                         try? FileManager.default.removeItem(at: url)
                         return saved
+                    }
+                    await MainActor.run {
+                        self.updateTranscriptionJob(jobID) { $0.audioFileName = savedAudioFile?.fileName }
                     }
                     let parsedTranscript = Self.parseTranscriptCommands(
                         from: rawTranscript,
@@ -2531,6 +2699,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             parsedTranscript: parsedTranscript
                         )
                         self.recordPipelineHistoryEntry(
+                            jobID: jobID,
                             rawTranscript: trimmedRawTranscript,
                             postProcessedTranscript: trimmedFinalTranscript,
                             postProcessingPrompt: result.prompt,
@@ -2539,25 +2708,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             intent: sessionIntent,
                             audioFileName: savedAudioFile?.fileName
                         )
-                        self.audioRecorder.cleanup()
-                        self.refreshAvailableMicrophonesIfNeeded()
-                        guard self.overlayTranscriptionID == myOverlayID else { return }
-                        self.lastContextSummary = appContext.contextSummary
-                        self.lastContextScreenshotDataURL = appContext.screenshotDataURL
-                        self.lastContextScreenshotStatus = appContext.screenshotError
-                            ?? "available (\(appContext.screenshotMimeType ?? "image"))"
-                        self.lastPostProcessingPrompt = result.prompt
-                        self.lastRawTranscript = trimmedRawTranscript
-                        self.lastPostProcessedTranscript = trimmedFinalTranscript
-                        self.lastPostProcessingStatus = processingStatus
-                        self.transcriptionTask = nil
-                        self.transcribingIndicatorTask?.cancel()
-                        self.transcribingIndicatorTask = nil
-                        self.transcribingAudioFileName = nil
-                        self.lastTranscript = trimmedFinalTranscript
-                        self.isTranscribing = false
-                        self.debugStatusMessage = "Done"
+                        self.cleanupRecorderIfIdle()
                         let completionStatusText = self.preserveClipboard ? "Pasted at cursor!" : "Copied to clipboard!"
+                        let enterOnlyStatusText = "Pressed Enter"
+                        let shouldPressEnterAfterPaste = parsedTranscript.shouldPressEnterAfterPaste
                         let shouldPersistRawDictationFallback: Bool
                         switch result.outcome {
                         case .postProcessingFailedFallback:
@@ -2565,31 +2719,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         default:
                             shouldPersistRawDictationFallback = false
                         }
-                        if trimmedFinalTranscript.isEmpty {
-                            self.mcpLastRecordingFailed = true
-                            self.statusText = "Nothing to transcribe"
-                            self.clearPendingOverlayDismissToken()
-                            self.overlayManager.dismiss()
-                        } else {
-                            self.statusText = completionStatusText
-                            if shouldPersistRawDictationFallback {
-                                self.scheduleOverlayDismissAfterFailureIndicator(after: 2.5)
-                            } else {
-                                self.clearPendingOverlayDismissToken()
-                                self.overlayManager.dismiss()
-                            }
-                            if !self.disableAutoPaste {
-                                let pendingClipboardRestore = self.writeTranscriptToPasteboard(trimmedFinalTranscript)
-                                self.pasteAtCursorWhenShortcutReleased {
-                                    self.restoreClipboardIfNeeded(pendingClipboardRestore)
-                                }
-                            }
-                        }
-                        self.scheduleReadyStatusReset(after: 3, matching: [completionStatusText, "Nothing to transcribe"])
+                        updateForegroundUI(
+                            rawTranscript: trimmedRawTranscript,
+                            finalTranscript: trimmedFinalTranscript,
+                            prompt: result.prompt,
+                            processingStatus: processingStatus,
+                            context: appContext,
+                            completionStatusText: completionStatusText,
+                            enterOnlyStatusText: enterOnlyStatusText,
+                            shouldPressEnterAfterPaste: shouldPressEnterAfterPaste,
+                            shouldPersistRawDictationFallback: shouldPersistRawDictationFallback
+                        )
+                        completeJob(jobID)
                     }
                 } catch is CancellationError {
                     await MainActor.run {
-                        self.transcriptionTask = nil
+                        completeJob(jobID)
                     }
                 } catch {
                     let resolvedContext: AppContext
@@ -2606,24 +2751,25 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         return saved
                     }
                     await MainActor.run {
+                        self.updateTranscriptionJob(jobID) { $0.audioFileName = errorAudioFile?.fileName }
+                    }
+                    await MainActor.run {
                         self.recordPipelineHistoryEntry(
+                            jobID: jobID,
                             rawTranscript: "",
                             postProcessedTranscript: "",
                             postProcessingPrompt: "",
                             context: resolvedContext,
                             processingStatus: "Error: \(error.localizedDescription)",
-                            intent: self.currentSessionIntent,
+                            intent: sessionIntent,
                             audioFileName: errorAudioFile?.fileName
                         )
-                        self.audioRecorder.cleanup()
-                        self.refreshAvailableMicrophonesIfNeeded()
-                        guard self.overlayTranscriptionID == myOverlayID else { return }
-                        self.transcriptionTask = nil
-                        self.transcribingIndicatorTask?.cancel()
-                        self.transcribingIndicatorTask = nil
-                        self.transcribingAudioFileName = nil
+                        self.cleanupRecorderIfIdle()
+                        guard self.overlayTranscriptionID == myOverlayID else {
+                            completeJob(jobID)
+                            return
+                        }
                         self.errorMessage = error.localizedDescription
-                        self.isTranscribing = false
                         self.statusText = "Error"
                         self.overlayManager.dismiss()
                         self.lastPostProcessedTranscript = ""
@@ -2634,18 +2780,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.lastContextScreenshotDataURL = resolvedContext.screenshotDataURL
                         self.lastContextScreenshotStatus = resolvedContext.screenshotError
                             ?? "available (\(resolvedContext.screenshotMimeType ?? "image"))"
+                        completeJob(jobID)
                     }
                 }
             }
+            updateTranscriptionJob(jobID) { $0.task = task }
             return
         }
 
         audioRecorder.stopRecording { [weak self] fileURL in
             guard let self else { return }
             guard let fileURL else {
-                // 오버레이 소유권이 있을 때만 오버레이 처리
                 if self.overlayTranscriptionID == myOverlayID {
-                    self.isTranscribing = false
                     self.errorMessage = "No audio recorded"
                     self.statusText = "Error"
                     self.overlayManager.dismiss()
@@ -2653,18 +2799,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 self.mcpLastRecordingFailed = true
                 self.audioRecorder.cleanup()
                 self.refreshAvailableMicrophonesIfNeeded()
+                self.finishTranscriptionJob(jobID)
                 return
             }
 
             let savedAudioFile = Self.saveAudioFile(from: fileURL)
             let transcriptionFileURL = savedAudioFile?.fileURL ?? fileURL
+            self.updateTranscriptionJob(jobID) { $0.audioFileName = savedAudioFile?.fileName }
 
-            // 오버레이 소유권이 있을 때만 UI 업데이트
             if self.overlayTranscriptionID == myOverlayID {
-                self.transcribingAudioFileName = savedAudioFile?.fileName
                 self.statusText = "Transcribing..."
                 self.debugStatusMessage = "Transcribing audio"
-
                 self.transcribingIndicatorTask?.cancel()
                 let indicatorDelay = self.transcribingIndicatorDelay
                 self.transcribingIndicatorTask = Task { [weak self] in
@@ -2679,7 +2824,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             }
 
-            self.transcriptionTask = Task { [weak self] in
+            let task = Task { [weak self] in
                 guard let self else { return }
                 do {
                     let rawTranscript: String
@@ -2733,9 +2878,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             for: result.outcome,
                             parsedTranscript: parsedTranscript
                         )
-
-                        // 데이터 저장은 항상 실행
                         self.recordPipelineHistoryEntry(
+                            jobID: jobID,
                             rawTranscript: trimmedRawTranscript,
                             postProcessedTranscript: trimmedFinalTranscript,
                             postProcessingPrompt: result.prompt,
@@ -2744,31 +2888,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             intent: sessionIntent,
                             audioFileName: savedAudioFile?.fileName
                         )
-                        self.audioRecorder.cleanup()
-                        self.refreshAvailableMicrophonesIfNeeded()
-
-                        // 오버레이/UI 업데이트는 오버레이 소유권이 있을 때만
-                        guard self.overlayTranscriptionID == myOverlayID else { return }
-
-                        self.lastContextSummary = appContext.contextSummary
-                        self.lastContextScreenshotDataURL = appContext.screenshotDataURL
-                        self.lastContextScreenshotStatus = appContext.screenshotError
-                            ?? "available (\(appContext.screenshotMimeType ?? "image"))"
-                        self.lastPostProcessingPrompt = result.prompt
-                        self.lastRawTranscript = trimmedRawTranscript
-                        self.lastPostProcessedTranscript = trimmedFinalTranscript
-                        self.lastPostProcessingStatus = processingStatus
-                        self.transcriptionTask = nil
-                        self.transcribingIndicatorTask?.cancel()
-                        self.transcribingIndicatorTask = nil
-                        self.transcribingAudioFileName = nil
-                        self.lastTranscript = trimmedFinalTranscript
-                        self.isTranscribing = false
-                        self.debugStatusMessage = "Done"
+                        self.cleanupRecorderIfIdle()
                         let completionStatusText = self.preserveClipboard ? "Pasted at cursor!" : "Copied to clipboard!"
                         let enterOnlyStatusText = "Pressed Enter"
                         let shouldPressEnterAfterPaste = parsedTranscript.shouldPressEnterAfterPaste
-
                         let shouldPersistRawDictationFallback: Bool
                         switch result.outcome {
                         case .postProcessingFailedFallback:
@@ -2808,10 +2931,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         }
 
                         self.scheduleReadyStatusReset(after: 3, matching: [completionStatusText, "Nothing to transcribe", enterOnlyStatusText])
+                        completeJob(jobID)
                     }
                 } catch is CancellationError {
                     await MainActor.run {
-                        self.transcriptionTask = nil
+                        completeJob(jobID)
                     }
                 } catch {
                     let resolvedContext: AppContext
@@ -2823,8 +2947,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         resolvedContext = self.fallbackContextAtStop()
                     }
                     await MainActor.run {
-                        // 데이터 저장은 항상 실행
                         self.recordPipelineHistoryEntry(
+                            jobID: jobID,
                             rawTranscript: "",
                             postProcessedTranscript: "",
                             postProcessingPrompt: "",
@@ -2833,18 +2957,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             intent: sessionIntent,
                             audioFileName: savedAudioFile?.fileName
                         )
-                        self.audioRecorder.cleanup()
-                        self.refreshAvailableMicrophonesIfNeeded()
-
-                        // 오버레이/UI 업데이트는 오버레이 소유권이 있을 때만
-                        guard self.overlayTranscriptionID == myOverlayID else { return }
-
-                        self.transcriptionTask = nil
-                        self.transcribingIndicatorTask?.cancel()
-                        self.transcribingIndicatorTask = nil
-                        self.transcribingAudioFileName = nil
+                        self.cleanupRecorderIfIdle()
+                        guard self.overlayTranscriptionID == myOverlayID else {
+                            completeJob(jobID)
+                            return
+                        }
                         self.errorMessage = error.localizedDescription
-                        self.isTranscribing = false
                         self.statusText = "Error"
                         self.overlayManager.dismiss()
                         self.lastPostProcessedTranscript = ""
@@ -2855,17 +2973,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.lastContextScreenshotDataURL = resolvedContext.screenshotDataURL
                         self.lastContextScreenshotStatus = resolvedContext.screenshotError
                             ?? "available (\(resolvedContext.screenshotMimeType ?? "image"))"
+                        completeJob(jobID)
                     }
                 }
             }
+            self.updateTranscriptionJob(jobID) { $0.task = task }
         }
     }
 
     // 라이브 전사 시작 시 Note Browser에 즉시 표시될 예비 노트 생성
-    private func createLiveNote(id: UUID) {
-        liveNoteID = id
+    @MainActor
+    private func createLiveNote(jobID: UUID, noteID: UUID) {
+        updateTranscriptionJob(jobID) { $0.liveNoteID = noteID }
         let entry = PipelineHistoryItem(
-            id: id,
+            id: noteID,
             timestamp: Date(),
             rawTranscript: "",
             postProcessedTranscript: "",
@@ -2889,15 +3010,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
             pipelineHistory = pipelineHistoryStore.loadAllHistory()
         } catch {
-            liveNoteID = nil
+            updateTranscriptionJob(jobID) { $0.liveNoteID = nil }
         }
     }
 
     // 라이브 전사 partial 결과로 노트 텍스트 업데이트
     @MainActor
-    private func updateLiveNoteTranscript(_ text: String) {
-        guard let id = liveNoteID,
-              let index = pipelineHistory.firstIndex(where: { $0.id == id }) else { return }
+    private func updateLiveNoteTranscript(noteID: UUID, _ text: String) {
+        guard let index = pipelineHistory.firstIndex(where: { $0.id == noteID }) else { return }
         let existing = pipelineHistory[index]
         let updated = PipelineHistoryItem(
             intent: existing.intent,
@@ -2925,7 +3045,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         pipelineHistory[index] = updated
     }
 
+    @MainActor
     private func recordPipelineHistoryEntry(
+        jobID: UUID,
         rawTranscript: String,
         postProcessedTranscript: String,
         postProcessingPrompt: String,
@@ -2934,7 +3056,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         intent: SessionIntent,
         audioFileName: String? = nil
     ) {
-        let existingID = liveNoteID
+        let existingID = activeTranscriptionJobs[jobID]?.liveNoteID
         let existingEntry = existingID.flatMap { id in
             pipelineHistory.first(where: { $0.id == id })
         }
@@ -2943,12 +3065,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
             rawTranscript: rawTranscript,
             postProcessedTranscript: postProcessedTranscript
         )
-        liveNoteID = nil
+        updateTranscriptionJob(jobID) {
+            $0.liveNoteID = nil
+            $0.audioFileName = audioFileName
+        }
         let entry = PipelineHistoryItem(
             intent: intent.persistedIntent,
             selectedText: intent.persistedSelectedText,
             id: existingID ?? UUID(),
-            timestamp: existingEntry?.timestamp ?? Date(),
+            timestamp: existingEntry?.timestamp ?? activeTranscriptionJobs[jobID]?.startedAt ?? Date(),
             rawTranscript: "",
             postProcessedTranscript: postProcessedTranscript,
             postProcessingPrompt: postProcessingPrompt,
