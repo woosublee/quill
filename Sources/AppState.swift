@@ -1586,9 +1586,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         hotkeyManager.onEscapeKeyPressed = { [weak self] in
             guard let self else { return false }
-            let shouldHandle = DispatchQueue.main.sync {
-                self.shouldConfirmEscapeCancellation
-            }
+            let shouldHandle = Thread.isMainThread
+                ? self.shouldConfirmEscapeCancellation
+                : DispatchQueue.main.sync {
+                    self.shouldConfirmEscapeCancellation
+                }
             guard shouldHandle else { return false }
             DispatchQueue.main.async {
                 _ = self.handleEscapeKeyPress()
@@ -1761,6 +1763,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         audioRecorder.onAudioBuffer = nil
         liveTranscriber?.cancel()
         liveTranscriber = nil
+        if let id = currentRecordingLiveNoteID {
+            currentRecordingLiveNoteID = nil
+            pipelineHistory.removeAll { $0.id == id }
+            if let deletedAssets = try? pipelineHistoryStore.delete(id: id) {
+                Self.deleteStoredFiles(deletedAssets)
+            }
+        }
         if let job = foregroundTranscriptionJob(), let id = job.liveNoteID {
             updateTranscriptionJob(job.id) { $0.liveNoteID = nil }
             pipelineHistory.removeAll { $0.id == id }
@@ -2575,6 +2584,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             processingStatus: String,
             context: AppContext,
             completionStatusText: String,
+            enterOnlyStatusText: String,
+            shouldPressEnterAfterPaste: Bool,
             shouldPersistRawDictationFallback: Bool
         ) {
             guard overlayTranscriptionID == myOverlayID else { return }
@@ -2591,9 +2602,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
             statusText = completionStatusText
             if finalTranscript.isEmpty {
                 mcpLastRecordingFailed = true
-                statusText = "Nothing to transcribe"
+                statusText = shouldPressEnterAfterPaste ? enterOnlyStatusText : "Nothing to transcribe"
                 clearPendingOverlayDismissToken()
                 overlayManager.dismiss()
+                if shouldPressEnterAfterPaste {
+                    pressEnterWhenShortcutReleased()
+                }
             } else {
                 if shouldPersistRawDictationFallback {
                     scheduleOverlayDismissAfterFailureIndicator(after: 2.5)
@@ -2604,11 +2618,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 if !disableAutoPaste {
                     let pendingClipboardRestore = writeTranscriptToPasteboard(finalTranscript)
                     pasteAtCursorWhenShortcutReleased {
-                        self.restoreClipboardIfNeeded(pendingClipboardRestore)
+                        if shouldPressEnterAfterPaste {
+                            self.pressEnterAfterPaste {
+                                self.restoreClipboardIfNeeded(pendingClipboardRestore)
+                            }
+                        } else {
+                            self.restoreClipboardIfNeeded(pendingClipboardRestore)
+                        }
                     }
                 }
             }
-            scheduleReadyStatusReset(after: 3, matching: [completionStatusText, "Nothing to transcribe"])
+            scheduleReadyStatusReset(after: 3, matching: [completionStatusText, "Nothing to transcribe", enterOnlyStatusText])
         }
 
         @Sendable func completeJob(_ id: UUID) {
@@ -2696,6 +2716,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         )
                         self.cleanupRecorderIfIdle()
                         let completionStatusText = self.preserveClipboard ? "Pasted at cursor!" : "Copied to clipboard!"
+                        let enterOnlyStatusText = "Pressed Enter"
+                        let shouldPressEnterAfterPaste = parsedTranscript.shouldPressEnterAfterPaste
                         let shouldPersistRawDictationFallback: Bool
                         switch result.outcome {
                         case .postProcessingFailedFallback:
@@ -2710,6 +2732,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             processingStatus: processingStatus,
                             context: appContext,
                             completionStatusText: completionStatusText,
+                            enterOnlyStatusText: enterOnlyStatusText,
+                            shouldPressEnterAfterPaste: shouldPressEnterAfterPaste,
                             shouldPersistRawDictationFallback: shouldPersistRawDictationFallback
                         )
                         completeJob(jobID)
