@@ -56,9 +56,10 @@ extension View {
 
 private class GlassNSView: NSView {
     var material: NSVisualEffectView.Material
+    var cornerRadius: CGFloat? = nil
     private let effectView = NSVisualEffectView()
 
-    init(material: NSVisualEffectView.Material = .hudWindow) {
+    init(material: NSVisualEffectView.Material = .popover) {
         self.material = material
         super.init(frame: .zero)
         setup()
@@ -78,14 +79,61 @@ private class GlassNSView: NSView {
     override func layout() {
         super.layout()
         effectView.frame = bounds
-        effectView.layer?.cornerRadius = bounds.height / 2
+        effectView.layer?.cornerRadius = cornerRadius ?? (bounds.height / 2)
+    }
+}
+
+@available(macOS 26.0, *)
+private class LiquidGlassNSView: NSView {
+    private let glassView = NSGlassEffectView()
+    var cornerRadius: CGFloat? = nil
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setup()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func setup() {
+        glassView.contentView = NSView()
+        glassView.wantsLayer = true
+        addSubview(glassView)
+    }
+
+    override func layout() {
+        super.layout()
+        glassView.frame = bounds
+        glassView.cornerRadius = cornerRadius ?? bounds.height / 2
     }
 }
 
 private struct GlassView: NSViewRepresentable {
-    var material: NSVisualEffectView.Material = .hudWindow
-    func makeNSView(context: Context) -> GlassNSView { GlassNSView(material: material) }
-    func updateNSView(_ nsView: GlassNSView, context: Context) { nsView.material = material }
+    var material: NSVisualEffectView.Material = .popover
+    var cornerRadius: CGFloat? = nil
+
+    func makeNSView(context: Context) -> NSView {
+        if #available(macOS 26.0, *) {
+            let view = LiquidGlassNSView()
+            if let cornerRadius {
+                view.cornerRadius = cornerRadius
+            }
+            return view
+        }
+        let view = GlassNSView(material: material)
+        view.cornerRadius = cornerRadius
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        if let nsView = nsView as? GlassNSView {
+            nsView.material = material
+            nsView.cornerRadius = cornerRadius
+        }
+        if #available(macOS 26.0, *), let nsView = nsView as? LiquidGlassNSView {
+            nsView.cornerRadius = cornerRadius
+        }
+    }
 }
 
 // MARK: - Status helpers
@@ -546,6 +594,7 @@ private struct NoteListRow: View {
     let retryingIDs: Set<UUID>
 
     @EnvironmentObject private var exportManager: ObsidianExportManager
+    @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
 
     private var status: TranscriptStatus { transcriptStatus(for: item, retrying: retryingIDs) }
@@ -559,7 +608,7 @@ private struct NoteListRow: View {
                 HStack(spacing: 4) {
                     Text(rowDate)
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(isSelected ? Color.white.opacity(0.65) : Color.secondary.opacity(0.7))
+                        .foregroundStyle(selectedMetaColor)
                         .textCase(.uppercase)
                         .kerning(0.4)
                     if isExporting {
@@ -567,7 +616,7 @@ private struct NoteListRow: View {
                             ProgressView().controlSize(.mini).scaleEffect(0.6)
                             Text("내보내는 중")
                                 .font(.system(size: 8, weight: .medium))
-                                .foregroundStyle(isSelected ? Color.white.opacity(0.75) : .orange)
+                                .foregroundStyle(isSelected ? selectedMetaColor : .orange)
                         }
                     }
                     Spacer()
@@ -576,12 +625,12 @@ private struct NoteListRow: View {
 
                 Text(displayTitle)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(isSelected ? .white : .primary)
+                    .foregroundStyle(selectedTitleColor)
                     .lineLimit(1)
 
                 Text(notePreview.isEmpty ? " " : notePreview)
                     .font(.system(size: 11.5))
-                    .foregroundStyle(isSelected ? Color.white.opacity(0.72) : .secondary)
+                    .foregroundStyle(selectedPreviewColor)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .opacity(notePreview.isEmpty ? 0 : 1)
@@ -595,12 +644,48 @@ private struct NoteListRow: View {
             RoundedRectangle(cornerRadius: 8)
                 .fill(
                     isSelected
-                        ? Color.accentColor
-                        : (isHovered ? Color.primary.opacity(0.05) : Color.clear)
+                        ? (colorScheme == .dark ? Color.white.opacity(0.07) : Color.primary.opacity(0.08))
+                        : (isHovered
+                            ? (colorScheme == .dark ? Color.white.opacity(0.03) : Color.primary.opacity(0.05))
+                            : Color.clear)
                 )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(
+                            isSelected
+                                ? (colorScheme == .dark ? Color.white.opacity(0.14) : Color.primary.opacity(0.12))
+                                : (colorScheme == .dark
+                                    ? Color.white.opacity(isHovered ? 0.07 : 0)
+                                    : Color.primary.opacity(isHovered ? 0.08 : 0)),
+                            lineWidth: isSelected ? 0.6 : 0.5
+                        )
+                }
         }
+        .shadow(color: isSelected ? .black.opacity(colorScheme == .dark ? 0.08 : 0.04) : .clear, radius: 6, x: 0, y: 1)
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
+    }
+
+    private var selectedMetaColor: Color {
+        isSelected
+            ? (colorScheme == .dark ? Color.white.opacity(0.72) : Color.primary.opacity(0.55))
+            : Color.secondary.opacity(0.7)
+    }
+
+    private var selectedTitleColor: Color {
+        isSelected
+            ? (colorScheme == .dark ? .white : .primary)
+            : .primary
+    }
+
+    private var selectedPreviewColor: Color {
+        isSelected
+            ? (colorScheme == .dark ? Color.white.opacity(0.78) : Color.primary.opacity(0.72))
+            : .secondary
+    }
+
+    private var toolbarStrokeColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.10) : Color.primary.opacity(0.10)
     }
 
     @ViewBuilder
@@ -608,13 +693,13 @@ private struct NoteListRow: View {
         switch status {
         case .done:
             Circle()
-                .fill(isSelected ? Color.white.opacity(0.5) : Color.green)
+                .fill(Color.green)
                 .frame(width: 6, height: 6)
         case .progress:
-            YellowSpinner(color: isSelected ? .white : .yellow)
+            YellowSpinner(color: .yellow)
         case .fail:
             Circle()
-                .fill(isSelected ? Color.white.opacity(0.5) : Color.red)
+                .fill(Color.red)
                 .frame(width: 6, height: 6)
         }
     }
@@ -663,6 +748,7 @@ private struct NoteDetailView: View {
     let titleStore: NoteTitleStore
     let onDelete: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var appState: AppState
     @State private var loadedContent: String?
     @State private var isCopied = false
@@ -957,32 +1043,39 @@ private struct NoteDetailView: View {
                 help: "노트 삭제"
             )
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 8)
         .frame(height: 48)
         .background {
-            Capsule().fill(Color.clear)
-                .overlay(GlassView().clipShape(Capsule()))
-                .overlay(Capsule().strokeBorder(Color.white.opacity(0.2), lineWidth: 0.5))
+            GlassView(material: .underWindowBackground)
+                .clipShape(Capsule())
+                .overlay(Capsule().strokeBorder(toolbarStrokeColor, lineWidth: 0.6))
         }
-        .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 6)
-        .shadow(color: .black.opacity(0.06), radius: 4, x: 0, y: 2)
+        .compositingGroup()
+        .shadow(color: .black.opacity(0.085), radius: 14, x: 0, y: 4)
+        .shadow(color: .white.opacity(0.05), radius: 4, x: 0, y: -1)
         .padding(.bottom, 20)
+        .zIndex(100)
+        .contentShape(Capsule())
+        .allowsHitTesting(true)
         .overrideCursor(.arrow)
+    }
+
+    private var toolbarStrokeColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.10) : Color.primary.opacity(0.10)
     }
 
     private func toolbarButton<L: View>(
         action: @escaping () -> Void,
-        @ViewBuilder label: () -> L,
+        @ViewBuilder label: @escaping () -> L,
         disabled: Bool,
         help: String
     ) -> some View {
-        Button(action: action) {
-            label()
-                .frame(width: 36, height: 36)
-        }
-        .buttonStyle(ToolbarButtonStyle())
-        .disabled(disabled)
-        .help(help)
+        ToolbarIconButton(
+            action: action,
+            disabled: disabled,
+            help: help,
+            label: label
+        )
     }
 
     private var toolbarDivider: some View {
@@ -1031,6 +1124,7 @@ private struct NoteDetailView: View {
 struct NoteAudioPlayerView: View {
     let audioURL: URL
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var player: AVAudioPlayer?
     @State private var delegate = AudioPlayerDelegate()
     @State private var isPlaying = false
@@ -1045,17 +1139,23 @@ struct NoteAudioPlayerView: View {
         return min(elapsed / duration, 1.0)
     }
 
+    private var toolbarStrokeColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.10) : Color.primary.opacity(0.10)
+    }
+
     var body: some View {
         HStack(spacing: 14) {
             // Play / Stop button — var(--ink) bg, var(--bg) icon
             Button { togglePlayback() } label: {
                 ZStack {
                     Circle()
-                        .fill(Color.primary)
+                        .fill(Color.white.opacity(0.10))
+                        .overlay(GlassView(material: .popover).clipShape(Circle()))
+                        .overlay(Circle().strokeBorder(toolbarStrokeColor, lineWidth: 0.7))
                         .frame(width: 36, height: 36)
                     Image(systemName: isPlaying ? "stop.fill" : "play.fill")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color(nsColor: .windowBackgroundColor))
+                        .foregroundStyle(Color.primary)
                         .offset(x: isPlaying ? 0 : 1.5)
                 }
             }
@@ -1223,15 +1323,61 @@ struct NoteAudioPlayerView: View {
 // MARK: - Toolbar Button Style
 
 private struct ToolbarButtonStyle: ButtonStyle {
+    @Environment(\.colorScheme) private var colorScheme
+    var isHovered: Bool = false
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(
                 Circle()
-                    .fill(configuration.isPressed ? Color.primary.opacity(0.1) : Color.clear)
+                    .fill(
+                        configuration.isPressed
+                            ? Color.primary.opacity(0.12)
+                            : (isHovered ? hoverFillColor : Color.clear)
+                    )
+            )
+            .overlay(
+                Circle()
+                    .strokeBorder(hoverStrokeColor.opacity(isHovered ? 1 : 0), lineWidth: 0.5)
             )
             .contentShape(Circle())
             .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
-            .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
+            .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
+            .animation(.easeInOut(duration: 0.12), value: isHovered)
+    }
+
+    private var hoverFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.08) : Color.primary.opacity(0.07)
+    }
+
+    private var hoverStrokeColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.16) : Color.primary.opacity(0.12)
+    }
+}
+
+private struct ToolbarIconButton<Label: View>: View {
+    let action: () -> Void
+    let disabled: Bool
+    let help: String
+    @ViewBuilder let label: () -> Label
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            label()
+                .frame(width: 36, height: 36)
+                .contentShape(Circle())
+        }
+        .buttonStyle(ToolbarButtonStyle(isHovered: isHovered))
+        .disabled(disabled)
+        .help(help)
+        .contentShape(Circle())
+        .allowsHitTesting(true)
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .overrideCursor(.arrow)
     }
 }
 
