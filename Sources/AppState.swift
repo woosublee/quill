@@ -208,7 +208,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private let apiKeyStorageKey = "groq_api_key"
     private let apiBaseURLStorageKey = "api_base_url"
-    private let transcriptionModelStorageKey = "transcription_model"
+    private let transcriptionModelStorageKey = AppState.transcriptionModelStorageKeyName
     private let transcriptionAPIURLStorageKey = "transcription_api_url"
     private let transcriptionAPIKeyStorageKey = "transcription_api_key"
     private let postProcessingModelStorageKey = "post_processing_model"
@@ -237,7 +237,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let disableAutoPasteStorageKey = "disable_auto_paste"
     private let disablePostProcessingStorageKey = "disable_post_processing"
     private let transcriptionLanguageStorageKey = "transcription_language"
-    private let localTranscriptionModelStorageKey = "local_transcription_model"
+    private let localTranscriptionModelStorageKey = AppState.localTranscriptionModelStorageKeyName
     private let noteBrowserEnabledStorageKey = "note_browser_enabled"
     private let commandModeEnabledStorageKey = "command_mode_enabled"
     private let commandModeStyleStorageKey = "command_mode_style"
@@ -263,16 +263,23 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private static let transcriptionModelStorageKeyName = "transcription_model"
     private static let localTranscriptionModelStorageKeyName = "local_transcription_model"
+    private static let legacyAPITranscriptionModelStorageKeyName = "api_transcription_model"
 
     private static func migrateModelStorageKeys() {
         let defaults = UserDefaults.standard
-        let oldSharedValue = defaults.string(forKey: transcriptionModelStorageKeyName)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let hasLocalKey = defaults.object(forKey: localTranscriptionModelStorageKeyName) != nil
+        let sharedValue = defaults.string(forKey: transcriptionModelStorageKeyName)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let legacyAPIValue = defaults.string(forKey: legacyAPITranscriptionModelStorageKeyName)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let localValue = defaults.string(forKey: localTranscriptionModelStorageKeyName)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let sharedLooksLikeLocalModel = !sharedValue.isEmpty && TranscriptionModel.all.contains(where: { $0.id == sharedValue })
 
-        if !hasLocalKey,
-           !oldSharedValue.isEmpty,
-           TranscriptionModel.all.contains(where: { $0.id == oldSharedValue }) {
-            defaults.set(oldSharedValue, forKey: localTranscriptionModelStorageKeyName)
+        if localValue.isEmpty, sharedLooksLikeLocalModel {
+            defaults.set(sharedValue, forKey: localTranscriptionModelStorageKeyName)
+        }
+
+        if !legacyAPIValue.isEmpty {
+            defaults.set(legacyAPIValue, forKey: transcriptionModelStorageKeyName)
+            defaults.removeObject(forKey: legacyAPITranscriptionModelStorageKeyName)
+        } else if sharedLooksLikeLocalModel {
             defaults.set(defaultTranscriptionModel, forKey: transcriptionModelStorageKeyName)
         }
     }
