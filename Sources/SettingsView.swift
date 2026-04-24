@@ -462,7 +462,7 @@ struct GeneralSettingsView: View {
     private var appDisplayName: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
             ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
-            ?? "FreeFlow"
+            ?? "Quill"
     }
 
     private var appVersion: String {
@@ -840,9 +840,15 @@ struct GeneralSettingsView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "arrow.down.circle.fill")
                                 .foregroundStyle(.blue)
-                            Text("A new version of Quill is available!")
+                            Text(updateManager.latestReleaseVersion.isEmpty
+                                ? "A new version of \(appDisplayName) is available!"
+                                : "\(appDisplayName) v\(updateManager.latestReleaseVersion) is available!")
                                 .font(.caption.weight(.semibold))
                             Spacer()
+                            Button("What's New") {
+                                updateManager.showReleaseNotes()
+                            }
+                            .font(.caption)
                             Button("Update Now") {
                                 if let release = updateManager.latestRelease {
                                     updateManager.downloadAndInstall(release: release)
@@ -1146,18 +1152,9 @@ struct GeneralSettingsView: View {
     private var dictationAudioSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Toggle(
-                "Mute or pause audio when dictation starts",
+                "Mute audio when dictation starts",
                 isOn: $appState.dictationAudioInterruptionEnabled
             )
-
-            Picker("Audio Action", selection: $appState.dictationAudioInterruptionMode) {
-                ForEach(DictationAudioInterruptionMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .disabled(!appState.dictationAudioInterruptionEnabled)
-            .opacity(appState.dictationAudioInterruptionEnabled ? 1 : 0.5)
 
             Text("FreeFlow restores the audio state it changed when dictation ends.")
                 .font(.caption)

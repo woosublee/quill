@@ -108,16 +108,16 @@ final class RealtimeTranscriptionService {
     /// (the service declares 24 kHz mono in `session.update`, matching the
     /// OpenAI Realtime default).
     func appendPCM16(_ data: Data) {
-        guard !data.isEmpty else { return }
-        stateQueue.async { [weak self] in
-            guard let self, let currentTask = self.task else { return }
-            let audioB64 = data.base64EncodedString()
-            let message: [String: Any] = [
-                "type": "input_audio_buffer.append",
-                "audio": audioB64,
-            ]
-            self.send(message, over: currentTask)
+        let currentTask: URLSessionWebSocketTask? = stateQueue.sync {
+            task
         }
+        guard let currentTask, !data.isEmpty else { return }
+        let audioB64 = data.base64EncodedString()
+        let message: [String: Any] = [
+            "type": "input_audio_buffer.append",
+            "audio": audioB64,
+        ]
+        send(message, over: currentTask)
     }
 
     /// Signal end-of-input, wait for the final transcript, return it.
@@ -148,10 +148,6 @@ final class RealtimeTranscriptionService {
                 }
                 if closed {
                     immediateResult = .failure(RealtimeTranscriptionError.closedBeforeFinal)
-                    return
-                }
-                if finalContinuation != nil {
-                    immediateResult = .failure(RealtimeTranscriptionError.notConnected)
                     return
                 }
                 if let finalText = readyCommittedTranscriptLocked() {
@@ -332,22 +328,26 @@ final class RealtimeTranscriptionService {
             transcription["language"] = language
         }
         let session: [String: Any] = [
-            "modalities": ["text"],
-            "input_audio_format": "pcm16",
-            "input_audio_transcription": transcription,
-            "turn_detection": NSNull(),
+            "type": "transcription",
+            "audio": [
+                "input": [
+                    "format": [
+                        "type": "audio/pcm",
+                        "rate": 24_000,
+                    ],
+                    "transcription": transcription,
+                    "turn_detection": NSNull(),
+                ],
+            ],
         ]
         send(["type": "session.update", "session": session], over: currentTask)
     }
 
     // MARK: URL derivation
 
-    /// Turn a provider base URL or common OpenAI-style endpoint URL into a
-    /// realtime WebSocket URL. Accepts inputs like:
-    /// - `https://host`
-    /// - `https://host/v1`
-    /// - `https://host/v1/chat/completions`
-    /// - `https://host/v1/audio/transcriptions`
+    /// Turn `https://host[/prefix]` or `http://host[/prefix]` into
+    /// `wss://host[/prefix]/realtime`, reusing a trailing `/v1` prefix when
+    /// the configured base URL already includes it.
     static func deriveWebSocketURL(
         baseURL: String,
         model: String,
@@ -363,27 +363,18 @@ final class RealtimeTranscriptionService {
         default: return nil
         }
 
-        var pathComponents = components.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-        if pathComponents.suffix(2) == ["chat", "completions"] {
-            pathComponents.removeLast(2)
-        } else if pathComponents.suffix(2) == ["audio", "transcriptions"] {
-            pathComponents.removeLast(2)
-        }
-
-        if pathComponents.last == "realtime" {
-            // keep as-is
-        } else if pathComponents.last == "v1" {
-            pathComponents.append("realtime")
+        var path = components.path
+        if path.hasSuffix("/") { path.removeLast() }
+        if path.hasSuffix("/v1") {
+            path += "/realtime"
         } else {
-            pathComponents.append(contentsOf: ["v1", "realtime"])
+            path += "/v1/realtime"
         }
-
-        components.path = "/" + pathComponents.joined(separator: "/")
+        components.path = path
 
         var queryItems = components.queryItems ?? []
-        let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedModel.isEmpty && !queryItems.contains(where: { $0.name == "model" }) {
-            queryItems.append(URLQueryItem(name: "model", value: trimmedModel))
+        if !queryItems.contains(where: { $0.name == "intent" }) {
+            queryItems.append(URLQueryItem(name: "intent", value: "transcription"))
         }
         components.queryItems = queryItems.isEmpty ? nil : queryItems
         return components.url
