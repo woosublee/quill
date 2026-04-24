@@ -150,10 +150,6 @@ final class RealtimeTranscriptionService {
                     immediateResult = .failure(RealtimeTranscriptionError.closedBeforeFinal)
                     return
                 }
-                if finalContinuation != nil {
-                    immediateResult = .failure(RealtimeTranscriptionError.notConnected)
-                    return
-                }
                 if let finalText = readyCommittedTranscriptLocked() {
                     closed = true
                     immediateResult = .success(finalText)
@@ -332,10 +328,17 @@ final class RealtimeTranscriptionService {
             transcription["language"] = language
         }
         let session: [String: Any] = [
-            "modalities": ["text"],
-            "input_audio_format": "pcm16",
-            "input_audio_transcription": transcription,
-            "turn_detection": NSNull(),
+            "type": "transcription",
+            "audio": [
+                "input": [
+                    "format": [
+                        "type": "audio/pcm",
+                        "rate": 24_000,
+                    ],
+                    "transcription": transcription,
+                    "turn_detection": NSNull(),
+                ],
+            ],
         ]
         send(["type": "session.update", "session": session], over: currentTask)
     }
@@ -381,9 +384,8 @@ final class RealtimeTranscriptionService {
         components.path = "/" + pathComponents.joined(separator: "/")
 
         var queryItems = components.queryItems ?? []
-        let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedModel.isEmpty && !queryItems.contains(where: { $0.name == "model" }) {
-            queryItems.append(URLQueryItem(name: "model", value: trimmedModel))
+        if !queryItems.contains(where: { $0.name == "intent" }) {
+            queryItems.append(URLQueryItem(name: "intent", value: "transcription"))
         }
         components.queryItems = queryItems.isEmpty ? nil : queryItems
         return components.url
