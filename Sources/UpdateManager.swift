@@ -132,6 +132,18 @@ enum UpdateStatus: Equatable {
 final class UpdateManager: ObservableObject {
     static let shared = UpdateManager()
 
+    private static let iso8601WithFractionalSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let iso8601Basic: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
     @Published var updateAvailable = false
     @Published var latestRelease: GitHubRelease?
     @Published var latestReleaseVersion: String = ""
@@ -370,13 +382,8 @@ final class UpdateManager: ObservableObject {
     }
 
     private func releasePublishedDate(from value: String) -> Date? {
-        let iso8601 = ISO8601DateFormatter()
-        iso8601.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
-        let iso8601Basic = ISO8601DateFormatter()
-        iso8601Basic.formatOptions = [.withInternetDateTime]
-
-        return iso8601.date(from: value) ?? iso8601Basic.date(from: value)
+        return Self.iso8601WithFractionalSeconds.date(from: value)
+            ?? Self.iso8601Basic.date(from: value)
     }
 
     private func displayDateString(from date: Date) -> String {
@@ -436,7 +443,7 @@ final class UpdateManager: ObservableObject {
         let alert = NSAlert()
         alert.messageText = "A New Version is Available"
         let versionText = latestReleaseVersion.isEmpty ? release.tagName : "v\(latestReleaseVersion)"
-        alert.informativeText = "FreeFlow \(versionText) was released \(latestReleaseDate).\n\nWould you like to download the update?"
+        alert.informativeText = "Quill \(versionText) was released \(latestReleaseDate).\n\nWould you like to download the update?"
         alert.alertStyle = .informational
         alert.icon = NSApp.applicationIconImage
         alert.addButton(withTitle: "Download Update")
@@ -470,7 +477,7 @@ final class UpdateManager: ObservableObject {
         let alert = NSAlert()
         alert.messageText = "New Release Available"
         let versionText = latestReleaseVersion.isEmpty ? release.tagName : "v\(latestReleaseVersion)"
-        alert.informativeText = "FreeFlow \(versionText) was released \(ageText). It's very recent — you can download it now or wait a few days for stability.\n\nWould you like to download it?"
+        alert.informativeText = "Quill \(versionText) was released \(ageText). It's very recent — you can download it now or wait a few days for stability.\n\nWould you like to download it?"
         alert.alertStyle = .informational
         alert.icon = NSApp.applicationIconImage
         alert.addButton(withTitle: "Download Now")
@@ -493,7 +500,7 @@ final class UpdateManager: ObservableObject {
     func showUpToDateAlert() {
         let alert = NSAlert()
         alert.messageText = "You're Up to Date"
-        alert.informativeText = "You're running the latest version of FreeFlow."
+        alert.informativeText = "You're running the latest version of Quill."
         alert.alertStyle = .informational
         alert.icon = NSApp.applicationIconImage
         alert.addButton(withTitle: "OK")
@@ -508,7 +515,7 @@ final class UpdateManager: ObservableObject {
     private func showReleaseNotes(for release: GitHubRelease) {
         let alert = NSAlert()
         let versionText = latestReleaseVersion.isEmpty ? release.tagName : "v\(latestReleaseVersion)"
-        alert.messageText = "What's New in FreeFlow \(versionText)"
+        alert.messageText = "What's New in Quill \(versionText)"
         alert.informativeText = "Release notes from GitHub."
         alert.alertStyle = .informational
         alert.icon = NSApp.applicationIconImage
@@ -554,6 +561,9 @@ final class UpdateManager: ObservableObject {
         scrollView.borderType = .bezelBorder
 
         let textView = NSTextView(frame: scrollView.bounds)
+        textView.autoresizingMask = [.width]
+        textView.isVerticallyResizable = true
+        textView.textContainer?.widthTracksTextView = true
         textView.isEditable = false
         textView.isSelectable = true
         textView.drawsBackground = true

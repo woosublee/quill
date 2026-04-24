@@ -108,16 +108,16 @@ final class RealtimeTranscriptionService {
     /// (the service declares 24 kHz mono in `session.update`, matching the
     /// OpenAI Realtime default).
     func appendPCM16(_ data: Data) {
-        let currentTask: URLSessionWebSocketTask? = stateQueue.sync {
-            task
+        guard !data.isEmpty else { return }
+        stateQueue.async { [weak self] in
+            guard let self, let currentTask = self.task else { return }
+            let audioB64 = data.base64EncodedString()
+            let message: [String: Any] = [
+                "type": "input_audio_buffer.append",
+                "audio": audioB64,
+            ]
+            self.send(message, over: currentTask)
         }
-        guard let currentTask, !data.isEmpty else { return }
-        let audioB64 = data.base64EncodedString()
-        let message: [String: Any] = [
-            "type": "input_audio_buffer.append",
-            "audio": audioB64,
-        ]
-        send(message, over: currentTask)
     }
 
     /// Signal end-of-input, wait for the final transcript, return it.
