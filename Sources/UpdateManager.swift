@@ -144,6 +144,13 @@ final class UpdateManager: ObservableObject {
         return formatter
     }()
 
+    private static let displayDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
+
     @Published var updateAvailable = false
     @Published var latestRelease: GitHubRelease?
     @Published var latestReleaseVersion: String = ""
@@ -387,10 +394,7 @@ final class UpdateManager: ObservableObject {
     }
 
     private func displayDateString(from date: Date) -> String {
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateStyle = .medium
-        dateFormatter.timeStyle = .none
-        return dateFormatter.string(from: date)
+        Self.displayDateFormatter.string(from: date)
     }
 
     private func normalizedVersionString(from tagName: String) -> String {
@@ -547,7 +551,7 @@ final class UpdateManager: ObservableObject {
             return nil
         }
 
-        if let downloadRange = body.range(of: "\n## Download") {
+        if let downloadRange = body.range(of: "## Download", options: .caseInsensitive) {
             let notes = String(body[..<downloadRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
             return notes.isEmpty ? nil : notes
         }
