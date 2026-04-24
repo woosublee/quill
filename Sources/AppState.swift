@@ -208,7 +208,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private let apiKeyStorageKey = "groq_api_key"
     private let apiBaseURLStorageKey = "api_base_url"
-    private let apiTranscriptionModelStorageKey = "api_transcription_model"
+    private let transcriptionModelStorageKey = "transcription_model"
     private let transcriptionAPIURLStorageKey = "transcription_api_url"
     private let transcriptionAPIKeyStorageKey = "transcription_api_key"
     private let postProcessingModelStorageKey = "post_processing_model"
@@ -237,7 +237,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let disableAutoPasteStorageKey = "disable_auto_paste"
     private let disablePostProcessingStorageKey = "disable_post_processing"
     private let transcriptionLanguageStorageKey = "transcription_language"
-    private let localTranscriptionModelStorageKey = "transcription_model"
+    private let localTranscriptionModelStorageKey = "local_transcription_model"
     private let noteBrowserEnabledStorageKey = "note_browser_enabled"
     private let commandModeEnabledStorageKey = "command_mode_enabled"
     private let commandModeStyleStorageKey = "command_mode_style"
@@ -250,7 +250,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let pasteAfterShortcutReleaseDelay: TimeInterval = 0.03
     private let pressEnterAfterPasteDelay: TimeInterval = 0.08
     private let clipboardRestoreDelay: TimeInterval = 1.0
-    let maxPipelineHistoryCount = Int.max
+    let maxPipelineHistoryCount = 20
     static let defaultContextScreenshotMaxDimension = Int(AppContextService.defaultScreenshotMaxDimension)
     static let contextScreenshotDimensionOptions = [1024, 768, 640, 512]
     static let defaultTranscriptionModel = "whisper-large-v3"
@@ -295,7 +295,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @Published var transcriptionModel: String {
         didSet {
-            UserDefaults.standard.set(transcriptionModel, forKey: apiTranscriptionModelStorageKey)
+            UserDefaults.standard.set(transcriptionModel, forKey: transcriptionModelStorageKey)
         }
     }
 
@@ -609,7 +609,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let hasCompletedSetup = UserDefaults.standard.bool(forKey: "hasCompletedSetup")
         let apiKey = Self.loadStoredAPIKey(account: apiKeyStorageKey)
         let apiBaseURL = Self.loadStoredAPIBaseURL(account: "api_base_url")
-        let transcriptionModel = UserDefaults.standard.string(forKey: apiTranscriptionModelStorageKey) ?? Self.defaultTranscriptionModel
+        let transcriptionModel = UserDefaults.standard.string(forKey: transcriptionModelStorageKey) ?? Self.defaultTranscriptionModel
         let transcriptionAPIURL = Self.loadOptionalStoredAPIValue(account: transcriptionAPIURLStorageKey)
         let transcriptionAPIKey = Self.loadStoredAPIKey(account: transcriptionAPIKeyStorageKey)
         let postProcessingModel = UserDefaults.standard.string(forKey: postProcessingModelStorageKey) ?? Self.defaultPostProcessingModel

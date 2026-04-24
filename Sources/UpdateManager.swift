@@ -447,7 +447,8 @@ final class UpdateManager: ObservableObject {
         let alert = NSAlert()
         alert.messageText = "A New Version is Available"
         let versionText = latestReleaseVersion.isEmpty ? release.tagName : "v\(latestReleaseVersion)"
-        alert.informativeText = "Quill \(versionText) was released \(latestReleaseDate).\n\nWould you like to download the update?"
+        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Quill"
+        alert.informativeText = "\(appName) \(versionText) was released \(latestReleaseDate).\n\nWould you like to download the update?"
         alert.alertStyle = .informational
         alert.icon = NSApp.applicationIconImage
         alert.addButton(withTitle: "Download Update")
@@ -481,7 +482,8 @@ final class UpdateManager: ObservableObject {
         let alert = NSAlert()
         alert.messageText = "New Release Available"
         let versionText = latestReleaseVersion.isEmpty ? release.tagName : "v\(latestReleaseVersion)"
-        alert.informativeText = "Quill \(versionText) was released \(ageText). It's very recent — you can download it now or wait a few days for stability.\n\nWould you like to download it?"
+        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Quill"
+        alert.informativeText = "\(appName) \(versionText) was released \(ageText). It's very recent — you can download it now or wait a few days for stability.\n\nWould you like to download it?"
         alert.alertStyle = .informational
         alert.icon = NSApp.applicationIconImage
         alert.addButton(withTitle: "Download Now")
@@ -519,7 +521,8 @@ final class UpdateManager: ObservableObject {
     private func showReleaseNotes(for release: GitHubRelease) {
         let alert = NSAlert()
         let versionText = latestReleaseVersion.isEmpty ? release.tagName : "v\(latestReleaseVersion)"
-        alert.messageText = "What's New in Quill \(versionText)"
+        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Quill"
+        alert.messageText = "What's New in \(appName) \(versionText)"
         alert.informativeText = "Release notes from GitHub."
         alert.alertStyle = .informational
         alert.icon = NSApp.applicationIconImage

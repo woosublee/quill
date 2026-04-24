@@ -101,10 +101,7 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
     /// to a realtime transcription socket. The recorder still writes the
     /// original capture format to the audio file independently.
     var onPCM16Samples: ((Data) -> Void)?
-    private var pcm16Converter: AVAudioConverter?
-    private var pcm16InputFormat: AVAudioFormat?
-    private var pcm16InputBuffer: AVAudioPCMBuffer?
-    private var pcm16OutputBuffer: AVAudioPCMBuffer?
+    private let pcm16ConverterLock = OSAllocatedUnfairLock<AVAudioConverter?>(initialState: nil)
     private let pcm16TargetFormat: AVAudioFormat = {
         AVAudioFormat(
             commonFormat: .pcmFormatInt16,
@@ -588,21 +585,9 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
         let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
         guard frameCount > 0 else { return }
 
-        if pcm16InputFormat != sourceFormat {
-            pcm16InputFormat = sourceFormat
-            pcm16InputBuffer = nil
-            pcm16OutputBuffer = nil
+        guard let inputBuffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: frameCount) else {
+            return
         }
-
-        if pcm16Converter == nil || pcm16Converter?.inputFormat != sourceFormat {
-            pcm16Converter = AVAudioConverter(from: sourceFormat, to: pcm16TargetFormat)
-        }
-        guard let converter = pcm16Converter else { return }
-
-        if pcm16InputBuffer == nil || pcm16InputBuffer?.frameCapacity ?? 0 < frameCount {
-            pcm16InputBuffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: frameCount)
-        }
-        guard let inputBuffer = pcm16InputBuffer else { return }
         inputBuffer.frameLength = frameCount
         let copyStatus = CMSampleBufferCopyPCMDataIntoAudioBufferList(
             sampleBuffer,
@@ -612,22 +597,24 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
         )
         guard copyStatus == noErr else { return }
 
-        // Resampled frame count (ceil) — converter drains as it goes, so we
-        // size for the worst case then trust frameLength after conversion.
-        let sourceRate = sourceFormat.sampleRate
-        guard sourceRate > 0 else { return }
-        let ratio = pcm16TargetFormat.sampleRate / sourceRate
-        let outputCapacity = AVAudioFrameCount(ceil(Double(frameCount) * ratio)) + 32
-        if pcm16OutputBuffer == nil || pcm16OutputBuffer?.frameCapacity ?? 0 < outputCapacity {
-            pcm16OutputBuffer = AVAudioPCMBuffer(
-                pcmFormat: pcm16TargetFormat,
-                frameCapacity: outputCapacity
-            )
+        let converter = pcm16ConverterLock.withLock { existing -> AVAudioConverter? in
+            if let existing, existing.inputFormat == sourceFormat {
+                return existing
+            }
+            let new = AVAudioConverter(from: sourceFormat, to: pcm16TargetFormat)
+            existing = new
+            return new
         }
-        guard let outputBuffer = pcm16OutputBuffer else {
+        guard let converter else { return }
+
+        let ratio = pcm16TargetFormat.sampleRate / sourceFormat.sampleRate
+        let outputCapacity = AVAudioFrameCount(ceil(Double(frameCount) * ratio)) + 32
+        guard let outputBuffer = AVAudioPCMBuffer(
+            pcmFormat: pcm16TargetFormat,
+            frameCapacity: outputCapacity
+        ) else {
             return
         }
-        outputBuffer.frameLength = 0
 
         var suppliedInput = false
         var converterError: NSError?
