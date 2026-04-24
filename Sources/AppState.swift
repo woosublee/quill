@@ -208,7 +208,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private let apiKeyStorageKey = "groq_api_key"
     private let apiBaseURLStorageKey = "api_base_url"
-    private let apiTranscriptionModelStorageKey = "api_transcription_model"
+    private let transcriptionModelStorageKey = AppState.transcriptionModelStorageKeyName
     private let transcriptionAPIURLStorageKey = "transcription_api_url"
     private let transcriptionAPIKeyStorageKey = "transcription_api_key"
     private let postProcessingModelStorageKey = "post_processing_model"
@@ -237,7 +237,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let disableAutoPasteStorageKey = "disable_auto_paste"
     private let disablePostProcessingStorageKey = "disable_post_processing"
     private let transcriptionLanguageStorageKey = "transcription_language"
-    private let localTranscriptionModelStorageKey = "transcription_model"
+    private let localTranscriptionModelStorageKey = AppState.localTranscriptionModelStorageKeyName
     private let noteBrowserEnabledStorageKey = "note_browser_enabled"
     private let commandModeEnabledStorageKey = "command_mode_enabled"
     private let commandModeStyleStorageKey = "command_mode_style"
@@ -260,6 +260,29 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private static let trailingPressEnterCommandPattern = try! NSRegularExpression(
         pattern: #"(?i)(?:^|[ \t\r\n,;:\-]+)press[ \t\r\n]+enter[\s\p{P}]*$"#
     )
+
+    private static let transcriptionModelStorageKeyName = "transcription_model"
+    private static let localTranscriptionModelStorageKeyName = "local_transcription_model"
+    private static let legacyAPITranscriptionModelStorageKeyName = "api_transcription_model"
+
+    private static func migrateModelStorageKeys() {
+        let defaults = UserDefaults.standard
+        let sharedValue = defaults.string(forKey: transcriptionModelStorageKeyName)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let legacyAPIValue = defaults.string(forKey: legacyAPITranscriptionModelStorageKeyName)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let localValue = defaults.string(forKey: localTranscriptionModelStorageKeyName)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let sharedLooksLikeLocalModel = !sharedValue.isEmpty && TranscriptionModel.all.contains(where: { $0.id == sharedValue })
+
+        if localValue.isEmpty, sharedLooksLikeLocalModel {
+            defaults.set(sharedValue, forKey: localTranscriptionModelStorageKeyName)
+        }
+
+        if !legacyAPIValue.isEmpty {
+            defaults.set(legacyAPIValue, forKey: transcriptionModelStorageKeyName)
+            defaults.removeObject(forKey: legacyAPITranscriptionModelStorageKeyName)
+        } else if sharedLooksLikeLocalModel {
+            defaults.set(defaultTranscriptionModel, forKey: transcriptionModelStorageKeyName)
+        }
+    }
 
     @Published var hasCompletedSetup: Bool {
         didSet {
@@ -295,7 +318,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @Published var transcriptionModel: String {
         didSet {
-            UserDefaults.standard.set(transcriptionModel, forKey: apiTranscriptionModelStorageKey)
+            UserDefaults.standard.set(transcriptionModel, forKey: transcriptionModelStorageKey)
         }
     }
 
@@ -606,10 +629,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     init() {
         UserDefaults.standard.removeObject(forKey: "force_http2_transcription")
+        Self.migrateModelStorageKeys()
         let hasCompletedSetup = UserDefaults.standard.bool(forKey: "hasCompletedSetup")
         let apiKey = Self.loadStoredAPIKey(account: apiKeyStorageKey)
         let apiBaseURL = Self.loadStoredAPIBaseURL(account: "api_base_url")
-        let transcriptionModel = UserDefaults.standard.string(forKey: apiTranscriptionModelStorageKey) ?? Self.defaultTranscriptionModel
+        let transcriptionModel = UserDefaults.standard.string(forKey: transcriptionModelStorageKey) ?? Self.defaultTranscriptionModel
         let transcriptionAPIURL = Self.loadOptionalStoredAPIValue(account: transcriptionAPIURLStorageKey)
         let transcriptionAPIKey = Self.loadStoredAPIKey(account: transcriptionAPIKeyStorageKey)
         let postProcessingModel = UserDefaults.standard.string(forKey: postProcessingModelStorageKey) ?? Self.defaultPostProcessingModel

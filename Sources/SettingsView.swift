@@ -260,6 +260,21 @@ struct ProviderSettingsFields: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
+                Text("Transcription Language")
+                    .font(.caption.weight(.semibold))
+                Picker("", selection: $appState.transcriptionLanguage) {
+                    ForEach(TranscriptionLanguage.all) { option in
+                        Text(option.displayName).tag(option)
+                    }
+                }
+                .accessibilityLabel("Transcription Language")
+                .labelsHidden()
+                Text("Hint to the transcription model. Auto Detect works for most users. Pick a specific language if you see wrong-script characters appear in the output.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
                 Text("Transcription API URL")
                     .font(.caption.weight(.semibold))
                 HStack(spacing: 8) {
@@ -504,7 +519,7 @@ struct GeneralSettingsView: View {
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 64, height: 64)
 
-                    Text("Quill")
+                    Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Quill")
                         .font(.system(size: 20, weight: .bold, design: .rounded))
 
                     Text("v\(appVersion)")
