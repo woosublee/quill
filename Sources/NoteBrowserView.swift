@@ -85,7 +85,7 @@ private class GlassNSView: NSView {
 @available(macOS 26.0, *)
 private class LiquidGlassNSView: NSView {
     private let glassView = NSGlassEffectView()
-    var cornerRadius: CGFloat = 999
+    var cornerRadius: CGFloat? = nil
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -103,7 +103,7 @@ private class LiquidGlassNSView: NSView {
     override func layout() {
         super.layout()
         glassView.frame = bounds
-        glassView.cornerRadius = cornerRadius == 999 ? bounds.height / 2 : cornerRadius
+        glassView.cornerRadius = cornerRadius ?? bounds.height / 2
     }
 }
 
