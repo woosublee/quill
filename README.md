@@ -1,4 +1,53 @@
 <p align="center">
+  <img src="Resources/AppIcon-Source.png" width="128" height="128" alt="Quill icon">
+</p>
+
+<h1 align="center">Quill</h1>
+
+<p align="center">
+  Quill is a maintained fork of <code>zachlatta/freeflow</code> that keeps the upstream dictation experience while adding Quill-specific workflows and integrations.
+</p>
+
+## Quill 소개
+
+Quill은 `zachlatta/freeflow`를 기반으로 유지하는 포크로, upstream의 핵심 dictation 경험은 최대한 따라가면서 한국어 사용자와 개인 워크플로우에 필요한 기능들을 추가로 제공합니다.
+
+### Quill에서 추가로 안내하는 내용
+
+- **Quill 브랜딩:** 앱 이름과 사용자 노출 문구를 `Quill` 기준으로 정리합니다.
+- **로컬 전사 확장:** Apple Speech 및 local transcription 모델 선택 흐름을 제공합니다.
+- **MCP 연동:** 앱 실행 중 로컬 MCP 서버를 통해 Claude Code와 연결할 수 있습니다.
+- **Note Browser 워크플로우:** 전사 이력, 노트 탐색, 후속 정리 흐름을 함께 사용합니다.
+- **포크 전용 설정 UX:** upstream 설정을 수용하면서도 Quill 전용 옵션을 함께 제공합니다.
+
+### Claude Code MCP Setup
+
+Quill exposes a local MCP server at `http://localhost:3457` while the app is running.
+
+To connect Quill to Claude Code, run:
+
+```bash
+claude mcp add -s user -t http quill http://localhost:3457
+```
+
+Then:
+
+1. Install and launch Quill
+2. Complete the app setup if prompted
+3. Keep Quill running
+4. Ask Claude to use the `quill` MCP server
+
+#### Notes
+
+- Quill MCP does not require a separate MCP API key.
+- This is a user-scoped local connection.
+- Each person should run Quill on their own machine and register their own local `quill` MCP server.
+
+> 아래부터는 upstream README 내용을 기본으로 유지합니다.
+
+---
+
+<p align="center">
   <img src="Resources/AppIcon-Source.png" width="128" height="128" alt="FreeFlow icon">
 </p>
 
@@ -87,29 +136,6 @@ If you do that, the total pipeline takes too long for the UX to be good (5-10 se
 Some day!
 
 **Update:** You can now use a custom model with FreeFlow by configuring the LLM API URL in the FreeFlow settings to use Ollama. Thank you @taciturnaxolotl!
-
-## Claude Code MCP Setup
-
-Quill exposes a local MCP server at `http://localhost:3457` while the app is running.
-
-To connect Quill to Claude Code, run:
-
-```bash
-claude mcp add -s user -t http quill http://localhost:3457
-```
-
-Then:
-
-1. Install and launch Quill
-2. Complete the app setup if prompted
-3. Keep Quill running
-4. Ask Claude to use the `quill` MCP server
-
-### Notes
-
-- Quill MCP does not require a separate MCP API key.
-- This is a user-scoped local connection.
-- Each person should run Quill on their own machine and register their own local `quill` MCP server.
 
 ## License
 
