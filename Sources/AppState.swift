@@ -250,7 +250,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let pasteAfterShortcutReleaseDelay: TimeInterval = 0.03
     private let pressEnterAfterPasteDelay: TimeInterval = 0.08
     private let clipboardRestoreDelay: TimeInterval = 1.0
-    let maxPipelineHistoryCount = 20
+    let maxPipelineHistoryCount = Int.max
     static let defaultContextScreenshotMaxDimension = Int(AppContextService.defaultScreenshotMaxDimension)
     static let contextScreenshotDimensionOptions = [1024, 768, 640, 512]
     static let defaultTranscriptionModel = "whisper-large-v3"
@@ -260,6 +260,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private static let trailingPressEnterCommandPattern = try! NSRegularExpression(
         pattern: #"(?i)(?:^|[ \t\r\n,;:\-]+)press[ \t\r\n]+enter[\s\p{P}]*$"#
     )
+
+    private static let transcriptionModelStorageKeyName = "transcription_model"
+    private static let localTranscriptionModelStorageKeyName = "local_transcription_model"
+
+    private static func migrateModelStorageKeys() {
+        let defaults = UserDefaults.standard
+        let oldSharedValue = defaults.string(forKey: transcriptionModelStorageKeyName)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let hasLocalKey = defaults.object(forKey: localTranscriptionModelStorageKeyName) != nil
+
+        if !hasLocalKey,
+           !oldSharedValue.isEmpty,
+           TranscriptionModel.all.contains(where: { $0.id == oldSharedValue }) {
+            defaults.set(oldSharedValue, forKey: localTranscriptionModelStorageKeyName)
+            defaults.set(defaultTranscriptionModel, forKey: transcriptionModelStorageKeyName)
+        }
+    }
 
     @Published var hasCompletedSetup: Bool {
         didSet {
@@ -606,6 +622,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     init() {
         UserDefaults.standard.removeObject(forKey: "force_http2_transcription")
+        Self.migrateModelStorageKeys()
         let hasCompletedSetup = UserDefaults.standard.bool(forKey: "hasCompletedSetup")
         let apiKey = Self.loadStoredAPIKey(account: apiKeyStorageKey)
         let apiBaseURL = Self.loadStoredAPIBaseURL(account: "api_base_url")
