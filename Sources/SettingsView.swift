@@ -1156,7 +1156,7 @@ struct GeneralSettingsView: View {
                 isOn: $appState.dictationAudioInterruptionEnabled
             )
 
-            Text("FreeFlow restores the audio state it changed when dictation ends.")
+            Text("\(appDisplayName) restores the audio state it changed when dictation ends.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
