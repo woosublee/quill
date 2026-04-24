@@ -101,7 +101,7 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
     /// to a realtime transcription socket. The recorder still writes the
     /// original capture format to the audio file independently.
     var onPCM16Samples: ((Data) -> Void)?
-    private let pcm16ConverterLock = OSAllocatedUnfairLock<AVAudioConverter?>(initialState: nil)
+    private var pcm16Converter: AVAudioConverter?
     private var pcm16InputFormat: AVAudioFormat?
     private var pcm16InputBuffer: AVAudioPCMBuffer?
     private var pcm16OutputBuffer: AVAudioPCMBuffer?
@@ -594,15 +594,10 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
             pcm16OutputBuffer = nil
         }
 
-        let converter = pcm16ConverterLock.withLock { existing -> AVAudioConverter? in
-            if let existing, existing.inputFormat == sourceFormat {
-                return existing
-            }
-            let new = AVAudioConverter(from: sourceFormat, to: pcm16TargetFormat)
-            existing = new
-            return new
+        if pcm16Converter == nil || pcm16Converter?.inputFormat != sourceFormat {
+            pcm16Converter = AVAudioConverter(from: sourceFormat, to: pcm16TargetFormat)
         }
-        guard let converter else { return }
+        guard let converter = pcm16Converter else { return }
 
         if pcm16InputBuffer == nil || pcm16InputBuffer?.frameCapacity ?? 0 < frameCount {
             pcm16InputBuffer = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: frameCount)
