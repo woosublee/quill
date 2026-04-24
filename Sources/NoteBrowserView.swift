@@ -56,6 +56,7 @@ extension View {
 
 private class GlassNSView: NSView {
     var material: NSVisualEffectView.Material
+    var cornerRadius: CGFloat? = nil
     private let effectView = NSVisualEffectView()
 
     init(material: NSVisualEffectView.Material = .popover) {
@@ -78,7 +79,7 @@ private class GlassNSView: NSView {
     override func layout() {
         super.layout()
         effectView.frame = bounds
-        effectView.layer?.cornerRadius = bounds.height / 2
+        effectView.layer?.cornerRadius = cornerRadius ?? (bounds.height / 2)
     }
 }
 
@@ -119,14 +120,17 @@ private struct GlassView: NSViewRepresentable {
             }
             return view
         }
-        return GlassNSView(material: material)
+        let view = GlassNSView(material: material)
+        view.cornerRadius = cornerRadius
+        return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
         if let nsView = nsView as? GlassNSView {
             nsView.material = material
+            nsView.cornerRadius = cornerRadius
         }
-        if #available(macOS 26.0, *), let nsView = nsView as? LiquidGlassNSView, let cornerRadius {
+        if #available(macOS 26.0, *), let nsView = nsView as? LiquidGlassNSView {
             nsView.cornerRadius = cornerRadius
         }
     }
@@ -680,6 +684,10 @@ private struct NoteListRow: View {
             : .secondary
     }
 
+    private var toolbarStrokeColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.10) : Color.primary.opacity(0.10)
+    }
+
     @ViewBuilder
     private var statusIndicator: some View {
         switch status {
@@ -740,6 +748,7 @@ private struct NoteDetailView: View {
     let titleStore: NoteTitleStore
     let onDelete: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var appState: AppState
     @State private var loadedContent: String?
     @State private var isCopied = false
@@ -1039,7 +1048,7 @@ private struct NoteDetailView: View {
         .background {
             GlassView(material: .underWindowBackground)
                 .clipShape(Capsule())
-                .overlay(Capsule().strokeBorder(Color.white.opacity(0.10), lineWidth: 0.6))
+                .overlay(Capsule().strokeBorder(toolbarStrokeColor, lineWidth: 0.6))
         }
         .compositingGroup()
         .shadow(color: .black.opacity(0.085), radius: 14, x: 0, y: 4)
@@ -1049,6 +1058,10 @@ private struct NoteDetailView: View {
         .contentShape(Capsule())
         .allowsHitTesting(true)
         .overrideCursor(.arrow)
+    }
+
+    private var toolbarStrokeColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.10) : Color.primary.opacity(0.10)
     }
 
     private func toolbarButton<L: View>(
@@ -1111,6 +1124,7 @@ private struct NoteDetailView: View {
 struct NoteAudioPlayerView: View {
     let audioURL: URL
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var player: AVAudioPlayer?
     @State private var delegate = AudioPlayerDelegate()
     @State private var isPlaying = false
@@ -1125,6 +1139,10 @@ struct NoteAudioPlayerView: View {
         return min(elapsed / duration, 1.0)
     }
 
+    private var toolbarStrokeColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.10) : Color.primary.opacity(0.10)
+    }
+
     var body: some View {
         HStack(spacing: 14) {
             // Play / Stop button — var(--ink) bg, var(--bg) icon
@@ -1133,7 +1151,7 @@ struct NoteAudioPlayerView: View {
                     Circle()
                         .fill(Color.white.opacity(0.10))
                         .overlay(GlassView(material: .popover).clipShape(Circle()))
-                        .overlay(Circle().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.7))
+                        .overlay(Circle().strokeBorder(toolbarStrokeColor, lineWidth: 0.7))
                         .frame(width: 36, height: 36)
                     Image(systemName: isPlaying ? "stop.fill" : "play.fill")
                         .font(.system(size: 11, weight: .semibold))
@@ -1305,6 +1323,7 @@ struct NoteAudioPlayerView: View {
 // MARK: - Toolbar Button Style
 
 private struct ToolbarButtonStyle: ButtonStyle {
+    @Environment(\.colorScheme) private var colorScheme
     var isHovered: Bool = false
 
     func makeBody(configuration: Configuration) -> some View {
@@ -1314,17 +1333,25 @@ private struct ToolbarButtonStyle: ButtonStyle {
                     .fill(
                         configuration.isPressed
                             ? Color.primary.opacity(0.12)
-                            : (isHovered ? Color.white.opacity(0.08) : Color.clear)
+                            : (isHovered ? hoverFillColor : Color.clear)
                     )
             )
             .overlay(
                 Circle()
-                    .strokeBorder(Color.white.opacity(isHovered ? 0.16 : 0), lineWidth: 0.5)
+                    .strokeBorder(hoverStrokeColor.opacity(isHovered ? 1 : 0), lineWidth: 0.5)
             )
             .contentShape(Circle())
             .scaleEffect(configuration.isPressed ? 0.92 : 1.0)
             .animation(.easeInOut(duration: 0.12), value: configuration.isPressed)
             .animation(.easeInOut(duration: 0.12), value: isHovered)
+    }
+
+    private var hoverFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.08) : Color.primary.opacity(0.07)
+    }
+
+    private var hoverStrokeColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.16) : Color.primary.opacity(0.12)
     }
 }
 
