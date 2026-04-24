@@ -364,7 +364,7 @@ final class UpdateManager: ObservableObject {
     }
 
     private func aggregatedReleaseNotes(from releases: [GitHubRelease]) -> String? {
-        let notes = releases.compactMap { releaseNotesBody(from: $0.body) }
+        let notes = releases.reversed().compactMap { releaseNotesBody(from: $0.body) }
         guard !notes.isEmpty else { return nil }
         return notes.joined(separator: "\n\n")
     }

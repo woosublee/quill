@@ -345,9 +345,12 @@ final class RealtimeTranscriptionService {
 
     // MARK: URL derivation
 
-    /// Turn `https://host[/prefix]` or `http://host[/prefix]` into
-    /// `wss://host[/prefix]/realtime`, reusing a trailing `/v1` prefix when
-    /// the configured base URL already includes it.
+    /// Turn a provider base URL or common OpenAI-style endpoint URL into a
+    /// realtime WebSocket URL. Accepts inputs like:
+    /// - `https://host`
+    /// - `https://host/v1`
+    /// - `https://host/v1/chat/completions`
+    /// - `https://host/v1/audio/transcriptions`
     static func deriveWebSocketURL(
         baseURL: String,
         model: String,
@@ -363,14 +366,22 @@ final class RealtimeTranscriptionService {
         default: return nil
         }
 
-        var path = components.path
-        if path.hasSuffix("/") { path.removeLast() }
-        if path.hasSuffix("/v1") {
-            path += "/realtime"
-        } else {
-            path += "/v1/realtime"
+        var pathComponents = components.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        if pathComponents.suffix(2) == ["chat", "completions"] {
+            pathComponents.removeLast(2)
+        } else if pathComponents.suffix(2) == ["audio", "transcriptions"] {
+            pathComponents.removeLast(2)
         }
-        components.path = path
+
+        if pathComponents.last == "realtime" {
+            // keep as-is
+        } else if pathComponents.last == "v1" {
+            pathComponents.append("realtime")
+        } else {
+            pathComponents.append(contentsOf: ["v1", "realtime"])
+        }
+
+        components.path = "/" + pathComponents.joined(separator: "/")
 
         var queryItems = components.queryItems ?? []
         if !queryItems.contains(where: { $0.name == "intent" }) {
