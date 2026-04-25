@@ -59,6 +59,7 @@ struct SetupView: View {
         case welcome = 0
         case apiKey
         case micPermission
+        case speechRecognition
         case accessibility
         case screenRecording
         case holdShortcut
@@ -232,6 +233,8 @@ struct SetupView: View {
             apiKeyStep
         case .micPermission:
             micPermissionStep
+        case .speechRecognition:
+            speechRecognitionStep
         case .accessibility:
             accessibilityStep
         case .screenRecording:
@@ -502,6 +505,47 @@ struct SetupView: View {
             .background(Color(nsColor: .controlBackgroundColor))
             .cornerRadius(8)
 
+        }
+    }
+
+    var speechRecognitionStep: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "waveform.badge.mic")
+                .font(.system(size: 60))
+                .foregroundStyle(.blue)
+
+            Text("Speech Recognition")
+                .font(.title)
+                .fontWeight(.bold)
+
+            Text("Apple Live transcription needs Speech Recognition permission in addition to microphone access.")
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack {
+                Image(systemName: "waveform.badge.mic")
+                    .frame(width: 24)
+                    .foregroundStyle(.blue)
+                Text("Speech Recognition")
+                Spacer()
+                if appState.hasSpeechRecognitionPermission {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("Granted")
+                        .foregroundStyle(.green)
+                } else {
+                    Button("Grant Access") {
+                        appState.requestSpeechRecognitionAccess()
+                    }
+                }
+            }
+            .padding(12)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .cornerRadius(8)
+        }
+        .onAppear {
+            appState.refreshSpeechRecognitionAuthorizationStatus()
         }
     }
 

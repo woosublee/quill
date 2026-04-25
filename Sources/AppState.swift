@@ -5,6 +5,7 @@ import AVFoundation
 import ServiceManagement
 import ApplicationServices
 import ScreenCaptureKit
+import Speech
 import os.log
 private let recordingLog = OSLog(subsystem: "com.zachlatta.freeflow", category: "Recording")
 
@@ -613,6 +614,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var lastContextSelectedText: String = ""
     @Published var lastContextLLMPrompt: String = ""
     @Published var hasScreenRecordingPermission = false
+    @Published var speechRecognitionAuthorizationStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
     @Published var launchAtLogin: Bool {
         didSet { setLaunchAtLogin(launchAtLogin) }
     }
@@ -821,6 +823,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.selectedMicrophoneID = selectedMicrophoneID
         self.precomputeMacros()
 
+        speechRecognitionAuthorizationStatus = Self.currentSpeechRecognitionAuthorizationStatus()
         refreshAvailableMicrophones()
         installAudioDeviceObservers()
 
@@ -2214,6 +2217,27 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return true
     }
 
+    static func currentSpeechRecognitionAuthorizationStatus() -> SFSpeechRecognizerAuthorizationStatus {
+        SFSpeechRecognizer.authorizationStatus()
+    }
+
+    var hasSpeechRecognitionPermission: Bool {
+        speechRecognitionAuthorizationStatus == .authorized
+    }
+
+    func refreshSpeechRecognitionAuthorizationStatus() {
+        speechRecognitionAuthorizationStatus = Self.currentSpeechRecognitionAuthorizationStatus()
+    }
+
+    func requestSpeechRecognitionAccess(completion: ((Bool) -> Void)? = nil) {
+        SFSpeechRecognizer.requestAuthorization { [weak self] status in
+            DispatchQueue.main.async {
+                self?.speechRecognitionAuthorizationStatus = status
+                completion?(status == .authorized)
+            }
+        }
+    }
+
     private func ensureScreenCaptureAccess() -> Bool {
         let granted = hasScreenCapturePermission()
         hasScreenRecordingPermission = granted
@@ -2355,6 +2379,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
         os_log(.info, log: recordingLog, "beginRecording() entered")
         clearPendingOverlayDismissToken()
         errorMessage = nil
+
+        if useLocalTranscription, localTranscriptionModel.isAppleSpeech {
+            refreshSpeechRecognitionAuthorizationStatus()
+            guard hasSpeechRecognitionPermission else {
+                isRecording = false
+                activeRecordingTriggerMode = nil
+                currentSessionIntent = .dictation
+                shortcutSessionController.reset()
+                errorMessage = "Speech Recognition permission is required for Apple Live transcription. Enable it in System Settings > Privacy & Security > Speech Recognition."
+                statusText = "No Speech Recognition"
+                requestSpeechRecognitionAccess()
+                return
+            }
+        }
 
         isRecording = true
         statusText = "Starting..."

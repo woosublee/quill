@@ -1390,6 +1390,15 @@ struct GeneralSettingsView: View {
             )
 
             permissionRow(
+                title: "Speech Recognition",
+                icon: "waveform.badge.mic",
+                granted: appState.hasSpeechRecognitionPermission,
+                action: {
+                    appState.requestSpeechRecognitionAccess()
+                }
+            )
+
+            permissionRow(
                 title: "Screen Recording",
                 icon: "camera.viewfinder",
                 granted: appState.hasScreenRecordingPermission,
