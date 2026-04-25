@@ -2849,11 +2849,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
             self.scheduleReadyStatusReset(after: 3, matching: [completionStatusText, "Nothing to transcribe", enterOnlyStatusText])
         }
 
-        let completeJob: @Sendable (UUID) -> Void = { [weak self] id in
+        let completeJob: @Sendable (UUID, UUID) -> Void = { [weak self] id, overlayID in
             Task { @MainActor in
                 guard let self else { return }
                 self.finishTranscriptionJob(id)
-                self.cancelTranscribingIndicatorTask()
+                if self.overlayTranscriptionID == overlayID {
+                    self.cancelTranscribingIndicatorTask()
+                }
             }
         }
 
@@ -2938,11 +2940,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             parsedTranscript.shouldPressEnterAfterPaste,
                             shouldPersistRawDictationFallback
                         )
-                        completeJob(jobID)
+                        completeJob(jobID, myOverlayID)
                     }
                 } catch is CancellationError {
                     await MainActor.run {
-                        completeJob(jobID)
+                        completeJob(jobID, myOverlayID)
                     }
                 } catch {
                     let resolvedContext: AppContext
@@ -2973,7 +2975,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         )
                         self.cleanupRecorderIfIdle()
                         guard self.overlayTranscriptionID == myOverlayID else {
-                            completeJob(jobID)
+                            completeJob(jobID, myOverlayID)
                             return
                         }
                         self.errorMessage = error.localizedDescription
@@ -2987,7 +2989,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.lastContextScreenshotDataURL = resolvedContext.screenshotDataURL
                         self.lastContextScreenshotStatus = resolvedContext.screenshotError
                             ?? "available (\(resolvedContext.screenshotMimeType ?? "image"))"
-                        completeJob(jobID)
+                        completeJob(jobID, myOverlayID)
                     }
                 }
             }
@@ -3113,11 +3115,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             parsedTranscript.shouldPressEnterAfterPaste,
                             shouldPersistRawDictationFallback
                         )
-                        completeJob(jobID)
+                        completeJob(jobID, myOverlayID)
                     }
                 } catch is CancellationError {
                     await MainActor.run {
-                        completeJob(jobID)
+                        completeJob(jobID, myOverlayID)
                     }
                 } catch {
                     let resolvedContext: AppContext
@@ -3142,7 +3144,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         )
                         self.cleanupRecorderIfIdle()
                         guard self.overlayTranscriptionID == myOverlayID else {
-                            completeJob(jobID)
+                            completeJob(jobID, myOverlayID)
                             return
                         }
                         self.errorMessage = error.localizedDescription
@@ -3156,7 +3158,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.lastContextScreenshotDataURL = resolvedContext.screenshotDataURL
                         self.lastContextScreenshotStatus = resolvedContext.screenshotError
                             ?? "available (\(resolvedContext.screenshotMimeType ?? "image"))"
-                        completeJob(jobID)
+                        completeJob(jobID, myOverlayID)
                     }
                 }
             }
