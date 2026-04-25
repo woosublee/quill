@@ -3607,10 +3607,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             do {
                 try await Task.sleep(nanoseconds: UInt64(indicatorDelay * 1_000_000_000))
                 guard self?.overlayTranscriptionID == overlayID else { return }
-                await MainActor.run { [weak self] in
-                    guard self?.overlayTranscriptionID == overlayID else { return }
-                    self?.overlayManager.showTranscribing()
-                }
+                self?.overlayManager.showTranscribing()
             } catch {}
         }
     }
