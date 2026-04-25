@@ -428,6 +428,56 @@ struct NoteBrowserView: View {
             .padding(.top, 14)
             .padding(.bottom, 10)
 
+            HStack(spacing: 8) {
+                Text("Transcription")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .textCase(.uppercase)
+                    .kerning(0.4)
+
+                Spacer()
+
+                Menu {
+                    Section("API") {
+                        Button("Standard") {
+                            appState.useLocalTranscription = false
+                            appState.realtimeStreamingEnabled = false
+                        }
+                        Button("Realtime") {
+                            appState.useLocalTranscription = false
+                            appState.realtimeStreamingEnabled = true
+                        }
+                    }
+                    Section("Local") {
+                        Button("Whisper") {
+                            appState.useLocalTranscription = true
+                            appState.realtimeStreamingEnabled = false
+                            if appState.localTranscriptionModel.isAppleSpeech,
+                               let nonAppleModel = TranscriptionModel.all.first(where: { !$0.isAppleSpeech }) {
+                                appState.localTranscriptionModel = nonAppleModel
+                            }
+                        }
+                        Button("Apple Live") {
+                            appState.useLocalTranscription = true
+                            appState.realtimeStreamingEnabled = false
+                            appState.localTranscriptionModel = .find(id: "apple-speech")
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(appState.noteBrowserTranscriptionModeLabel)
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(Color.primary.opacity(0.06), in: Capsule())
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+
             // Search bar
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")

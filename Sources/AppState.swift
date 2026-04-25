@@ -529,6 +529,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    var noteBrowserTranscriptionModeLabel: String {
+        if useLocalTranscription {
+            return localTranscriptionModel.isAppleSpeech ? "Local · Apple Live" : "Local · Whisper"
+        }
+        return realtimeStreamingEnabled ? "API · Realtime" : "API · Standard"
+    }
+
     @Published var soundVolume: Float {
         didSet {
             UserDefaults.standard.set(soundVolume, forKey: soundVolumeStorageKey)
