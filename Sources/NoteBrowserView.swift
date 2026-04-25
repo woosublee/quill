@@ -1628,6 +1628,7 @@ private struct NoteTextView: NSViewRepresentable {
         let padding = String(repeating: "\n", count: lineCount)
         let newText = text + padding
         if textView.string == newText {
+            textView.textStorage?.setAttributes(attrs, range: NSRange(location: 0, length: (newText as NSString).length))
             textView.typingAttributes = attrs
             return
         }
