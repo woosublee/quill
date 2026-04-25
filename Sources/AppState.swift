@@ -1838,6 +1838,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     // MCP public interface
+    @MainActor
     func startRecordingFromMCP() {
         lastTranscript = ""
         mcpLastRecordingFailed = false
@@ -1972,6 +1973,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func scheduleShortcutStart(mode: RecordingTriggerMode) {
         cancelPendingShortcutStart(resetMode: false)
         pendingManualCommandInvocation = hotkeyManager.currentPressedModifiers.contains(
@@ -2084,6 +2086,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         scheduleReadyStatusReset(after: 2, matching: ["Fix Edit Mode modifier"])
     }
 
+    @MainActor
     private func startRecording(triggerMode: RecordingTriggerMode) {
         let t0 = CFAbsoluteTimeGetCurrent()
         os_log(.info, log: recordingLog, "startRecording() entered")
@@ -2191,6 +2194,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return true
     }
 
+    @MainActor
     private func ensureMicrophoneAccess() -> Bool {
         let status = AVCaptureDevice.authorizationStatus(for: .audio)
         switch status {
@@ -2263,6 +2267,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func prepareForMicrophonePermissionPrompt(
         triggerMode: RecordingTriggerMode,
         selectionSnapshot: AppSelectionSnapshot?,
@@ -2799,7 +2804,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         liveTranscriber = nil
         audioRecorder.onAudioBuffer = nil
 
-        let updateForegroundUI: @Sendable (
+        let updateForegroundUI: @MainActor @Sendable (
             String, String, String, String, AppContext, String, String, Bool, Bool
         ) -> Void = { [weak self] rawTranscript, finalTranscript, prompt, processingStatus, context, completionStatusText, enterOnlyStatusText, shouldPressEnterAfterPaste, shouldPersistRawDictationFallback in
             guard let self else { return }
@@ -2849,13 +2854,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             self.scheduleReadyStatusReset(after: 3, matching: [completionStatusText, "Nothing to transcribe", enterOnlyStatusText])
         }
 
-        let completeJob: @Sendable (UUID, UUID) -> Void = { [weak self] id, overlayID in
-            Task { @MainActor in
-                guard let self else { return }
-                self.finishTranscriptionJob(id)
-                if self.overlayTranscriptionID == overlayID {
-                    self.cancelTranscribingIndicatorTask()
-                }
+        let completeJob: @MainActor @Sendable (UUID, UUID) -> Void = { [weak self] id, overlayID in
+            guard let self else { return }
+            self.finishTranscriptionJob(id)
+            if self.overlayTranscriptionID == overlayID {
+                self.cancelTranscribingIndicatorTask()
             }
         }
 
@@ -3464,6 +3467,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    @MainActor
     private func handleScreenshotCaptureIssue(_ message: String?) {
         guard let message, !message.isEmpty else {
             hasShownScreenshotPermissionAlert = false
@@ -3536,6 +3540,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         _ = alert.runModal()
     }
 
+    @MainActor
     func toggleDebugOverlay() {
         if isDebugOverlayActive {
             stopDebugOverlay()
@@ -3562,6 +3567,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func stopDebugOverlay() {
         debugOverlayTimer?.invalidate()
         debugOverlayTimer = nil
@@ -3574,11 +3580,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         pendingOverlayDismissToken = nil
     }
 
+    @MainActor
     private func cancelTranscribingIndicatorTask() {
         transcribingIndicatorTask?.cancel()
         transcribingIndicatorTask = nil
     }
 
+    @MainActor
     private func dismissTranscribingOverlay(resetOverlayOwner: Bool = false) {
         cancelTranscribingIndicatorTask()
         clearPendingOverlayDismissToken()
@@ -3588,6 +3596,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func prepareTranscribingOverlay(for overlayID: UUID, statusText: String, debugStatus: String) {
         guard overlayTranscriptionID == overlayID else { return }
         self.statusText = statusText
