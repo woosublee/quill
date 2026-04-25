@@ -440,27 +440,18 @@ struct NoteBrowserView: View {
                 Menu {
                     Section("API") {
                         Button("Standard") {
-                            appState.useLocalTranscription = false
-                            appState.realtimeStreamingEnabled = false
+                            appState.setNoteBrowserTranscriptionMode(.apiStandard)
                         }
                         Button("Realtime") {
-                            appState.useLocalTranscription = false
-                            appState.realtimeStreamingEnabled = true
+                            appState.setNoteBrowserTranscriptionMode(.apiRealtime)
                         }
                     }
                     Section("Local") {
                         Button("Whisper") {
-                            appState.useLocalTranscription = true
-                            appState.realtimeStreamingEnabled = false
-                            if appState.localTranscriptionModel.isAppleSpeech,
-                               let nonAppleModel = TranscriptionModel.all.first(where: { !$0.isAppleSpeech }) {
-                                appState.localTranscriptionModel = nonAppleModel
-                            }
+                            appState.setNoteBrowserTranscriptionMode(.localWhisper)
                         }
                         Button("Apple Live") {
-                            appState.useLocalTranscription = true
-                            appState.realtimeStreamingEnabled = false
-                            appState.localTranscriptionModel = .find(id: "apple-speech")
+                            appState.setNoteBrowserTranscriptionMode(.localAppleLive)
                         }
                     }
                 } label: {
@@ -474,6 +465,7 @@ struct NoteBrowserView: View {
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
+                .disabled(appState.isRecording || appState.isTranscribing)
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 8)

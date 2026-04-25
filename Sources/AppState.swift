@@ -19,6 +19,13 @@ struct PrecomputedMacro {
     let normalizedCommand: String
 }
 
+enum NoteBrowserTranscriptionMode {
+    case apiStandard
+    case apiRealtime
+    case localWhisper
+    case localAppleLive
+}
+
 enum SettingsTab: String, CaseIterable, Identifiable {
     case general
     case prompts
@@ -534,6 +541,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return localTranscriptionModel.isAppleSpeech ? "Local · Apple Live" : "Local · Whisper"
         }
         return realtimeStreamingEnabled ? "API · Realtime" : "API · Standard"
+    }
+
+    func setNoteBrowserTranscriptionMode(_ mode: NoteBrowserTranscriptionMode) {
+        switch mode {
+        case .apiStandard:
+            useLocalTranscription = false
+            realtimeStreamingEnabled = false
+        case .apiRealtime:
+            useLocalTranscription = false
+            realtimeStreamingEnabled = true
+        case .localWhisper:
+            useLocalTranscription = true
+            realtimeStreamingEnabled = false
+            if localTranscriptionModel.isAppleSpeech,
+               let nonAppleModel = TranscriptionModel.all.first(where: { !$0.isAppleSpeech }) {
+                localTranscriptionModel = nonAppleModel
+            }
+        case .localAppleLive:
+            useLocalTranscription = true
+            realtimeStreamingEnabled = false
+            localTranscriptionModel = .find(id: "apple-speech")
+        }
     }
 
     @Published var soundVolume: Float {
