@@ -10,7 +10,7 @@ struct MenuBarView: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            Text("Quill v\(appVersion)")
+            Text("\(AppName.displayName) v\(appVersion)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 16)
@@ -78,7 +78,7 @@ struct MenuBarView: View {
             Button(appState.isRecording ? "Stop Recording" : "Start Dictating") {
                 appState.toggleRecording()
             }
-            .disabled(false)
+            .disabled(appState.isTranscribing)
 
             if let hotkeyError = appState.hotkeyMonitoringErrorMessage {
                 Divider()
@@ -294,7 +294,7 @@ struct MenuBarView: View {
 
             Divider()
 
-            Button("Quit Quill") {
+            Button("Quit \(AppName.displayName)") {
                 NSApplication.shared.terminate(nil)
             }
             .keyboardShortcut("q")

@@ -1082,7 +1082,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let fileName = UUID().uuidString + ".wav"
         let destURL = audioStorageDirectory().appendingPathComponent(fileName)
         do {
-            try AudioNormalization.writePreferredAudioCopy(from: tempURL, to: destURL)
+            try? FileManager.default.removeItem(at: destURL)
+            try FileManager.default.copyItem(at: tempURL, to: destURL)
             return SavedAudioFile(fileName: fileName, fileURL: destURL)
         } catch {
             return nil

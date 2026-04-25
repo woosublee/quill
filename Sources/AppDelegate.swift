@@ -199,7 +199,7 @@ private func showNoteBrowserWindow() {
             backing: .buffered,
             defer: false
         )
-        window.title = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Quill"
+        window.title = AppName.displayName
         window.contentView = hostingView
         window.isReleasedWhenClosed = false
         window.center()
@@ -233,7 +233,7 @@ private func showNoteBrowserWindow() {
             backing: .buffered,
             defer: false
         )
-        window.title = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Quill"
+        window.title = AppName.displayName
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
         window.contentView = NSHostingView(rootView: setupView)
