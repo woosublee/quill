@@ -2415,7 +2415,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 guard let triggerMode = activeRecordingTriggerMode else { return }
                 prepareForSpeechRecognitionPermissionPrompt(
                     triggerMode: triggerMode,
-                    selectionSnapshot: pendingSelectionSnapshot ?? contextService.collectSelectionSnapshot(),
+                    selectionSnapshot: pendingSelectionSnapshot,
                     manualCommandRequested: currentSessionIntent.isManualCommand
                 )
                 requestSpeechRecognitionAccess { [weak self] granted in
@@ -2446,6 +2446,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             }
                         } else {
                             self.currentSessionIntent = .dictation
+                            self.restoreAudioInterruptionIfNeeded()
                             self.statusText = "Speech Recognition access granted. Press and hold again to record."
                             self.scheduleReadyStatusReset(
                                 after: 2,
@@ -2453,6 +2454,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             )
                         }
                     } else {
+                        self.restoreAudioInterruptionIfNeeded()
                         self.errorMessage = "Speech Recognition permission is required for Apple Live transcription. Enable it in System Settings > Privacy & Security > Speech Recognition."
                         self.statusText = "No Speech Recognition"
                         self.activeRecordingTriggerMode = nil
@@ -2463,6 +2465,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 return
             default:
                 isRecording = false
+                restoreAudioInterruptionIfNeeded()
                 activeRecordingTriggerMode = nil
                 currentSessionIntent = .dictation
                 shortcutSessionController.reset()
