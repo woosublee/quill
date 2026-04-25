@@ -1060,6 +1060,8 @@ struct SetupView: View {
         switch currentStep {
         case .micPermission:
             return micPermissionGranted
+        case .speechRecognition:
+            return appState.hasSpeechRecognitionPermission
         case .accessibility:
             return accessibilityGranted
         case .screenRecording:

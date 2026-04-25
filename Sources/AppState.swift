@@ -2234,11 +2234,47 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     func requestSpeechRecognitionAccess(completion: ((Bool) -> Void)? = nil) {
-        SFSpeechRecognizer.requestAuthorization { [weak self] status in
-            DispatchQueue.main.async {
-                self?.speechRecognitionAuthorizationStatus = status
-                completion?(status == .authorized)
+        let status = SFSpeechRecognizer.authorizationStatus()
+        switch status {
+        case .notDetermined:
+            SFSpeechRecognizer.requestAuthorization { [weak self] status in
+                DispatchQueue.main.async {
+                    self?.speechRecognitionAuthorizationStatus = status
+                    completion?(status == .authorized)
+                }
             }
+        case .denied, .restricted:
+            speechRecognitionAuthorizationStatus = status
+            openPrivacySettingsPane("Privacy_SpeechRecognition")
+            completion?(false)
+        case .authorized:
+            speechRecognitionAuthorizationStatus = status
+            completion?(true)
+        @unknown default:
+            speechRecognitionAuthorizationStatus = status
+            completion?(false)
+        }
+    }
+
+    func showSpeechRecognitionPermissionAlert() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.showSpeechRecognitionPermissionAlert()
+            }
+            return
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "Speech Recognition Permission Required"
+        alert.informativeText = "Quill cannot use Apple Live transcription without Speech Recognition access.\n\nGo to System Settings > Privacy & Security > Speech Recognition and enable Quill."
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: "Dismiss")
+        alert.icon = NSImage(systemSymbolName: "waveform.badge.mic", accessibilityDescription: nil)
+
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            openPrivacySettingsPane("Privacy_SpeechRecognition")
         }
     }
 
@@ -2460,6 +2496,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.activeRecordingTriggerMode = nil
                         self.currentSessionIntent = .dictation
                         self.shortcutSessionController.reset()
+                        self.showSpeechRecognitionPermissionAlert()
                     }
                 }
                 return
@@ -2471,6 +2508,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 shortcutSessionController.reset()
                 errorMessage = "Speech Recognition permission is required for Apple Live transcription. Enable it in System Settings > Privacy & Security > Speech Recognition."
                 statusText = "No Speech Recognition"
+                showSpeechRecognitionPermissionAlert()
                 return
             }
         }
