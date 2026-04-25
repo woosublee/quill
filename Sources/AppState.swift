@@ -1903,7 +1903,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         activeRecordingTriggerMode = nil
         audioRecorder.onRecordingReady = nil
         audioRecorder.onRecordingFailure = nil
-        audioRecorder.onAudioBuffer = nil
+        audioRecorder.onPCM16Samples = nil
         liveTranscriber?.cancel()
         liveTranscriber = nil
         if let id = currentRecordingLiveNoteID {
@@ -2384,8 +2384,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     try await transcriber.start(locale: transcriptionLanguage.sfSpeechLocale)
                     self.liveTranscriber = transcriber
                     if !transcriber.handlesRecording {
-                        self.audioRecorder.onAudioBuffer = { [weak transcriber] buffer in
-                            transcriber?.append(buffer)
+                        self.audioRecorder.onPCM16Samples = { [weak transcriber] data in
+                            transcriber?.appendPCM16(data)
                         }
                     }
 
@@ -2802,7 +2802,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let capturedCustomSystemPrompt = customSystemPrompt
         let capturedLiveTranscriber = liveTranscriber
         liveTranscriber = nil
-        audioRecorder.onAudioBuffer = nil
+        audioRecorder.onPCM16Samples = nil
 
         let updateForegroundUI: @MainActor @Sendable (
             String, String, String, String, AppContext, String, String, Bool, Bool

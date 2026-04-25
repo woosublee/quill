@@ -14,7 +14,7 @@ protocol LiveTranscriber: AnyObject {
     /// finalize() 후 저장된 오디오 파일 URL (handlesRecording == true일 때만 유효)
     var recordedAudioURL: URL? { get }
     func start(locale: Locale) async throws
-    func append(_ sampleBuffer: CMSampleBuffer)
+    func appendPCM16(_ data: Data)
     func finalize() async throws -> String
     func cancel()
 }
@@ -36,10 +36,6 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
     private(set) var recordedAudioURL: URL?
 
     private struct CachedPCMBufferState {
-        var sampleRate: Double = 0
-        var channelCount: AVAudioChannelCount = 0
-        var commonFormat: AVAudioCommonFormat = .otherFormat
-        var isInterleaved = false
         var format: AVAudioFormat?
         var buffer: AVAudioPCMBuffer?
     }
@@ -86,8 +82,8 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
         }
     }
 
-    func append(_ sampleBuffer: CMSampleBuffer) {
-        guard let pcmBuffer = pcmBuffer(from: sampleBuffer) else { return }
+    func appendPCM16(_ data: Data) {
+        guard let pcmBuffer = pcmBuffer(fromPCM16: data) else { return }
         let didAppend = lock.withLock { () -> Bool in
             guard let recognitionRequest else { return false }
             recognitionRequest.append(pcmBuffer)
@@ -172,52 +168,36 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber {
         }
     }
 
-    private func pcmBuffer(from sampleBuffer: CMSampleBuffer) -> AVAudioPCMBuffer? {
-        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer) else {
-            return nil
-        }
-        let sampleFormat = AVAudioFormat(cmAudioFormatDescription: formatDescription)
-        let frameCount = AVAudioFrameCount(CMSampleBufferGetNumSamples(sampleBuffer))
-        guard frameCount > 0 else {
-            return nil
-        }
+    private func pcmBuffer(fromPCM16 data: Data) -> AVAudioPCMBuffer? {
+        let bytesPerFrame = MemoryLayout<Int16>.size
+        guard !data.isEmpty, data.count % bytesPerFrame == 0 else { return nil }
+        let frameCount = AVAudioFrameCount(data.count / bytesPerFrame)
+        guard frameCount > 0 else { return nil }
 
         let pcmBuffer: AVAudioPCMBuffer? = lock.withLock {
-            let shouldResetBuffer =
-                cachedPCMBufferState.sampleRate != sampleFormat.sampleRate ||
-                cachedPCMBufferState.channelCount != sampleFormat.channelCount ||
-                cachedPCMBufferState.commonFormat != sampleFormat.commonFormat ||
-                cachedPCMBufferState.isInterleaved != sampleFormat.isInterleaved
-            if shouldResetBuffer {
-                cachedPCMBufferState.sampleRate = sampleFormat.sampleRate
-                cachedPCMBufferState.channelCount = sampleFormat.channelCount
-                cachedPCMBufferState.commonFormat = sampleFormat.commonFormat
-                cachedPCMBufferState.isInterleaved = sampleFormat.isInterleaved
+            let sampleFormat = AVAudioFormat(
+                commonFormat: .pcmFormatInt16,
+                sampleRate: 24_000,
+                channels: 1,
+                interleaved: true
+            )
+            guard let sampleFormat else { return nil }
+            if cachedPCMBufferState.format == nil {
                 cachedPCMBufferState.format = sampleFormat
-                cachedPCMBufferState.buffer = nil
-            }
-            guard let cachedFormat = cachedPCMBufferState.format else {
-                return nil
             }
             if cachedPCMBufferState.buffer == nil || cachedPCMBufferState.buffer?.frameCapacity ?? 0 < frameCount {
-                cachedPCMBufferState.buffer = AVAudioPCMBuffer(pcmFormat: cachedFormat, frameCapacity: frameCount)
+                cachedPCMBufferState.buffer = AVAudioPCMBuffer(pcmFormat: sampleFormat, frameCapacity: frameCount)
             }
             cachedPCMBufferState.buffer?.frameLength = frameCount
             return cachedPCMBufferState.buffer
         }
 
-        guard let pcmBuffer else {
+        guard let pcmBuffer, let channelData = pcmBuffer.int16ChannelData?[0] else {
             return nil
         }
-        let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
-            sampleBuffer,
-            at: 0,
-            frameCount: Int32(frameCount),
-            into: pcmBuffer.mutableAudioBufferList
-        )
-        guard status == noErr else {
-            os_log(.error, log: speechLog, "failed to copy CMSampleBuffer to PCM buffer status=%d", status)
-            return nil
+        data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return }
+            channelData.update(from: baseAddress.assumingMemoryBound(to: Int16.self), count: Int(frameCount))
         }
         return pcmBuffer
     }
