@@ -1627,11 +1627,6 @@ private struct NoteTextView: NSViewRepresentable {
         let lineCount = bottomPadding > 0 ? max(1, Int(bottomPadding / 18)) : 0
         let padding = String(repeating: "\n", count: lineCount)
         let newText = text + padding
-        if textView.string == newText {
-            textView.textStorage?.setAttributes(attrs, range: NSRange(location: 0, length: (newText as NSString).length))
-            textView.typingAttributes = attrs
-            return
-        }
         let attrStr = NSMutableAttributedString(string: newText, attributes: attrs)
         textView.textStorage?.setAttributedString(attrStr)
         textView.typingAttributes = attrs
