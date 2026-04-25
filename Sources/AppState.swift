@@ -2462,10 +2462,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     self.isAwaitingSpeechRecognitionPermission = false
                     self.restartHotkeyMonitoring()
 
-                    guard let triggerMode = pendingTriggerMode else { return }
+                    guard let resumedTriggerMode = pendingTriggerMode else { return }
                     if granted {
                         self.errorMessage = nil
-                        if triggerMode == .toggle {
+                        if resumedTriggerMode == .toggle {
                             Task { @MainActor [weak self] in
                                 guard let self else { return }
                                 guard await self.prepareRecordingStart(
