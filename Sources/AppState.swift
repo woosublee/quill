@@ -2229,16 +2229,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         speechRecognitionAuthorizationStatus == .authorized
     }
 
+    @MainActor
     func refreshSpeechRecognitionAuthorizationStatus() {
         speechRecognitionAuthorizationStatus = Self.currentSpeechRecognitionAuthorizationStatus()
     }
 
-    func requestSpeechRecognitionAccess(completion: ((Bool) -> Void)? = nil) {
+    @MainActor
+    func requestSpeechRecognitionAccess(completion: (@MainActor @Sendable (Bool) -> Void)? = nil) {
         let status = SFSpeechRecognizer.authorizationStatus()
         switch status {
         case .notDetermined:
             SFSpeechRecognizer.requestAuthorization { [weak self] status in
-                DispatchQueue.main.async {
+                Task { @MainActor [weak self] in
                     self?.speechRecognitionAuthorizationStatus = status
                     completion?(status == .authorized)
                 }
@@ -2256,13 +2258,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     func showSpeechRecognitionPermissionAlert() {
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in
-                self?.showSpeechRecognitionPermissionAlert()
-            }
-            return
-        }
 
         let alert = NSAlert()
         alert.messageText = "Speech Recognition Permission Required"
@@ -2469,7 +2466,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     if granted {
                         self.errorMessage = nil
                         if triggerMode == .toggle {
-                            Task { [weak self] in
+                            Task { @MainActor [weak self] in
                                 guard let self else { return }
                                 guard await self.prepareRecordingStart(
                                     triggerMode: .toggle,
