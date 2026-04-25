@@ -710,13 +710,17 @@ private struct NoteListRow: View {
         return f.string(from: item.timestamp)
     }
 
+    private var normalizedContent: String {
+        item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private var displayTitle: String {
         if let custom = customTitle, !custom.isEmpty { return custom }
         return autoTitle
     }
 
     private var autoTitle: String {
-        let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        let content = normalizedContent
         if content.isEmpty {
             if status == .fail { return "전사 실패" }
             if status == .progress { return "녹음 중..." }
@@ -730,11 +734,10 @@ private struct NoteListRow: View {
 
     private var notePreview: String {
         if status == .fail { return item.postProcessingStatus.replacingOccurrences(of: "Error: ", with: "") }
+        let content = normalizedContent
         if customTitle != nil {
-            let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
             return String(content.prefix(100))
         }
-        let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard content.count > autoTitle.count else { return "" }
         let rest = content.dropFirst(autoTitle.count).trimmingCharacters(in: .whitespacesAndNewlines)
         return String(rest.prefix(100))
@@ -1623,7 +1626,8 @@ private struct NoteTextView: NSViewRepresentable {
         ]
         let lineCount = bottomPadding > 0 ? max(1, Int(bottomPadding / 18)) : 0
         let padding = String(repeating: "\n", count: lineCount)
-        let attrStr = NSMutableAttributedString(string: text + padding, attributes: attrs)
+        let newText = text + padding
+        let attrStr = NSMutableAttributedString(string: newText, attributes: attrs)
         textView.textStorage?.setAttributedString(attrStr)
         textView.typingAttributes = attrs
     }
