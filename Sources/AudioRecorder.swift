@@ -94,7 +94,6 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
 
     var onRecordingReady: (() -> Void)?
     var onRecordingFailure: ((Error) -> Void)?
-    var onAudioBuffer: ((CMSampleBuffer) -> Void)?
     /// Fires on the sample-buffer queue with a 24 kHz mono PCM16 chunk for
     /// each incoming audio buffer (matching OpenAI Realtime's default PCM
     /// input rate). Set before ``startRecording`` to stream audio out-of-band
@@ -658,8 +657,6 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
         from connection: AVCaptureConnection
     ) {
         guard _recording.withLock({ $0 }) else { return }
-
-        onAudioBuffer?(sampleBuffer)
 
         do {
             try appendSampleBufferToFile(sampleBuffer)
