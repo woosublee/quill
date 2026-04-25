@@ -1930,7 +1930,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         errorMessage = nil
         debugStatusMessage = "Cancelled"
         statusText = "Cancelled"
-        overlayManager.dismiss()
+        dismissTranscribingOverlay()
         tearDownRealtimeService()
         audioRecorder.cancelRecording()
         restoreAudioInterruptionIfNeeded()
@@ -1954,7 +1954,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         errorMessage = nil
         debugStatusMessage = "Cancelled"
         statusText = "Cancelled"
-        overlayManager.dismiss()
+        dismissTranscribingOverlay()
         cleanupRecorderIfIdle()
         if let audioFileName = job.audioFileName {
             Self.deleteAudioFile(audioFileName)
@@ -2089,9 +2089,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         os_log(.info, log: recordingLog, "startRecording() entered")
         guard !isRecording else { return }
 
-        // 전사 중이면 오버레이 소유권만 넘기고 전사는 백그라운드에서 계속 실행
+        // 전사 중이면 기존 transcribing overlay/indicator를 정리하고 소유권만 넘긴다.
         if isTranscribing {
-            overlayTranscriptionID = UUID()
+            dismissTranscribingOverlay(resetOverlayOwner: true)
             foregroundTranscriptionJobID = nil
         }
 
@@ -2280,7 +2280,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         audioRecorder.onRecordingFailure = nil
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
-        overlayManager.dismiss()
+        dismissTranscribingOverlay()
     }
 
     private func applyAudioInterruptionIfNeeded() {
@@ -2485,7 +2485,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         shortcutSessionController.reset()
         errorMessage = formattedRecordingStartError(error)
         statusText = "Error"
-        overlayManager.dismiss()
+        dismissTranscribingOverlay()
         refreshAvailableMicrophonesIfNeeded()
     }
 
@@ -2823,8 +2823,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             if finalTranscript.isEmpty {
                 self.mcpLastRecordingFailed = true
                 self.statusText = shouldPressEnterAfterPaste ? enterOnlyStatusText : "Nothing to transcribe"
-                self.clearPendingOverlayDismissToken()
-                self.overlayManager.dismiss()
+                self.dismissTranscribingOverlay()
                 if shouldPressEnterAfterPaste {
                     self.pressEnterWhenShortcutReleased()
                 }
@@ -2832,8 +2831,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 if shouldPersistRawDictationFallback {
                     self.scheduleOverlayDismissAfterFailureIndicator(after: 2.5)
                 } else {
-                    self.clearPendingOverlayDismissToken()
-                    self.overlayManager.dismiss()
+                    self.dismissTranscribingOverlay()
                 }
                 if !self.disableAutoPaste {
                     let pendingClipboardRestore = self.writeTranscriptToPasteboard(finalTranscript)
@@ -2855,29 +2853,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
             Task { @MainActor in
                 guard let self else { return }
                 self.finishTranscriptionJob(id)
-                if self.overlayTranscriptionID == myOverlayID {
-                    self.transcribingIndicatorTask?.cancel()
-                    self.transcribingIndicatorTask = nil
-                }
+                self.cancelTranscribingIndicatorTask()
             }
         }
 
         if let transcriber = capturedLiveTranscriber, transcriber.handlesRecording {
             if overlayTranscriptionID == myOverlayID {
-                statusText = "Transcribing..."
-                debugStatusMessage = "Transcribing audio"
-                transcribingIndicatorTask?.cancel()
-                let indicatorDelay = transcribingIndicatorDelay
-                transcribingIndicatorTask = Task { [weak self] in
-                    do {
-                        try await Task.sleep(nanoseconds: UInt64(indicatorDelay * 1_000_000_000))
-                        guard self?.overlayTranscriptionID == myOverlayID else { return }
-                        await MainActor.run { [weak self] in
-                            guard self?.overlayTranscriptionID == myOverlayID else { return }
-                            self?.overlayManager.showTranscribing()
-                        }
-                    } catch {}
-                }
+                prepareTranscribingOverlay(for: myOverlayID, statusText: "Transcribing...", debugStatus: "Transcribing audio")
             }
             let task = Task { [weak self] in
                 guard let self else { return }
@@ -3019,7 +3001,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 if self.overlayTranscriptionID == myOverlayID {
                     self.errorMessage = "No audio recorded"
                     self.statusText = "Error"
-                    self.overlayManager.dismiss()
+                    self.dismissTranscribingOverlay()
                 }
                 self.mcpLastRecordingFailed = true
                 self.tearDownRealtimeService()
@@ -3037,20 +3019,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             self.audioRecorder.onPCM16Samples = nil
 
             if self.overlayTranscriptionID == myOverlayID {
-                self.statusText = "Transcribing..."
-                self.debugStatusMessage = "Transcribing audio"
-                self.transcribingIndicatorTask?.cancel()
-                let indicatorDelay = self.transcribingIndicatorDelay
-                self.transcribingIndicatorTask = Task { [weak self] in
-                    do {
-                        try await Task.sleep(nanoseconds: UInt64(indicatorDelay * 1_000_000_000))
-                        guard self?.overlayTranscriptionID == myOverlayID else { return }
-                        await MainActor.run { [weak self] in
-                            guard self?.overlayTranscriptionID == myOverlayID else { return }
-                            self?.overlayManager.showTranscribing()
-                        }
-                    } catch {}
-                }
+                self.prepareTranscribingOverlay(for: myOverlayID, statusText: "Transcribing...", debugStatus: "Transcribing audio")
             }
 
             let task = Task { [weak self] in
@@ -3520,7 +3489,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             shortcutSessionController.reset()
             activeRecordingTriggerMode = nil
             statusText = "Screenshot Required"
-            overlayManager.dismiss()
+            dismissTranscribingOverlay()
 
             playAlertSound(named: "Basso")
             showScreenshotPermissionAlert(message: message)
@@ -3596,11 +3565,43 @@ final class AppState: ObservableObject, @unchecked Sendable {
         debugOverlayTimer = nil
         isDebugOverlayActive = false
         clearPendingOverlayDismissToken()
-        overlayManager.dismiss()
+        dismissTranscribingOverlay()
     }
 
     private func clearPendingOverlayDismissToken() {
         pendingOverlayDismissToken = nil
+    }
+
+    private func cancelTranscribingIndicatorTask() {
+        transcribingIndicatorTask?.cancel()
+        transcribingIndicatorTask = nil
+    }
+
+    private func dismissTranscribingOverlay(resetOverlayOwner: Bool = false) {
+        cancelTranscribingIndicatorTask()
+        clearPendingOverlayDismissToken()
+        overlayManager.dismiss()
+        if resetOverlayOwner {
+            overlayTranscriptionID = UUID()
+        }
+    }
+
+    private func prepareTranscribingOverlay(for overlayID: UUID, statusText: String, debugStatus: String) {
+        guard overlayTranscriptionID == overlayID else { return }
+        self.statusText = statusText
+        self.debugStatusMessage = debugStatus
+        cancelTranscribingIndicatorTask()
+        let indicatorDelay = transcribingIndicatorDelay
+        transcribingIndicatorTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: UInt64(indicatorDelay * 1_000_000_000))
+                guard self?.overlayTranscriptionID == overlayID else { return }
+                await MainActor.run { [weak self] in
+                    guard self?.overlayTranscriptionID == overlayID else { return }
+                    self?.overlayManager.showTranscribing()
+                }
+            } catch {}
+        }
     }
 
     private func scheduleOverlayDismissAfterFailureIndicator(after delay: TimeInterval) {
