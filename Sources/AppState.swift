@@ -5,6 +5,7 @@ import AVFoundation
 import ServiceManagement
 import ApplicationServices
 import ScreenCaptureKit
+import Speech
 import os.log
 private let recordingLog = OSLog(subsystem: "com.zachlatta.freeflow", category: "Recording")
 
@@ -613,6 +614,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var lastContextSelectedText: String = ""
     @Published var lastContextLLMPrompt: String = ""
     @Published var hasScreenRecordingPermission = false
+    @Published var speechRecognitionAuthorizationStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
     @Published var launchAtLogin: Bool {
         didSet { setLaunchAtLogin(launchAtLogin) }
     }
@@ -660,9 +662,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var shouldMonitorHotkeys = false
     private var isCapturingShortcut = false
     private var isAwaitingMicrophonePermission = false
+    private var isAwaitingSpeechRecognitionPermission = false
     private var pendingMicrophonePermissionTriggerMode: RecordingTriggerMode?
     private var pendingMicrophonePermissionSelectionSnapshot: AppSelectionSnapshot?
     private var pendingMicrophonePermissionManualCommandRequested: Bool?
+    private var pendingSpeechPermissionTriggerMode: RecordingTriggerMode?
+    private var pendingSpeechPermissionSelectionSnapshot: AppSelectionSnapshot?
+    private var pendingSpeechPermissionManualCommandRequested: Bool?
 
     init() {
         UserDefaults.standard.removeObject(forKey: "force_http2_transcription")
@@ -821,6 +827,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.selectedMicrophoneID = selectedMicrophoneID
         self.precomputeMacros()
 
+        speechRecognitionAuthorizationStatus = Self.currentSpeechRecognitionAuthorizationStatus()
         refreshAvailableMicrophones()
         installAudioDeviceObservers()
 
@@ -1814,7 +1821,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func restartHotkeyMonitoring() {
-        guard shouldMonitorHotkeys, !isCapturingShortcut, !isAwaitingMicrophonePermission else {
+        guard shouldMonitorHotkeys, !isCapturingShortcut, !isAwaitingMicrophonePermission, !isAwaitingSpeechRecognitionPermission else {
             hotkeyManager.stop()
             return
         }
@@ -2214,6 +2221,81 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return true
     }
 
+    static func currentSpeechRecognitionAuthorizationStatus() -> SFSpeechRecognizerAuthorizationStatus {
+        SFSpeechRecognizer.authorizationStatus()
+    }
+
+    var hasSpeechRecognitionPermission: Bool {
+        speechRecognitionAuthorizationStatus == .authorized
+    }
+
+    @MainActor
+    func refreshSpeechRecognitionAuthorizationStatus() {
+        speechRecognitionAuthorizationStatus = Self.currentSpeechRecognitionAuthorizationStatus()
+    }
+
+    @MainActor
+    func requestSpeechRecognitionAccess(completion: (@MainActor @Sendable (Bool) -> Void)? = nil) {
+        let status = SFSpeechRecognizer.authorizationStatus()
+        switch status {
+        case .notDetermined:
+            SFSpeechRecognizer.requestAuthorization { [weak self] status in
+                Task { @MainActor [weak self] in
+                    self?.speechRecognitionAuthorizationStatus = status
+                    completion?(status == .authorized)
+                }
+            }
+        case .denied, .restricted:
+            speechRecognitionAuthorizationStatus = status
+            openPrivacySettingsPane("Privacy_SpeechRecognition")
+            completion?(false)
+        case .authorized:
+            speechRecognitionAuthorizationStatus = status
+            completion?(true)
+        @unknown default:
+            speechRecognitionAuthorizationStatus = status
+            completion?(false)
+        }
+    }
+
+    @MainActor
+    func showSpeechRecognitionPermissionAlert() {
+
+        let alert = NSAlert()
+        alert.messageText = "Speech Recognition Permission Required"
+        alert.informativeText = "Quill cannot use Apple Live transcription without Speech Recognition access.\n\nGo to System Settings > Privacy & Security > Speech Recognition and enable Quill."
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: "Dismiss")
+        alert.icon = NSImage(systemSymbolName: "waveform.badge.mic", accessibilityDescription: nil)
+
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            openPrivacySettingsPane("Privacy_SpeechRecognition")
+        }
+    }
+
+    @MainActor
+    private func prepareForSpeechRecognitionPermissionPrompt(
+        triggerMode: RecordingTriggerMode,
+        selectionSnapshot: AppSelectionSnapshot?,
+        manualCommandRequested: Bool?
+    ) {
+        isAwaitingSpeechRecognitionPermission = true
+        pendingSpeechPermissionTriggerMode = triggerMode
+        pendingSpeechPermissionSelectionSnapshot = selectionSnapshot
+        pendingSpeechPermissionManualCommandRequested = manualCommandRequested
+        hotkeyManager.stop()
+        shortcutSessionController.reset()
+        activeRecordingTriggerMode = nil
+        cancelRecordingInitializationTimer()
+        audioRecorder.onRecordingReady = nil
+        audioRecorder.onRecordingFailure = nil
+        audioLevelCancellable?.cancel()
+        audioLevelCancellable = nil
+        dismissTranscribingOverlay()
+    }
+
     private func ensureScreenCaptureAccess() -> Bool {
         let granted = hasScreenCapturePermission()
         hasScreenRecordingPermission = granted
@@ -2351,10 +2433,82 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func beginRecording(triggerMode: RecordingTriggerMode) {
         os_log(.info, log: recordingLog, "beginRecording() entered")
         clearPendingOverlayDismissToken()
         errorMessage = nil
+
+        if useLocalTranscription, localTranscriptionModel.isAppleSpeech {
+            refreshSpeechRecognitionAuthorizationStatus()
+            switch speechRecognitionAuthorizationStatus {
+            case .authorized:
+                break
+            case .notDetermined:
+                guard let triggerMode = activeRecordingTriggerMode else { return }
+                prepareForSpeechRecognitionPermissionPrompt(
+                    triggerMode: triggerMode,
+                    selectionSnapshot: pendingSelectionSnapshot,
+                    manualCommandRequested: currentSessionIntent.isManualCommand
+                )
+                requestSpeechRecognitionAccess { [weak self] granted in
+                    guard let self else { return }
+                    let pendingTriggerMode = self.pendingSpeechPermissionTriggerMode
+                    let pendingSelectionSnapshot = self.pendingSpeechPermissionSelectionSnapshot
+                    let pendingManualCommandRequested = self.pendingSpeechPermissionManualCommandRequested
+                    self.pendingSpeechPermissionTriggerMode = nil
+                    self.pendingSpeechPermissionSelectionSnapshot = nil
+                    self.pendingSpeechPermissionManualCommandRequested = nil
+                    self.isAwaitingSpeechRecognitionPermission = false
+                    self.restartHotkeyMonitoring()
+
+                    guard let resumedTriggerMode = pendingTriggerMode else { return }
+                    if granted {
+                        self.errorMessage = nil
+                        if resumedTriggerMode == .toggle {
+                            Task { @MainActor [weak self] in
+                                guard let self else { return }
+                                guard await self.prepareRecordingStart(
+                                    triggerMode: .toggle,
+                                    selectionSnapshot: pendingSelectionSnapshot,
+                                    manualCommandRequested: pendingManualCommandRequested
+                                ) else { return }
+                                self.shortcutSessionController.beginManual(mode: .toggle)
+                                self.applyAudioInterruptionIfNeeded()
+                                self.beginRecording(triggerMode: .toggle)
+                            }
+                        } else {
+                            self.currentSessionIntent = .dictation
+                            self.restoreAudioInterruptionIfNeeded()
+                            self.statusText = "Speech Recognition access granted. Press and hold again to record."
+                            self.scheduleReadyStatusReset(
+                                after: 2,
+                                matching: ["Speech Recognition access granted. Press and hold again to record."]
+                            )
+                        }
+                    } else {
+                        self.restoreAudioInterruptionIfNeeded()
+                        self.errorMessage = "Speech Recognition permission is required for Apple Live transcription. Enable it in System Settings > Privacy & Security > Speech Recognition."
+                        self.statusText = "No Speech Recognition"
+                        self.activeRecordingTriggerMode = nil
+                        self.currentSessionIntent = .dictation
+                        self.shortcutSessionController.reset()
+                        self.showSpeechRecognitionPermissionAlert()
+                    }
+                }
+                return
+            default:
+                isRecording = false
+                restoreAudioInterruptionIfNeeded()
+                activeRecordingTriggerMode = nil
+                currentSessionIntent = .dictation
+                shortcutSessionController.reset()
+                errorMessage = "Speech Recognition permission is required for Apple Live transcription. Enable it in System Settings > Privacy & Security > Speech Recognition."
+                statusText = "No Speech Recognition"
+                showSpeechRecognitionPermissionAlert()
+                return
+            }
+        }
 
         isRecording = true
         statusText = "Starting..."
