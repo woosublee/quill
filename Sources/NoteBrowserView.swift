@@ -455,13 +455,11 @@ struct NoteBrowserView: View {
                         }
                     }
                 } label: {
-                    HStack(spacing: 6) {
-                        Text(appState.noteBrowserTranscriptionModeLabel)
-                            .font(.system(size: 11, weight: .semibold))
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(Color.primary.opacity(0.06), in: Capsule())
+                    Text(appState.noteBrowserTranscriptionModeLabel)
+                        .font(.system(size: 11, weight: .semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.primary.opacity(0.06), in: Capsule())
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()

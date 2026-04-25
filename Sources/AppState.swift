@@ -543,6 +543,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return realtimeStreamingEnabled ? "API · Realtime" : "API · Standard"
     }
 
+    @MainActor
     func setNoteBrowserTranscriptionMode(_ mode: NoteBrowserTranscriptionMode) {
         switch mode {
         case .apiStandard:
