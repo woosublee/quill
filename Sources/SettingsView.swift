@@ -58,6 +58,7 @@ struct ProviderSettingsFields: View {
     @State private var contextModelDraft: String = ""
 
     let showsModelDescription: Bool
+    let showsTranscriptionLanguage: Bool
 
     private func commitAPIBaseURL() {
         let trimmed = apiBaseURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -259,19 +260,21 @@ struct ProviderSettingsFields: View {
                     .foregroundStyle(.secondary)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Transcription Language")
-                    .font(.caption.weight(.semibold))
-                Picker("", selection: $appState.transcriptionLanguage) {
-                    ForEach(TranscriptionLanguage.all) { option in
-                        Text(option.displayName).tag(option)
+            if showsTranscriptionLanguage {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Transcription Language")
+                        .font(.caption.weight(.semibold))
+                    Picker("", selection: $appState.transcriptionLanguage) {
+                        ForEach(TranscriptionLanguage.all) { option in
+                            Text(option.displayName).tag(option)
+                        }
                     }
+                    .accessibilityLabel("Transcription Language")
+                    .labelsHidden()
+                    Text("Hint to the transcription model. Auto Detect works for most users. Pick a specific language if you see wrong-script characters appear in the output.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .accessibilityLabel("Transcription Language")
-                .labelsHidden()
-                Text("Hint to the transcription model. Auto Detect works for most users. Pick a specific language if you see wrong-script characters appear in the output.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             VStack(alignment: .leading, spacing: 6) {
@@ -461,7 +464,6 @@ struct GeneralSettingsView: View {
     @State private var apiBaseURLInput: String = ""
     @State private var transcriptionAPIURLInput: String = ""
     @State private var transcriptionAPIKeyInput: String = ""
-    @State private var advancedProviderSettingsExpanded = false
     @State private var isValidatingKey = false
     @State private var keyValidationError: String?
     @State private var keyValidationSuccess = false
@@ -472,7 +474,7 @@ struct GeneralSettingsView: View {
     @State private var copiedBuildInfoResetWorkItem: DispatchWorkItem?
     @StateObject private var githubCache = GitHubMetadataCache.shared
     @ObservedObject private var updateManager = UpdateManager.shared
-    private let freeflowRepoURL = URL(string: "https://github.com/zachlatta/freeflow")!
+    private let upstreamRepoURL = URL(string: "https://github.com/zachlatta/freeflow")!
 
     private var appDisplayName: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
@@ -485,7 +487,7 @@ struct GeneralSettingsView: View {
     }
 
     private var appBuildNumber: String {
-        Bundle.main.object(forInfoDictionaryKey: "FreeFlowBuildTag") as? String
+        Bundle.main.object(forInfoDictionaryKey: "QuillBuildTag") as? String
             ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
             ?? "unknown"
     }
@@ -541,7 +543,7 @@ struct GeneralSettingsView: View {
                             .clipShape(Circle())
 
                             Button {
-                                openURL(freeflowRepoURL)
+                                openURL(upstreamRepoURL)
                             } label: {
                                 Text("zachlatta/freeflow")
                                     .font(.system(.caption, design: .monospaced).weight(.medium))
@@ -568,7 +570,7 @@ struct GeneralSettingsView: View {
                             .background(Capsule().fill(Color.yellow.opacity(0.14)))
 
                             Button {
-                                openURL(freeflowRepoURL)
+                                openURL(upstreamRepoURL)
                             } label: {
                                 HStack(spacing: 4) {
                                     Image(systemName: "star")
@@ -635,11 +637,15 @@ struct GeneralSettingsView: View {
                 SettingsCard("App", icon: "power") {
                     startupSection
                 }
-                SettingsCard("Updates", icon: "arrow.triangle.2.circlepath") {
-                    updatesSection
+                SettingsCard("Note Browser", icon: "note.text") {
+                    noteBrowserSection
                 }
-                SettingsCard("API Key", icon: "key.fill") {
-                    apiKeySection
+                // Quill releases are not distributed through the in-app updater yet.
+                // SettingsCard("Updates", icon: "arrow.triangle.2.circlepath") {
+                //     updatesSection
+                // }
+                SettingsCard("Transcription", icon: "waveform.badge.magnifyingglass") {
+                    transcriptionSection
                 }
                 SettingsCard("Dictation Shortcuts", icon: "keyboard.fill") {
                     hotkeySection
@@ -697,13 +703,13 @@ struct GeneralSettingsView: View {
 
     private var appearanceSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("테마")
+            Text("Theme")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             Picker("", selection: $appAppearance) {
-                Text("시스템 설정 따름").tag("system")
-                Text("라이트 모드").tag("light")
-                Text("다크 모드").tag("dark")
+                Text("System Setting").tag("system")
+                Text("Light").tag("light")
+                Text("Dark").tag("dark")
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -728,20 +734,6 @@ struct GeneralSettingsView: View {
             Toggle("Launch Quill at login", isOn: $appState.launchAtLogin)
             Toggle("Show menu bar icon", isOn: $showMenuBarIcon)
 
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Note Browser")
-                        .font(.caption.weight(.semibold))
-                    Text("독 아이콘을 클릭하면 노트 브라우저가 열립니다. 받아쓰기 기록을 노트 앱처럼 탐색할 수 있습니다.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 0)
-                Toggle("", isOn: $appState.noteBrowserEnabled)
-                    .toggleStyle(.checkbox)
-                    .labelsHidden()
-            }
-
             if SMAppService.mainApp.status == .requiresApproval {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle.fill")
@@ -756,6 +748,17 @@ struct GeneralSettingsView: View {
                     .font(.caption)
                 }
             }
+        }
+    }
+
+    // MARK: Note Browser
+
+    private var noteBrowserSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle("Enable Note Browser", isOn: $appState.noteBrowserEnabled)
+            Text("Click the Dock icon to open Note Browser and browse your dictation history like notes.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -927,10 +930,92 @@ struct GeneralSettingsView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: resetWorkItem)
     }
 
-    // MARK: API Key
+    // MARK: Transcription
 
-    private var apiKeySection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private var transcriptionSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Transcription Mode")
+                    .font(.caption.weight(.semibold))
+
+                Picker("Transcription Mode", selection: $appState.useLocalTranscription) {
+                    Text("Local").tag(true)
+                    Text("API Provider").tag(false)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+
+                Text(appState.useLocalTranscription
+                    ? "Run speech recognition on this Mac and configure only local transcription options."
+                    : "Use your configured OpenAI-compatible provider and configure only provider-specific options.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Divider()
+
+            if appState.useLocalTranscription {
+                localTranscriptionSettings
+            } else {
+                apiProviderTranscriptionSettings
+            }
+
+            Divider()
+
+            sharedTranscriptionBehaviors
+        }
+    }
+
+    private var localTranscriptionSettings: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Local Options")
+                    .font(.caption.weight(.semibold))
+
+                ForEach(TranscriptionModel.all) { model in
+                    ModelRowView(
+                        model: model,
+                        isSelected: appState.localTranscriptionModel == model,
+                        whisperBin: appState.localWhisperPath.isEmpty
+                            ? "\(FileManager.default.homeDirectoryForCurrentUser.path)/.local/bin/mlx_whisper"
+                            : appState.localWhisperPath
+                    ) {
+                        appState.localTranscriptionModel = model
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Transcription Language")
+                    .font(.caption.weight(.semibold))
+                Picker("", selection: $appState.transcriptionLanguage) {
+                    ForEach(TranscriptionLanguage.all) { lang in
+                        Text(lang.displayName).tag(lang)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: 200, alignment: .leading)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("mlx_whisper Path (optional)")
+                    .font(.caption.weight(.semibold))
+                Text("Leave empty to use the default path (~/.local/bin/mlx_whisper).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                TextField("~/.local/bin/mlx_whisper", text: $appState.localWhisperPath)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.body, design: .monospaced))
+            }
+        }
+    }
+
+    private var apiProviderTranscriptionSettings: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("API Provider Options")
+                .font(.caption.weight(.semibold))
+
             Text("Quill uses the configured transcription model with your selected OpenAI-compatible provider.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -961,145 +1046,45 @@ struct GeneralSettingsView: View {
                     .font(.caption)
             }
 
-            DisclosureGroup(isExpanded: $advancedProviderSettingsExpanded) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Divider()
-                    ProviderSettingsFields(
-                        apiBaseURLInput: $apiBaseURLInput,
-                        transcriptionAPIURLInput: $transcriptionAPIURLInput,
-                        transcriptionAPIKeyInput: $transcriptionAPIKeyInput,
-                        showsModelDescription: false
-                    )
-                }
-            } label: {
-                HStack {
-                    Text("Advanced Provider Settings")
-                    Spacer()
-                }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    advancedProviderSettingsExpanded.toggle()
-                }
+            ProviderSettingsFields(
+                apiBaseURLInput: $apiBaseURLInput,
+                transcriptionAPIURLInput: $transcriptionAPIURLInput,
+                transcriptionAPIKeyInput: $transcriptionAPIKeyInput,
+                showsModelDescription: false,
+                showsTranscriptionLanguage: true
+            )
+        }
+    }
+
+    private var sharedTranscriptionBehaviors: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Shared Behaviors")
+                .font(.caption.weight(.semibold))
+
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Disable Post-Processing", isOn: $appState.disablePostProcessing)
+                Text("Skip LLM cleanup. Raw transcript is used as-is. No API call is made for post-processing.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Divider()
 
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Use Local Transcription (mlx-whisper)")
-                        .font(.caption.weight(.semibold))
-                    Text("Runs whisper-large-v3 locally on your Mac. No file size limit. Requires mlx-whisper installed via pipx.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 0)
-
-                Toggle("", isOn: $appState.useLocalTranscription)
-                    .toggleStyle(.checkbox)
-                    .labelsHidden()
-            }
-
-            if appState.useLocalTranscription {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Transcription Model")
-                        .font(.caption.weight(.semibold))
-                    ForEach(TranscriptionModel.all) { model in
-                        ModelRowView(
-                            model: model,
-                            isSelected: appState.localTranscriptionModel == model,
-                            whisperBin: appState.localWhisperPath.isEmpty
-                                ? "\(FileManager.default.homeDirectoryForCurrentUser.path)/.local/bin/mlx_whisper"
-                                : appState.localWhisperPath
-                        ) {
-                            appState.localTranscriptionModel = model
-                        }
-                    }
-                }
-            }
-
-            if appState.useLocalTranscription {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Transcription Language")
-                        .font(.caption.weight(.semibold))
-                    Picker("", selection: $appState.transcriptionLanguage) {
-                        ForEach(TranscriptionLanguage.all) { lang in
-                            Text(lang.displayName).tag(lang)
-                        }
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: 200, alignment: .leading)
-                }
-            }
-
-            if appState.useLocalTranscription {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("mlx_whisper Path (optional)")
-                        .font(.caption.weight(.semibold))
-                    Text("Leave empty to use the default path (~/.local/bin/mlx_whisper).")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    TextField("~/.local/bin/mlx_whisper", text: $appState.localWhisperPath)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(.body, design: .monospaced))
-                }
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Disable Auto Paste", isOn: $appState.disableAutoPaste)
+                Text("Transcription will be copied to clipboard only. Paste manually when needed.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Divider()
 
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Disable Post-Processing")
-                        .font(.caption.weight(.semibold))
-                    Text("Skip LLM cleanup. Raw transcript is used as-is. No API call is made for post-processing.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 0)
-
-                Toggle("", isOn: $appState.disablePostProcessing)
-                    .toggleStyle(.checkbox)
-                    .labelsHidden()
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Disable Context Capture", isOn: $appState.disableContextCapture)
+                Text("Skip screen recording and app context detection. Transcription will not adapt to the current app. Screen Recording permission is not required.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-
-            Divider()
-
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Disable Auto Paste")
-                        .font(.caption.weight(.semibold))
-                    Text("Transcription will be copied to clipboard only. Paste manually when needed.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 0)
-
-                Toggle("", isOn: $appState.disableAutoPaste)
-                    .toggleStyle(.checkbox)
-                    .labelsHidden()
-            }
-
-            Divider()
-
-            HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Disable Context Capture")
-                        .font(.caption.weight(.semibold))
-                    Text("Skip screen recording and app context detection. Transcription will not adapt to the current app. Screen Recording permission is not required.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 0)
-
-                Toggle("", isOn: $appState.disableContextCapture)
-                    .toggleStyle(.checkbox)
-                    .labelsHidden()
-            }
-            .padding(.top, 4)
         }
     }
 
@@ -1703,7 +1688,7 @@ struct PromptsSettingsView: View {
 
         let context = AppContext(
             appName: "Quill Settings",
-            bundleIdentifier: "com.zachlatta.freeflow",
+            bundleIdentifier: "com.woosublee.quill",
             windowTitle: "System Prompt Test",
             selectedText: nil,
             currentActivity: "User is testing the system prompt in Quill settings.",
