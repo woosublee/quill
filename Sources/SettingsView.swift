@@ -474,7 +474,7 @@ struct GeneralSettingsView: View {
     @State private var copiedBuildInfoResetWorkItem: DispatchWorkItem?
     @StateObject private var githubCache = GitHubMetadataCache.shared
     @ObservedObject private var updateManager = UpdateManager.shared
-    private let freeflowRepoURL = URL(string: "https://github.com/zachlatta/freeflow")!
+    private let upstreamRepoURL = URL(string: "https://github.com/zachlatta/freeflow")!
 
     private var appDisplayName: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
@@ -487,7 +487,7 @@ struct GeneralSettingsView: View {
     }
 
     private var appBuildNumber: String {
-        Bundle.main.object(forInfoDictionaryKey: "FreeFlowBuildTag") as? String
+        Bundle.main.object(forInfoDictionaryKey: "QuillBuildTag") as? String
             ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
             ?? "unknown"
     }
@@ -543,7 +543,7 @@ struct GeneralSettingsView: View {
                             .clipShape(Circle())
 
                             Button {
-                                openURL(freeflowRepoURL)
+                                openURL(upstreamRepoURL)
                             } label: {
                                 Text("zachlatta/freeflow")
                                     .font(.system(.caption, design: .monospaced).weight(.medium))
@@ -570,7 +570,7 @@ struct GeneralSettingsView: View {
                             .background(Capsule().fill(Color.yellow.opacity(0.14)))
 
                             Button {
-                                openURL(freeflowRepoURL)
+                                openURL(upstreamRepoURL)
                             } label: {
                                 HStack(spacing: 4) {
                                     Image(systemName: "star")
@@ -640,9 +640,10 @@ struct GeneralSettingsView: View {
                 SettingsCard("Note Browser", icon: "note.text") {
                     noteBrowserSection
                 }
-                SettingsCard("Updates", icon: "arrow.triangle.2.circlepath") {
-                    updatesSection
-                }
+                // Quill releases are not distributed through the in-app updater yet.
+                // SettingsCard("Updates", icon: "arrow.triangle.2.circlepath") {
+                //     updatesSection
+                // }
                 SettingsCard("Transcription", icon: "waveform.badge.magnifyingglass") {
                     transcriptionSection
                 }
@@ -1687,7 +1688,7 @@ struct PromptsSettingsView: View {
 
         let context = AppContext(
             appName: "Quill Settings",
-            bundleIdentifier: "com.zachlatta.freeflow",
+            bundleIdentifier: "com.woosublee.quill",
             windowTitle: "System Prompt Test",
             selectedText: nil,
             currentActivity: "User is testing the system prompt in Quill settings.",

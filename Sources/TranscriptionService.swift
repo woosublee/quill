@@ -4,7 +4,7 @@ import Foundation
 import Speech
 import os.log
 
-private let transcriptionLog = OSLog(subsystem: "com.zachlatta.freeflow", category: "Transcription")
+private let transcriptionLog = OSLog(subsystem: "com.woosublee.quill", category: "Transcription")
 
 class TranscriptionService {
     private let apiKey: String

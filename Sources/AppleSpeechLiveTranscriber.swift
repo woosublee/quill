@@ -3,7 +3,7 @@ import CoreMedia
 import os.log
 import Speech
 
-private let speechLog = OSLog(subsystem: "com.zachlatta.freeflow", category: "AppleSpeech")
+private let speechLog = OSLog(subsystem: "com.woosublee.quill", category: "AppleSpeech")
 
 // 실시간 전사를 지원하는 모든 백엔드가 따르는 프로토콜
 protocol LiveTranscriber: AnyObject {

@@ -16,8 +16,8 @@ ARCH ?= $(shell uname -m)
 
 # Pick the icon source based on which bundle we are building. Dev builds get
 # a distinct hammer-on-waveform icon so a developer's dock shows at a glance
-# which FreeFlow they are running when both are installed side by side.
-ifeq ($(APP_NAME),FreeFlow Dev)
+# which Quill build they are running when both are installed side by side.
+ifeq ($(APP_NAME),Quill Dev)
 ICON_SOURCE = Resources/AppIcon-Dev-Source.png
 ICON_ICNS = Resources/AppIcon-Dev.icns
 else
@@ -64,7 +64,13 @@ endif
 	@plutil -replace CFBundleIdentifier -string "$(BUNDLE_ID)" "$(CONTENTS)/Info.plist"
 	@cp $(ICON_ICNS) "$(RESOURCES)/"
 	@xattr -cr "$(APP_BUNDLE)"
-	@codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" --entitlements Quill.entitlements "$(APP_BUNDLE)"
+	@rm -rf "$(BUILD_DIR)/codesign-staging"
+	@mkdir -p "$(BUILD_DIR)/codesign-staging"
+	@ditto --norsrc "$(APP_BUNDLE)" "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app"
+	@codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" --entitlements Quill.entitlements "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app"
+	@rm -rf "$(APP_BUNDLE)"
+	@ditto "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app" "$(APP_BUNDLE)"
+	@rm -rf "$(BUILD_DIR)/codesign-staging"
 	@echo "Built $(APP_BUNDLE)"
 
 icon: $(ICON_ICNS)
