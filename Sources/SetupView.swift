@@ -30,7 +30,8 @@ private struct SetupProviderSettingsSheet: View {
                     apiBaseURLInput: $apiBaseURLInput,
                     transcriptionAPIURLInput: $transcriptionAPIURLInput,
                     transcriptionAPIKeyInput: $transcriptionAPIKeyInput,
-                    showsModelDescription: true
+                    showsModelDescription: true,
+                    showsTranscriptionLanguage: true
                 )
                 .padding(20)
             }
