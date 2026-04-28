@@ -139,13 +139,14 @@ private struct GlassView: NSViewRepresentable {
 
 // MARK: - Status helpers
 
-private enum TranscriptStatus {
-    case done, progress, fail
+private enum TranscriptStatus: Equatable {
+    case done, recording, transcribing, fail
 }
 
 private func transcriptStatus(for item: PipelineHistoryItem, retrying: Set<UUID>) -> TranscriptStatus {
-    if retrying.contains(item.id) { return .progress }
-    if item.postProcessingStatus == "live-recording" || item.postProcessingStatus == "importing" { return .progress }
+    if retrying.contains(item.id) { return .transcribing }
+    if item.postProcessingStatus == "live-recording" { return .recording }
+    if item.postProcessingStatus == "importing" { return .transcribing }
     if item.postProcessingStatus.hasPrefix("Error:") { return .fail }
     return .done
 }
@@ -562,7 +563,7 @@ struct NoteBrowserView: View {
                             .opacity(appState.isRecording ? 0.6 : 1.0)
                             .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true),
                                        value: appState.isRecording)
-                        Text(appState.isRecording ? "중지" : "녹음")
+                        Text(appState.isRecording ? "Stop" : "Rec")
                             .font(.system(size: 11, weight: .semibold))
                     }
                     .padding(.horizontal, 10)
@@ -905,8 +906,8 @@ private struct NoteListRow: View {
             Circle()
                 .fill(Color.green)
                 .frame(width: 6, height: 6)
-        case .progress:
-            YellowSpinner(color: .yellow)
+        case .recording, .transcribing:
+            YellowSpinner(color: .orange)
         case .fail:
             Circle()
                 .fill(Color.red)
@@ -932,9 +933,16 @@ private struct NoteListRow: View {
     private var autoTitle: String {
         let content = normalizedContent
         if content.isEmpty {
-            if status == .fail { return "전사 실패" }
-            if status == .progress { return "녹음 중..." }
-            return "(내용 없음)"
+            switch status {
+            case .fail:
+                return "Transcription failed"
+            case .recording:
+                return "Recording..."
+            case .transcribing:
+                return "Transcribing..."
+            case .done:
+                return "(No content)"
+            }
         }
         let firstLine = content.components(separatedBy: .newlines)
             .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? content
@@ -1029,7 +1037,7 @@ private struct NoteDetailView: View {
                     Image(systemName: "exclamationmark.triangle")
                         .font(.system(size: 10, weight: .light))
                         .foregroundStyle(.red.opacity(0.6))
-                        .help("전사 실패")
+                        .help("Transcription failed")
                 }
                 if !item.contextSummary.isEmpty
                     && !item.contextSummary.hasPrefix("Could not")
@@ -1053,6 +1061,7 @@ private struct NoteDetailView: View {
             .font(.system(size: 28, weight: .bold))
             .textFieldStyle(.plain)
             .foregroundStyle(.primary)
+            .frame(minHeight: 38, alignment: .leading)
             .onChange(of: titleDraft) { newValue in
                 titleDebounceTimer?.invalidate()
                 let timer = Timer(timeInterval: 0.5, repeats: false) { [weak titleStore] _ in
@@ -1168,7 +1177,7 @@ private struct NoteDetailView: View {
                         .font(.system(size: 30, weight: .ultraLight))
                         .foregroundStyle(.red.opacity(0.6))
                 }
-                Text("전사에 실패했습니다")
+                Text("Transcription failed")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Text(item.postProcessingStatus.replacingOccurrences(of: "Error: ", with: ""))
@@ -1185,7 +1194,7 @@ private struct NoteDetailView: View {
                         .font(.system(size: 30, weight: .ultraLight))
                         .foregroundStyle(.tertiary)
                 }
-                Text("내용 없음")
+                Text("No content")
                     .font(.system(size: 14))
                     .foregroundStyle(.tertiary)
             }
@@ -1404,6 +1413,7 @@ struct NoteAudioPlayerView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
+        .frame(height: 72)
         .background {
             RoundedRectangle(cornerRadius: 12)
                 .fill(
