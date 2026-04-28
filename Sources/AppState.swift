@@ -1171,7 +1171,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     static func fileSizeBytes(for fileURL: URL) -> Int64? {
-        (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber)?.int64Value
+        (try? fileURL.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map { Int64($0) }
     }
 
     static func saveAudioFile(from tempURL: URL) -> SavedAudioFile? {
