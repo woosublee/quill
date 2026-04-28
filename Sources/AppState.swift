@@ -1331,8 +1331,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let jobID = UUID()
         let noteID = UUID()
         let startedAt = Date()
-        let savedAudioFile = Self.saveAudioFile(from: fileURL)
-        let transcriptionFileURL = savedAudioFile?.fileURL ?? fileURL
+        guard let savedAudioFile = Self.saveAudioFile(from: fileURL) else {
+            errorMessage = "오디오 파일을 저장할 수 없습니다. 디스크 공간 또는 파일 접근 권한을 확인한 뒤 다시 시도하세요."
+            return
+        }
+        let importContextSummary = AudioImportOptions.importContextSummary(for: fileURL.lastPathComponent)
         let placeholder = PipelineHistoryItem(
             id: noteID,
             timestamp: startedAt,
@@ -1340,7 +1343,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             postProcessedTranscript: "",
             postProcessingPrompt: nil,
             systemPrompt: Self.resolvedSystemPrompt(customSystemPrompt),
-            contextSummary: "\(AudioImportOptions.importContextSummary(for: fileURL.lastPathComponent))",
+            contextSummary: importContextSummary,
             contextPrompt: nil,
             contextScreenshotDataURL: nil,
             contextScreenshotStatus: "No screenshot",
@@ -1348,7 +1351,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             debugStatus: "Importing audio",
             customVocabulary: customVocabulary,
             customSystemPrompt: customSystemPrompt,
-            audioFileName: savedAudioFile?.fileName,
+            audioFileName: savedAudioFile.fileName,
             usedLocalTranscription: configuration.useLocalTranscription,
             usedContextCapture: false,
             usedPostProcessing: !disablePostProcessing,
@@ -1376,7 +1379,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
         updateTranscriptionJob(jobID) {
             $0.liveNoteID = noteID
-            $0.audioFileName = savedAudioFile?.fileName
+            $0.audioFileName = savedAudioFile.fileName
         }
 
         let postProcessingService = PostProcessingService(
@@ -1401,7 +1404,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 bundleIdentifier: nil,
                 windowTitle: nil,
                 selectedText: nil,
-                currentActivity: "\(AudioImportOptions.importContextSummary(for: fileURL.lastPathComponent))",
+                currentActivity: importContextSummary,
                 contextSystemPrompt: nil,
                 contextPrompt: nil,
                 screenshotDataURL: nil,
@@ -1418,7 +1421,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     localTranscriptionModel: configuration.localTranscriptionModel,
                     transcriptionModel: capturedTranscriptionModel
                 )
-                let rawTranscript = try await transcriptionService.transcribe(fileURL: transcriptionFileURL)
+                let rawTranscript = try await transcriptionService.transcribe(fileURL: savedAudioFile.fileURL)
                 let parsedTranscript = Self.parseTranscriptCommands(
                     from: rawTranscript,
                     pressEnterCommandEnabled: self.isPressEnterVoiceCommandEnabled
@@ -1445,7 +1448,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         context: importedContext,
                         processingStatus: processingStatus,
                         intent: .dictation,
-                        audioFileName: savedAudioFile?.fileName,
+                        audioFileName: savedAudioFile.fileName,
                         useLocalTranscriptionOverride: configuration.useLocalTranscription,
                         localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id
                     )
@@ -1462,7 +1465,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         context: importedContext,
                         processingStatus: "Error: \(error.localizedDescription)",
                         intent: .dictation,
-                        audioFileName: savedAudioFile?.fileName,
+                        audioFileName: savedAudioFile.fileName,
                         useLocalTranscriptionOverride: configuration.useLocalTranscription,
                         localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id
                     )
@@ -1623,7 +1626,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 screenshotError: nil
             ),
             restoredIntent: SessionIntent.fromPersisted(intent: item.intent, selectedText: item.selectedText),
-            transcriptionLanguage: transcriptionLanguage,
+            transcriptionLanguage: TranscriptionLanguage.find(code: item.transcriptionLanguageCode),
             localTranscriptionModel: configuration.localTranscriptionModel,
             useLocalTranscription: configuration.useLocalTranscription,
             customVocabulary: item.customVocabulary,
