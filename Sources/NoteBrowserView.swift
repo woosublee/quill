@@ -691,7 +691,8 @@ struct NoteBrowserView: View {
             .compactMap { UTType(filenameExtension: $0) }
         panel.prompt = "Choose"
         panel.message = "Choose an audio file. Supported formats: FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, WEBM"
-        if panel.runModal() == .OK, let url = panel.url {
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
             pendingAudioImport = PendingAudioImport(
                 fileURL: url,
                 currentMode: appState.currentNoteBrowserTranscriptionMode,

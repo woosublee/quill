@@ -1370,7 +1370,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         do {
             _ = try pipelineHistoryStore.append(placeholder, maxCount: maxPipelineHistoryCount)
-            pipelineHistory = pipelineHistoryStore.loadAllHistory()
+            pipelineHistory.insert(placeholder, at: 0)
+            if pipelineHistory.count > maxPipelineHistoryCount {
+                pipelineHistory.removeLast(pipelineHistory.count - maxPipelineHistoryCount)
+            }
         } catch {
             Self.deleteAudioFile(savedAudioFile.fileName)
             errorMessage = "Unable to save imported audio note: \(error.localizedDescription)"
