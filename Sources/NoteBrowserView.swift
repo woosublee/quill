@@ -1,6 +1,7 @@
 import SwiftUI
 import UserNotifications
 import AVFoundation
+import UniformTypeIdentifiers
 
 // MARK: - Cursor helper
 
@@ -144,7 +145,7 @@ private enum TranscriptStatus {
 
 private func transcriptStatus(for item: PipelineHistoryItem, retrying: Set<UUID>) -> TranscriptStatus {
     if retrying.contains(item.id) { return .progress }
-    if item.postProcessingStatus == "live-recording" { return .progress }
+    if item.postProcessingStatus == "live-recording" || item.postProcessingStatus == "importing" { return .progress }
     if item.postProcessingStatus.hasPrefix("Error:") { return .fail }
     return .done
 }
@@ -187,7 +188,8 @@ final class ObsidianExportManager: ObservableObject {
 
                 let iso = ISO8601DateFormatter()
                 iso.formatOptions = [.withInternetDateTime]
-                let audioEmbed = audioSrcURL != nil ? "\n![[\(fileName).wav]]\n" : ""
+                let audioFileName = audioSrcURL.map { fileName + "." + $0.pathExtension }
+                let audioEmbed = audioFileName.map { "\n![[\($0)]]\n" } ?? ""
 
                 let markdown: String
                 if useGemini {
@@ -225,8 +227,9 @@ source: Quill
                 try markdown.write(to: mdURL, atomically: true, encoding: .utf8)
 
                 if let srcURL = audioSrcURL,
+                   let audioFileName,
                    FileManager.default.fileExists(atPath: srcURL.path) {
-                    let dstURL = vaultURL.appendingPathComponent(fileName + ".wav")
+                    let dstURL = vaultURL.appendingPathComponent(audioFileName)
                     try? FileManager.default.removeItem(at: dstURL)
                     try FileManager.default.copyItem(at: srcURL, to: dstURL)
                 }
@@ -335,6 +338,129 @@ final class NoteTitleStore: ObservableObject {
     }
 }
 
+// MARK: - Audio Import
+
+private struct PendingAudioImport: Identifiable {
+    let id = UUID()
+    let fileURL: URL
+    let currentMode: NoteBrowserTranscriptionMode
+    let hasAPIKey: Bool
+    let hasLocalWhisperModel: Bool
+    let fileSizeBytes: Int64?
+
+    init(
+        fileURL: URL,
+        currentMode: NoteBrowserTranscriptionMode,
+        hasAPIKey: Bool,
+        hasLocalWhisperModel: Bool
+    ) {
+        self.fileURL = fileURL
+        self.currentMode = currentMode
+        self.hasAPIKey = hasAPIKey
+        self.hasLocalWhisperModel = hasLocalWhisperModel
+        let accessGranted = fileURL.startAccessingSecurityScopedResource()
+        self.fileSizeBytes = accessGranted ? AppState.fileSizeBytes(for: fileURL) : nil
+        if accessGranted {
+            fileURL.stopAccessingSecurityScopedResource()
+        }
+    }
+
+    var options: AudioImportOptions {
+        AudioImportOptions(
+            fileExtension: fileURL.pathExtension,
+            currentMode: currentMode,
+            fileSizeBytes: fileSizeBytes,
+            hasAPIKey: hasAPIKey,
+            hasLocalWhisperModel: hasLocalWhisperModel
+        )
+    }
+}
+
+private struct AudioImportSheet: View {
+    let importRequest: PendingAudioImport
+    let onImport: (NoteBrowserTranscriptionMode) -> Void
+    let onCancel: () -> Void
+
+    @EnvironmentObject private var appState: AppState
+    @State private var selectedMode: NoteBrowserTranscriptionMode
+
+    init(
+        importRequest: PendingAudioImport,
+        onImport: @escaping (NoteBrowserTranscriptionMode) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.importRequest = importRequest
+        self.onImport = onImport
+        self.onCancel = onCancel
+        _selectedMode = State(initialValue: importRequest.options.defaultMode ?? .apiStandard)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Import Audio File")
+                    .font(.system(size: 18, weight: .semibold))
+                Text(importRequest.fileURL.lastPathComponent)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            if importRequest.options.supportedModes.isEmpty {
+                Text("No transcription method is available. Configure an API key or install a Local Whisper model, then try again.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Transcription Method")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                ForEach([NoteBrowserTranscriptionMode.apiStandard, .localWhisper], id: \.self) { mode in
+                    let isSupported = importRequest.options.supportedModes.contains(mode)
+                    Button {
+                        selectedMode = mode
+                    } label: {
+                        HStack {
+                            Image(systemName: selectedMode == mode ? "largecircle.fill.circle" : "circle")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(appState.audioImportLabel(for: mode))
+                                if mode == .apiStandard && !isSupported {
+                                    Text(importRequest.options.apiUnavailableReason)
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.tertiary)
+                                } else if mode == .localWhisper && !isSupported {
+                                    Text("No Local Whisper model is installed")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!isSupported)
+                    .opacity(isSupported ? 1 : 0.45)
+                }
+            }
+
+            HStack {
+                Button("Cancel") { onCancel() }
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Transcribe") { onImport(selectedMode) }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(importRequest.options.supportedModes.isEmpty || !importRequest.options.supportedModes.contains(selectedMode))
+            }
+        }
+        .padding(24)
+        .frame(width: 420)
+    }
+}
+
 // MARK: - Note Browser View
 
 struct NoteBrowserView: View {
@@ -344,6 +470,7 @@ struct NoteBrowserView: View {
     @State private var selectedItemID: UUID?
     @State private var searchText = ""
     @State private var knownHistoryIDs: Set<UUID> = []
+    @State private var pendingAudioImport: PendingAudioImport?
 
     private var filteredHistory: [PipelineHistoryItem] {
         guard !searchText.isEmpty else { return appState.pipelineHistory }
@@ -367,6 +494,15 @@ struct NoteBrowserView: View {
             if selectedItemID == nil {
                 selectedItemID = appState.pipelineHistory.first?.id
             }
+        }
+        .sheet(item: $pendingAudioImport) { importRequest in
+            AudioImportSheet(importRequest: importRequest) { mode in
+                pendingAudioImport = nil
+                appState.importAudioFile(importRequest.fileURL, mode: mode)
+            } onCancel: {
+                pendingAudioImport = nil
+            }
+            .environmentObject(appState)
         }
         .onReceive(appState.$pipelineHistory) { newHistory in
             let ids = newHistory.map(\.id)
@@ -402,6 +538,19 @@ struct NoteBrowserView: View {
                         .background(Color.primary.opacity(0.08), in: Capsule())
                 }
                 Spacer()
+                Button {
+                    showAudioImportPicker()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 12, weight: .bold))
+                        .frame(width: 24, height: 24)
+                        .background(Color.primary.opacity(0.06), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Import audio file")
+                .disabled(appState.isRecording)
+                .overrideCursor(.arrow)
+
                 // Record button
                 Button {
                     appState.toggleRecording()
@@ -531,6 +680,27 @@ struct NoteBrowserView: View {
             Rectangle()
                 .fill(Color.primary.opacity(0.07))
                 .frame(width: 0.5)
+        }
+    }
+
+    private func showAudioImportPicker() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = Array(AudioImportOptions.broadlySupportedExtensions)
+            .sorted()
+            .compactMap { UTType(filenameExtension: $0) }
+        panel.prompt = "Choose"
+        panel.message = "Choose an audio file. Supported formats: FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, WEBM"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            pendingAudioImport = PendingAudioImport(
+                fileURL: url,
+                currentMode: appState.currentNoteBrowserTranscriptionMode,
+                hasAPIKey: appState.hasTranscriptionAPIKey,
+                hasLocalWhisperModel: appState.hasInstalledLocalWhisperModel
+            )
         }
     }
 
