@@ -20,13 +20,6 @@ struct PrecomputedMacro {
     let normalizedCommand: String
 }
 
-enum NoteBrowserTranscriptionMode {
-    case apiStandard
-    case apiRealtime
-    case localWhisper
-    case localAppleLive
-}
-
 enum SettingsTab: String, CaseIterable, Identifiable {
     case general
     case prompts
@@ -116,6 +109,12 @@ private struct PreservedPasteboardSnapshot {
 private struct PendingClipboardRestore {
     let snapshot: PreservedPasteboardSnapshot
     let expectedChangeCount: Int
+}
+
+struct AudioImportTranscriptionConfiguration {
+    let mode: NoteBrowserTranscriptionMode
+    let useLocalTranscription: Bool
+    let localTranscriptionModel: TranscriptionModel
 }
 
 private struct RetrySnapshot {
@@ -538,10 +537,59 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     var noteBrowserTranscriptionModeLabel: String {
+        label(for: currentNoteBrowserTranscriptionMode)
+    }
+
+    var currentNoteBrowserTranscriptionMode: NoteBrowserTranscriptionMode {
         if useLocalTranscription {
-            return localTranscriptionModel.isAppleSpeech ? "Local · Apple Live" : "Local · Whisper"
+            return localTranscriptionModel.isAppleSpeech ? .localAppleLive : .localWhisper
         }
-        return realtimeStreamingEnabled ? "API · Realtime" : "API · Standard"
+        return realtimeStreamingEnabled ? .apiRealtime : .apiStandard
+    }
+
+    func label(for mode: NoteBrowserTranscriptionMode) -> String {
+        switch mode {
+        case .apiStandard: return "API · Standard"
+        case .apiRealtime: return "API · Realtime"
+        case .localWhisper: return "Local · Whisper"
+        case .localAppleLive: return "Local · Apple Live"
+        }
+    }
+
+    func audioImportLabel(for mode: NoteBrowserTranscriptionMode) -> String {
+        switch mode {
+        case .apiStandard, .apiRealtime: return "API Standard"
+        case .localWhisper, .localAppleLive: return "Local Whisper"
+        }
+    }
+
+    var hasTranscriptionAPIKey: Bool {
+        !resolvedTranscriptionAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var hasInstalledLocalWhisperModel: Bool {
+        TranscriptionModel.all.contains { !$0.isAppleSpeech && $0.isInstalled }
+    }
+
+    @MainActor
+    func audioImportConfiguration(for mode: NoteBrowserTranscriptionMode) -> AudioImportTranscriptionConfiguration {
+        switch mode {
+        case .apiStandard, .apiRealtime:
+            return AudioImportTranscriptionConfiguration(
+                mode: mode,
+                useLocalTranscription: false,
+                localTranscriptionModel: localTranscriptionModel
+            )
+        case .localWhisper, .localAppleLive:
+            let model = localTranscriptionModel.isAppleSpeech
+                ? TranscriptionModel.all.first(where: { !$0.isAppleSpeech }) ?? localTranscriptionModel
+                : localTranscriptionModel
+            return AudioImportTranscriptionConfiguration(
+                mode: .localWhisper,
+                useLocalTranscription: true,
+                localTranscriptionModel: model
+            )
+        }
     }
 
     @MainActor
@@ -1122,8 +1170,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return try? String(contentsOf: fileURL, encoding: .utf8)
     }
 
+    static func fileSizeBytes(for fileURL: URL) -> Int64? {
+        (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber)?.int64Value
+    }
+
     static func saveAudioFile(from tempURL: URL) -> SavedAudioFile? {
-        let fileName = UUID().uuidString + ".wav"
+        let fileName = UUID().uuidString + "." + AudioImportOptions.storageExtension(for: tempURL.lastPathComponent)
         let destURL = audioStorageDirectory().appendingPathComponent(fileName)
         do {
             try? FileManager.default.removeItem(at: destURL)
@@ -1273,6 +1325,186 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
+    func importAudioFile(_ fileURL: URL, mode: NoteBrowserTranscriptionMode) {
+        let configuration = audioImportConfiguration(for: mode)
+        let jobID = UUID()
+        let noteID = UUID()
+        let startedAt = Date()
+        let savedAudioFile = Self.saveAudioFile(from: fileURL)
+        let transcriptionFileURL = savedAudioFile?.fileURL ?? fileURL
+        let placeholder = PipelineHistoryItem(
+            id: noteID,
+            timestamp: startedAt,
+            rawTranscript: "",
+            postProcessedTranscript: "",
+            postProcessingPrompt: nil,
+            systemPrompt: Self.resolvedSystemPrompt(customSystemPrompt),
+            contextSummary: "\(AudioImportOptions.importContextSummary(for: fileURL.lastPathComponent))",
+            contextPrompt: nil,
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: "live-recording",
+            debugStatus: "Importing audio",
+            customVocabulary: customVocabulary,
+            customSystemPrompt: customSystemPrompt,
+            audioFileName: savedAudioFile?.fileName,
+            usedLocalTranscription: configuration.useLocalTranscription,
+            usedContextCapture: false,
+            usedPostProcessing: !disablePostProcessing,
+            transcriptionLanguageCode: transcriptionLanguage.code,
+            localTranscriptionModelID: configuration.localTranscriptionModel.id,
+            contextAppName: nil,
+            contextBundleIdentifier: nil,
+            contextWindowTitle: nil
+        )
+
+        do {
+            _ = try pipelineHistoryStore.append(placeholder, maxCount: maxPipelineHistoryCount)
+            pipelineHistory = pipelineHistoryStore.loadAllHistory()
+        } catch {
+            errorMessage = "Unable to save imported audio note: \(error.localizedDescription)"
+            return
+        }
+
+        registerTranscriptionJob(
+            id: jobID,
+            startedAt: startedAt,
+            sessionIntent: .dictation,
+            sessionContext: nil,
+            contextTask: nil
+        )
+        updateTranscriptionJob(jobID) {
+            $0.liveNoteID = noteID
+            $0.audioFileName = savedAudioFile?.fileName
+        }
+
+        let postProcessingService = PostProcessingService(
+            apiKey: apiKey,
+            baseURL: apiBaseURL,
+            preferredModel: postProcessingModel,
+            preferredFallbackModel: postProcessingFallbackModel
+        )
+        let capturedApiKey = apiKey
+        let capturedApiBaseURL = resolvedTranscriptionBaseURL
+        let capturedLocalWhisperPath = localWhisperPath
+        let capturedTranscriptionLanguage = transcriptionLanguage
+        let capturedTranscriptionModel = transcriptionModel
+        let capturedCustomVocabulary = customVocabulary
+        let capturedCustomSystemPrompt = customSystemPrompt
+        let capturedDisablePostProcessing = disablePostProcessing
+
+        let task = Task { [weak self] in
+            guard let self else { return }
+            let importedContext = AppContext(
+                appName: nil,
+                bundleIdentifier: nil,
+                windowTitle: nil,
+                selectedText: nil,
+                currentActivity: "\(AudioImportOptions.importContextSummary(for: fileURL.lastPathComponent))",
+                contextSystemPrompt: nil,
+                contextPrompt: nil,
+                screenshotDataURL: nil,
+                screenshotMimeType: nil,
+                screenshotError: "No screenshot"
+            )
+            do {
+                let transcriptionService = try TranscriptionService(
+                    apiKey: capturedApiKey,
+                    baseURL: capturedApiBaseURL,
+                    useLocalTranscription: configuration.useLocalTranscription,
+                    localWhisperPath: capturedLocalWhisperPath.isEmpty ? nil : capturedLocalWhisperPath,
+                    transcriptionLanguage: capturedTranscriptionLanguage,
+                    localTranscriptionModel: configuration.localTranscriptionModel,
+                    transcriptionModel: capturedTranscriptionModel
+                )
+                let rawTranscript = try await transcriptionService.transcribe(fileURL: transcriptionFileURL)
+                let parsedTranscript = Self.parseTranscriptCommands(
+                    from: rawTranscript,
+                    pressEnterCommandEnabled: self.isPressEnterVoiceCommandEnabled
+                )
+                let result = await self.processImportedTranscript(
+                    parsedTranscript.transcript,
+                    context: importedContext,
+                    postProcessingService: postProcessingService,
+                    customVocabulary: capturedCustomVocabulary,
+                    customSystemPrompt: capturedCustomSystemPrompt,
+                    postProcessingEnabled: !capturedDisablePostProcessing
+                )
+                let processingStatus = Self.statusMessage(
+                    for: result.outcome,
+                    parsedTranscript: parsedTranscript
+                )
+                await MainActor.run {
+                    self.recordPipelineHistoryEntry(
+                        jobID: jobID,
+                        rawTranscript: parsedTranscript.transcript,
+                        postProcessedTranscript: result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines),
+                        postProcessingPrompt: result.prompt,
+                        systemPrompt: Self.resolvedSystemPrompt(capturedCustomSystemPrompt),
+                        context: importedContext,
+                        processingStatus: processingStatus,
+                        intent: .dictation,
+                        audioFileName: savedAudioFile?.fileName,
+                        useLocalTranscriptionOverride: configuration.useLocalTranscription,
+                        localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id
+                    )
+                    self.finishTranscriptionJob(jobID)
+                }
+            } catch {
+                await MainActor.run {
+                    self.recordPipelineHistoryEntry(
+                        jobID: jobID,
+                        rawTranscript: "",
+                        postProcessedTranscript: "",
+                        postProcessingPrompt: "",
+                        systemPrompt: Self.resolvedSystemPrompt(capturedCustomSystemPrompt),
+                        context: importedContext,
+                        processingStatus: "Error: \(error.localizedDescription)",
+                        intent: .dictation,
+                        audioFileName: savedAudioFile?.fileName,
+                        useLocalTranscriptionOverride: configuration.useLocalTranscription,
+                        localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id
+                    )
+                    self.finishTranscriptionJob(jobID)
+                }
+            }
+        }
+        updateTranscriptionJob(jobID) { $0.task = task }
+    }
+
+    private func processImportedTranscript(
+        _ rawTranscript: String,
+        context: AppContext,
+        postProcessingService: PostProcessingService,
+        customVocabulary: String,
+        customSystemPrompt: String,
+        postProcessingEnabled: Bool
+    ) async -> (finalTranscript: String, outcome: TranscriptProcessingOutcome, prompt: String) {
+        let trimmedRawTranscript = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedRawTranscript.isEmpty else {
+            return ("", .skippedEmptyRawTranscript, "")
+        }
+        if let macro = findMatchingMacro(for: trimmedRawTranscript) {
+            return (macro.payload, .voiceMacro(command: macro.command), "")
+        }
+        guard postProcessingEnabled else {
+            return (rawTranscript, .postProcessingDisabled, "")
+        }
+        do {
+            let result = try await postProcessingService.postProcess(
+                transcript: trimmedRawTranscript,
+                context: context,
+                customVocabulary: customVocabulary,
+                customSystemPrompt: customSystemPrompt
+            )
+            return (result.transcript, .postProcessingSucceeded, result.prompt)
+        } catch {
+            return (trimmedRawTranscript, .postProcessingFailedFallback, "")
+        }
+    }
+
+    @MainActor
     func retryTranscription(item: PipelineHistoryItem) {
         guard !retryingItemIDs.contains(item.id) else { return }
 
@@ -1352,6 +1584,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func makeRetrySnapshot(for item: PipelineHistoryItem) throws -> RetrySnapshot {
         guard let audioFileName = item.audioFileName else {
             throw TranscriptionError.submissionFailed("Audio file not found for retry.")
@@ -1361,6 +1594,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard FileManager.default.fileExists(atPath: audioURL.path) else {
             throw TranscriptionError.submissionFailed("Audio file not found for retry.")
         }
+
+        let options = AudioImportOptions(
+            fileExtension: audioURL.pathExtension,
+            currentMode: currentNoteBrowserTranscriptionMode,
+            fileSizeBytes: Self.fileSizeBytes(for: audioURL),
+            hasAPIKey: hasTranscriptionAPIKey,
+            hasLocalWhisperModel: hasInstalledLocalWhisperModel
+        )
+        guard let retryMode = options.defaultMode else {
+            throw TranscriptionError.submissionFailed("사용 가능한 전사 방식이 없습니다. API key를 설정하거나 Local Whisper 모델을 설치한 뒤 다시 시도하세요.")
+        }
+        let configuration = audioImportConfiguration(for: retryMode)
 
         return RetrySnapshot(
             item: item,
@@ -1378,9 +1623,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 screenshotError: nil
             ),
             restoredIntent: SessionIntent.fromPersisted(intent: item.intent, selectedText: item.selectedText),
-            transcriptionLanguage: TranscriptionLanguage.find(code: item.transcriptionLanguageCode),
-            localTranscriptionModel: TranscriptionModel.find(id: item.localTranscriptionModelID),
-            useLocalTranscription: item.usedLocalTranscription,
+            transcriptionLanguage: transcriptionLanguage,
+            localTranscriptionModel: configuration.localTranscriptionModel,
+            useLocalTranscription: configuration.useLocalTranscription,
             customVocabulary: item.customVocabulary,
             customSystemPrompt: item.customSystemPrompt,
             postProcessingEnabled: item.usedPostProcessing,
@@ -3450,7 +3695,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         context: AppContext,
         processingStatus: String,
         intent: SessionIntent,
-        audioFileName: String? = nil
+        audioFileName: String? = nil,
+        useLocalTranscriptionOverride: Bool? = nil,
+        localTranscriptionModelIDOverride: String? = nil
     ) {
         let existingID = activeTranscriptionJobs[jobID]?.liveNoteID
         let existingEntry = existingID.flatMap { id in
@@ -3486,11 +3733,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             customVocabulary: customVocabulary,
             customSystemPrompt: customSystemPrompt,
             audioFileName: audioFileName,
-            usedLocalTranscription: useLocalTranscription,
+            usedLocalTranscription: useLocalTranscriptionOverride ?? useLocalTranscription,
             usedContextCapture: !disableContextCapture,
             usedPostProcessing: !disablePostProcessing,
             transcriptionLanguageCode: transcriptionLanguage.code,
-            localTranscriptionModelID: localTranscriptionModel.id,
+            localTranscriptionModelID: localTranscriptionModelIDOverride ?? localTranscriptionModel.id,
             transcriptFileName: transcriptFileName,
             contextAppName: context.appName,
             contextBundleIdentifier: context.bundleIdentifier,

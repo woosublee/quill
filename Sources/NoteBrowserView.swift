@@ -1,6 +1,7 @@
 import SwiftUI
 import UserNotifications
 import AVFoundation
+import UniformTypeIdentifiers
 
 // MARK: - Cursor helper
 
@@ -335,6 +336,115 @@ final class NoteTitleStore: ObservableObject {
     }
 }
 
+// MARK: - Audio Import
+
+private struct PendingAudioImport: Identifiable {
+    let id = UUID()
+    let fileURL: URL
+    let currentMode: NoteBrowserTranscriptionMode
+    let hasAPIKey: Bool
+    let hasLocalWhisperModel: Bool
+
+    var options: AudioImportOptions {
+        AudioImportOptions(
+            fileExtension: fileURL.pathExtension,
+            currentMode: currentMode,
+            fileSizeBytes: fileSizeBytes,
+            hasAPIKey: hasAPIKey,
+            hasLocalWhisperModel: hasLocalWhisperModel
+        )
+    }
+
+    private var fileSizeBytes: Int64? {
+        AppState.fileSizeBytes(for: fileURL)
+    }
+}
+
+private struct AudioImportSheet: View {
+    let importRequest: PendingAudioImport
+    let onImport: (NoteBrowserTranscriptionMode) -> Void
+    let onCancel: () -> Void
+
+    @EnvironmentObject private var appState: AppState
+    @State private var selectedMode: NoteBrowserTranscriptionMode
+
+    init(
+        importRequest: PendingAudioImport,
+        onImport: @escaping (NoteBrowserTranscriptionMode) -> Void,
+        onCancel: @escaping () -> Void
+    ) {
+        self.importRequest = importRequest
+        self.onImport = onImport
+        self.onCancel = onCancel
+        _selectedMode = State(initialValue: importRequest.options.defaultMode ?? .apiStandard)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("오디오 파일 가져오기")
+                    .font(.system(size: 18, weight: .semibold))
+                Text(importRequest.fileURL.lastPathComponent)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            if importRequest.options.supportedModes.isEmpty {
+                Text("사용 가능한 전사 방식이 없습니다. API key를 설정하거나 Local Whisper 모델을 설치한 뒤 다시 시도하세요.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("전사 방식")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                ForEach([NoteBrowserTranscriptionMode.apiStandard, .localWhisper], id: \.self) { mode in
+                    let isSupported = importRequest.options.supportedModes.contains(mode)
+                    Button {
+                        selectedMode = mode
+                    } label: {
+                        HStack {
+                            Image(systemName: selectedMode == mode ? "largecircle.fill.circle" : "circle")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(appState.audioImportLabel(for: mode))
+                                if mode == .apiStandard && !isSupported {
+                                    Text(importRequest.options.apiUnavailableReason)
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.tertiary)
+                                } else if mode == .localWhisper && !isSupported {
+                                    Text("설치된 Local Whisper 모델이 없습니다")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!isSupported)
+                    .opacity(isSupported ? 1 : 0.45)
+                }
+            }
+
+            HStack {
+                Button("취소") { onCancel() }
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("전사하기") { onImport(selectedMode) }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(importRequest.options.supportedModes.isEmpty || !importRequest.options.supportedModes.contains(selectedMode))
+            }
+        }
+        .padding(24)
+        .frame(width: 420)
+    }
+}
+
 // MARK: - Note Browser View
 
 struct NoteBrowserView: View {
@@ -344,6 +454,7 @@ struct NoteBrowserView: View {
     @State private var selectedItemID: UUID?
     @State private var searchText = ""
     @State private var knownHistoryIDs: Set<UUID> = []
+    @State private var pendingAudioImport: PendingAudioImport?
 
     private var filteredHistory: [PipelineHistoryItem] {
         guard !searchText.isEmpty else { return appState.pipelineHistory }
@@ -367,6 +478,15 @@ struct NoteBrowserView: View {
             if selectedItemID == nil {
                 selectedItemID = appState.pipelineHistory.first?.id
             }
+        }
+        .sheet(item: $pendingAudioImport) { importRequest in
+            AudioImportSheet(importRequest: importRequest) { mode in
+                pendingAudioImport = nil
+                appState.importAudioFile(importRequest.fileURL, mode: mode)
+            } onCancel: {
+                pendingAudioImport = nil
+            }
+            .environmentObject(appState)
         }
         .onReceive(appState.$pipelineHistory) { newHistory in
             let ids = newHistory.map(\.id)
@@ -402,6 +522,19 @@ struct NoteBrowserView: View {
                         .background(Color.primary.opacity(0.08), in: Capsule())
                 }
                 Spacer()
+                Button {
+                    showAudioImportPicker()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 12, weight: .bold))
+                        .frame(width: 24, height: 24)
+                        .background(Color.primary.opacity(0.06), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("오디오 파일 가져오기")
+                .disabled(appState.isRecording)
+                .overrideCursor(.arrow)
+
                 // Record button
                 Button {
                     appState.toggleRecording()
@@ -531,6 +664,26 @@ struct NoteBrowserView: View {
             Rectangle()
                 .fill(Color.primary.opacity(0.07))
                 .frame(width: 0.5)
+        }
+    }
+
+    private func showAudioImportPicker() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = Array(AudioImportOptions.broadlySupportedExtensions)
+            .sorted()
+            .compactMap { UTType(filenameExtension: $0) }
+        panel.prompt = "선택"
+        panel.message = "오디오 파일을 선택하세요. 지원 형식: FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, WEBM"
+        if panel.runModal() == .OK, let url = panel.url {
+            pendingAudioImport = PendingAudioImport(
+                fileURL: url,
+                currentMode: appState.currentNoteBrowserTranscriptionMode,
+                hasAPIKey: appState.hasTranscriptionAPIKey,
+                hasLocalWhisperModel: appState.hasInstalledLocalWhisperModel
+            )
         }
     }
 
