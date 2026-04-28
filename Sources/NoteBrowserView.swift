@@ -188,7 +188,8 @@ final class ObsidianExportManager: ObservableObject {
 
                 let iso = ISO8601DateFormatter()
                 iso.formatOptions = [.withInternetDateTime]
-                let audioEmbed = audioSrcURL != nil ? "\n![[\(fileName).wav]]\n" : ""
+                let audioFileName = audioSrcURL.map { fileName + "." + $0.pathExtension }
+                let audioEmbed = audioFileName.map { "\n![[\($0)]]\n" } ?? ""
 
                 let markdown: String
                 if useGemini {
@@ -226,8 +227,9 @@ source: Quill
                 try markdown.write(to: mdURL, atomically: true, encoding: .utf8)
 
                 if let srcURL = audioSrcURL,
+                   let audioFileName,
                    FileManager.default.fileExists(atPath: srcURL.path) {
-                    let dstURL = vaultURL.appendingPathComponent(fileName + ".wav")
+                    let dstURL = vaultURL.appendingPathComponent(audioFileName)
                     try? FileManager.default.removeItem(at: dstURL)
                     try FileManager.default.copyItem(at: srcURL, to: dstURL)
                 }

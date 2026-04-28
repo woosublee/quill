@@ -1405,7 +1405,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let capturedTranscriptionModel = transcriptionModel
         let capturedCustomVocabulary = customVocabulary
         let capturedCustomSystemPrompt = customSystemPrompt
-        let capturedDisablePostProcessing = disablePostProcessing
+        let capturedPostProcessingEnabled = !disablePostProcessing
+        let capturedPressEnterCommandEnabled = isPressEnterVoiceCommandEnabled
 
         let task = Task { [weak self] in
             guard let self else { return }
@@ -1434,7 +1435,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 let rawTranscript = try await transcriptionService.transcribe(fileURL: savedAudioFile.fileURL)
                 let parsedTranscript = Self.parseTranscriptCommands(
                     from: rawTranscript,
-                    pressEnterCommandEnabled: self.isPressEnterVoiceCommandEnabled
+                    pressEnterCommandEnabled: capturedPressEnterCommandEnabled
                 )
                 let result = await self.processImportedTranscript(
                     parsedTranscript.transcript,
@@ -1442,7 +1443,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     postProcessingService: postProcessingService,
                     customVocabulary: capturedCustomVocabulary,
                     customSystemPrompt: capturedCustomSystemPrompt,
-                    postProcessingEnabled: !capturedDisablePostProcessing
+                    postProcessingEnabled: capturedPostProcessingEnabled
                 )
                 let processingStatus = Self.statusMessage(
                     for: result.outcome,
@@ -1460,7 +1461,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         intent: .dictation,
                         audioFileName: savedAudioFile.fileName,
                         useLocalTranscriptionOverride: configuration.useLocalTranscription,
-                        localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id
+                        localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id,
+                        usedPostProcessingOverride: capturedPostProcessingEnabled
                     )
                     self.finishTranscriptionJob(jobID)
                 }
@@ -1477,7 +1479,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         intent: .dictation,
                         audioFileName: savedAudioFile.fileName,
                         useLocalTranscriptionOverride: configuration.useLocalTranscription,
-                        localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id
+                        localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id,
+                        usedPostProcessingOverride: capturedPostProcessingEnabled
                     )
                     self.finishTranscriptionJob(jobID)
                 }
@@ -1486,6 +1489,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         updateTranscriptionJob(jobID) { $0.task = task }
     }
 
+    @MainActor
     private func processImportedTranscript(
         _ rawTranscript: String,
         context: AppContext,
@@ -3251,6 +3255,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let capturedCustomVocabulary = customVocabulary
         let capturedCustomSystemPrompt = customSystemPrompt
         let capturedLiveTranscriber = liveTranscriber
+        let capturedPressEnterCommandEnabled = isPressEnterVoiceCommandEnabled
         liveTranscriber = nil
         audioRecorder.onPCM16Samples = nil
 
@@ -3330,7 +3335,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     }
                     let parsedTranscript = Self.parseTranscriptCommands(
                         from: rawTranscript,
-                        pressEnterCommandEnabled: self.isPressEnterVoiceCommandEnabled
+                        pressEnterCommandEnabled: capturedPressEnterCommandEnabled
                     )
                     try Task.checkCancellation()
                     let appContext: AppContext
@@ -3503,7 +3508,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     }
                     let parsedTranscript = Self.parseTranscriptCommands(
                         from: rawTranscript,
-                        pressEnterCommandEnabled: self.isPressEnterVoiceCommandEnabled
+                        pressEnterCommandEnabled: capturedPressEnterCommandEnabled
                     )
                     try Task.checkCancellation()
                     let appContext: AppContext
@@ -3710,7 +3715,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         intent: SessionIntent,
         audioFileName: String? = nil,
         useLocalTranscriptionOverride: Bool? = nil,
-        localTranscriptionModelIDOverride: String? = nil
+        localTranscriptionModelIDOverride: String? = nil,
+        usedPostProcessingOverride: Bool? = nil
     ) {
         let existingID = activeTranscriptionJobs[jobID]?.liveNoteID
         let existingEntry = existingID.flatMap { id in
@@ -3748,7 +3754,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             audioFileName: audioFileName,
             usedLocalTranscription: useLocalTranscriptionOverride ?? useLocalTranscription,
             usedContextCapture: !disableContextCapture,
-            usedPostProcessing: !disablePostProcessing,
+            usedPostProcessing: usedPostProcessingOverride ?? !disablePostProcessing,
             transcriptionLanguageCode: transcriptionLanguage.code,
             localTranscriptionModelID: localTranscriptionModelIDOverride ?? localTranscriptionModel.id,
             transcriptFileName: transcriptFileName,
