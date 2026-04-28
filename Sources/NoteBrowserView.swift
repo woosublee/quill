@@ -359,7 +359,7 @@ private struct PendingAudioImport: Identifiable {
         self.hasAPIKey = hasAPIKey
         self.hasLocalWhisperModel = hasLocalWhisperModel
         let accessGranted = fileURL.startAccessingSecurityScopedResource()
-        self.fileSizeBytes = AppState.fileSizeBytes(for: fileURL)
+        self.fileSizeBytes = accessGranted ? AppState.fileSizeBytes(for: fileURL) : nil
         if accessGranted {
             fileURL.stopAccessingSecurityScopedResource()
         }
