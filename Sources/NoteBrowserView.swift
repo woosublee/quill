@@ -145,7 +145,7 @@ private enum TranscriptStatus {
 
 private func transcriptStatus(for item: PipelineHistoryItem, retrying: Set<UUID>) -> TranscriptStatus {
     if retrying.contains(item.id) { return .progress }
-    if item.postProcessingStatus == "live-recording" { return .progress }
+    if item.postProcessingStatus == "live-recording" || item.postProcessingStatus == "importing" { return .progress }
     if item.postProcessingStatus.hasPrefix("Error:") { return .fail }
     return .done
 }

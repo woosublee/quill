@@ -1353,7 +1353,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             contextPrompt: nil,
             contextScreenshotDataURL: nil,
             contextScreenshotStatus: "No screenshot",
-            postProcessingStatus: "live-recording",
+            postProcessingStatus: "importing",
             debugStatus: "Importing audio",
             customVocabulary: customVocabulary,
             customSystemPrompt: customSystemPrompt,
@@ -1372,6 +1372,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             _ = try pipelineHistoryStore.append(placeholder, maxCount: maxPipelineHistoryCount)
             pipelineHistory = pipelineHistoryStore.loadAllHistory()
         } catch {
+            Self.deleteAudioFile(savedAudioFile.fileName)
             errorMessage = "Unable to save imported audio note: \(error.localizedDescription)"
             return
         }
