@@ -1331,6 +1331,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let jobID = UUID()
         let noteID = UUID()
         let startedAt = Date()
+        let accessGranted = fileURL.startAccessingSecurityScopedResource()
+        defer {
+            if accessGranted {
+                fileURL.stopAccessingSecurityScopedResource()
+            }
+        }
         guard let savedAudioFile = Self.saveAudioFile(from: fileURL) else {
             errorMessage = "Unable to save the audio file. Check disk space or file permissions and try again."
             return

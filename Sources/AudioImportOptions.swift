@@ -11,7 +11,7 @@ struct AudioImportOptions {
     static let broadlySupportedExtensions: Set<String> = [
         "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
     ]
-    static let apiUploadLimitBytes: Int64 = 25 * 1024 * 1024
+    static let apiUploadLimitBytes: Int64 = 25_000_000
 
     static func storageExtension(for fileName: String) -> String {
         let ext = URL(fileURLWithPath: fileName).pathExtension.lowercased()

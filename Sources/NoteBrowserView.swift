@@ -344,6 +344,24 @@ private struct PendingAudioImport: Identifiable {
     let currentMode: NoteBrowserTranscriptionMode
     let hasAPIKey: Bool
     let hasLocalWhisperModel: Bool
+    let fileSizeBytes: Int64?
+
+    init(
+        fileURL: URL,
+        currentMode: NoteBrowserTranscriptionMode,
+        hasAPIKey: Bool,
+        hasLocalWhisperModel: Bool
+    ) {
+        self.fileURL = fileURL
+        self.currentMode = currentMode
+        self.hasAPIKey = hasAPIKey
+        self.hasLocalWhisperModel = hasLocalWhisperModel
+        let accessGranted = fileURL.startAccessingSecurityScopedResource()
+        self.fileSizeBytes = AppState.fileSizeBytes(for: fileURL)
+        if accessGranted {
+            fileURL.stopAccessingSecurityScopedResource()
+        }
+    }
 
     var options: AudioImportOptions {
         AudioImportOptions(
@@ -353,10 +371,6 @@ private struct PendingAudioImport: Identifiable {
             hasAPIKey: hasAPIKey,
             hasLocalWhisperModel: hasLocalWhisperModel
         )
-    }
-
-    private var fileSizeBytes: Int64? {
-        AppState.fileSizeBytes(for: fileURL)
     }
 }
 
