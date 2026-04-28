@@ -1332,7 +1332,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let noteID = UUID()
         let startedAt = Date()
         guard let savedAudioFile = Self.saveAudioFile(from: fileURL) else {
-            errorMessage = "오디오 파일을 저장할 수 없습니다. 디스크 공간 또는 파일 접근 권한을 확인한 뒤 다시 시도하세요."
+            errorMessage = "Unable to save the audio file. Check disk space or file permissions and try again."
             return
         }
         let importContextSummary = AudioImportOptions.importContextSummary(for: fileURL.lastPathComponent)
@@ -1606,7 +1606,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             hasLocalWhisperModel: hasInstalledLocalWhisperModel
         )
         guard let retryMode = options.defaultMode else {
-            throw TranscriptionError.submissionFailed("사용 가능한 전사 방식이 없습니다. API key를 설정하거나 Local Whisper 모델을 설치한 뒤 다시 시도하세요.")
+            throw TranscriptionError.submissionFailed("No transcription method is available. Configure an API key or install a Local Whisper model, then try again.")
         }
         let configuration = audioImportConfiguration(for: retryMode)
 

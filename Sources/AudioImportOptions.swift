@@ -44,12 +44,12 @@ struct AudioImportOptions {
 
     var apiUnavailableReason: String {
         if !(fileSizeBytes.map({ $0 <= Self.apiUploadLimitBytes }) ?? true) {
-            return "25MB를 초과해 API 전사를 사용할 수 없습니다"
+            return "API transcription is unavailable for files over 25MB"
         }
         if !hasAPIKey {
-            return "API key가 설정되어 있지 않습니다"
+            return "API key is not configured"
         }
-        return "API 전사를 사용할 수 없습니다"
+        return "API transcription is unavailable"
     }
 
     var supportedModes: [NoteBrowserTranscriptionMode] {

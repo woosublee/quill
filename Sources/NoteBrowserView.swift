@@ -382,7 +382,7 @@ private struct AudioImportSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("오디오 파일 가져오기")
+                Text("Import Audio File")
                     .font(.system(size: 18, weight: .semibold))
                 Text(importRequest.fileURL.lastPathComponent)
                     .font(.system(size: 12))
@@ -392,14 +392,14 @@ private struct AudioImportSheet: View {
             }
 
             if importRequest.options.supportedModes.isEmpty {
-                Text("사용 가능한 전사 방식이 없습니다. API key를 설정하거나 Local Whisper 모델을 설치한 뒤 다시 시도하세요.")
+                Text("No transcription method is available. Configure an API key or install a Local Whisper model, then try again.")
                     .font(.system(size: 12))
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("전사 방식")
+                Text("Transcription Method")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
                 ForEach([NoteBrowserTranscriptionMode.apiStandard, .localWhisper], id: \.self) { mode in
@@ -416,7 +416,7 @@ private struct AudioImportSheet: View {
                                         .font(.system(size: 10))
                                         .foregroundStyle(.tertiary)
                                 } else if mode == .localWhisper && !isSupported {
-                                    Text("설치된 Local Whisper 모델이 없습니다")
+                                    Text("No Local Whisper model is installed")
                                         .font(.system(size: 10))
                                         .foregroundStyle(.tertiary)
                                 }
@@ -431,10 +431,10 @@ private struct AudioImportSheet: View {
             }
 
             HStack {
-                Button("취소") { onCancel() }
+                Button("Cancel") { onCancel() }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("전사하기") { onImport(selectedMode) }
+                Button("Transcribe") { onImport(selectedMode) }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .disabled(importRequest.options.supportedModes.isEmpty || !importRequest.options.supportedModes.contains(selectedMode))
@@ -531,7 +531,7 @@ struct NoteBrowserView: View {
                         .background(Color.primary.opacity(0.06), in: Circle())
                 }
                 .buttonStyle(.plain)
-                .help("오디오 파일 가져오기")
+                .help("Import audio file")
                 .disabled(appState.isRecording)
                 .overrideCursor(.arrow)
 
@@ -675,8 +675,8 @@ struct NoteBrowserView: View {
         panel.allowedContentTypes = Array(AudioImportOptions.broadlySupportedExtensions)
             .sorted()
             .compactMap { UTType(filenameExtension: $0) }
-        panel.prompt = "선택"
-        panel.message = "오디오 파일을 선택하세요. 지원 형식: FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, WEBM"
+        panel.prompt = "Choose"
+        panel.message = "Choose an audio file. Supported formats: FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, WEBM"
         if panel.runModal() == .OK, let url = panel.url {
             pendingAudioImport = PendingAudioImport(
                 fileURL: url,
