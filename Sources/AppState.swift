@@ -1369,10 +1369,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
 
         do {
-            _ = try pipelineHistoryStore.append(placeholder, maxCount: maxPipelineHistoryCount)
-            pipelineHistory.insert(placeholder, at: 0)
-            if pipelineHistory.count > maxPipelineHistoryCount {
-                pipelineHistory.removeLast(pipelineHistory.count - maxPipelineHistoryCount)
+            let removedStoredFiles = try appendPipelineHistoryItem(placeholder)
+            for removedAssets in removedStoredFiles {
+                Self.deleteStoredFiles(removedAssets)
             }
         } catch {
             Self.deleteAudioFile(savedAudioFile.fileName)
@@ -1462,7 +1461,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         audioFileName: savedAudioFile.fileName,
                         useLocalTranscriptionOverride: configuration.useLocalTranscription,
                         localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id,
-                        usedPostProcessingOverride: capturedPostProcessingEnabled
+                        usedContextCaptureOverride: false,
+                        usedPostProcessingOverride: capturedPostProcessingEnabled,
+                        transcriptionLanguageCodeOverride: capturedTranscriptionLanguage.code,
+                        customVocabularyOverride: capturedCustomVocabulary,
+                        customSystemPromptOverride: capturedCustomSystemPrompt
                     )
                     self.finishTranscriptionJob(jobID)
                 }
@@ -1480,7 +1483,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         audioFileName: savedAudioFile.fileName,
                         useLocalTranscriptionOverride: configuration.useLocalTranscription,
                         localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id,
-                        usedPostProcessingOverride: capturedPostProcessingEnabled
+                        usedContextCaptureOverride: false,
+                        usedPostProcessingOverride: capturedPostProcessingEnabled,
+                        transcriptionLanguageCodeOverride: capturedTranscriptionLanguage.code,
+                        customVocabularyOverride: capturedCustomVocabulary,
+                        customSystemPromptOverride: capturedCustomSystemPrompt
                     )
                     self.finishTranscriptionJob(jobID)
                 }
@@ -3704,6 +3711,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    private func appendPipelineHistoryItem(_ item: PipelineHistoryItem) throws -> [DeletedPipelineHistoryAssets] {
+        let removedStoredFiles = try pipelineHistoryStore.append(item, maxCount: maxPipelineHistoryCount)
+        pipelineHistory.insert(item, at: 0)
+        if pipelineHistory.count > maxPipelineHistoryCount {
+            pipelineHistory.removeLast(pipelineHistory.count - maxPipelineHistoryCount)
+        }
+        return removedStoredFiles
+    }
+
+    @MainActor
+    private func updatePipelineHistoryItem(_ item: PipelineHistoryItem) {
+        if let index = pipelineHistory.firstIndex(where: { $0.id == item.id }) {
+            pipelineHistory[index] = item
+        } else {
+            pipelineHistory.insert(item, at: 0)
+            if pipelineHistory.count > maxPipelineHistoryCount {
+                pipelineHistory.removeLast(pipelineHistory.count - maxPipelineHistoryCount)
+            }
+        }
+    }
+
+    @MainActor
     private func recordPipelineHistoryEntry(
         jobID: UUID,
         rawTranscript: String,
@@ -3716,7 +3745,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         audioFileName: String? = nil,
         useLocalTranscriptionOverride: Bool? = nil,
         localTranscriptionModelIDOverride: String? = nil,
-        usedPostProcessingOverride: Bool? = nil
+        usedContextCaptureOverride: Bool? = nil,
+        usedPostProcessingOverride: Bool? = nil,
+        transcriptionLanguageCodeOverride: String? = nil,
+        customVocabularyOverride: String? = nil,
+        customSystemPromptOverride: String? = nil
     ) {
         let existingID = activeTranscriptionJobs[jobID]?.liveNoteID
         let existingEntry = existingID.flatMap { id in
@@ -3749,13 +3782,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 ?? "available (\(context.screenshotMimeType ?? "image"))",
             postProcessingStatus: processingStatus,
             debugStatus: debugStatusMessage,
-            customVocabulary: customVocabulary,
-            customSystemPrompt: customSystemPrompt,
+            customVocabulary: customVocabularyOverride ?? customVocabulary,
+            customSystemPrompt: customSystemPromptOverride ?? customSystemPrompt,
             audioFileName: audioFileName,
             usedLocalTranscription: useLocalTranscriptionOverride ?? useLocalTranscription,
-            usedContextCapture: !disableContextCapture,
+            usedContextCapture: usedContextCaptureOverride ?? !disableContextCapture,
             usedPostProcessing: usedPostProcessingOverride ?? !disablePostProcessing,
-            transcriptionLanguageCode: transcriptionLanguage.code,
+            transcriptionLanguageCode: transcriptionLanguageCodeOverride ?? transcriptionLanguage.code,
             localTranscriptionModelID: localTranscriptionModelIDOverride ?? localTranscriptionModel.id,
             transcriptFileName: transcriptFileName,
             contextAppName: context.appName,
@@ -3770,12 +3803,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     Self.deleteTranscriptFile(previousTranscriptFileName)
                 }
             } else {
-                let removedStoredFiles = try pipelineHistoryStore.append(entry, maxCount: maxPipelineHistoryCount)
+                let removedStoredFiles = try appendPipelineHistoryItem(entry)
                 for removedAssets in removedStoredFiles {
                     Self.deleteStoredFiles(removedAssets)
                 }
             }
-            pipelineHistory = pipelineHistoryStore.loadAllHistory()
+            updatePipelineHistoryItem(entry)
         } catch {
             Self.deleteStoredFiles(audioFileName: audioFileName, transcriptFileName: transcriptFileName)
             errorMessage = "Unable to save run history entry: \(error.localizedDescription)"
