@@ -693,6 +693,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var capturedContext: AppContext?
     private var hasShownScreenshotPermissionAlert = false
     private var isEscapeCancelAlertPresented = false
+    private var shouldTerminateAfterTranscription = false
     private var audioDeviceObservers: [NSObjectProtocol] = []
     private var needsMicrophoneRefreshAfterRecording = false
     private let pipelineHistoryStore = PipelineHistoryStore()
@@ -1245,6 +1246,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             foregroundTranscriptionJobID = activeTranscriptionJobs.values.max(by: { $0.startedAt < $1.startedAt })?.id
         }
         refreshTranscribingState()
+        terminateIfReady()
     }
 
     @MainActor
@@ -2172,12 +2174,52 @@ final class AppState: ObservableObject, @unchecked Sendable {
         stopAndTranscribe()
     }
 
+    @MainActor
+    func requestTerminationWhileRecording() -> NSApplication.TerminateReply {
+        guard shouldConfirmTermination else { return .terminateNow }
+        guard !isEscapeCancelAlertPresented else { return .terminateCancel }
+
+        let alert = NSAlert()
+        alert.messageText = "Quit while recording?"
+        alert.informativeText = "Quill will stop the current recording, finish transcription, and quit when transcription is complete."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Stop Recording and Quit")
+        alert.addButton(withTitle: "Cancel")
+        alert.icon = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)
+
+        isEscapeCancelAlertPresented = true
+        let response = alert.runModal()
+        isEscapeCancelAlertPresented = false
+
+        guard response == .alertFirstButtonReturn else { return .terminateCancel }
+        shouldTerminateAfterTranscription = true
+
+        if isRecording {
+            stopAndTranscribe()
+        } else {
+            terminateIfReady()
+        }
+
+        return .terminateLater
+    }
+
     private var shouldConfirmEscapeCancellation: Bool {
         guard !isEscapeCancelAlertPresented else { return false }
         if isRecording || isTranscribing {
             return true
         }
         return pendingShortcutStartMode == .toggle || activeRecordingTriggerMode == .toggle
+    }
+
+    private var shouldConfirmTermination: Bool {
+        isRecording || isTranscribing || pendingShortcutStartMode == .toggle || activeRecordingTriggerMode == .toggle
+    }
+
+    @MainActor
+    private func terminateIfReady() {
+        guard shouldTerminateAfterTranscription, !isRecording, !isTranscribing else { return }
+        shouldTerminateAfterTranscription = false
+        NSApp.reply(toApplicationShouldTerminate: true)
     }
 
     @MainActor
