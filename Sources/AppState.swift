@@ -253,7 +253,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let realtimeStreamingModelStorageKey = "realtime_streaming_model"
     private let dictationAudioInterruptionEnabledStorageKey = "dictation_audio_interruption_enabled"
     private let pendingMutedAudioRestoreStorageKey = "pending_muted_audio_restore"
-    private let transcribingIndicatorDelay: TimeInterval = 0.25
     private let pasteAfterShortcutReleaseDelay: TimeInterval = 0.03
     private let pressEnterAfterPasteDelay: TimeInterval = 0.08
     private let clipboardRestoreDelay: TimeInterval = 1.0
@@ -4135,14 +4134,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.statusText = statusText
         self.debugStatusMessage = debugStatus
         cancelTranscribingIndicatorTask()
-        let indicatorDelay = transcribingIndicatorDelay
-        transcribingIndicatorTask = Task { [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: UInt64(indicatorDelay * 1_000_000_000))
-                guard self?.overlayTranscriptionID == overlayID else { return }
-                self?.overlayManager.showTranscribing()
-            } catch {}
-        }
+        overlayManager.showTranscribing()
     }
 
     private func scheduleOverlayDismissAfterFailureIndicator(after delay: TimeInterval) {
