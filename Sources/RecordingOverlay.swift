@@ -86,6 +86,17 @@ private func makeNotchContent<V: View>(
     return hosting
 }
 
+private func makeTransparentContent<V: View>(
+    width: CGFloat,
+    height: CGFloat,
+    rootView: V
+) -> NSView {
+    let hosting = NSHostingView(rootView: rootView.frame(width: width, height: height))
+    hosting.frame = NSRect(x: 0, y: 0, width: width, height: height)
+    hosting.autoresizingMask = [.width, .height]
+    return hosting
+}
+
 // MARK: - Manager
 
 final class RecordingOverlayManager {
@@ -313,7 +324,12 @@ final class RecordingOverlayManager {
     }
 
     private func makeOverlayContent(frame: NSRect) -> NSView {
-        makeNotchContent(
+        if let geometry = notchSideGeometry,
+           usesNotchSideRecordingLayout {
+            return makeNotchSideRecordingContent(frame: frame, geometry: geometry)
+        }
+
+        return makeNotchContent(
             width: frame.width,
             height: frame.height,
             cornerRadius: screenHasNotch ? 18 : 12,
@@ -327,6 +343,21 @@ final class RecordingOverlayManager {
                 }
             )
             .padding(.top, screenHasNotch ? notchOverlap : 0)
+        )
+    }
+
+    private func makeNotchSideRecordingContent(frame: NSRect, geometry: NotchSideGeometry) -> NSView {
+        makeTransparentContent(
+            width: frame.width,
+            height: frame.height,
+            rootView: NotchSideRecordingOverlayView(
+                state: overlayState,
+                leftContentFrame: geometry.leftContentFrame,
+                rightContentFrame: geometry.rightContentFrame,
+                onStopButtonPressed: { [weak self] in
+                    self?.onStopButtonPressed?()
+                }
+            )
         )
     }
 
@@ -542,6 +573,72 @@ struct InitializingDotsView: View {
             timer?.invalidate()
             timer = nil
         }
+    }
+}
+
+private struct NotchSidePill<Content: View>: View {
+    let frame: CGRect
+    let content: Content
+
+    init(frame: CGRect, @ViewBuilder content: () -> Content) {
+        self.frame = frame
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .frame(width: frame.width, height: frame.height)
+            .background(Color.black)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .position(x: frame.midX, y: frame.midY)
+    }
+}
+
+private struct NotchSideRecordingOverlayView: View {
+    @ObservedObject var state: RecordingOverlayState
+    let leftContentFrame: CGRect
+    let rightContentFrame: CGRect
+    let onStopButtonPressed: () -> Void
+
+    private var showsStopButton: Bool {
+        state.recordingTriggerMode == .toggle
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            NotchSidePill(frame: leftContentFrame) {
+                ZStack {
+                    WaveformView(audioLevel: state.audioLevel, showsActivityPulse: true)
+                        .padding(.horizontal, 12)
+                    if state.isCommandMode {
+                        HStack {
+                            CommandModeIndicator()
+                                .padding(.leading, 8)
+                            Spacer()
+                        }
+                    }
+                }
+            }
+
+            NotchSidePill(frame: rightContentFrame) {
+                ZStack {
+                    if showsStopButton {
+                        Button(action: onStopButtonPressed) {
+                            Image(systemName: "stop.fill")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 20, height: 20)
+                                .background(Circle().fill(Color.red.opacity(0.92)))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.audioLevel)
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.recordingTriggerMode)
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.isCommandMode)
     }
 }
 
