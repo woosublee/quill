@@ -7,6 +7,7 @@ final class RecordingOverlayState: ObservableObject {
     @Published var phase: OverlayPhase = .recording
     @Published var audioLevel: Float = 0.0
     @Published var recordingTriggerMode: RecordingTriggerMode = .hold
+    @Published var recordingOverlayLayout: RecordingOverlayLayout = .centered
     @Published var isCommandMode = false
     @Published var showsTranscribingSpinner = false
     @Published var updateVersion: String = ""
@@ -18,6 +19,34 @@ enum OverlayPhase {
     case transcribing
     case feedback
     case updateAvailable
+}
+
+enum RecordingOverlayLayout: String, CaseIterable, Identifiable {
+    case centered
+    case notchSides
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .centered: return "Centered"
+        case .notchSides: return "Notch Sides"
+        }
+    }
+
+    var helpText: String {
+        switch self {
+        case .centered:
+            return "Show the recording overlay centered below the notch."
+        case .notchSides:
+            return "Show recording controls beside the notch when supported. Other states stay centered."
+        }
+    }
+
+    static func find(rawValue: String?) -> RecordingOverlayLayout {
+        guard let rawValue, let layout = RecordingOverlayLayout(rawValue: rawValue) else { return .centered }
+        return layout
+    }
 }
 
 // MARK: - Panel Helpers
@@ -128,6 +157,13 @@ final class RecordingOverlayManager {
         DispatchQueue.main.async {
             self.overlayState.recordingTriggerMode = mode
             self.updateOverlayLayout(animated: animated)
+        }
+    }
+
+    func setRecordingOverlayLayout(_ layout: RecordingOverlayLayout) {
+        DispatchQueue.main.async {
+            self.overlayState.recordingOverlayLayout = layout
+            self.updateOverlayLayout(animated: false)
         }
     }
 

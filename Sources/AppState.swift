@@ -252,6 +252,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let realtimeStreamingEnabledStorageKey = "realtime_streaming_enabled"
     private let realtimeStreamingModelStorageKey = "realtime_streaming_model"
     private let dictationAudioInterruptionEnabledStorageKey = "dictation_audio_interruption_enabled"
+    private let recordingOverlayLayoutStorageKey = "recording_overlay_layout"
     private let pendingMutedAudioRestoreStorageKey = "pending_muted_audio_restore"
     private let pasteAfterShortcutReleaseDelay: TimeInterval = 0.03
     private let pressEnterAfterPasteDelay: TimeInterval = 0.08
@@ -466,6 +467,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 dictationAudioInterruptionEnabled,
                 forKey: dictationAudioInterruptionEnabledStorageKey
             )
+        }
+    }
+
+    @Published var recordingOverlayLayout: RecordingOverlayLayout {
+        didSet {
+            UserDefaults.standard.set(recordingOverlayLayout.rawValue, forKey: recordingOverlayLayoutStorageKey)
+            overlayManager.setRecordingOverlayLayout(recordingOverlayLayout)
         }
     }
 
@@ -769,6 +777,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let dictationAudioInterruptionEnabled = UserDefaults.standard.bool(
             forKey: dictationAudioInterruptionEnabledStorageKey
         )
+        let recordingOverlayLayout = RecordingOverlayLayout.find(
+            rawValue: UserDefaults.standard.string(forKey: recordingOverlayLayoutStorageKey)
+        )
         let isPressEnterVoiceCommandEnabled = UserDefaults.standard.object(forKey: pressEnterVoiceCommandStorageKey) == nil
             ? true
             : UserDefaults.standard.bool(forKey: pressEnterVoiceCommandStorageKey)
@@ -856,6 +867,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.realtimeStreamingEnabled = realtimeStreamingEnabled
         self.realtimeStreamingModel = realtimeStreamingModel
         self.dictationAudioInterruptionEnabled = dictationAudioInterruptionEnabled
+        self.recordingOverlayLayout = recordingOverlayLayout
+        self.overlayManager.setRecordingOverlayLayout(recordingOverlayLayout)
         self.isPressEnterVoiceCommandEnabled = isPressEnterVoiceCommandEnabled
         self.alertSoundsEnabled = alertSoundsEnabled
         self.useLocalTranscription = useLocalTranscription
