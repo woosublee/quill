@@ -1146,6 +1146,26 @@ struct GeneralSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Recording Overlay Layout")
+                    .font(.caption.weight(.semibold))
+
+                Picker("Recording Overlay Layout", selection: $appState.recordingOverlayLayout) {
+                    ForEach(RecordingOverlayLayout.allCases) { layout in
+                        Text(layout.displayName).tag(layout)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accessibilityLabel("Recording Overlay Layout")
+
+                Text(appState.recordingOverlayLayout.helpText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
