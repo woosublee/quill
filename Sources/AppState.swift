@@ -4200,10 +4200,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let pasteboard = NSPasteboard.general
         let snapshot = preserveClipboard ? PreservedPasteboardSnapshot(pasteboard: pasteboard) : nil
 
-        // Append a space when ending with sentence-ending punctuation so the
-        // next dictation does not jam against the prior period.
+        let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         let textToWrite: String
-        if let last = transcript.last, ".!?".contains(last) {
+        if transcript.last?.isWhitespace != true,
+           let last = trimmedTranscript.last,
+           ".!?".contains(last) {
             textToWrite = transcript + " "
         } else {
             textToWrite = transcript
