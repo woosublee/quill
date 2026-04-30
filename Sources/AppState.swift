@@ -1999,6 +1999,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return "Hold and tap shortcuts must be distinct."
         }
 
+        let nextHoldShortcut = role == .hold ? binding : holdShortcut
+        let nextToggleShortcut = role == .toggle ? binding : toggleShortcut
+        if isCommandModeEnabled,
+           commandModeStyle == .manual,
+           let message = commandModeManualModifierCollisionMessage(
+            for: commandModeManualModifier,
+            holdBinding: nextHoldShortcut,
+            toggleBinding: nextToggleShortcut
+           ) {
+            return message
+        }
+
         switch role {
         case .hold:
             if binding.isCustom {
