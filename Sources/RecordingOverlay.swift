@@ -121,8 +121,8 @@ struct RecordingOverlayGeometry {
         let notchMaxX = rightArea.minX
         guard notchMaxX > notchMinX else { return nil }
 
-        let panelMinX = leftArea.maxX - contentWidth - horizontalInset
-        let panelMaxX = rightArea.minX + contentWidth + horizontalInset
+        let panelMinX = leftArea.maxX - contentWidth
+        let panelMaxX = rightArea.minX + contentWidth
         let frame = NSRect(
             x: panelMinX,
             y: screenFrame.maxY - panelHeight,
@@ -131,13 +131,13 @@ struct RecordingOverlayGeometry {
         )
 
         let leftFrame = CGRect(
-            x: horizontalInset,
+            x: 0,
             y: 0,
             width: contentWidth,
             height: panelHeight
         )
         let rightFrame = CGRect(
-            x: frame.width - horizontalInset - contentWidth,
+            x: frame.width - contentWidth,
             y: 0,
             width: contentWidth,
             height: panelHeight
@@ -147,11 +147,13 @@ struct RecordingOverlayGeometry {
     }
 
     static func lockedTranscribingWidth(
+        existingLockedWidth: CGFloat?,
         currentPanelWidth: CGFloat,
-        centeredOverlayWidth: CGFloat,
+        centeredTranscribingWidth: CGFloat,
         wasNotchSideRecordingLayout: Bool
     ) -> CGFloat {
-        wasNotchSideRecordingLayout ? centeredOverlayWidth : currentPanelWidth
+        if let existingLockedWidth { return existingLockedWidth }
+        return wasNotchSideRecordingLayout ? centeredTranscribingWidth : currentPanelWidth
     }
 }
 
@@ -348,8 +350,9 @@ final class RecordingOverlayManager {
 
     private func setTranscribingPhase(showsTranscribingSpinner: Bool) {
         lockedOverlayWidth = RecordingOverlayGeometry.lockedTranscribingWidth(
+            existingLockedWidth: lockedOverlayWidth,
             currentPanelWidth: overlayWindow?.frame.width ?? overlayWidth,
-            centeredOverlayWidth: overlayWidth,
+            centeredTranscribingWidth: centeredTranscribingOverlayWidth,
             wasNotchSideRecordingLayout: usesNotchSideRecordingLayout
         )
         overlayState.phase = .transcribing
@@ -422,6 +425,12 @@ final class RecordingOverlayManager {
         let x = screen.frame.midX - width / 2
         let y = screen.frame.maxY - height
         return NSRect(x: x, y: y, width: width, height: height)
+    }
+
+    private var centeredTranscribingOverlayWidth: CGFloat {
+        let defaultWidth: CGFloat = 92
+        guard screenHasNotch else { return defaultWidth }
+        return max(notchWidth, defaultWidth)
     }
 
     private var overlayWidth: CGFloat {
@@ -610,21 +619,18 @@ struct InitializingDotsView: View {
     }
 }
 
-private struct NotchSidePill<Content: View>: View {
-    let frame: CGRect
-    let content: Content
-
-    init(frame: CGRect, @ViewBuilder content: () -> Content) {
-        self.frame = frame
-        self.content = content()
-    }
-
+private struct NotchExtensionBackground: View {
     var body: some View {
-        content
-            .frame(width: frame.width, height: frame.height)
-            .background(Color.black)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .position(x: frame.midX, y: frame.midY)
+        Color.black
+            .clipShape(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 12,
+                    bottomTrailingRadius: 12,
+                    topTrailingRadius: 0,
+                    style: .continuous
+                )
+            )
     }
 }
 
@@ -640,34 +646,36 @@ private struct NotchSideRecordingOverlayView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            NotchSidePill(frame: leftContentFrame) {
-                ZStack {
-                    WaveformView(audioLevel: state.audioLevel, showsActivityPulse: true)
-                        .padding(.horizontal, 12)
-                    if state.isCommandMode {
-                        HStack {
-                            CommandModeIndicator()
-                                .padding(.leading, 8)
-                            Spacer()
-                        }
-                    }
-                }
-            }
+            NotchExtensionBackground()
 
-            NotchSidePill(frame: rightContentFrame) {
-                ZStack {
-                    if showsStopButton {
-                        Button(action: onStopButtonPressed) {
-                            Image(systemName: "stop.fill")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 20, height: 20)
-                                .background(Circle().fill(Color.red.opacity(0.92)))
-                        }
-                        .buttonStyle(.plain)
+            ZStack {
+                WaveformView(audioLevel: state.audioLevel, showsActivityPulse: true)
+                    .padding(.horizontal, 12)
+                if state.isCommandMode {
+                    HStack {
+                        CommandModeIndicator()
+                            .padding(.leading, 8)
+                        Spacer()
                     }
                 }
             }
+            .frame(width: leftContentFrame.width, height: leftContentFrame.height)
+            .position(x: leftContentFrame.midX, y: leftContentFrame.midY)
+
+            ZStack {
+                if showsStopButton {
+                    Button(action: onStopButtonPressed) {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 20, height: 20)
+                            .background(Circle().fill(Color.red.opacity(0.92)))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .frame(width: rightContentFrame.width, height: rightContentFrame.height)
+            .position(x: rightContentFrame.midX, y: rightContentFrame.midY)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.audioLevel)

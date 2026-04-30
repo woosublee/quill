@@ -440,6 +440,8 @@ struct SettingsView: View {
                 switch appState.selectedSettingsTab {
                 case .general, .none:
                     GeneralSettingsView()
+                case .appearance:
+                    AppearanceSettingsView()
                 case .prompts:
                     PromptsSettingsView()
                 case .macros:
@@ -453,13 +455,81 @@ struct SettingsView: View {
     }
 }
 
+// MARK: - Appearance Settings
+
+struct AppearanceSettingsView: View {
+    @EnvironmentObject var appState: AppState
+    @AppStorage("app_appearance") private var appAppearance: String = "system"
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                SettingsCard("App Appearance", icon: "circle.lefthalf.filled") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Theme")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Picker("", selection: $appAppearance) {
+                            Text("System Setting").tag("system")
+                            Text("Light").tag("light")
+                            Text("Dark").tag("dark")
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .onChange(of: appAppearance) { value in
+                            applyAppearance(value)
+                        }
+                    }
+                }
+
+                SettingsCard("Note Browser", icon: "note.text") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Toggle("Enable Note Browser", isOn: $appState.noteBrowserEnabled)
+                        Text("Click the Dock icon to open Note Browser and browse your dictation history like notes.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                SettingsCard("Recording Overlay", icon: "rectangle.topthird.inset.filled") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Layout")
+                            .font(.caption.weight(.semibold))
+
+                        Picker("Recording Overlay Layout", selection: $appState.recordingOverlayLayout) {
+                            ForEach(RecordingOverlayLayout.allCases) { layout in
+                                Text(layout.displayName).tag(layout)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .accessibilityLabel("Recording Overlay Layout")
+
+                        Text(appState.recordingOverlayLayout.helpText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(24)
+        }
+    }
+
+    private func applyAppearance(_ value: String) {
+        switch value {
+        case "light":  NSApp.appearance = NSAppearance(named: .aqua)
+        case "dark":   NSApp.appearance = NSAppearance(named: .darkAqua)
+        default:       NSApp.appearance = nil
+        }
+    }
+}
+
 // MARK: - General Settings
 
 struct GeneralSettingsView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.openURL) private var openURL
     @AppStorage("show_menu_bar_icon") private var showMenuBarIcon = true
-    @AppStorage("app_appearance") private var appAppearance: String = "system"
     @State private var apiKeyInput: String = ""
     @State private var apiBaseURLInput: String = ""
     @State private var transcriptionAPIURLInput: String = ""
@@ -631,14 +701,8 @@ struct GeneralSettingsView: View {
                 .padding(.top, 4)
                 .padding(.bottom, 4)
 
-                SettingsCard("Appearance", icon: "paintbrush.fill") {
-                    appearanceSection
-                }
                 SettingsCard("App", icon: "power") {
                     startupSection
-                }
-                SettingsCard("Note Browser", icon: "note.text") {
-                    noteBrowserSection
                 }
                 // Quill releases are not distributed through the in-app updater yet.
                 // SettingsCard("Updates", icon: "arrow.triangle.2.circlepath") {
@@ -699,34 +763,6 @@ struct GeneralSettingsView: View {
         }
     }
 
-    // MARK: Appearance
-
-    private var appearanceSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Theme")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Picker("", selection: $appAppearance) {
-                Text("System Setting").tag("system")
-                Text("Light").tag("light")
-                Text("Dark").tag("dark")
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .onChange(of: appAppearance) { value in
-                applyAppearance(value)
-            }
-        }
-    }
-
-    private func applyAppearance(_ value: String) {
-        switch value {
-        case "light":  NSApp.appearance = NSAppearance(named: .aqua)
-        case "dark":   NSApp.appearance = NSAppearance(named: .darkAqua)
-        default:       NSApp.appearance = nil
-        }
-    }
-
     // MARK: Startup
 
     private var startupSection: some View {
@@ -748,17 +784,6 @@ struct GeneralSettingsView: View {
                     .font(.caption)
                 }
             }
-        }
-    }
-
-    // MARK: Note Browser
-
-    private var noteBrowserSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Toggle("Enable Note Browser", isOn: $appState.noteBrowserEnabled)
-            Text("Click the Dock icon to open Note Browser and browse your dictation history like notes.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -1143,26 +1168,6 @@ struct GeneralSettingsView: View {
                 )
 
                 Text("Applies before recording starts for both hold and tap shortcuts. Stopping still happens immediately.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Recording Overlay Layout")
-                    .font(.caption.weight(.semibold))
-
-                Picker("Recording Overlay Layout", selection: $appState.recordingOverlayLayout) {
-                    ForEach(RecordingOverlayLayout.allCases) { layout in
-                        Text(layout.displayName).tag(layout)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .accessibilityLabel("Recording Overlay Layout")
-
-                Text(appState.recordingOverlayLayout.helpText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

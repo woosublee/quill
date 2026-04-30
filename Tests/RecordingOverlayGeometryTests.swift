@@ -6,6 +6,7 @@ struct RecordingOverlayGeometryTests {
     static func main() {
         testNotchSideContentStartsAtTopOfVisiblePill()
         testTranscribingWidthFallsBackToCenteredWidthAfterNotchSideRecording()
+        testTranscribingWidthKeepsExistingLockOnRepeatedTranscribingUpdate()
         print("RecordingOverlayGeometryTests passed")
     }
 
@@ -21,6 +22,10 @@ struct RecordingOverlayGeometryTests {
         )
 
         assert(geometry != nil)
+        assert(geometry?.frame.maxX == 922)
+        assert(geometry?.frame.minX == 590)
+        assert(geometry?.leftContentFrame.origin.x == 0)
+        assert(geometry?.rightContentFrame.maxX == geometry?.frame.width)
         assert(geometry?.leftContentFrame.origin.y == 0)
         assert(geometry?.rightContentFrame.origin.y == 0)
         assert(geometry?.frame.height == 38)
@@ -28,9 +33,21 @@ struct RecordingOverlayGeometryTests {
 
     private static func testTranscribingWidthFallsBackToCenteredWidthAfterNotchSideRecording() {
         let lockedWidth = RecordingOverlayGeometry.lockedTranscribingWidth(
+            existingLockedWidth: nil,
             currentPanelWidth: 348,
-            centeredOverlayWidth: 148,
+            centeredTranscribingWidth: 148,
             wasNotchSideRecordingLayout: true
+        )
+
+        assert(lockedWidth == 148)
+    }
+
+    private static func testTranscribingWidthKeepsExistingLockOnRepeatedTranscribingUpdate() {
+        let lockedWidth = RecordingOverlayGeometry.lockedTranscribingWidth(
+            existingLockedWidth: 148,
+            currentPanelWidth: 332,
+            centeredTranscribingWidth: 148,
+            wasNotchSideRecordingLayout: false
         )
 
         assert(lockedWidth == 148)
