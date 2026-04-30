@@ -7,6 +7,7 @@ final class RecordingOverlayState: ObservableObject {
     @Published var phase: OverlayPhase = .recording
     @Published var audioLevel: Float = 0.0
     @Published var recordingTriggerMode: RecordingTriggerMode = .hold
+    @Published var recordingOverlayLayout: RecordingOverlayLayout = .centered
     @Published var isCommandMode = false
     @Published var showsTranscribingSpinner = false
     @Published var updateVersion: String = ""
@@ -18,6 +19,34 @@ enum OverlayPhase {
     case transcribing
     case feedback
     case updateAvailable
+}
+
+enum RecordingOverlayLayout: String, CaseIterable, Identifiable {
+    case centered
+    case notchSides
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .centered: return "Centered"
+        case .notchSides: return "Notch Sides"
+        }
+    }
+
+    var helpText: String {
+        switch self {
+        case .centered:
+            return "Show the recording overlay centered below the notch."
+        case .notchSides:
+            return "Show recording controls beside the notch when supported. Other states stay centered."
+        }
+    }
+
+    static func find(rawValue: String?) -> RecordingOverlayLayout {
+        guard let rawValue, let layout = RecordingOverlayLayout(rawValue: rawValue) else { return .centered }
+        return layout
+    }
 }
 
 // MARK: - Panel Helpers
@@ -57,12 +86,88 @@ private func makeNotchContent<V: View>(
     return hosting
 }
 
+private func makeTransparentContent<V: View>(
+    width: CGFloat,
+    height: CGFloat,
+    rootView: V
+) -> NSView {
+    let hosting = NSHostingView(rootView: rootView.frame(width: width, height: height))
+    hosting.frame = NSRect(x: 0, y: 0, width: width, height: height)
+    hosting.autoresizingMask = [.width, .height]
+    return hosting
+}
+
+struct RecordingOverlayGeometry {
+    struct NotchSideGeometry {
+        let frame: NSRect
+        let leftContentFrame: CGRect
+        let rightContentFrame: CGRect
+    }
+
+    static func notchSideGeometry(
+        screenFrame: CGRect,
+        visibleFrame: CGRect,
+        leftArea: CGRect,
+        rightArea: CGRect,
+        regionWidth: CGFloat,
+        panelHeight: CGFloat,
+        horizontalInset: CGFloat
+    ) -> NotchSideGeometry? {
+        let availableSideWidth = min(leftArea.width, rightArea.width)
+        let contentWidth = min(regionWidth, max(0, availableSideWidth - horizontalInset * 2))
+        guard contentWidth >= 64 else { return nil }
+
+        let notchMinX = leftArea.maxX
+        let notchMaxX = rightArea.minX
+        guard notchMaxX > notchMinX else { return nil }
+
+        let panelMinX = leftArea.maxX - contentWidth
+        let panelMaxX = rightArea.minX + contentWidth
+        let frame = NSRect(
+            x: panelMinX,
+            y: screenFrame.maxY - panelHeight,
+            width: panelMaxX - panelMinX,
+            height: panelHeight
+        )
+
+        let leftFrame = CGRect(
+            x: 0,
+            y: 0,
+            width: contentWidth,
+            height: panelHeight
+        )
+        let rightFrame = CGRect(
+            x: frame.width - contentWidth,
+            y: 0,
+            width: contentWidth,
+            height: panelHeight
+        )
+
+        return NotchSideGeometry(frame: frame, leftContentFrame: leftFrame, rightContentFrame: rightFrame)
+    }
+
+    static func lockedTranscribingWidth(
+        existingLockedWidth: CGFloat?,
+        currentPanelWidth: CGFloat,
+        centeredTranscribingWidth: CGFloat,
+        wasNotchSideRecordingLayout: Bool
+    ) -> CGFloat {
+        if let existingLockedWidth { return existingLockedWidth }
+        return wasNotchSideRecordingLayout ? centeredTranscribingWidth : currentPanelWidth
+    }
+}
+
 // MARK: - Manager
 
 final class RecordingOverlayManager {
     private var overlayWindow: NSPanel?
     private let overlayState = RecordingOverlayState()
     private var lockedOverlayWidth: CGFloat?
+    private let notchSideRegionWidth: CGFloat = 92
+    private let notchSidePanelHeight: CGFloat = 38
+    private let notchSideHorizontalInset: CGFloat = 8
+
+    private typealias NotchSideGeometry = RecordingOverlayGeometry.NotchSideGeometry
 
     var onStopButtonPressed: (() -> Void)?
     var onUpdateOverlayPressed: (() -> Void)?
@@ -82,6 +187,29 @@ final class RecordingOverlayManager {
     private var notchOverlap: CGFloat {
         guard let screen = NSScreen.main else { return 0 }
         return screen.frame.maxY - screen.visibleFrame.maxY
+    }
+
+    private var usesNotchSideRecordingLayout: Bool {
+        overlayState.recordingOverlayLayout == .notchSides
+            && overlayState.phase == .recording
+            && screenHasNotch
+            && notchSideGeometry != nil
+    }
+
+    private var notchSideGeometry: NotchSideGeometry? {
+        guard let screen = NSScreen.main, screenHasNotch else { return nil }
+        guard let leftArea = screen.auxiliaryTopLeftArea,
+              let rightArea = screen.auxiliaryTopRightArea else { return nil }
+
+        return RecordingOverlayGeometry.notchSideGeometry(
+            screenFrame: screen.frame,
+            visibleFrame: screen.visibleFrame,
+            leftArea: leftArea,
+            rightArea: rightArea,
+            regionWidth: notchSideRegionWidth,
+            panelHeight: notchSidePanelHeight,
+            horizontalInset: notchSideHorizontalInset
+        )
     }
 
     private var overlayAcceptsMouseEvents: Bool {
@@ -128,6 +256,13 @@ final class RecordingOverlayManager {
         DispatchQueue.main.async {
             self.overlayState.recordingTriggerMode = mode
             self.updateOverlayLayout(animated: animated)
+        }
+    }
+
+    func setRecordingOverlayLayout(_ layout: RecordingOverlayLayout) {
+        DispatchQueue.main.async {
+            self.overlayState.recordingOverlayLayout = layout
+            self.updateOverlayLayout(animated: false)
         }
     }
 
@@ -214,14 +349,24 @@ final class RecordingOverlayManager {
     }
 
     private func setTranscribingPhase(showsTranscribingSpinner: Bool) {
-        lockedOverlayWidth = overlayWindow?.frame.width ?? overlayWidth
+        lockedOverlayWidth = RecordingOverlayGeometry.lockedTranscribingWidth(
+            existingLockedWidth: lockedOverlayWidth,
+            currentPanelWidth: overlayWindow?.frame.width ?? overlayWidth,
+            centeredTranscribingWidth: centeredTranscribingOverlayWidth,
+            wasNotchSideRecordingLayout: usesNotchSideRecordingLayout
+        )
         overlayState.phase = .transcribing
         overlayState.showsTranscribingSpinner = showsTranscribingSpinner
         showOverlayPanel(animatedResize: true)
     }
 
     private func makeOverlayContent(frame: NSRect) -> NSView {
-        makeNotchContent(
+        if let geometry = notchSideGeometry,
+           usesNotchSideRecordingLayout {
+            return makeNotchSideRecordingContent(frame: frame, geometry: geometry)
+        }
+
+        return makeNotchContent(
             width: frame.width,
             height: frame.height,
             cornerRadius: screenHasNotch ? 18 : 12,
@@ -235,6 +380,21 @@ final class RecordingOverlayManager {
                 }
             )
             .padding(.top, screenHasNotch ? notchOverlap : 0)
+        )
+    }
+
+    private func makeNotchSideRecordingContent(frame: NSRect, geometry: NotchSideGeometry) -> NSView {
+        makeTransparentContent(
+            width: frame.width,
+            height: frame.height,
+            rootView: NotchSideRecordingOverlayView(
+                state: overlayState,
+                leftContentFrame: geometry.leftContentFrame,
+                rightContentFrame: geometry.rightContentFrame,
+                onStopButtonPressed: { [weak self] in
+                    self?.onStopButtonPressed?()
+                }
+            )
         )
     }
 
@@ -253,12 +413,24 @@ final class RecordingOverlayManager {
 
     private var overlayFrame: NSRect {
         guard let screen = NSScreen.main else { return .zero }
+        if let geometry = notchSideGeometry,
+           overlayState.recordingOverlayLayout == .notchSides,
+           overlayState.phase == .recording {
+            return geometry.frame
+        }
+
         let width = overlayWidth
         let overlap = screenHasNotch ? notchOverlap : 0
         let height: CGFloat = 38 + overlap
         let x = screen.frame.midX - width / 2
         let y = screen.frame.maxY - height
         return NSRect(x: x, y: y, width: width, height: height)
+    }
+
+    private var centeredTranscribingOverlayWidth: CGFloat {
+        let defaultWidth: CGFloat = 92
+        guard screenHasNotch else { return defaultWidth }
+        return max(notchWidth, defaultWidth)
     }
 
     private var overlayWidth: CGFloat {
@@ -444,6 +616,71 @@ struct InitializingDotsView: View {
             timer?.invalidate()
             timer = nil
         }
+    }
+}
+
+private struct NotchExtensionBackground: View {
+    var body: some View {
+        Color.black
+            .clipShape(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 12,
+                    bottomTrailingRadius: 12,
+                    topTrailingRadius: 0,
+                    style: .continuous
+                )
+            )
+    }
+}
+
+private struct NotchSideRecordingOverlayView: View {
+    @ObservedObject var state: RecordingOverlayState
+    let leftContentFrame: CGRect
+    let rightContentFrame: CGRect
+    let onStopButtonPressed: () -> Void
+
+    private var showsStopButton: Bool {
+        state.recordingTriggerMode == .toggle
+    }
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            NotchExtensionBackground()
+
+            ZStack {
+                WaveformView(audioLevel: state.audioLevel, showsActivityPulse: true)
+                    .padding(.horizontal, 12)
+                if state.isCommandMode {
+                    HStack {
+                        CommandModeIndicator()
+                            .padding(.leading, 8)
+                        Spacer()
+                    }
+                }
+            }
+            .frame(width: leftContentFrame.width, height: leftContentFrame.height)
+            .position(x: leftContentFrame.midX, y: leftContentFrame.midY)
+
+            ZStack {
+                if showsStopButton {
+                    Button(action: onStopButtonPressed) {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 20, height: 20)
+                            .background(Circle().fill(Color.red.opacity(0.92)))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .frame(width: rightContentFrame.width, height: rightContentFrame.height)
+            .position(x: rightContentFrame.midX, y: rightContentFrame.midY)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.audioLevel)
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.recordingTriggerMode)
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.isCommandMode)
     }
 }
 
