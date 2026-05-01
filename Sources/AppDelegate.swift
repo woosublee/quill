@@ -146,7 +146,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.appState.hasCompletedSetup = true
                     self.appState.startHotkeyMonitoring()
                     self.appState.startAccessibilityPolling()
-                    NSApp.setActivationPolicy(.accessory)
+                    self.updateActivationPolicy()
                 }
                 self.setupWindow = nil
             }

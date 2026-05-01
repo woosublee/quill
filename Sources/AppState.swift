@@ -61,7 +61,11 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 
 enum AppBuild {
     static var isDevBundle: Bool {
-        (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String) == "FreeFlow Dev"
+        isDevBundleName(Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String)
+    }
+
+    static func isDevBundleName(_ bundleName: String?) -> Bool {
+        bundleName == "Quill Dev"
     }
 }
 
