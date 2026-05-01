@@ -28,10 +28,6 @@ struct QuillApp: App {
 struct MenuBarLabel: View {
     @EnvironmentObject var appState: AppState
 
-    private var isDevBundle: Bool {
-        (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String) == "Quill Dev"
-    }
-
     private var iconName: String {
         if appState.isRecording { return "record.circle" }
         if appState.isTranscribing { return "ellipsis.circle" }
@@ -39,7 +35,7 @@ struct MenuBarLabel: View {
     }
 
     var body: some View {
-        if isDevBundle && !appState.isRecording && !appState.isTranscribing {
+        if AppBuild.isDevBundle && !appState.isRecording && !appState.isTranscribing {
             Image(nsImage: StampedMenuBarIcon.templateImage)
                 .renderingMode(.template)
         } else {

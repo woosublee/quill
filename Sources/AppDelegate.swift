@@ -7,6 +7,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var noteBrowserWindow: NSWindow?
     private var mcpServer: MCPServer?
+    private var setupWindowCloseObserver: NSObjectProtocol?
 
     private func patchSettingsMenuItem() {
         guard let appMenu = NSApp.mainMenu?.items.first?.submenu else { return }
@@ -118,10 +119,48 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func handleShowSetup() {
+        // Single wizard at a time — opening a second leaks the first's
+        // willClose observer and breaks the bail-restore.
+        if let existing = setupWindow, existing.isVisible {
+            existing.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        if let setupWindowCloseObserver {
+            NotificationCenter.default.removeObserver(setupWindowCloseObserver)
+            self.setupWindowCloseObserver = nil
+        }
+
+        let wasCompleted = appState.hasCompletedSetup
         appState.hasCompletedSetup = false
         appState.stopAccessibilityPolling()
         appState.stopHotkeyMonitoring()
         showSetupWindow()
+
+        // Restore prior state if the user closes the wizard without completing.
+        // completeSetup() flips hasCompletedSetup back to true before window.close(),
+        // so the !hasCompletedSetup check below correctly skips the restore there.
+        if wasCompleted, let window = setupWindow {
+            setupWindowCloseObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                guard let self = self else { return }
+                if let setupWindowCloseObserver = self.setupWindowCloseObserver {
+                    NotificationCenter.default.removeObserver(setupWindowCloseObserver)
+                    self.setupWindowCloseObserver = nil
+                }
+                if !self.appState.hasCompletedSetup {
+                    self.appState.hasCompletedSetup = true
+                    self.appState.startHotkeyMonitoring()
+                    self.appState.startAccessibilityPolling()
+                }
+                self.setupWindow = nil
+                self.updateActivationPolicy()
+            }
+        }
     }
 
     @objc private func handleShowSettings() {
