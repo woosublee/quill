@@ -7,6 +7,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var noteBrowserWindow: NSWindow?
     private var mcpServer: MCPServer?
+    private var setupWindowCloseObserver: NSObjectProtocol?
 
     private func patchSettingsMenuItem() {
         guard let appMenu = NSApp.mainMenu?.items.first?.submenu else { return }
@@ -126,6 +127,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        if let setupWindowCloseObserver {
+            NotificationCenter.default.removeObserver(setupWindowCloseObserver)
+            self.setupWindowCloseObserver = nil
+        }
+
         let wasCompleted = appState.hasCompletedSetup
         appState.hasCompletedSetup = false
         appState.stopAccessibilityPolling()
@@ -136,12 +142,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // completeSetup() flips hasCompletedSetup back to true before window.close(),
         // so the !hasCompletedSetup check below correctly skips the restore there.
         if wasCompleted, let window = setupWindow {
-            NotificationCenter.default.addObserver(
+            setupWindowCloseObserver = NotificationCenter.default.addObserver(
                 forName: NSWindow.willCloseNotification,
                 object: window,
                 queue: .main
             ) { [weak self] _ in
                 guard let self = self else { return }
+                if let setupWindowCloseObserver = self.setupWindowCloseObserver {
+                    NotificationCenter.default.removeObserver(setupWindowCloseObserver)
+                    self.setupWindowCloseObserver = nil
+                }
                 if !self.appState.hasCompletedSetup {
                     self.appState.hasCompletedSetup = true
                     self.appState.startHotkeyMonitoring()
