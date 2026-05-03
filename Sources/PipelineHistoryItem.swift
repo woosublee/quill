@@ -7,6 +7,14 @@ enum PipelineHistoryItemIntent: String, Codable {
 }
 
 struct PipelineHistoryItem: Identifiable, Codable {
+    static let transcriptionRecoveryPlaceholderStatus = "transcription-interrupted"
+
+    var isIncompleteTranscription: Bool {
+        postProcessingStatus == Self.transcriptionRecoveryPlaceholderStatus
+            || postProcessingStatus == "importing"
+            || postProcessingStatus == "live-recording"
+    }
+
     let intent: PipelineHistoryItemIntent
     let selectedText: String?
     let capturedSelection: String?
@@ -94,5 +102,94 @@ struct PipelineHistoryItem: Identifiable, Codable {
         self.contextAppName = contextAppName
         self.contextBundleIdentifier = contextBundleIdentifier
         self.contextWindowTitle = contextWindowTitle
+    }
+
+    static func transcriptionRecoveryPlaceholder(
+        id: UUID = UUID(),
+        timestamp: Date,
+        intent: PipelineHistoryItemIntent,
+        selectedText: String?,
+        capturedSelection: String?,
+        contextSummary: String,
+        contextSystemPrompt: String?,
+        contextPrompt: String?,
+        contextScreenshotDataURL: String?,
+        contextScreenshotStatus: String,
+        systemPrompt: String?,
+        customVocabulary: String,
+        customSystemPrompt: String,
+        audioFileName: String,
+        usedLocalTranscription: Bool,
+        usedContextCapture: Bool,
+        usedPostProcessing: Bool,
+        transcriptionLanguageCode: String,
+        localTranscriptionModelID: String,
+        contextAppName: String?,
+        contextBundleIdentifier: String?,
+        contextWindowTitle: String?
+    ) -> PipelineHistoryItem {
+        PipelineHistoryItem(
+            intent: intent,
+            selectedText: selectedText,
+            capturedSelection: capturedSelection,
+            id: id,
+            timestamp: timestamp,
+            rawTranscript: "",
+            postProcessedTranscript: "",
+            postProcessingPrompt: nil,
+            systemPrompt: systemPrompt,
+            contextSummary: contextSummary,
+            contextSystemPrompt: contextSystemPrompt,
+            contextPrompt: contextPrompt,
+            contextScreenshotDataURL: contextScreenshotDataURL,
+            contextScreenshotStatus: contextScreenshotStatus,
+            postProcessingStatus: transcriptionRecoveryPlaceholderStatus,
+            debugStatus: "Transcription interrupted before completion",
+            customVocabulary: customVocabulary,
+            customSystemPrompt: customSystemPrompt,
+            audioFileName: audioFileName,
+            usedLocalTranscription: usedLocalTranscription,
+            usedContextCapture: usedContextCapture,
+            usedPostProcessing: usedPostProcessing,
+            transcriptionLanguageCode: transcriptionLanguageCode,
+            localTranscriptionModelID: localTranscriptionModelID,
+            transcriptFileName: nil,
+            contextAppName: contextAppName,
+            contextBundleIdentifier: contextBundleIdentifier,
+            contextWindowTitle: contextWindowTitle
+        )
+    }
+
+    func markInterruptedBeforeCompletion() -> PipelineHistoryItem {
+        PipelineHistoryItem(
+            intent: intent,
+            selectedText: selectedText,
+            capturedSelection: capturedSelection,
+            id: id,
+            timestamp: timestamp,
+            rawTranscript: rawTranscript,
+            postProcessedTranscript: postProcessedTranscript,
+            postProcessingPrompt: postProcessingPrompt,
+            systemPrompt: systemPrompt,
+            contextSummary: contextSummary,
+            contextSystemPrompt: contextSystemPrompt,
+            contextPrompt: contextPrompt,
+            contextScreenshotDataURL: contextScreenshotDataURL,
+            contextScreenshotStatus: contextScreenshotStatus,
+            postProcessingStatus: "Error: Interrupted before transcription completed",
+            debugStatus: "Interrupted before completion",
+            customVocabulary: customVocabulary,
+            customSystemPrompt: customSystemPrompt,
+            audioFileName: audioFileName,
+            usedLocalTranscription: usedLocalTranscription,
+            usedContextCapture: usedContextCapture,
+            usedPostProcessing: usedPostProcessing,
+            transcriptionLanguageCode: transcriptionLanguageCode,
+            localTranscriptionModelID: localTranscriptionModelID,
+            transcriptFileName: transcriptFileName,
+            contextAppName: contextAppName,
+            contextBundleIdentifier: contextBundleIdentifier,
+            contextWindowTitle: contextWindowTitle
+        )
     }
 }
