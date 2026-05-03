@@ -1265,14 +1265,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func syncCriticalDictationActivity() {
+        let reason = "Quill dictation in progress"
         switch criticalDictationActivityState.update(
             isRecording: isRecording,
             activeTranscriptionJobCount: activeTranscriptionJobs.count
         ) {
         case .begin:
-            ProcessInfo.processInfo.disableAutomaticTermination("Quill dictation in progress")
+            ProcessInfo.processInfo.disableAutomaticTermination(reason)
         case .end:
-            ProcessInfo.processInfo.enableAutomaticTermination("Quill dictation in progress")
+            ProcessInfo.processInfo.enableAutomaticTermination(reason)
         case .none:
             break
         }
