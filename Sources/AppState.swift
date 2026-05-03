@@ -736,6 +736,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var pendingShortcutStartTask: Task<Void, Never>?
     private var pendingShortcutStartMode: RecordingTriggerMode?
     private var realtimeService: RealtimeTranscriptionService?
+    private var criticalDictationActivityState = CriticalDictationActivityState()
     private var activeAudioInterruption: ActiveAudioInterruption?
     private var pendingOverlayDismissToken: UUID?
     private var shouldMonitorHotkeys = false
@@ -844,7 +845,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         for removedAssets in removedStoredFiles {
             Self.deleteStoredFiles(removedAssets)
         }
-        let savedHistory = pipelineHistoryStore.loadAllHistory()
+        let savedHistory = Self.markInterruptedRecoveryPlaceholders(
+            in: pipelineHistoryStore.loadAllHistory(),
+            store: pipelineHistoryStore
+        )
         let referencedAudioFileNames = Set(savedHistory.compactMap(\.audioFileName))
         let referencedTranscriptFileNames = Set(savedHistory.compactMap(\.transcriptFileName))
         Task.detached(priority: .background) {
@@ -1241,9 +1245,38 @@ final class AppState: ObservableObject, @unchecked Sendable {
         deleteStoredFiles(audioFileName: assets.audioFileName, transcriptFileName: assets.transcriptFileName)
     }
 
+    private static func markInterruptedRecoveryPlaceholders(
+        in history: [PipelineHistoryItem],
+        store: PipelineHistoryStore
+    ) -> [PipelineHistoryItem] {
+        history.map { item in
+            guard item.isIncompleteTranscription else { return item }
+            let updated = item.markInterruptedBeforeCompletion()
+            try? store.update(updated)
+            return updated
+        }
+    }
+
     @MainActor
     private func refreshTranscribingState() {
         isTranscribing = !activeTranscriptionJobs.isEmpty
+        syncCriticalDictationActivity()
+    }
+
+    @MainActor
+    private func syncCriticalDictationActivity() {
+        let reason = "Quill dictation in progress"
+        switch criticalDictationActivityState.update(
+            isRecording: isRecording,
+            activeTranscriptionJobCount: activeTranscriptionJobs.count
+        ) {
+        case .begin:
+            ProcessInfo.processInfo.disableAutomaticTermination(reason)
+        case .end:
+            ProcessInfo.processInfo.enableAutomaticTermination(reason)
+        case .none:
+            break
+        }
     }
 
     @MainActor
@@ -2336,6 +2369,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         tearDownRealtimeService()
         audioRecorder.cancelRecording()
         restoreAudioInterruptionIfNeeded()
+        syncCriticalDictationActivity()
         refreshAvailableMicrophonesIfNeeded()
         if !isRecording && !isTranscribing && statusText == "Cancelled" {
             scheduleReadyStatusReset(after: 2, matching: ["Cancelled"])
@@ -2863,6 +2897,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 return
             default:
                 isRecording = false
+                syncCriticalDictationActivity()
                 restoreAudioInterruptionIfNeeded()
                 activeRecordingTriggerMode = nil
                 currentSessionIntent = .dictation
@@ -2875,6 +2910,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         isRecording = true
+        syncCriticalDictationActivity()
         statusText = "Starting..."
         hasShownScreenshotPermissionAlert = false
 
@@ -3038,6 +3074,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         audioRecorder.cleanup()
         restoreAudioInterruptionIfNeeded()
         isRecording = false
+        syncCriticalDictationActivity()
         transcribingIndicatorTask?.cancel()
         transcribingIndicatorTask = nil
         refreshTranscribingState()
@@ -3575,7 +3612,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
             let savedAudioFile = Self.saveAudioFile(from: fileURL)
             let transcriptionFileURL = savedAudioFile?.fileURL ?? fileURL
-            self.updateTranscriptionJob(jobID) { $0.audioFileName = savedAudioFile?.fileName }
+            if let savedAudioFile {
+                let recoveryContext = sessionContext ?? self.fallbackContextAtStop()
+                self.createTranscriptionRecoveryPlaceholder(
+                    jobID: jobID,
+                    noteID: liveNoteID ?? jobID,
+                    startedAt: startedAt,
+                    sessionIntent: sessionIntent,
+                    context: recoveryContext,
+                    audioFileName: savedAudioFile.fileName,
+                    useLocalTranscription: capturedUseLocalTranscription,
+                    localTranscriptionModelID: capturedLocalTranscriptionModel.id,
+                    transcriptionLanguageCode: capturedTranscriptionLanguage.code
+                )
+            } else {
+                self.updateTranscriptionJob(jobID) { $0.audioFileName = nil }
+            }
             let activeRealtime = self.realtimeService
             self.realtimeService = nil
             self.audioRecorder.onPCM16Samples = nil
@@ -3824,6 +3876,61 @@ final class AppState: ObservableObject, @unchecked Sendable {
             if pipelineHistory.count > maxPipelineHistoryCount {
                 pipelineHistory.removeLast(pipelineHistory.count - maxPipelineHistoryCount)
             }
+        }
+    }
+
+    @MainActor
+    private func createTranscriptionRecoveryPlaceholder(
+        jobID: UUID,
+        noteID: UUID,
+        startedAt: Date,
+        sessionIntent: SessionIntent,
+        context: AppContext,
+        audioFileName: String,
+        useLocalTranscription: Bool,
+        localTranscriptionModelID: String,
+        transcriptionLanguageCode: String
+    ) {
+        let item = PipelineHistoryItem.transcriptionRecoveryPlaceholder(
+            id: noteID,
+            timestamp: startedAt,
+            intent: sessionIntent.persistedIntent,
+            selectedText: sessionIntent.persistedSelectedText,
+            capturedSelection: context.selectedText,
+            contextSummary: context.contextSummary,
+            contextSystemPrompt: context.contextSystemPrompt,
+            contextPrompt: context.contextPrompt,
+            contextScreenshotDataURL: context.screenshotDataURL,
+            contextScreenshotStatus: context.screenshotError ?? "available (\(context.screenshotMimeType ?? "image"))",
+            systemPrompt: Self.resolvedSystemPrompt(customSystemPrompt),
+            customVocabulary: customVocabulary,
+            customSystemPrompt: customSystemPrompt,
+            audioFileName: audioFileName,
+            usedLocalTranscription: useLocalTranscription,
+            usedContextCapture: !disableContextCapture,
+            usedPostProcessing: !disablePostProcessing,
+            transcriptionLanguageCode: transcriptionLanguageCode,
+            localTranscriptionModelID: localTranscriptionModelID,
+            contextAppName: context.appName,
+            contextBundleIdentifier: context.bundleIdentifier,
+            contextWindowTitle: context.windowTitle
+        )
+        do {
+            if pipelineHistory.contains(where: { $0.id == noteID }) {
+                try pipelineHistoryStore.update(item)
+                updatePipelineHistoryItem(item)
+            } else {
+                let removedStoredFiles = try appendPipelineHistoryItem(item)
+                for removedAssets in removedStoredFiles {
+                    Self.deleteStoredFiles(removedAssets)
+                }
+            }
+            updateTranscriptionJob(jobID) {
+                $0.liveNoteID = noteID
+                $0.audioFileName = audioFileName
+            }
+        } catch {
+            errorMessage = "Unable to save recovery entry: \(error.localizedDescription)"
         }
     }
 
@@ -4077,6 +4184,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             contextCaptureTask = nil
             capturedContext = nil
             isRecording = false
+            syncCriticalDictationActivity()
             restoreAudioInterruptionIfNeeded()
             shortcutSessionController.reset()
             activeRecordingTriggerMode = nil

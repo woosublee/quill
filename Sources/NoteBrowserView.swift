@@ -147,6 +147,7 @@ private func transcriptStatus(for item: PipelineHistoryItem, retrying: Set<UUID>
     if retrying.contains(item.id) { return .transcribing }
     if item.postProcessingStatus == "live-recording" { return .recording }
     if item.postProcessingStatus == "importing" { return .transcribing }
+    if item.postProcessingStatus == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus { return .transcribing }
     if item.postProcessingStatus.hasPrefix("Error:") { return .fail }
     return .done
 }
