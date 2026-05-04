@@ -206,3 +206,43 @@ struct GoogleCalendarConnectionControls: Equatable {
         isConnected && !isBusy
     }
 }
+
+struct GoogleCalendarOAuthConfiguration: Equatable {
+    let builtInClientID: String
+    let builtInClientSecret: String
+    let customClientID: String
+    let customClientSecret: String
+
+    private var trimmedBuiltInClientID: String {
+        builtInClientID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedBuiltInClientSecret: String {
+        builtInClientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedCustomClientID: String {
+        customClientID.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedCustomClientSecret: String {
+        customClientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var usesCustomCredentials: Bool {
+        !trimmedCustomClientID.isEmpty
+    }
+
+    var clientID: String {
+        usesCustomCredentials ? trimmedCustomClientID : trimmedBuiltInClientID
+    }
+
+    var clientSecret: String {
+        guard isConfigured else { return "" }
+        return usesCustomCredentials ? trimmedCustomClientSecret : trimmedBuiltInClientSecret
+    }
+
+    var isConfigured: Bool {
+        !clientID.isEmpty
+    }
+}

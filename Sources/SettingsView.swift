@@ -595,6 +595,7 @@ struct AppearanceSettingsView: View {
 
 struct CalendarSettingsView: View {
     @EnvironmentObject var appState: AppState
+    @State private var showsAdvancedGoogleCalendarSettings = false
 
     private var connectionControls: GoogleCalendarConnectionControls {
         appState.googleCalendarConnectionControls
@@ -621,19 +622,15 @@ struct CalendarSettingsView: View {
     private var googleCalendarSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Google OAuth Desktop client ID")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                TextField("client-id.apps.googleusercontent.com", text: $appState.googleCalendarClientID)
-                    .textFieldStyle(.roundedBorder)
-                Text("Google OAuth client secret")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                SecureField("Optional for some Google OAuth clients", text: $appState.googleCalendarClientSecret)
-                    .textFieldStyle(.roundedBorder)
-                Text("Create a Google Cloud OAuth client for a desktop app, then paste its client ID. If Google reports that client_secret is missing, paste the client secret from the same credentials screen.")
+                Text("Connect your Google account to let Quill suggest note titles from matching calendar events.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if !appState.googleCalendarOAuthConfiguration.isConfigured {
+                    Text("Google Calendar sign-in is not configured. Add a Google OAuth Desktop client ID in Advanced settings.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             HStack(spacing: 8) {
@@ -675,6 +672,27 @@ struct CalendarSettingsView: View {
                 }
                 .disabled(!connectionControls.allowsDisconnect)
             }
+
+            DisclosureGroup("Advanced OAuth credentials", isExpanded: $showsAdvancedGoogleCalendarSettings) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Use custom Google OAuth Desktop app credentials for development or personal testing. Leave these empty to use the built-in app configuration.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Google OAuth Desktop client ID")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    TextField("client-id.apps.googleusercontent.com", text: $appState.googleCalendarClientID)
+                        .textFieldStyle(.roundedBorder)
+                    Text("Google OAuth client secret")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    SecureField("Optional for some Google OAuth clients", text: $appState.googleCalendarClientSecret)
+                        .textFieldStyle(.roundedBorder)
+                }
+                .padding(.top, 6)
+            }
+            .font(.caption.weight(.semibold))
 
             if let error = appState.googleCalendarConnection.lastErrorMessage, !error.isEmpty {
                 Text(error)

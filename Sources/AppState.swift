@@ -488,6 +488,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var isGoogleCalendarBusy = false
     @Published private(set) var hasPendingGoogleCalendarOAuthConnection = false
 
+    private var builtInGoogleCalendarClientID: String {
+        Bundle.main.object(forInfoDictionaryKey: "GoogleCalendarOAuthClientID") as? String ?? ""
+    }
+
+    private var builtInGoogleCalendarClientSecret: String {
+        Bundle.main.object(forInfoDictionaryKey: "GoogleCalendarOAuthClientSecret") as? String ?? ""
+    }
+
     @Published var preserveClipboard: Bool {
         didSet {
             UserDefaults.standard.set(preserveClipboard, forKey: preserveClipboardStorageKey)
@@ -655,6 +663,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    var googleCalendarOAuthConfiguration: GoogleCalendarOAuthConfiguration {
+        GoogleCalendarOAuthConfiguration(
+            builtInClientID: builtInGoogleCalendarClientID,
+            builtInClientSecret: builtInGoogleCalendarClientSecret,
+            customClientID: googleCalendarClientID,
+            customClientSecret: googleCalendarClientSecret
+        )
+    }
+
+    @MainActor
     func disconnectGoogleCalendar() {
         cancelGoogleCalendarConnection()
         clearGoogleCalendarConnectionState()
@@ -693,12 +711,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func connectGoogleCalendar() {
         guard !isGoogleCalendarBusy else { return }
-        let clientID = googleCalendarClientID.trimmingCharacters(in: .whitespacesAndNewlines)
-        let clientSecret = googleCalendarClientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clientID.isEmpty else {
-            googleCalendarConnection.lastErrorMessage = "Enter a Google OAuth Desktop client ID first."
+        let oauthConfiguration = googleCalendarOAuthConfiguration
+        guard oauthConfiguration.isConfigured else {
+            googleCalendarConnection.lastErrorMessage = "Google Calendar sign-in is not configured. Bundled credentials are used by default; to use custom credentials, add both a client ID and client secret in Advanced settings."
             return
         }
+        let clientID = oauthConfiguration.clientID
+        let clientSecret = oauthConfiguration.clientSecret
         isGoogleCalendarBusy = true
         hasPendingGoogleCalendarOAuthConnection = true
         googleCalendarConnection.lastErrorMessage = nil
@@ -1263,17 +1282,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private func validGoogleCalendarToken() async throws -> GoogleCalendarOAuthToken? {
         guard var token = GoogleCalendarTokenStore.load() else { return nil }
-        let clientCredentials = await MainActor.run {
-            (
-                googleCalendarClientID.trimmingCharacters(in: .whitespacesAndNewlines),
-                googleCalendarClientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
-            )
+        let oauthConfiguration = await MainActor.run {
+            googleCalendarOAuthConfiguration
         }
-        guard !clientCredentials.0.isEmpty else { return token }
+        guard oauthConfiguration.isConfigured else { return nil }
         if token.needsRefresh {
             token = try await GoogleCalendarAuthService.refreshToken(
-                clientID: clientCredentials.0,
-                clientSecret: clientCredentials.1,
+                clientID: oauthConfiguration.clientID,
+                clientSecret: oauthConfiguration.clientSecret,
                 token: token
             )
             try GoogleCalendarTokenStore.save(token)

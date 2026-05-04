@@ -10,6 +10,9 @@ struct GoogleCalendarServiceTests {
         try await testLoopbackReceiverUsesAssignedPort()
         try await testTokenExchangeSurfacesGoogleErrorResponse()
         testClientSecretMissingMessageExplainsClientTypeMismatch()
+        testOAuthConfigurationUsesCustomCredentialsFirst()
+        testOAuthConfigurationFallsBackToBuiltInCredentials()
+        testOAuthConfigurationReportsMissingClientID()
         try await testTokenExchangeOmitsClientSecret()
         try await testTokenExchangeIncludesClientSecretWhenProvided()
         try await testRefreshTokenOmitsClientSecret()
@@ -120,6 +123,48 @@ struct GoogleCalendarServiceTests {
 
         assert(error.localizedDescription.contains("web OAuth client"))
         assert(error.localizedDescription.contains("Desktop app client"))
+    }
+
+    private static func testOAuthConfigurationUsesCustomCredentialsFirst() {
+        let configuration = GoogleCalendarOAuthConfiguration(
+            builtInClientID: "built-in.apps.googleusercontent.com",
+            builtInClientSecret: "built-in-secret",
+            customClientID: " custom.apps.googleusercontent.com ",
+            customClientSecret: " secret-value "
+        )
+
+        assert(configuration.clientID == "custom.apps.googleusercontent.com")
+        assert(configuration.clientSecret == "secret-value")
+        assert(configuration.usesCustomCredentials)
+        assert(configuration.isConfigured)
+    }
+
+    private static func testOAuthConfigurationFallsBackToBuiltInCredentials() {
+        let configuration = GoogleCalendarOAuthConfiguration(
+            builtInClientID: " built-in.apps.googleusercontent.com ",
+            builtInClientSecret: " built-in-secret ",
+            customClientID: " ",
+            customClientSecret: " secret-value "
+        )
+
+        assert(configuration.clientID == "built-in.apps.googleusercontent.com")
+        assert(configuration.clientSecret == "built-in-secret")
+        assert(!configuration.usesCustomCredentials)
+        assert(configuration.isConfigured)
+    }
+
+    private static func testOAuthConfigurationReportsMissingClientID() {
+        let configuration = GoogleCalendarOAuthConfiguration(
+            builtInClientID: " ",
+            builtInClientSecret: " built-in-secret ",
+            customClientID: " ",
+            customClientSecret: " secret-value "
+        )
+
+        assert(configuration.clientID.isEmpty)
+        assert(configuration.clientSecret == "")
+        assert(!configuration.usesCustomCredentials)
+        assert(!configuration.isConfigured)
     }
 
     private static func testTokenExchangeOmitsClientSecret() async throws {
