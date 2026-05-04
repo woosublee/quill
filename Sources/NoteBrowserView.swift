@@ -328,7 +328,12 @@ final class NoteTitleStore: ObservableObject {
 
     func setTitle(_ title: String, for id: UUID) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { titles.removeValue(forKey: id) } else { titles[id] = trimmed }
+        if trimmed.isEmpty {
+            guard titles.removeValue(forKey: id) != nil else { return }
+        } else {
+            guard titles[id] != trimmed else { return }
+            titles[id] = trimmed
+        }
         save()
     }
 
@@ -480,7 +485,8 @@ struct NoteBrowserView: View {
         return appState.pipelineHistory.filter {
             $0.postProcessedTranscript.lowercased().contains(q) ||
             $0.contextSummary.lowercased().contains(q) ||
-            (titleStore.title(for: $0.id) ?? "").lowercased().contains(q)
+            (titleStore.title(for: $0.id) ?? "").lowercased().contains(q) ||
+            ($0.calendarMatch?.title ?? "").lowercased().contains(q)
         }
     }
 
@@ -927,34 +933,17 @@ private struct NoteListRow: View {
     }
 
     private var displayTitle: String {
-        if let custom = customTitle, !custom.isEmpty { return custom }
-        return autoTitle
+        NoteTitleResolver.displayTitle(for: item, customTitle: customTitle, isTranscribing: status == .transcribing)
     }
 
     private var autoTitle: String {
-        let content = normalizedContent
-        if content.isEmpty {
-            switch status {
-            case .fail:
-                return "Transcription failed"
-            case .recording:
-                return "Recording..."
-            case .transcribing:
-                return "Transcribing..."
-            case .done:
-                return "(No content)"
-            }
-        }
-        let firstLine = content.components(separatedBy: .newlines)
-            .first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? content
-        let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
-        return trimmed.count <= 60 ? trimmed : String(trimmed.prefix(60))
+        NoteTitleResolver.automaticTitle(for: item, isTranscribing: status == .transcribing)
     }
 
     private var notePreview: String {
         if status == .fail { return item.postProcessingStatus.replacingOccurrences(of: "Error: ", with: "") }
         let content = normalizedContent
-        if customTitle != nil {
+        if customTitle != nil || item.calendarMatch?.appliedTitle != nil {
             return String(content.prefix(100))
         }
         guard content.count > autoTitle.count else { return "" }
@@ -984,6 +973,22 @@ private struct NoteDetailView: View {
     private var isLiveRecording: Bool { item.postProcessingStatus == "live-recording" }
     private var canRetry: Bool { item.audioFileName != nil }
     private var displayContent: String { loadedContent ?? item.postProcessedTranscript }
+
+    private var suggestedCalendarTitle: String? {
+        guard titleStore.title(for: item.id) == nil,
+              item.calendarMatch?.titleState == .suggested else {
+            return nil
+        }
+        return item.calendarMatch?.suggestedTitle
+    }
+
+    private var suggestedCalendarAppliedTitle: String? {
+        guard let suggestedCalendarTitle else { return nil }
+        return NoteTitleResolver.calendarAppliedTitle(
+            suggestedTitle: suggestedCalendarTitle,
+            recordingStartedAt: item.timestamp
+        )
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -1075,6 +1080,44 @@ private struct NoteDetailView: View {
                 titleDraft = titleStore.title(for: item.id) ?? ""
             }
             .overrideCursor(.iBeam)
+
+            if let suggestedCalendarTitle, let suggestedCalendarAppliedTitle {
+                HStack(spacing: 10) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.blue)
+                        .frame(width: 24, height: 24)
+                        .background(Color.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
+
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("Calendar suggested title")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .fixedSize()
+                        Text(suggestedCalendarTitle)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button("Apply") {
+                        titleDraft = suggestedCalendarAppliedTitle
+                        titleStore.setTitle(suggestedCalendarAppliedTitle, for: item.id)
+                    }
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color.blue.opacity(colorScheme == .dark ? 0.12 : 0.06), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.blue.opacity(0.16), lineWidth: 1)
+                )
+                .padding(.top, 2)
+            }
 
             // Audio player (오디오 파일이 있을 때만 표시)
             if let audioFileName = item.audioFileName {
