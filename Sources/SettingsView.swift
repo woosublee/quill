@@ -776,6 +776,9 @@ struct GeneralSettingsView: View {
                 SettingsCard("Transcription", icon: "waveform.badge.magnifyingglass") {
                     transcriptionSection
                 }
+                SettingsCard("Calendar", icon: "calendar") {
+                    googleCalendarSection
+                }
                 SettingsCard("Dictation Shortcuts", icon: "keyboard.fill") {
                     hotkeySection
                 }
@@ -1197,6 +1200,100 @@ struct GeneralSettingsView: View {
                     keyValidationSuccess = true
                 } else {
                     keyValidationError = "Validation failed. Please check your API key and provider settings, then try again."
+                }
+            }
+        }
+    }
+
+    // MARK: Calendar
+
+    private var googleCalendarSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Google OAuth Desktop client ID")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                TextField("client-id.apps.googleusercontent.com", text: $appState.googleCalendarClientID)
+                    .textFieldStyle(.roundedBorder)
+                Text("Google OAuth client secret")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                SecureField("Optional for some Google OAuth clients", text: $appState.googleCalendarClientSecret)
+                    .textFieldStyle(.roundedBorder)
+                Text("Create a Google Cloud OAuth client for a desktop app, then paste its client ID. If Google reports that client_secret is missing, paste the client secret from the same credentials screen.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                if appState.googleCalendarConnection.isConnected {
+                    Label("Connected", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    if let email = appState.googleCalendarConnection.accountEmail, !email.isEmpty {
+                        Text(email)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Label("Not connected", systemImage: "xmark.circle")
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if appState.isGoogleCalendarBusy {
+                    ProgressView().scaleEffect(0.7)
+                }
+            }
+
+            HStack {
+                Button(appState.googleCalendarConnection.isConnected ? "Reconnect" : "Connect") {
+                    appState.connectGoogleCalendar()
+                }
+                .disabled(appState.isGoogleCalendarBusy)
+
+                Button("Refresh Calendars") {
+                    appState.refreshGoogleCalendars()
+                }
+                .disabled(!appState.googleCalendarConnection.isConnected || appState.isGoogleCalendarBusy)
+
+                Button("Disconnect") {
+                    appState.disconnectGoogleCalendar()
+                }
+                .disabled(!appState.googleCalendarConnection.isConnected || appState.isGoogleCalendarBusy)
+            }
+
+            if let error = appState.googleCalendarConnection.lastErrorMessage, !error.isEmpty {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if appState.googleCalendarConnection.isConnected {
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Calendars used for note title suggestions")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    if appState.availableGoogleCalendars.isEmpty {
+                        Text("No calendars loaded. Click Refresh Calendars after connecting.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(appState.availableGoogleCalendars) { calendar in
+                            Toggle(
+                                calendar.displayName,
+                                isOn: Binding(
+                                    get: { appState.googleCalendarConnection.selectedCalendarIDs.contains(calendar.id) },
+                                    set: { appState.setGoogleCalendarSelected(calendar.id, isSelected: $0) }
+                                )
+                            )
+                            .toggleStyle(.checkbox)
+                        }
+                    }
+                    Text("No calendars are selected by default. Quill only reads events from calendars you explicitly select.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
         }

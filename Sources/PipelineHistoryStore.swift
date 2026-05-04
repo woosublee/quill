@@ -10,9 +10,21 @@ final class PipelineHistoryStore {
     private let container: NSPersistentContainer
     private let isStoreLoaded: Bool
 
-    init() {
+    convenience init() {
+        self.init(inMemory: false)
+    }
+
+    init(inMemory: Bool) {
         let model = Self.makeModel()
         container = NSPersistentContainer(name: "PipelineHistory", managedObjectModel: model)
+
+        if inMemory {
+            let description = NSPersistentStoreDescription()
+            description.type = NSInMemoryStoreType
+            container.persistentStoreDescriptions = [description]
+            isStoreLoaded = Self.loadPersistentStoresSynchronously(container: container) == nil
+            return
+        }
 
         var storeURL: URL?
         if let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
@@ -96,6 +108,9 @@ final class PipelineHistoryStore {
                 entity.intent = item.intent.rawValue
                 entity.selectedText = item.selectedText
                 entity.capturedSelection = item.capturedSelection
+                entity.recordingStartedAt = item.recordingStartedAt
+                entity.recordingEndedAt = item.recordingEndedAt
+                entity.calendarMatchJSON = Self.encodeCalendarMatch(item.calendarMatch)
                 entity.rawTranscript = item.rawTranscript
                 entity.postProcessedTranscript = item.postProcessedTranscript
                 entity.postProcessingPrompt = item.postProcessingPrompt
@@ -212,6 +227,9 @@ final class PipelineHistoryStore {
                 entity.selectedText = item.selectedText
                 entity.capturedSelection = item.capturedSelection
                 entity.timestamp = item.timestamp
+                entity.recordingStartedAt = item.recordingStartedAt
+                entity.recordingEndedAt = item.recordingEndedAt
+                entity.calendarMatchJSON = Self.encodeCalendarMatch(item.calendarMatch)
                 entity.rawTranscript = item.rawTranscript
                 entity.postProcessedTranscript = item.postProcessedTranscript
                 entity.postProcessingPrompt = item.postProcessingPrompt
@@ -297,6 +315,16 @@ final class PipelineHistoryStore {
         }
     }
 
+    private static func encodeCalendarMatch(_ match: CalendarEventMatch?) -> String? {
+        guard let match, let data = try? JSONEncoder().encode(match) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func decodeCalendarMatch(_ json: String?) -> CalendarEventMatch? {
+        guard let json, let data = json.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(CalendarEventMatch.self, from: data)
+    }
+
     private static func makeHistoryItem(from entity: PipelineHistoryEntry) -> PipelineHistoryItem {
         PipelineHistoryItem(
             intent: PipelineHistoryItemIntent(rawValue: entity.intent ?? "") ?? .dictation,
@@ -304,6 +332,9 @@ final class PipelineHistoryStore {
             capturedSelection: entity.capturedSelection,
             id: entity.id,
             timestamp: entity.timestamp ?? Date(),
+            recordingStartedAt: entity.recordingStartedAt,
+            recordingEndedAt: entity.recordingEndedAt,
+            calendarMatch: decodeCalendarMatch(entity.calendarMatchJSON),
             rawTranscript: entity.rawTranscript ?? "",
             postProcessedTranscript: entity.postProcessedTranscript ?? "",
             postProcessingPrompt: entity.postProcessingPrompt,
@@ -343,6 +374,9 @@ final class PipelineHistoryStore {
             makeAttribute(name: "capturedSelection", type: .stringAttributeType, isOptional: true),
             makeAttribute(name: "id", type: .UUIDAttributeType, isOptional: false),
             makeAttribute(name: "timestamp", type: .dateAttributeType, isOptional: false),
+            makeAttribute(name: "recordingStartedAt", type: .dateAttributeType, isOptional: true),
+            makeAttribute(name: "recordingEndedAt", type: .dateAttributeType, isOptional: true),
+            makeAttribute(name: "calendarMatchJSON", type: .stringAttributeType, isOptional: true),
             makeAttribute(name: "rawTranscript", type: .stringAttributeType, isOptional: false),
             makeAttribute(name: "postProcessedTranscript", type: .stringAttributeType, isOptional: false),
             makeAttribute(name: "postProcessingPrompt", type: .stringAttributeType, isOptional: true),
@@ -394,6 +428,9 @@ final class PipelineHistoryEntry: NSManagedObject {
     @NSManaged var selectedText: String?
     @NSManaged var capturedSelection: String?
     @NSManaged var timestamp: Date?
+    @NSManaged var recordingStartedAt: Date?
+    @NSManaged var recordingEndedAt: Date?
+    @NSManaged var calendarMatchJSON: String?
     @NSManaged var rawTranscript: String?
     @NSManaged var postProcessedTranscript: String?
     @NSManaged var postProcessingPrompt: String?

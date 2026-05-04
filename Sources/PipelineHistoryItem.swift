@@ -20,6 +20,9 @@ struct PipelineHistoryItem: Identifiable, Codable {
     let capturedSelection: String?
     let id: UUID
     let timestamp: Date
+    let recordingStartedAt: Date?
+    let recordingEndedAt: Date?
+    let calendarMatch: CalendarEventMatch?
     let rawTranscript: String
     let postProcessedTranscript: String
     let postProcessingPrompt: String?
@@ -50,6 +53,9 @@ struct PipelineHistoryItem: Identifiable, Codable {
         capturedSelection: String? = nil,
         id: UUID = UUID(),
         timestamp: Date,
+        recordingStartedAt: Date? = nil,
+        recordingEndedAt: Date? = nil,
+        calendarMatch: CalendarEventMatch? = nil,
         rawTranscript: String,
         postProcessedTranscript: String,
         postProcessingPrompt: String?,
@@ -79,6 +85,9 @@ struct PipelineHistoryItem: Identifiable, Codable {
         self.capturedSelection = capturedSelection
         self.id = id
         self.timestamp = timestamp
+        self.recordingStartedAt = recordingStartedAt
+        self.recordingEndedAt = recordingEndedAt
+        self.calendarMatch = calendarMatch
         self.rawTranscript = rawTranscript
         self.postProcessedTranscript = postProcessedTranscript
         self.postProcessingPrompt = postProcessingPrompt
@@ -107,6 +116,9 @@ struct PipelineHistoryItem: Identifiable, Codable {
     static func transcriptionRecoveryPlaceholder(
         id: UUID = UUID(),
         timestamp: Date,
+        recordingStartedAt: Date? = nil,
+        recordingEndedAt: Date? = nil,
+        calendarMatch: CalendarEventMatch? = nil,
         intent: PipelineHistoryItemIntent,
         selectedText: String?,
         capturedSelection: String?,
@@ -134,6 +146,9 @@ struct PipelineHistoryItem: Identifiable, Codable {
             capturedSelection: capturedSelection,
             id: id,
             timestamp: timestamp,
+            recordingStartedAt: recordingStartedAt,
+            recordingEndedAt: recordingEndedAt,
+            calendarMatch: calendarMatch,
             rawTranscript: "",
             postProcessedTranscript: "",
             postProcessingPrompt: nil,
@@ -167,6 +182,9 @@ struct PipelineHistoryItem: Identifiable, Codable {
             capturedSelection: capturedSelection,
             id: id,
             timestamp: timestamp,
+            recordingStartedAt: recordingStartedAt,
+            recordingEndedAt: recordingEndedAt,
+            calendarMatch: calendarMatch,
             rawTranscript: rawTranscript,
             postProcessedTranscript: postProcessedTranscript,
             postProcessingPrompt: postProcessingPrompt,

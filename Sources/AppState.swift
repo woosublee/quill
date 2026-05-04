@@ -229,6 +229,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         var task: Task<Void, Never>?
         var audioFileName: String?
         var liveNoteID: UUID?
+        var recordingStartedAt: Date?
+        var recordingEndedAt: Date?
+        var isImportedAudio: Bool
     }
 
     private enum ActiveAudioInterruption {
@@ -275,6 +278,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let realtimeStreamingModelStorageKey = "realtime_streaming_model"
     private let dictationAudioInterruptionEnabledStorageKey = "dictation_audio_interruption_enabled"
     private let recordingOverlayLayoutStorageKey = "recording_overlay_layout"
+    private let googleCalendarClientIDStorageKey = "google_calendar_client_id"
+    private let googleCalendarClientSecretStorageKey = "google_calendar_client_secret"
+    private let googleCalendarSelectedIDsStorageKey = "google_calendar_selected_ids"
     private let pendingMutedAudioRestoreStorageKey = "pending_muted_audio_restore"
     private let pasteAfterShortcutReleaseDelay: TimeInterval = 0.03
     private let pressEnterAfterPasteDelay: TimeInterval = 0.08
@@ -499,6 +505,27 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @Published var googleCalendarClientID: String {
+        didSet {
+            let trimmed = googleCalendarClientID.trimmingCharacters(in: .whitespacesAndNewlines)
+            UserDefaults.standard.set(trimmed, forKey: googleCalendarClientIDStorageKey)
+            guard trimmed != oldValue.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+            clearGoogleCalendarConnectionState()
+        }
+    }
+
+    @Published var googleCalendarClientSecret: String {
+        didSet {
+            persistOptionalAPIValue(googleCalendarClientSecret, account: googleCalendarClientSecretStorageKey)
+            guard googleCalendarClientSecret.trimmingCharacters(in: .whitespacesAndNewlines) != oldValue.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
+            clearGoogleCalendarConnectionState()
+        }
+    }
+
+    @Published private(set) var googleCalendarConnection = GoogleCalendarConnectionState.disconnected
+    @Published private(set) var availableGoogleCalendars: [GoogleCalendarInfo] = []
+    @Published private(set) var isGoogleCalendarBusy = false
+
     @Published var preserveClipboard: Bool {
         didSet {
             UserDefaults.standard.set(preserveClipboard, forKey: preserveClipboardStorageKey)
@@ -644,6 +671,94 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
+    func setGoogleCalendarSelected(_ calendarID: String, isSelected: Bool) {
+        var selected = googleCalendarConnection.selectedCalendarIDs
+        if isSelected {
+            selected.insert(calendarID)
+        } else {
+            selected.remove(calendarID)
+        }
+        googleCalendarConnection.selectedCalendarIDs = selected
+        Self.saveStringSet(selected, forKey: googleCalendarSelectedIDsStorageKey)
+    }
+
+    @MainActor
+    func disconnectGoogleCalendar() {
+        clearGoogleCalendarConnectionState()
+    }
+
+    private func clearGoogleCalendarConnectionState() {
+        GoogleCalendarTokenStore.delete()
+        availableGoogleCalendars = []
+        googleCalendarConnection = .disconnected
+        UserDefaults.standard.removeObject(forKey: googleCalendarSelectedIDsStorageKey)
+    }
+
+    @MainActor
+    func refreshGoogleCalendars() {
+        guard googleCalendarConnection.isConnected else { return }
+        Task { [weak self] in
+            await self?.loadGoogleCalendars()
+        }
+    }
+
+    @MainActor
+    func connectGoogleCalendar() {
+        guard !isGoogleCalendarBusy else { return }
+        let clientID = googleCalendarClientID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clientSecret = googleCalendarClientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clientID.isEmpty else {
+            googleCalendarConnection.lastErrorMessage = "Enter a Google OAuth Desktop client ID first."
+            return
+        }
+        isGoogleCalendarBusy = true
+        googleCalendarConnection.lastErrorMessage = nil
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let pkce = GoogleCalendarAuthService.makePKCEPair()
+                let state = UUID().uuidString
+                let receiver = try GoogleCalendarAuthService.LoopbackReceiver(state: state)
+                defer { receiver.cancel() }
+                receiver.start()
+                let callbackURL = try await receiver.waitForCallbackURL()
+                await MainActor.run {
+                    GoogleCalendarAuthService.openAuthorizationPage(
+                        clientID: clientID,
+                        callbackURL: callbackURL,
+                        codeChallenge: pkce.challenge,
+                        state: state
+                    )
+                }
+                let code = try await receiver.waitForCode()
+                let token = try await GoogleCalendarAuthService.exchangeCode(
+                    clientID: clientID,
+                    clientSecret: clientSecret,
+                    code: code,
+                    codeVerifier: pkce.verifier,
+                    redirectURI: callbackURL.absoluteString
+                )
+                try GoogleCalendarTokenStore.save(token)
+                await MainActor.run {
+                    self.googleCalendarConnection = GoogleCalendarConnectionState(
+                        isConnected: true,
+                        accountEmail: token.accountEmail,
+                        selectedCalendarIDs: [],
+                        lastErrorMessage: nil
+                    )
+                    Self.saveStringSet([], forKey: self.googleCalendarSelectedIDsStorageKey)
+                }
+                await self.loadGoogleCalendars(force: true)
+            } catch {
+                await MainActor.run {
+                    self.googleCalendarConnection.lastErrorMessage = error.localizedDescription
+                    self.isGoogleCalendarBusy = false
+                }
+            }
+        }
+    }
+
     @Published var soundVolume: Float {
         didSet {
             UserDefaults.standard.set(soundVolume, forKey: soundVolumeStorageKey)
@@ -714,6 +829,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var transcribingIndicatorTask: Task<Void, Never>?
     private var liveTranscriber: (any LiveTranscriber)?
     private var currentRecordingLiveNoteID: UUID?
+    private var activeRecordingStartedAt: Date?
     private var isCancelConfirmationShowing = false
     private var overlayTranscriptionID: UUID = UUID()
     private var foregroundTranscriptionJobID: UUID?
@@ -805,6 +921,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let recordingOverlayLayout = RecordingOverlayLayout.find(
             rawValue: UserDefaults.standard.string(forKey: recordingOverlayLayoutStorageKey)
         )
+        let googleCalendarClientID = UserDefaults.standard.string(forKey: googleCalendarClientIDStorageKey) ?? ""
+        let googleCalendarClientSecret = Self.loadOptionalStoredAPIValue(account: googleCalendarClientSecretStorageKey)
+        let selectedGoogleCalendarIDs = Self.loadStringSet(forKey: googleCalendarSelectedIDsStorageKey)
+        let storedCalendarToken = GoogleCalendarTokenStore.load()
         let isPressEnterVoiceCommandEnabled = UserDefaults.standard.object(forKey: pressEnterVoiceCommandStorageKey) == nil
             ? true
             : UserDefaults.standard.bool(forKey: pressEnterVoiceCommandStorageKey)
@@ -896,6 +1016,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.realtimeStreamingModel = realtimeStreamingModel
         self.dictationAudioInterruptionEnabled = dictationAudioInterruptionEnabled
         self.recordingOverlayLayout = recordingOverlayLayout
+        self.googleCalendarClientID = googleCalendarClientID
+        self.googleCalendarClientSecret = googleCalendarClientSecret
+        self.googleCalendarConnection = GoogleCalendarConnectionState(
+            isConnected: storedCalendarToken != nil,
+            accountEmail: storedCalendarToken?.accountEmail,
+            selectedCalendarIDs: selectedGoogleCalendarIDs,
+            lastErrorMessage: nil
+        )
         self.overlayManager.setRecordingOverlayLayout(recordingOverlayLayout)
         self.isPressEnterVoiceCommandEnabled = isPressEnterVoiceCommandEnabled
         self.alertSoundsEnabled = alertSoundsEnabled
@@ -1105,6 +1233,25 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return stored.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private static func loadStringSet(forKey key: String) -> Set<String> {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let values = try? JSONDecoder().decode([String].self, from: data) else {
+            return []
+        }
+        return Set(values)
+    }
+
+    private static func saveStringSet(_ values: Set<String>, forKey key: String) {
+        let sorted = values.sorted()
+        if sorted.isEmpty {
+            UserDefaults.standard.removeObject(forKey: key)
+            return
+        }
+        if let data = try? JSONEncoder().encode(sorted) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+
     private var resolvedTranscriptionBaseURL: String {
         let trimmed = transcriptionAPIURL.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? apiBaseURL : trimmed
@@ -1113,6 +1260,47 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var resolvedTranscriptionAPIKey: String {
         let trimmed = transcriptionAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? apiKey : trimmed
+    }
+
+    private func validGoogleCalendarToken() async throws -> GoogleCalendarOAuthToken? {
+        guard var token = GoogleCalendarTokenStore.load() else { return nil }
+        let clientCredentials = await MainActor.run {
+            (
+                googleCalendarClientID.trimmingCharacters(in: .whitespacesAndNewlines),
+                googleCalendarClientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        guard !clientCredentials.0.isEmpty else { return token }
+        if token.needsRefresh {
+            token = try await GoogleCalendarAuthService.refreshToken(
+                clientID: clientCredentials.0,
+                clientSecret: clientCredentials.1,
+                token: token
+            )
+            try GoogleCalendarTokenStore.save(token)
+        }
+        return token
+    }
+
+    @MainActor
+    private func loadGoogleCalendars(force: Bool = false) async {
+        guard force || !isGoogleCalendarBusy else { return }
+        isGoogleCalendarBusy = true
+        defer { isGoogleCalendarBusy = false }
+        do {
+            guard let token = try await validGoogleCalendarToken() else {
+                googleCalendarConnection = .disconnected
+                availableGoogleCalendars = []
+                return
+            }
+            let calendars = try await GoogleCalendarService().fetchCalendars(accessToken: token.accessToken)
+            availableGoogleCalendars = calendars
+            googleCalendarConnection.isConnected = true
+            googleCalendarConnection.accountEmail = token.accountEmail
+            googleCalendarConnection.lastErrorMessage = nil
+        } catch {
+            googleCalendarConnection.lastErrorMessage = error.localizedDescription
+        }
     }
 
     func makeTranscriptionService() throws -> TranscriptionService {
@@ -1285,7 +1473,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         startedAt: Date,
         sessionIntent: SessionIntent,
         sessionContext: AppContext?,
-        contextTask: Task<AppContext?, Never>?
+        contextTask: Task<AppContext?, Never>?,
+        recordingStartedAt: Date? = nil,
+        recordingEndedAt: Date? = nil,
+        isImportedAudio: Bool = false
     ) {
         activeTranscriptionJobs[id] = TranscriptionJob(
             id: id,
@@ -1295,7 +1486,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             contextTask: contextTask,
             task: nil,
             audioFileName: nil,
-            liveNoteID: nil
+            liveNoteID: nil,
+            recordingStartedAt: recordingStartedAt,
+            recordingEndedAt: recordingEndedAt,
+            isImportedAudio: isImportedAudio
         )
         foregroundTranscriptionJobID = id
         refreshTranscribingState()
@@ -1367,6 +1561,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             selectedText: item.selectedText,
             id: item.id,
             timestamp: item.timestamp,
+            recordingStartedAt: item.recordingStartedAt,
+            recordingEndedAt: item.recordingEndedAt,
+            calendarMatch: item.calendarMatch,
             rawTranscript: item.rawTranscript,
             postProcessedTranscript: text,
             postProcessingPrompt: item.postProcessingPrompt,
@@ -1416,6 +1613,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let placeholder = PipelineHistoryItem(
             id: noteID,
             timestamp: startedAt,
+            recordingStartedAt: nil,
+            recordingEndedAt: nil,
+            calendarMatch: nil,
             rawTranscript: "",
             postProcessedTranscript: "",
             postProcessingPrompt: nil,
@@ -1455,7 +1655,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             startedAt: startedAt,
             sessionIntent: .dictation,
             sessionContext: nil,
-            contextTask: nil
+            contextTask: nil,
+            recordingStartedAt: nil,
+            recordingEndedAt: nil,
+            isImportedAudio: true
         )
         updateTranscriptionJob(jobID) {
             $0.liveNoteID = noteID
@@ -1741,6 +1944,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             selectedText: snapshot.item.selectedText,
             id: snapshot.item.id,
             timestamp: snapshot.item.timestamp,
+            recordingStartedAt: snapshot.item.recordingStartedAt,
+            recordingEndedAt: snapshot.item.recordingEndedAt,
+            calendarMatch: snapshot.item.calendarMatch,
             rawTranscript: rawTranscript,
             postProcessedTranscript: postProcessedTranscript,
             postProcessingPrompt: postProcessingPrompt,
@@ -2360,6 +2566,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         contextCaptureTask?.cancel()
         contextCaptureTask = nil
         capturedContext = nil
+        activeRecordingStartedAt = nil
         currentSessionIntent = .dictation
         isRecording = false
         errorMessage = nil
@@ -2832,6 +3039,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    private func markRecordingStarted(_ date: Date) {
+        guard isRecording, activeRecordingTriggerMode != nil else { return }
+        activeRecordingStartedAt = date
+    }
+
+    @MainActor
     private func beginRecording(triggerMode: RecordingTriggerMode) {
         os_log(.info, log: recordingLog, "beginRecording() entered")
         clearPendingOverlayDismissToken()
@@ -3002,9 +3215,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     let t0 = CFAbsoluteTimeGetCurrent()
                     if transcriber.handlesRecording {
                         // AVAudioEngine이 transcriber.start()에서 이미 시작됨 — 녹음 UI만 트리거
+                        let actualRecordingStartedAt = Date()
+                        await MainActor.run {
+                            self.markRecordingStarted(actualRecordingStartedAt)
+                        }
                         self.audioRecorder.onRecordingReady?()
                     } else {
                         try self.audioRecorder.startRecording(deviceUID: deviceUID)
+                        let actualRecordingStartedAt = Date()
+                        await MainActor.run {
+                            self.markRecordingStarted(actualRecordingStartedAt)
+                        }
                         os_log(.info, log: recordingLog, "audioRecorder.startRecording() done: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
                     }
                     await MainActor.run {
@@ -3032,8 +3253,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 let t0 = CFAbsoluteTimeGetCurrent()
                 do {
                     try self.audioRecorder.startRecording(deviceUID: deviceUID)
+                    let actualRecordingStartedAt = Date()
                     os_log(.info, log: recordingLog, "audioRecorder.startRecording() done: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
                     DispatchQueue.main.async {
+                        self.markRecordingStarted(actualRecordingStartedAt)
                         guard self.isRecording, self.activeRecordingTriggerMode != nil else { return }
                         self.startContextCapture()
                         self.audioLevelCancellable = self.audioRecorder.$audioLevel
@@ -3063,6 +3286,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         contextCaptureTask?.cancel()
         contextCaptureTask = nil
         capturedContext = nil
+        activeRecordingStartedAt = nil
         if let liveNoteID = currentRecordingLiveNoteID {
             currentRecordingLiveNoteID = nil
             pipelineHistory.removeAll { $0.id == liveNoteID }
@@ -3350,13 +3574,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let jobID = currentRecordingLiveNoteID ?? UUID()
         let liveNoteID = currentRecordingLiveNoteID
         currentRecordingLiveNoteID = nil
-        let startedAt = Date()
+        let recordingStartedAt = activeRecordingStartedAt
+        let recordingEndedAt = Date()
+        activeRecordingStartedAt = nil
+        let startedAt = recordingEndedAt
         registerTranscriptionJob(
             id: jobID,
             startedAt: startedAt,
             sessionIntent: sessionIntent,
             sessionContext: sessionContext,
-            contextTask: inFlightContextTask
+            contextTask: inFlightContextTask,
+            recordingStartedAt: recordingStartedAt,
+            recordingEndedAt: recordingEndedAt,
+            isImportedAudio: false
         )
         updateTranscriptionJob(jobID) { $0.liveNoteID = liveNoteID }
         capturedContext = nil
@@ -3511,6 +3741,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     default:
                         shouldPersistRawDictationFallback = false
                     }
+                    let calendarMatch = await self.calendarMatchForHistoryItem(jobID: jobID)
                     await MainActor.run {
                         self.recordPipelineHistoryEntry(
                             jobID: jobID,
@@ -3521,7 +3752,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             context: appContext,
                             processingStatus: processingStatus,
                             intent: sessionIntent,
-                            audioFileName: savedAudioFile?.fileName
+                            audioFileName: savedAudioFile?.fileName,
+                            calendarMatch: calendarMatch
                         )
                         self.cleanupRecorderIfIdle()
                         let completionStatusText = self.preserveClipboard ? "Pasted at cursor!" : "Copied to clipboard!"
@@ -3557,6 +3789,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         try? FileManager.default.removeItem(at: url)
                         return saved
                     }
+                    let calendarMatch = await self.calendarMatchForHistoryItem(jobID: jobID)
                     await MainActor.run {
                         self.updateTranscriptionJob(jobID) { $0.audioFileName = errorAudioFile?.fileName }
                         self.recordPipelineHistoryEntry(
@@ -3568,7 +3801,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             context: resolvedContext,
                             processingStatus: "Error: \(error.localizedDescription)",
                             intent: sessionIntent,
-                            audioFileName: errorAudioFile?.fileName
+                            audioFileName: errorAudioFile?.fileName,
+                            calendarMatch: calendarMatch
                         )
                         self.cleanupRecorderIfIdle()
                         guard self.overlayTranscriptionID == myOverlayID else {
@@ -3614,6 +3848,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let transcriptionFileURL = savedAudioFile?.fileURL ?? fileURL
             if let savedAudioFile {
                 let recoveryContext = sessionContext ?? self.fallbackContextAtStop()
+                let activeJob = self.activeTranscriptionJobs[jobID]
                 self.createTranscriptionRecoveryPlaceholder(
                     jobID: jobID,
                     noteID: liveNoteID ?? jobID,
@@ -3623,7 +3858,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     audioFileName: savedAudioFile.fileName,
                     useLocalTranscription: capturedUseLocalTranscription,
                     localTranscriptionModelID: capturedLocalTranscriptionModel.id,
-                    transcriptionLanguageCode: capturedTranscriptionLanguage.code
+                    transcriptionLanguageCode: capturedTranscriptionLanguage.code,
+                    recordingStartedAt: activeJob?.recordingStartedAt,
+                    recordingEndedAt: activeJob?.recordingEndedAt
                 )
             } else {
                 self.updateTranscriptionJob(jobID) { $0.audioFileName = nil }
@@ -3700,6 +3937,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     default:
                         shouldPersistRawDictationFallback = false
                     }
+                    let calendarMatch = await self.calendarMatchForHistoryItem(jobID: jobID)
 
                     await MainActor.run {
                         self.recordPipelineHistoryEntry(
@@ -3711,7 +3949,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             context: appContext,
                             processingStatus: processingStatus,
                             intent: sessionIntent,
-                            audioFileName: savedAudioFile?.fileName
+                            audioFileName: savedAudioFile?.fileName,
+                            calendarMatch: calendarMatch
                         )
                         self.cleanupRecorderIfIdle()
                         let completionStatusText = self.preserveClipboard ? "Pasted at cursor!" : "Copied to clipboard!"
@@ -3742,6 +3981,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     } else {
                         resolvedContext = self.fallbackContextAtStop()
                     }
+                    let calendarMatch = await self.calendarMatchForHistoryItem(jobID: jobID)
                     await MainActor.run {
                         self.recordPipelineHistoryEntry(
                             jobID: jobID,
@@ -3752,7 +3992,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             context: resolvedContext,
                             processingStatus: "Error: \(error.localizedDescription)",
                             intent: sessionIntent,
-                            audioFileName: savedAudioFile?.fileName
+                            audioFileName: savedAudioFile?.fileName,
+                            calendarMatch: calendarMatch
                         )
                         self.cleanupRecorderIfIdle()
                         guard self.overlayTranscriptionID == myOverlayID else {
@@ -3782,9 +4023,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     private func createLiveNote(jobID: UUID, noteID: UUID) {
         updateTranscriptionJob(jobID) { $0.liveNoteID = noteID }
+        let job = activeTranscriptionJobs[jobID]
         let entry = PipelineHistoryItem(
             id: noteID,
             timestamp: Date(),
+            recordingStartedAt: job?.recordingStartedAt,
+            recordingEndedAt: job?.recordingEndedAt,
+            calendarMatch: nil,
             rawTranscript: "",
             postProcessedTranscript: "",
             postProcessingPrompt: nil,
@@ -3823,6 +4068,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             capturedSelection: existing.capturedSelection,
             id: existing.id,
             timestamp: existing.timestamp,
+            recordingStartedAt: existing.recordingStartedAt,
+            recordingEndedAt: existing.recordingEndedAt,
+            calendarMatch: existing.calendarMatch,
             rawTranscript: existing.rawTranscript,
             postProcessedTranscript: text,
             postProcessingPrompt: existing.postProcessingPrompt,
@@ -3889,11 +4137,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
         audioFileName: String,
         useLocalTranscription: Bool,
         localTranscriptionModelID: String,
-        transcriptionLanguageCode: String
+        transcriptionLanguageCode: String,
+        recordingStartedAt: Date?,
+        recordingEndedAt: Date?
     ) {
         let item = PipelineHistoryItem.transcriptionRecoveryPlaceholder(
             id: noteID,
             timestamp: startedAt,
+            recordingStartedAt: recordingStartedAt,
+            recordingEndedAt: recordingEndedAt,
             intent: sessionIntent.persistedIntent,
             selectedText: sessionIntent.persistedSelectedText,
             capturedSelection: context.selectedText,
@@ -3934,6 +4186,44 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    private func calendarMatchForHistoryItem(jobID: UUID) async -> CalendarEventMatch? {
+        guard let job = await MainActor.run(body: { activeTranscriptionJobs[jobID] }),
+              !job.isImportedAudio,
+              let recordingStartedAt = job.recordingStartedAt,
+              let recordingEndedAt = job.recordingEndedAt,
+              recordingEndedAt > recordingStartedAt else {
+            return nil
+        }
+        let selectedCalendarIDs = await MainActor.run { googleCalendarConnection.selectedCalendarIDs }
+        guard !selectedCalendarIDs.isEmpty else { return nil }
+        do {
+            guard let token = try await validGoogleCalendarToken() else { return nil }
+            let events = await GoogleCalendarService().fetchEventsSkippingFailures(
+                accessToken: token.accessToken,
+                calendarIDs: Array(selectedCalendarIDs),
+                timeMin: recordingStartedAt,
+                timeMax: recordingEndedAt
+            )
+            guard let event = CalendarEventMatcher.bestMatch(
+                recordingStartedAt: recordingStartedAt,
+                recordingEndedAt: recordingEndedAt,
+                events: events
+            ) else {
+                return nil
+            }
+            return event.match(
+                accountID: token.accountEmail,
+                source: .overlapSuggestion,
+                titleState: .suggested
+            )
+        } catch {
+            await MainActor.run {
+                googleCalendarConnection.lastErrorMessage = error.localizedDescription
+            }
+            return nil
+        }
+    }
+
     @MainActor
     private func recordPipelineHistoryEntry(
         jobID: UUID,
@@ -3951,7 +4241,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         usedPostProcessingOverride: Bool? = nil,
         transcriptionLanguageCodeOverride: String? = nil,
         customVocabularyOverride: String? = nil,
-        customSystemPromptOverride: String? = nil
+        customSystemPromptOverride: String? = nil,
+        calendarMatch: CalendarEventMatch? = nil
     ) {
         let existingID = activeTranscriptionJobs[jobID]?.liveNoteID
         let existingEntry = existingID.flatMap { id in
@@ -3972,6 +4263,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             capturedSelection: context.selectedText,
             id: existingID ?? UUID(),
             timestamp: existingEntry?.timestamp ?? activeTranscriptionJobs[jobID]?.startedAt ?? Date(),
+            recordingStartedAt: activeTranscriptionJobs[jobID]?.recordingStartedAt ?? existingEntry?.recordingStartedAt,
+            recordingEndedAt: activeTranscriptionJobs[jobID]?.recordingEndedAt ?? existingEntry?.recordingEndedAt,
+            calendarMatch: calendarMatch ?? existingEntry?.calendarMatch,
             rawTranscript: rawTranscript,
             postProcessedTranscript: postProcessedTranscript,
             postProcessingPrompt: postProcessingPrompt,

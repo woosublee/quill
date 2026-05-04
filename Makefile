@@ -26,7 +26,7 @@ ICON_ICNS = Resources/AppIcon.icns
 endif
 
 # Usage: make install CODESIGN_IDENTITY="Apple Development: you@example.com (TEAMID)"
-.PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run
+.PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run test
 
 all: $(APP_EXECUTABLE_TARGET)
 
@@ -144,3 +144,13 @@ install-and-run: install
 
 run: all
 	open "$(APP_BUNDLE)"
+
+test:
+	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/CalendarEventMatcher.swift Tests/CalendarEventMatcherTests.swift -o /tmp/CalendarEventMatcherTests
+	@/tmp/CalendarEventMatcherTests
+	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Tests/NoteTitleResolutionTests.swift -o /tmp/NoteTitleResolutionTests
+	@/tmp/NoteTitleResolutionTests
+	@swiftc -parse-as-library Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Tests/PipelineHistoryCalendarMetadataTests.swift -o /tmp/PipelineHistoryCalendarMetadataTests
+	@/tmp/PipelineHistoryCalendarMetadataTests
+	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/GoogleCalendarTokenStore.swift Sources/GoogleCalendarAuthService.swift Sources/GoogleCalendarService.swift Tests/GoogleCalendarServiceTests.swift -o /tmp/GoogleCalendarServiceTests
+	@/tmp/GoogleCalendarServiceTests
