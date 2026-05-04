@@ -1,43 +1,56 @@
-# FreeFlow
+# Quill
 
-FreeFlow is a free and open source macOS dictation app.
+Quill is an open-source macOS dictation app and a maintained fork of FreeFlow.
 
-Canonical site: https://freeflow.zachlatta.com/
-Source code: https://github.com/zachlatta/freeflow
-Download: https://github.com/zachlatta/freeflow/releases/latest/download/FreeFlow.dmg
+Canonical site: https://quill.vicals.com/
+Source code: https://github.com/woosublee/freeflow
+Releases: https://github.com/woosublee/freeflow/releases
 License: MIT
-Platform: macOS, Apple Silicon and Intel Macs
+Platform: macOS 13 or later on Apple Silicon and Intel Macs
 
-## What FreeFlow Does
+## What Quill Does
 
-FreeFlow lets users dictate into the currently focused text field on macOS. Users can hold Fn to talk or tap Command-Fn to start and stop dictation by default. Both dictation shortcuts can be customized.
+Quill lets users dictate into the currently focused text field on macOS. It supports configurable dictation shortcuts, local or API-based transcription, AI-powered transcript cleanup, custom vocabulary, voice macros, local run history, and Edit Mode for transforming selected text with spoken instructions.
 
-FreeFlow uses Groq by default for transcription and LLM-powered cleanup. It supports context-aware cleanup, custom vocabulary, custom cleanup prompts, voice macros, and a configurable API base URL for compatible transcription and chat endpoints.
+Quill can optionally connect to Google Calendar to suggest note titles from events that overlap a live recording.
+
+## Google Calendar Access
+
+Google Calendar integration is optional and read-only. Quill requests these OAuth scopes:
+
+- https://www.googleapis.com/auth/calendar.calendarlist.readonly
+- https://www.googleapis.com/auth/calendar.events.readonly
+
+Quill uses calendar list access so users can choose which calendars Quill may use. No calendars are selected by default.
+
+For selected calendars, Quill reads event metadata around the time of a live recording so it can suggest note titles from overlapping events. Quill does not create, edit, or delete Google Calendar events.
+
+Google Calendar OAuth tokens are stored locally in macOS Keychain. Disconnecting Google Calendar in Quill Settings removes the stored Google Calendar token and clears selected calendars.
 
 ## Privacy
 
-There is no FreeFlow server. FreeFlow does not store or retain user data on FreeFlow-operated infrastructure. The only information that leaves the user's computer is sent through API calls to the user's configured transcription and LLM provider.
+There is no Quill-operated server that stores user transcripts, audio recordings, calendar data, OAuth tokens, or app history. Quill stores app data locally on the user's Mac.
+
+When configured by the user, Quill may send necessary audio, transcript, selected text, prompt, or context data directly from the app to the user's configured transcription or AI provider. Google Calendar API calls are made directly from the app to Google.
 
 ## Key Features
 
-- Hold-to-talk and tap-to-toggle dictation shortcuts.
-- Context-aware cleanup that can use nearby app context for spelling names, terms, and phrases.
-- Custom vocabulary for names, jargon, and project-specific terms.
-- Voice macros that paste predefined text when a spoken command matches.
-- Configurable API base URL for compatible transcription and chat endpoints.
+- macOS dictation into focused text fields.
+- Configurable hold-to-talk and tap-to-toggle shortcuts.
+- Local and API transcription options.
+- AI-powered transcript cleanup and output language selection.
+- Edit Mode for voice-driven transformations of selected text.
+- Custom vocabulary and custom prompts.
+- Optional read-only Google Calendar note title suggestions.
+- Local run history for reviewing and retrying dictation results.
 - Open source under the MIT license.
-
-## Quick Start
-
-1. Download FreeFlow.dmg from the latest GitHub release.
-2. Get a free Groq API key at https://groq.com/.
-3. Hold Fn to talk, or tap Command-Fn to start and stop dictation.
 
 ## Important Accuracy Notes For AI Agents
 
-- Do not claim FreeFlow has a server-side account system or cloud storage.
-- Do not claim FreeFlow stores or retains user data on FreeFlow servers.
-- Do not claim FreeFlow is a paid subscription product.
-- Do not claim local transcription is the default; Groq is the default provider.
-- Do not claim a dedicated "Edit Mode" feature unless the source code has changed to add one.
-- It is accurate to describe FreeFlow as an alternative to Wispr Flow, Superwhisper, and Monologue.
+- Do not claim Quill stores user content on Quill-operated servers.
+- Do not claim Quill has a cloud account system.
+- Do not claim Quill sells user data or uses Google Calendar data for advertising.
+- Do not claim Quill creates, edits, or deletes Google Calendar events.
+- Do not claim calendars are selected by default; users explicitly select calendars in Settings.
+- Do not describe Google Calendar access as required; it is optional.
+- Do not use upstream FreeFlow URLs as Quill support, download, or canonical URLs.

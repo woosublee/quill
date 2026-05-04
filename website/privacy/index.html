@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Privacy Policy - Quill</title>
+    <meta name="description" content="Quill privacy policy, including local storage, provider API calls, and optional read-only Google Calendar access.">
+    <meta name="robots" content="index,follow">
+    <link rel="canonical" href="https://quill.vicals.com/privacy/">
+    <link rel="icon" href="/assets/quill-app-icon.png" type="image/png">
+    <link rel="stylesheet" href="/assets/site.css">
+    <meta property="og:type" content="article">
+    <meta property="og:site_name" content="Quill">
+    <meta property="og:title" content="Privacy Policy - Quill">
+    <meta property="og:description" content="How Quill stores local app data and uses optional read-only Google Calendar access.">
+    <meta property="og:url" content="https://quill.vicals.com/privacy/">
+  </head>
+  <body>
+    <header class="site-header">
+      <nav class="wrap nav" aria-label="Main navigation">
+        <a class="brand" href="/"><img src="/assets/quill-app-icon.png" alt="" width="36" height="36"><span>Quill</span></a>
+        <div class="nav-links">
+          <a href="/">Home</a>
+          <a href="/privacy/">Privacy</a>
+          <a href="/terms/">Terms</a>
+          <a href="/support/">Support</a>
+          <a href="https://github.com/woosublee/freeflow">GitHub</a>
+        </div>
+      </nav>
+    </header>
+
+    <main class="legal-main">
+      <article class="wrap legal-card">
+        <h1>Privacy Policy</h1>
+        <p><strong>Effective date:</strong> May 5, 2026</p>
+        <p>Quill is a macOS dictation app. This policy explains what Quill stores locally, what may leave your Mac when you choose to use provider integrations, and how the optional Google Calendar integration works.</p>
+
+        <h2>No Quill-operated storage server</h2>
+        <p>Quill does not operate a server that stores your transcripts, audio recordings, Google Calendar data, OAuth tokens, or app history. Quill is a local macOS app. App data is stored on your Mac unless you choose to send data to a configured third-party provider or connect Google Calendar.</p>
+
+        <h2>Local app data</h2>
+        <p>Quill may store the following data locally on your Mac to provide app functionality:</p>
+        <ul>
+          <li>Audio recordings and transcript files created by dictation sessions.</li>
+          <li>Run history, including raw transcripts, cleaned transcripts, retry metadata, and related prompts.</li>
+          <li>App context used for transcript cleanup, such as app/window context and screenshot status when context capture is enabled.</li>
+          <li>Settings such as provider configuration, selected transcription language, output language, custom vocabulary, and selected Google calendars.</li>
+        </ul>
+        <p>You can delete run history from within Quill. Deleting history entries also removes associated local audio/transcript files when those files are referenced by the entry.</p>
+
+        <h2>Transcription and AI provider calls</h2>
+        <p>Quill can use local transcription or API-based transcription. When you configure a transcription or AI provider, Quill sends the necessary audio, transcript, selected text, voice command, prompt, or context data directly from the app to the provider you configured. These provider calls are governed by that provider's own terms and privacy policy.</p>
+
+        <h2>Optional Google Calendar access</h2>
+        <p>Google Calendar integration is optional. If you connect Google Calendar, Quill requests read-only access so it can suggest note titles from calendar events that overlap a live recording.</p>
+        <p>Quill requests these Google OAuth scopes:</p>
+        <ul>
+          <li><code>https://www.googleapis.com/auth/calendar.calendarlist.readonly</code></li>
+          <li><code>https://www.googleapis.com/auth/calendar.events.readonly</code></li>
+        </ul>
+        <p>Quill uses calendar list access to show your calendars in Settings so you can choose which calendars Quill may use. No calendars are selected by default.</p>
+        <p>For calendars you explicitly select, Quill reads event metadata around the time of a live recording, such as event title, start/end time, and minimal attendee metadata returned by Google Calendar. Quill uses this data to find events that overlap the recording and suggest a note title.</p>
+        <p>Quill does not create, edit, or delete Google Calendar events. Quill does not use Google Calendar data for advertising and does not sell Google Calendar data.</p>
+
+        <h2>Google token storage and disconnecting</h2>
+        <p>Google Calendar OAuth tokens are stored locally in the macOS Keychain. Selected calendar IDs are stored locally in app settings. You can disconnect Google Calendar from Quill Settings. Disconnecting removes Quill's stored Google Calendar OAuth token and clears selected calendars.</p>
+        <p>You can also revoke Quill's Google access from your Google Account permissions page.</p>
+
+        <h2>Open source and support</h2>
+        <p>Quill is open source. You can inspect the source code at <a href="https://github.com/woosublee/freeflow">github.com/woosublee/freeflow</a>. For support, visit <a href="/support/">Quill Support</a>.</p>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap footer-grid">
+        <span>© 2026 Quill.</span>
+        <div class="footer-links"><a href="/">Home</a><a href="/terms/">Terms</a><a href="/support/">Support</a></div>
+      </div>
+    </footer>
+  </body>
+</html>
