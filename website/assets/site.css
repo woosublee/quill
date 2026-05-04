@@ -1,5 +1,6 @@
 :root {
   color-scheme: dark light;
+
   --bg: #0b1020;
   --panel: rgba(255, 255, 255, 0.07);
   --panel-strong: rgba(255, 255, 255, 0.12);
@@ -8,8 +9,10 @@
   --line: rgba(255, 255, 255, 0.14);
   --accent: #84ccff;
   --accent-strong: #38bdf8;
+
   --shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 * {
@@ -31,13 +34,15 @@ body {
   line-height: 1.6;
 }
 
-body.light {
-  --bg: #f6f8fb;
-  --panel: rgba(15, 23, 42, 0.06);
-  --panel-strong: rgba(15, 23, 42, 0.1);
-  --text: #111827;
-  --muted: #526070;
-  --line: rgba(15, 23, 42, 0.14);
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f6f8fb;
+    --panel: rgba(15, 23, 42, 0.06);
+    --panel-strong: rgba(15, 23, 42, 0.1);
+    --text: #111827;
+    --muted: #526070;
+    --line: rgba(15, 23, 42, 0.14);
+  }
 }
 
 a {
