@@ -799,11 +799,24 @@ struct GeneralSettingsView: View {
     @State private var customVocabularyInput: String = ""
     @State private var micPermissionGranted = false
     @State private var showMutedHint = false
+    @State private var advancedProviderSettingsExpanded = false
     @State private var copiedBuildInfo = false
     @State private var copiedBuildInfoResetWorkItem: DispatchWorkItem?
     @StateObject private var githubCache = GitHubMetadataCache.shared
     @ObservedObject private var updateManager = UpdateManager.shared
     private let upstreamRepoURL = URL(string: "https://github.com/zachlatta/freeflow")!
+
+    private static let outputLanguageOptions: [(label: String, value: String)] = [
+        ("Same as spoken language", ""),
+        ("English", "English"),
+        ("한국어", "Korean"),
+        ("日本語", "Japanese"),
+        ("中文", "Chinese"),
+        ("Español", "Spanish"),
+        ("Français", "French"),
+        ("Deutsch", "German"),
+        ("Português", "Portuguese"),
+    ]
 
     private var appDisplayName: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
@@ -969,6 +982,9 @@ struct GeneralSettingsView: View {
                 // }
                 SettingsCard("Transcription", icon: "waveform.badge.magnifyingglass") {
                     transcriptionSection
+                }
+                SettingsCard("Language", icon: "globe") {
+                    languageSettings
                 }
                 SettingsCard("Dictation Shortcuts", icon: "keyboard.fill") {
                     hotkeySection
@@ -1270,19 +1286,6 @@ struct GeneralSettingsView: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Transcription Language")
-                    .font(.caption.weight(.semibold))
-                Picker("", selection: $appState.transcriptionLanguage) {
-                    ForEach(TranscriptionLanguage.all) { lang in
-                        Text(lang.displayName).tag(lang)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(maxWidth: 200, alignment: .leading)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
                 Text("mlx_whisper Path (optional)")
                     .font(.caption.weight(.semibold))
                 Text("Leave empty to use the default path (~/.local/bin/mlx_whisper).")
@@ -1330,14 +1333,74 @@ struct GeneralSettingsView: View {
                     .font(.caption)
             }
 
-            ProviderSettingsFields(
-                apiBaseURLInput: $apiBaseURLInput,
-                transcriptionAPIURLInput: $transcriptionAPIURLInput,
-                transcriptionAPIKeyInput: $transcriptionAPIKeyInput,
-                showsModelDescription: false,
-                showsTranscriptionLanguage: true
-            )
+            DisclosureGroup(isExpanded: $advancedProviderSettingsExpanded) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Divider()
+                    ProviderSettingsFields(
+                        apiBaseURLInput: $apiBaseURLInput,
+                        transcriptionAPIURLInput: $transcriptionAPIURLInput,
+                        transcriptionAPIKeyInput: $transcriptionAPIKeyInput,
+                        showsModelDescription: false,
+                        showsTranscriptionLanguage: false
+                    )
+                }
+            } label: {
+                HStack {
+                    Text("Advanced Provider Settings")
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    advancedProviderSettingsExpanded.toggle()
+                }
+            }
+            .padding(.top, 4)
         }
+    }
+
+    private var languageSettings: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                Picker("Transcription Language", selection: $appState.transcriptionLanguage) {
+                    ForEach(TranscriptionLanguage.all) { lang in
+                        Text(lang.displayName).tag(lang)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: 240, alignment: .leading)
+
+                Text("Spoken language hint for speech recognition. Auto Detect works for most users.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Picker("Output Language", selection: $appState.outputLanguage) {
+                    ForEach(Self.outputLanguageOptions, id: \.value) { option in
+                        Text(option.label).tag(option.value)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(minWidth: 280, maxWidth: 320, alignment: .leading)
+                .disabled(appState.disablePostProcessing || appState.useLocalTranscription)
+
+                Text(outputLanguageHelpText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var outputLanguageHelpText: String {
+        if appState.useLocalTranscription {
+            return "Use API Provider transcription to choose a final output language."
+        }
+        if appState.disablePostProcessing {
+            return "Enable post-processing to choose a final output language."
+        }
+        return "Final transcript language for post-processing."
     }
 
     private var sharedTranscriptionBehaviors: some View {

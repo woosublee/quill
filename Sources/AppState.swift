@@ -110,6 +110,7 @@ private struct RetrySnapshot {
     let useLocalTranscription: Bool
     let customVocabulary: String
     let customSystemPrompt: String
+    let outputLanguage: String
     let postProcessingEnabled: Bool
     let localWhisperPath: String?
 }
@@ -230,6 +231,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let disableAutoPasteStorageKey = "disable_auto_paste"
     private let disablePostProcessingStorageKey = "disable_post_processing"
     private let transcriptionLanguageStorageKey = "transcription_language"
+    private let outputLanguageStorageKey = "output_language"
     private let localTranscriptionModelStorageKey = AppState.localTranscriptionModelStorageKeyName
     private let noteBrowserEnabledStorageKey = "note_browser_enabled"
     private let commandModeEnabledStorageKey = "command_mode_enabled"
@@ -553,6 +555,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var transcriptionLanguage: TranscriptionLanguage {
         didSet {
             UserDefaults.standard.set(transcriptionLanguage.code, forKey: transcriptionLanguageStorageKey)
+        }
+    }
+
+    @Published var outputLanguage: String {
+        didSet {
+            UserDefaults.standard.set(outputLanguage, forKey: outputLanguageStorageKey)
         }
     }
 
@@ -955,6 +963,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let transcriptionLanguage = TranscriptionLanguage.find(
             code: UserDefaults.standard.string(forKey: transcriptionLanguageStorageKey) ?? "ko"
         )
+        let outputLanguage = UserDefaults.standard.string(forKey: outputLanguageStorageKey) ?? ""
         let localTranscriptionModel = TranscriptionModel.find(
             id: UserDefaults.standard.string(forKey: localTranscriptionModelStorageKey) ?? TranscriptionModel.default.id
         )
@@ -1052,6 +1061,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.disablePostProcessing = disablePostProcessing
         self.noteBrowserEnabled = noteBrowserEnabled
         self.transcriptionLanguage = transcriptionLanguage
+        self.outputLanguage = outputLanguage
         self.localTranscriptionModel = localTranscriptionModel
         self.soundVolume = soundVolume
         self.voiceMacros = initialMacros
@@ -1693,6 +1703,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let capturedTranscriptionModel = transcriptionModel
         let capturedCustomVocabulary = customVocabulary
         let capturedCustomSystemPrompt = customSystemPrompt
+        let capturedOutputLanguage = outputLanguage
         let capturedPostProcessingEnabled = !disablePostProcessing
         let capturedPressEnterCommandEnabled = isPressEnterVoiceCommandEnabled
 
@@ -1731,6 +1742,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     postProcessingService: postProcessingService,
                     customVocabulary: capturedCustomVocabulary,
                     customSystemPrompt: capturedCustomSystemPrompt,
+                    outputLanguage: capturedOutputLanguage,
                     postProcessingEnabled: capturedPostProcessingEnabled
                 )
                 let processingStatus = Self.statusMessage(
@@ -1792,6 +1804,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         postProcessingService: PostProcessingService,
         customVocabulary: String,
         customSystemPrompt: String,
+        outputLanguage: String,
         postProcessingEnabled: Bool
     ) async -> (finalTranscript: String, outcome: TranscriptProcessingOutcome, prompt: String) {
         let trimmedRawTranscript = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1809,7 +1822,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 transcript: trimmedRawTranscript,
                 context: context,
                 customVocabulary: customVocabulary,
-                customSystemPrompt: customSystemPrompt
+                customSystemPrompt: customSystemPrompt,
+                outputLanguage: outputLanguage
             )
             return (result.transcript, .postProcessingSucceeded, result.prompt)
         } catch {
@@ -1941,6 +1955,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             useLocalTranscription: configuration.useLocalTranscription,
             customVocabulary: item.customVocabulary,
             customSystemPrompt: item.customSystemPrompt,
+            outputLanguage: outputLanguage,
             postProcessingEnabled: item.usedPostProcessing,
             localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath
         )
@@ -2000,7 +2015,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     selectedText: selectedText,
                     voiceCommand: rawTranscript,
                     context: snapshot.restoredContext,
-                    customVocabulary: snapshot.customVocabulary
+                    customVocabulary: snapshot.customVocabulary,
+                    outputLanguage: snapshot.outputLanguage
                 )
                 return (result.transcript, .commandModeSucceeded(invocation: invocation), result.prompt)
             } catch {
@@ -2023,7 +2039,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 transcript: trimmedRawTranscript,
                 context: snapshot.restoredContext,
                 customVocabulary: snapshot.customVocabulary,
-                customSystemPrompt: snapshot.customSystemPrompt
+                customSystemPrompt: snapshot.customSystemPrompt,
+                outputLanguage: snapshot.outputLanguage
             )
             return (result.transcript, .postProcessingSucceeded, result.prompt)
         } catch {
@@ -3498,7 +3515,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         context: AppContext,
         postProcessingService: PostProcessingService,
         customVocabulary: String,
-        customSystemPrompt: String
+        customSystemPrompt: String,
+        outputLanguage: String
     ) async -> (finalTranscript: String, outcome: TranscriptProcessingOutcome, prompt: String) {
         let trimmedRawTranscript = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -3512,7 +3530,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     selectedText: selectedText,
                     voiceCommand: rawTranscript,
                     context: context,
-                    customVocabulary: customVocabulary
+                    customVocabulary: customVocabulary,
+                    outputLanguage: outputLanguage
                 )
                 return (result.transcript, .commandModeSucceeded(invocation: invocation), result.prompt)
             } catch {
@@ -3535,7 +3554,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 transcript: trimmedRawTranscript,
                 context: context,
                 customVocabulary: customVocabulary,
-                customSystemPrompt: customSystemPrompt
+                customSystemPrompt: customSystemPrompt,
+                outputLanguage: outputLanguage
             )
             return (result.transcript, .postProcessingSucceeded, result.prompt)
         } catch {
@@ -3638,6 +3658,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let capturedTranscriptionModel = transcriptionModel
         let capturedCustomVocabulary = customVocabulary
         let capturedCustomSystemPrompt = customSystemPrompt
+        let capturedOutputLanguage = outputLanguage
         let capturedLiveTranscriber = liveTranscriber
         let capturedPressEnterCommandEnabled = isPressEnterVoiceCommandEnabled
         liveTranscriber = nil
@@ -3740,7 +3761,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         context: appContext,
                         postProcessingService: postProcessingService,
                         customVocabulary: capturedCustomVocabulary,
-                        customSystemPrompt: capturedCustomSystemPrompt
+                        customSystemPrompt: capturedCustomSystemPrompt,
+                        outputLanguage: capturedOutputLanguage
                     )
                     try Task.checkCancellation()
                     let trimmedRawTranscript = parsedTranscript.transcript
@@ -3935,7 +3957,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         context: appContext,
                         postProcessingService: postProcessingService,
                         customVocabulary: capturedCustomVocabulary,
-                        customSystemPrompt: capturedCustomSystemPrompt
+                        customSystemPrompt: capturedCustomSystemPrompt,
+                        outputLanguage: capturedOutputLanguage
                     )
                     try Task.checkCancellation()
 
