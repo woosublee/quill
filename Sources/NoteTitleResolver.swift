@@ -1,6 +1,18 @@
 import Foundation
 
 enum NoteTitleResolver {
+    private static let calendarTitleDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    static func calendarAppliedTitle(suggestedTitle: String, recordingStartedAt: Date) -> String {
+        "\(calendarTitleDateFormatter.string(from: recordingStartedAt)) \(suggestedTitle)"
+    }
+
     static func displayTitle(for item: PipelineHistoryItem, customTitle: String?, isTranscribing: Bool = false) -> String {
         if let customTitle {
             let trimmed = customTitle.trimmingCharacters(in: .whitespacesAndNewlines)

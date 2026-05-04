@@ -982,6 +982,14 @@ private struct NoteDetailView: View {
         return item.calendarMatch?.suggestedTitle
     }
 
+    private var suggestedCalendarAppliedTitle: String? {
+        guard let suggestedCalendarTitle else { return nil }
+        return NoteTitleResolver.calendarAppliedTitle(
+            suggestedTitle: suggestedCalendarTitle,
+            recordingStartedAt: item.timestamp
+        )
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
@@ -1073,20 +1081,41 @@ private struct NoteDetailView: View {
             }
             .overrideCursor(.iBeam)
 
-            if let suggestedCalendarTitle {
-                HStack(spacing: 8) {
+            if let suggestedCalendarTitle, let suggestedCalendarAppliedTitle {
+                HStack(spacing: 10) {
                     Image(systemName: "calendar")
-                        .font(.system(size: 11, weight: .medium))
-                    Text("Calendar suggested title: \(suggestedCalendarTitle)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    Button("Apply") {
-                        titleDraft = suggestedCalendarTitle
-                        titleStore.setTitle(suggestedCalendarTitle, for: item.id)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.blue)
+                        .frame(width: 24, height: 24)
+                        .background(Color.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
+
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("Calendar suggested title")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .fixedSize()
+                        Text(suggestedCalendarTitle)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
                     }
-                    .buttonStyle(.borderless)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Button("Apply") {
+                        titleDraft = suggestedCalendarAppliedTitle
+                        titleStore.setTitle(suggestedCalendarAppliedTitle, for: item.id)
+                    }
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(Color.blue.opacity(colorScheme == .dark ? 0.12 : 0.06), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.blue.opacity(0.16), lineWidth: 1)
+                )
                 .padding(.top, 2)
             }
 

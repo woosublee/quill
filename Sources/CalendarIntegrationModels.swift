@@ -1,5 +1,45 @@
 import Foundation
 
+enum SettingsTab: String, CaseIterable, Identifiable {
+    case general
+    case appearance
+    case calendar
+    case prompts
+    case macros
+    case runLog
+    case debug
+
+    var id: String { rawValue }
+
+    static var orderedCases: [SettingsTab] {
+        [.general, .appearance, .calendar, .prompts, .macros, .runLog, .debug]
+    }
+
+    var title: String {
+        switch self {
+        case .general: return "General"
+        case .appearance: return "Appearance"
+        case .calendar: return "Calendar"
+        case .prompts: return "Prompts"
+        case .macros: return "Voice Macros"
+        case .runLog: return "Run Log"
+        case .debug: return "Debug"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .general: return "gearshape"
+        case .appearance: return "paintbrush"
+        case .calendar: return "calendar"
+        case .prompts: return "text.bubble"
+        case .macros: return "music.mic"
+        case .runLog: return "clock.arrow.circlepath"
+        case .debug: return "wrench.and.screwdriver"
+        }
+    }
+}
+
 enum CalendarMatchSource: String, Codable, Equatable {
     case overlapSuggestion = "overlap_suggestion"
     case calendarNotification = "calendar_notification"
@@ -77,6 +117,44 @@ struct GoogleCalendarInfo: Identifiable, Codable, Equatable {
         let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? id : trimmed
     }
+
+    var displaySortRank: Int {
+        if primary { return 0 }
+        switch accessRole {
+        case "owner", "writer": return 1
+        default: return 2
+        }
+    }
+}
+
+struct GoogleCalendarDisplayGroup: Equatable {
+    let title: String
+    let calendars: [GoogleCalendarInfo]
+}
+
+extension Array where Element == GoogleCalendarInfo {
+    func sortedForQuillDisplay() -> [GoogleCalendarInfo] {
+        sorted { lhs, rhs in
+            if lhs.displaySortRank != rhs.displaySortRank {
+                return lhs.displaySortRank < rhs.displaySortRank
+            }
+            let nameComparison = lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName)
+            if nameComparison != .orderedSame {
+                return nameComparison == .orderedAscending
+            }
+            return lhs.id.localizedCaseInsensitiveCompare(rhs.id) == .orderedAscending
+        }
+    }
+
+    func groupedForQuillDisplay() -> [GoogleCalendarDisplayGroup] {
+        let sorted = sortedForQuillDisplay()
+        let myCalendars = sorted.filter { $0.displaySortRank < 2 }
+        let sharedCalendars = sorted.filter { $0.displaySortRank == 2 }
+        return [
+            GoogleCalendarDisplayGroup(title: "My calendars", calendars: myCalendars),
+            GoogleCalendarDisplayGroup(title: "Shared calendars", calendars: sharedCalendars)
+        ].filter { !$0.calendars.isEmpty }
+    }
 }
 
 struct GoogleCalendarEvent: Identifiable, Equatable {
@@ -104,4 +182,27 @@ struct GoogleCalendarConnectionState: Codable, Equatable {
     var lastErrorMessage: String?
 
     static let disconnected = GoogleCalendarConnectionState(isConnected: false, accountEmail: nil, selectedCalendarIDs: [], lastErrorMessage: nil)
+}
+
+struct GoogleCalendarConnectionControls: Equatable {
+    let isConnected: Bool
+    let isBusy: Bool
+    let hasPendingOAuthConnection: Bool
+
+    var primaryActionTitle: String {
+        if hasPendingOAuthConnection { return "Cancel" }
+        return isConnected ? "Reconnect" : "Connect"
+    }
+
+    var allowsPrimaryAction: Bool {
+        hasPendingOAuthConnection || !isBusy
+    }
+
+    var allowsRefresh: Bool {
+        isConnected && !isBusy
+    }
+
+    var allowsDisconnect: Bool {
+        isConnected && !isBusy
+    }
 }

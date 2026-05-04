@@ -28,7 +28,7 @@ struct GoogleCalendarService {
             URLQueryItem(name: "fields", value: "items(id,summary,summaryOverride,primary,accessRole)")
         ]
         let response: CalendarListResponse = try await send(url: components.url!, accessToken: accessToken)
-        return response.calendars
+        return response.calendars.sortedForQuillDisplay()
     }
 
     func fetchEvents(

@@ -410,7 +410,7 @@ struct SettingsView: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
-                ForEach(SettingsTab.visibleCases) { tab in
+                ForEach(SettingsTab.orderedCases.filter { $0 != .debug || AppBuild.isDevBundle }) { tab in
                     Button {
                         appState.selectedSettingsTab = tab
                     } label: {
@@ -444,6 +444,8 @@ struct SettingsView: View {
                     PromptsSettingsView()
                 case .macros:
                     VoiceMacrosSettingsView()
+                case .calendar:
+                    CalendarSettingsView()
                 case .runLog:
                     RunLogView()
                 case .debug:
@@ -585,6 +587,180 @@ struct AppearanceSettingsView: View {
         case "light":  NSApp.appearance = NSAppearance(named: .aqua)
         case "dark":   NSApp.appearance = NSAppearance(named: .darkAqua)
         default:       NSApp.appearance = nil
+        }
+    }
+}
+
+// MARK: - Calendar Settings
+
+struct CalendarSettingsView: View {
+    @EnvironmentObject var appState: AppState
+
+    private var connectionControls: GoogleCalendarConnectionControls {
+        appState.googleCalendarConnectionControls
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Calendar")
+                    .font(.largeTitle.bold())
+
+                SettingsCard("Google Calendar", icon: "calendar") {
+                    googleCalendarSection
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .onAppear {
+            appState.loadStoredGoogleCalendarConnection()
+        }
+    }
+
+    private var googleCalendarSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Google OAuth Desktop client ID")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                TextField("client-id.apps.googleusercontent.com", text: $appState.googleCalendarClientID)
+                    .textFieldStyle(.roundedBorder)
+                Text("Google OAuth client secret")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                SecureField("Optional for some Google OAuth clients", text: $appState.googleCalendarClientSecret)
+                    .textFieldStyle(.roundedBorder)
+                Text("Create a Google Cloud OAuth client for a desktop app, then paste its client ID. If Google reports that client_secret is missing, paste the client secret from the same credentials screen.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                if appState.googleCalendarConnection.isConnected {
+                    Label("Connected", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    if let email = appState.googleCalendarConnection.accountEmail, !email.isEmpty {
+                        Text(email)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Label("Not connected", systemImage: "xmark.circle")
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if appState.isGoogleCalendarBusy {
+                    ProgressView().scaleEffect(0.7)
+                }
+            }
+
+            HStack {
+                Button(connectionControls.primaryActionTitle) {
+                    if appState.hasPendingGoogleCalendarOAuthConnection {
+                        appState.cancelGoogleCalendarConnection()
+                    } else {
+                        appState.connectGoogleCalendar()
+                    }
+                }
+                .disabled(!connectionControls.allowsPrimaryAction)
+
+                Button("Refresh Calendars") {
+                    appState.refreshGoogleCalendars()
+                }
+                .disabled(!connectionControls.allowsRefresh)
+
+                Button("Disconnect") {
+                    appState.disconnectGoogleCalendar()
+                }
+                .disabled(!connectionControls.allowsDisconnect)
+            }
+
+            if let error = appState.googleCalendarConnection.lastErrorMessage, !error.isEmpty {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if appState.googleCalendarConnection.isConnected {
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Calendars used for note title suggestions")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    if appState.availableGoogleCalendars.isEmpty {
+                        Text("No calendars loaded. Click Refresh Calendars after connecting.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        VStack(alignment: .leading, spacing: 14) {
+                            ForEach(appState.availableGoogleCalendars.groupedForQuillDisplay(), id: \.title) { group in
+                                calendarGroupSection(group)
+                            }
+                        }
+                    }
+                    Text("No calendars are selected by default. Quill only reads events from calendars you explicitly select.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func calendarGroupSection(_ group: GoogleCalendarDisplayGroup) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text(group.title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                    .kerning(0.4)
+                Text("\(group.calendars.count)")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.secondary.opacity(0.12), in: Capsule())
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(group.calendars) { calendar in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Toggle(
+                            calendar.displayName,
+                            isOn: Binding(
+                                get: { appState.googleCalendarConnection.selectedCalendarIDs.contains(calendar.id) },
+                                set: { appState.setGoogleCalendarSelected(calendar.id, isSelected: $0) }
+                            )
+                        )
+                        .toggleStyle(.checkbox)
+
+                        Text(calendarDisplayKind(calendar))
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.secondary.opacity(0.12), in: Capsule())
+                    }
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(nsColor: .textBackgroundColor).opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+            )
+        }
+    }
+
+    private func calendarDisplayKind(_ calendar: GoogleCalendarInfo) -> String {
+        if calendar.primary { return "Primary" }
+        switch calendar.accessRole {
+        case "owner", "writer": return "My calendar"
+        default: return "Shared"
         }
     }
 }
@@ -775,9 +951,6 @@ struct GeneralSettingsView: View {
                 // }
                 SettingsCard("Transcription", icon: "waveform.badge.magnifyingglass") {
                     transcriptionSection
-                }
-                SettingsCard("Calendar", icon: "calendar") {
-                    googleCalendarSection
                 }
                 SettingsCard("Dictation Shortcuts", icon: "keyboard.fill") {
                     hotkeySection
@@ -1200,100 +1373,6 @@ struct GeneralSettingsView: View {
                     keyValidationSuccess = true
                 } else {
                     keyValidationError = "Validation failed. Please check your API key and provider settings, then try again."
-                }
-            }
-        }
-    }
-
-    // MARK: Calendar
-
-    private var googleCalendarSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Google OAuth Desktop client ID")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                TextField("client-id.apps.googleusercontent.com", text: $appState.googleCalendarClientID)
-                    .textFieldStyle(.roundedBorder)
-                Text("Google OAuth client secret")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                SecureField("Optional for some Google OAuth clients", text: $appState.googleCalendarClientSecret)
-                    .textFieldStyle(.roundedBorder)
-                Text("Create a Google Cloud OAuth client for a desktop app, then paste its client ID. If Google reports that client_secret is missing, paste the client secret from the same credentials screen.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack(spacing: 8) {
-                if appState.googleCalendarConnection.isConnected {
-                    Label("Connected", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                    if let email = appState.googleCalendarConnection.accountEmail, !email.isEmpty {
-                        Text(email)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    Label("Not connected", systemImage: "xmark.circle")
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                if appState.isGoogleCalendarBusy {
-                    ProgressView().scaleEffect(0.7)
-                }
-            }
-
-            HStack {
-                Button(appState.googleCalendarConnection.isConnected ? "Reconnect" : "Connect") {
-                    appState.connectGoogleCalendar()
-                }
-                .disabled(appState.isGoogleCalendarBusy)
-
-                Button("Refresh Calendars") {
-                    appState.refreshGoogleCalendars()
-                }
-                .disabled(!appState.googleCalendarConnection.isConnected || appState.isGoogleCalendarBusy)
-
-                Button("Disconnect") {
-                    appState.disconnectGoogleCalendar()
-                }
-                .disabled(!appState.googleCalendarConnection.isConnected || appState.isGoogleCalendarBusy)
-            }
-
-            if let error = appState.googleCalendarConnection.lastErrorMessage, !error.isEmpty {
-                Text(error)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if appState.googleCalendarConnection.isConnected {
-                Divider()
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Calendars used for note title suggestions")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    if appState.availableGoogleCalendars.isEmpty {
-                        Text("No calendars loaded. Click Refresh Calendars after connecting.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(appState.availableGoogleCalendars) { calendar in
-                            Toggle(
-                                calendar.displayName,
-                                isOn: Binding(
-                                    get: { appState.googleCalendarConnection.selectedCalendarIDs.contains(calendar.id) },
-                                    set: { appState.setGoogleCalendarSelected(calendar.id, isSelected: $0) }
-                                )
-                            )
-                            .toggleStyle(.checkbox)
-                        }
-                    }
-                    Text("No calendars are selected by default. Quill only reads events from calendars you explicitly select.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             }
         }

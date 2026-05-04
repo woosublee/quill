@@ -9,6 +9,7 @@ struct NoteTitleResolutionTests {
         testFallbackUsedWhenNoContentOrAppliedCalendarTitle()
         testTranscribingFallbackWinsOverFailedEmptyContent()
         testAppliedCalendarTitleKeepsWinningWhileTranscribing()
+        testCalendarAppliedTitleIncludesRecordingDate()
         print("NoteTitleResolutionTests passed")
     }
 
@@ -46,6 +47,15 @@ struct NoteTitleResolutionTests {
         let item = item(transcript: "", calendarMatch: match(title: "Calendar title", titleState: .applied), postProcessingStatus: "Error: Previous failure")
         let title = NoteTitleResolver.displayTitle(for: item, customTitle: nil, isTranscribing: true)
         assert(title == "Calendar title")
+    }
+
+    private static func testCalendarAppliedTitleIncludesRecordingDate() {
+        let recordingStartedAt = Date(timeIntervalSince1970: 1_746_422_400)
+        let title = NoteTitleResolver.calendarAppliedTitle(
+            suggestedTitle: "Team Standup",
+            recordingStartedAt: recordingStartedAt
+        )
+        assert(title == "2025-05-05 Team Standup")
     }
 
     private static func item(transcript: String, calendarMatch: CalendarEventMatch?, postProcessingStatus: String = "Post-processing succeeded") -> PipelineHistoryItem {

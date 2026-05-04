@@ -20,45 +20,6 @@ struct PrecomputedMacro {
     let normalizedCommand: String
 }
 
-enum SettingsTab: String, CaseIterable, Identifiable {
-    case general
-    case appearance
-    case prompts
-    case macros
-    case runLog
-    case debug
-
-    var id: String { rawValue }
-
-    static var visibleCases: [SettingsTab] {
-        allCases.filter { tab in
-            tab != .debug || AppBuild.isDevBundle
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .general: return "General"
-        case .appearance: return "Appearance"
-        case .prompts: return "Prompts"
-        case .macros: return "Voice Macros"
-        case .runLog: return "Run Log"
-        case .debug: return "Debug"
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .general: return "gearshape"
-        case .appearance: return "paintbrush"
-        case .prompts: return "text.bubble"
-        case .macros: return "music.mic"
-        case .runLog: return "clock.arrow.circlepath"
-        case .debug: return "wrench.and.screwdriver"
-        }
-    }
-}
-
 enum AppBuild {
     static var isDevBundle: Bool {
         isDevBundleName(Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String)
@@ -525,6 +486,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var googleCalendarConnection = GoogleCalendarConnectionState.disconnected
     @Published private(set) var availableGoogleCalendars: [GoogleCalendarInfo] = []
     @Published private(set) var isGoogleCalendarBusy = false
+    @Published private(set) var hasPendingGoogleCalendarOAuthConnection = false
 
     @Published var preserveClipboard: Bool {
         didSet {
@@ -684,8 +646,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    var googleCalendarConnectionControls: GoogleCalendarConnectionControls {
+        GoogleCalendarConnectionControls(
+            isConnected: googleCalendarConnection.isConnected,
+            isBusy: isGoogleCalendarBusy,
+            hasPendingOAuthConnection: hasPendingGoogleCalendarOAuthConnection
+        )
+    }
+
+    @MainActor
     func disconnectGoogleCalendar() {
+        cancelGoogleCalendarConnection()
         clearGoogleCalendarConnectionState()
+    }
+
+    @MainActor
+    func cancelGoogleCalendarConnection() {
+        googleCalendarConnectionTask?.cancel()
+        googleCalendarConnectionTask = nil
+        hasPendingGoogleCalendarOAuthConnection = false
+        isGoogleCalendarBusy = false
     }
 
     private func clearGoogleCalendarConnectionState() {
@@ -697,9 +677,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func refreshGoogleCalendars() {
-        guard googleCalendarConnection.isConnected else { return }
         Task { [weak self] in
-            await self?.loadGoogleCalendars()
+            await self?.loadGoogleCalendars(force: true)
+        }
+    }
+
+    @MainActor
+    func loadStoredGoogleCalendarConnection() {
+        guard !isGoogleCalendarBusy else { return }
+        Task { [weak self] in
+            await self?.loadGoogleCalendars(force: true)
         }
     }
 
@@ -713,8 +700,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return
         }
         isGoogleCalendarBusy = true
+        hasPendingGoogleCalendarOAuthConnection = true
         googleCalendarConnection.lastErrorMessage = nil
-        Task { [weak self] in
+        googleCalendarConnectionTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let pkce = GoogleCalendarAuthService.makePKCEPair()
@@ -748,12 +736,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         lastErrorMessage: nil
                     )
                     Self.saveStringSet([], forKey: self.googleCalendarSelectedIDsStorageKey)
+                    self.hasPendingGoogleCalendarOAuthConnection = false
+                    self.googleCalendarConnectionTask = nil
                 }
                 await self.loadGoogleCalendars(force: true)
+            } catch is CancellationError {
+                await MainActor.run {
+                    self.hasPendingGoogleCalendarOAuthConnection = false
+                    self.isGoogleCalendarBusy = false
+                    self.googleCalendarConnectionTask = nil
+                }
             } catch {
                 await MainActor.run {
                     self.googleCalendarConnection.lastErrorMessage = error.localizedDescription
+                    self.hasPendingGoogleCalendarOAuthConnection = false
                     self.isGoogleCalendarBusy = false
+                    self.googleCalendarConnectionTask = nil
                 }
             }
         }
@@ -837,6 +835,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var contextService: AppContextService
     private var contextCaptureTask: Task<AppContext?, Never>?
     private var capturedContext: AppContext?
+    private var googleCalendarConnectionTask: Task<Void, Never>?
     private var hasShownScreenshotPermissionAlert = false
     private var isEscapeCancelAlertPresented = false
     private var shouldTerminateAfterTranscription = false

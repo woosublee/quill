@@ -15,6 +15,11 @@ struct GoogleCalendarServiceTests {
         try await testRefreshTokenOmitsClientSecret()
         try await testRefreshTokenIncludesClientSecretWhenProvided()
         try await testCalendarListDecodesSelectableCalendars()
+        testCalendarsSortPrimaryOwnedThenSharedByDisplayName()
+        testCalendarsGroupMyCalendarsBeforeSharedCalendars()
+        testConnectionControlsShowCancelDuringOAuthConnection()
+        testConnectionControlsAllowForcedRefreshForStoredToken()
+        testSettingsTabsPlaceCalendarAfterAppearance()
         try await testEventsDecodeMinimalFieldsAndExcludeAllDayLaterInMatcher()
         try await testFetchEventsEncodesCalendarIDAsSinglePathSegment()
         try await testEventsDecodeFractionalSecondDateTimes()
@@ -209,6 +214,66 @@ struct GoogleCalendarServiceTests {
         assert(calendars[0].primary)
         assert(calendars[1].displayName == "Team")
         assert(!calendars[1].primary)
+    }
+
+    private static func testCalendarsSortPrimaryOwnedThenSharedByDisplayName() {
+        let calendars = [
+            GoogleCalendarInfo(id: "team", summary: "Team", summaryOverride: nil, primary: false, accessRole: "reader"),
+            GoogleCalendarInfo(id: "owned-z", summary: "Zebra", summaryOverride: nil, primary: false, accessRole: "owner"),
+            GoogleCalendarInfo(id: "primary", summary: "Personal", summaryOverride: nil, primary: true, accessRole: "owner"),
+            GoogleCalendarInfo(id: "owned-a", summary: "Alpha", summaryOverride: nil, primary: false, accessRole: "writer"),
+            GoogleCalendarInfo(id: "shared-a", summary: "Alpha Shared", summaryOverride: nil, primary: false, accessRole: "reader")
+        ]
+
+        let sorted = calendars.sortedForQuillDisplay()
+
+        assert(sorted.map(\.id) == ["primary", "owned-a", "owned-z", "shared-a", "team"])
+    }
+
+    private static func testCalendarsGroupMyCalendarsBeforeSharedCalendars() {
+        let calendars = [
+            GoogleCalendarInfo(id: "team", summary: "Team", summaryOverride: nil, primary: false, accessRole: "reader"),
+            GoogleCalendarInfo(id: "owned", summary: "Work", summaryOverride: nil, primary: false, accessRole: "owner"),
+            GoogleCalendarInfo(id: "primary", summary: "Personal", summaryOverride: nil, primary: true, accessRole: "owner")
+        ]
+
+        let groups = calendars.groupedForQuillDisplay()
+
+        assert(groups.count == 2)
+        assert(groups[0].title == "My calendars")
+        assert(groups[0].calendars.map(\.id) == ["primary", "owned"])
+        assert(groups[1].title == "Shared calendars")
+        assert(groups[1].calendars.map(\.id) == ["team"])
+    }
+
+    private static func testConnectionControlsShowCancelDuringOAuthConnection() {
+        let controls = GoogleCalendarConnectionControls(
+            isConnected: false,
+            isBusy: true,
+            hasPendingOAuthConnection: true
+        )
+
+        assert(controls.primaryActionTitle == "Cancel")
+        assert(controls.allowsPrimaryAction)
+        assert(!controls.allowsRefresh)
+        assert(!controls.allowsDisconnect)
+    }
+
+    private static func testConnectionControlsAllowForcedRefreshForStoredToken() {
+        let controls = GoogleCalendarConnectionControls(
+            isConnected: true,
+            isBusy: false,
+            hasPendingOAuthConnection: false
+        )
+
+        assert(controls.primaryActionTitle == "Reconnect")
+        assert(controls.allowsPrimaryAction)
+        assert(controls.allowsRefresh)
+        assert(controls.allowsDisconnect)
+    }
+
+    private static func testSettingsTabsPlaceCalendarAfterAppearance() {
+        assert(SettingsTab.orderedCases.prefix(3) == [.general, .appearance, .calendar])
     }
 
     private static func testEventsDecodeMinimalFieldsAndExcludeAllDayLaterInMatcher() async throws {
