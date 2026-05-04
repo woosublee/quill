@@ -713,7 +713,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard !isGoogleCalendarBusy else { return }
         let oauthConfiguration = googleCalendarOAuthConfiguration
         guard oauthConfiguration.isConfigured else {
-            googleCalendarConnection.lastErrorMessage = "Google Calendar sign-in is not configured. Add a client ID in Advanced settings."
+            googleCalendarConnection.lastErrorMessage = "Google Calendar sign-in is not configured. Bundled credentials are used by default; to use custom credentials, add both a client ID and client secret in Advanced settings."
             return
         }
         let clientID = oauthConfiguration.clientID
@@ -1285,7 +1285,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let oauthConfiguration = await MainActor.run {
             googleCalendarOAuthConfiguration
         }
-        guard oauthConfiguration.isConfigured else { return token }
+        guard oauthConfiguration.isConfigured else { return nil }
         if token.needsRefresh {
             token = try await GoogleCalendarAuthService.refreshToken(
                 clientID: oauthConfiguration.clientID,
