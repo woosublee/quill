@@ -42,7 +42,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        ObsidianExportManager.shared.requestNotificationPermission()
+        AppNotificationManager.shared.install()
+        AppNotificationManager.shared.setCalendarReminderHandler { [weak self] in
+            self?.appState.startRecordingFromCalendarReminder()
+        }
 
         // 저장된 appearance 설정 적용
         let savedAppearance = UserDefaults.standard.string(forKey: "app_appearance") ?? "system"
@@ -98,6 +101,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             startMCPServer()
+            appState.startCalendarRecordingReminderScheduling()
         }
 
     }
@@ -297,6 +301,9 @@ private func showNoteBrowserWindow() {
         updateActivationPolicy()
         appState.startHotkeyMonitoring()
         appState.startAccessibilityPolling()
+        Task { @MainActor in
+            appState.startCalendarRecordingReminderScheduling()
+        }
         // Quill releases are not distributed through the in-app updater yet.
         // Task { @MainActor in
         //     UpdateManager.shared.startPeriodicChecks()

@@ -244,6 +244,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let googleCalendarClientIDStorageKey = "google_calendar_client_id"
     private let googleCalendarClientSecretStorageKey = "google_calendar_client_secret"
     private let googleCalendarSelectedIDsStorageKey = "google_calendar_selected_ids"
+    private let calendarRecordingRemindersEnabledStorageKey = "calendar_recording_reminders_enabled"
+    private let calendarRecordingReminderLeadMinutesStorageKey = "calendar_recording_reminder_lead_minutes"
+    private let calendarRecordingReminderRefreshIntervalMinutesStorageKey = "calendar_recording_reminder_refresh_interval_minutes"
     private let pendingMutedAudioRestoreStorageKey = "pending_muted_audio_restore"
     private let pasteAfterShortcutReleaseDelay: TimeInterval = 0.03
     private let pressEnterAfterPasteDelay: TimeInterval = 0.08
@@ -490,6 +493,40 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var isGoogleCalendarBusy = false
     @Published private(set) var hasPendingGoogleCalendarOAuthConnection = false
 
+    @Published var calendarRecordingRemindersEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(calendarRecordingRemindersEnabled, forKey: calendarRecordingRemindersEnabledStorageKey)
+            scheduleCalendarRecordingReminderRefreshFromPropertyChange()
+        }
+    }
+
+    @Published var calendarRecordingReminderLeadMinutes: Int {
+        didSet {
+            let normalized = CalendarRecordingReminderScheduler.normalizedLeadMinutes(calendarRecordingReminderLeadMinutes)
+            if normalized != calendarRecordingReminderLeadMinutes {
+                calendarRecordingReminderLeadMinutes = normalized
+                return
+            }
+            UserDefaults.standard.set(calendarRecordingReminderLeadMinutes, forKey: calendarRecordingReminderLeadMinutesStorageKey)
+            scheduleCalendarRecordingReminderRefreshFromPropertyChange()
+        }
+    }
+
+    @Published var calendarRecordingReminderRefreshIntervalMinutes: Int {
+        didSet {
+            let normalized = CalendarRecordingReminderScheduler.normalizedRefreshIntervalMinutes(calendarRecordingReminderRefreshIntervalMinutes)
+            if normalized != calendarRecordingReminderRefreshIntervalMinutes {
+                calendarRecordingReminderRefreshIntervalMinutes = normalized
+                return
+            }
+            UserDefaults.standard.set(calendarRecordingReminderRefreshIntervalMinutes, forKey: calendarRecordingReminderRefreshIntervalMinutesStorageKey)
+            scheduleCalendarRecordingReminderRefreshFromPropertyChange()
+        }
+    }
+
+    @Published private(set) var isRefreshingCalendarRecordingReminders = false
+    @Published private(set) var calendarRecordingReminderStatusMessage: String?
+
     private var builtInGoogleCalendarClientID: String {
         Bundle.main.object(forInfoDictionaryKey: "GoogleCalendarOAuthClientID") as? String ?? ""
     }
@@ -659,6 +696,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         googleCalendarConnection.selectedCalendarIDs = selected
         Self.saveStringSet(selected, forKey: googleCalendarSelectedIDsStorageKey)
+        scheduleCalendarRecordingReminderRefresh()
     }
 
     @MainActor
@@ -699,6 +737,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         availableGoogleCalendars = []
         googleCalendarConnection = .disconnected
         UserDefaults.standard.removeObject(forKey: googleCalendarSelectedIDsStorageKey)
+        calendarRecordingReminderScheduler.stop()
     }
 
     @MainActor
@@ -863,6 +902,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var contextCaptureTask: Task<AppContext?, Never>?
     private var capturedContext: AppContext?
     private var googleCalendarConnectionTask: Task<Void, Never>?
+    private lazy var calendarRecordingReminderScheduler = CalendarRecordingReminderScheduler { [weak self] timeMin, timeMax in
+        guard let self else { return [] }
+        return try await self.fetchCalendarRecordingReminderEvents(timeMin: timeMin, timeMax: timeMax)
+    }
     private var hasShownScreenshotPermissionAlert = false
     private var isEscapeCancelAlertPresented = false
     private var shouldTerminateAfterTranscription = false
@@ -951,6 +994,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let googleCalendarClientSecret = Self.loadOptionalStoredAPIValue(account: googleCalendarClientSecretStorageKey)
         let selectedGoogleCalendarIDs = Self.loadStringSet(forKey: googleCalendarSelectedIDsStorageKey)
         let storedCalendarToken = GoogleCalendarTokenStore.load()
+        let calendarRecordingRemindersEnabled = UserDefaults.standard.bool(forKey: calendarRecordingRemindersEnabledStorageKey)
+        let storedCalendarRecordingReminderLeadMinutes = UserDefaults.standard.object(forKey: calendarRecordingReminderLeadMinutesStorageKey) != nil
+            ? UserDefaults.standard.integer(forKey: calendarRecordingReminderLeadMinutesStorageKey)
+            : CalendarRecordingReminderScheduler.defaultLeadMinutes
+        let calendarRecordingReminderLeadMinutes = CalendarRecordingReminderScheduler.normalizedLeadMinutes(storedCalendarRecordingReminderLeadMinutes)
+        let storedCalendarRecordingReminderRefreshIntervalMinutes = UserDefaults.standard.object(forKey: calendarRecordingReminderRefreshIntervalMinutesStorageKey) != nil
+            ? UserDefaults.standard.integer(forKey: calendarRecordingReminderRefreshIntervalMinutesStorageKey)
+            : CalendarRecordingReminderScheduler.defaultRefreshIntervalMinutes
+        let calendarRecordingReminderRefreshIntervalMinutes = CalendarRecordingReminderScheduler.normalizedRefreshIntervalMinutes(storedCalendarRecordingReminderRefreshIntervalMinutes)
         let isPressEnterVoiceCommandEnabled = UserDefaults.standard.object(forKey: pressEnterVoiceCommandStorageKey) == nil
             ? true
             : UserDefaults.standard.bool(forKey: pressEnterVoiceCommandStorageKey)
@@ -1051,6 +1103,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             selectedCalendarIDs: selectedGoogleCalendarIDs,
             lastErrorMessage: nil
         )
+        self.calendarRecordingRemindersEnabled = calendarRecordingRemindersEnabled
+        self.calendarRecordingReminderLeadMinutes = calendarRecordingReminderLeadMinutes
+        self.calendarRecordingReminderRefreshIntervalMinutes = calendarRecordingReminderRefreshIntervalMinutes
         self.overlayManager.setRecordingOverlayLayout(recordingOverlayLayout)
         self.isPressEnterVoiceCommandEnabled = isPressEnterVoiceCommandEnabled
         self.alertSoundsEnabled = alertSoundsEnabled
@@ -1307,6 +1362,81 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return token
     }
 
+    private func fetchCalendarRecordingReminderEvents(timeMin: Date, timeMax: Date) async throws -> [GoogleCalendarEvent] {
+        let selectedCalendarIDs = await MainActor.run { googleCalendarConnection.selectedCalendarIDs }
+        guard !selectedCalendarIDs.isEmpty else { return [] }
+        guard let token = try await validGoogleCalendarToken() else { return [] }
+        return await GoogleCalendarService().fetchEventsSkippingFailures(
+            accessToken: token.accessToken,
+            calendarIDs: Array(selectedCalendarIDs),
+            timeMin: timeMin,
+            timeMax: timeMax
+        )
+    }
+
+    @MainActor
+    func startCalendarRecordingReminderScheduling() {
+        scheduleCalendarRecordingReminderRefresh()
+    }
+
+    @MainActor
+    func stopCalendarRecordingReminderScheduling() {
+        calendarRecordingReminderScheduler.stop()
+    }
+
+    @MainActor
+    func refreshCalendarRecordingRemindersNow() {
+        guard calendarRecordingRemindersEnabled,
+              googleCalendarConnection.isConnected,
+              !googleCalendarConnection.selectedCalendarIDs.isEmpty else {
+            calendarRecordingReminderScheduler.stop()
+            calendarRecordingReminderStatusMessage = "Connect Google Calendar, select calendars, and enable reminders first."
+            return
+        }
+        guard !isRefreshingCalendarRecordingReminders else { return }
+        isRefreshingCalendarRecordingReminders = true
+        calendarRecordingReminderStatusMessage = "Refreshing reminders..."
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let count = try await self.calendarRecordingReminderScheduler.rescheduleNow(
+                    leadMinutes: self.calendarRecordingReminderLeadMinutes
+                )
+                await MainActor.run {
+                    self.calendarRecordingReminderStatusMessage = count == 1
+                        ? "Scheduled 1 meeting reminder."
+                        : "Scheduled \(count) meeting reminders."
+                    self.isRefreshingCalendarRecordingReminders = false
+                }
+            } catch {
+                await MainActor.run {
+                    self.calendarRecordingReminderStatusMessage = "Unable to refresh reminders: \(error.localizedDescription)"
+                    self.isRefreshingCalendarRecordingReminders = false
+                }
+            }
+        }
+    }
+
+    private func scheduleCalendarRecordingReminderRefreshFromPropertyChange() {
+        Task { @MainActor in
+            self.scheduleCalendarRecordingReminderRefresh()
+        }
+    }
+
+    @MainActor
+    private func scheduleCalendarRecordingReminderRefresh() {
+        guard calendarRecordingRemindersEnabled,
+              googleCalendarConnection.isConnected,
+              !googleCalendarConnection.selectedCalendarIDs.isEmpty else {
+            calendarRecordingReminderScheduler.stop()
+            return
+        }
+        calendarRecordingReminderScheduler.start(
+            leadMinutes: calendarRecordingReminderLeadMinutes,
+            refreshIntervalMinutes: calendarRecordingReminderRefreshIntervalMinutes
+        )
+    }
+
     @MainActor
     private func loadGoogleCalendars(force: Bool = false) async {
         guard force || !isGoogleCalendarBusy else { return }
@@ -1323,6 +1453,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             googleCalendarConnection.isConnected = true
             googleCalendarConnection.accountEmail = token.accountEmail
             googleCalendarConnection.lastErrorMessage = nil
+            scheduleCalendarRecordingReminderRefresh()
         } catch {
             googleCalendarConnection.lastErrorMessage = error.localizedDescription
         }
@@ -2474,6 +2605,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func startRecordingFromMCP() {
         lastTranscript = ""
         mcpLastRecordingFailed = false
+        shortcutSessionController.beginManual(mode: .toggle)
+        startRecording(triggerMode: .toggle)
+    }
+
+    @MainActor
+    func startRecordingFromCalendarReminder() {
+        guard !isRecording, !isTranscribing else { return }
+        lastTranscript = ""
         shortcutSessionController.beginManual(mode: .toggle)
         startRecording(triggerMode: .toggle)
     }

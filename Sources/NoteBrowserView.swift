@@ -160,10 +160,6 @@ final class ObsidianExportManager: ObservableObject {
 
     @Published private(set) var processingIDs: Set<UUID> = []
 
-    func requestNotificationPermission() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
-    }
-
     @MainActor
     func export(
         itemID: UUID,
@@ -244,12 +240,11 @@ source: Quill
     }
 
     private func notify(title: String, body: String, success: Bool) async {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = success ? .default : nil
-        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-        try? await UNUserNotificationCenter.current().add(request)
+        await AppNotificationManager.shared.sendImmediateNotification(
+            title: title,
+            body: body,
+            sound: success ? .default : nil
+        )
     }
 
     func runGemini(content: String, prompt: String) async throws -> String {
