@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import ServiceManagement
+import UserNotifications
 
 // MARK: - Shared Helpers
 
@@ -596,6 +597,15 @@ struct AppearanceSettingsView: View {
 struct CalendarSettingsView: View {
     @EnvironmentObject var appState: AppState
     @State private var showsAdvancedGoogleCalendarSettings = false
+    @State private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
+
+    private var selectedCalendarCount: Int {
+        appState.googleCalendarConnection.selectedCalendarIDs.count
+    }
+
+    private var calendarReminderSettingsDisabled: Bool {
+        !appState.googleCalendarConnection.isConnected || selectedCalendarCount == 0
+    }
 
     private var connectionControls: GoogleCalendarConnectionControls {
         appState.googleCalendarConnectionControls
@@ -610,12 +620,20 @@ struct CalendarSettingsView: View {
                 SettingsCard("Google Calendar", icon: "calendar") {
                     googleCalendarSection
                 }
+
+                SettingsCard("Meeting Recording Reminders", icon: "bell.badge") {
+                    calendarRecordingReminderSection
+                }
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .onAppear {
             appState.loadStoredGoogleCalendarConnection()
+            refreshNotificationAuthorizationStatus()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshNotificationAuthorizationStatus()
         }
     }
 
@@ -727,6 +745,107 @@ struct CalendarSettingsView: View {
         }
     }
 
+    private var calendarRecordingReminderSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle(
+                "Remind me before meetings to record",
+                isOn: $appState.calendarRecordingRemindersEnabled
+            )
+            .disabled(calendarReminderSettingsDisabled)
+
+            Text("Quill schedules macOS notifications for events in your selected calendars. Clicking a reminder starts recording without toggling an active recording off.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !appState.googleCalendarConnection.isConnected {
+                Label("Connect Google Calendar first.", systemImage: "calendar.badge.exclamationmark")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if selectedCalendarCount == 0 {
+                Label("Select at least one calendar above.", systemImage: "checklist")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if notificationAuthorizationStatus == .denied {
+                Label("Notifications are disabled in System Settings.", systemImage: "bell.slash")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Button(appState.isRefreshingCalendarRecordingReminders ? "Refreshing..." : "Refresh Reminders Now") {
+                        appState.refreshCalendarRecordingRemindersNow()
+                    }
+                    .disabled(
+                        calendarReminderSettingsDisabled
+                        || !appState.calendarRecordingRemindersEnabled
+                        || appState.isRefreshingCalendarRecordingReminders
+                    )
+
+                    if appState.isRefreshingCalendarRecordingReminders {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+
+                    Text("Fetches upcoming events now and rebuilds scheduled reminders.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if let message = appState.calendarRecordingReminderStatusMessage {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(message.hasPrefix("Unable") ? .red : .secondary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Reminder time")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Picker("Reminder time", selection: $appState.calendarRecordingReminderLeadMinutes) {
+                    ForEach(CalendarRecordingReminderScheduler.leadMinuteOptions, id: \.self) { minutes in
+                        Text("\(minutes) min before").tag(minutes)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .disabled(calendarReminderSettingsDisabled || !appState.calendarRecordingRemindersEnabled)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Calendar refresh")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Picker("Calendar refresh", selection: $appState.calendarRecordingReminderRefreshIntervalMinutes) {
+                    ForEach(CalendarRecordingReminderScheduler.refreshIntervalMinuteOptions, id: \.self) { minutes in
+                        Text("Every \(minutes) min").tag(minutes)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .disabled(calendarReminderSettingsDisabled || !appState.calendarRecordingRemindersEnabled)
+                Text("Quill refreshes upcoming events while the app is running, then lets macOS deliver the scheduled reminders.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func refreshNotificationAuthorizationStatus() {
+        Task {
+            let settings = await AppNotificationManager.shared.notificationSettings()
+            await MainActor.run {
+                notificationAuthorizationStatus = settings.authorizationStatus
+            }
+        }
+    }
+
     private func calendarGroupSection(_ group: GoogleCalendarDisplayGroup) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
@@ -798,6 +917,7 @@ struct GeneralSettingsView: View {
     @State private var keyValidationSuccess = false
     @State private var customVocabularyInput: String = ""
     @State private var micPermissionGranted = false
+    @State private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
     @State private var showMutedHint = false
     @State private var advancedProviderSettingsExpanded = false
     @State private var copiedBuildInfo = false
@@ -1023,8 +1143,12 @@ struct GeneralSettingsView: View {
             transcriptionAPIKeyInput = appState.transcriptionAPIKey
             customVocabularyInput = appState.customVocabulary
             checkMicPermission()
+            refreshNotificationAuthorizationStatus()
             appState.refreshLaunchAtLoginStatus()
             Task { await githubCache.fetchIfNeeded() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshNotificationAuthorizationStatus()
         }
         .onChange(of: appState.transcriptionAPIURL) { value in
             if transcriptionAPIURLInput != value {
@@ -1738,10 +1862,30 @@ struct GeneralSettingsView: View {
                     appState.requestScreenCapturePermission()
                 }
             )
+
+            permissionRow(
+                title: "Notifications",
+                icon: "bell.fill",
+                granted: notificationAuthorizationGranted,
+                actionTitle: notificationAuthorizationStatus == .denied ? "Open Settings" : "Grant Access",
+                action: {
+                    if notificationAuthorizationStatus == .denied {
+                        openNotificationSettings()
+                    } else {
+                        requestNotificationPermission()
+                    }
+                }
+            )
         }
     }
 
-    private func permissionRow(title: String, icon: String, granted: Bool, action: @escaping () -> Void) -> some View {
+    private func permissionRow(
+        title: String,
+        icon: String,
+        granted: Bool,
+        actionTitle: String = "Grant Access",
+        action: @escaping () -> Void
+    ) -> some View {
         HStack {
             Image(systemName: icon)
                 .frame(width: 20)
@@ -1755,7 +1899,7 @@ struct GeneralSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.green)
             } else {
-                Button("Grant Access") {
+                Button(actionTitle) {
                     action()
                 }
                 .font(.caption)
@@ -1764,6 +1908,32 @@ struct GeneralSettingsView: View {
         .padding(10)
         .background(Color(nsColor: .controlBackgroundColor))
         .cornerRadius(6)
+    }
+
+    private var notificationAuthorizationGranted: Bool {
+        notificationAuthorizationStatus == .authorized || notificationAuthorizationStatus == .provisional
+    }
+
+    private func requestNotificationPermission() {
+        Task {
+            _ = await AppNotificationManager.shared.requestAuthorization()
+            refreshNotificationAuthorizationStatus()
+        }
+    }
+
+    private func openNotificationSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func refreshNotificationAuthorizationStatus() {
+        Task {
+            let settings = await AppNotificationManager.shared.notificationSettings()
+            await MainActor.run {
+                notificationAuthorizationStatus = settings.authorizationStatus
+            }
+        }
     }
 
     private func checkMicPermission() {

@@ -52,7 +52,7 @@ private struct SetupProviderSettingsSheet: View {
 }
 
 struct SetupView: View {
-    var onComplete: () -> Void
+    var onComplete: @MainActor () -> Void
     @EnvironmentObject var appState: AppState
     @Environment(\.openURL) private var openURL
     private let upstreamRepoURL = URL(string: "https://github.com/zachlatta/freeflow")!
