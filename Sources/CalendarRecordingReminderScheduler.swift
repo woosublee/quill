@@ -35,6 +35,7 @@ final class CalendarRecordingReminderScheduler {
     private var refreshTimer: Timer?
     private var refreshTask: Task<Void, Never>?
     private var isStarted = false
+    private var deliveredImmediateReminderIdentifiers: Set<String> = []
 
     init(
         notificationManager: AppNotificationManager = .shared,
@@ -89,37 +90,50 @@ final class CalendarRecordingReminderScheduler {
     @discardableResult
     private func refresh(leadMinutes: Int) async throws -> Int {
         guard await notificationManager.canShowAlerts() else { return 0 }
+        try Task.checkCancellation()
+        guard isStarted else { return 0 }
         let now = Date()
         let events = try await eventProvider(now, now.addingTimeInterval(Self.scheduleWindow))
+        try Task.checkCancellation()
+        guard isStarted else { return 0 }
         let plan = Self.reminderPlan(
             for: events,
             leadMinutes: leadMinutes,
             now: now,
             calendar: .current
         )
-        await Self.replacePendingNotifications(
-            plan: plan,
-            notificationManager: notificationManager,
-            calendar: .current
-        )
-        return plan.scheduled.count + plan.immediate.count
+        try Task.checkCancellation()
+        guard isStarted else { return 0 }
+        let deliveredCount = await replacePendingNotifications(plan: plan, calendar: .current)
+        return plan.scheduled.count + deliveredCount
     }
 
-    private static func replacePendingNotifications(
+    private func replacePendingNotifications(
         plan: CalendarRecordingReminderPlan,
-        notificationManager: AppNotificationManager,
         calendar: Calendar
-    ) async {
-        let existingIdentifiers = await pendingCalendarReminderIdentifiers(notificationManager: notificationManager)
-        notificationManager.removePendingNotificationRequests(withIdentifiers: existingIdentifiers)
-        let existingIdentifierSet = Set(existingIdentifiers)
+    ) async -> Int {
+        let pendingIDs = Set(await Self.pendingCalendarReminderIdentifiers(notificationManager: notificationManager))
+        let deliveredIDs = Set(await notificationManager.deliveredNotificationRequestIdentifiers())
+            .filter(Self.isCalendarReminderIdentifier)
+        let planIDs = Set((plan.scheduled + plan.immediate).map(\.identifier))
+        deliveredImmediateReminderIdentifiers = deliveredImmediateReminderIdentifiers.intersection(planIDs)
+        let notifiedIDs = pendingIDs.union(deliveredIDs).union(deliveredImmediateReminderIdentifiers)
+        let scheduledIDs = Set(plan.scheduled.map(\.identifier))
+        let pendingToRemove = pendingIDs.subtracting(scheduledIDs)
+        if !pendingToRemove.isEmpty {
+            notificationManager.removePendingNotificationRequests(withIdentifiers: Array(pendingToRemove))
+        }
 
-        for schedule in plan.immediate where !existingIdentifierSet.contains(schedule.identifier) {
-            await notificationManager.sendImmediateNotification(notificationRequest(for: schedule, calendar: calendar))
+        var deliveredCount = 0
+        for schedule in plan.immediate where !notifiedIDs.contains(schedule.identifier) {
+            await notificationManager.sendImmediateNotification(Self.notificationRequest(for: schedule, calendar: calendar))
+            deliveredImmediateReminderIdentifiers.insert(schedule.identifier)
+            deliveredCount += 1
         }
-        for schedule in plan.scheduled {
-            try? await notificationManager.add(notificationRequest(for: schedule, calendar: calendar))
+        for schedule in plan.scheduled where !pendingIDs.contains(schedule.identifier) {
+            try? await notificationManager.add(Self.notificationRequest(for: schedule, calendar: calendar))
         }
+        return deliveredCount
     }
 
     private static func notificationRequest(
@@ -127,7 +141,10 @@ final class CalendarRecordingReminderScheduler {
         calendar: Calendar
     ) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
-        content.title = notificationTitle(for: schedule, now: Date())
+        content.title = notificationTitle(
+            for: schedule,
+            now: schedule.delivery == .scheduled ? schedule.fireDate : Date()
+        )
         content.body = notificationBody(for: schedule.event)
         content.sound = .default
         content.categoryIdentifier = notificationCategoryIdentifier

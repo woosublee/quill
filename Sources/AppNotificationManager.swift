@@ -57,6 +57,14 @@ final class AppNotificationManager: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    func deliveredNotificationRequestIdentifiers() async -> [String] {
+        await withCheckedContinuation { continuation in
+            notificationCenter.getDeliveredNotifications { notifications in
+                continuation.resume(returning: notifications.map(\.request.identifier))
+            }
+        }
+    }
+
     func sendImmediateNotification(title: String, body: String, sound: UNNotificationSound?) async {
         let content = UNMutableNotificationContent()
         content.title = title
@@ -75,10 +83,10 @@ final class AppNotificationManager: NSObject, UNUserNotificationCenterDelegate {
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        guard CalendarRecordingReminderScheduler.isCalendarReminderIdentifier(notification.request.identifier) else {
-            return []
+        if CalendarRecordingReminderScheduler.isCalendarReminderIdentifier(notification.request.identifier) {
+            return [.banner, .sound]
         }
-        return [.banner, .sound]
+        return notification.request.content.sound == nil ? [.banner] : [.banner, .sound]
     }
 
     func userNotificationCenter(

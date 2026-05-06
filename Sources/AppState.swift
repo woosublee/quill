@@ -1394,13 +1394,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return
         }
         guard !isRefreshingCalendarRecordingReminders else { return }
+        let leadMinutes = calendarRecordingReminderLeadMinutes
         isRefreshingCalendarRecordingReminders = true
         calendarRecordingReminderStatusMessage = "Refreshing reminders..."
         Task { [weak self] in
             guard let self else { return }
             do {
                 let count = try await self.calendarRecordingReminderScheduler.rescheduleNow(
-                    leadMinutes: self.calendarRecordingReminderLeadMinutes
+                    leadMinutes: leadMinutes
                 )
                 await MainActor.run {
                     self.calendarRecordingReminderStatusMessage = count == 1
