@@ -81,10 +81,7 @@ final class CalendarRecordingReminderScheduler {
 
     @discardableResult
     func rescheduleNow(leadMinutes: Int) async throws -> Int {
-        let wasStarted = isStarted
-        isStarted = true
-        defer { isStarted = wasStarted }
-        return try await refresh(leadMinutes: leadMinutes)
+        try await refresh(leadMinutes: leadMinutes, requiresStarted: false)
     }
 
     private func stopTimer() {
@@ -104,14 +101,14 @@ final class CalendarRecordingReminderScheduler {
     }
 
     @discardableResult
-    private func refresh(leadMinutes: Int) async throws -> Int {
+    private func refresh(leadMinutes: Int, requiresStarted: Bool = true) async throws -> Int {
         guard await notificationManager.canShowAlerts() else { return 0 }
         try Task.checkCancellation()
-        guard isStarted else { return 0 }
+        guard !requiresStarted || isStarted else { return 0 }
         let now = Date()
         let events = try await eventProvider(now, now.addingTimeInterval(Self.scheduleWindow))
         try Task.checkCancellation()
-        guard isStarted else { return 0 }
+        guard !requiresStarted || isStarted else { return 0 }
         let plan = Self.reminderPlan(
             for: events,
             leadMinutes: leadMinutes,
@@ -119,7 +116,7 @@ final class CalendarRecordingReminderScheduler {
             calendar: .current
         )
         try Task.checkCancellation()
-        guard isStarted else { return 0 }
+        guard !requiresStarted || isStarted else { return 0 }
         let deliveredCount = await replacePendingNotifications(plan: plan, calendar: .current)
         return plan.scheduled.count + deliveredCount
     }
@@ -142,9 +139,10 @@ final class CalendarRecordingReminderScheduler {
 
         var deliveredCount = 0
         for schedule in plan.immediate where !immediateNotifiedIDs.contains(schedule.identifier) {
-            await notificationManager.sendImmediateNotification(Self.notificationRequest(for: schedule, calendar: calendar))
-            notifiedReminderIdentifiers.insert(schedule.identifier)
-            deliveredCount += 1
+            if await notificationManager.sendImmediateNotification(Self.notificationRequest(for: schedule, calendar: calendar)) {
+                notifiedReminderIdentifiers.insert(schedule.identifier)
+                deliveredCount += 1
+            }
         }
         for schedule in plan.scheduled where !deliveredIDs.contains(schedule.identifier) {
             do {
