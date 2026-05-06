@@ -476,7 +476,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let trimmed = googleCalendarClientID.trimmingCharacters(in: .whitespacesAndNewlines)
             UserDefaults.standard.set(trimmed, forKey: googleCalendarClientIDStorageKey)
             guard trimmed != oldValue.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
-            clearGoogleCalendarConnectionState()
+            Task { @MainActor in
+                self.clearGoogleCalendarConnectionState()
+            }
         }
     }
 
@@ -484,7 +486,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         didSet {
             persistOptionalAPIValue(googleCalendarClientSecret, account: googleCalendarClientSecretStorageKey)
             guard googleCalendarClientSecret.trimmingCharacters(in: .whitespacesAndNewlines) != oldValue.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
-            clearGoogleCalendarConnectionState()
+            Task { @MainActor in
+                self.clearGoogleCalendarConnectionState()
+            }
         }
     }
 
@@ -732,6 +736,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         isGoogleCalendarBusy = false
     }
 
+    @MainActor
     private func clearGoogleCalendarConnectionState() {
         GoogleCalendarTokenStore.delete()
         availableGoogleCalendars = []
@@ -902,7 +907,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var contextCaptureTask: Task<AppContext?, Never>?
     private var capturedContext: AppContext?
     private var googleCalendarConnectionTask: Task<Void, Never>?
-    private lazy var calendarRecordingReminderScheduler = CalendarRecordingReminderScheduler { [weak self] timeMin, timeMax in
+    @MainActor
+    private lazy var calendarRecordingReminderScheduler = CalendarRecordingReminderScheduler(
+        notificationManager: .shared
+    ) { [weak self] timeMin, timeMax in
         guard let self else { return [] }
         return try await self.fetchCalendarRecordingReminderEvents(timeMin: timeMin, timeMax: timeMax)
     }
@@ -1445,6 +1453,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         defer { isGoogleCalendarBusy = false }
         do {
             guard let token = try await validGoogleCalendarToken() else {
+                calendarRecordingReminderScheduler.stop()
                 googleCalendarConnection = .disconnected
                 availableGoogleCalendars = []
                 return

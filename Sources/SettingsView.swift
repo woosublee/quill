@@ -621,10 +621,6 @@ struct CalendarSettingsView: View {
                     googleCalendarSection
                 }
 
-                SettingsCard("Notification Permission", icon: "bell.fill") {
-                    notificationPermissionSection
-                }
-
                 SettingsCard("Meeting Recording Reminders", icon: "bell.badge") {
                     calendarRecordingReminderSection
                 }
@@ -749,58 +745,6 @@ struct CalendarSettingsView: View {
         }
     }
 
-    private var notificationPermissionSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Image(systemName: notificationAuthorizationGranted ? "checkmark.circle.fill" : "bell.slash")
-                    .frame(width: 20)
-                    .foregroundStyle(notificationAuthorizationGranted ? .green : .orange)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Notifications")
-                    Text(notificationPermissionHelpText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                if notificationAuthorizationGranted {
-                    Text("Granted")
-                        .font(.caption)
-                        .foregroundStyle(.green)
-                } else if notificationAuthorizationStatus == .denied {
-                    Button("Open Settings") {
-                        openNotificationSettings()
-                    }
-                    .font(.caption)
-                } else {
-                    Button("Grant Access") {
-                        requestNotificationPermission()
-                    }
-                    .font(.caption)
-                }
-            }
-            .padding(10)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .cornerRadius(6)
-        }
-    }
-
-    private var notificationAuthorizationGranted: Bool {
-        notificationAuthorizationStatus == .authorized || notificationAuthorizationStatus == .provisional
-    }
-
-    private var notificationPermissionHelpText: String {
-        switch notificationAuthorizationStatus {
-        case .authorized, .provisional:
-            return "Quill can show meeting recording reminders."
-        case .denied:
-            return "Enable notifications in System Settings to receive meeting reminders."
-        case .notDetermined:
-            return "Allow notifications so Quill can remind you before meetings."
-        default:
-            return "Notification permission is required for meeting reminders."
-        }
-    }
-
     private var calendarRecordingReminderSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Toggle(
@@ -893,19 +837,6 @@ struct CalendarSettingsView: View {
         }
     }
 
-    private func requestNotificationPermission() {
-        Task {
-            _ = await AppNotificationManager.shared.requestAuthorization()
-            refreshNotificationAuthorizationStatus()
-        }
-    }
-
-    private func openNotificationSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
     private func refreshNotificationAuthorizationStatus() {
         Task {
             let settings = await AppNotificationManager.shared.notificationSettings()
@@ -986,6 +917,7 @@ struct GeneralSettingsView: View {
     @State private var keyValidationSuccess = false
     @State private var customVocabularyInput: String = ""
     @State private var micPermissionGranted = false
+    @State private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
     @State private var showMutedHint = false
     @State private var advancedProviderSettingsExpanded = false
     @State private var copiedBuildInfo = false
@@ -1211,8 +1143,12 @@ struct GeneralSettingsView: View {
             transcriptionAPIKeyInput = appState.transcriptionAPIKey
             customVocabularyInput = appState.customVocabulary
             checkMicPermission()
+            refreshNotificationAuthorizationStatus()
             appState.refreshLaunchAtLoginStatus()
             Task { await githubCache.fetchIfNeeded() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshNotificationAuthorizationStatus()
         }
         .onChange(of: appState.transcriptionAPIURL) { value in
             if transcriptionAPIURLInput != value {
@@ -1926,10 +1862,30 @@ struct GeneralSettingsView: View {
                     appState.requestScreenCapturePermission()
                 }
             )
+
+            permissionRow(
+                title: "Notifications",
+                icon: "bell.fill",
+                granted: notificationAuthorizationGranted,
+                actionTitle: notificationAuthorizationStatus == .denied ? "Open Settings" : "Grant Access",
+                action: {
+                    if notificationAuthorizationStatus == .denied {
+                        openNotificationSettings()
+                    } else {
+                        requestNotificationPermission()
+                    }
+                }
+            )
         }
     }
 
-    private func permissionRow(title: String, icon: String, granted: Bool, action: @escaping () -> Void) -> some View {
+    private func permissionRow(
+        title: String,
+        icon: String,
+        granted: Bool,
+        actionTitle: String = "Grant Access",
+        action: @escaping () -> Void
+    ) -> some View {
         HStack {
             Image(systemName: icon)
                 .frame(width: 20)
@@ -1943,7 +1899,7 @@ struct GeneralSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.green)
             } else {
-                Button("Grant Access") {
+                Button(actionTitle) {
                     action()
                 }
                 .font(.caption)
@@ -1952,6 +1908,32 @@ struct GeneralSettingsView: View {
         .padding(10)
         .background(Color(nsColor: .controlBackgroundColor))
         .cornerRadius(6)
+    }
+
+    private var notificationAuthorizationGranted: Bool {
+        notificationAuthorizationStatus == .authorized || notificationAuthorizationStatus == .provisional
+    }
+
+    private func requestNotificationPermission() {
+        Task {
+            _ = await AppNotificationManager.shared.requestAuthorization()
+            refreshNotificationAuthorizationStatus()
+        }
+    }
+
+    private func openNotificationSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func refreshNotificationAuthorizationStatus() {
+        Task {
+            let settings = await AppNotificationManager.shared.notificationSettings()
+            await MainActor.run {
+                notificationAuthorizationStatus = settings.authorizationStatus
+            }
+        }
     }
 
     private func checkMicPermission() {

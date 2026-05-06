@@ -1,6 +1,7 @@
 import Foundation
 import UserNotifications
 
+@MainActor
 final class AppNotificationManager: NSObject, UNUserNotificationCenterDelegate {
     static let shared = AppNotificationManager()
 

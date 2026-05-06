@@ -294,6 +294,7 @@ private func showNoteBrowserWindow() {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    @MainActor
     func completeSetup() {
         appState.hasCompletedSetup = true
         setupWindow?.close()
@@ -301,9 +302,7 @@ private func showNoteBrowserWindow() {
         updateActivationPolicy()
         appState.startHotkeyMonitoring()
         appState.startAccessibilityPolling()
-        Task { @MainActor in
-            appState.startCalendarRecordingReminderScheduling()
-        }
+        appState.startCalendarRecordingReminderScheduling()
         // Quill releases are not distributed through the in-app updater yet.
         // Task { @MainActor in
         //     UpdateManager.shared.startPeriodicChecks()
