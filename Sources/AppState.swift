@@ -738,6 +738,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func clearGoogleCalendarConnectionState() {
+        cancelGoogleCalendarConnection()
         GoogleCalendarTokenStore.delete()
         availableGoogleCalendars = []
         googleCalendarConnection = .disconnected
