@@ -134,7 +134,6 @@ final class CalendarRecordingReminderScheduler {
         let planIDs = Set((plan.scheduled + plan.immediate).map(\.identifier))
         notifiedReminderIdentifiers = notifiedReminderIdentifiers.intersection(planIDs)
         let immediateNotifiedIDs = pendingIDs.union(deliveredIDs).union(notifiedReminderIdentifiers)
-        let scheduledNotifiedIDs = pendingIDs.union(deliveredIDs)
         let scheduledIDs = Set(plan.scheduled.map(\.identifier))
         let pendingToRemove = pendingIDs.subtracting(scheduledIDs)
         if !pendingToRemove.isEmpty {
@@ -147,7 +146,7 @@ final class CalendarRecordingReminderScheduler {
             notifiedReminderIdentifiers.insert(schedule.identifier)
             deliveredCount += 1
         }
-        for schedule in plan.scheduled where !scheduledNotifiedIDs.contains(schedule.identifier) {
+        for schedule in plan.scheduled where !deliveredIDs.contains(schedule.identifier) {
             do {
                 try await notificationManager.add(Self.notificationRequest(for: schedule, calendar: calendar))
             } catch {
