@@ -60,12 +60,23 @@ struct TranscriptionModel: Identifiable, Hashable, Codable {
 
     final class DownloadTask {
         private let process: Process
+        private let lock = NSLock()
+        private var cancelled = false
 
         init(process: Process) {
             self.process = process
         }
 
+        var isCancelled: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return cancelled
+        }
+
         func cancel() {
+            lock.lock()
+            cancelled = true
+            lock.unlock()
             guard process.isRunning else { return }
             process.terminate()
         }
@@ -290,6 +301,15 @@ struct TranscriptionModel: Identifiable, Hashable, Codable {
             }
             process.standardOutput = stdoutHandle
             process.standardError = stderrHandle
+
+            guard !task.isCancelled else {
+                try? stdoutHandle.close()
+                try? stderrHandle.close()
+                DispatchQueue.main.async {
+                    completion(.failure(.downloadFailed(exitCode: -1, output: "Cancelled")))
+                }
+                return
+            }
 
             do {
                 try process.run()
