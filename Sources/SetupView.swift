@@ -3,6 +3,7 @@ import AVFoundation
 import Combine
 import Foundation
 import ServiceManagement
+import UserNotifications
 
 private struct SetupProviderSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
@@ -63,6 +64,7 @@ struct SetupView: View {
         case speechRecognition
         case accessibility
         case screenRecording
+        case notifications
         case holdShortcut
         case toggleShortcut
         case commandMode
@@ -75,6 +77,7 @@ struct SetupView: View {
     @State private var currentStep = SetupStep.welcome
     @State private var micPermissionGranted = false
     @State private var accessibilityGranted = false
+    @State private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
     @State private var apiKeyInput: String = ""
     @State private var apiBaseURLInput: String = ""
     @State private var transcriptionAPIURLInput: String = ""
@@ -139,11 +142,20 @@ struct SetupView: View {
                     Group {
                         if currentStep != .ready {
                             if currentStep == .apiKey {
-                                Button(isValidatingKey ? "Validating..." : "Continue") {
-                                    validateAndContinue()
+                                HStack {
+                                    Button(SetupFlow.localOnlySkipButtonTitle) {
+                                        skipAPIKeyForLocalOnly()
+                                    }
+                                    .buttonStyle(.plain)
+                                    .foregroundStyle(.secondary)
+                                    .disabled(isValidatingKey)
+
+                                    Button(isValidatingKey ? "Validating..." : "Continue") {
+                                        validateAndContinue()
+                                    }
+                                    .keyboardShortcut(.defaultAction)
+                                    .disabled(apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isValidatingKey)
                                 }
-                                .keyboardShortcut(.defaultAction)
-                                .disabled(apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isValidatingKey)
                             } else if currentStep == .vocabulary {
                                 Button("Continue") {
                                     saveCustomVocabularyAndContinue()
@@ -199,6 +211,7 @@ struct SetupView: View {
             customVocabularyInput = appState.customVocabulary
             checkMicPermission()
             checkAccessibility()
+            refreshNotificationAuthorizationStatus()
             Task {
                 await githubCache.fetchIfNeeded()
             }
@@ -223,6 +236,9 @@ struct SetupView: View {
                 appState.resumeHotkeyMonitoringAfterShortcutCapture()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            refreshNotificationAuthorizationStatus()
+        }
     }
 
     @ViewBuilder
@@ -240,6 +256,8 @@ struct SetupView: View {
             accessibilityStep
         case .screenRecording:
             screenRecordingStep
+        case .notifications:
+            notificationsStep
         case .holdShortcut:
             holdShortcutStep
         case .toggleShortcut:
@@ -392,7 +410,7 @@ struct SetupView: View {
                     .font(.title)
                     .fontWeight(.bold)
 
-                Text("Enter an API key for your OpenAI-compatible provider. If you are not using Groq, expand the advanced provider settings and enter that provider's base URL and model IDs before continuing.")
+                Text("Add an API key for cloud transcription, AI cleanup, context-aware output, and Edit Mode. If you only want local transcription right now, skip this step and configure an API provider later in Settings.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -417,7 +435,7 @@ struct SetupView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("API Key")
                             .font(.headline)
-                        SecureField("Paste your API key", text: $apiKeyInput)
+                        SecureField("Paste your API key (optional for local-only)", text: $apiKeyInput)
                             .textFieldStyle(.roundedBorder)
                             .font(.system(.body, design: .monospaced))
                             .disabled(isValidatingKey)
@@ -651,6 +669,57 @@ struct SetupView: View {
         }
         .onDisappear {
             screenRecordingTimer?.invalidate()
+        }
+    }
+
+    var notificationsStep: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "bell.badge.fill")
+                .font(.system(size: 60))
+                .foregroundStyle(.blue)
+
+            Text("Notifications")
+                .font(.title)
+                .fontWeight(.bold)
+
+            Text("Quill can show calendar recording reminders before meetings so you can start recording from the notification.")
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Text("This permission is optional. You can skip it now and enable notifications later in Settings.")
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.orange)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack {
+                Image(systemName: "bell.fill")
+                    .frame(width: 24)
+                    .foregroundStyle(.blue)
+                Text("Notifications")
+                Spacer()
+                if notificationAuthorizationGranted {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("Granted")
+                        .foregroundStyle(.green)
+                } else {
+                    Button(SetupFlow.notificationPermissionActionTitle(for: notificationAuthorizationStatus)) {
+                        if notificationAuthorizationStatus == .denied {
+                            openNotificationSettings()
+                        } else {
+                            requestNotificationPermission()
+                        }
+                    }
+                }
+            }
+            .padding(12)
+            .background(Color(nsColor: .controlBackgroundColor))
+            .cornerRadius(8)
+        }
+        .onAppear {
+            refreshNotificationAuthorizationStatus()
         }
     }
 
@@ -1067,7 +1136,7 @@ struct SetupView: View {
             return appState.hasSpeechRecognitionPermission
         case .accessibility:
             return accessibilityGranted
-        case .screenRecording:
+        case .screenRecording, .notifications:
             return true
         case .testTranscription:
             return testPhase == .done && !testTranscript.isEmpty && testError == nil
@@ -1133,6 +1202,26 @@ struct SetupView: View {
         }
     }
 
+    func skipAPIKeyForLocalOnly() {
+        let skipState = SetupFlow.localOnlySkipState()
+        appState.apiKey = skipState.apiKey
+        appState.transcriptionAPIKey = skipState.transcriptionAPIKey
+        appState.transcriptionAPIURL = skipState.transcriptionAPIURL
+        apiKeyInput = skipState.apiKey
+        transcriptionAPIKeyInput = skipState.transcriptionAPIKey
+        transcriptionAPIURLInput = skipState.transcriptionAPIURL
+        appState.useLocalTranscription = skipState.useLocalTranscription
+        appState.localTranscriptionModel = .find(id: skipState.localTranscriptionModelID)
+        appState.disablePostProcessing = skipState.disablePostProcessing
+        appState.disableContextCapture = skipState.disableContextCapture
+        appState.realtimeStreamingEnabled = skipState.realtimeStreamingEnabled
+        _ = appState.setCommandModeEnabled(skipState.isCommandModeEnabled)
+        keyValidationError = nil
+        withAnimation {
+            currentStep = nextStep(currentStep)
+        }
+    }
+
     func saveCustomVocabularyAndContinue() {
         appState.customVocabulary = customVocabularyInput.trimmingCharacters(in: .whitespacesAndNewlines)
         withAnimation {
@@ -1180,6 +1269,32 @@ struct SetupView: View {
 
     func requestAccessibility() {
         appState.openAccessibilitySettings()
+    }
+
+    private var notificationAuthorizationGranted: Bool {
+        SetupFlow.isNotificationAuthorizationGranted(notificationAuthorizationStatus)
+    }
+
+    private func requestNotificationPermission() {
+        Task {
+            _ = await AppNotificationManager.shared.requestAuthorization()
+            refreshNotificationAuthorizationStatus()
+        }
+    }
+
+    private func openNotificationSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func refreshNotificationAuthorizationStatus() {
+        Task {
+            let settings = await AppNotificationManager.shared.notificationSettings()
+            await MainActor.run {
+                notificationAuthorizationStatus = settings.authorizationStatus
+            }
+        }
     }
 
     func startScreenRecordingPolling() {

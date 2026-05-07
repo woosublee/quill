@@ -170,3 +170,7 @@ test:
 	@/tmp/GoogleCalendarServiceTests
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/AppNotificationManager.swift Sources/CalendarRecordingReminderScheduler.swift Tests/CalendarRecordingReminderSchedulerTests.swift -o /tmp/CalendarRecordingReminderSchedulerTests
 	@/tmp/CalendarRecordingReminderSchedulerTests
+	@swiftc -parse-as-library Sources/TranscriptionModel.swift Sources/SetupFlow.swift Tests/SetupFlowTests.swift -o /tmp/SetupFlowTests
+	@/tmp/SetupFlowTests
+	@swiftc -parse-as-library -target $(shell uname -m)-apple-macosx13.0 $(filter-out Sources/App.swift,$(SOURCES)) Tests/AppStateTranscriptionConfigurationTests.swift -o /tmp/AppStateTranscriptionConfigurationTests
+	@/tmp/AppStateTranscriptionConfigurationTests
