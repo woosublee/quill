@@ -3458,6 +3458,8 @@ struct ModelRowView: View {
                 .foregroundStyle(.secondary)
         } else if isDownloading {
             downloadProgressView
+        } else if downloadProgress.isCancelled {
+            canceledDownloadView
         } else if isDeleting {
             busyLabel("Deleting...")
         } else if isInstalled {
@@ -3488,24 +3490,33 @@ struct ModelRowView: View {
 
     private var downloadProgressView: some View {
         HStack(spacing: 8) {
+            Text(downloadProgress.displayText)
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minWidth: 104, alignment: .trailing)
+
             ZStack {
-                if let fractionCompleted = downloadProgress.fractionCompleted {
-                    DonutProgressView(fractionCompleted: fractionCompleted)
-                        .opacity(isHoveringDownloadProgress ? 0.25 : 1)
-                } else {
-                    ProgressView()
-                        .controlSize(.small)
-                        .opacity(isHoveringDownloadProgress ? 0.25 : 1)
-                }
-                if isHoveringDownloadProgress {
-                    Button {
-                        cancelDownload()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 8, weight: .bold))
+                if !downloadProgress.isCancelled {
+                    if let fractionCompleted = downloadProgress.fractionCompleted {
+                        DonutProgressView(fractionCompleted: fractionCompleted)
+                            .opacity(isHoveringDownloadProgress ? 0.25 : 1)
+                    } else {
+                        ProgressView()
+                            .controlSize(.small)
+                            .opacity(isHoveringDownloadProgress ? 0.25 : 1)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+                    if isHoveringDownloadProgress {
+                        Button {
+                            cancelDownload()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 8, weight: .bold))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                    }
                 }
             }
             .frame(width: 24, height: 24)
@@ -3513,13 +3524,22 @@ struct ModelRowView: View {
             .onHover { hovering in
                 isHoveringDownloadProgress = hovering
             }
+        }
+    }
 
+    private var canceledDownloadView: some View {
+        HStack(spacing: 8) {
             Text(downloadProgress.displayText)
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .frame(minWidth: 104, alignment: .leading)
+                .frame(minWidth: 72, alignment: .trailing)
+            Button("Download") {
+                downloadModel()
+            }
+            .font(.caption)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
         }
     }
 
@@ -3564,8 +3584,13 @@ struct ModelRowView: View {
         downloadTask?.cancel()
         downloadTask = nil
         isDownloading = false
+        try? model.deleteIncompleteDownloadFiles()
+        downloadProgress = TranscriptionModel.DownloadProgress(
+            downloadedBytes: model.downloadProgress().downloadedBytes,
+            totalBytes: downloadProgress.totalBytes,
+            isCancelled: true
+        )
         refreshInstallState()
-        errorMessage = "Download canceled."
     }
 
     private func deleteModelCache() {

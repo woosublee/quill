@@ -42,6 +42,13 @@ struct TranscriptionModel: Identifiable, Hashable, Codable {
     struct DownloadProgress: Equatable {
         let downloadedBytes: Int64
         let totalBytes: Int64?
+        let isCancelled: Bool
+
+        init(downloadedBytes: Int64, totalBytes: Int64?, isCancelled: Bool = false) {
+            self.downloadedBytes = downloadedBytes
+            self.totalBytes = totalBytes
+            self.isCancelled = isCancelled
+        }
 
         var fractionCompleted: Double? {
             guard let totalBytes, totalBytes > 0 else { return nil }
@@ -49,6 +56,7 @@ struct TranscriptionModel: Identifiable, Hashable, Codable {
         }
 
         var displayText: String {
+            if isCancelled { return "Canceled" }
             guard downloadedBytes > 0 else { return "Starting..." }
             let sizeText = ByteCountFormatter.string(fromByteCount: downloadedBytes, countStyle: .file)
             if let fractionCompleted {
@@ -183,6 +191,7 @@ struct TranscriptionModel: Identifiable, Hashable, Codable {
         let blobsDir = cacheDir.appendingPathComponent("blobs")
         if let blobs = try? fileManager.contentsOfDirectory(at: blobsDir, includingPropertiesForKeys: [.fileSizeKey]) {
             for blob in blobs {
+                guard !blob.lastPathComponent.hasSuffix(".incomplete") else { continue }
                 let size = (try? blob.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
                 if size > 100_000_000 {
                     return true
@@ -208,6 +217,27 @@ struct TranscriptionModel: Identifiable, Hashable, Codable {
             return total + size
         }
         return DownloadProgress(downloadedBytes: downloadedBytes, totalBytes: estimatedDownloadBytes)
+    }
+
+    func deleteIncompleteDownloadFiles(
+        in hubRoot: URL = TranscriptionModel.huggingFaceHubCacheRoot(),
+        fileManager: FileManager = .default
+    ) throws {
+        guard !isAppleSpeech else { return }
+
+        let blobsDir = cacheDirectory(in: hubRoot).appendingPathComponent("blobs")
+        let blobs = (try? fileManager.contentsOfDirectory(at: blobsDir, includingPropertiesForKeys: nil)) ?? []
+        for blob in blobs where blob.lastPathComponent.hasSuffix(".incomplete") {
+            do {
+                try fileManager.removeItem(at: blob)
+            } catch {
+                let nsError = error as NSError
+                if nsError.domain == NSCocoaErrorDomain, nsError.code == NSFileNoSuchFileError {
+                    continue
+                }
+                throw TranscriptionModelCacheError.deleteFailed(error.localizedDescription)
+            }
+        }
     }
 
     func deleteCache(
