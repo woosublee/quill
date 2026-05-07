@@ -1474,6 +1474,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         try TranscriptionService(
             apiKey: resolvedTranscriptionAPIKey,
             baseURL: resolvedTranscriptionBaseURL,
+            useLocalTranscription: useLocalTranscription,
+            localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath,
+            transcriptionLanguage: transcriptionLanguage,
+            localTranscriptionModel: localTranscriptionModel,
             transcriptionModel: transcriptionModel
         )
     }
@@ -4507,7 +4511,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func startRealtimeStreamingIfEnabled() {
-        guard realtimeStreamingEnabled else { return }
+        guard realtimeStreamingEnabled, !useLocalTranscription else { return }
         let trimmedBase = resolvedTranscriptionBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedBase.isEmpty else {
             os_log(.info, log: recordingLog, "realtime streaming requested but base URL is empty — skipping")
