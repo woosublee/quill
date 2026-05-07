@@ -154,6 +154,15 @@ struct RecordingOverlayGeometry {
         if let existingLockedWidth { return existingLockedWidth }
         return wasNotchSideRecordingLayout ? centeredTranscribingWidth : currentPanelWidth
     }
+
+    static func centeredFrame(screenFrame: CGRect, width: CGFloat, height: CGFloat) -> NSRect {
+        NSRect(
+            x: screenFrame.midX - width / 2,
+            y: screenFrame.maxY - height,
+            width: width,
+            height: height
+        )
+    }
 }
 
 // MARK: - Manager
@@ -162,6 +171,7 @@ final class RecordingOverlayManager {
     private var overlayWindow: NSPanel?
     private let overlayState = RecordingOverlayState()
     private var lockedOverlayWidth: CGFloat?
+    private var screenParametersObserver: NSObjectProtocol?
     private let notchSideRegionWidth: CGFloat = 92
     private let notchSidePanelHeight: CGFloat = 38
     private let notchSideHorizontalInset: CGFloat = 8
@@ -170,6 +180,22 @@ final class RecordingOverlayManager {
 
     var onStopButtonPressed: (() -> Void)?
     var onUpdateOverlayPressed: (() -> Void)?
+
+    init() {
+        screenParametersObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleScreenParametersChanged()
+        }
+    }
+
+    deinit {
+        if let screenParametersObserver {
+            NotificationCenter.default.removeObserver(screenParametersObserver)
+        }
+    }
 
     private var screenHasNotch: Bool {
         guard let screen = NSScreen.main else { return false }
@@ -337,6 +363,10 @@ final class RecordingOverlayManager {
         resize(panel: panel, to: frame, animated: animated)
     }
 
+    private func handleScreenParametersChanged() {
+        updateOverlayLayout(animated: false)
+    }
+
     private func setTranscribingPhase() {
         lockedOverlayWidth = RecordingOverlayGeometry.lockedTranscribingWidth(
             existingLockedWidth: lockedOverlayWidth,
@@ -410,9 +440,7 @@ final class RecordingOverlayManager {
         let width = overlayWidth
         let overlap = screenHasNotch ? notchOverlap : 0
         let height: CGFloat = 38 + overlap
-        let x = screen.frame.midX - width / 2
-        let y = screen.frame.maxY - height
-        return NSRect(x: x, y: y, width: width, height: height)
+        return RecordingOverlayGeometry.centeredFrame(screenFrame: screen.frame, width: width, height: height)
     }
 
     private var centeredTranscribingOverlayWidth: CGFloat {
