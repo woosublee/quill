@@ -3517,7 +3517,9 @@ struct ModelRowView: View {
             Text(downloadProgress.displayText)
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
-                .frame(width: 78, alignment: .leading)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minWidth: 104, alignment: .leading)
         }
     }
 
