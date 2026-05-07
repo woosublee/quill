@@ -8,6 +8,8 @@ struct TranscriptionModelCacheTests {
         try testSnapshotWeightsNPZMarksModelInstalled()
         try testSnapshotWeightsSafetensorsMarksModelInstalled()
         try testLargeBlobMarksModelInstalled()
+        try testIncompleteLargeBlobDoesNotMarkModelInstalled()
+        try testDeleteIncompleteDownloadFilesRemovesOnlyIncompleteBlobs()
         try testDeleteRemovesOnlySelectedModelCache()
         try testDeleteRejectsAppleSpeech()
         try testDeleteMissingCacheSucceeds()
@@ -15,6 +17,7 @@ struct TranscriptionModelCacheTests {
         try testPythonDownloaderPreservesEnvShebangArguments()
         try testDownloadProgressCountsCachedBytes()
         try testZeroByteDownloadProgressUsesStartingLabel()
+        try testCanceledDownloadProgressUsesCanceledLabel()
         try testDownloadTaskCancelTerminatesAttachedProcess()
         try testDownloadTaskRemembersCancellationBeforeProcessStarts()
         try testDownloadTaskDeinitTerminatesAttachedProcess()
@@ -71,6 +74,38 @@ struct TranscriptionModelCacheTests {
         try handle.close()
 
         assert(model.isInstalled(in: hubRoot))
+    }
+
+    private static func testIncompleteLargeBlobDoesNotMarkModelInstalled() throws {
+        let hubRoot = temporaryHubRoot()
+        defer { try? FileManager.default.removeItem(at: hubRoot) }
+        let model = TranscriptionModel.find(id: "mlx-community/whisper-small-mlx")
+        let blobs = model.cacheDirectory(in: hubRoot).appendingPathComponent("blobs")
+        try FileManager.default.createDirectory(at: blobs, withIntermediateDirectories: true)
+        let blob = blobs.appendingPathComponent("large-blob.incomplete")
+        FileManager.default.createFile(atPath: blob.path, contents: Data())
+        let handle = try FileHandle(forWritingTo: blob)
+        try handle.truncate(atOffset: 100_000_001)
+        try handle.close()
+
+        assert(!model.isInstalled(in: hubRoot))
+    }
+
+    private static func testDeleteIncompleteDownloadFilesRemovesOnlyIncompleteBlobs() throws {
+        let hubRoot = temporaryHubRoot()
+        defer { try? FileManager.default.removeItem(at: hubRoot) }
+        let model = TranscriptionModel.find(id: "mlx-community/whisper-large-v3-turbo")
+        let blobs = model.cacheDirectory(in: hubRoot).appendingPathComponent("blobs")
+        try FileManager.default.createDirectory(at: blobs, withIntermediateDirectories: true)
+        let completeBlob = blobs.appendingPathComponent("complete")
+        let incompleteBlob = blobs.appendingPathComponent("partial.incomplete")
+        FileManager.default.createFile(atPath: completeBlob.path, contents: Data())
+        FileManager.default.createFile(atPath: incompleteBlob.path, contents: Data())
+
+        try model.deleteIncompleteDownloadFiles(in: hubRoot)
+
+        assert(FileManager.default.fileExists(atPath: completeBlob.path))
+        assert(!FileManager.default.fileExists(atPath: incompleteBlob.path))
     }
 
     private static func testDeleteRemovesOnlySelectedModelCache() throws {
@@ -171,6 +206,12 @@ struct TranscriptionModelCacheTests {
         let progress = TranscriptionModel.DownloadProgress(downloadedBytes: 0, totalBytes: 100)
 
         assert(progress.displayText == "Starting...")
+    }
+
+    private static func testCanceledDownloadProgressUsesCanceledLabel() throws {
+        let progress = TranscriptionModel.DownloadProgress(downloadedBytes: 1_000, totalBytes: 100_000, isCancelled: true)
+
+        assert(progress.displayText == "Canceled")
     }
 
     private static func testDownloadTaskCancelTerminatesAttachedProcess() throws {
