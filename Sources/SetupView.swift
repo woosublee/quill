@@ -1204,6 +1204,12 @@ struct SetupView: View {
 
     func skipAPIKeyForLocalOnly() {
         let skipState = SetupFlow.localOnlySkipState()
+        appState.apiKey = skipState.apiKey
+        appState.transcriptionAPIKey = skipState.transcriptionAPIKey
+        appState.transcriptionAPIURL = skipState.transcriptionAPIURL
+        apiKeyInput = skipState.apiKey
+        transcriptionAPIKeyInput = skipState.transcriptionAPIKey
+        transcriptionAPIURLInput = skipState.transcriptionAPIURL
         appState.useLocalTranscription = skipState.useLocalTranscription
         appState.localTranscriptionModel = .find(id: skipState.localTranscriptionModelID)
         appState.disablePostProcessing = skipState.disablePostProcessing

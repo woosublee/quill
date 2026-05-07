@@ -4,6 +4,7 @@ import Foundation
 struct AppStateTranscriptionConfigurationTests {
     static func main() throws {
         try testMakeTranscriptionServiceUsesLocalConfiguration()
+        try testMakeTranscriptionServiceMapsEmptyLocalWhisperPathToNil()
         print("AppStateTranscriptionConfigurationTests passed")
     }
 
@@ -22,6 +23,18 @@ struct AppStateTranscriptionConfigurationTests {
         assert(configuration.localTranscriptionModelID == "apple-speech")
         assert(configuration.transcriptionLanguageCode == "en")
         assert(configuration.localWhisperPath == "/tmp/quill-test-mlx-whisper")
+    }
+
+    private static func testMakeTranscriptionServiceMapsEmptyLocalWhisperPathToNil() throws {
+        resetDefaults()
+        let appState = AppState()
+        appState.useLocalTranscription = true
+        appState.localWhisperPath = ""
+
+        let service = try appState.makeTranscriptionService()
+        let configuration = mirroredTranscriptionConfiguration(service)
+
+        assert(configuration.localWhisperPath == nil)
     }
 
     private static func resetDefaults() {

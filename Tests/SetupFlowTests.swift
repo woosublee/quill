@@ -6,6 +6,7 @@ struct SetupFlowTests {
     static func main() {
         testLocalOnlySkipButtonTitleIsShort()
         testLocalOnlySkipStateUsesAppleSpeech()
+        testLocalOnlySkipStateClearsCloudCredentials()
         testNotificationAuthorizationGrantedStates()
         testNotificationActionTitles()
         print("SetupFlowTests passed")
@@ -24,6 +25,14 @@ struct SetupFlowTests {
         assert(state.disableContextCapture)
         assert(!state.realtimeStreamingEnabled)
         assert(!state.isCommandModeEnabled)
+    }
+
+    private static func testLocalOnlySkipStateClearsCloudCredentials() {
+        let state = SetupFlow.localOnlySkipState()
+
+        assert(state.apiKey.isEmpty)
+        assert(state.transcriptionAPIKey.isEmpty)
+        assert(state.transcriptionAPIURL.isEmpty)
     }
 
     private static func testNotificationAuthorizationGrantedStates() {

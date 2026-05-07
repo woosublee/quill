@@ -6,6 +6,9 @@ enum SetupFlow {
     struct LocalOnlySkipState: Equatable {
         let useLocalTranscription: Bool
         let localTranscriptionModelID: String
+        let apiKey: String
+        let transcriptionAPIKey: String
+        let transcriptionAPIURL: String
         let disablePostProcessing: Bool
         let disableContextCapture: Bool
         let realtimeStreamingEnabled: Bool
@@ -15,7 +18,10 @@ enum SetupFlow {
     static func localOnlySkipState() -> LocalOnlySkipState {
         LocalOnlySkipState(
             useLocalTranscription: true,
-            localTranscriptionModelID: TranscriptionModel.default.id,
+            localTranscriptionModelID: "apple-speech",
+            apiKey: "",
+            transcriptionAPIKey: "",
+            transcriptionAPIURL: "",
             disablePostProcessing: true,
             disableContextCapture: true,
             realtimeStreamingEnabled: false,
