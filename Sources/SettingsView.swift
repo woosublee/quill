@@ -1402,10 +1402,16 @@ struct GeneralSettingsView: View {
                         isSelected: appState.localTranscriptionModel == model,
                         whisperBin: appState.localWhisperPath.isEmpty
                             ? "\(FileManager.default.homeDirectoryForCurrentUser.path)/.local/bin/mlx_whisper"
-                            : appState.localWhisperPath
-                    ) {
-                        appState.localTranscriptionModel = model
-                    }
+                            : appState.localWhisperPath,
+                        onSelect: {
+                            appState.localTranscriptionModel = model
+                        },
+                        onDeleted: {
+                            if appState.localTranscriptionModel == model {
+                                appState.localTranscriptionModel = .default
+                            }
+                        }
+                    )
                 }
             }
 
@@ -3350,66 +3356,74 @@ struct VoiceMacroEditorView: View {
 
 // MARK: - Model Row View
 
+struct DonutProgressView: View {
+    let fractionCompleted: Double
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.secondary.opacity(0.18), lineWidth: 3)
+            Circle()
+                .trim(from: 0, to: fractionCompleted)
+                .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: 18, height: 18)
+    }
+}
+
 struct ModelRowView: View {
     let model: TranscriptionModel
     let isSelected: Bool
     let whisperBin: String
     let onSelect: () -> Void
+    let onDeleted: () -> Void
 
     @State private var isInstalled: Bool = false
     @State private var isDownloading: Bool = false
+    @State private var isDeleting: Bool = false
+    @State private var downloadTask: TranscriptionModel.DownloadTask?
+    @State private var downloadProgress = TranscriptionModel.DownloadProgress(downloadedBytes: 0, totalBytes: nil)
+    @State private var downloadWasCancelled = false
+    @State private var isHoveringDownloadProgress = false
+    @State private var errorMessage: String?
+    @State private var showDeleteConfirmation = false
+
+    private var isBusy: Bool {
+        isDownloading || isDeleting
+    }
 
     var body: some View {
-        HStack(spacing: 10) {
-            // 선택 영역 (설치된 경우만 클릭 가능)
-            Button {
-                onSelect()
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                        .foregroundStyle(isInstalled ? Color.accentColor : .secondary)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(model.displayName)
-                            .font(.caption.weight(isSelected ? .semibold : .regular))
-                        Text(model.description)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Button {
+                    onSelect()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                            .foregroundStyle(isInstalled ? Color.accentColor : .secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(model.displayName)
+                                .font(.caption.weight(isSelected ? .semibold : .regular))
+                            Text(model.description)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!isInstalled)
+                .buttonStyle(.plain)
+                .disabled(!isInstalled || isBusy)
 
-            // 상태 / 다운로드 버튼
-            if model.isAppleSpeech {
-                Label("Built-in", systemImage: "apple.logo")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else if isDownloading {
-                HStack(spacing: 4) {
-                    ProgressView()
-                        .controlSize(.mini)
-                    Text("Downloading...")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            } else if isInstalled {
-                Label("Installed", systemImage: "checkmark.circle.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.green)
-            } else {
-                Button("Download") {
-                    isDownloading = true
-                    model.download(whisperBin: whisperBin) { success in
-                        isDownloading = false
-                        isInstalled = success || model.isInstalled
-                    }
-                }
-                .font(.caption)
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                modelActionView
+            }
+
+            if let errorMessage {
+                Label(errorMessage, systemImage: "xmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(8)
@@ -3419,8 +3433,158 @@ struct ModelRowView: View {
             RoundedRectangle(cornerRadius: 6)
                 .stroke(isSelected ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
         )
+        .confirmationDialog(
+            "Delete \(model.displayName)?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Model", role: .destructive) {
+                deleteModelCache()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the downloaded local model cache for \(model.displayName). You can download it again later.")
+        }
         .onAppear {
-            isInstalled = model.isInstalled
+            refreshInstallState()
+        }
+    }
+
+    @ViewBuilder
+    private var modelActionView: some View {
+        if model.isAppleSpeech {
+            Label("Built-in", systemImage: "apple.logo")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        } else if isDownloading {
+            downloadProgressView
+        } else if isDeleting {
+            busyLabel("Deleting...")
+        } else if isInstalled {
+            HStack(spacing: 8) {
+                Label("Installed", systemImage: "checkmark.circle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.green)
+                Button {
+                    showDeleteConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .font(.caption)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(isBusy)
+            }
+        } else {
+            Button("Download") {
+                downloadModel()
+            }
+            .font(.caption)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(isBusy)
+        }
+    }
+
+    private var downloadProgressView: some View {
+        HStack(spacing: 8) {
+            ZStack {
+                if let fractionCompleted = downloadProgress.fractionCompleted {
+                    DonutProgressView(fractionCompleted: fractionCompleted)
+                        .opacity(isHoveringDownloadProgress ? 0.25 : 1)
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                        .opacity(isHoveringDownloadProgress ? 0.25 : 1)
+                }
+                if isHoveringDownloadProgress {
+                    Button {
+                        cancelDownload()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .bold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 24, height: 24)
+            .contentShape(Circle())
+            .onHover { hovering in
+                isHoveringDownloadProgress = hovering
+            }
+
+            Text(downloadProgress.displayText)
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 78, alignment: .leading)
+        }
+    }
+
+    private func busyLabel(_ title: String) -> some View {
+        HStack(spacing: 4) {
+            ProgressView()
+                .controlSize(.mini)
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func refreshInstallState() {
+        isInstalled = model.isInstalled
+    }
+
+    private func downloadModel() {
+        errorMessage = nil
+        downloadWasCancelled = false
+        downloadProgress = model.downloadProgress()
+        isDownloading = true
+        downloadTask = model.download(
+            whisperBin: whisperBin,
+            progress: { progress in
+                downloadProgress = progress
+            },
+            completion: { result in
+                downloadTask = nil
+                isDownloading = false
+                refreshInstallState()
+                guard !downloadWasCancelled else { return }
+                if case .failure(let error) = result {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        )
+    }
+
+    private func cancelDownload() {
+        downloadWasCancelled = true
+        downloadTask?.cancel()
+        downloadTask = nil
+        isDownloading = false
+        refreshInstallState()
+        errorMessage = "Download canceled."
+    }
+
+    private func deleteModelCache() {
+        errorMessage = nil
+        isDeleting = true
+        let selectedModel = model
+        Task.detached(priority: .utility) {
+            do {
+                try selectedModel.deleteCache()
+                await MainActor.run {
+                    isDeleting = false
+                    refreshInstallState()
+                    onDeleted()
+                }
+            } catch {
+                await MainActor.run {
+                    isDeleting = false
+                    refreshInstallState()
+                    errorMessage = error.localizedDescription
+                }
+            }
         }
     }
 }
