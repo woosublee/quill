@@ -7,6 +7,7 @@ struct RecordingOverlayGeometryTests {
         testNotchSideContentStartsAtTopOfVisiblePill()
         testTranscribingWidthFallsBackToCenteredWidthAfterNotchSideRecording()
         testTranscribingWidthKeepsExistingLockOnRepeatedTranscribingUpdate()
+        testCenteredFrameUsesUpdatedMainScreenGeometry()
         print("RecordingOverlayGeometryTests passed")
     }
 
@@ -51,5 +52,22 @@ struct RecordingOverlayGeometryTests {
         )
 
         assert(lockedWidth == 148)
+    }
+
+    private static func testCenteredFrameUsesUpdatedMainScreenGeometry() {
+        let oldFrame = RecordingOverlayGeometry.centeredFrame(
+            screenFrame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+            width: 92,
+            height: 76
+        )
+        let updatedFrame = RecordingOverlayGeometry.centeredFrame(
+            screenFrame: CGRect(x: 0, y: 0, width: 1728, height: 1117),
+            width: 92,
+            height: 76
+        )
+
+        assert(oldFrame.origin.x == 710)
+        assert(updatedFrame.origin.x == 818)
+        assert(updatedFrame.origin.y == 1041)
     }
 }
