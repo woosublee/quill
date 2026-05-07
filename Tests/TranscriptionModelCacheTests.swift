@@ -16,6 +16,7 @@ struct TranscriptionModelCacheTests {
         try testDownloadProgressCountsCachedBytes()
         try testZeroByteDownloadProgressUsesStartingLabel()
         try testDownloadTaskCancelTerminatesAttachedProcess()
+        try testDownloadTaskDeinitTerminatesAttachedProcess()
         print("TranscriptionModelCacheTests passed")
     }
 
@@ -179,6 +180,21 @@ struct TranscriptionModelCacheTests {
         let task = TranscriptionModel.DownloadTask(process: process)
 
         task.cancel()
+        process.waitUntilExit()
+
+        assert(process.terminationReason == .uncaughtSignal)
+    }
+
+    private static func testDownloadTaskDeinitTerminatesAttachedProcess() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["30"]
+        try process.run()
+
+        do {
+            let task = TranscriptionModel.DownloadTask(process: process)
+            _ = task
+        }
         process.waitUntilExit()
 
         assert(process.terminationReason == .uncaughtSignal)

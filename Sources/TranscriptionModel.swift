@@ -69,6 +69,10 @@ struct TranscriptionModel: Identifiable, Hashable, Codable {
             guard process.isRunning else { return }
             process.terminate()
         }
+
+        deinit {
+            cancel()
+        }
     }
 
     static let all: [TranscriptionModel] = [
