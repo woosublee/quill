@@ -181,8 +181,8 @@ struct TranscriptionModelCacheTests {
         let task = TranscriptionModel.DownloadTask(process: process)
 
         task.cancel()
-        process.waitUntilExit()
 
+        assert(waitForExit(process, timeout: 5))
         assert(process.terminationReason == .uncaughtSignal)
     }
 
@@ -207,9 +207,20 @@ struct TranscriptionModelCacheTests {
             let task = TranscriptionModel.DownloadTask(process: process)
             _ = task
         }
-        process.waitUntilExit()
 
+        assert(waitForExit(process, timeout: 5))
         assert(process.terminationReason == .uncaughtSignal)
+    }
+
+    private static func waitForExit(_ process: Process, timeout seconds: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while process.isRunning, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        if process.isRunning {
+            process.terminate()
+        }
+        return !process.isRunning
     }
 
     private static func temporaryHubRoot() -> URL {
