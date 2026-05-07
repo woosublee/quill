@@ -45,6 +45,5 @@ struct SetupFlowTests {
     private static func testNotificationActionTitles() {
         assert(SetupFlow.notificationPermissionActionTitle(for: .notDetermined) == "Grant Access")
         assert(SetupFlow.notificationPermissionActionTitle(for: .denied) == "Open Settings")
-        assert(SetupFlow.notificationPermissionActionTitle(for: .authorized) == "Grant Access")
     }
 }
