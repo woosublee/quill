@@ -27,6 +27,10 @@ struct ForkReleaseWorkflowTests {
         assertContains(workflow, "prerelease: ${{ steps.metadata.outputs.prerelease }}")
         assertContains(workflow, "make_latest: ${{ steps.metadata.outputs.make_latest }}")
         assertContains(workflow, "macOS may show a first-launch security warning")
+        assertContains(workflow, "DELIM=\"RELEASE_BODY_$(uuidgen)\"")
+        assertContains(workflow, "echo \"body<<$DELIM\"")
+        assertContains(workflow, "echo \"$DELIM\"")
+        assertDoesNotContain(workflow, "body<<EOF")
         assertContains(workflow, "Refuse existing tag")
         assertContains(workflow, "refs/tags/$TAG")
         assertContains(workflow, "already exists")
@@ -42,10 +46,10 @@ struct ForkReleaseWorkflowTests {
     }
 
     private static func assertContains(_ text: String, _ expected: String) {
-        assert(text.contains(expected), "Expected workflow to contain \(expected)")
+        precondition(text.contains(expected), "Expected workflow to contain \(expected)")
     }
 
     private static func assertDoesNotContain(_ text: String, _ unexpected: String) {
-        assert(!text.contains(unexpected), "Expected workflow not to contain \(unexpected)")
+        precondition(!text.contains(unexpected), "Expected workflow not to contain \(unexpected)")
     }
 }
