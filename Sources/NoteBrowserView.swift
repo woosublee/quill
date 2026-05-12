@@ -137,21 +137,6 @@ private struct GlassView: NSViewRepresentable {
     }
 }
 
-// MARK: - Status helpers
-
-private enum TranscriptStatus: Equatable {
-    case done, recording, transcribing, fail
-}
-
-private func transcriptStatus(for item: PipelineHistoryItem, retrying: Set<UUID>) -> TranscriptStatus {
-    if retrying.contains(item.id) { return .transcribing }
-    if item.postProcessingStatus == "live-recording" { return .recording }
-    if item.postProcessingStatus == "importing" { return .transcribing }
-    if item.postProcessingStatus == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus { return .transcribing }
-    if item.postProcessingStatus.hasPrefix("Error:") { return .fail }
-    return .done
-}
-
 // MARK: - Obsidian Export Manager
 
 final class ObsidianExportManager: ObservableObject {
@@ -664,10 +649,12 @@ struct NoteBrowserView: View {
                     LazyVStack(spacing: 2) {
                         ForEach(filteredHistory) { item in
                             NoteListRow(
-                                item: item,
-                                isSelected: selectedItemID == item.id,
-                                customTitle: titleStore.title(for: item.id),
-                                retryingIDs: appState.retryingItemIDs
+                                displayData: NoteListRowDisplayData(
+                                    item: item,
+                                    customTitle: titleStore.title(for: item.id),
+                                    retryingIDs: appState.retryingItemIDs
+                                ),
+                                isSelected: selectedItemID == item.id
                             )
                             .onTapGesture { selectedItemID = item.id }
                         }
@@ -801,25 +788,21 @@ struct NoteBrowserView: View {
 // MARK: - Note List Row
 
 private struct NoteListRow: View {
-    let item: PipelineHistoryItem
+    let displayData: NoteListRowDisplayData
     let isSelected: Bool
-    var customTitle: String? = nil
-    let retryingIDs: Set<UUID>
 
     @EnvironmentObject private var exportManager: ObsidianExportManager
     @Environment(\.colorScheme) private var colorScheme
     @State private var isHovered = false
 
-    private var status: TranscriptStatus { transcriptStatus(for: item, retrying: retryingIDs) }
-
-    private var isExporting: Bool { exportManager.processingIDs.contains(item.id) }
+    private var isExporting: Bool { exportManager.processingIDs.contains(displayData.id) }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             // Content
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 4) {
-                    Text(rowDate)
+                    Text(displayData.rowDate)
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(selectedMetaColor)
                         .textCase(.uppercase)
@@ -836,17 +819,17 @@ private struct NoteListRow: View {
                     statusIndicator
                 }
 
-                Text(displayTitle)
+                Text(displayData.displayTitle)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(selectedTitleColor)
                     .lineLimit(1)
 
-                Text(notePreview.isEmpty ? " " : notePreview)
+                Text(displayData.preview.isEmpty ? " " : displayData.preview)
                     .font(.system(size: 11.5))
                     .foregroundStyle(selectedPreviewColor)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                    .opacity(notePreview.isEmpty ? 0 : 1)
+                    .opacity(displayData.preview.isEmpty ? 0 : 1)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
@@ -903,7 +886,7 @@ private struct NoteListRow: View {
 
     @ViewBuilder
     private var statusIndicator: some View {
-        switch status {
+        switch displayData.status {
         case .done:
             Circle()
                 .fill(Color.green)
@@ -917,34 +900,6 @@ private struct NoteListRow: View {
         }
     }
 
-    private var rowDate: String {
-        let f = DateFormatter()
-        f.dateFormat = "M월 d일 · HH:mm"
-        return f.string(from: item.timestamp)
-    }
-
-    private var normalizedContent: String {
-        item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var displayTitle: String {
-        NoteTitleResolver.displayTitle(for: item, customTitle: customTitle, isTranscribing: status == .transcribing)
-    }
-
-    private var autoTitle: String {
-        NoteTitleResolver.automaticTitle(for: item, isTranscribing: status == .transcribing)
-    }
-
-    private var notePreview: String {
-        if status == .fail { return item.postProcessingStatus.replacingOccurrences(of: "Error: ", with: "") }
-        let content = normalizedContent
-        if customTitle != nil || item.calendarMatch?.appliedTitle != nil {
-            return String(content.prefix(100))
-        }
-        guard content.count > autoTitle.count else { return "" }
-        let rest = content.dropFirst(autoTitle.count).trimmingCharacters(in: .whitespacesAndNewlines)
-        return String(rest.prefix(100))
-    }
 }
 
 // MARK: - Note Detail View
@@ -1838,6 +1793,20 @@ private struct NoteTextView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(onCommit: onCommit) }
 
+    private func configureForTranscriptDisplay(_ textView: NSTextView) {
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.enabledTextCheckingTypes = 0
+        textView.isContinuousSpellCheckingEnabled = false
+        textView.isGrammarCheckingEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.allowsUndo = true
+        textView.layoutManager?.allowsNonContiguousLayout = true
+    }
+
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
@@ -1847,6 +1816,7 @@ private struct NoteTextView: NSViewRepresentable {
         scrollView.borderType = .noBorder
 
         let textView = NSTextView()
+        configureForTranscriptDisplay(textView)
         textView.isEditable = true
         textView.isSelectable = true
         textView.drawsBackground = false

@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 @main
@@ -5,6 +6,7 @@ struct AppStateTranscriptionConfigurationTests {
     static func main() throws {
         try testMakeTranscriptionServiceUsesLocalConfiguration()
         try testMakeTranscriptionServiceMapsEmptyLocalWhisperPathToNil()
+        testPermissionStatusUpdateSkipsUnchangedValues()
         print("AppStateTranscriptionConfigurationTests passed")
     }
 
@@ -35,6 +37,22 @@ struct AppStateTranscriptionConfigurationTests {
         let configuration = mirroredTranscriptionConfiguration(service)
 
         assert(configuration.localWhisperPath == nil)
+    }
+
+    private static func testPermissionStatusUpdateSkipsUnchangedValues() {
+        resetDefaults()
+        let appState = AppState()
+        appState.updatePermissionStatus(accessibility: true, screenRecording: true)
+
+        var changeCount = 0
+        let cancellable = appState.objectWillChange.sink { _ in
+            changeCount += 1
+        }
+
+        appState.updatePermissionStatus(accessibility: true, screenRecording: true)
+        cancellable.cancel()
+
+        assert(changeCount == 0, "Expected unchanged permission status to skip publishing, got \(changeCount) updates")
     }
 
     private static func resetDefaults() {
