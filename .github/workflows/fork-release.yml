@@ -58,7 +58,12 @@ jobs:
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "release_name=$RELEASE_NAME" >> "$GITHUB_OUTPUT"
+          RELEASE_NAME_DELIM="RELEASE_NAME_$(uuidgen)"
+          {
+            echo "release_name<<$RELEASE_NAME_DELIM"
+            printf '%s\n' "$RELEASE_NAME"
+            echo "$RELEASE_NAME_DELIM"
+          } >> "$GITHUB_OUTPUT"
           echo "prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
           echo "make_latest=$MAKE_LATEST" >> "$GITHUB_OUTPUT"
 
