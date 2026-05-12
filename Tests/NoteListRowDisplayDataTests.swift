@@ -7,7 +7,9 @@ struct NoteListRowDisplayDataTests {
         testUsesCustomTitleAndContentPreview()
         testDropsAutomaticTitleFromPreview()
         testFailurePreviewUsesErrorMessage()
+        testFailurePreviewHandlesMissingSpaceAfterPrefix()
         testTranscribingTitleAndEmptyPreview()
+        testRetryingItemHidesExistingPreview()
         print("NoteListRowDisplayDataTests passed")
     }
 
@@ -60,6 +62,18 @@ struct NoteListRowDisplayDataTests {
         assert(data.preview == "Network unavailable")
     }
 
+    private static func testFailurePreviewHandlesMissingSpaceAfterPrefix() {
+        let item = historyItem(
+            transcript: "Ignored transcript",
+            postProcessingStatus: "Error:Network unavailable"
+        )
+
+        let data = NoteListRowDisplayData(item: item, customTitle: nil, retryingIDs: [])
+
+        assert(data.status == .fail)
+        assert(data.preview == "Network unavailable", "Unexpected failure preview: \(data.preview)")
+    }
+
     private static func testTranscribingTitleAndEmptyPreview() {
         let id = UUID()
         let item = historyItem(id: id, transcript: "", postProcessingStatus: "importing")
@@ -69,6 +83,16 @@ struct NoteListRowDisplayDataTests {
         assert(data.status == .transcribing)
         assert(data.displayTitle == "Transcribing...")
         assert(data.preview.isEmpty)
+    }
+
+    private static func testRetryingItemHidesExistingPreview() {
+        let id = UUID()
+        let item = historyItem(id: id, transcript: "Previous title\nPrevious content")
+
+        let data = NoteListRowDisplayData(item: item, customTitle: nil, retryingIDs: [id])
+
+        assert(data.status == .transcribing)
+        assert(data.preview.isEmpty, "Expected retrying item to hide stale preview, got: \(data.preview)")
     }
 
     private static func historyItem(

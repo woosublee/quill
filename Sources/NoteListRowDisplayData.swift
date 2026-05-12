@@ -58,7 +58,11 @@ struct NoteListRowDisplayData: Equatable {
         displayTitle: String
     ) -> String {
         if status == .fail {
-            return item.postProcessingStatus.replacingOccurrences(of: "Error: ", with: "")
+            return String(item.postProcessingStatus.dropFirst("Error:".count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if status == .transcribing {
+            return ""
         }
         if customTitle != nil || item.calendarMatch?.appliedTitle != nil {
             return String(content.prefix(100))
