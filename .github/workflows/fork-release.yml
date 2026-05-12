@@ -1,0 +1,132 @@
+name: Fork Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v0.1.0 or v0.1.0-beta.1"
+        required: true
+        type: string
+      release_name:
+        description: "Release title. Defaults to Quill <tag>."
+        required: false
+        type: string
+      release_notes:
+        description: "Optional release notes appended below the installation note."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-release-${{ github.event.inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release metadata
+        id: metadata
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_RELEASE_NAME: ${{ inputs.release_name }}
+        run: |
+          TAG="$INPUT_TAG"
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]]; then
+            echo "Fork release tags must look like v0.1.0 or v0.1.0-beta.1." >&2
+            exit 1
+          fi
+
+          VERSION="${TAG#v}"
+          RELEASE_NAME="$INPUT_RELEASE_NAME"
+          if [ -z "$RELEASE_NAME" ]; then
+            RELEASE_NAME="Quill $TAG"
+          fi
+
+          IS_PRERELEASE=false
+          MAKE_LATEST=true
+          if [[ "$VERSION" == *-* ]]; then
+            IS_PRERELEASE=true
+            MAKE_LATEST=false
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          RELEASE_NAME_DELIM="RELEASE_NAME_$(uuidgen)"
+          {
+            echo "release_name<<$RELEASE_NAME_DELIM"
+            printf '%s\n' "$RELEASE_NAME"
+            echo "$RELEASE_NAME_DELIM"
+          } >> "$GITHUB_OUTPUT"
+          echo "prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "make_latest=$MAKE_LATEST" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse existing tag
+        run: |
+          TAG="${{ steps.metadata.outputs.tag }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Release tag $TAG already exists on origin. Choose a new fork-owned release tag." >&2
+            exit 1
+          fi
+
+      - name: Stamp app version
+        run: |
+          plutil -replace CFBundleShortVersionString -string "${{ steps.metadata.outputs.version }}" Info.plist
+          plutil -replace CFBundleVersion -string "${{ github.run_number }}" Info.plist
+          plutil -replace QuillBuildTag -string "${{ steps.metadata.outputs.tag }}" Info.plist
+
+      - name: Install build tools
+        run: brew install create-dmg fileicon
+
+      - name: Build universal DMG
+        run: make dmg ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY=-
+
+      - name: Save DMG
+        run: mv build/Quill.dmg Quill.dmg
+
+      - name: Build release notes
+        id: release_notes
+        env:
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+        run: |
+          {
+            DELIM="RELEASE_BODY_$(uuidgen)"
+            echo "body<<$DELIM"
+            echo "## Installation note"
+            echo
+            echo "This is a release build from the woosublee/freeflow fork."
+            echo
+            echo "- macOS may show a first-launch security warning."
+            echo "- If that happens, open System Settings > Privacy & Security and choose Open Anyway."
+            echo "- Only run this build if you trust this fork release."
+            echo
+            echo "## Download"
+            echo
+            echo "**Quill.dmg** — Universal build for Apple Silicon and Intel Macs."
+            if [ -n "$RELEASE_NOTES" ]; then
+              echo
+              echo "## Notes"
+              echo
+              printf '%s\n' "$RELEASE_NOTES"
+            fi
+            echo "$DELIM"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create release
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        with:
+          tag_name: ${{ steps.metadata.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ steps.metadata.outputs.release_name }}
+          body: ${{ steps.release_notes.outputs.body }}
+          generate_release_notes: false
+          make_latest: ${{ steps.metadata.outputs.make_latest }}
+          prerelease: ${{ steps.metadata.outputs.prerelease }}
+          files: |
+            Quill.dmg
