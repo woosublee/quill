@@ -67,8 +67,10 @@ struct NoteListRowDisplayData: Equatable {
         if customTitle != nil || item.calendarMatch?.appliedTitle != nil {
             return String(content.prefix(100))
         }
-        guard content.count > displayTitle.count else { return "" }
-        let rest = content.dropFirst(displayTitle.count).trimmingCharacters(in: .whitespacesAndNewlines)
-        return String(rest.prefix(100))
+        if content.hasPrefix(displayTitle) {
+            let rest = content.dropFirst(displayTitle.count).trimmingCharacters(in: .whitespacesAndNewlines)
+            return String(rest.prefix(100))
+        }
+        return String(content.prefix(100))
     }
 }
