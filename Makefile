@@ -166,6 +166,8 @@ test:
 	@/tmp/NoteTitleResolutionTests
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Sources/NoteListRowDisplayData.swift Tests/NoteListRowDisplayDataTests.swift -o /tmp/NoteListRowDisplayDataTests
 	@/tmp/NoteListRowDisplayDataTests
+	@swiftc -parse-as-library Tests/ForkPrereleaseWorkflowTests.swift -o /tmp/ForkPrereleaseWorkflowTests
+	@/tmp/ForkPrereleaseWorkflowTests
 	@swiftc -parse-as-library Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Tests/PipelineHistoryCalendarMetadataTests.swift -o /tmp/PipelineHistoryCalendarMetadataTests
 	@/tmp/PipelineHistoryCalendarMetadataTests
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/GoogleCalendarTokenStore.swift Sources/GoogleCalendarAuthService.swift Sources/GoogleCalendarService.swift Tests/GoogleCalendarServiceTests.swift -o /tmp/GoogleCalendarServiceTests
