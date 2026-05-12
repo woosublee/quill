@@ -49,7 +49,7 @@ The fork release workflow creates a GitHub release for a new supplied tag. It re
 
 ## Versioning
 
-Use `v0.1.0-beta.1` if the first public build should be marked as prerelease quality in GitHub, or `v0.1.0` if it should be published as the latest release. Increment prerelease suffixes for testing iterations, for example `v0.1.0-beta.2`, then publish `v0.1.0` when that line is ready to be the latest release. Increment patch versions for follow-up fixes, for example `v0.1.1`, and reserve minor versions for user-visible feature batches.
+Use `v0.1.0-beta.1` for the first fork release. The workflow stamps `CFBundleShortVersionString` from the tag without the leading `v`, so the app's settings screen and menu bar display `0.1.0-beta.1` automatically while `QuillBuildTag` retains the full tag `v0.1.0-beta.1` for diagnostics. Increment prerelease suffixes for testing iterations, for example `v0.1.0-beta.2`, then publish `v0.1.0` when that line is ready to be the latest release. Increment patch versions for follow-up fixes, for example `v0.1.1`, and reserve minor versions for user-visible feature batches.
 
 ## Inherited tag strategy
 
