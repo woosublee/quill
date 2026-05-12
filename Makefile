@@ -168,6 +168,8 @@ test:
 	@/tmp/NoteListRowDisplayDataTests
 	@swiftc -parse-as-library Tests/ForkReleaseWorkflowTests.swift -o /tmp/ForkReleaseWorkflowTests
 	@/tmp/ForkReleaseWorkflowTests
+	@swiftc -parse-as-library Tests/ReleaseSDKCompatibilityTests.swift -o /tmp/ReleaseSDKCompatibilityTests
+	@/tmp/ReleaseSDKCompatibilityTests
 	@swiftc -parse-as-library Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Tests/PipelineHistoryCalendarMetadataTests.swift -o /tmp/PipelineHistoryCalendarMetadataTests
 	@/tmp/PipelineHistoryCalendarMetadataTests
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/GoogleCalendarTokenStore.swift Sources/GoogleCalendarAuthService.swift Sources/GoogleCalendarService.swift Tests/GoogleCalendarServiceTests.swift -o /tmp/GoogleCalendarServiceTests

@@ -84,43 +84,11 @@ private class GlassNSView: NSView {
     }
 }
 
-@available(macOS 26.0, *)
-private class LiquidGlassNSView: NSView {
-    private let glassView = NSGlassEffectView()
-    var cornerRadius: CGFloat? = nil
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        setup()
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    private func setup() {
-        glassView.contentView = NSView()
-        glassView.wantsLayer = true
-        addSubview(glassView)
-    }
-
-    override func layout() {
-        super.layout()
-        glassView.frame = bounds
-        glassView.cornerRadius = cornerRadius ?? bounds.height / 2
-    }
-}
-
 private struct GlassView: NSViewRepresentable {
     var material: NSVisualEffectView.Material = .popover
     var cornerRadius: CGFloat? = nil
 
     func makeNSView(context: Context) -> NSView {
-        if #available(macOS 26.0, *) {
-            let view = LiquidGlassNSView()
-            if let cornerRadius {
-                view.cornerRadius = cornerRadius
-            }
-            return view
-        }
         let view = GlassNSView(material: material)
         view.cornerRadius = cornerRadius
         return view
@@ -129,9 +97,6 @@ private struct GlassView: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         if let nsView = nsView as? GlassNSView {
             nsView.material = material
-            nsView.cornerRadius = cornerRadius
-        }
-        if #available(macOS 26.0, *), let nsView = nsView as? LiquidGlassNSView {
             nsView.cornerRadius = cornerRadius
         }
     }
