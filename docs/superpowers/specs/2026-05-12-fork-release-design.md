@@ -19,7 +19,7 @@ Add a new fork-specific workflow instead of rewriting the upstream-derived relea
 
 ## Release behavior
 
-The fork release workflow creates or updates a GitHub release for the supplied tag. It uploads a DMG asset named `Quill.dmg` so the release looks like the fork's normal downloadable build. Tags with a prerelease suffix become GitHub prereleases; plain semantic version tags become latest releases. The release body includes a concise installation note that macOS may show a first-launch security warning and that users should only run the build if they trust this fork.
+The fork release workflow creates a GitHub release for a new supplied tag. It refuses tags that already exist on `origin` so inherited upstream tags cannot be reused accidentally. It uploads a DMG asset named `Quill.dmg` so the release looks like the fork's normal downloadable build. Tags with a prerelease suffix become GitHub prereleases; plain semantic version tags become latest releases. The release body includes a concise installation note that macOS may show a first-launch security warning and that users should only run the build if they trust this fork.
 
 ## Data flow
 
@@ -29,14 +29,15 @@ The fork release workflow creates or updates a GitHub release for the supplied t
 4. Workflow installs DMG build tools.
 5. Workflow builds a universal Quill app and DMG with the existing `Makefile`.
 6. Workflow renames the artifact to `Quill.dmg`.
-7. Workflow creates or updates the tag and release.
+7. Workflow creates the tag and release.
 8. GitHub Release displays the installation note and DMG asset.
 
 ## Error handling
 
 - Invalid tags fail before building.
 - Build failures fail the workflow without creating a release.
-- Release upload uses GitHub Actions' release action and updates the release for the same tag.
+- Existing tags fail before building to avoid accidentally reusing inherited upstream release tags.
+- Release upload uses GitHub Actions' release action to create the release for the new tag.
 - The workflow does not attempt notarization and does not require Apple secrets.
 
 ## Testing
