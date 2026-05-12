@@ -3,23 +3,26 @@ import Foundation
 @main
 struct ForkPrereleaseWorkflowTests {
     static func main() throws {
-        let workflowPath = ".github/workflows/fork-prerelease.yml"
+        let workflowPath = ".github/workflows/fork-release.yml"
         guard FileManager.default.fileExists(atPath: workflowPath) else {
-            fatalError("Fork prerelease workflow is missing at \(workflowPath)")
+            fatalError("Fork release workflow is missing at \(workflowPath)")
         }
 
         let workflow = try String(contentsOfFile: workflowPath, encoding: .utf8)
 
-        assertContains(workflow, "name: Fork Prerelease")
+        assertContains(workflow, "name: Fork Release")
         assertContains(workflow, "workflow_dispatch:")
         assertContains(workflow, "tag:")
         assertContains(workflow, "release_name:")
         assertContains(workflow, "release_notes:")
         assertContains(workflow, "CODESIGN_IDENTITY=-")
-        assertContains(workflow, "Quill-Unsigned.dmg")
-        assertContains(workflow, "prerelease: true")
-        assertContains(workflow, "make_latest: false")
-        assertContains(workflow, "not Apple-notarized")
+        assertContains(workflow, "Quill.dmg")
+        assertContains(workflow, "prerelease: false")
+        assertContains(workflow, "make_latest: true")
+        assertContains(workflow, "macOS may show a first-launch security warning")
+        assertDoesNotContain(workflow, "Quill-Unsigned.dmg")
+        assertDoesNotContain(workflow, "Unsigned Prerelease")
+        assertDoesNotContain(workflow, "unsigned build warning")
         assertDoesNotContain(workflow, "notarytool")
         assertDoesNotContain(workflow, "DEVELOPER_ID_CERTIFICATE")
         assertDoesNotContain(workflow, "APPLE_APP_PASSWORD")

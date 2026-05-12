@@ -1,18 +1,18 @@
-name: Fork Prerelease
+name: Fork Release
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Prerelease tag, for example v0.1.0-alpha.1"
+        description: "Release tag, for example v0.1.0"
         required: true
         type: string
       release_name:
-        description: "Release title. Defaults to Quill <tag> (Unsigned Prerelease)."
+        description: "Release title. Defaults to Quill <tag>."
         required: false
         type: string
       release_notes:
-        description: "Optional release notes appended below the unsigned build warning."
+        description: "Optional release notes appended below the installation note."
         required: false
         type: string
 
@@ -20,7 +20,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: fork-prerelease-${{ github.event.inputs.tag }}
+  group: fork-release-${{ github.event.inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -31,44 +31,42 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Resolve prerelease metadata
+      - name: Resolve release metadata
         id: metadata
         env:
           INPUT_TAG: ${{ inputs.tag }}
           INPUT_RELEASE_NAME: ${{ inputs.release_name }}
         run: |
           TAG="$INPUT_TAG"
-          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc)\.[0-9]+$ ]]; then
-            echo "Unsigned fork prerelease tags must look like v0.1.0-alpha.1, v0.1.0-beta.1, or v0.1.0-rc.1." >&2
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Fork release tags must look like v0.1.0." >&2
             exit 1
           fi
 
           VERSION="${TAG#v}"
-          BASE_VERSION="${VERSION%%-*}"
           RELEASE_NAME="$INPUT_RELEASE_NAME"
           if [ -z "$RELEASE_NAME" ]; then
-            RELEASE_NAME="Quill $TAG (Unsigned Prerelease)"
+            RELEASE_NAME="Quill $TAG"
           fi
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "base_version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
           echo "release_name=$RELEASE_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Stamp app version
         run: |
-          plutil -replace CFBundleShortVersionString -string "${{ steps.metadata.outputs.base_version }}" Info.plist
+          plutil -replace CFBundleShortVersionString -string "${{ steps.metadata.outputs.version }}" Info.plist
           plutil -replace CFBundleVersion -string "${{ github.run_number }}" Info.plist
           plutil -replace QuillBuildTag -string "${{ steps.metadata.outputs.tag }}" Info.plist
 
       - name: Install build tools
         run: brew install create-dmg fileicon
 
-      - name: Build unsigned universal DMG
+      - name: Build universal DMG
         run: make dmg ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY=-
 
-      - name: Save unsigned DMG
-        run: mv build/Quill.dmg Quill-Unsigned.dmg
+      - name: Save DMG
+        run: mv build/Quill.dmg Quill.dmg
 
       - name: Build release notes
         id: release_notes
@@ -77,29 +75,27 @@ jobs:
         run: |
           {
             echo "body<<EOF"
-            echo "## Unsigned fork prerelease"
+            echo "## Installation note"
             echo
-            echo "This is a prerelease build from the woosublee/freeflow fork."
+            echo "This is a release build from the woosublee/freeflow fork."
             echo
-            echo "### Important installation note"
+            echo "- macOS may show a first-launch security warning."
+            echo "- If that happens, open System Settings > Privacy & Security and choose Open Anyway."
+            echo "- Only run this build if you trust this fork release."
             echo
-            echo "- This DMG is not Apple-notarized."
-            echo "- macOS Gatekeeper may block the app on first launch."
-            echo "- If you choose to run it, open it only if you trust this fork build."
+            echo "## Download"
             echo
-            echo "### Download"
-            echo
-            echo "**Quill-Unsigned.dmg** — Universal build for Apple Silicon and Intel Macs."
+            echo "**Quill.dmg** — Universal build for Apple Silicon and Intel Macs."
             if [ -n "$RELEASE_NOTES" ]; then
               echo
-              echo "### Notes"
+              echo "## Notes"
               echo
               printf '%s\n' "$RELEASE_NOTES"
             fi
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Create or update prerelease
+      - name: Create or update release
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           tag_name: ${{ steps.metadata.outputs.tag }}
@@ -107,7 +103,7 @@ jobs:
           name: ${{ steps.metadata.outputs.release_name }}
           body: ${{ steps.release_notes.outputs.body }}
           generate_release_notes: false
-          make_latest: false
-          prerelease: true
+          make_latest: true
+          prerelease: false
           files: |
-            Quill-Unsigned.dmg
+            Quill.dmg
