@@ -2195,14 +2195,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    func updatePermissionStatus(accessibility: Bool, screenRecording: Bool) {
+        if hasAccessibility != accessibility {
+            hasAccessibility = accessibility
+        }
+        if hasScreenRecordingPermission != screenRecording {
+            hasScreenRecordingPermission = screenRecording
+        }
+    }
+
     func startAccessibilityPolling() {
         accessibilityTimer?.invalidate()
-        hasAccessibility = AXIsProcessTrusted()
-        hasScreenRecordingPermission = hasScreenCapturePermission()
+        updatePermissionStatus(
+            accessibility: AXIsProcessTrusted(),
+            screenRecording: hasScreenCapturePermission()
+        )
         accessibilityTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             DispatchQueue.main.async {
-                self?.hasAccessibility = AXIsProcessTrusted()
-                self?.hasScreenRecordingPermission = self?.hasScreenCapturePermission() ?? false
+                guard let self else { return }
+                self.updatePermissionStatus(
+                    accessibility: AXIsProcessTrusted(),
+                    screenRecording: self.hasScreenCapturePermission()
+                )
             }
         }
     }
