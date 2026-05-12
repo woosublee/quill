@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag, for example v0.1.0"
+        description: "Release tag, for example v0.1.0 or v0.1.0-beta.1"
         required: true
         type: string
       release_name:
@@ -38,8 +38,8 @@ jobs:
           INPUT_RELEASE_NAME: ${{ inputs.release_name }}
         run: |
           TAG="$INPUT_TAG"
-          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Fork release tags must look like v0.1.0." >&2
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]]; then
+            echo "Fork release tags must look like v0.1.0 or v0.1.0-beta.1." >&2
             exit 1
           fi
 
@@ -49,9 +49,26 @@ jobs:
             RELEASE_NAME="Quill $TAG"
           fi
 
+          IS_PRERELEASE=false
+          MAKE_LATEST=true
+          if [[ "$VERSION" == *-* ]]; then
+            IS_PRERELEASE=true
+            MAKE_LATEST=false
+          fi
+
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "release_name=$RELEASE_NAME" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "make_latest=$MAKE_LATEST" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse existing tag
+        run: |
+          TAG="${{ steps.metadata.outputs.tag }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Release tag $TAG already exists on origin. Choose a new fork-owned release tag." >&2
+            exit 1
+          fi
 
       - name: Stamp app version
         run: |
@@ -103,7 +120,7 @@ jobs:
           name: ${{ steps.metadata.outputs.release_name }}
           body: ${{ steps.release_notes.outputs.body }}
           generate_release_notes: false
-          make_latest: true
-          prerelease: false
+          make_latest: ${{ steps.metadata.outputs.make_latest }}
+          prerelease: ${{ steps.metadata.outputs.prerelease }}
           files: |
             Quill.dmg

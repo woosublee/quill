@@ -14,21 +14,23 @@ Add a new fork-specific workflow instead of rewriting the upstream-derived relea
 - Trigger the workflow with `workflow_dispatch` inputs for tag, release name, and release notes.
 - Build a universal DMG using the existing Makefile DMG path.
 - Use ad-hoc signing (`CODESIGN_IDENTITY=-`) so the app bundle can be packaged without Developer ID credentials.
-- Publish the DMG as a normal GitHub release with `make_latest: true`.
+- Publish `vX.Y.Z` tags as normal latest releases.
+- Publish `vX.Y.Z-alpha.N`, `vX.Y.Z-beta.N`, and `vX.Y.Z-rc.N` tags as GitHub prereleases that are not latest.
 
 ## Release behavior
 
-The fork release workflow creates or updates a GitHub release for the supplied tag. It uploads a DMG asset named `Quill.dmg` so the release looks like the fork's normal downloadable build. The release body includes a concise installation note that macOS may show a first-launch security warning and that users should only run the build if they trust this fork.
+The fork release workflow creates or updates a GitHub release for the supplied tag. It uploads a DMG asset named `Quill.dmg` so the release looks like the fork's normal downloadable build. Tags with a prerelease suffix become GitHub prereleases; plain semantic version tags become latest releases. The release body includes a concise installation note that macOS may show a first-launch security warning and that users should only run the build if they trust this fork.
 
 ## Data flow
 
 1. Maintainer manually runs `Fork Release` from GitHub Actions.
-2. Workflow validates that the tag looks like a release tag, such as `v0.1.0`.
-3. Workflow installs DMG build tools.
-4. Workflow builds a universal Quill app and DMG with the existing `Makefile`.
-5. Workflow renames the artifact to `Quill.dmg`.
-6. Workflow creates or updates the tag and release.
-7. GitHub Release displays the installation note and DMG asset.
+2. Workflow validates that the tag looks like a release tag, such as `v0.1.0` or `v0.1.0-beta.1`.
+3. Workflow derives `prerelease` and `make_latest` from whether the tag contains a prerelease suffix.
+4. Workflow installs DMG build tools.
+5. Workflow builds a universal Quill app and DMG with the existing `Makefile`.
+6. Workflow renames the artifact to `Quill.dmg`.
+7. Workflow creates or updates the tag and release.
+8. GitHub Release displays the installation note and DMG asset.
 
 ## Error handling
 
@@ -46,7 +48,11 @@ The fork release workflow creates or updates a GitHub release for the supplied t
 
 ## Versioning
 
-Use `v0.1.0` for the first fork release. Increment patch versions for follow-up fixes, for example `v0.1.1`, and reserve minor versions for user-visible feature batches.
+Use `v0.1.0-beta.1` if the first public build should be marked as prerelease quality in GitHub, or `v0.1.0` if it should be published as the latest release. Increment prerelease suffixes for testing iterations, for example `v0.1.0-beta.2`, then publish `v0.1.0` when that line is ready to be the latest release. Increment patch versions for follow-up fixes, for example `v0.1.1`, and reserve minor versions for user-visible feature batches.
+
+## Inherited tag strategy
+
+The fork currently contains many upstream-inherited tags, including historical `build-*` tags and upstream semantic version tags such as `v0.3.x`. Do not delete those tags as part of this workflow change. Treat them as historical upstream references unless they block a fork release. Start fork-owned release numbering from a lower, explicit fork line such as `v0.1.0-beta.1` or `v0.1.0`, and avoid reusing existing upstream tag names. If tag cleanup becomes necessary later, handle it as a separate maintenance task with explicit review because deleting remote tags affects shared repository history.
 
 ## Non-goals
 

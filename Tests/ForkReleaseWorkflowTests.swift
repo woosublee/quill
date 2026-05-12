@@ -1,7 +1,7 @@
 import Foundation
 
 @main
-struct ForkPrereleaseWorkflowTests {
+struct ForkReleaseWorkflowTests {
     static func main() throws {
         let workflowPath = ".github/workflows/fork-release.yml"
         guard FileManager.default.fileExists(atPath: workflowPath) else {
@@ -17,9 +17,16 @@ struct ForkPrereleaseWorkflowTests {
         assertContains(workflow, "release_notes:")
         assertContains(workflow, "CODESIGN_IDENTITY=-")
         assertContains(workflow, "Quill.dmg")
-        assertContains(workflow, "prerelease: false")
-        assertContains(workflow, "make_latest: true")
+        assertContains(workflow, "IS_PRERELEASE=false")
+        assertContains(workflow, "MAKE_LATEST=true")
+        assertContains(workflow, "IS_PRERELEASE=true")
+        assertContains(workflow, "MAKE_LATEST=false")
+        assertContains(workflow, "prerelease: ${{ steps.metadata.outputs.prerelease }}")
+        assertContains(workflow, "make_latest: ${{ steps.metadata.outputs.make_latest }}")
         assertContains(workflow, "macOS may show a first-launch security warning")
+        assertContains(workflow, "Refuse existing tag")
+        assertContains(workflow, "refs/tags/$TAG")
+        assertContains(workflow, "already exists")
         assertDoesNotContain(workflow, "Quill-Unsigned.dmg")
         assertDoesNotContain(workflow, "Unsigned Prerelease")
         assertDoesNotContain(workflow, "unsigned build warning")
@@ -28,7 +35,7 @@ struct ForkPrereleaseWorkflowTests {
         assertDoesNotContain(workflow, "APPLE_APP_PASSWORD")
         assertDoesNotContain(workflow, "APPLE_TEAM_ID")
 
-        print("ForkPrereleaseWorkflowTests passed")
+        print("ForkReleaseWorkflowTests passed")
     }
 
     private static func assertContains(_ text: String, _ expected: String) {
