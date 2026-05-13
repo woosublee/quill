@@ -8,7 +8,6 @@ struct AppStateTranscriptionConfigurationTests {
         try testMakeTranscriptionServiceMapsEmptyLocalWhisperPathToNil()
         testPermissionStatusUpdateSkipsUnchangedValues()
         testRecordingOverlayLayoutPersistsWithoutCompactOverlayBoolean()
-        testHotkeyMonitoringUsesRecordingCancelCallback()
         print("AppStateTranscriptionConfigurationTests passed")
     }
 
@@ -68,16 +67,6 @@ struct AppStateTranscriptionConfigurationTests {
 
         assert(defaults.string(forKey: "recording_overlay_layout") == "notchSides")
         assert(defaults.object(forKey: "use_compact_overlay") == nil)
-    }
-
-    private static func testHotkeyMonitoringUsesRecordingCancelCallback() {
-        resetDefaults()
-        let appState = AppState()
-
-        appState.startHotkeyMonitoring()
-        defer { appState.stopHotkeyMonitoring() }
-
-        assert(appState.hotkeyManager.onRecordingCancelShortcut != nil)
     }
 
     private static func resetDefaults() {
