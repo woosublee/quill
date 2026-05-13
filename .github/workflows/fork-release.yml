@@ -85,7 +85,7 @@ jobs:
         run: brew install create-dmg fileicon
 
       - name: Build universal DMG
-        run: make dmg ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY=-
+        run: make dmg ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY=- APP_VERSION="${{ steps.metadata.outputs.version }}" BUILD_NUMBER="${{ github.run_number }}" BUILD_TAG="${{ steps.metadata.outputs.tag }}"
 
       - name: Save DMG
         run: mv build/Quill.dmg Quill.dmg
