@@ -23,7 +23,6 @@ final class GlobalShortcutBackend {
     private var fnKeyIsDown = false
 
     var onInputEvent: ((ShortcutInputEvent) -> ShortcutConsumeDecision)?
-    var onEscapeKeyPressed: (() -> Bool)?
 
     func start() throws {
         stop()
@@ -147,11 +146,6 @@ final class GlobalShortcutBackend {
     }
 
     private func handleKeyDown(_ event: NSEvent) -> Bool {
-        if event.keyCode == 53 {
-            guard !event.isARepeat else { return false }
-            return onEscapeKeyPressed?() ?? false
-        }
-
         guard !ShortcutBinding.modifierKeyCodes.contains(event.keyCode) else { return false }
         let snapshotDecision = onInputEvent?(
             .modifierSnapshot(ModifierKeyEventState.pressedModifierKeyCodes(

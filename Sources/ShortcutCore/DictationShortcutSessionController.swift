@@ -22,7 +22,7 @@ final class DictationShortcutSessionController {
                 activeMode = .hold
                 toggleStopArmed = false
                 return .start(.hold)
-            case .holdDeactivated, .toggleDeactivated:
+            case .holdDeactivated, .toggleDeactivated, .recordingCancelRequested:
                 return nil
             }
         }
@@ -39,7 +39,7 @@ final class DictationShortcutSessionController {
             case .holdDeactivated:
                 reset()
                 return .stop
-            case .holdActivated, .toggleDeactivated:
+            case .holdActivated, .toggleDeactivated, .recordingCancelRequested:
                 return nil
             }
 
@@ -52,7 +52,7 @@ final class DictationShortcutSessionController {
                 guard toggleStopArmed else { return nil }
                 reset()
                 return .stop
-            case .holdActivated, .holdDeactivated:
+            case .holdActivated, .holdDeactivated, .recordingCancelRequested:
                 return nil
             }
         }

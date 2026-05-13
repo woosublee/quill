@@ -10,6 +10,7 @@ final class HotkeyManager {
 
     var onShortcutEvent: ((ShortcutEvent) -> Void)?
     var onEscapeKeyPressed: (() -> Bool)?
+    var onRecordingCancelShortcut: (() -> Bool)?
 
     var currentPressedModifiers: ShortcutModifiers {
         inputState.currentModifiers
@@ -25,14 +26,10 @@ final class HotkeyManager {
         backend.onInputEvent = { [weak self] event in
             self?.handleInputEvent(event) ?? .passthrough
         }
-        backend.onEscapeKeyPressed = { [weak self] in
-            self?.onEscapeKeyPressed?() ?? false
-        }
         do {
             try backend.start()
         } catch {
             backend.onInputEvent = nil
-            backend.onEscapeKeyPressed = nil
             inputState = ShortcutInputState()
             throw error
         }
@@ -41,7 +38,6 @@ final class HotkeyManager {
     func stop() {
         backend.stop()
         backend.onInputEvent = nil
-        backend.onEscapeKeyPressed = nil
         inputState = ShortcutInputState()
     }
 
@@ -56,9 +52,29 @@ final class HotkeyManager {
             configuration: configuration
         )
         inputState = result.state
+        return Self.dispatchShortcutMatchResult(
+            result,
+            onShortcutEvent: { [weak self] event in self?.onShortcutEvent?(event) },
+            onRecordingCancelShortcut: { [weak self] in self?.onRecordingCancelShortcut?() ?? false }
+        )
+    }
+
+    static func dispatchShortcutMatchResult(
+        _ result: ShortcutMatchResult,
+        onShortcutEvent: (ShortcutEvent) -> Void,
+        onRecordingCancelShortcut: () -> Bool
+    ) -> ShortcutConsumeDecision {
+        var consumeDecision = result.consumeDecision
+
         for event in result.emittedEvents {
-            onShortcutEvent?(event)
+            switch event {
+            case .recordingCancelRequested:
+                consumeDecision = onRecordingCancelShortcut() ? .consume : .passthrough
+            case .holdActivated, .holdDeactivated, .toggleActivated, .toggleDeactivated:
+                onShortcutEvent(event)
+            }
         }
-        return result.consumeDecision
+
+        return consumeDecision
     }
 }
