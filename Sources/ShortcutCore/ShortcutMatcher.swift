@@ -278,8 +278,7 @@ enum ShortcutMatcher {
         configuration: ShortcutConfiguration
     ) -> Bool {
         guard isDown else { return false }
-        guard configuration.recordingCancel.kind == .modifierKey,
-              configuration.recordingCancel.keyCode == keyCode else {
+        guard configuration.recordingCancel.kind == .modifierKey else {
             return false
         }
         return !bindingIsActive(configuration.recordingCancel, state: previousState, configuration: configuration)

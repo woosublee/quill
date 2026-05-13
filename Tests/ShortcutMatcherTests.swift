@@ -6,6 +6,7 @@ struct ShortcutMatcherTests {
         testDisabledCancelShortcutPassesThrough()
         testEscCancelShortcutEmitsCancelEvent()
         testModifierOnlyCancelShortcutEmitsCancelEvent()
+        testModifierCombinationCancelShortcutEmitsRegardlessOfPressOrder()
         testRepeatedEscDoesNotEmitCancelEvent()
         testCustomCancelShortcutRequiresConfiguredModifiers()
         testCancelDeclinePassesThrough()
@@ -63,6 +64,48 @@ struct ShortcutMatcherTests {
 
         assert(result.emittedEvents == [.recordingCancelRequested])
         assert(result.consumeDecision == .consume)
+    }
+
+    private static func testModifierCombinationCancelShortcutEmitsRegardlessOfPressOrder() {
+        let rightOptionWithCommand = ShortcutBinding(
+            keyCode: 61,
+            keyDisplay: "Right Option",
+            modifiers: .command,
+            kind: .modifierKey,
+            preset: nil,
+            exactModifierKeyCodes: [55, 61]
+        )
+        let configuration = ShortcutConfiguration(
+            hold: .disabled,
+            toggle: .disabled,
+            recordingCancel: rightOptionWithCommand
+        )
+
+        let commandFirst = ShortcutMatcher.reduce(
+            state: ShortcutInputState(),
+            event: .modifierChanged(keyCode: 55, isDown: true),
+            configuration: configuration
+        )
+        let commandThenRightOption = ShortcutMatcher.reduce(
+            state: commandFirst.state,
+            event: .modifierChanged(keyCode: 61, isDown: true),
+            configuration: configuration
+        )
+        assert(commandThenRightOption.emittedEvents == [.recordingCancelRequested])
+        assert(commandThenRightOption.consumeDecision == .consume)
+
+        let rightOptionFirst = ShortcutMatcher.reduce(
+            state: ShortcutInputState(),
+            event: .modifierChanged(keyCode: 61, isDown: true),
+            configuration: configuration
+        )
+        let rightOptionThenCommand = ShortcutMatcher.reduce(
+            state: rightOptionFirst.state,
+            event: .modifierChanged(keyCode: 55, isDown: true),
+            configuration: configuration
+        )
+        assert(rightOptionThenCommand.emittedEvents == [.recordingCancelRequested])
+        assert(rightOptionThenCommand.consumeDecision == .consume)
     }
 
     private static func testRepeatedEscDoesNotEmitCancelEvent() {
