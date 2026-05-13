@@ -8,6 +8,11 @@ struct AppStateTranscriptionConfigurationTests {
         try testMakeTranscriptionServiceMapsEmptyLocalWhisperPathToNil()
         testPermissionStatusUpdateSkipsUnchangedValues()
         testRecordingOverlayLayoutPersistsWithoutCompactOverlayBoolean()
+        testRecordingCancelShortcutDefaultsToEscape()
+        testRecordingCancelShortcutPersistsDisabled()
+        testRecordingCancelShortcutPersistsCustomShortcut()
+        testRecordingCancelShortcutRejectsHoldConflict()
+        testHoldShortcutRejectsCancelConflict()
         print("AppStateTranscriptionConfigurationTests passed")
     }
 
@@ -69,6 +74,66 @@ struct AppStateTranscriptionConfigurationTests {
         assert(defaults.object(forKey: "use_compact_overlay") == nil)
     }
 
+    private static func testRecordingCancelShortcutDefaultsToEscape() {
+        resetDefaults()
+        UserDefaults.standard.removeObject(forKey: "recording_cancel_shortcut")
+
+        let appState = AppState()
+
+        assert(appState.recordingCancelShortcut == .defaultRecordingCancel)
+    }
+
+    private static func testRecordingCancelShortcutPersistsDisabled() {
+        resetDefaults()
+        var appState = AppState()
+        let validation = appState.setRecordingCancelShortcut(.disabled)
+        assert(validation == nil)
+
+        appState = AppState()
+
+        assert(appState.recordingCancelShortcut == .disabled)
+    }
+
+    private static func testRecordingCancelShortcutPersistsCustomShortcut() {
+        resetDefaults()
+        let custom = ShortcutBinding(
+            keyCode: 47,
+            keyDisplay: ".",
+            modifiers: .command,
+            kind: .key,
+            preset: nil,
+            exactModifierKeyCodes: [55]
+        )
+        var appState = AppState()
+        let validation = appState.setRecordingCancelShortcut(custom)
+        assert(validation == nil)
+
+        appState = AppState()
+
+        assert(appState.recordingCancelShortcut == custom)
+        assert(appState.savedRecordingCancelCustomShortcut == custom)
+    }
+
+    private static func testRecordingCancelShortcutRejectsHoldConflict() {
+        resetDefaults()
+        let appState = AppState()
+
+        let validation = appState.setRecordingCancelShortcut(appState.holdShortcut)
+
+        assert(validation == "Cancel shortcut must be distinct from dictation shortcuts.")
+        assert(appState.recordingCancelShortcut == .defaultRecordingCancel)
+    }
+
+    private static func testHoldShortcutRejectsCancelConflict() {
+        resetDefaults()
+        let appState = AppState()
+
+        let validation = appState.setShortcut(.defaultRecordingCancel, for: .hold)
+
+        assert(validation == "Dictation shortcuts must be distinct from the cancel shortcut.")
+        assert(appState.holdShortcut == .defaultHold)
+    }
+
     private static func resetDefaults() {
         let defaults = UserDefaults.standard
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("app_state_transcription_test_") {
@@ -77,6 +142,8 @@ struct AppStateTranscriptionConfigurationTests {
         defaults.removeObject(forKey: "use_local_transcription")
         defaults.removeObject(forKey: "local_transcription_model")
         defaults.removeObject(forKey: "transcription_language")
+        defaults.removeObject(forKey: "recording_cancel_shortcut")
+        defaults.removeObject(forKey: "saved_recording_cancel_custom_shortcut")
     }
 
     private static func mirroredTranscriptionConfiguration(_ service: TranscriptionService) -> (

@@ -210,8 +210,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let contextModelStorageKey = "context_model"
     private let holdShortcutStorageKey = "hold_shortcut"
     private let toggleShortcutStorageKey = "toggle_shortcut"
+    private let recordingCancelShortcutStorageKey = "recording_cancel_shortcut"
     private let savedHoldCustomShortcutStorageKey = "saved_hold_custom_shortcut"
     private let savedToggleCustomShortcutStorageKey = "saved_toggle_custom_shortcut"
+    private let savedRecordingCancelCustomShortcutStorageKey = "saved_recording_cancel_custom_shortcut"
     private let customVocabularyStorageKey = "custom_vocabulary"
     private let selectedMicrophoneStorageKey = "selected_microphone_id"
     private let customSystemPromptStorageKey = "custom_system_prompt"
@@ -356,6 +358,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @Published var recordingCancelShortcut: ShortcutBinding {
+        didSet {
+            persistShortcut(recordingCancelShortcut, key: recordingCancelShortcutStorageKey)
+            restartHotkeyMonitoring()
+        }
+    }
+
     @Published private(set) var savedHoldCustomShortcut: ShortcutBinding? {
         didSet {
             persistOptionalShortcut(savedHoldCustomShortcut, key: savedHoldCustomShortcutStorageKey)
@@ -365,6 +374,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var savedToggleCustomShortcut: ShortcutBinding? {
         didSet {
             persistOptionalShortcut(savedToggleCustomShortcut, key: savedToggleCustomShortcutStorageKey)
+        }
+    }
+
+    @Published private(set) var savedRecordingCancelCustomShortcut: ShortcutBinding? {
+        didSet {
+            persistOptionalShortcut(savedRecordingCancelCustomShortcut, key: savedRecordingCancelCustomShortcutStorageKey)
         }
     }
 
@@ -969,6 +984,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
             forKey: savedToggleCustomShortcutStorageKey,
             fallback: shortcuts.toggle.isCustom ? shortcuts.toggle : nil
         )
+        let storedRecordingCancelShortcut = Self.loadShortcut(forKey: recordingCancelShortcutStorageKey)
+        let recordingCancelShortcut = storedRecordingCancelShortcut.binding ?? .defaultRecordingCancel
+        let savedRecordingCancelCustomShortcut = Self.loadSavedCustomShortcut(
+            forKey: savedRecordingCancelCustomShortcutStorageKey,
+            fallback: recordingCancelShortcut.isCustom && recordingCancelShortcut != .defaultRecordingCancel
+                ? recordingCancelShortcut
+                : nil
+        )
         let customVocabulary = UserDefaults.standard.string(forKey: customVocabularyStorageKey) ?? ""
         let customSystemPrompt = UserDefaults.standard.string(forKey: customSystemPromptStorageKey) ?? ""
         let customContextPrompt = UserDefaults.standard.string(forKey: customContextPromptStorageKey) ?? ""
@@ -1087,8 +1110,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.contextModel = contextModel
         self.holdShortcut = shortcuts.hold
         self.toggleShortcut = shortcuts.toggle
+        self.recordingCancelShortcut = recordingCancelShortcut
         self.savedHoldCustomShortcut = savedHoldCustomShortcut.binding
         self.savedToggleCustomShortcut = savedToggleCustomShortcut.binding
+        self.savedRecordingCancelCustomShortcut = savedRecordingCancelCustomShortcut.binding
         self.isCommandModeEnabled = isCommandModeEnabled
         self.commandModeStyle = commandModeStyle
         self.commandModeManualModifier = commandModeManualModifier
@@ -1151,6 +1176,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         if savedToggleCustomShortcut.didUpdateStoredValue {
             persistOptionalShortcut(savedToggleCustomShortcut.binding, key: savedToggleCustomShortcutStorageKey)
+        }
+        if storedRecordingCancelShortcut.binding == nil || storedRecordingCancelShortcut.didNormalize {
+            persistShortcut(recordingCancelShortcut, key: recordingCancelShortcutStorageKey)
+        }
+        if savedRecordingCancelCustomShortcut.didUpdateStoredValue {
+            persistOptionalShortcut(savedRecordingCancelCustomShortcut.binding, key: savedRecordingCancelCustomShortcutStorageKey)
         }
 
         if shouldRestoreMutedAudio {
@@ -2410,6 +2441,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    var savedRecordingCancelShortcut: ShortcutBinding? {
+        savedRecordingCancelCustomShortcut
+    }
+
     var commandModeManualModifierValidationMessage: String? {
         guard isCommandModeEnabled, commandModeStyle == .manual else { return nil }
         return commandModeManualModifierCollisionMessage(for: commandModeManualModifier)
@@ -2444,11 +2479,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @discardableResult
+    func setRecordingCancelShortcut(_ binding: ShortcutBinding) -> String? {
+        let binding = binding.normalizedForStorageMigration()
+        guard !binding.conflicts(with: holdShortcut), !binding.conflicts(with: toggleShortcut) else {
+            return "Cancel shortcut must be distinct from dictation shortcuts."
+        }
+
+        if binding.isCustom && binding != .defaultRecordingCancel {
+            savedRecordingCancelCustomShortcut = binding
+        }
+        recordingCancelShortcut = binding
+        return nil
+    }
+
+    @discardableResult
     func setShortcut(_ binding: ShortcutBinding, for role: ShortcutRole) -> String? {
         let binding = binding.normalizedForStorageMigration()
         let otherBinding = role == .hold ? toggleShortcut : holdShortcut
         guard !binding.conflicts(with: otherBinding) else {
             return "Hold and tap shortcuts must be distinct."
+        }
+        guard !binding.conflicts(with: recordingCancelShortcut) else {
+            return "Dictation shortcuts must be distinct from the cancel shortcut."
         }
 
         let nextHoldShortcut = role == .hold ? binding : holdShortcut
@@ -2563,6 +2615,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return ShortcutConfiguration(
             hold: holdShortcut,
             toggle: toggleShortcut,
+            recordingCancel: recordingCancelShortcut,
             permittedAdditionalExactMatchModifiers: permittedAdditionalExactMatchModifiers
         )
     }
