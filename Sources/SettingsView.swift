@@ -622,15 +622,15 @@ struct OverlayLayoutOptionRow: View {
 
                 Spacer(minLength: 0)
             }
-            .padding(12)
+            .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(isSelected ? Color.blue.opacity(0.12) : Color(nsColor: .controlBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(isSelected ? Color.blue.opacity(0.55) : Color.primary.opacity(0.08), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 2)
+                    )
             )
         }
         .buttonStyle(.plain)
@@ -642,6 +642,12 @@ struct OverlayLayoutOptionRow: View {
 struct OverlayLayoutPreview: View {
     let layout: RecordingOverlayLayout
 
+    private let frameWidth: CGFloat = 110
+    private let frameHeight: CGFloat = 56
+    private let menuBarHeight: CGFloat = 8
+    private let notchWidth: CGFloat = 26
+    private let notchHeight: CGFloat = 8
+
     var body: some View {
         ZStack(alignment: .top) {
             RoundedRectangle(cornerRadius: 6)
@@ -651,34 +657,43 @@ struct OverlayLayoutPreview: View {
                         .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                 )
 
-            Rectangle()
-                .fill(Color.primary.opacity(0.12))
-                .frame(height: 14)
-                .frame(maxHeight: .infinity, alignment: .top)
+            VStack(spacing: 0) {
+                Rectangle()
+                    .fill(Color.primary.opacity(0.12))
+                    .frame(height: menuBarHeight)
 
-            RoundedRectangle(cornerRadius: 5)
+                Rectangle()
+                    .fill(Color.primary.opacity(0.05))
+                    .frame(height: 10)
+
+                Spacer(minLength: 0)
+            }
+
+            RoundedRectangle(cornerRadius: 4)
                 .fill(Color.black)
-                .frame(width: 38, height: 13)
+                .frame(width: notchWidth, height: notchHeight)
                 .frame(maxHeight: .infinity, alignment: .top)
 
             if layout == .notchSides {
-                HStack(spacing: 38) {
-                    UnevenRoundedRectangle(bottomLeadingRadius: 3)
+                HStack(spacing: notchWidth + 4) {
+                    RoundedRectangle(cornerRadius: 2)
                         .fill(Color.black)
-                        .frame(width: 18, height: 14)
-                    UnevenRoundedRectangle(bottomTrailingRadius: 3)
+                        .frame(width: 20, height: menuBarHeight)
+                    RoundedRectangle(cornerRadius: 2)
                         .fill(Color.black)
-                        .frame(width: 18, height: 14)
+                        .frame(width: 20, height: menuBarHeight)
                 }
                 .frame(maxHeight: .infinity, alignment: .top)
             } else {
                 UnevenRoundedRectangle(bottomLeadingRadius: 5, bottomTrailingRadius: 5)
                     .fill(Color.black)
-                    .frame(width: 50, height: 26)
+                    .frame(width: 46, height: 24)
+                    .offset(y: menuBarHeight)
                     .frame(maxHeight: .infinity, alignment: .top)
             }
         }
-        .frame(width: 92, height: 54)
+        .frame(width: frameWidth, height: frameHeight)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }
 
