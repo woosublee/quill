@@ -38,7 +38,7 @@ enum RecordingOverlayLayout: String, CaseIterable, Identifiable {
         case .centered:
             return "Show the recording overlay centered below the notch."
         case .notchSides:
-            return "Show recording controls beside the notch when supported. Other states stay centered."
+            return "Show recording status beside the notch when supported. Update alerts stay centered."
         }
     }
 
@@ -163,6 +163,21 @@ struct RecordingOverlayGeometry {
             height: height
         )
     }
+
+    static func usesNotchSideLayout(
+        layout: RecordingOverlayLayout,
+        phase: OverlayPhase,
+        hasNotchGeometry: Bool
+    ) -> Bool {
+        guard layout == .notchSides, hasNotchGeometry else { return false }
+
+        switch phase {
+        case .initializing, .recording, .transcribing, .feedback:
+            return true
+        case .updateAvailable:
+            return false
+        }
+    }
 }
 
 // MARK: - Manager
@@ -214,11 +229,12 @@ final class RecordingOverlayManager {
         return screen.frame.maxY - screen.visibleFrame.maxY
     }
 
-    private var usesNotchSideRecordingLayout: Bool {
-        overlayState.recordingOverlayLayout == .notchSides
-            && overlayState.phase == .recording
-            && screenHasNotch
-            && notchSideGeometry != nil
+    private var usesNotchSideLayout: Bool {
+        RecordingOverlayGeometry.usesNotchSideLayout(
+            layout: overlayState.recordingOverlayLayout,
+            phase: overlayState.phase,
+            hasNotchGeometry: notchSideGeometry != nil
+        )
     }
 
     private var notchSideGeometry: NotchSideGeometry? {
@@ -368,11 +384,12 @@ final class RecordingOverlayManager {
     }
 
     private func setTranscribingPhase() {
+        let wasNotchSideRecordingLayout = overlayState.phase == .recording && usesNotchSideLayout
         lockedOverlayWidth = RecordingOverlayGeometry.lockedTranscribingWidth(
             existingLockedWidth: lockedOverlayWidth,
             currentPanelWidth: overlayWindow?.frame.width ?? overlayWidth,
             centeredTranscribingWidth: centeredTranscribingOverlayWidth,
-            wasNotchSideRecordingLayout: usesNotchSideRecordingLayout
+            wasNotchSideRecordingLayout: wasNotchSideRecordingLayout
         )
         overlayState.phase = .transcribing
         showOverlayPanel(animatedResize: true)
@@ -380,8 +397,8 @@ final class RecordingOverlayManager {
 
     private func makeOverlayContent(frame: NSRect) -> NSView {
         if let geometry = notchSideGeometry,
-           usesNotchSideRecordingLayout {
-            return makeNotchSideRecordingContent(frame: frame, geometry: geometry)
+           usesNotchSideLayout {
+            return makeNotchSideContent(frame: frame, geometry: geometry)
         }
 
         return makeNotchContent(
@@ -401,11 +418,11 @@ final class RecordingOverlayManager {
         )
     }
 
-    private func makeNotchSideRecordingContent(frame: NSRect, geometry: NotchSideGeometry) -> NSView {
+    private func makeNotchSideContent(frame: NSRect, geometry: NotchSideGeometry) -> NSView {
         makeTransparentContent(
             width: frame.width,
             height: frame.height,
-            rootView: NotchSideRecordingOverlayView(
+            rootView: NotchSideOverlayView(
                 state: overlayState,
                 leftContentFrame: geometry.leftContentFrame,
                 rightContentFrame: geometry.rightContentFrame,
@@ -432,8 +449,7 @@ final class RecordingOverlayManager {
     private var overlayFrame: NSRect {
         guard let screen = NSScreen.main else { return .zero }
         if let geometry = notchSideGeometry,
-           overlayState.recordingOverlayLayout == .notchSides,
-           overlayState.phase == .recording {
+           usesNotchSideLayout {
             return geometry.frame
         }
 
@@ -579,6 +595,21 @@ struct WaveformView: View {
     }
 }
 
+struct CompactWaveformView: View {
+    let audioLevel: Float
+    var showsActivityPulse = false
+
+    var body: some View {
+        WaveformView(audioLevel: audioLevel, showsActivityPulse: showsActivityPulse)
+    }
+}
+
+struct CompactProcessingIndicatorView: View {
+    var body: some View {
+        ProcessingWaveformView()
+    }
+}
+
 struct ProcessingWaveformView: View {
     private static let barCount = 5
     private static let centerIndex = CGFloat((barCount - 1) / 2)
@@ -720,35 +751,72 @@ private struct NotchExtensionBackground: View {
     }
 }
 
-private struct NotchSideRecordingOverlayView: View {
+private struct NotchSideOverlayView: View {
     @ObservedObject var state: RecordingOverlayState
     let leftContentFrame: CGRect
     let rightContentFrame: CGRect
     let onStopButtonPressed: () -> Void
 
+    private var showsLiveRecordingContent: Bool {
+        state.phase == .recording
+    }
+
     private var showsStopButton: Bool {
-        state.recordingTriggerMode == .toggle
+        showsLiveRecordingContent && state.recordingTriggerMode == .toggle
     }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             NotchExtensionBackground()
 
-            ZStack {
-                WaveformView(audioLevel: state.audioLevel, showsActivityPulse: true)
-                    .padding(.horizontal, 12)
-                if state.isCommandMode {
-                    HStack {
-                        CommandModeIndicator()
-                            .padding(.leading, 8)
-                        Spacer()
-                    }
-                }
-            }
-            .frame(width: leftContentFrame.width, height: leftContentFrame.height)
-            .position(x: leftContentFrame.midX, y: leftContentFrame.midY)
+            leftContent
+                .frame(width: leftContentFrame.width, height: leftContentFrame.height)
+                .position(x: leftContentFrame.midX, y: leftContentFrame.midY)
 
-            ZStack {
+            rightContent
+                .frame(width: rightContentFrame.width, height: rightContentFrame.height)
+                .position(x: rightContentFrame.midX, y: rightContentFrame.midY)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.phase)
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.audioLevel)
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.recordingTriggerMode)
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.isCommandMode)
+    }
+
+    @ViewBuilder
+    private var leftContent: some View {
+        ZStack {
+            switch state.phase {
+            case .initializing:
+                InitializingDotsView()
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            case .recording:
+                VStack(spacing: 1) {
+                    if state.isCommandMode {
+                        Image(systemName: "pencil")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.92))
+                            .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    }
+                    CompactWaveformView(audioLevel: state.audioLevel, showsActivityPulse: true)
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            case .transcribing:
+                CompactProcessingIndicatorView()
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            case .feedback, .updateAvailable:
+                Color.clear
+            }
+        }
+        .padding(.horizontal, 12)
+    }
+
+    @ViewBuilder
+    private var rightContent: some View {
+        ZStack {
+            switch state.phase {
+            case .recording:
                 if showsStopButton {
                     Button(action: onStopButtonPressed) {
                         Image(systemName: "stop.fill")
@@ -758,15 +826,15 @@ private struct NotchSideRecordingOverlayView: View {
                             .background(Circle().fill(Color.red.opacity(0.92)))
                     }
                     .buttonStyle(.plain)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
+            case .feedback:
+                FailureIndicatorView()
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            case .initializing, .transcribing, .updateAvailable:
+                Color.clear
             }
-            .frame(width: rightContentFrame.width, height: rightContentFrame.height)
-            .position(x: rightContentFrame.midX, y: rightContentFrame.midY)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.audioLevel)
-        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.recordingTriggerMode)
-        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.isCommandMode)
     }
 }
 

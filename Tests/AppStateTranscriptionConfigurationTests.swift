@@ -7,6 +7,7 @@ struct AppStateTranscriptionConfigurationTests {
         try testMakeTranscriptionServiceUsesLocalConfiguration()
         try testMakeTranscriptionServiceMapsEmptyLocalWhisperPathToNil()
         testPermissionStatusUpdateSkipsUnchangedValues()
+        testRecordingOverlayLayoutPersistsWithoutCompactOverlayBoolean()
         print("AppStateTranscriptionConfigurationTests passed")
     }
 
@@ -53,6 +54,19 @@ struct AppStateTranscriptionConfigurationTests {
         cancellable.cancel()
 
         assert(changeCount == 0, "Expected unchanged permission status to skip publishing, got \(changeCount) updates")
+    }
+
+    private static func testRecordingOverlayLayoutPersistsWithoutCompactOverlayBoolean() {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: "recording_overlay_layout")
+        defaults.removeObject(forKey: "use_compact_overlay")
+
+        let appState = AppState()
+        appState.recordingOverlayLayout = .notchSides
+
+        assert(defaults.string(forKey: "recording_overlay_layout") == "notchSides")
+        assert(defaults.object(forKey: "use_compact_overlay") == nil)
     }
 
     private static func resetDefaults() {

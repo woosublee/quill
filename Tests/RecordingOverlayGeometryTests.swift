@@ -8,6 +8,7 @@ struct RecordingOverlayGeometryTests {
         testTranscribingWidthFallsBackToCenteredWidthAfterNotchSideRecording()
         testTranscribingWidthKeepsExistingLockOnRepeatedTranscribingUpdate()
         testCenteredFrameUsesUpdatedMainScreenGeometry()
+        testNotchSideLayoutPhaseEligibility()
         print("RecordingOverlayGeometryTests passed")
     }
 
@@ -69,5 +70,43 @@ struct RecordingOverlayGeometryTests {
         assert(oldFrame.origin.x == 710)
         assert(updatedFrame.origin.x == 818)
         assert(updatedFrame.origin.y == 1041)
+    }
+
+    private static func testNotchSideLayoutPhaseEligibility() {
+        assert(RecordingOverlayGeometry.usesNotchSideLayout(
+            layout: .notchSides,
+            phase: .initializing,
+            hasNotchGeometry: true
+        ))
+        assert(RecordingOverlayGeometry.usesNotchSideLayout(
+            layout: .notchSides,
+            phase: .recording,
+            hasNotchGeometry: true
+        ))
+        assert(RecordingOverlayGeometry.usesNotchSideLayout(
+            layout: .notchSides,
+            phase: .transcribing,
+            hasNotchGeometry: true
+        ))
+        assert(RecordingOverlayGeometry.usesNotchSideLayout(
+            layout: .notchSides,
+            phase: .feedback,
+            hasNotchGeometry: true
+        ))
+        assert(!RecordingOverlayGeometry.usesNotchSideLayout(
+            layout: .notchSides,
+            phase: .updateAvailable,
+            hasNotchGeometry: true
+        ))
+        assert(!RecordingOverlayGeometry.usesNotchSideLayout(
+            layout: .centered,
+            phase: .recording,
+            hasNotchGeometry: true
+        ))
+        assert(!RecordingOverlayGeometry.usesNotchSideLayout(
+            layout: .notchSides,
+            phase: .recording,
+            hasNotchGeometry: false
+        ))
     }
 }
