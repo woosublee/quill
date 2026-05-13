@@ -32,7 +32,7 @@
     <main class="legal-main">
       <article class="wrap legal-card">
         <h1>Privacy Policy</h1>
-        <p><strong>Effective date:</strong> May 5, 2026</p>
+        <p><strong>Effective date:</strong> May 13, 2026</p>
         <p>Quill is a macOS dictation app. This policy explains what Quill stores locally, what may leave your Mac when you choose to use provider integrations, and how the optional Google Calendar integration works.</p>
 
         <h2>No Quill-operated storage server</h2>
@@ -49,18 +49,31 @@
         <p>You can delete run history from within Quill. Deleting history entries also removes associated local audio/transcript files when those files are referenced by the entry.</p>
 
         <h2>Transcription and AI provider calls</h2>
-        <p>Quill can use local transcription or API-based transcription. When you configure a transcription or AI provider, Quill sends the necessary audio, transcript, selected text, voice command, prompt, or context data directly from the app to the provider you configured. These provider calls are governed by that provider's own terms and privacy policy.</p>
+        <p>Quill can use local transcription or provider-based transcription and AI cleanup. Provider calls are made directly from Quill on your Mac to the transcription or AI provider configured in the app. Quill's default OpenAI-compatible provider is Groq, and you can configure another compatible provider in Settings. These provider calls are governed by that provider's own terms and privacy policy.</p>
+        <p>When you use local transcription, such as Apple Speech or a local Whisper model, audio is processed on your Mac and is not sent to a transcription provider for that transcription.</p>
+        <p>The data sent to a transcription or AI provider depends on which features you use:</p>
+        <ul>
+          <li><strong>Provider-based transcription:</strong> when you use API transcription instead of local transcription, Quill sends the audio you record, or a realtime audio stream if realtime transcription is enabled, plus request settings such as the selected transcription model or language.</li>
+          <li><strong>AI cleanup:</strong> when transcript cleanup is enabled, Quill sends the raw transcript, cleanup instructions, selected output language, and custom vocabulary you configured so the provider can return cleaned text.</li>
+          <li><strong>Context capture:</strong> when context capture is enabled, Quill may send app/window details, visible highlighted text, and screenshot-derived context from the active window so the provider can summarize the writing context for transcript cleanup.</li>
+          <li><strong>Edit Mode:</strong> when you explicitly ask Quill to transform text you highlighted in another app, Quill sends that highlighted text and your spoken editing instruction so the provider can return replacement text.</li>
+        </ul>
+        <p>Google Calendar data is separate from these transcription and AI provider calls. Quill does not send Google Calendar event data, selected calendar IDs, or Google OAuth tokens to transcription or AI providers.</p>
 
         <h2>Optional Google Calendar access</h2>
-        <p>Google Calendar integration is optional. If you connect Google Calendar, Quill requests read-only access so it can suggest note titles from calendar events that overlap a live recording.</p>
+        <p>Google Calendar integration is optional and read-only. If you connect Google Calendar, Quill requests access only so it can show calendars for you to choose from, suggest note titles from calendar events that overlap a live recording, and show local recording reminders based on those events when you enable reminders.</p>
         <p>Quill requests these Google OAuth scopes:</p>
         <ul>
           <li><code>https://www.googleapis.com/auth/calendar.calendarlist.readonly</code></li>
           <li><code>https://www.googleapis.com/auth/calendar.events.readonly</code></li>
         </ul>
         <p>Quill uses calendar list access to show your calendars in Settings so you can choose which calendars Quill may use. No calendars are selected by default.</p>
-        <p>For calendars you explicitly select, Quill reads event metadata around the time of a live recording, such as event title, start/end time, and minimal attendee metadata returned by Google Calendar. Quill uses this data to find events that overlap the recording and suggest a note title.</p>
+        <p>For calendars you explicitly select, Quill reads event metadata around live recordings and reminder windows, such as calendar ID, event ID, event title, start and end time, and attendee metadata, including names and email addresses, returned by Google Calendar. Quill uses this data only for calendar-based title suggestions and optional recording reminders.</p>
         <p>Quill does not create, edit, or delete Google Calendar events. Quill does not use Google Calendar data for advertising and does not sell Google Calendar data.</p>
+
+        <h2>Google user data sharing and disclosure</h2>
+        <p>Quill does not operate a server that stores or processes Google Calendar data. Google Calendar API requests are made directly between Quill on your Mac and Google using the OAuth access token stored on your Mac.</p>
+        <p>Quill does not share, transfer, or disclose Google Calendar data or Google OAuth tokens to transcription providers, AI providers, advertising services, analytics services, data brokers, or other third parties. Google Calendar data is not used to train AI models by Quill.</p>
 
         <h2>Google token storage and disconnecting</h2>
         <p>Google Calendar OAuth tokens are stored locally in the macOS Keychain. Selected calendar IDs are stored locally in app settings. You can disconnect Google Calendar from Quill Settings. Disconnecting removes Quill's stored Google Calendar OAuth token and clears selected calendars.</p>
