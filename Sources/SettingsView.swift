@@ -560,22 +560,19 @@ struct AppearanceSettingsView: View {
                 }
 
                 SettingsCard("Recording Overlay", icon: "rectangle.topthird.inset.filled") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Layout")
-                            .font(.caption.weight(.semibold))
-
-                        Picker("Recording Overlay Layout", selection: $appState.recordingOverlayLayout) {
-                            ForEach(RecordingOverlayLayout.allCases) { layout in
-                                Text(layout.displayName).tag(layout)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        .accessibilityLabel("Recording Overlay Layout")
-
-                        Text(appState.recordingOverlayLayout.helpText)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    VStack(spacing: 10) {
+                        OverlayLayoutOptionRow(
+                            title: "Notch-side menu-bar overlay",
+                            subtitle: "Shows recording status beside the camera notch when supported, without covering app tabs or toolbars.",
+                            layout: .notchSides,
+                            selection: $appState.recordingOverlayLayout
+                        )
+                        OverlayLayoutOptionRow(
+                            title: "Centered drop-down pill",
+                            subtitle: "Shows a single centered pill below the menu bar. More visible, but it can cover a thin strip of the active app.",
+                            layout: .centered,
+                            selection: $appState.recordingOverlayLayout
+                        )
                     }
                 }
             }
@@ -589,6 +586,99 @@ struct AppearanceSettingsView: View {
         case "dark":   NSApp.appearance = NSAppearance(named: .darkAqua)
         default:       NSApp.appearance = nil
         }
+    }
+}
+
+struct OverlayLayoutOptionRow: View {
+    let title: String
+    let subtitle: String
+    let layout: RecordingOverlayLayout
+    @Binding var selection: RecordingOverlayLayout
+
+    private var isSelected: Bool {
+        selection == layout
+    }
+
+    var body: some View {
+        Button {
+            selection = layout
+        } label: {
+            HStack(alignment: .center, spacing: 14) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 20))
+                    .foregroundStyle(isSelected ? Color.blue : Color.secondary)
+
+                OverlayLayoutPreview(layout: layout)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isSelected ? Color.blue.opacity(0.12) : Color(nsColor: .controlBackgroundColor))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isSelected ? Color.blue.opacity(0.55) : Color.primary.opacity(0.08), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+    }
+}
+
+struct OverlayLayoutPreview: View {
+    let layout: RecordingOverlayLayout
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(nsColor: .windowBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+
+            Rectangle()
+                .fill(Color.primary.opacity(0.12))
+                .frame(height: 14)
+                .frame(maxHeight: .infinity, alignment: .top)
+
+            RoundedRectangle(cornerRadius: 5)
+                .fill(Color.black)
+                .frame(width: 38, height: 13)
+                .frame(maxHeight: .infinity, alignment: .top)
+
+            if layout == .notchSides {
+                HStack(spacing: 38) {
+                    UnevenRoundedRectangle(bottomLeadingRadius: 3)
+                        .fill(Color.black)
+                        .frame(width: 18, height: 14)
+                    UnevenRoundedRectangle(bottomTrailingRadius: 3)
+                        .fill(Color.black)
+                        .frame(width: 18, height: 14)
+                }
+                .frame(maxHeight: .infinity, alignment: .top)
+            } else {
+                UnevenRoundedRectangle(bottomLeadingRadius: 5, bottomTrailingRadius: 5)
+                    .fill(Color.black)
+                    .frame(width: 50, height: 26)
+                    .frame(maxHeight: .infinity, alignment: .top)
+            }
+        }
+        .frame(width: 92, height: 54)
     }
 }
 
