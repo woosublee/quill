@@ -2536,6 +2536,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard !cancel.isDisabled, !dictation.isDisabled else { return false }
         guard cancel.primaryInputOverlapsForCancellation(with: dictation) else { return false }
 
+        let permittedAdditionalExactMatchModifiers = permittedAdditionalExactMatchModifiersForShortcutMatching
         let orderedModifierKeyCodes = Array(ShortcutBinding.modifierKeyCodes).sorted()
         let combinations = 1 << orderedModifierKeyCodes.count
 
@@ -2545,8 +2546,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 pressedModifierKeyCodes.insert(keyCode)
             }
 
-            if cancel.isActiveForCancellationConflict(pressedModifierKeyCodes: pressedModifierKeyCodes)
-                && dictation.isActiveForCancellationConflict(pressedModifierKeyCodes: pressedModifierKeyCodes) {
+            if cancel.isActiveForCancellationConflict(
+                pressedModifierKeyCodes: pressedModifierKeyCodes,
+                permittedAdditionalExactMatchModifiers: permittedAdditionalExactMatchModifiers
+            ) && dictation.isActiveForCancellationConflict(
+                pressedModifierKeyCodes: pressedModifierKeyCodes,
+                permittedAdditionalExactMatchModifiers: permittedAdditionalExactMatchModifiers
+            ) {
                 return true
             }
         }
@@ -2627,19 +2633,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         restartHotkeyMonitoring()
     }
 
-    private var activeShortcutConfiguration: ShortcutConfiguration {
-        let permittedAdditionalExactMatchModifiers: ShortcutModifiers
+    private var permittedAdditionalExactMatchModifiersForShortcutMatching: ShortcutModifiers {
         if isCommandModeEnabled, commandModeStyle == .manual {
-            permittedAdditionalExactMatchModifiers = commandModeManualModifier.shortcutModifier
-        } else {
-            permittedAdditionalExactMatchModifiers = []
+            return commandModeManualModifier.shortcutModifier
         }
+        return []
+    }
 
-        return ShortcutConfiguration(
+    private var activeShortcutConfiguration: ShortcutConfiguration {
+        ShortcutConfiguration(
             hold: holdShortcut,
             toggle: toggleShortcut,
             recordingCancel: recordingCancelShortcut,
-            permittedAdditionalExactMatchModifiers: permittedAdditionalExactMatchModifiers
+            permittedAdditionalExactMatchModifiers: permittedAdditionalExactMatchModifiersForShortcutMatching
         )
     }
 
@@ -5067,7 +5073,10 @@ private extension ShortcutBinding {
         }
     }
 
-    func isActiveForCancellationConflict(pressedModifierKeyCodes: Set<UInt16>) -> Bool {
+    func isActiveForCancellationConflict(
+        pressedModifierKeyCodes: Set<UInt16>,
+        permittedAdditionalExactMatchModifiers: ShortcutModifiers
+    ) -> Bool {
         let currentModifiers = Self.modifiers(for: pressedModifierKeyCodes)
         guard currentModifiers.isSuperset(of: modifiers) else {
             return false
@@ -5076,7 +5085,8 @@ private extension ShortcutBinding {
         if let exactModifierKeyCodes,
            !Self.exactModifierKeyCodesMatch(
             pressedModifierKeyCodes,
-            exactModifierKeyCodes: exactModifierKeyCodes
+            exactModifierKeyCodes: exactModifierKeyCodes,
+            permittedAdditionalExactMatchModifiers: permittedAdditionalExactMatchModifiers
            ) {
             return false
         }

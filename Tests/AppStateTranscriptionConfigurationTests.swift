@@ -15,6 +15,7 @@ struct AppStateTranscriptionConfigurationTests {
         testHoldShortcutRejectsCancelConflict()
         testHoldShortcutRejectsMoreSpecificCancelOverlap()
         testRecordingCancelShortcutRejectsMoreSpecificHoldOverlap()
+        testRecordingCancelShortcutRejectsManualModifierRuntimeOverlap()
         print("AppStateTranscriptionConfigurationTests passed")
     }
 
@@ -172,6 +173,38 @@ struct AppStateTranscriptionConfigurationTests {
 
         assert(validation == "Cancel shortcut must be distinct from dictation shortcuts.")
         assert(appState.recordingCancelShortcut != .defaultRecordingCancel)
+    }
+
+    private static func testRecordingCancelShortcutRejectsManualModifierRuntimeOverlap() {
+        resetDefaults()
+        let appState = AppState()
+        _ = appState.setCommandModeEnabled(true)
+        _ = appState.setCommandModeStyle(.manual)
+        _ = appState.setCommandModeManualModifier(.option)
+        let commandEsc = ShortcutBinding(
+            keyCode: 53,
+            keyDisplay: "Esc",
+            modifiers: .command,
+            kind: .key,
+            preset: nil,
+            exactModifierKeyCodes: [55]
+        )
+        let commandOptionEsc = ShortcutBinding(
+            keyCode: 53,
+            keyDisplay: "Esc",
+            modifiers: [.command, .option],
+            kind: .key,
+            preset: nil,
+            exactModifierKeyCodes: [55, 58]
+        )
+
+        assert(appState.setRecordingCancelShortcut(.disabled) == nil)
+        assert(appState.setShortcut(commandEsc, for: .hold) == nil)
+
+        let validation = appState.setRecordingCancelShortcut(commandOptionEsc)
+
+        assert(validation == "Cancel shortcut must be distinct from dictation shortcuts.")
+        assert(appState.recordingCancelShortcut == .disabled)
     }
 
     private static func resetDefaults() {
