@@ -3,12 +3,13 @@ import CoreGraphics
 
 @main
 struct RecordingOverlayGeometryTests {
-    static func main() {
+    static func main() throws {
         testNotchSideContentStartsAtTopOfVisiblePill()
         testTranscribingWidthFallsBackToCenteredWidthAfterNotchSideRecording()
         testTranscribingWidthKeepsExistingLockOnRepeatedTranscribingUpdate()
         testCenteredFrameUsesUpdatedMainScreenGeometry()
         testNotchSideLayoutPhaseEligibility()
+        try testNotchSideOverlayAvoidsContainerAudioLevelAnimation()
         print("RecordingOverlayGeometryTests passed")
     }
 
@@ -108,5 +109,20 @@ struct RecordingOverlayGeometryTests {
             phase: .recording,
             hasNotchGeometry: false
         ))
+    }
+
+    private static func testNotchSideOverlayAvoidsContainerAudioLevelAnimation() throws {
+        let source = try String(contentsOfFile: "Sources/RecordingOverlay.swift", encoding: .utf8)
+        guard let viewStart = source.range(of: "private struct NotchSideOverlayView")?.lowerBound,
+              let nextView = source.range(of: "struct RecordingOverlayView", range: viewStart..<source.endIndex)?.lowerBound else {
+            assertionFailure("Expected to find NotchSideOverlayView source block")
+            return
+        }
+
+        let viewSource = source[viewStart..<nextView]
+        assert(
+            !viewSource.contains("value: state.audioLevel"),
+            "NotchSideOverlayView must not animate the whole container for high-frequency audioLevel updates"
+        )
     }
 }

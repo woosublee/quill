@@ -779,7 +779,6 @@ private struct NotchSideOverlayView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.phase)
-        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.audioLevel)
         .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.recordingTriggerMode)
         .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.isCommandMode)
     }
