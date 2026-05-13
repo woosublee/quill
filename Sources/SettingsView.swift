@@ -623,7 +623,6 @@ struct OverlayLayoutOptionRow: View {
                 Spacer(minLength: 0)
             }
             .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color(nsColor: .controlBackgroundColor))
@@ -654,42 +653,61 @@ struct OverlayLayoutPreview: View {
                 .fill(Color(nsColor: .windowBackgroundColor))
                 .overlay(
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                        .stroke(Color.primary.opacity(0.15), lineWidth: 0.5)
                 )
 
-            VStack(spacing: 0) {
-                Rectangle()
-                    .fill(Color.primary.opacity(0.12))
-                    .frame(height: menuBarHeight)
+            Rectangle()
+                .fill(Color.primary.opacity(0.10))
+                .frame(height: menuBarHeight)
 
-                Rectangle()
-                    .fill(Color.primary.opacity(0.05))
-                    .frame(height: 10)
-
-                Spacer(minLength: 0)
+            HStack(spacing: 3) {
+                ForEach(0..<5, id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(Color.primary.opacity(0.18))
+                        .frame(height: 5)
+                }
             }
+            .padding(.horizontal, 6)
+            .padding(.top, menuBarHeight + 4)
 
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Color.black)
-                .frame(width: notchWidth, height: notchHeight)
-                .frame(maxHeight: .infinity, alignment: .top)
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: 3,
+                bottomTrailingRadius: 3,
+                topTrailingRadius: 0
+            )
+            .fill(Color.black)
+            .frame(width: notchWidth, height: notchHeight)
 
             if layout == .notchSides {
-                HStack(spacing: notchWidth + 4) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.black)
-                        .frame(width: 20, height: menuBarHeight)
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.black)
-                        .frame(width: 20, height: menuBarHeight)
-                }
-                .frame(maxHeight: .infinity, alignment: .top)
-            } else {
-                UnevenRoundedRectangle(bottomLeadingRadius: 5, bottomTrailingRadius: 5)
+                HStack(spacing: notchWidth) {
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 0,
+                        bottomLeadingRadius: 3,
+                        bottomTrailingRadius: 0,
+                        topTrailingRadius: 0
+                    )
                     .fill(Color.black)
-                    .frame(width: 46, height: 24)
-                    .offset(y: menuBarHeight)
-                    .frame(maxHeight: .infinity, alignment: .top)
+                    .frame(width: 16, height: notchHeight)
+
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 0,
+                        bottomLeadingRadius: 0,
+                        bottomTrailingRadius: 3,
+                        topTrailingRadius: 0
+                    )
+                    .fill(Color.black)
+                    .frame(width: 16, height: notchHeight)
+                }
+            } else {
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 5,
+                    bottomTrailingRadius: 5,
+                    topTrailingRadius: 0
+                )
+                .fill(Color.black)
+                .frame(width: notchWidth + 10, height: notchHeight + 12)
             }
         }
         .frame(width: frameWidth, height: frameHeight)
