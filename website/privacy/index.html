@@ -49,7 +49,7 @@
         <p>You can delete run history from within Quill. Deleting history entries also removes associated local audio/transcript files when those files are referenced by the entry.</p>
 
         <h2>Transcription and AI provider calls</h2>
-        <p>Quill can use local transcription or provider-based transcription and AI cleanup. Provider calls are made directly from Quill on your Mac to the transcription or AI provider configured in the app. Quill's default OpenAI-compatible provider endpoint is Groq, and you can configure another compatible provider in Settings. These provider calls are governed by that provider's own terms and privacy policy.</p>
+        <p>Quill can use local transcription or provider-based transcription and AI cleanup. Provider calls are made directly from Quill on your Mac to the transcription or AI provider configured in the app. Quill's default OpenAI-compatible provider is Groq, and you can configure another compatible provider in Settings. These provider calls are governed by that provider's own terms and privacy policy.</p>
         <p>When you use local transcription, such as Apple Speech or a local Whisper model, audio is processed on your Mac and is not sent to a transcription provider for that transcription.</p>
         <p>The data sent to a transcription or AI provider depends on which features you use:</p>
         <ul>
@@ -68,7 +68,7 @@
           <li><code>https://www.googleapis.com/auth/calendar.events.readonly</code></li>
         </ul>
         <p>Quill uses calendar list access to show your calendars in Settings so you can choose which calendars Quill may use. No calendars are selected by default.</p>
-        <p>For calendars you explicitly select, Quill reads event metadata around live recordings and reminder windows, such as calendar ID, event ID, event title, start and end time, and attendee metadata returned by Google Calendar. Quill uses this data only for calendar-based title suggestions and optional recording reminders.</p>
+        <p>For calendars you explicitly select, Quill reads event metadata around live recordings and reminder windows, such as calendar ID, event ID, event title, start and end time, and attendee metadata, including names and email addresses, returned by Google Calendar. Quill uses this data only for calendar-based title suggestions and optional recording reminders.</p>
         <p>Quill does not create, edit, or delete Google Calendar events. Quill does not use Google Calendar data for advertising and does not sell Google Calendar data.</p>
 
         <h2>Google user data sharing and disclosure</h2>
