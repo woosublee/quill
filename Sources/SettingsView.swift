@@ -560,22 +560,19 @@ struct AppearanceSettingsView: View {
                 }
 
                 SettingsCard("Recording Overlay", icon: "rectangle.topthird.inset.filled") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Layout")
-                            .font(.caption.weight(.semibold))
-
-                        Picker("Recording Overlay Layout", selection: $appState.recordingOverlayLayout) {
-                            ForEach(RecordingOverlayLayout.allCases) { layout in
-                                Text(layout.displayName).tag(layout)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        .accessibilityLabel("Recording Overlay Layout")
-
-                        Text(appState.recordingOverlayLayout.helpText)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    VStack(spacing: 10) {
+                        OverlayLayoutOptionRow(
+                            title: "Notch-side menu-bar overlay",
+                            subtitle: "Shows recording status beside the camera notch when supported, without covering app tabs or toolbars.",
+                            layout: .notchSides,
+                            selection: $appState.recordingOverlayLayout
+                        )
+                        OverlayLayoutOptionRow(
+                            title: "Centered drop-down pill",
+                            subtitle: "Shows a single centered pill below the menu bar. More visible, but it can cover a thin strip of the active app.",
+                            layout: .centered,
+                            selection: $appState.recordingOverlayLayout
+                        )
                     }
                 }
             }
@@ -589,6 +586,132 @@ struct AppearanceSettingsView: View {
         case "dark":   NSApp.appearance = NSAppearance(named: .darkAqua)
         default:       NSApp.appearance = nil
         }
+    }
+}
+
+struct OverlayLayoutOptionRow: View {
+    let title: String
+    let subtitle: String
+    let layout: RecordingOverlayLayout
+    @Binding var selection: RecordingOverlayLayout
+
+    private var isSelected: Bool {
+        selection == layout
+    }
+
+    var body: some View {
+        Button {
+            selection = layout
+        } label: {
+            HStack(alignment: .center, spacing: 14) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 20))
+                    .foregroundStyle(isSelected ? Color.blue : Color.secondary)
+
+                OverlayLayoutPreview(layout: layout)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 2)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+    }
+}
+
+struct OverlayLayoutPreview: View {
+    let layout: RecordingOverlayLayout
+
+    private let frameWidth: CGFloat = 110
+    private let frameHeight: CGFloat = 56
+    private let menuBarHeight: CGFloat = 8
+    private let notchWidth: CGFloat = 26
+    private let notchHeight: CGFloat = 8
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(nsColor: .windowBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.primary.opacity(0.15), lineWidth: 0.5)
+                )
+
+            Rectangle()
+                .fill(Color.primary.opacity(0.10))
+                .frame(height: menuBarHeight)
+
+            HStack(spacing: 3) {
+                ForEach(0..<5, id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(Color.primary.opacity(0.18))
+                        .frame(height: 5)
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.top, menuBarHeight + 4)
+
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: 3,
+                bottomTrailingRadius: 3,
+                topTrailingRadius: 0
+            )
+            .fill(Color.black)
+            .frame(width: notchWidth, height: notchHeight)
+
+            if layout == .notchSides {
+                HStack(spacing: notchWidth) {
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 0,
+                        bottomLeadingRadius: 3,
+                        bottomTrailingRadius: 0,
+                        topTrailingRadius: 0
+                    )
+                    .fill(Color.black)
+                    .frame(width: 16, height: notchHeight)
+
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: 0,
+                        bottomLeadingRadius: 0,
+                        bottomTrailingRadius: 3,
+                        topTrailingRadius: 0
+                    )
+                    .fill(Color.black)
+                    .frame(width: 16, height: notchHeight)
+                }
+            } else {
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 0,
+                    bottomLeadingRadius: 5,
+                    bottomTrailingRadius: 5,
+                    topTrailingRadius: 0
+                )
+                .fill(Color.black)
+                .frame(width: notchWidth + 10, height: notchHeight + 12)
+            }
+        }
+        .frame(width: frameWidth, height: frameHeight)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }
 
