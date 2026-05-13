@@ -13,6 +13,8 @@ struct AppStateTranscriptionConfigurationTests {
         testRecordingCancelShortcutPersistsCustomShortcut()
         testRecordingCancelShortcutRejectsHoldConflict()
         testHoldShortcutRejectsCancelConflict()
+        testHoldShortcutRejectsMoreSpecificCancelOverlap()
+        testRecordingCancelShortcutRejectsMoreSpecificHoldOverlap()
         print("AppStateTranscriptionConfigurationTests passed")
     }
 
@@ -134,6 +136,44 @@ struct AppStateTranscriptionConfigurationTests {
         assert(appState.holdShortcut == .defaultHold)
     }
 
+    private static func testHoldShortcutRejectsMoreSpecificCancelOverlap() {
+        resetDefaults()
+        let appState = AppState()
+        let commandEsc = ShortcutBinding(
+            keyCode: 53,
+            keyDisplay: "Esc",
+            modifiers: .command,
+            kind: .key,
+            preset: nil,
+            exactModifierKeyCodes: [55]
+        )
+
+        let validation = appState.setShortcut(commandEsc, for: .hold)
+
+        assert(validation == "Dictation shortcuts must be distinct from the cancel shortcut.")
+        assert(appState.holdShortcut == .defaultHold)
+    }
+
+    private static func testRecordingCancelShortcutRejectsMoreSpecificHoldOverlap() {
+        resetDefaults()
+        let appState = AppState()
+        let commandEsc = ShortcutBinding(
+            keyCode: 53,
+            keyDisplay: "Esc",
+            modifiers: .command,
+            kind: .key,
+            preset: nil,
+            exactModifierKeyCodes: [55]
+        )
+        assert(appState.setRecordingCancelShortcut(.disabled) == nil)
+        assert(appState.setShortcut(commandEsc, for: .hold) == nil)
+
+        let validation = appState.setRecordingCancelShortcut(.defaultRecordingCancel)
+
+        assert(validation == "Cancel shortcut must be distinct from dictation shortcuts.")
+        assert(appState.recordingCancelShortcut != .defaultRecordingCancel)
+    }
+
     private static func resetDefaults() {
         let defaults = UserDefaults.standard
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("app_state_transcription_test_") {
@@ -142,7 +182,11 @@ struct AppStateTranscriptionConfigurationTests {
         defaults.removeObject(forKey: "use_local_transcription")
         defaults.removeObject(forKey: "local_transcription_model")
         defaults.removeObject(forKey: "transcription_language")
+        defaults.removeObject(forKey: "hold_shortcut")
+        defaults.removeObject(forKey: "toggle_shortcut")
         defaults.removeObject(forKey: "recording_cancel_shortcut")
+        defaults.removeObject(forKey: "saved_hold_custom_shortcut")
+        defaults.removeObject(forKey: "saved_toggle_custom_shortcut")
         defaults.removeObject(forKey: "saved_recording_cancel_custom_shortcut")
     }
 

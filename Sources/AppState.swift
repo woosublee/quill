@@ -2481,7 +2481,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @discardableResult
     func setRecordingCancelShortcut(_ binding: ShortcutBinding) -> String? {
         let binding = binding.normalizedForStorageMigration()
-        guard !binding.conflicts(with: holdShortcut), !binding.conflicts(with: toggleShortcut) else {
+        guard !cancelShortcutOverlapsDictationShortcut(binding, holdShortcut),
+              !cancelShortcutOverlapsDictationShortcut(binding, toggleShortcut) else {
             return "Cancel shortcut must be distinct from dictation shortcuts."
         }
 
@@ -2499,7 +2500,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard !binding.conflicts(with: otherBinding) else {
             return "Hold and tap shortcuts must be distinct."
         }
-        guard !binding.conflicts(with: recordingCancelShortcut) else {
+        guard !cancelShortcutOverlapsDictationShortcut(recordingCancelShortcut, binding) else {
             return "Dictation shortcuts must be distinct from the cancel shortcut."
         }
 
@@ -2529,6 +2530,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         return nil
+    }
+
+    private func cancelShortcutOverlapsDictationShortcut(_ cancel: ShortcutBinding, _ dictation: ShortcutBinding) -> Bool {
+        guard !cancel.isDisabled, !dictation.isDisabled else { return false }
+        guard cancel.primaryInputOverlapsForCancellation(with: dictation) else { return false }
+
+        let orderedModifierKeyCodes = Array(ShortcutBinding.modifierKeyCodes).sorted()
+        let combinations = 1 << orderedModifierKeyCodes.count
+
+        for mask in 0..<combinations {
+            var pressedModifierKeyCodes: Set<UInt16> = []
+            for (index, keyCode) in orderedModifierKeyCodes.enumerated() where (mask & (1 << index)) != 0 {
+                pressedModifierKeyCodes.insert(keyCode)
+            }
+
+            if cancel.isActiveForCancellationConflict(pressedModifierKeyCodes: pressedModifierKeyCodes)
+                && dictation.isActiveForCancellationConflict(pressedModifierKeyCodes: pressedModifierKeyCodes) {
+                return true
+            }
+        }
+
+        return false
     }
 
     private func commandModeManualModifierCollisionMessage(
@@ -5026,6 +5049,45 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 return
             }
             self.statusText = "Ready"
+        }
+    }
+}
+
+private extension ShortcutBinding {
+    func primaryInputOverlapsForCancellation(with other: ShortcutBinding) -> Bool {
+        guard kind == other.kind else { return false }
+
+        switch kind {
+        case .disabled:
+            return false
+        case .key:
+            return keyCode == other.keyCode
+        case .modifierKey:
+            return keyCode == other.keyCode
+        }
+    }
+
+    func isActiveForCancellationConflict(pressedModifierKeyCodes: Set<UInt16>) -> Bool {
+        let currentModifiers = Self.modifiers(for: pressedModifierKeyCodes)
+        guard currentModifiers.isSuperset(of: modifiers) else {
+            return false
+        }
+
+        if let exactModifierKeyCodes,
+           !Self.exactModifierKeyCodesMatch(
+            pressedModifierKeyCodes,
+            exactModifierKeyCodes: exactModifierKeyCodes
+           ) {
+            return false
+        }
+
+        switch kind {
+        case .disabled:
+            return false
+        case .key:
+            return true
+        case .modifierKey:
+            return pressedModifierKeyCodes.contains(keyCode)
         }
     }
 }
