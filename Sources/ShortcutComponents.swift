@@ -46,7 +46,11 @@ struct DictationShortcutEditor: View {
                     set: { activeCaptureTarget = $0 ? .hold : nil }
                 ),
                 onSelect: { binding in
-                    holdValidationMessage = appState.setShortcut(binding, for: .hold)
+                    let message = appState.setShortcut(binding, for: .hold)
+                    holdValidationMessage = message
+                    if message == nil {
+                        cancelValidationMessage = nil
+                    }
                 }
             )
 
@@ -59,7 +63,11 @@ struct DictationShortcutEditor: View {
                     set: { activeCaptureTarget = $0 ? .toggle : nil }
                 ),
                 onSelect: { binding in
-                    toggleValidationMessage = appState.setShortcut(binding, for: .toggle)
+                    let message = appState.setShortcut(binding, for: .toggle)
+                    toggleValidationMessage = message
+                    if message == nil {
+                        cancelValidationMessage = nil
+                    }
                 }
             )
 
@@ -72,7 +80,12 @@ struct DictationShortcutEditor: View {
                     set: { activeCaptureTarget = $0 ? .recordingCancel : nil }
                 ),
                 onSelect: { binding in
-                    cancelValidationMessage = appState.setRecordingCancelShortcut(binding)
+                    let message = appState.setRecordingCancelShortcut(binding)
+                    cancelValidationMessage = message
+                    if message == nil {
+                        holdValidationMessage = nil
+                        toggleValidationMessage = nil
+                    }
                 }
             )
 
@@ -287,6 +300,11 @@ private struct ShortcutCaptureRow: View {
                 )
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.blue)
+            }
+        }
+        .onChange(of: isCapturing) { isCapturing in
+            if !isCapturing {
+                stopCapture(clearCaptureState: false)
             }
         }
         .onDisappear {
