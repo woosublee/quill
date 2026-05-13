@@ -107,11 +107,20 @@ enum ShortcutMatcher {
                 state: nextState,
                 configuration: configuration
             )
-            let emittedEvents = updateActiveBindings(in: &nextState, configuration: configuration)
+            var emittedEvents = updateActiveBindings(in: &nextState, configuration: configuration)
+            if recordingCancelWasActivated(
+                by: keyCode,
+                isDown: isDown,
+                previousState: state,
+                currentState: nextState,
+                configuration: configuration
+            ) {
+                emittedEvents.append(.recordingCancelRequested)
+            }
             return ShortcutMatchResult(
                 state: nextState,
                 emittedEvents: emittedEvents,
-                consumeDecision: (shouldConsumeBefore || shouldConsumeAfter) ? .consume : .passthrough
+                consumeDecision: (shouldConsumeBefore || shouldConsumeAfter || emittedEvents.contains(.recordingCancelRequested)) ? .consume : .passthrough
             )
 
         case .keyChanged(let keyCode, let isDown, let isRepeat):
@@ -259,6 +268,22 @@ enum ShortcutMatcher {
             return false
         }
         return bindingIsActive(configuration.recordingCancel, state: state, configuration: configuration)
+    }
+
+    private static func recordingCancelWasActivated(
+        by keyCode: UInt16,
+        isDown: Bool,
+        previousState: ShortcutInputState,
+        currentState: ShortcutInputState,
+        configuration: ShortcutConfiguration
+    ) -> Bool {
+        guard isDown else { return false }
+        guard configuration.recordingCancel.kind == .modifierKey,
+              configuration.recordingCancel.keyCode == keyCode else {
+            return false
+        }
+        return !bindingIsActive(configuration.recordingCancel, state: previousState, configuration: configuration)
+            && bindingIsActive(configuration.recordingCancel, state: currentState, configuration: configuration)
     }
 
     private static func shouldConsumeKeyEvent(

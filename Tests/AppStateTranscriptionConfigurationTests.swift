@@ -16,6 +16,7 @@ struct AppStateTranscriptionConfigurationTests {
         testHoldShortcutRejectsMoreSpecificCancelOverlap()
         testRecordingCancelShortcutRejectsMoreSpecificHoldOverlap()
         testRecordingCancelShortcutRejectsManualModifierRuntimeOverlap()
+        testCommandModeManualModifierReportsCancelOverlap()
         print("AppStateTranscriptionConfigurationTests passed")
     }
 
@@ -207,6 +208,37 @@ struct AppStateTranscriptionConfigurationTests {
         assert(appState.recordingCancelShortcut == .disabled)
     }
 
+    private static func testCommandModeManualModifierReportsCancelOverlap() {
+        resetDefaults()
+        let appState = AppState()
+        let commandEsc = ShortcutBinding(
+            keyCode: 53,
+            keyDisplay: "Esc",
+            modifiers: .command,
+            kind: .key,
+            preset: nil,
+            exactModifierKeyCodes: [55]
+        )
+        let commandOptionEsc = ShortcutBinding(
+            keyCode: 53,
+            keyDisplay: "Esc",
+            modifiers: [.command, .option],
+            kind: .key,
+            preset: nil,
+            exactModifierKeyCodes: [55, 58]
+        )
+
+        assert(appState.setRecordingCancelShortcut(.disabled) == nil)
+        assert(appState.setShortcut(commandEsc, for: .hold) == nil)
+        assert(appState.setRecordingCancelShortcut(commandOptionEsc) == nil)
+        _ = appState.setCommandModeEnabled(true)
+
+        let validation = appState.setCommandModeStyle(.manual)
+
+        assert(validation == "Cancel shortcut must be distinct from dictation shortcuts.")
+        assert(appState.commandModeManualModifierValidationMessage == "Cancel shortcut must be distinct from dictation shortcuts.")
+    }
+
     private static func resetDefaults() {
         let defaults = UserDefaults.standard
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("app_state_transcription_test_") {
@@ -221,6 +253,9 @@ struct AppStateTranscriptionConfigurationTests {
         defaults.removeObject(forKey: "saved_hold_custom_shortcut")
         defaults.removeObject(forKey: "saved_toggle_custom_shortcut")
         defaults.removeObject(forKey: "saved_recording_cancel_custom_shortcut")
+        defaults.removeObject(forKey: "command_mode_enabled")
+        defaults.removeObject(forKey: "command_mode_style")
+        defaults.removeObject(forKey: "command_mode_manual_modifier")
     }
 
     private static func mirroredTranscriptionConfiguration(_ service: TranscriptionService) -> (

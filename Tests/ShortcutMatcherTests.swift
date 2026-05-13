@@ -5,6 +5,7 @@ struct ShortcutMatcherTests {
     static func main() {
         testDisabledCancelShortcutPassesThrough()
         testEscCancelShortcutEmitsCancelEvent()
+        testModifierOnlyCancelShortcutEmitsCancelEvent()
         testRepeatedEscDoesNotEmitCancelEvent()
         testCustomCancelShortcutRequiresConfiguredModifiers()
         testCancelDeclinePassesThrough()
@@ -40,6 +41,23 @@ struct ShortcutMatcherTests {
         let result = ShortcutMatcher.reduce(
             state: ShortcutInputState(),
             event: .keyChanged(keyCode: 53, isDown: true, isRepeat: false),
+            configuration: configuration
+        )
+
+        assert(result.emittedEvents == [.recordingCancelRequested])
+        assert(result.consumeDecision == .consume)
+    }
+
+    private static func testModifierOnlyCancelShortcutEmitsCancelEvent() {
+        let configuration = ShortcutConfiguration(
+            hold: .disabled,
+            toggle: .disabled,
+            recordingCancel: ShortcutPreset.rightOption.binding
+        )
+
+        let result = ShortcutMatcher.reduce(
+            state: ShortcutInputState(),
+            event: .modifierChanged(keyCode: 61, isDown: true),
             configuration: configuration
         )
 

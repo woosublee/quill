@@ -2448,6 +2448,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     var commandModeManualModifierValidationMessage: String? {
         guard isCommandModeEnabled, commandModeStyle == .manual else { return nil }
         return commandModeManualModifierCollisionMessage(for: commandModeManualModifier)
+            ?? recordingCancelShortcutCollisionMessage()
     }
 
     @discardableResult
@@ -2455,6 +2456,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         isCommandModeEnabled = enabled
         if enabled, commandModeStyle == .manual {
             return commandModeManualModifierCollisionMessage(for: commandModeManualModifier)
+                ?? recordingCancelShortcutCollisionMessage()
         }
         return nil
     }
@@ -2464,6 +2466,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         commandModeStyle = style
         if isCommandModeEnabled, style == .manual {
             return commandModeManualModifierCollisionMessage(for: commandModeManualModifier)
+                ?? recordingCancelShortcutCollisionMessage()
         }
         return nil
     }
@@ -2474,6 +2477,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         commandModeManualModifier = modifier
         if isCommandModeEnabled, commandModeStyle == .manual {
             return commandModeManualModifierCollisionMessage(for: modifier)
+                ?? recordingCancelShortcutCollisionMessage(
+                    permittedAdditionalExactMatchModifiers: modifier.shortcutModifier
+                )
         }
         return nil
     }
@@ -2532,11 +2538,35 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return nil
     }
 
-    private func cancelShortcutOverlapsDictationShortcut(_ cancel: ShortcutBinding, _ dictation: ShortcutBinding) -> Bool {
+    private func recordingCancelShortcutCollisionMessage(
+        permittedAdditionalExactMatchModifiers: ShortcutModifiers? = nil
+    ) -> String? {
+        let permittedAdditionalExactMatchModifiers = permittedAdditionalExactMatchModifiers
+            ?? permittedAdditionalExactMatchModifiersForShortcutMatching
+        if cancelShortcutOverlapsDictationShortcut(
+            recordingCancelShortcut,
+            holdShortcut,
+            permittedAdditionalExactMatchModifiers: permittedAdditionalExactMatchModifiers
+        ) || cancelShortcutOverlapsDictationShortcut(
+            recordingCancelShortcut,
+            toggleShortcut,
+            permittedAdditionalExactMatchModifiers: permittedAdditionalExactMatchModifiers
+        ) {
+            return "Cancel shortcut must be distinct from dictation shortcuts."
+        }
+        return nil
+    }
+
+    private func cancelShortcutOverlapsDictationShortcut(
+        _ cancel: ShortcutBinding,
+        _ dictation: ShortcutBinding,
+        permittedAdditionalExactMatchModifiers: ShortcutModifiers? = nil
+    ) -> Bool {
         guard !cancel.isDisabled, !dictation.isDisabled else { return false }
         guard cancel.primaryInputOverlapsForCancellation(with: dictation) else { return false }
 
-        let permittedAdditionalExactMatchModifiers = permittedAdditionalExactMatchModifiersForShortcutMatching
+        let permittedAdditionalExactMatchModifiers = permittedAdditionalExactMatchModifiers
+            ?? permittedAdditionalExactMatchModifiersForShortcutMatching
         let orderedModifierKeyCodes = Array(ShortcutBinding.modifierKeyCodes).sorted()
         let combinations = 1 << orderedModifierKeyCodes.count
 
