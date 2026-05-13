@@ -337,30 +337,18 @@ private struct ShortcutCaptureRow: View {
             }
         }
         backend.onKeyDownEvent = { event in
-            let isReturnKey = event.keyCode == 36 || event.keyCode == 76
-            let hasPendingCapture = currentBinding != nil
-
-            if isReturnKey && hasPendingCapture {
+            switch ShortcutCaptureKeyHandling.action(
+                for: event,
+                pressedModifierKeyCodes: captureInputState.pressedModifierKeyCodes,
+                hasPendingCapture: currentBinding != nil
+            ) {
+            case .finishCapture:
                 finishCapture()
+            case .updateCapture(let binding):
+                currentBinding = binding
+            case .ignore:
                 return
             }
-            if event.keyCode == 53 && hasPendingCapture {
-                finishCapture()
-                return
-            }
-
-            guard !ShortcutBinding.modifierKeyCodes.contains(event.keyCode) else {
-                return
-            }
-
-            guard let binding = ShortcutBinding.from(
-                event: event,
-                pressedModifierKeyCodes: captureInputState.pressedModifierKeyCodes
-            ) else {
-                return
-            }
-
-            currentBinding = binding
         }
         backend.start()
         captureBackend = backend
