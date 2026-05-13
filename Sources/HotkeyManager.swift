@@ -9,7 +9,6 @@ final class HotkeyManager {
     private var inputState = ShortcutInputState()
 
     var onShortcutEvent: ((ShortcutEvent) -> Void)?
-    var onEscapeKeyPressed: (() -> Bool)?
     var onRecordingCancelShortcut: (() -> Bool)?
 
     var currentPressedModifiers: ShortcutModifiers {
@@ -64,17 +63,27 @@ final class HotkeyManager {
         onShortcutEvent: (ShortcutEvent) -> Void,
         onRecordingCancelShortcut: () -> Bool
     ) -> ShortcutConsumeDecision {
-        var consumeDecision = result.consumeDecision
+        var consumedByForwardedShortcut = false
+        var consumedByRecordingCancel = false
+        var sawRecordingCancelEvent = false
 
         for event in result.emittedEvents {
             switch event {
             case .recordingCancelRequested:
-                consumeDecision = onRecordingCancelShortcut() ? .consume : .passthrough
+                sawRecordingCancelEvent = true
+                consumedByRecordingCancel = onRecordingCancelShortcut() || consumedByRecordingCancel
             case .holdActivated, .holdDeactivated, .toggleActivated, .toggleDeactivated:
+                consumedByForwardedShortcut = true
                 onShortcutEvent(event)
             }
         }
 
-        return consumeDecision
+        if consumedByForwardedShortcut || consumedByRecordingCancel {
+            return .consume
+        }
+        if result.consumeDecision == .consume && !sawRecordingCancelEvent {
+            return .consume
+        }
+        return .passthrough
     }
 }

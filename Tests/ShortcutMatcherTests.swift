@@ -9,6 +9,7 @@ struct ShortcutMatcherTests {
         testCustomCancelShortcutRequiresConfiguredModifiers()
         testCancelDeclinePassesThrough()
         testCancelAcceptConsumes()
+        testCancelDeclinePreservesForwardedShortcutConsumption()
         print("ShortcutMatcherTests passed")
     }
 
@@ -139,6 +140,24 @@ struct ShortcutMatcherTests {
         )
 
         assert(forwardedEvents.isEmpty)
+        assert(decision == .consume)
+    }
+
+    private static func testCancelDeclinePreservesForwardedShortcutConsumption() {
+        let result = ShortcutMatchResult(
+            state: ShortcutInputState(),
+            emittedEvents: [.holdActivated, .recordingCancelRequested],
+            consumeDecision: .consume
+        )
+        var forwardedEvents: [ShortcutEvent] = []
+
+        let decision = HotkeyManager.dispatchShortcutMatchResult(
+            result,
+            onShortcutEvent: { forwardedEvents.append($0) },
+            onRecordingCancelShortcut: { false }
+        )
+
+        assert(forwardedEvents == [.holdActivated])
         assert(decision == .consume)
     }
 }

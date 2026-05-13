@@ -2518,7 +2518,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 self?.handleShortcutEvent(event)
             }
         }
-        hotkeyManager.onEscapeKeyPressed = { [weak self] in
+        hotkeyManager.onRecordingCancelShortcut = { [weak self] in
             guard let self else { return false }
             let shouldHandle = Thread.isMainThread
                 ? self.shouldConfirmEscapeCancellation
@@ -2538,7 +2538,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         shouldMonitorHotkeys = false
         hotkeyMonitoringErrorMessage = nil
         hotkeyManager.onShortcutEvent = nil
-        hotkeyManager.onEscapeKeyPressed = nil
+        hotkeyManager.onRecordingCancelShortcut = nil
         hotkeyManager.stop()
     }
 
