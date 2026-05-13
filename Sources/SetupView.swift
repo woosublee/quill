@@ -68,6 +68,7 @@ struct SetupView: View {
         case holdShortcut
         case toggleShortcut
         case commandMode
+        case overlayStyle
         case vocabulary
         case launchAtLogin
         case testTranscription
@@ -264,6 +265,8 @@ struct SetupView: View {
             toggleShortcutStep
         case .commandMode:
             commandModeStep
+        case .overlayStyle:
+            overlayStyleStep
         case .vocabulary:
             vocabularyStep
         case .launchAtLogin:
@@ -906,6 +909,39 @@ struct SetupView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(nsColor: .controlBackgroundColor))
             .cornerRadius(10)
+        }
+    }
+
+    var overlayStyleStep: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "rectangle.topthird.inset.filled")
+                .font(.system(size: 60))
+                .foregroundStyle(.blue)
+
+            Text("Recording overlay style")
+                .font(.title)
+                .fontWeight(.bold)
+
+            Text("Choose how Quill shows recording status while you dictate. You can change this later in Settings.")
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(spacing: 10) {
+                OverlayLayoutOptionRow(
+                    title: "Notch-side menu-bar overlay",
+                    subtitle: "Shows recording status beside the camera notch when supported, without covering app tabs or toolbars.",
+                    layout: .notchSides,
+                    selection: $appState.recordingOverlayLayout
+                )
+                OverlayLayoutOptionRow(
+                    title: "Centered drop-down pill",
+                    subtitle: "Shows a single centered pill below the menu bar. More visible, but it can cover a thin strip of the active app.",
+                    layout: .centered,
+                    selection: $appState.recordingOverlayLayout
+                )
+            }
+            .padding(.top, 6)
         }
     }
 
