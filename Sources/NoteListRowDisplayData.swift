@@ -20,12 +20,13 @@ struct NoteListRowDisplayData: Equatable {
     let displayTitle: String
     let preview: String
 
-    init(item: PipelineHistoryItem, customTitle: String?, retryingIDs: Set<UUID>) {
+    init(item: PipelineHistoryItem, retryingIDs: Set<UUID>) {
         let status = transcriptStatus(for: item, retrying: retryingIDs)
+        let trimmedCustomTitle = item.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let customTitle = trimmedCustomTitle?.isEmpty == true ? nil : trimmedCustomTitle
         let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayTitle = NoteTitleResolver.displayTitle(
             for: item,
-            customTitle: customTitle,
             isTranscribing: status == .transcribing
         )
 

@@ -3,7 +3,7 @@ import Foundation
 @main
 struct NoteTitleResolutionTests {
     static func main() {
-        testCustomTitleWins()
+        testItemCustomTitleWins()
         testAppliedCalendarTitleWinsOverTranscriptTitle()
         testSuggestedCalendarTitleDoesNotOverrideTranscriptTitle()
         testFallbackUsedWhenNoContentOrAppliedCalendarTitle()
@@ -13,39 +13,43 @@ struct NoteTitleResolutionTests {
         print("NoteTitleResolutionTests passed")
     }
 
-    private static func testCustomTitleWins() {
-        let item = item(transcript: "Transcript title", calendarMatch: match(title: "Calendar title", titleState: .applied))
-        let title = NoteTitleResolver.displayTitle(for: item, customTitle: "Manual title")
+    private static func testItemCustomTitleWins() {
+        let item = item(
+            transcript: "Transcript title",
+            calendarMatch: match(title: "Calendar title", titleState: .applied),
+            customTitle: "Manual title"
+        )
+        let title = NoteTitleResolver.displayTitle(for: item)
         assert(title == "Manual title")
     }
 
     private static func testAppliedCalendarTitleWinsOverTranscriptTitle() {
         let item = item(transcript: "Transcript title", calendarMatch: match(title: "Calendar title", titleState: .applied))
-        let title = NoteTitleResolver.displayTitle(for: item, customTitle: nil)
+        let title = NoteTitleResolver.displayTitle(for: item)
         assert(title == "Calendar title")
     }
 
     private static func testSuggestedCalendarTitleDoesNotOverrideTranscriptTitle() {
         let item = item(transcript: "Transcript title", calendarMatch: match(title: "Calendar title", titleState: .suggested))
-        let title = NoteTitleResolver.displayTitle(for: item, customTitle: nil)
+        let title = NoteTitleResolver.displayTitle(for: item)
         assert(title == "Transcript title")
     }
 
     private static func testFallbackUsedWhenNoContentOrAppliedCalendarTitle() {
         let item = item(transcript: "", calendarMatch: nil)
-        let title = NoteTitleResolver.displayTitle(for: item, customTitle: nil)
+        let title = NoteTitleResolver.displayTitle(for: item)
         assert(title == "(No content)")
     }
 
     private static func testTranscribingFallbackWinsOverFailedEmptyContent() {
         let item = item(transcript: "", calendarMatch: nil, postProcessingStatus: "Error: Previous failure")
-        let title = NoteTitleResolver.displayTitle(for: item, customTitle: nil, isTranscribing: true)
+        let title = NoteTitleResolver.displayTitle(for: item, isTranscribing: true)
         assert(title == "Transcribing...")
     }
 
     private static func testAppliedCalendarTitleKeepsWinningWhileTranscribing() {
         let item = item(transcript: "", calendarMatch: match(title: "Calendar title", titleState: .applied), postProcessingStatus: "Error: Previous failure")
-        let title = NoteTitleResolver.displayTitle(for: item, customTitle: nil, isTranscribing: true)
+        let title = NoteTitleResolver.displayTitle(for: item, isTranscribing: true)
         assert(title == "Calendar title")
     }
 
@@ -58,7 +62,12 @@ struct NoteTitleResolutionTests {
         assert(title == "2025-05-05 Team Standup")
     }
 
-    private static func item(transcript: String, calendarMatch: CalendarEventMatch?, postProcessingStatus: String = "Post-processing succeeded") -> PipelineHistoryItem {
+    private static func item(
+        transcript: String,
+        calendarMatch: CalendarEventMatch?,
+        postProcessingStatus: String = "Post-processing succeeded",
+        customTitle: String? = nil
+    ) -> PipelineHistoryItem {
         PipelineHistoryItem(
             timestamp: Date(timeIntervalSince1970: 1),
             calendarMatch: calendarMatch,
@@ -71,7 +80,8 @@ struct NoteTitleResolutionTests {
             contextScreenshotStatus: "No screenshot",
             postProcessingStatus: postProcessingStatus,
             debugStatus: "Done",
-            customVocabulary: ""
+            customVocabulary: "",
+            customTitle: customTitle
         )
     }
 

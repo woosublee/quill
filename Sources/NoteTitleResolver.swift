@@ -13,8 +13,8 @@ enum NoteTitleResolver {
         "\(calendarTitleDateFormatter.string(from: recordingStartedAt)) \(suggestedTitle)"
     }
 
-    static func displayTitle(for item: PipelineHistoryItem, customTitle: String?, isTranscribing: Bool = false) -> String {
-        if let customTitle {
+    static func displayTitle(for item: PipelineHistoryItem, isTranscribing: Bool = false) -> String {
+        if let customTitle = item.customTitle {
             let trimmed = customTitle.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty { return trimmed }
         }
