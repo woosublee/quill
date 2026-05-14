@@ -3,11 +3,34 @@ import Foundation
 @main
 struct PipelineHistoryCalendarMetadataTests {
     static func main() throws {
+        try testCustomTitleRoundTripsThroughPipelineHistoryItemCodable()
         try testCalendarMetadataRoundTripsThroughPipelineHistoryItemCodable()
         testCalendarMetadataCopyHelpersPreserveFields()
         try testLegacyEncodedHistoryItemDecodesMissingCalendarMetadataAsNil()
+        try testCustomTitlePersistsThroughPipelineHistoryStore()
         try testCalendarMetadataPersistsThroughPipelineHistoryStore()
         print("PipelineHistoryCalendarMetadataTests passed")
+    }
+
+    private static func testCustomTitleRoundTripsThroughPipelineHistoryItemCodable() throws {
+        let item = PipelineHistoryItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000086")!,
+            timestamp: Date(timeIntervalSince1970: 1_600),
+            rawTranscript: "raw",
+            postProcessedTranscript: "processed",
+            postProcessingPrompt: nil,
+            contextSummary: "",
+            contextPrompt: nil,
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: "Post-processing succeeded",
+            debugStatus: "Done",
+            customVocabulary: "",
+            customTitle: "Manual title"
+        )
+        let data = try JSONEncoder().encode(item)
+        let decoded = try JSONDecoder().decode(PipelineHistoryItem.self, from: data)
+        assert(decoded.customTitle == "Manual title")
     }
 
     private static func testCalendarMetadataRoundTripsThroughPipelineHistoryItemCodable() throws {
@@ -109,6 +132,32 @@ struct PipelineHistoryCalendarMetadataTests {
         assert(decoded.recordingStartedAt == nil)
         assert(decoded.recordingEndedAt == nil)
         assert(decoded.calendarMatch == nil)
+        assert(decoded.customTitle == nil)
+    }
+
+    private static func testCustomTitlePersistsThroughPipelineHistoryStore() throws {
+        let store = PipelineHistoryStore(inMemory: true)
+        let id = UUID(uuidString: "00000000-0000-0000-0000-000000000087")!
+        let item = PipelineHistoryItem(
+            id: id,
+            timestamp: Date(timeIntervalSince1970: 4_500),
+            rawTranscript: "raw",
+            postProcessedTranscript: "processed",
+            postProcessingPrompt: nil,
+            contextSummary: "",
+            contextPrompt: nil,
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: "Post-processing succeeded",
+            debugStatus: "Done",
+            customVocabulary: "",
+            customTitle: "Stored manual title"
+        )
+        _ = try store.append(item, maxCount: 10)
+        let loaded = store.loadAllHistory()
+        assert(loaded.count == 1)
+        assert(loaded[0].id == id)
+        assert(loaded[0].customTitle == "Stored manual title")
     }
 
     private static func testCalendarMetadataPersistsThroughPipelineHistoryStore() throws {

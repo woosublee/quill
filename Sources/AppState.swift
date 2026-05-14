@@ -1081,10 +1081,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         for removedAssets in removedStoredFiles {
             Self.deleteStoredFiles(removedAssets)
         }
-        let savedHistory = Self.markInterruptedRecoveryPlaceholders(
+        var savedHistory = Self.markInterruptedRecoveryPlaceholders(
             in: pipelineHistoryStore.loadAllHistory(),
             store: pipelineHistoryStore
         )
+        let historyStore = pipelineHistoryStore
+        do {
+            savedHistory = try LegacyNoteTitleMigration.migrate(history: savedHistory) { item in
+                try historyStore.update(item)
+            }
+        } catch {
+            print("Failed to migrate legacy note titles: \(error)")
+        }
         let referencedAudioFileNames = Set(savedHistory.compactMap(\.audioFileName))
         let referencedTranscriptFileNames = Set(savedHistory.compactMap(\.transcriptFileName))
         Task.detached(priority: .background) {
@@ -1776,6 +1784,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    func updateHistoryItemTitle(id: UUID, title: String) {
+        guard let item = pipelineHistory.first(where: { $0.id == id }) else { return }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedTitle = trimmed.isEmpty ? nil : trimmed
+        guard item.customTitle != normalizedTitle else { return }
+        let updated = item.withCustomTitle(normalizedTitle)
+        do {
+            try pipelineHistoryStore.update(updated)
+            if let index = pipelineHistory.firstIndex(where: { $0.id == id }) {
+                pipelineHistory[index] = updated
+            }
+        } catch {
+            errorMessage = "Failed to save note title: \(error.localizedDescription)"
+        }
+    }
+
     func updateTranscript(id: UUID, text: String) {
         guard let item = pipelineHistory.first(where: { $0.id == id }) else { return }
         // 파일에도 동기화해서 앱 재시작 후 폴백 로딩 시에도 일관성 유지
@@ -1808,7 +1832,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             usedPostProcessing: item.usedPostProcessing,
             transcriptionLanguageCode: item.transcriptionLanguageCode,
             localTranscriptionModelID: item.localTranscriptionModelID,
-            transcriptFileName: item.transcriptFileName
+            transcriptFileName: item.transcriptFileName,
+            contextAppName: item.contextAppName,
+            contextBundleIdentifier: item.contextBundleIdentifier,
+            contextWindowTitle: item.contextWindowTitle,
+            customTitle: item.customTitle
         )
         do {
             try pipelineHistoryStore.update(updated)
@@ -4436,7 +4464,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             transcriptFileName: existing.transcriptFileName,
             contextAppName: existing.contextAppName,
             contextBundleIdentifier: existing.contextBundleIdentifier,
-            contextWindowTitle: existing.contextWindowTitle
+            contextWindowTitle: existing.contextWindowTitle,
+            customTitle: existing.customTitle
         )
         // DB write 없이 메모리만 업데이트 — partial 결과는 최종 저장 시 반영됨
         pipelineHistory[index] = updated
@@ -4719,7 +4748,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             transcriptFileName: transcriptFileName,
             contextAppName: context.appName,
             contextBundleIdentifier: context.bundleIdentifier,
-            contextWindowTitle: context.windowTitle
+            contextWindowTitle: context.windowTitle,
+            customTitle: existingEntry?.customTitle
         )
         do {
             if existingID != nil {

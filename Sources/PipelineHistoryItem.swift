@@ -46,6 +46,7 @@ struct PipelineHistoryItem: Identifiable, Codable {
     let contextAppName: String?
     let contextBundleIdentifier: String?
     let contextWindowTitle: String?
+    let customTitle: String?
 
     init(
         intent: PipelineHistoryItemIntent = .dictation,
@@ -78,7 +79,8 @@ struct PipelineHistoryItem: Identifiable, Codable {
         transcriptFileName: String? = nil,
         contextAppName: String? = nil,
         contextBundleIdentifier: String? = nil,
-        contextWindowTitle: String? = nil
+        contextWindowTitle: String? = nil,
+        customTitle: String? = nil
     ) {
         self.intent = intent
         self.selectedText = selectedText
@@ -111,6 +113,7 @@ struct PipelineHistoryItem: Identifiable, Codable {
         self.contextAppName = contextAppName
         self.contextBundleIdentifier = contextBundleIdentifier
         self.contextWindowTitle = contextWindowTitle
+        self.customTitle = customTitle
     }
 
     static func transcriptionRecoveryPlaceholder(
@@ -171,7 +174,45 @@ struct PipelineHistoryItem: Identifiable, Codable {
             transcriptFileName: nil,
             contextAppName: contextAppName,
             contextBundleIdentifier: contextBundleIdentifier,
-            contextWindowTitle: contextWindowTitle
+            contextWindowTitle: contextWindowTitle,
+            customTitle: nil
+        )
+    }
+
+    func withCustomTitle(_ customTitle: String?) -> PipelineHistoryItem {
+        PipelineHistoryItem(
+            intent: intent,
+            selectedText: selectedText,
+            capturedSelection: capturedSelection,
+            id: id,
+            timestamp: timestamp,
+            recordingStartedAt: recordingStartedAt,
+            recordingEndedAt: recordingEndedAt,
+            calendarMatch: calendarMatch,
+            rawTranscript: rawTranscript,
+            postProcessedTranscript: postProcessedTranscript,
+            postProcessingPrompt: postProcessingPrompt,
+            systemPrompt: systemPrompt,
+            contextSummary: contextSummary,
+            contextSystemPrompt: contextSystemPrompt,
+            contextPrompt: contextPrompt,
+            contextScreenshotDataURL: contextScreenshotDataURL,
+            contextScreenshotStatus: contextScreenshotStatus,
+            postProcessingStatus: postProcessingStatus,
+            debugStatus: debugStatus,
+            customVocabulary: customVocabulary,
+            customSystemPrompt: customSystemPrompt,
+            audioFileName: audioFileName,
+            usedLocalTranscription: usedLocalTranscription,
+            usedContextCapture: usedContextCapture,
+            usedPostProcessing: usedPostProcessing,
+            transcriptionLanguageCode: transcriptionLanguageCode,
+            localTranscriptionModelID: localTranscriptionModelID,
+            transcriptFileName: transcriptFileName,
+            contextAppName: contextAppName,
+            contextBundleIdentifier: contextBundleIdentifier,
+            contextWindowTitle: contextWindowTitle,
+            customTitle: customTitle
         )
     }
 
@@ -207,7 +248,8 @@ struct PipelineHistoryItem: Identifiable, Codable {
             transcriptFileName: transcriptFileName,
             contextAppName: contextAppName,
             contextBundleIdentifier: contextBundleIdentifier,
-            contextWindowTitle: contextWindowTitle
+            contextWindowTitle: contextWindowTitle,
+            customTitle: customTitle
         )
     }
 }

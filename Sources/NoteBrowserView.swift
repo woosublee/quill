@@ -254,42 +254,6 @@ source: Quill
     }
 }
 
-// MARK: - Note Title Store
-
-final class NoteTitleStore: ObservableObject {
-    static let shared = NoteTitleStore()
-    @Published private(set) var titles: [UUID: String] = [:]
-    private let key = "note_custom_titles"
-
-    private init() {
-        if let data = UserDefaults.standard.data(forKey: key),
-           let raw = try? JSONDecoder().decode([String: String].self, from: data) {
-            titles = Dictionary(uniqueKeysWithValues: raw.compactMap {
-                guard let uuid = UUID(uuidString: $0.key) else { return nil }
-                return (uuid, $0.value)
-            })
-        }
-    }
-
-    func setTitle(_ title: String, for id: UUID) {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            guard titles.removeValue(forKey: id) != nil else { return }
-        } else {
-            guard titles[id] != trimmed else { return }
-            titles[id] = trimmed
-        }
-        save()
-    }
-
-    func title(for id: UUID) -> String? { titles[id] }
-
-    private func save() {
-        let raw = Dictionary(uniqueKeysWithValues: titles.map { ($0.key.uuidString, $0.value) })
-        if let data = try? JSONEncoder().encode(raw) { UserDefaults.standard.set(data, forKey: key) }
-    }
-}
-
 // MARK: - Audio Import
 
 private struct PendingAudioImport: Identifiable {
@@ -418,7 +382,6 @@ private struct AudioImportSheet: View {
 struct NoteBrowserView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var exportManager: ObsidianExportManager
-    @StateObject private var titleStore = NoteTitleStore.shared
     @State private var selectedItemID: UUID?
     @State private var searchText = ""
     @State private var knownHistoryIDs: Set<UUID> = []
@@ -430,7 +393,7 @@ struct NoteBrowserView: View {
         return appState.pipelineHistory.filter {
             $0.postProcessedTranscript.lowercased().contains(q) ||
             $0.contextSummary.lowercased().contains(q) ||
-            (titleStore.title(for: $0.id) ?? "").lowercased().contains(q) ||
+            ($0.customTitle ?? "").lowercased().contains(q) ||
             ($0.calendarMatch?.title ?? "").lowercased().contains(q)
         }
     }
@@ -616,7 +579,6 @@ struct NoteBrowserView: View {
                             NoteListRow(
                                 displayData: NoteListRowDisplayData(
                                     item: item,
-                                    customTitle: titleStore.title(for: item.id),
                                     retryingIDs: appState.retryingItemIDs
                                 ),
                                 isSelected: selectedItemID == item.id
@@ -688,7 +650,7 @@ struct NoteBrowserView: View {
     private var detailPanel: some View {
         if let id = selectedItemID,
            let item = appState.pipelineHistory.first(where: { $0.id == id }) {
-            NoteDetailView(item: item, titleStore: titleStore) {
+            NoteDetailView(item: item) {
                 appState.deleteHistoryEntry(id: id)
             }
             .id(id)
@@ -871,7 +833,6 @@ private struct NoteListRow: View {
 
 private struct NoteDetailView: View {
     let item: PipelineHistoryItem
-    let titleStore: NoteTitleStore
     let onDelete: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
@@ -890,7 +851,7 @@ private struct NoteDetailView: View {
     private var displayContent: String { loadedContent ?? item.postProcessedTranscript }
 
     private var suggestedCalendarTitle: String? {
-        guard titleStore.title(for: item.id) == nil,
+        guard item.customTitle == nil,
               item.calendarMatch?.titleState == .suggested else {
             return nil
         }
@@ -925,7 +886,7 @@ private struct NoteDetailView: View {
             ObsidianExportSheet(
                 item: item,
                 content: displayContent,
-                customTitle: titleStore.title(for: item.id),
+                customTitle: item.customTitle,
                 onDismiss: { showExportSheet = false }
             )
         }
@@ -985,14 +946,14 @@ private struct NoteDetailView: View {
             .frame(minHeight: 38, alignment: .leading)
             .onChange(of: titleDraft) { newValue in
                 titleDebounceTimer?.invalidate()
-                let timer = Timer(timeInterval: 0.5, repeats: false) { [weak titleStore] _ in
-                    titleStore?.setTitle(newValue, for: item.id)
+                let timer = Timer(timeInterval: 0.5, repeats: false) { _ in
+                    appState.updateHistoryItemTitle(id: item.id, title: newValue)
                 }
                 RunLoop.main.add(timer, forMode: .common)
                 titleDebounceTimer = timer
             }
             .onAppear {
-                titleDraft = titleStore.title(for: item.id) ?? ""
+                titleDraft = item.customTitle ?? ""
             }
             .overrideCursor(.iBeam)
 
@@ -1018,7 +979,7 @@ private struct NoteDetailView: View {
 
                     Button("Apply") {
                         titleDraft = suggestedCalendarAppliedTitle
-                        titleStore.setTitle(suggestedCalendarAppliedTitle, for: item.id)
+                        appState.updateHistoryItemTitle(id: item.id, title: suggestedCalendarAppliedTitle)
                     }
                     .font(.caption.weight(.semibold))
                     .buttonStyle(.bordered)
