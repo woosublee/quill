@@ -22,6 +22,7 @@ struct AppStateTranscriptionConfigurationTests {
         testStoppedTranscriptionCompletionSummaryTrimsFinalTranscript()
         testStoppedTranscriptionCompletionSummaryShowsFallbackIndicatorForNonEmptyRawFallback()
         testStoppedTranscriptionCompletionSummaryHidesFallbackIndicatorForEmptyRawFallback()
+        testStoppedTranscriptionSettingsSnapshotCapturesHistoryMetadata()
         print("AppStateTranscriptionConfigurationTests passed")
     }
 
@@ -301,12 +302,12 @@ struct AppStateTranscriptionConfigurationTests {
             outcomeWasPostProcessingFailedFallback: false
         )
 
-        assert(summary.rawTranscript == "raw transcript")
-        assert(summary.finalTranscript == "final transcript")
-        assert(summary.prompt == "prompt")
-        assert(summary.processingStatus == "Post-processing succeeded")
-        assert(!summary.shouldPressEnterAfterPaste)
-        assert(!summary.shouldPersistRawDictationFallback)
+        precondition(summary.rawTranscript == "raw transcript")
+        precondition(summary.finalTranscript == "final transcript")
+        precondition(summary.prompt == "prompt")
+        precondition(summary.processingStatus == "Post-processing succeeded")
+        precondition(!summary.shouldPressEnterAfterPaste)
+        precondition(!summary.shouldPersistRawDictationFallback)
     }
 
     private static func testStoppedTranscriptionCompletionSummaryShowsFallbackIndicatorForNonEmptyRawFallback() {
@@ -319,7 +320,7 @@ struct AppStateTranscriptionConfigurationTests {
             outcomeWasPostProcessingFailedFallback: true
         )
 
-        assert(summary.shouldPersistRawDictationFallback)
+        precondition(summary.shouldPersistRawDictationFallback)
     }
 
     private static func testStoppedTranscriptionCompletionSummaryHidesFallbackIndicatorForEmptyRawFallback() {
@@ -332,9 +333,29 @@ struct AppStateTranscriptionConfigurationTests {
             outcomeWasPostProcessingFailedFallback: true
         )
 
-        assert(summary.finalTranscript.isEmpty)
-        assert(summary.shouldPressEnterAfterPaste)
-        assert(!summary.shouldPersistRawDictationFallback)
+        precondition(summary.finalTranscript.isEmpty)
+        precondition(summary.shouldPressEnterAfterPaste)
+        precondition(!summary.shouldPersistRawDictationFallback)
+    }
+
+    private static func testStoppedTranscriptionSettingsSnapshotCapturesHistoryMetadata() {
+        let snapshot = StoppedTranscriptionSettingsSnapshot(
+            customVocabulary: "team terms",
+            customSystemPrompt: "custom prompt",
+            useLocalTranscription: true,
+            localTranscriptionModel: .find(id: "apple-speech"),
+            transcriptionLanguage: .find(code: "en"),
+            usedContextCapture: true,
+            usedPostProcessing: false
+        )
+
+        precondition(snapshot.customVocabulary == "team terms")
+        precondition(snapshot.customSystemPrompt == "custom prompt")
+        precondition(snapshot.useLocalTranscription)
+        precondition(snapshot.localTranscriptionModel.id == "apple-speech")
+        precondition(snapshot.transcriptionLanguage.code == "en")
+        precondition(snapshot.usedContextCapture)
+        precondition(!snapshot.usedPostProcessing)
     }
 
     private static func resetDefaults() {

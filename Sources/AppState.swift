@@ -146,6 +146,16 @@ struct StoppedTranscriptionCompletionSummary {
     }
 }
 
+struct StoppedTranscriptionSettingsSnapshot {
+    let customVocabulary: String
+    let customSystemPrompt: String
+    let useLocalTranscription: Bool
+    let localTranscriptionModel: TranscriptionModel
+    let transcriptionLanguage: TranscriptionLanguage
+    let usedContextCapture: Bool
+    let usedPostProcessing: Bool
+}
+
 private enum CommandInvocation: String {
     case automatic
     case manual
@@ -4017,24 +4027,35 @@ final class AppState: ObservableObject, @unchecked Sendable {
         completion: StoppedTranscriptionCompletionSummary,
         context: AppContext,
         intent: SessionIntent,
-        audioFileName: String?
-    ) async {
+        audioFileName: String?,
+        settings: StoppedTranscriptionSettingsSnapshot
+    ) async throws {
+        try Task.checkCancellation()
         let calendarMatch = await calendarMatchForHistoryItem(jobID: jobID)
-        await MainActor.run {
+        try Task.checkCancellation()
+        try await MainActor.run {
+            try Task.checkCancellation()
             recordPipelineHistoryEntry(
                 jobID: jobID,
                 rawTranscript: completion.rawTranscript,
                 postProcessedTranscript: completion.finalTranscript,
                 postProcessingPrompt: completion.prompt,
-                systemPrompt: Self.resolvedSystemPrompt(customSystemPrompt),
+                systemPrompt: Self.resolvedSystemPrompt(settings.customSystemPrompt),
                 context: context,
                 processingStatus: completion.processingStatus,
                 intent: intent,
                 audioFileName: audioFileName,
+                useLocalTranscriptionOverride: settings.useLocalTranscription,
+                localTranscriptionModelIDOverride: settings.localTranscriptionModel.id,
+                usedContextCaptureOverride: settings.usedContextCapture,
+                usedPostProcessingOverride: settings.usedPostProcessing,
+                transcriptionLanguageCodeOverride: settings.transcriptionLanguage.code,
+                customVocabularyOverride: settings.customVocabulary,
+                customSystemPromptOverride: settings.customSystemPrompt,
                 calendarMatch: calendarMatch
             )
             cleanupRecorderIfIdle()
-            let completionStatusText = preserveClipboard ? "Pasted at cursor!" : "Copied to clipboard!"
+            let completionStatusText = disableAutoPaste || !preserveClipboard ? "Copied to clipboard!" : "Pasted at cursor!"
             updateForegroundUIForStoppedTranscriptionCompletion(
                 overlayID: overlayID,
                 completion: completion,
@@ -4084,8 +4105,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             } else {
                 dismissTranscribingOverlay()
             }
+            let pendingClipboardRestore = writeTranscriptToPasteboard(completion.finalTranscript)
             if !disableAutoPaste {
-                let pendingClipboardRestore = writeTranscriptToPasteboard(completion.finalTranscript)
                 pasteAtCursorWhenShortcutReleased {
                     if completion.shouldPressEnterAfterPaste {
                         self.pressEnterAfterPaste {
@@ -4176,6 +4197,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let capturedCustomVocabulary = customVocabulary
         let capturedCustomSystemPrompt = customSystemPrompt
         let capturedOutputLanguage = outputLanguage
+        let capturedSettings = StoppedTranscriptionSettingsSnapshot(
+            customVocabulary: capturedCustomVocabulary,
+            customSystemPrompt: capturedCustomSystemPrompt,
+            useLocalTranscription: capturedUseLocalTranscription,
+            localTranscriptionModel: capturedLocalTranscriptionModel,
+            transcriptionLanguage: capturedTranscriptionLanguage,
+            usedContextCapture: !disableContextCapture,
+            usedPostProcessing: !disablePostProcessing
+        )
         let capturedLiveTranscriber = liveTranscriber
         let capturedPressEnterCommandEnabled = isPressEnterVoiceCommandEnabled
         liveTranscriber = nil
@@ -4212,13 +4242,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         outputLanguage: capturedOutputLanguage,
                         pressEnterCommandEnabled: capturedPressEnterCommandEnabled
                     )
-                    await self.runSuccessfulStoppedTranscriptionCompletionPipeline(
+                    try await self.runSuccessfulStoppedTranscriptionCompletionPipeline(
                         jobID: jobID,
                         overlayID: myOverlayID,
                         completion: completion,
                         context: appContext,
                         intent: sessionIntent,
-                        audioFileName: savedAudioFile?.fileName
+                        audioFileName: savedAudioFile?.fileName,
+                        settings: capturedSettings
                     )
                 } catch is CancellationError {
                     await MainActor.run {
@@ -4242,11 +4273,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             rawTranscript: "",
                             postProcessedTranscript: "",
                             postProcessingPrompt: "",
-                            systemPrompt: Self.resolvedSystemPrompt(self.customSystemPrompt),
+                            systemPrompt: Self.resolvedSystemPrompt(capturedSettings.customSystemPrompt),
                             context: resolvedContext,
                             processingStatus: "Error: \(error.localizedDescription)",
                             intent: sessionIntent,
                             audioFileName: errorAudioFile?.fileName,
+                            useLocalTranscriptionOverride: capturedSettings.useLocalTranscription,
+                            localTranscriptionModelIDOverride: capturedSettings.localTranscriptionModel.id,
+                            usedContextCaptureOverride: capturedSettings.usedContextCapture,
+                            usedPostProcessingOverride: capturedSettings.usedPostProcessing,
+                            transcriptionLanguageCodeOverride: capturedSettings.transcriptionLanguage.code,
+                            customVocabularyOverride: capturedSettings.customVocabulary,
+                            customSystemPromptOverride: capturedSettings.customSystemPrompt,
                             calendarMatch: calendarMatch
                         )
                         self.cleanupRecorderIfIdle()
@@ -4357,13 +4395,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         outputLanguage: capturedOutputLanguage,
                         pressEnterCommandEnabled: capturedPressEnterCommandEnabled
                     )
-                    await self.runSuccessfulStoppedTranscriptionCompletionPipeline(
+                    try await self.runSuccessfulStoppedTranscriptionCompletionPipeline(
                         jobID: jobID,
                         overlayID: myOverlayID,
                         completion: completion,
                         context: appContext,
                         intent: sessionIntent,
-                        audioFileName: savedAudioFile?.fileName
+                        audioFileName: savedAudioFile?.fileName,
+                        settings: capturedSettings
                     )
                 } catch is CancellationError {
                     await MainActor.run {
@@ -4381,11 +4420,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             rawTranscript: "",
                             postProcessedTranscript: "",
                             postProcessingPrompt: "",
-                            systemPrompt: Self.resolvedSystemPrompt(self.customSystemPrompt),
+                            systemPrompt: Self.resolvedSystemPrompt(capturedSettings.customSystemPrompt),
                             context: resolvedContext,
                             processingStatus: "Error: \(error.localizedDescription)",
                             intent: sessionIntent,
                             audioFileName: savedAudioFile?.fileName,
+                            useLocalTranscriptionOverride: capturedSettings.useLocalTranscription,
+                            localTranscriptionModelIDOverride: capturedSettings.localTranscriptionModel.id,
+                            usedContextCaptureOverride: capturedSettings.usedContextCapture,
+                            usedPostProcessingOverride: capturedSettings.usedPostProcessing,
+                            transcriptionLanguageCodeOverride: capturedSettings.transcriptionLanguage.code,
+                            customVocabularyOverride: capturedSettings.customVocabulary,
+                            customSystemPromptOverride: capturedSettings.customSystemPrompt,
                             calendarMatch: calendarMatch
                         )
                         self.cleanupRecorderIfIdle()
