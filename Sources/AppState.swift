@@ -210,8 +210,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let contextModelStorageKey = "context_model"
     private let holdShortcutStorageKey = "hold_shortcut"
     private let toggleShortcutStorageKey = "toggle_shortcut"
+    private let recordingCancelShortcutStorageKey = "recording_cancel_shortcut"
     private let savedHoldCustomShortcutStorageKey = "saved_hold_custom_shortcut"
     private let savedToggleCustomShortcutStorageKey = "saved_toggle_custom_shortcut"
+    private let savedRecordingCancelCustomShortcutStorageKey = "saved_recording_cancel_custom_shortcut"
     private let customVocabularyStorageKey = "custom_vocabulary"
     private let selectedMicrophoneStorageKey = "selected_microphone_id"
     private let customSystemPromptStorageKey = "custom_system_prompt"
@@ -356,6 +358,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @Published var recordingCancelShortcut: ShortcutBinding {
+        didSet {
+            persistShortcut(recordingCancelShortcut, key: recordingCancelShortcutStorageKey)
+            restartHotkeyMonitoring()
+        }
+    }
+
     @Published private(set) var savedHoldCustomShortcut: ShortcutBinding? {
         didSet {
             persistOptionalShortcut(savedHoldCustomShortcut, key: savedHoldCustomShortcutStorageKey)
@@ -365,6 +374,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var savedToggleCustomShortcut: ShortcutBinding? {
         didSet {
             persistOptionalShortcut(savedToggleCustomShortcut, key: savedToggleCustomShortcutStorageKey)
+        }
+    }
+
+    @Published private(set) var savedRecordingCancelCustomShortcut: ShortcutBinding? {
+        didSet {
+            persistOptionalShortcut(savedRecordingCancelCustomShortcut, key: savedRecordingCancelCustomShortcutStorageKey)
         }
     }
 
@@ -969,6 +984,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
             forKey: savedToggleCustomShortcutStorageKey,
             fallback: shortcuts.toggle.isCustom ? shortcuts.toggle : nil
         )
+        let storedRecordingCancelShortcut = Self.loadShortcut(forKey: recordingCancelShortcutStorageKey)
+        let recordingCancelShortcut = Self.initialRecordingCancelShortcut(
+            stored: storedRecordingCancelShortcut.binding,
+            hold: shortcuts.hold,
+            toggle: shortcuts.toggle
+        )
+        let savedRecordingCancelCustomShortcut = Self.loadSavedCustomShortcut(
+            forKey: savedRecordingCancelCustomShortcutStorageKey,
+            fallback: recordingCancelShortcut.isCustom && recordingCancelShortcut != .defaultRecordingCancel
+                ? recordingCancelShortcut
+                : nil
+        )
         let customVocabulary = UserDefaults.standard.string(forKey: customVocabularyStorageKey) ?? ""
         let customSystemPrompt = UserDefaults.standard.string(forKey: customSystemPromptStorageKey) ?? ""
         let customContextPrompt = UserDefaults.standard.string(forKey: customContextPromptStorageKey) ?? ""
@@ -1087,8 +1114,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.contextModel = contextModel
         self.holdShortcut = shortcuts.hold
         self.toggleShortcut = shortcuts.toggle
+        self.recordingCancelShortcut = recordingCancelShortcut
         self.savedHoldCustomShortcut = savedHoldCustomShortcut.binding
         self.savedToggleCustomShortcut = savedToggleCustomShortcut.binding
+        self.savedRecordingCancelCustomShortcut = savedRecordingCancelCustomShortcut.binding
         self.isCommandModeEnabled = isCommandModeEnabled
         self.commandModeStyle = commandModeStyle
         self.commandModeManualModifier = commandModeManualModifier
@@ -1151,6 +1180,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         if savedToggleCustomShortcut.didUpdateStoredValue {
             persistOptionalShortcut(savedToggleCustomShortcut.binding, key: savedToggleCustomShortcutStorageKey)
+        }
+        if storedRecordingCancelShortcut.binding == nil || storedRecordingCancelShortcut.didNormalize {
+            persistShortcut(recordingCancelShortcut, key: recordingCancelShortcutStorageKey)
+        }
+        if savedRecordingCancelCustomShortcut.didUpdateStoredValue {
+            persistOptionalShortcut(savedRecordingCancelCustomShortcut.binding, key: savedRecordingCancelCustomShortcutStorageKey)
         }
 
         if shouldRestoreMutedAudio {
@@ -1249,6 +1284,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
             hadStoredValue: true,
             didNormalize: normalized != decoded
         )
+    }
+
+    private static func initialRecordingCancelShortcut(
+        stored: ShortcutBinding?,
+        hold: ShortcutBinding,
+        toggle: ShortcutBinding
+    ) -> ShortcutBinding {
+        if let stored {
+            return stored
+        }
+        if defaultRecordingCancelOverlaps(hold) || defaultRecordingCancelOverlaps(toggle) {
+            return .disabled
+        }
+        return .defaultRecordingCancel
+    }
+
+    private static func defaultRecordingCancelOverlaps(_ binding: ShortcutBinding) -> Bool {
+        guard !binding.isDisabled else { return false }
+        guard binding.kind == .key else { return false }
+        return binding.keyCode == ShortcutBinding.defaultRecordingCancel.keyCode
     }
 
     private static func loadSavedCustomShortcut(
@@ -2410,9 +2465,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    var savedRecordingCancelShortcut: ShortcutBinding? {
+        savedRecordingCancelCustomShortcut
+    }
+
     var commandModeManualModifierValidationMessage: String? {
         guard isCommandModeEnabled, commandModeStyle == .manual else { return nil }
         return commandModeManualModifierCollisionMessage(for: commandModeManualModifier)
+            ?? recordingCancelShortcutCollisionMessage()
     }
 
     @discardableResult
@@ -2420,6 +2480,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         isCommandModeEnabled = enabled
         if enabled, commandModeStyle == .manual {
             return commandModeManualModifierCollisionMessage(for: commandModeManualModifier)
+                ?? recordingCancelShortcutCollisionMessage()
         }
         return nil
     }
@@ -2429,6 +2490,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         commandModeStyle = style
         if isCommandModeEnabled, style == .manual {
             return commandModeManualModifierCollisionMessage(for: commandModeManualModifier)
+                ?? recordingCancelShortcutCollisionMessage()
         }
         return nil
     }
@@ -2439,7 +2501,25 @@ final class AppState: ObservableObject, @unchecked Sendable {
         commandModeManualModifier = modifier
         if isCommandModeEnabled, commandModeStyle == .manual {
             return commandModeManualModifierCollisionMessage(for: modifier)
+                ?? recordingCancelShortcutCollisionMessage(
+                    permittedAdditionalExactMatchModifiers: modifier.shortcutModifier
+                )
         }
+        return nil
+    }
+
+    @discardableResult
+    func setRecordingCancelShortcut(_ binding: ShortcutBinding) -> String? {
+        let binding = binding.normalizedForStorageMigration()
+        guard !cancelShortcutOverlapsDictationShortcut(binding, holdShortcut),
+              !cancelShortcutOverlapsDictationShortcut(binding, toggleShortcut) else {
+            return "Cancel shortcut must be distinct from dictation shortcuts."
+        }
+
+        if binding.isCustom && binding != .defaultRecordingCancel {
+            savedRecordingCancelCustomShortcut = binding
+        }
+        recordingCancelShortcut = binding
         return nil
     }
 
@@ -2449,6 +2529,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let otherBinding = role == .hold ? toggleShortcut : holdShortcut
         guard !binding.conflicts(with: otherBinding) else {
             return "Hold and tap shortcuts must be distinct."
+        }
+        guard !cancelShortcutOverlapsDictationShortcut(recordingCancelShortcut, binding) else {
+            return "Dictation shortcuts must be distinct from the cancel shortcut."
         }
 
         let nextHoldShortcut = role == .hold ? binding : holdShortcut
@@ -2477,6 +2560,58 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         return nil
+    }
+
+    private func recordingCancelShortcutCollisionMessage(
+        permittedAdditionalExactMatchModifiers: ShortcutModifiers? = nil
+    ) -> String? {
+        let permittedAdditionalExactMatchModifiers = permittedAdditionalExactMatchModifiers
+            ?? permittedAdditionalExactMatchModifiersForShortcutMatching
+        if cancelShortcutOverlapsDictationShortcut(
+            recordingCancelShortcut,
+            holdShortcut,
+            permittedAdditionalExactMatchModifiers: permittedAdditionalExactMatchModifiers
+        ) || cancelShortcutOverlapsDictationShortcut(
+            recordingCancelShortcut,
+            toggleShortcut,
+            permittedAdditionalExactMatchModifiers: permittedAdditionalExactMatchModifiers
+        ) {
+            return "Cancel shortcut must be distinct from dictation shortcuts."
+        }
+        return nil
+    }
+
+    private func cancelShortcutOverlapsDictationShortcut(
+        _ cancel: ShortcutBinding,
+        _ dictation: ShortcutBinding,
+        permittedAdditionalExactMatchModifiers: ShortcutModifiers? = nil
+    ) -> Bool {
+        guard !cancel.isDisabled, !dictation.isDisabled else { return false }
+        guard cancel.primaryInputOverlapsForCancellation(with: dictation) else { return false }
+
+        let permittedAdditionalExactMatchModifiers = permittedAdditionalExactMatchModifiers
+            ?? permittedAdditionalExactMatchModifiersForShortcutMatching
+        let orderedModifierKeyCodes = Array(ShortcutBinding.modifierKeyCodes).sorted()
+        let combinations = 1 << orderedModifierKeyCodes.count
+
+        for mask in 0..<combinations {
+            var pressedModifierKeyCodes: Set<UInt16> = []
+            for (index, keyCode) in orderedModifierKeyCodes.enumerated() where (mask & (1 << index)) != 0 {
+                pressedModifierKeyCodes.insert(keyCode)
+            }
+
+            if cancel.isActiveForCancellationConflict(
+                pressedModifierKeyCodes: pressedModifierKeyCodes,
+                permittedAdditionalExactMatchModifiers: permittedAdditionalExactMatchModifiers
+            ) && dictation.isActiveForCancellationConflict(
+                pressedModifierKeyCodes: pressedModifierKeyCodes,
+                permittedAdditionalExactMatchModifiers: permittedAdditionalExactMatchModifiers
+            ) {
+                return true
+            }
+        }
+
+        return false
     }
 
     private func commandModeManualModifierCollisionMessage(
@@ -2518,7 +2653,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 self?.handleShortcutEvent(event)
             }
         }
-        hotkeyManager.onEscapeKeyPressed = { [weak self] in
+        hotkeyManager.onRecordingCancelShortcut = { [weak self] in
             guard let self else { return false }
             let shouldHandle = Thread.isMainThread
                 ? self.shouldConfirmEscapeCancellation
@@ -2538,7 +2673,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         shouldMonitorHotkeys = false
         hotkeyMonitoringErrorMessage = nil
         hotkeyManager.onShortcutEvent = nil
-        hotkeyManager.onEscapeKeyPressed = nil
+        hotkeyManager.onRecordingCancelShortcut = nil
         hotkeyManager.stop()
     }
 
@@ -2552,18 +2687,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         restartHotkeyMonitoring()
     }
 
-    private var activeShortcutConfiguration: ShortcutConfiguration {
-        let permittedAdditionalExactMatchModifiers: ShortcutModifiers
+    private var permittedAdditionalExactMatchModifiersForShortcutMatching: ShortcutModifiers {
         if isCommandModeEnabled, commandModeStyle == .manual {
-            permittedAdditionalExactMatchModifiers = commandModeManualModifier.shortcutModifier
-        } else {
-            permittedAdditionalExactMatchModifiers = []
+            return commandModeManualModifier.shortcutModifier
         }
+        return []
+    }
 
-        return ShortcutConfiguration(
+    private var activeShortcutConfiguration: ShortcutConfiguration {
+        ShortcutConfiguration(
             hold: holdShortcut,
             toggle: toggleShortcut,
-            permittedAdditionalExactMatchModifiers: permittedAdditionalExactMatchModifiers
+            recordingCancel: recordingCancelShortcut,
+            permittedAdditionalExactMatchModifiers: permittedAdditionalExactMatchModifiersForShortcutMatching
         )
     }
 
@@ -4973,6 +5109,61 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 return
             }
             self.statusText = "Ready"
+        }
+    }
+}
+
+private extension ShortcutBinding {
+    func primaryInputOverlapsForCancellation(with other: ShortcutBinding) -> Bool {
+        if kind == other.kind {
+            switch kind {
+            case .disabled:
+                return false
+            case .key, .modifierKey:
+                return keyCode == other.keyCode
+            }
+        }
+
+        if kind == .modifierKey,
+           other.kind == .key,
+           let modifier = Self.logicalModifier(forKeyCode: keyCode) {
+            return other.modifiers.contains(modifier)
+        }
+
+        if kind == .key,
+           other.kind == .modifierKey,
+           let modifier = Self.logicalModifier(forKeyCode: other.keyCode) {
+            return modifiers.contains(modifier)
+        }
+
+        return false
+    }
+
+    func isActiveForCancellationConflict(
+        pressedModifierKeyCodes: Set<UInt16>,
+        permittedAdditionalExactMatchModifiers: ShortcutModifiers
+    ) -> Bool {
+        let currentModifiers = Self.modifiers(for: pressedModifierKeyCodes)
+        guard currentModifiers.isSuperset(of: modifiers) else {
+            return false
+        }
+
+        if let exactModifierKeyCodes,
+           !Self.exactModifierKeyCodesMatch(
+            pressedModifierKeyCodes,
+            exactModifierKeyCodes: exactModifierKeyCodes,
+            permittedAdditionalExactMatchModifiers: permittedAdditionalExactMatchModifiers
+           ) {
+            return false
+        }
+
+        switch kind {
+        case .disabled:
+            return false
+        case .key:
+            return true
+        case .modifierKey:
+            return pressedModifierKeyCodes.contains(keyCode)
         }
     }
 }

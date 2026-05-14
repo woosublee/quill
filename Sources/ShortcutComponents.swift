@@ -1,15 +1,22 @@
 import SwiftUI
 import AppKit
 
+private enum DictationShortcutCaptureTarget {
+    case hold
+    case toggle
+    case recordingCancel
+}
+
 struct DictationShortcutEditor: View {
     @EnvironmentObject var appState: AppState
 
     let showsIntroText: Bool
     let onCaptureStateChange: ((Bool) -> Void)?
 
-    @State private var activeCaptureRole: ShortcutRole?
+    @State private var activeCaptureTarget: DictationShortcutCaptureTarget?
     @State private var holdValidationMessage: String?
     @State private var toggleValidationMessage: String?
+    @State private var cancelValidationMessage: String?
 
     init(showsIntroText: Bool = true, onCaptureStateChange: ((Bool) -> Void)? = nil) {
         self.showsIntroText = showsIntroText
@@ -35,11 +42,19 @@ struct DictationShortcutEditor: View {
                 selection: appState.holdShortcut,
                 validationMessage: holdValidationMessage,
                 isCapturing: Binding(
-                    get: { activeCaptureRole == .hold },
-                    set: { activeCaptureRole = $0 ? .hold : nil }
+                    get: { activeCaptureTarget == .hold },
+                    set: { activeCaptureTarget = $0 ? .hold : nil }
                 ),
                 onSelect: { binding in
-                    holdValidationMessage = appState.setShortcut(binding, for: .hold)
+                    var messages = ShortcutValidationMessages(
+                        hold: holdValidationMessage,
+                        toggle: toggleValidationMessage,
+                        recordingCancel: cancelValidationMessage
+                    )
+                    messages.applySelectionResult(appState.setShortcut(binding, for: .hold), target: .hold)
+                    holdValidationMessage = messages.hold
+                    toggleValidationMessage = messages.toggle
+                    cancelValidationMessage = messages.recordingCancel
                 }
             )
 
@@ -48,11 +63,40 @@ struct DictationShortcutEditor: View {
                 selection: appState.toggleShortcut,
                 validationMessage: toggleValidationMessage,
                 isCapturing: Binding(
-                    get: { activeCaptureRole == .toggle },
-                    set: { activeCaptureRole = $0 ? .toggle : nil }
+                    get: { activeCaptureTarget == .toggle },
+                    set: { activeCaptureTarget = $0 ? .toggle : nil }
                 ),
                 onSelect: { binding in
-                    toggleValidationMessage = appState.setShortcut(binding, for: .toggle)
+                    var messages = ShortcutValidationMessages(
+                        hold: holdValidationMessage,
+                        toggle: toggleValidationMessage,
+                        recordingCancel: cancelValidationMessage
+                    )
+                    messages.applySelectionResult(appState.setShortcut(binding, for: .toggle), target: .toggle)
+                    holdValidationMessage = messages.hold
+                    toggleValidationMessage = messages.toggle
+                    cancelValidationMessage = messages.recordingCancel
+                }
+            )
+
+            RecordingCancelShortcutSection(
+                selection: appState.recordingCancelShortcut,
+                savedBinding: appState.savedRecordingCancelShortcut,
+                validationMessage: cancelValidationMessage,
+                isCapturing: Binding(
+                    get: { activeCaptureTarget == .recordingCancel },
+                    set: { activeCaptureTarget = $0 ? .recordingCancel : nil }
+                ),
+                onSelect: { binding in
+                    var messages = ShortcutValidationMessages(
+                        hold: holdValidationMessage,
+                        toggle: toggleValidationMessage,
+                        recordingCancel: cancelValidationMessage
+                    )
+                    messages.applySelectionResult(appState.setRecordingCancelShortcut(binding), target: .recordingCancel)
+                    holdValidationMessage = messages.hold
+                    toggleValidationMessage = messages.toggle
+                    cancelValidationMessage = messages.recordingCancel
                 }
             )
 
@@ -66,8 +110,8 @@ struct DictationShortcutEditor: View {
                     .foregroundStyle(.orange)
             }
         }
-        .onChange(of: activeCaptureRole) { role in
-            onCaptureStateChange?(role != nil)
+        .onChange(of: activeCaptureTarget) { target in
+            onCaptureStateChange?(target != nil)
         }
         .onDisappear {
             onCaptureStateChange?(false)
@@ -106,6 +150,53 @@ struct ShortcutRoleSection: View {
                 ShortcutCaptureRow(
                     savedBinding: appState.savedCustomShortcut(for: role),
                     isSelected: selection.isCustom,
+                    isCapturing: $isCapturing,
+                    onSelectSaved: onSelect,
+                    onCapture: onSelect
+                )
+            }
+
+            if let validationMessage, !validationMessage.isEmpty {
+                Label(validationMessage, systemImage: "xmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+}
+
+struct RecordingCancelShortcutSection: View {
+    let selection: ShortcutBinding
+    let savedBinding: ShortcutBinding?
+    let validationMessage: String?
+    @Binding var isCapturing: Bool
+    let onSelect: (ShortcutBinding) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Recording Cancel Shortcut")
+                .font(.subheadline.weight(.semibold))
+
+            Text("While recording or transcribing, this shortcut opens the cancel confirmation dialog. Disable it if you want Esc to keep working in other apps.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 6) {
+                ShortcutPresetRow(
+                    title: "Disabled",
+                    isSelected: selection.isDisabled,
+                    action: { onSelect(.disabled) }
+                )
+
+                ShortcutPresetRow(
+                    title: ShortcutBinding.defaultRecordingCancel.displayName,
+                    isSelected: selection == .defaultRecordingCancel,
+                    action: { onSelect(.defaultRecordingCancel) }
+                )
+
+                ShortcutCaptureRow(
+                    savedBinding: savedBinding,
+                    isSelected: selection.isCustom && selection != .defaultRecordingCancel,
                     isCapturing: $isCapturing,
                     onSelectSaved: onSelect,
                     onCapture: onSelect
@@ -222,6 +313,11 @@ private struct ShortcutCaptureRow: View {
                     .foregroundStyle(.blue)
             }
         }
+        .onChange(of: isCapturing) { isCapturing in
+            if !isCapturing {
+                stopCapture(clearCaptureState: false)
+            }
+        }
         .onDisappear {
             stopCapture(clearCaptureState: true)
         }
@@ -252,30 +348,18 @@ private struct ShortcutCaptureRow: View {
             }
         }
         backend.onKeyDownEvent = { event in
-            let isReturnKey = event.keyCode == 36 || event.keyCode == 76
-            let hasPendingCapture = currentBinding != nil
-
-            if isReturnKey && hasPendingCapture {
+            switch ShortcutCaptureKeyHandling.action(
+                for: event,
+                pressedModifierKeyCodes: captureInputState.pressedModifierKeyCodes,
+                hasPendingCapture: currentBinding != nil
+            ) {
+            case .finishCapture:
                 finishCapture()
+            case .updateCapture(let binding):
+                currentBinding = binding
+            case .ignore:
                 return
             }
-            if event.keyCode == 53 && hasPendingCapture {
-                finishCapture()
-                return
-            }
-
-            guard !ShortcutBinding.modifierKeyCodes.contains(event.keyCode) else {
-                return
-            }
-
-            guard let binding = ShortcutBinding.from(
-                event: event,
-                pressedModifierKeyCodes: captureInputState.pressedModifierKeyCodes
-            ) else {
-                return
-            }
-
-            currentBinding = binding
         }
         backend.start()
         captureBackend = backend

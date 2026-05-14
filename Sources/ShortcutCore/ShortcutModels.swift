@@ -69,24 +69,28 @@ enum ShortcutEvent: Equatable {
     case holdDeactivated
     case toggleActivated
     case toggleDeactivated
+    case recordingCancelRequested
 }
 
 struct ShortcutConfiguration: Equatable {
     let hold: ShortcutBinding
     let toggle: ShortcutBinding
+    let recordingCancel: ShortcutBinding
     let permittedAdditionalExactMatchModifiers: ShortcutModifiers
 
     init(
         hold: ShortcutBinding,
         toggle: ShortcutBinding,
+        recordingCancel: ShortcutBinding = .defaultRecordingCancel,
         permittedAdditionalExactMatchModifiers: ShortcutModifiers = []
     ) {
         self.hold = hold
         self.toggle = toggle
+        self.recordingCancel = recordingCancel
         self.permittedAdditionalExactMatchModifiers = permittedAdditionalExactMatchModifiers
     }
 
-    static let disabled = ShortcutConfiguration(hold: .disabled, toggle: .disabled)
+    static let disabled = ShortcutConfiguration(hold: .disabled, toggle: .disabled, recordingCancel: .disabled)
 }
 
 enum ShortcutPreset: String, CaseIterable, Identifiable, Codable {
@@ -337,6 +341,13 @@ struct ShortcutBinding: Codable, Hashable, Identifiable, Equatable {
     )
     static let defaultHold = ShortcutPreset.fnKey.binding
     static let defaultToggle = ShortcutPreset.fnKey.binding.withAddedModifiers(.command)
+    static let defaultRecordingCancel = ShortcutBinding(
+        keyCode: 53,
+        keyDisplay: "Esc",
+        modifiers: [],
+        kind: .key,
+        preset: nil
+    )
 
     static let modifierKeyCodes: Set<UInt16> = [54, 55, 56, 58, 59, 60, 61, 62, 63]
 
