@@ -37,9 +37,16 @@ enum LegacyNoteTitleMigration {
               let raw = try? JSONDecoder().decode([String: String].self, from: data) else {
             return nil
         }
-        return Dictionary(uniqueKeysWithValues: raw.compactMap { key, value in
-            guard let id = UUID(uuidString: key) else { return nil }
-            return (id, value)
+        var titlesByID: [UUID: [(key: String, value: String)]] = [:]
+        for (key, value) in raw {
+            guard let id = UUID(uuidString: key) else { continue }
+            titlesByID[id, default: []].append((key, value))
+        }
+
+        return Dictionary(uniqueKeysWithValues: titlesByID.map { id, titles in
+            let selected = titles.first(where: { $0.key == id.uuidString })
+                ?? titles.min { $0.key < $1.key }!
+            return (id, selected.value)
         })
     }
 }
