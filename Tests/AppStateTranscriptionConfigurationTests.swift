@@ -19,6 +19,9 @@ struct AppStateTranscriptionConfigurationTests {
         testRecordingCancelShortcutRejectsMoreSpecificHoldOverlap()
         testRecordingCancelShortcutRejectsManualModifierRuntimeOverlap()
         testCommandModeManualModifierReportsCancelOverlap()
+        testStoppedTranscriptionCompletionSummaryTrimsFinalTranscript()
+        testStoppedTranscriptionCompletionSummaryShowsFallbackIndicatorForNonEmptyRawFallback()
+        testStoppedTranscriptionCompletionSummaryHidesFallbackIndicatorForEmptyRawFallback()
         print("AppStateTranscriptionConfigurationTests passed")
     }
 
@@ -286,6 +289,52 @@ struct AppStateTranscriptionConfigurationTests {
 
         assert(validation == "Cancel shortcut must be distinct from dictation shortcuts.")
         assert(appState.commandModeManualModifierValidationMessage == "Cancel shortcut must be distinct from dictation shortcuts.")
+    }
+
+    private static func testStoppedTranscriptionCompletionSummaryTrimsFinalTranscript() {
+        let summary = StoppedTranscriptionCompletionSummary(
+            rawTranscript: "raw transcript",
+            finalTranscript: "  final transcript\n",
+            prompt: "prompt",
+            processingStatus: "Post-processing succeeded",
+            shouldPressEnterAfterPaste: false,
+            outcomeWasPostProcessingFailedFallback: false
+        )
+
+        assert(summary.rawTranscript == "raw transcript")
+        assert(summary.finalTranscript == "final transcript")
+        assert(summary.prompt == "prompt")
+        assert(summary.processingStatus == "Post-processing succeeded")
+        assert(!summary.shouldPressEnterAfterPaste)
+        assert(!summary.shouldPersistRawDictationFallback)
+    }
+
+    private static func testStoppedTranscriptionCompletionSummaryShowsFallbackIndicatorForNonEmptyRawFallback() {
+        let summary = StoppedTranscriptionCompletionSummary(
+            rawTranscript: "raw transcript",
+            finalTranscript: "raw transcript",
+            prompt: "",
+            processingStatus: "Post-processing failed, using raw transcript",
+            shouldPressEnterAfterPaste: false,
+            outcomeWasPostProcessingFailedFallback: true
+        )
+
+        assert(summary.shouldPersistRawDictationFallback)
+    }
+
+    private static func testStoppedTranscriptionCompletionSummaryHidesFallbackIndicatorForEmptyRawFallback() {
+        let summary = StoppedTranscriptionCompletionSummary(
+            rawTranscript: "",
+            finalTranscript: "  \n",
+            prompt: "",
+            processingStatus: "Skipped macros and post-processing for empty raw transcript",
+            shouldPressEnterAfterPaste: true,
+            outcomeWasPostProcessingFailedFallback: true
+        )
+
+        assert(summary.finalTranscript.isEmpty)
+        assert(summary.shouldPressEnterAfterPaste)
+        assert(!summary.shouldPersistRawDictationFallback)
     }
 
     private static func resetDefaults() {
