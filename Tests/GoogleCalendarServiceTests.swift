@@ -27,6 +27,7 @@ struct GoogleCalendarServiceTests {
         try await testFetchEventsEncodesCalendarIDAsSinglePathSegment()
         try await testEventsDecodeFractionalSecondDateTimes()
         try await testFetchEventsSkipsFailedCalendars()
+        try await testFetchEventsReportsFailedCalendars()
         print("GoogleCalendarServiceTests passed")
     }
 
@@ -393,6 +394,27 @@ struct GoogleCalendarServiceTests {
 
         assert(events.count == 2)
         assert(events.allSatisfy { $0.calendarID == "good-calendar" })
+    }
+
+    private static func testFetchEventsReportsFailedCalendars() async throws {
+        let service = GoogleCalendarService { request in
+            let url = request.url!.absoluteString
+            if url.contains("bad-calendar") {
+                return (Data("{}".utf8), HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!)
+            }
+            return (Data(eventsJSON.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+
+        let result = await service.fetchEventsWithDiagnostics(
+            accessToken: "token",
+            calendarIDs: ["bad-calendar", "good-calendar"],
+            timeMin: Date(timeIntervalSince1970: 1_000),
+            timeMax: Date(timeIntervalSince1970: 2_000)
+        )
+
+        assert(result.events.count == 2)
+        assert(result.events.allSatisfy { $0.calendarID == "good-calendar" })
+        assert(result.failedCalendarIDs == ["bad-calendar"])
     }
 
     private static func expectedChallenge(for verifier: String) -> String {

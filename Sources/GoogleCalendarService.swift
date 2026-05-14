@@ -1,5 +1,10 @@
 import Foundation
 
+struct GoogleCalendarEventFetchResult: Equatable {
+    let events: [GoogleCalendarEvent]
+    let failedCalendarIDs: [String]
+}
+
 struct GoogleCalendarService {
     typealias Transport = (URLRequest) async throws -> (Data, URLResponse)
 
@@ -57,7 +62,22 @@ struct GoogleCalendarService {
         timeMin: Date,
         timeMax: Date
     ) async -> [GoogleCalendarEvent] {
+        await fetchEventsWithDiagnostics(
+            accessToken: accessToken,
+            calendarIDs: calendarIDs,
+            timeMin: timeMin,
+            timeMax: timeMax
+        ).events
+    }
+
+    func fetchEventsWithDiagnostics(
+        accessToken: String,
+        calendarIDs: [String],
+        timeMin: Date,
+        timeMax: Date
+    ) async -> GoogleCalendarEventFetchResult {
         var events: [GoogleCalendarEvent] = []
+        var failedCalendarIDs: [String] = []
         for calendarID in calendarIDs {
             do {
                 let calendarEvents = try await fetchEvents(
@@ -68,10 +88,11 @@ struct GoogleCalendarService {
                 )
                 events.append(contentsOf: calendarEvents)
             } catch {
+                failedCalendarIDs.append(calendarID)
                 continue
             }
         }
-        return events
+        return GoogleCalendarEventFetchResult(events: events, failedCalendarIDs: failedCalendarIDs)
     }
 
     private func send<Response: Decodable>(url: URL, accessToken: String) async throws -> Response {
