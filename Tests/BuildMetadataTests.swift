@@ -4,6 +4,7 @@ import Foundation
 struct BuildMetadataTests {
     static func main() throws {
         try testMakefileStampsLocalBuildMetadata()
+        try testBuildSettingsTrackCodesignIdentity()
         try testReleaseWorkflowsPassBuildMetadataToMake()
         print("BuildMetadataTests passed")
     }
@@ -24,6 +25,13 @@ struct BuildMetadataTests {
         assertContains(makefile, "plutil -replace CFBundleShortVersionString -string \"$(APP_VERSION)\" \"$(CONTENTS)/Info.plist\"")
         assertContains(makefile, "plutil -replace CFBundleVersion -string \"$(BUILD_NUMBER)\" \"$(CONTENTS)/Info.plist\"")
         assertContains(makefile, "plutil -replace QuillBuildTag -string \"$(BUILD_TAG)\" \"$(CONTENTS)/Info.plist\"")
+    }
+
+    private static func testBuildSettingsTrackCodesignIdentity() throws {
+        let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
+
+        assertContains(makefile, "$(CODESIGN_IDENTITY)")
+        assertContains(makefile, "$(BUILD_TAG)\" \"$(GOOGLE_CALENDAR_OAUTH_CLIENT_ID)\" \"$(GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET)\" \"$(CODESIGN_IDENTITY)")
     }
 
     private static func testReleaseWorkflowsPassBuildMetadataToMake() throws {
