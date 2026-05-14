@@ -4594,7 +4594,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 os_log(
                     .error,
                     log: calendarLog,
-                    "Calendar match fetch had failures: job=%{public}@ failedCalendars=%{public}@ fetchedEvents=%d",
+                    "Calendar match fetch had failures: job=%{public}@ failedCalendars=%{private}@ fetchedEvents=%d",
                     jobID.uuidString,
                     fetchResult.failedCalendarIDs.joined(separator: ","),
                     fetchResult.events.count
@@ -4626,7 +4626,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             os_log(
                 .info,
                 log: calendarLog,
-                "Calendar match found: job=%{public}@ calendar=%{public}@ event=%{public}@ title=%{public}@ start=%{public}@ end=%{public}@",
+                "Calendar match found: job=%{public}@ calendar=%{private}@ event=%{private}@ title=%{private}@ start=%{public}@ end=%{public}@",
                 jobID.uuidString,
                 event.calendarID,
                 event.id,
