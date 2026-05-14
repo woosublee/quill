@@ -35,12 +35,12 @@ struct BuildMetadataTests {
     }
 
     private static func testReleaseWorkflowsPassBuildMetadataToMake() throws {
-        let forkReleaseWorkflow = try String(contentsOfFile: ".github/workflows/fork-release.yml", encoding: .utf8)
+        let manualReleaseWorkflow = try String(contentsOfFile: ".github/workflows/manual-release.yml", encoding: .utf8)
         let releaseWorkflow = try String(contentsOfFile: ".github/workflows/release.yml", encoding: .utf8)
 
-        assertContains(forkReleaseWorkflow, "APP_VERSION=\"${{ steps.metadata.outputs.version }}\"")
-        assertContains(forkReleaseWorkflow, "BUILD_NUMBER=\"${{ github.run_number }}\"")
-        assertContains(forkReleaseWorkflow, "BUILD_TAG=\"${{ steps.metadata.outputs.tag }}\"")
+        assertContains(manualReleaseWorkflow, "APP_VERSION=\"${{ steps.metadata.outputs.version }}\"")
+        assertContains(manualReleaseWorkflow, "BUILD_NUMBER=\"${{ github.run_number }}\"")
+        assertContains(manualReleaseWorkflow, "BUILD_TAG=\"${{ steps.metadata.outputs.tag }}\"")
 
         assertContains(releaseWorkflow, "APP_VERSION=\"${{ steps.version.outputs.version }}\"")
         assertContains(releaseWorkflow, "BUILD_NUMBER=\"${{ github.run_number }}\"")

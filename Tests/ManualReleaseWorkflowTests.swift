@@ -1,16 +1,16 @@
 import Foundation
 
 @main
-struct ForkReleaseWorkflowTests {
+struct ManualReleaseWorkflowTests {
     static func main() throws {
-        let workflowPath = ".github/workflows/fork-release.yml"
+        let workflowPath = ".github/workflows/manual-release.yml"
         guard FileManager.default.fileExists(atPath: workflowPath) else {
-            fatalError("Fork release workflow is missing at \(workflowPath)")
+            fatalError("Manual release workflow is missing at \(workflowPath)")
         }
 
         let workflow = try String(contentsOfFile: workflowPath, encoding: .utf8)
 
-        assertContains(workflow, "name: Fork Release")
+        assertContains(workflow, "name: Manual Release")
         assertContains(workflow, "workflow_dispatch:")
         assertContains(workflow, "tag:")
         assertContains(workflow, "release_name:")
@@ -49,7 +49,7 @@ struct ForkReleaseWorkflowTests {
         assertDoesNotContain(workflow, "APPLE_APP_PASSWORD")
         assertDoesNotContain(workflow, "APPLE_TEAM_ID")
 
-        print("ForkReleaseWorkflowTests passed")
+        print("ManualReleaseWorkflowTests passed")
     }
 
     private static func assertContains(_ text: String, _ expected: String) {
