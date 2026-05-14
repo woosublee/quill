@@ -8,6 +8,7 @@ import ScreenCaptureKit
 import Speech
 import os.log
 private let recordingLog = OSLog(subsystem: "com.woosublee.quill", category: "Recording")
+private let calendarLog = OSLog(subsystem: "com.woosublee.quill", category: "Calendar")
 
 struct VoiceMacro: Codable, Identifiable, Equatable {
     var id: UUID = UUID()
@@ -4528,37 +4529,124 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    private static func logTimestamp(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
+    }
+
     private func calendarMatchForHistoryItem(jobID: UUID) async -> CalendarEventMatch? {
-        guard let job = await MainActor.run(body: { activeTranscriptionJobs[jobID] }),
-              !job.isImportedAudio,
-              let recordingStartedAt = job.recordingStartedAt,
-              let recordingEndedAt = job.recordingEndedAt,
-              recordingEndedAt > recordingStartedAt else {
+        guard let job = await MainActor.run(body: { activeTranscriptionJobs[jobID] }) else {
+            os_log(.info, log: calendarLog, "Calendar match skipped: missing transcription job %{public}@", jobID.uuidString)
+            return nil
+        }
+        guard !job.isImportedAudio else {
+            os_log(.info, log: calendarLog, "Calendar match skipped: imported audio job %{public}@", jobID.uuidString)
+            return nil
+        }
+        guard let recordingStartedAt = job.recordingStartedAt,
+              let recordingEndedAt = job.recordingEndedAt else {
+            os_log(.info, log: calendarLog, "Calendar match skipped: missing recording interval for job %{public}@", jobID.uuidString)
+            return nil
+        }
+        guard recordingEndedAt > recordingStartedAt else {
+            os_log(
+                .info,
+                log: calendarLog,
+                "Calendar match skipped: invalid recording interval for job %{public}@ start=%{public}@ end=%{public}@",
+                jobID.uuidString,
+                Self.logTimestamp(recordingStartedAt),
+                Self.logTimestamp(recordingEndedAt)
+            )
             return nil
         }
         let selectedCalendarIDs = await MainActor.run { googleCalendarConnection.selectedCalendarIDs }
-        guard !selectedCalendarIDs.isEmpty else { return nil }
+        guard !selectedCalendarIDs.isEmpty else {
+            os_log(
+                .info,
+                log: calendarLog,
+                "Calendar match skipped: no selected calendars for job %{public}@ start=%{public}@ end=%{public}@",
+                jobID.uuidString,
+                Self.logTimestamp(recordingStartedAt),
+                Self.logTimestamp(recordingEndedAt)
+            )
+            return nil
+        }
         do {
-            guard let token = try await validGoogleCalendarToken() else { return nil }
-            let events = await GoogleCalendarService().fetchEventsSkippingFailures(
+            guard let token = try await validGoogleCalendarToken() else {
+                os_log(.info, log: calendarLog, "Calendar match skipped: no valid Google Calendar token for job %{public}@", jobID.uuidString)
+                return nil
+            }
+            os_log(
+                .info,
+                log: calendarLog,
+                "Calendar match fetch started: job=%{public}@ calendars=%d start=%{public}@ end=%{public}@",
+                jobID.uuidString,
+                selectedCalendarIDs.count,
+                Self.logTimestamp(recordingStartedAt),
+                Self.logTimestamp(recordingEndedAt)
+            )
+            let fetchResult = await GoogleCalendarService().fetchEventsWithDiagnostics(
                 accessToken: token.accessToken,
                 calendarIDs: Array(selectedCalendarIDs),
                 timeMin: recordingStartedAt,
                 timeMax: recordingEndedAt
             )
+            if !fetchResult.failedCalendarIDs.isEmpty {
+                os_log(
+                    .error,
+                    log: calendarLog,
+                    "Calendar match fetch had failures: job=%{public}@ failedCalendars=%{private}@ fetchedEvents=%d",
+                    jobID.uuidString,
+                    fetchResult.failedCalendarIDs.joined(separator: ","),
+                    fetchResult.events.count
+                )
+            } else {
+                os_log(
+                    .info,
+                    log: calendarLog,
+                    "Calendar match fetch succeeded: job=%{public}@ fetchedEvents=%d",
+                    jobID.uuidString,
+                    fetchResult.events.count
+                )
+            }
             guard let event = CalendarEventMatcher.bestMatch(
                 recordingStartedAt: recordingStartedAt,
                 recordingEndedAt: recordingEndedAt,
-                events: events
+                events: fetchResult.events
             ) else {
+                os_log(
+                    .info,
+                    log: calendarLog,
+                    "Calendar match not found: job=%{public}@ fetchedEvents=%d failedCalendars=%d",
+                    jobID.uuidString,
+                    fetchResult.events.count,
+                    fetchResult.failedCalendarIDs.count
+                )
                 return nil
             }
+            os_log(
+                .info,
+                log: calendarLog,
+                "Calendar match found: job=%{public}@ calendar=%{private}@ event=%{private}@ title=%{private}@ start=%{public}@ end=%{public}@",
+                jobID.uuidString,
+                event.calendarID,
+                event.id,
+                event.title,
+                Self.logTimestamp(event.start),
+                Self.logTimestamp(event.end)
+            )
             return event.match(
                 accountID: token.accountEmail,
                 source: .overlapSuggestion,
                 titleState: .suggested
             )
         } catch {
+            os_log(
+                .error,
+                log: calendarLog,
+                "Calendar match failed: job=%{public}@ error=%{public}@",
+                jobID.uuidString,
+                error.localizedDescription
+            )
             await MainActor.run {
                 googleCalendarConnection.lastErrorMessage = error.localizedDescription
             }

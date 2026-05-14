@@ -43,7 +43,7 @@ all: $(APP_EXECUTABLE_TARGET)
 
 $(BUILD_SETTINGS): FORCE
 	@mkdir -p "$(BUILD_DIR)"
-	@printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' "$(APP_NAME)" "$(BUNDLE_ID)" "$(APP_VERSION)" "$(BUILD_NUMBER)" "$(BUILD_TAG)" "$(GOOGLE_CALENDAR_OAUTH_CLIENT_ID)" "$(GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET)" > "$@.tmp"
+	@printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' "$(APP_NAME)" "$(BUNDLE_ID)" "$(APP_VERSION)" "$(BUILD_NUMBER)" "$(BUILD_TAG)" "$(GOOGLE_CALENDAR_OAUTH_CLIENT_ID)" "$(GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET)" "$(CODESIGN_IDENTITY)" > "$@.tmp"
 	@if [ ! -f "$@" ] || ! cmp -s "$@.tmp" "$@"; then mv "$@.tmp" "$@"; else rm "$@.tmp"; fi
 
 $(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS) $(BUILD_SETTINGS)
@@ -181,8 +181,8 @@ test:
 	@/tmp/NoteTitleResolutionTests
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Sources/NoteListRowDisplayData.swift Tests/NoteListRowDisplayDataTests.swift -o /tmp/NoteListRowDisplayDataTests
 	@/tmp/NoteListRowDisplayDataTests
-	@swiftc -parse-as-library Tests/ForkReleaseWorkflowTests.swift -o /tmp/ForkReleaseWorkflowTests
-	@/tmp/ForkReleaseWorkflowTests
+	@swiftc -parse-as-library Tests/ManualReleaseWorkflowTests.swift -o /tmp/ManualReleaseWorkflowTests
+	@/tmp/ManualReleaseWorkflowTests
 	@swiftc -parse-as-library Tests/BuildMetadataTests.swift -o /tmp/BuildMetadataTests
 	@/tmp/BuildMetadataTests
 	@swiftc -parse-as-library Tests/ReleaseSDKCompatibilityTests.swift -o /tmp/ReleaseSDKCompatibilityTests

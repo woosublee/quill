@@ -1,4 +1,4 @@
-name: Fork Release
+name: Manual Release
 
 on:
   workflow_dispatch:
@@ -20,7 +20,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: fork-release-${{ github.event.inputs.tag }}
+  group: manual-release-${{ github.event.inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -39,7 +39,7 @@ jobs:
         run: |
           TAG="$INPUT_TAG"
           if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]]; then
-            echo "Fork release tags must look like v0.1.0 or v0.1.0-beta.1." >&2
+            echo "Release tags must look like v0.1.0 or v0.1.0-beta.1." >&2
             exit 1
           fi
 
@@ -71,7 +71,7 @@ jobs:
         run: |
           TAG="${{ steps.metadata.outputs.tag }}"
           if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "Release tag $TAG already exists on origin. Choose a new fork-owned release tag." >&2
+            echo "Release tag $TAG already exists on origin. Choose a new release tag." >&2
             exit 1
           fi
 
@@ -100,11 +100,11 @@ jobs:
             echo "body<<$DELIM"
             echo "## Installation note"
             echo
-            echo "This is a release build from the woosublee/freeflow fork."
+            echo "This is a release build from ${{ github.repository }}."
             echo
             echo "- macOS may show a first-launch security warning."
             echo "- If that happens, open System Settings > Privacy & Security and choose Open Anyway."
-            echo "- Only run this build if you trust this fork release."
+            echo "- Only run this build if you trust this release."
             echo
             echo "## Download"
             echo
