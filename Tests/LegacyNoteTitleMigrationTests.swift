@@ -2,6 +2,10 @@ import Foundation
 
 @main
 struct LegacyNoteTitleMigrationTests {
+    enum TestError: Error {
+        case failed(String)
+    }
+
     static func main() throws {
         try testMigratesMatchingLegacyTitlesAndRemovesLegacyKeyAfterSuccessfulUpdates()
         try testRemovesLegacyKeyWhenOnlyStaleTitlesRemain()
@@ -9,6 +13,12 @@ struct LegacyNoteTitleMigrationTests {
         try testDuplicateLegacyUUIDKeysUseSortedFallbackWhenCanonicalMissing()
         try testKeepsLegacyKeyWhenAnyUpdateFails()
         print("LegacyNoteTitleMigrationTests passed")
+    }
+
+    private static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
+        if !condition() {
+            throw TestError.failed(message)
+        }
     }
 
     private static func testMigratesMatchingLegacyTitlesAndRemovesLegacyKeyAfterSuccessfulUpdates() throws {
@@ -28,11 +38,11 @@ struct LegacyNoteTitleMigrationTests {
             update: { updatedItems.append($0) }
         )
 
-        assert(migrated.count == 1)
-        assert(migrated[0].customTitle == "Migrated title")
-        assert(updatedItems.map(\.id) == [migratedID])
-        assert(updatedItems[0].customTitle == "Migrated title")
-        assert(defaults.data(forKey: LegacyNoteTitleMigration.storageKey) == nil)
+        try require(migrated.count == 1, "Expected one migrated history item")
+        try require(migrated[0].customTitle == "Migrated title", "Expected trimmed migrated title")
+        try require(updatedItems.map(\.id) == [migratedID], "Expected only the matching item to persist")
+        try require(updatedItems[0].customTitle == "Migrated title", "Expected persisted title to be trimmed")
+        try require(defaults.data(forKey: LegacyNoteTitleMigration.storageKey) == nil, "Expected successful migration to remove legacy key")
     }
 
     private static func testRemovesLegacyKeyWhenOnlyStaleTitlesRemain() throws {
@@ -48,9 +58,9 @@ struct LegacyNoteTitleMigrationTests {
             update: { updatedItems.append($0) }
         )
 
-        assert(migrated.count == 1)
-        assert(updatedItems.isEmpty)
-        assert(defaults.data(forKey: LegacyNoteTitleMigration.storageKey) == nil)
+        try require(migrated.count == 1, "Expected stale-only migration to preserve history")
+        try require(updatedItems.isEmpty, "Expected no persisted updates for stale legacy titles")
+        try require(defaults.data(forKey: LegacyNoteTitleMigration.storageKey) == nil, "Expected stale-only migration to remove legacy key")
     }
 
     private static func testDuplicateLegacyUUIDKeysPreferCanonicalValue() throws {
@@ -69,9 +79,9 @@ struct LegacyNoteTitleMigrationTests {
             update: { updatedItems.append($0) }
         )
 
-        assert(migrated[0].customTitle == "Canonical title")
-        assert(updatedItems.map(\.customTitle) == ["Canonical title"])
-        assert(defaults.data(forKey: LegacyNoteTitleMigration.storageKey) == nil)
+        try require(migrated[0].customTitle == "Canonical title", "Expected canonical UUID key to win")
+        try require(updatedItems.map(\.customTitle) == ["Canonical title"], "Expected canonical title to persist")
+        try require(defaults.data(forKey: LegacyNoteTitleMigration.storageKey) == nil, "Expected duplicate-key migration to remove legacy key")
     }
 
     private static func testDuplicateLegacyUUIDKeysUseSortedFallbackWhenCanonicalMissing() throws {
@@ -90,9 +100,9 @@ struct LegacyNoteTitleMigrationTests {
             update: { updatedItems.append($0) }
         )
 
-        assert(migrated[0].customTitle == "Mixedcase title")
-        assert(updatedItems.map(\.customTitle) == ["Mixedcase title"])
-        assert(defaults.data(forKey: LegacyNoteTitleMigration.storageKey) == nil)
+        try require(migrated[0].customTitle == "Mixedcase title", "Expected sorted duplicate-key fallback title")
+        try require(updatedItems.map(\.customTitle) == ["Mixedcase title"], "Expected fallback title to persist")
+        try require(defaults.data(forKey: LegacyNoteTitleMigration.storageKey) == nil, "Expected fallback duplicate-key migration to remove legacy key")
     }
 
     private static func testKeepsLegacyKeyWhenAnyUpdateFails() throws {
@@ -107,9 +117,11 @@ struct LegacyNoteTitleMigrationTests {
                 defaults: defaults,
                 update: { _ in throw NSError(domain: "LegacyNoteTitleMigrationTests", code: 1) }
             )
-            assertionFailure("Expected migration to throw when persistence fails")
+            throw TestError.failed("Expected migration to throw when persistence fails")
+        } catch let error as TestError {
+            throw error
         } catch {
-            assert(defaults.data(forKey: LegacyNoteTitleMigration.storageKey) != nil)
+            try require(defaults.data(forKey: LegacyNoteTitleMigration.storageKey) != nil, "Expected failed migration to keep legacy key")
         }
     }
 
