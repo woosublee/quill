@@ -172,8 +172,10 @@ test:
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/CalendarEventMatcher.swift Tests/CalendarEventMatcherTests.swift -o /tmp/CalendarEventMatcherTests
 	@swiftc -parse-as-library Sources/AppName.swift Sources/ModifierKeyEventState.swift Sources/ShortcutCore/ShortcutModels.swift Sources/ShortcutCore/ShortcutMatcher.swift Sources/GlobalShortcutBackend.swift Sources/HotkeyManager.swift Tests/ShortcutMatcherTests.swift -o /tmp/ShortcutMatcherTests
 	@swiftc -parse-as-library Sources/ShortcutCore/ShortcutModels.swift Sources/ShortcutBinding.swift Sources/ShortcutCaptureKeyHandling.swift Tests/ShortcutCaptureKeyHandlingTests.swift -o /tmp/ShortcutCaptureKeyHandlingTests
+	@swiftc -parse-as-library Sources/ShortcutValidationMessages.swift Tests/ShortcutValidationMessagesTests.swift -o /tmp/ShortcutValidationMessagesTests
 	@/tmp/ShortcutMatcherTests
 	@/tmp/ShortcutCaptureKeyHandlingTests
+	@/tmp/ShortcutValidationMessagesTests
 	@/tmp/CalendarEventMatcherTests
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Tests/NoteTitleResolutionTests.swift -o /tmp/NoteTitleResolutionTests
 	@/tmp/NoteTitleResolutionTests

@@ -11,9 +11,11 @@ struct AppStateTranscriptionConfigurationTests {
         testRecordingCancelShortcutDefaultsToEscape()
         testRecordingCancelShortcutPersistsDisabled()
         testRecordingCancelShortcutPersistsCustomShortcut()
+        testRecordingCancelShortcutDisablesDefaultWhenStoredHoldUsesEscape()
         testRecordingCancelShortcutRejectsHoldConflict()
         testHoldShortcutRejectsCancelConflict()
         testHoldShortcutRejectsMoreSpecificCancelOverlap()
+        testRecordingCancelShortcutRejectsModifierOnlyOverlapWithKeyCombo()
         testRecordingCancelShortcutRejectsMoreSpecificHoldOverlap()
         testRecordingCancelShortcutRejectsManualModifierRuntimeOverlap()
         testCommandModeManualModifierReportsCancelOverlap()
@@ -118,6 +120,24 @@ struct AppStateTranscriptionConfigurationTests {
         assert(appState.savedRecordingCancelCustomShortcut == custom)
     }
 
+    private static func testRecordingCancelShortcutDisablesDefaultWhenStoredHoldUsesEscape() {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        let escHold = ShortcutBinding.defaultRecordingCancel
+        defaults.set(try! JSONEncoder().encode(escHold), forKey: "hold_shortcut")
+        defaults.removeObject(forKey: "recording_cancel_shortcut")
+
+        let appState = AppState()
+        let storedCancel = try! JSONDecoder().decode(
+            ShortcutBinding.self,
+            from: defaults.data(forKey: "recording_cancel_shortcut")!
+        )
+
+        assert(appState.holdShortcut == escHold)
+        assert(appState.recordingCancelShortcut == .disabled)
+        assert(storedCancel == .disabled)
+    }
+
     private static func testRecordingCancelShortcutRejectsHoldConflict() {
         resetDefaults()
         let appState = AppState()
@@ -154,6 +174,35 @@ struct AppStateTranscriptionConfigurationTests {
 
         assert(validation == "Dictation shortcuts must be distinct from the cancel shortcut.")
         assert(appState.holdShortcut == .defaultHold)
+    }
+
+    private static func testRecordingCancelShortcutRejectsModifierOnlyOverlapWithKeyCombo() {
+        resetDefaults()
+        let appState = AppState()
+        let commandOnly = ShortcutBinding(
+            keyCode: 55,
+            keyDisplay: "Command",
+            modifiers: [],
+            kind: .modifierKey,
+            preset: nil,
+            exactModifierKeyCodes: [55]
+        )
+        let commandA = ShortcutBinding(
+            keyCode: 0,
+            keyDisplay: "A",
+            modifiers: .command,
+            kind: .key,
+            preset: nil,
+            exactModifierKeyCodes: [55]
+        )
+
+        assert(appState.setRecordingCancelShortcut(.disabled) == nil)
+        assert(appState.setShortcut(commandA, for: .hold) == nil)
+
+        let validation = appState.setRecordingCancelShortcut(commandOnly)
+
+        assert(validation == "Cancel shortcut must be distinct from dictation shortcuts.")
+        assert(appState.recordingCancelShortcut == .disabled)
     }
 
     private static func testRecordingCancelShortcutRejectsMoreSpecificHoldOverlap() {

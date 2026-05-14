@@ -46,11 +46,15 @@ struct DictationShortcutEditor: View {
                     set: { activeCaptureTarget = $0 ? .hold : nil }
                 ),
                 onSelect: { binding in
-                    let message = appState.setShortcut(binding, for: .hold)
-                    holdValidationMessage = message
-                    if message == nil {
-                        cancelValidationMessage = nil
-                    }
+                    var messages = ShortcutValidationMessages(
+                        hold: holdValidationMessage,
+                        toggle: toggleValidationMessage,
+                        recordingCancel: cancelValidationMessage
+                    )
+                    messages.applySelectionResult(appState.setShortcut(binding, for: .hold), target: .hold)
+                    holdValidationMessage = messages.hold
+                    toggleValidationMessage = messages.toggle
+                    cancelValidationMessage = messages.recordingCancel
                 }
             )
 
@@ -63,11 +67,15 @@ struct DictationShortcutEditor: View {
                     set: { activeCaptureTarget = $0 ? .toggle : nil }
                 ),
                 onSelect: { binding in
-                    let message = appState.setShortcut(binding, for: .toggle)
-                    toggleValidationMessage = message
-                    if message == nil {
-                        cancelValidationMessage = nil
-                    }
+                    var messages = ShortcutValidationMessages(
+                        hold: holdValidationMessage,
+                        toggle: toggleValidationMessage,
+                        recordingCancel: cancelValidationMessage
+                    )
+                    messages.applySelectionResult(appState.setShortcut(binding, for: .toggle), target: .toggle)
+                    holdValidationMessage = messages.hold
+                    toggleValidationMessage = messages.toggle
+                    cancelValidationMessage = messages.recordingCancel
                 }
             )
 
@@ -80,12 +88,15 @@ struct DictationShortcutEditor: View {
                     set: { activeCaptureTarget = $0 ? .recordingCancel : nil }
                 ),
                 onSelect: { binding in
-                    let message = appState.setRecordingCancelShortcut(binding)
-                    cancelValidationMessage = message
-                    if message == nil {
-                        holdValidationMessage = nil
-                        toggleValidationMessage = nil
-                    }
+                    var messages = ShortcutValidationMessages(
+                        hold: holdValidationMessage,
+                        toggle: toggleValidationMessage,
+                        recordingCancel: cancelValidationMessage
+                    )
+                    messages.applySelectionResult(appState.setRecordingCancelShortcut(binding), target: .recordingCancel)
+                    holdValidationMessage = messages.hold
+                    toggleValidationMessage = messages.toggle
+                    cancelValidationMessage = messages.recordingCancel
                 }
             )
 

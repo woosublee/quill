@@ -985,7 +985,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             fallback: shortcuts.toggle.isCustom ? shortcuts.toggle : nil
         )
         let storedRecordingCancelShortcut = Self.loadShortcut(forKey: recordingCancelShortcutStorageKey)
-        let recordingCancelShortcut = storedRecordingCancelShortcut.binding ?? .defaultRecordingCancel
+        let recordingCancelShortcut = Self.initialRecordingCancelShortcut(
+            stored: storedRecordingCancelShortcut.binding,
+            hold: shortcuts.hold,
+            toggle: shortcuts.toggle
+        )
         let savedRecordingCancelCustomShortcut = Self.loadSavedCustomShortcut(
             forKey: savedRecordingCancelCustomShortcutStorageKey,
             fallback: recordingCancelShortcut.isCustom && recordingCancelShortcut != .defaultRecordingCancel
@@ -1280,6 +1284,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
             hadStoredValue: true,
             didNormalize: normalized != decoded
         )
+    }
+
+    private static func initialRecordingCancelShortcut(
+        stored: ShortcutBinding?,
+        hold: ShortcutBinding,
+        toggle: ShortcutBinding
+    ) -> ShortcutBinding {
+        if let stored {
+            return stored
+        }
+        if defaultRecordingCancelOverlaps(hold) || defaultRecordingCancelOverlaps(toggle) {
+            return .disabled
+        }
+        return .defaultRecordingCancel
+    }
+
+    private static func defaultRecordingCancelOverlaps(_ binding: ShortcutBinding) -> Bool {
+        guard !binding.isDisabled else { return false }
+        guard binding.kind == .key else { return false }
+        return binding.keyCode == ShortcutBinding.defaultRecordingCancel.keyCode
     }
 
     private static func loadSavedCustomShortcut(
@@ -5091,16 +5115,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
 private extension ShortcutBinding {
     func primaryInputOverlapsForCancellation(with other: ShortcutBinding) -> Bool {
-        guard kind == other.kind else { return false }
-
-        switch kind {
-        case .disabled:
-            return false
-        case .key:
-            return keyCode == other.keyCode
-        case .modifierKey:
-            return keyCode == other.keyCode
+        if kind == other.kind {
+            switch kind {
+            case .disabled:
+                return false
+            case .key, .modifierKey:
+                return keyCode == other.keyCode
+            }
         }
+
+        if kind == .modifierKey,
+           other.kind == .key,
+           let modifier = Self.logicalModifier(forKeyCode: keyCode) {
+            return other.modifiers.contains(modifier)
+        }
+
+        if kind == .key,
+           other.kind == .modifierKey,
+           let modifier = Self.logicalModifier(forKeyCode: other.keyCode) {
+            return modifiers.contains(modifier)
+        }
+
+        return false
     }
 
     func isActiveForCancellationConflict(
