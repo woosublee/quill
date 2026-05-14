@@ -22,7 +22,8 @@ struct NoteListRowDisplayData: Equatable {
 
     init(item: PipelineHistoryItem, retryingIDs: Set<UUID>) {
         let status = transcriptStatus(for: item, retrying: retryingIDs)
-        let customTitle = item.customTitle
+        let trimmedCustomTitle = item.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let customTitle = trimmedCustomTitle?.isEmpty == true ? nil : trimmedCustomTitle
         let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayTitle = NoteTitleResolver.displayTitle(
             for: item,

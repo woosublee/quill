@@ -4,6 +4,7 @@ import Foundation
 struct LegacyNoteTitleMigrationTests {
     static func main() throws {
         try testMigratesMatchingLegacyTitlesAndRemovesLegacyKeyAfterSuccessfulUpdates()
+        try testRemovesLegacyKeyWhenOnlyStaleTitlesRemain()
         try testKeepsLegacyKeyWhenAnyUpdateFails()
         print("LegacyNoteTitleMigrationTests passed")
     }
@@ -29,6 +30,24 @@ struct LegacyNoteTitleMigrationTests {
         assert(migrated[0].customTitle == "Migrated title")
         assert(updatedItems.map(\.id) == [migratedID])
         assert(updatedItems[0].customTitle == "Migrated title")
+        assert(defaults.data(forKey: LegacyNoteTitleMigration.storageKey) == nil)
+    }
+
+    private static func testRemovesLegacyKeyWhenOnlyStaleTitlesRemain() throws {
+        let defaults = makeDefaults()
+        let staleID = UUID(uuidString: "00000000-0000-0000-0000-000000000086")!
+        storeLegacyTitles([staleID: "Deleted note title"], defaults: defaults)
+        let history = [historyItem(id: UUID(uuidString: "00000000-0000-0000-0000-000000000087")!, transcript: "Transcript title")]
+        var updatedItems: [PipelineHistoryItem] = []
+
+        let migrated = try LegacyNoteTitleMigration.migrate(
+            history: history,
+            defaults: defaults,
+            update: { updatedItems.append($0) }
+        )
+
+        assert(migrated.count == 1)
+        assert(updatedItems.isEmpty)
         assert(defaults.data(forKey: LegacyNoteTitleMigration.storageKey) == nil)
     }
 

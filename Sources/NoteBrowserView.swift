@@ -947,7 +947,9 @@ private struct NoteDetailView: View {
             .onChange(of: titleDraft) { newValue in
                 titleDebounceTimer?.invalidate()
                 let timer = Timer(timeInterval: 0.5, repeats: false) { _ in
-                    appState.updateHistoryItemTitle(id: item.id, title: newValue)
+                    Task { @MainActor in
+                        appState.updateHistoryItemTitle(id: item.id, title: newValue)
+                    }
                 }
                 RunLoop.main.add(timer, forMode: .common)
                 titleDebounceTimer = timer

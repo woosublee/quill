@@ -6,6 +6,7 @@ struct NoteListRowDisplayDataTests {
         testFormatsRowDate()
         testUsesItemCustomTitleAndContentPreview()
         testDropsAutomaticTitleFromPreview()
+        testWhitespaceOnlyCustomTitleDoesNotForceContentPreview()
         testFailurePreviewUsesErrorMessage()
         testFailurePreviewHandlesMissingSpaceAfterPrefix()
         testTranscribingTitleAndEmptyPreview()
@@ -46,6 +47,18 @@ struct NoteListRowDisplayDataTests {
 
     private static func testDropsAutomaticTitleFromPreview() {
         let item = historyItem(transcript: "Automatic transcript title\nDetails continue here")
+
+        let data = NoteListRowDisplayData(item: item, retryingIDs: [])
+
+        assert(data.displayTitle == "Automatic transcript title")
+        assert(data.preview == "Details continue here", "Unexpected preview: \(data.preview)")
+    }
+
+    private static func testWhitespaceOnlyCustomTitleDoesNotForceContentPreview() {
+        let item = historyItem(
+            transcript: "Automatic transcript title\nDetails continue here",
+            customTitle: "  \n  "
+        )
 
         let data = NoteListRowDisplayData(item: item, retryingIDs: [])
 

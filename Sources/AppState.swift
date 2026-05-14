@@ -1784,17 +1784,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     func updateHistoryItemTitle(id: UUID, title: String) {
-        guard let item = pipelineHistory.first(where: { $0.id == id }) else { return }
+        guard let index = pipelineHistory.firstIndex(where: { $0.id == id }) else { return }
+        let item = pipelineHistory[index]
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedTitle = trimmed.isEmpty ? nil : trimmed
         guard item.customTitle != normalizedTitle else { return }
         let updated = item.withCustomTitle(normalizedTitle)
         do {
             try pipelineHistoryStore.update(updated)
-            if let index = pipelineHistory.firstIndex(where: { $0.id == id }) {
-                pipelineHistory[index] = updated
-            }
+            pipelineHistory[index] = updated
         } catch {
             errorMessage = "Failed to save note title: \(error.localizedDescription)"
         }

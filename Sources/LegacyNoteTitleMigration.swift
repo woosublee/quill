@@ -28,9 +28,7 @@ enum LegacyNoteTitleMigration {
         for item in updatedItems {
             try update(item)
         }
-        if !updatedItems.isEmpty {
-            defaults.removeObject(forKey: storageKey)
-        }
+        defaults.removeObject(forKey: storageKey)
         return migratedHistory
     }
 
