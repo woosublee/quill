@@ -100,7 +100,7 @@ jobs:
             echo "body<<$DELIM"
             echo "## Installation note"
             echo
-            echo "This is a release build from woosublee/freeflow."
+            echo "This is a release build from ${{ github.repository }}."
             echo
             echo "- macOS may show a first-launch security warning."
             echo "- If that happens, open System Settings > Privacy & Security and choose Open Anyway."
