@@ -77,3 +77,42 @@ struct LiveAudioLevelNormalizer {
         min(max(value, 0), 1)
     }
 }
+
+struct SystemAudioDisplayLevelNormalizer {
+    private static let minimumRMS: Float = 0.00001
+    private static let silenceThresholdDB: Float = -72
+    private static let floorDB: Float = -64
+    private static let ceilingDB: Float = -18
+    private static let curve: Float = 0.65
+    private static let displayAttackBlend: Float = 0.65
+    private static let displayReleaseBlend: Float = 0.24
+
+    private var displayLevel: Float = 0
+
+    mutating func reset() {
+        displayLevel = 0
+    }
+
+    mutating func normalizedLevel(forRMS rms: Float) -> Float {
+        let levelDB = 20 * log10f(max(rms, Self.minimumRMS))
+        let target: Float
+        if levelDB <= Self.silenceThresholdDB {
+            target = 0
+        } else {
+            let normalized = clamp((levelDB - Self.floorDB) / (Self.ceilingDB - Self.floorDB))
+            target = powf(normalized, Self.curve)
+        }
+
+        let blend = target > displayLevel ? Self.displayAttackBlend : Self.displayReleaseBlend
+        displayLevel = mix(displayLevel, target, blend)
+        return displayLevel < 0.01 ? 0 : displayLevel
+    }
+
+    private func mix(_ current: Float, _ target: Float, _ blend: Float) -> Float {
+        current + (target - current) * blend
+    }
+
+    private func clamp(_ value: Float) -> Float {
+        min(max(value, 0), 1)
+    }
+}
