@@ -1471,7 +1471,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         "Google Calendar needs reconnecting. Reconnect to restore meeting reminders and calendar-based note titles."
     }
 
-    private static func isGoogleCalendarReconnectError(_ error: Error) -> Bool {
+    static func isGoogleCalendarReconnectError(_ error: Error) -> Bool {
         if error is GoogleCalendarHealthError { return true }
         guard let oauthError = error as? GoogleCalendarAuthService.OAuthError else { return false }
         switch oauthError {
@@ -1480,7 +1480,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .requestFailed:
             return false
         case .response(let code, _):
-            return ["invalid_grant", "invalid_client", "unauthorized_client"].contains(code)
+            return code == "invalid_grant"
         }
     }
 
@@ -1590,7 +1590,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
-    private func markGoogleCalendarHealthy(feature: GoogleCalendarHealthFeature) {
+    func markGoogleCalendarHealthy(feature: GoogleCalendarHealthFeature) {
+        if googleCalendarConnection.health.status != .healthy,
+           let affectedFeature = googleCalendarConnection.health.affectedFeature,
+           affectedFeature != feature {
+            return
+        }
         googleCalendarConnection.lastErrorMessage = nil
         googleCalendarConnection.health = GoogleCalendarHealth(
             status: .healthy,
@@ -1611,7 +1616,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
-    private func markGoogleCalendarTemporarilyUnavailable(feature: GoogleCalendarHealthFeature, message: String) {
+    func markGoogleCalendarTemporarilyUnavailable(feature: GoogleCalendarHealthFeature, message: String) {
         googleCalendarConnection.lastErrorMessage = message
         googleCalendarConnection.health = GoogleCalendarHealth(
             status: .temporaryFailure,

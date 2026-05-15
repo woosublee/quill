@@ -28,6 +28,8 @@ struct AppStateTranscriptionConfigurationTests {
         await testGoogleCalendarStoredCustomOAuthCredentialsAreIgnored()
         await testGoogleCalendarRefreshMarksNeedsReconnectWhenTokenMissing()
         await testGoogleCalendarRefreshMarksNeedsReconnectWhenRefreshTokenIsMissing()
+        testGoogleCalendarReconnectErrorClassificationSeparatesClientConfigurationFailures()
+        await testGoogleCalendarHealthyDoesNotClearDifferentFeatureFailure()
         await testGoogleCalendarHealthCheckRunsForConnectedMetadataWithoutSelectedCalendars()
         await testGoogleCalendarRefreshMarksTemporaryFailureWhenCalendarListFails()
         await testGoogleCalendarRefreshMarksHealthyWhenCalendarListLoads()
@@ -430,6 +432,32 @@ struct AppStateTranscriptionConfigurationTests {
         assert(appState.googleCalendarConnection.isConnected)
         assert(appState.googleCalendarConnection.health.status == .needsReconnect)
         assert(appState.googleCalendarConnection.health.affectedFeature == .calendarList)
+    }
+
+    private static func testGoogleCalendarReconnectErrorClassificationSeparatesClientConfigurationFailures() {
+        assert(AppState.isGoogleCalendarReconnectError(GoogleCalendarAuthService.OAuthError.response("invalid_grant", "Bad refresh token")))
+        assert(!AppState.isGoogleCalendarReconnectError(GoogleCalendarAuthService.OAuthError.response("invalid_client", "Bad client")))
+        assert(!AppState.isGoogleCalendarReconnectError(GoogleCalendarAuthService.OAuthError.response("unauthorized_client", "Unauthorized client")))
+    }
+
+    private static func testGoogleCalendarHealthyDoesNotClearDifferentFeatureFailure() async {
+        resetDefaults()
+        UserDefaults.standard.set(
+            try! JSONEncoder().encode(GoogleCalendarConnectionMetadata(accountEmail: "user@example.com")),
+            forKey: GoogleCalendarConnectionMetadata.storageKey
+        )
+        let appState = AppState()
+        await MainActor.run {
+            appState.markGoogleCalendarTemporarilyUnavailable(
+                feature: .recordingReminders,
+                message: "Reminder refresh failed"
+            )
+            appState.markGoogleCalendarHealthy(feature: .recordingMatch)
+        }
+
+        assert(appState.googleCalendarConnection.health.status == .temporaryFailure)
+        assert(appState.googleCalendarConnection.health.affectedFeature == .recordingReminders)
+        assert(appState.googleCalendarConnection.lastErrorMessage == "Reminder refresh failed")
     }
 
     private static func testGoogleCalendarHealthCheckRunsForConnectedMetadataWithoutSelectedCalendars() async {
