@@ -1300,7 +1300,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private static func loadGoogleCalendarConnectionMetadata() -> GoogleCalendarConnectionMetadata? {
         guard let data = UserDefaults.standard.data(forKey: GoogleCalendarConnectionMetadata.storageKey) else { return nil }
-        return try? JSONDecoder().decode(GoogleCalendarConnectionMetadata.self, from: data)
+        do {
+            return try JSONDecoder().decode(GoogleCalendarConnectionMetadata.self, from: data)
+        } catch {
+            UserDefaults.standard.removeObject(forKey: GoogleCalendarConnectionMetadata.storageKey)
+            return nil
+        }
     }
 
     private static func saveGoogleCalendarConnectionMetadata(accountEmail: String?) {

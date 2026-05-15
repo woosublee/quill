@@ -24,6 +24,7 @@ struct AppStateTranscriptionConfigurationTests {
         testStoppedTranscriptionCompletionSummaryHidesFallbackIndicatorForEmptyRawFallback()
         testStoppedTranscriptionSettingsSnapshotCapturesHistoryMetadata()
         try testGoogleCalendarConnectionMetadataRestoresStartupState()
+        testGoogleCalendarConnectionMetadataClearsCorruptValue()
         print("AppStateTranscriptionConfigurationTests passed")
     }
 
@@ -351,6 +352,16 @@ struct AppStateTranscriptionConfigurationTests {
         assert(appState.googleCalendarConnection.isConnected)
         assert(appState.googleCalendarConnection.accountEmail == "user@example.com")
         assert(appState.googleCalendarConnection.selectedCalendarIDs == selectedCalendarIDs)
+    }
+
+    private static func testGoogleCalendarConnectionMetadataClearsCorruptValue() {
+        resetDefaults()
+        UserDefaults.standard.set(Data("not-json".utf8), forKey: GoogleCalendarConnectionMetadata.storageKey)
+
+        let appState = AppState()
+
+        assert(!appState.googleCalendarConnection.isConnected)
+        assert(UserDefaults.standard.data(forKey: GoogleCalendarConnectionMetadata.storageKey) == nil)
     }
 
     private static func testStoppedTranscriptionSettingsSnapshotCapturesHistoryMetadata() {
