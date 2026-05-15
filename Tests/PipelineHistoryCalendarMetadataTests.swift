@@ -9,16 +9,16 @@ struct PipelineHistoryCalendarMetadataTests {
         try testLegacyEncodedHistoryItemDecodesMissingCalendarMetadataAsNil()
         try testCustomTitlePersistsThroughPipelineHistoryStore()
         try testCalendarMetadataPersistsThroughPipelineHistoryStore()
-        testStartupTokenLoadPolicyOnlyLoadsForEnabledRemindersWithSelectedCalendars()
+        testStartupTokenLoadPolicyAlwaysAttemptsSilentLoad()
         print("PipelineHistoryCalendarMetadataTests passed")
     }
 
-    private static func testStartupTokenLoadPolicyOnlyLoadsForEnabledRemindersWithSelectedCalendars() {
-        assert(!GoogleCalendarStartupTokenLoadPolicy.shouldLoadToken(
+    private static func testStartupTokenLoadPolicyAlwaysAttemptsSilentLoad() {
+        assert(GoogleCalendarStartupTokenLoadPolicy.shouldLoadToken(
             remindersEnabled: false,
             selectedCalendarIDs: ["primary"]
         ))
-        assert(!GoogleCalendarStartupTokenLoadPolicy.shouldLoadToken(
+        assert(GoogleCalendarStartupTokenLoadPolicy.shouldLoadToken(
             remindersEnabled: true,
             selectedCalendarIDs: []
         ))
@@ -26,6 +26,7 @@ struct PipelineHistoryCalendarMetadataTests {
             remindersEnabled: true,
             selectedCalendarIDs: ["primary"]
         ))
+        assert(!GoogleCalendarStartupTokenLoadPolicy.allowsAuthenticationUI)
     }
 
     private static func testCustomTitleRoundTripsThroughPipelineHistoryItemCodable() throws {
