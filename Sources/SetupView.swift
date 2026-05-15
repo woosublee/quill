@@ -978,7 +978,8 @@ struct SetupView: View {
             // Microphone picker
             VStack(spacing: 4) {
                 Picker("Microphone:", selection: $appState.selectedMicrophoneID) {
-                    Text("System Default").tag("default")
+                    Text("System Audio").tag(AudioInputDevice.systemAudioID)
+                    Text("System Default").tag(AudioInputDevice.defaultMicrophoneID)
                     ForEach(appState.availableMicrophones) { device in
                         Text(device.name).tag(device.uid)
                     }

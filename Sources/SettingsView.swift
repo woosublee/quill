@@ -1958,15 +1958,20 @@ struct GeneralSettingsView: View {
 
     private var microphoneSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Select which microphone to use for recording.")
+            Text("Select which audio input to use for recording.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             VStack(spacing: 6) {
                 MicrophoneOptionRow(
+                    name: "System Audio",
+                    isSelected: appState.selectedMicrophoneID == AudioInputDevice.systemAudioID,
+                    action: { appState.selectedMicrophoneID = AudioInputDevice.systemAudioID }
+                )
+                MicrophoneOptionRow(
                     name: "System Default",
-                    isSelected: appState.selectedMicrophoneID == "default" || appState.selectedMicrophoneID.isEmpty,
-                    action: { appState.selectedMicrophoneID = "default" }
+                    isSelected: appState.selectedMicrophoneID == AudioInputDevice.defaultMicrophoneID || appState.selectedMicrophoneID.isEmpty,
+                    action: { appState.selectedMicrophoneID = AudioInputDevice.defaultMicrophoneID }
                 )
                 ForEach(appState.availableMicrophones) { device in
                     MicrophoneOptionRow(
