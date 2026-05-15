@@ -102,6 +102,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             startMCPServer()
             appState.startCalendarRecordingReminderScheduling()
+            appState.startGoogleCalendarHealthCheck()
         }
 
     }
@@ -303,6 +304,7 @@ private func showNoteBrowserWindow() {
         appState.startHotkeyMonitoring()
         appState.startAccessibilityPolling()
         appState.startCalendarRecordingReminderScheduling()
+        appState.startGoogleCalendarHealthCheck()
         // Quill releases are not distributed through the in-app updater yet.
         // Task { @MainActor in
         //     UpdateManager.shared.startPeriodicChecks()

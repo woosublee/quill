@@ -3,7 +3,7 @@ import Foundation
 
 @main
 struct AppStateTranscriptionConfigurationTests {
-    static func main() throws {
+    static func main() async throws {
         try testMakeTranscriptionServiceUsesLocalConfiguration()
         try testMakeTranscriptionServiceMapsEmptyLocalWhisperPathToNil()
         testPermissionStatusUpdateSkipsUnchangedValues()
@@ -25,6 +25,14 @@ struct AppStateTranscriptionConfigurationTests {
         testStoppedTranscriptionSettingsSnapshotCapturesHistoryMetadata()
         try testGoogleCalendarConnectionMetadataRestoresStartupState()
         testGoogleCalendarConnectionMetadataClearsCorruptValue()
+        await testGoogleCalendarStoredCustomOAuthCredentialsAreIgnored()
+        await testGoogleCalendarRefreshMarksNeedsReconnectWhenTokenMissing()
+        await testGoogleCalendarRefreshMarksNeedsReconnectWhenRefreshTokenIsMissing()
+        testGoogleCalendarReconnectErrorClassificationSeparatesClientConfigurationFailures()
+        await testGoogleCalendarHealthyDoesNotClearDifferentFeatureFailure()
+        await testGoogleCalendarHealthCheckRunsForConnectedMetadataWithoutSelectedCalendars()
+        await testGoogleCalendarRefreshMarksTemporaryFailureWhenCalendarListFails()
+        await testGoogleCalendarRefreshMarksHealthyWhenCalendarListLoads()
         print("AppStateTranscriptionConfigurationTests passed")
     }
 
@@ -352,6 +360,8 @@ struct AppStateTranscriptionConfigurationTests {
         assert(appState.googleCalendarConnection.isConnected)
         assert(appState.googleCalendarConnection.accountEmail == "user@example.com")
         assert(appState.googleCalendarConnection.selectedCalendarIDs == selectedCalendarIDs)
+        assert(appState.googleCalendarConnection.health.status == .unknown)
+        assert(appState.googleCalendarConnection.health.checkedAt == nil)
     }
 
     private static func testGoogleCalendarConnectionMetadataClearsCorruptValue() {
@@ -363,6 +373,188 @@ struct AppStateTranscriptionConfigurationTests {
         assert(!appState.googleCalendarConnection.isConnected)
         assert(UserDefaults.standard.data(forKey: GoogleCalendarConnectionMetadata.storageKey) == nil)
     }
+
+    private static func testGoogleCalendarStoredCustomOAuthCredentialsAreIgnored() async {
+        resetDefaults()
+        let customClientID = "custom-client-id.apps.googleusercontent.com"
+        UserDefaults.standard.set(customClientID, forKey: "google_calendar_client_id")
+
+        let configuration = await MainActor.run {
+            AppState().googleCalendarOAuthConfiguration
+        }
+
+        assert(!configuration.usesCustomCredentials)
+        assert(configuration.clientID != customClientID)
+    }
+
+    private static func testGoogleCalendarRefreshMarksNeedsReconnectWhenTokenMissing() async {
+        resetDefaults()
+        let selectedCalendarIDs: Set<String> = ["primary"]
+        UserDefaults.standard.set(try! JSONEncoder().encode(Array(selectedCalendarIDs).sorted()), forKey: "google_calendar_selected_ids")
+        UserDefaults.standard.set(
+            try! JSONEncoder().encode(GoogleCalendarConnectionMetadata(accountEmail: "user@example.com")),
+            forKey: GoogleCalendarConnectionMetadata.storageKey
+        )
+        let originalTokenLoader = AppState.googleCalendarTokenLoader
+        defer {
+            AppState.googleCalendarTokenLoader = originalTokenLoader
+        }
+        AppState.googleCalendarTokenLoader = { _ in nil }
+
+        let appState = AppState()
+        await appState.loadGoogleCalendars(force: true)
+
+        assert(appState.googleCalendarConnection.isConnected)
+        assert(appState.googleCalendarConnection.accountEmail == "user@example.com")
+        assert(appState.googleCalendarConnection.selectedCalendarIDs == selectedCalendarIDs)
+        assert(appState.googleCalendarConnection.health.status == .needsReconnect)
+        assert(appState.googleCalendarConnection.health.affectedFeature == .calendarList)
+    }
+
+    private static func testGoogleCalendarRefreshMarksNeedsReconnectWhenRefreshTokenIsMissing() async {
+        resetDefaults()
+        UserDefaults.standard.set("client-id.apps.googleusercontent.com", forKey: "google_calendar_client_id")
+        UserDefaults.standard.set(
+            try! JSONEncoder().encode(GoogleCalendarConnectionMetadata(accountEmail: "user@example.com")),
+            forKey: GoogleCalendarConnectionMetadata.storageKey
+        )
+        let originalTokenLoader = AppState.googleCalendarTokenLoader
+        defer {
+            AppState.googleCalendarTokenLoader = originalTokenLoader
+        }
+        AppState.googleCalendarTokenLoader = { _ in
+            GoogleCalendarOAuthToken(accessToken: "expired-token", refreshToken: nil, expiresAt: Date(timeIntervalSince1970: 0), accountEmail: "user@example.com")
+        }
+
+        let appState = AppState()
+        await appState.loadGoogleCalendars(force: true)
+
+        assert(appState.googleCalendarConnection.isConnected)
+        assert(appState.googleCalendarConnection.health.status == .needsReconnect)
+        assert(appState.googleCalendarConnection.health.affectedFeature == .calendarList)
+    }
+
+    private static func testGoogleCalendarReconnectErrorClassificationSeparatesClientConfigurationFailures() {
+        assert(AppState.isGoogleCalendarReconnectError(GoogleCalendarAuthService.OAuthError.response("invalid_grant", "Bad refresh token")))
+        assert(!AppState.isGoogleCalendarReconnectError(GoogleCalendarAuthService.OAuthError.response("invalid_client", "Bad client")))
+        assert(!AppState.isGoogleCalendarReconnectError(GoogleCalendarAuthService.OAuthError.response("unauthorized_client", "Unauthorized client")))
+    }
+
+    private static func testGoogleCalendarHealthyDoesNotClearDifferentFeatureFailure() async {
+        resetDefaults()
+        UserDefaults.standard.set(
+            try! JSONEncoder().encode(GoogleCalendarConnectionMetadata(accountEmail: "user@example.com")),
+            forKey: GoogleCalendarConnectionMetadata.storageKey
+        )
+        let appState = AppState()
+        await MainActor.run {
+            appState.markGoogleCalendarTemporarilyUnavailable(
+                feature: .recordingReminders,
+                message: "Reminder refresh failed"
+            )
+            appState.markGoogleCalendarHealthy(feature: .recordingMatch)
+        }
+
+        assert(appState.googleCalendarConnection.health.status == .temporaryFailure)
+        assert(appState.googleCalendarConnection.health.affectedFeature == .recordingReminders)
+        assert(appState.googleCalendarConnection.lastErrorMessage == "Reminder refresh failed")
+    }
+
+    private static func testGoogleCalendarHealthCheckRunsForConnectedMetadataWithoutSelectedCalendars() async {
+        resetDefaults()
+        UserDefaults.standard.set(
+            try! JSONEncoder().encode(GoogleCalendarConnectionMetadata(accountEmail: "user@example.com")),
+            forKey: GoogleCalendarConnectionMetadata.storageKey
+        )
+        let originalTokenLoader = AppState.googleCalendarTokenLoader
+        defer {
+            AppState.googleCalendarTokenLoader = originalTokenLoader
+        }
+        AppState.googleCalendarTokenLoader = { _ in nil }
+
+        let appState = AppState()
+        await appState.startGoogleCalendarHealthCheck()
+        await waitUntil { appState.googleCalendarConnection.health.status == .needsReconnect }
+
+        assert(appState.googleCalendarConnection.health.status == .needsReconnect)
+    }
+
+    private static func testGoogleCalendarRefreshMarksTemporaryFailureWhenCalendarListFails() async {
+        resetDefaults()
+        UserDefaults.standard.set("client-id.apps.googleusercontent.com", forKey: "google_calendar_client_id")
+        UserDefaults.standard.set(
+            try! JSONEncoder().encode(GoogleCalendarConnectionMetadata(accountEmail: "user@example.com")),
+            forKey: GoogleCalendarConnectionMetadata.storageKey
+        )
+        let originalTokenLoader = AppState.googleCalendarTokenLoader
+        let originalServiceFactory = AppState.googleCalendarServiceFactory
+        defer {
+            AppState.googleCalendarTokenLoader = originalTokenLoader
+            AppState.googleCalendarServiceFactory = originalServiceFactory
+        }
+        AppState.googleCalendarTokenLoader = { _ in
+            GoogleCalendarOAuthToken(accessToken: "access-token", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(3600), accountEmail: "user@example.com")
+        }
+        AppState.googleCalendarServiceFactory = {
+            GoogleCalendarService { _ in throw CalendarListFailure() }
+        }
+
+        let appState = AppState()
+        await appState.loadGoogleCalendars(force: true)
+
+        assert(appState.googleCalendarConnection.isConnected)
+        assert(appState.googleCalendarConnection.health.status == .temporaryFailure)
+        assert(appState.googleCalendarConnection.health.affectedFeature == .calendarList)
+    }
+
+    private static func testGoogleCalendarRefreshMarksHealthyWhenCalendarListLoads() async {
+        resetDefaults()
+        UserDefaults.standard.set("client-id.apps.googleusercontent.com", forKey: "google_calendar_client_id")
+        UserDefaults.standard.set(
+            try! JSONEncoder().encode(GoogleCalendarConnectionMetadata(accountEmail: "user@example.com")),
+            forKey: GoogleCalendarConnectionMetadata.storageKey
+        )
+        let originalTokenLoader = AppState.googleCalendarTokenLoader
+        let originalServiceFactory = AppState.googleCalendarServiceFactory
+        defer {
+            AppState.googleCalendarTokenLoader = originalTokenLoader
+            AppState.googleCalendarServiceFactory = originalServiceFactory
+        }
+        AppState.googleCalendarTokenLoader = { _ in
+            GoogleCalendarOAuthToken(accessToken: "access-token", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(3600), accountEmail: "user@example.com")
+        }
+        AppState.googleCalendarServiceFactory = {
+            GoogleCalendarService { request in
+                let data = Data("""
+                {"items":[{"id":"primary","summary":"Work","primary":true,"accessRole":"owner"}]}
+                """.utf8)
+                return (data, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            }
+        }
+
+        let appState = AppState()
+        await appState.loadGoogleCalendars(force: true)
+
+        assert(appState.googleCalendarConnection.isConnected)
+        assert(appState.googleCalendarConnection.health.status == .healthy)
+        assert(appState.googleCalendarConnection.health.affectedFeature == .calendarList)
+        assert(appState.googleCalendarConnection.lastErrorMessage == nil)
+        assert(appState.availableGoogleCalendars.map(\.id) == ["primary"])
+    }
+
+    private static func waitUntil(
+        timeoutNanoseconds: UInt64 = 1_000_000_000,
+        condition: @escaping () -> Bool
+    ) async {
+        let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
+        while DispatchTime.now().uptimeNanoseconds < deadline {
+            if condition() { return }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        assertionFailure("Timed out waiting for condition")
+    }
+
+    private struct CalendarListFailure: Error {}
 
     private static func testStoppedTranscriptionSettingsSnapshotCapturesHistoryMetadata() {
         let snapshot = StoppedTranscriptionSettingsSnapshot(
@@ -401,7 +593,11 @@ struct AppStateTranscriptionConfigurationTests {
         defaults.removeObject(forKey: "command_mode_enabled")
         defaults.removeObject(forKey: "command_mode_style")
         defaults.removeObject(forKey: "command_mode_manual_modifier")
+        defaults.removeObject(forKey: "google_calendar_client_id")
         defaults.removeObject(forKey: "google_calendar_selected_ids")
+        defaults.removeObject(forKey: "calendar_recording_reminders_enabled")
+        defaults.removeObject(forKey: "calendar_recording_reminder_lead_minutes")
+        defaults.removeObject(forKey: "calendar_recording_reminder_refresh_interval_minutes")
         defaults.removeObject(forKey: GoogleCalendarConnectionMetadata.storageKey)
     }
 

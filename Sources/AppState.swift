@@ -218,6 +218,13 @@ private enum SessionIntent {
 }
 
 final class AppState: ObservableObject, @unchecked Sendable {
+    static var googleCalendarTokenLoader: (Bool) -> GoogleCalendarOAuthToken? = { allowsAuthenticationUI in
+        GoogleCalendarTokenStore.load(allowsAuthenticationUI: allowsAuthenticationUI)
+    }
+    static var googleCalendarServiceFactory: () -> GoogleCalendarService = {
+        GoogleCalendarService()
+    }
+
     private struct TranscriptionJob {
         let id: UUID
         let startedAt: Date
@@ -279,8 +286,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let realtimeStreamingModelStorageKey = "realtime_streaming_model"
     private let dictationAudioInterruptionEnabledStorageKey = "dictation_audio_interruption_enabled"
     private let recordingOverlayLayoutStorageKey = "recording_overlay_layout"
-    private let googleCalendarClientIDStorageKey = "google_calendar_client_id"
-    private let googleCalendarClientSecretStorageKey = "google_calendar_client_secret"
     private let googleCalendarSelectedIDsStorageKey = "google_calendar_selected_ids"
     private let calendarRecordingRemindersEnabledStorageKey = "calendar_recording_reminders_enabled"
     private let calendarRecordingReminderLeadMinutesStorageKey = "calendar_recording_reminder_lead_minutes"
@@ -522,27 +527,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    @Published var googleCalendarClientID: String {
-        didSet {
-            let trimmed = googleCalendarClientID.trimmingCharacters(in: .whitespacesAndNewlines)
-            UserDefaults.standard.set(trimmed, forKey: googleCalendarClientIDStorageKey)
-            guard trimmed != oldValue.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
-            Task { @MainActor in
-                self.clearGoogleCalendarConnectionState()
-            }
-        }
-    }
-
-    @Published var googleCalendarClientSecret: String {
-        didSet {
-            persistOptionalAPIValue(googleCalendarClientSecret, account: googleCalendarClientSecretStorageKey)
-            guard googleCalendarClientSecret.trimmingCharacters(in: .whitespacesAndNewlines) != oldValue.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
-            Task { @MainActor in
-                self.clearGoogleCalendarConnectionState()
-            }
-        }
-    }
-
     @Published private(set) var googleCalendarConnection = GoogleCalendarConnectionState.disconnected
     @Published private(set) var availableGoogleCalendars: [GoogleCalendarInfo] = []
     @Published private(set) var isGoogleCalendarBusy = false
@@ -578,9 +562,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
             scheduleCalendarRecordingReminderRefreshFromPropertyChange()
         }
     }
-
-    @Published private(set) var isRefreshingCalendarRecordingReminders = false
-    @Published private(set) var calendarRecordingReminderStatusMessage: String?
 
     private var builtInGoogleCalendarClientID: String {
         Bundle.main.object(forInfoDictionaryKey: "GoogleCalendarOAuthClientID") as? String ?? ""
@@ -767,9 +748,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     var googleCalendarOAuthConfiguration: GoogleCalendarOAuthConfiguration {
         GoogleCalendarOAuthConfiguration(
             builtInClientID: builtInGoogleCalendarClientID,
-            builtInClientSecret: builtInGoogleCalendarClientSecret,
-            customClientID: googleCalendarClientID,
-            customClientSecret: googleCalendarClientSecret
+            builtInClientSecret: builtInGoogleCalendarClientSecret
         )
     }
 
@@ -795,7 +774,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         availableGoogleCalendars = []
         googleCalendarConnection = .disconnected
         UserDefaults.standard.removeObject(forKey: googleCalendarSelectedIDsStorageKey)
-        calendarRecordingReminderScheduler.stop()
+        stopCalendarRecordingReminderSchedulerIfNeeded()
     }
 
     @MainActor
@@ -807,6 +786,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func loadStoredGoogleCalendarConnection() {
+        guard !isGoogleCalendarBusy else { return }
+        Task { [weak self] in
+            await self?.loadGoogleCalendars(force: true)
+        }
+    }
+
+    @MainActor
+    func startGoogleCalendarHealthCheck() {
+        guard googleCalendarConnection.isConnected else { return }
         guard !isGoogleCalendarBusy else { return }
         Task { [weak self] in
             await self?.loadGoogleCalendars(force: true)
@@ -968,6 +956,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard let self else { return [] }
         return try await self.fetchCalendarRecordingReminderEvents(timeMin: timeMin, timeMax: timeMax)
     }
+    private var isCalendarRecordingReminderSchedulerActive = false
     private var hasShownScreenshotPermissionAlert = false
     private var isEscapeCancelAlertPresented = false
     private var shouldTerminateAfterTranscription = false
@@ -1064,8 +1053,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let recordingOverlayLayout = RecordingOverlayLayout.find(
             rawValue: UserDefaults.standard.string(forKey: recordingOverlayLayoutStorageKey)
         )
-        let googleCalendarClientID = UserDefaults.standard.string(forKey: googleCalendarClientIDStorageKey) ?? ""
-        let googleCalendarClientSecret = Self.loadOptionalStoredAPIValue(account: googleCalendarClientSecretStorageKey)
         let selectedGoogleCalendarIDs = Self.loadStringSet(forKey: googleCalendarSelectedIDsStorageKey)
         let storedGoogleCalendarConnectionMetadata = Self.loadGoogleCalendarConnectionMetadata()
         let calendarRecordingRemindersEnabled = UserDefaults.standard.bool(forKey: calendarRecordingRemindersEnabledStorageKey)
@@ -1179,8 +1166,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.realtimeStreamingModel = realtimeStreamingModel
         self.dictationAudioInterruptionEnabled = dictationAudioInterruptionEnabled
         self.recordingOverlayLayout = recordingOverlayLayout
-        self.googleCalendarClientID = googleCalendarClientID
-        self.googleCalendarClientSecret = googleCalendarClientSecret
         self.googleCalendarConnection = storedGoogleCalendarConnectionMetadata?.connectionState(
             selectedCalendarIDs: selectedGoogleCalendarIDs
         ) ?? .disconnected
@@ -1471,19 +1456,47 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return trimmed.isEmpty ? apiKey : trimmed
     }
 
-    private func validGoogleCalendarToken() async throws -> GoogleCalendarOAuthToken? {
-        guard var token = GoogleCalendarTokenStore.load() else { return nil }
-        let oauthConfiguration = await MainActor.run {
-            googleCalendarOAuthConfiguration
+    private enum GoogleCalendarHealthError: LocalizedError {
+        case needsReconnect
+
+        var errorDescription: String? {
+            switch self {
+            case .needsReconnect:
+                return "Google Calendar needs reconnecting."
+            }
         }
-        guard oauthConfiguration.isConfigured else { return nil }
+    }
+
+    private static func googleCalendarReconnectMessage() -> String {
+        "Google Calendar needs reconnecting. Reconnect to restore meeting reminders and calendar-based note titles."
+    }
+
+    static func isGoogleCalendarReconnectError(_ error: Error) -> Bool {
+        if error is GoogleCalendarHealthError { return true }
+        guard let oauthError = error as? GoogleCalendarAuthService.OAuthError else { return false }
+        switch oauthError {
+        case .missingRefreshToken:
+            return true
+        case .requestFailed:
+            return false
+        case .response(let code, _):
+            return code == "invalid_grant"
+        }
+    }
+
+    private func validGoogleCalendarToken(allowsAuthenticationUI: Bool = true) async throws -> GoogleCalendarOAuthToken? {
+        guard var token = Self.googleCalendarTokenLoader(allowsAuthenticationUI) else { return nil }
         if token.needsRefresh {
+            let oauthConfiguration = await MainActor.run {
+                googleCalendarOAuthConfiguration
+            }
+            guard oauthConfiguration.isConfigured else { return nil }
             token = try await GoogleCalendarAuthService.refreshToken(
                 clientID: oauthConfiguration.clientID,
                 clientSecret: oauthConfiguration.clientSecret,
                 token: token
             )
-            try GoogleCalendarTokenStore.save(token)
+            try GoogleCalendarTokenStore.save(token, allowsAuthenticationUI: allowsAuthenticationUI)
         }
         return token
     }
@@ -1491,13 +1504,51 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func fetchCalendarRecordingReminderEvents(timeMin: Date, timeMax: Date) async throws -> [GoogleCalendarEvent] {
         let selectedCalendarIDs = await MainActor.run { googleCalendarConnection.selectedCalendarIDs }
         guard !selectedCalendarIDs.isEmpty else { return [] }
-        guard let token = try await validGoogleCalendarToken() else { return [] }
-        return await GoogleCalendarService().fetchEventsSkippingFailures(
+        let token: GoogleCalendarOAuthToken
+        do {
+            guard let loadedToken = try await validGoogleCalendarToken() else {
+                await MainActor.run {
+                    markGoogleCalendarNeedsReconnect(
+                        feature: .recordingReminders,
+                        message: "Google Calendar needs reconnecting. Reconnect to restore meeting reminders."
+                    )
+                }
+                throw GoogleCalendarHealthError.needsReconnect
+            }
+            token = loadedToken
+        } catch {
+            await MainActor.run {
+                if Self.isGoogleCalendarReconnectError(error) {
+                    markGoogleCalendarNeedsReconnect(
+                        feature: .recordingReminders,
+                        message: "Google Calendar needs reconnecting. Reconnect to restore meeting reminders."
+                    )
+                } else {
+                    markGoogleCalendarTemporarilyUnavailable(
+                        feature: .recordingReminders,
+                        message: "Unable to refresh Google Calendar reminders: \(error.localizedDescription)"
+                    )
+                }
+            }
+            throw error
+        }
+        let fetchResult = await Self.googleCalendarServiceFactory().fetchEventsWithDiagnostics(
             accessToken: token.accessToken,
             calendarIDs: Array(selectedCalendarIDs),
             timeMin: timeMin,
             timeMax: timeMax
         )
+        await MainActor.run {
+            if fetchResult.failedCalendarIDs.isEmpty {
+                markGoogleCalendarHealthy(feature: .recordingReminders)
+            } else {
+                markGoogleCalendarTemporarilyUnavailable(
+                    feature: .recordingReminders,
+                    message: "Some Google calendars could not be refreshed. Reminders may be incomplete."
+                )
+            }
+        }
+        return fetchResult.events
     }
 
     @MainActor
@@ -1507,41 +1558,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func stopCalendarRecordingReminderScheduling() {
-        calendarRecordingReminderScheduler.stop()
+        stopCalendarRecordingReminderSchedulerIfNeeded()
     }
 
     @MainActor
-    func refreshCalendarRecordingRemindersNow() {
-        guard calendarRecordingRemindersEnabled,
-              googleCalendarConnection.isConnected,
-              !googleCalendarConnection.selectedCalendarIDs.isEmpty else {
-            calendarRecordingReminderScheduler.stop()
-            calendarRecordingReminderStatusMessage = "Connect Google Calendar, select calendars, and enable reminders first."
-            return
-        }
-        guard !isRefreshingCalendarRecordingReminders else { return }
-        let leadMinutes = calendarRecordingReminderLeadMinutes
-        isRefreshingCalendarRecordingReminders = true
-        calendarRecordingReminderStatusMessage = "Refreshing reminders..."
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let count = try await self.calendarRecordingReminderScheduler.rescheduleNow(
-                    leadMinutes: leadMinutes
-                )
-                await MainActor.run {
-                    self.calendarRecordingReminderStatusMessage = count == 1
-                        ? "Scheduled 1 meeting reminder."
-                        : "Scheduled \(count) meeting reminders."
-                    self.isRefreshingCalendarRecordingReminders = false
-                }
-            } catch {
-                await MainActor.run {
-                    self.calendarRecordingReminderStatusMessage = "Unable to refresh reminders: \(error.localizedDescription)"
-                    self.isRefreshingCalendarRecordingReminders = false
-                }
-            }
-        }
+    private func stopCalendarRecordingReminderSchedulerIfNeeded() {
+        guard isCalendarRecordingReminderSchedulerActive else { return }
+        calendarRecordingReminderScheduler.stop()
+        isCalendarRecordingReminderSchedulerActive = false
     }
 
     private func scheduleCalendarRecordingReminderRefreshFromPropertyChange() {
@@ -1555,37 +1579,85 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard calendarRecordingRemindersEnabled,
               googleCalendarConnection.isConnected,
               !googleCalendarConnection.selectedCalendarIDs.isEmpty else {
-            calendarRecordingReminderScheduler.stop()
+            stopCalendarRecordingReminderSchedulerIfNeeded()
             return
         }
         calendarRecordingReminderScheduler.start(
             leadMinutes: calendarRecordingReminderLeadMinutes,
             refreshIntervalMinutes: calendarRecordingReminderRefreshIntervalMinutes
         )
+        isCalendarRecordingReminderSchedulerActive = true
     }
 
     @MainActor
-    private func loadGoogleCalendars(force: Bool = false) async {
+    func markGoogleCalendarHealthy(feature: GoogleCalendarHealthFeature) {
+        if googleCalendarConnection.health.status != .healthy,
+           let affectedFeature = googleCalendarConnection.health.affectedFeature,
+           affectedFeature != feature {
+            return
+        }
+        googleCalendarConnection.lastErrorMessage = nil
+        googleCalendarConnection.health = GoogleCalendarHealth(
+            status: .healthy,
+            checkedAt: Date(),
+            affectedFeature: feature
+        )
+    }
+
+    @MainActor
+    private func markGoogleCalendarNeedsReconnect(feature: GoogleCalendarHealthFeature, message: String) {
+        googleCalendarConnection.lastErrorMessage = message
+        googleCalendarConnection.health = GoogleCalendarHealth(
+            status: .needsReconnect,
+            checkedAt: Date(),
+            message: message,
+            affectedFeature: feature
+        )
+    }
+
+    @MainActor
+    func markGoogleCalendarTemporarilyUnavailable(feature: GoogleCalendarHealthFeature, message: String) {
+        googleCalendarConnection.lastErrorMessage = message
+        googleCalendarConnection.health = GoogleCalendarHealth(
+            status: .temporaryFailure,
+            checkedAt: Date(),
+            message: message,
+            affectedFeature: feature
+        )
+    }
+
+    @MainActor
+    func loadGoogleCalendars(force: Bool = false) async {
         guard force || !isGoogleCalendarBusy else { return }
         isGoogleCalendarBusy = true
         defer { isGoogleCalendarBusy = false }
         do {
             guard let token = try await validGoogleCalendarToken() else {
-                calendarRecordingReminderScheduler.stop()
-                Self.clearGoogleCalendarConnectionMetadata()
-                googleCalendarConnection = .disconnected
-                availableGoogleCalendars = []
+                markGoogleCalendarNeedsReconnect(
+                    feature: .calendarList,
+                    message: Self.googleCalendarReconnectMessage()
+                )
                 return
             }
-            let calendars = try await GoogleCalendarService().fetchCalendars(accessToken: token.accessToken)
+            let calendars = try await Self.googleCalendarServiceFactory().fetchCalendars(accessToken: token.accessToken)
             Self.saveGoogleCalendarConnectionMetadata(accountEmail: token.accountEmail)
             availableGoogleCalendars = calendars
             googleCalendarConnection.isConnected = true
             googleCalendarConnection.accountEmail = token.accountEmail
-            googleCalendarConnection.lastErrorMessage = nil
+            markGoogleCalendarHealthy(feature: .calendarList)
             scheduleCalendarRecordingReminderRefresh()
         } catch {
-            googleCalendarConnection.lastErrorMessage = error.localizedDescription
+            if Self.isGoogleCalendarReconnectError(error) {
+                markGoogleCalendarNeedsReconnect(
+                    feature: .calendarList,
+                    message: Self.googleCalendarReconnectMessage()
+                )
+            } else {
+                markGoogleCalendarTemporarilyUnavailable(
+                    feature: .calendarList,
+                    message: "Unable to refresh Google Calendar: \(error.localizedDescription)"
+                )
+            }
         }
     }
 
@@ -4690,6 +4762,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         do {
             guard let token = try await validGoogleCalendarToken() else {
                 os_log(.info, log: calendarLog, "Calendar match skipped: no valid Google Calendar token for job %{public}@", jobID.uuidString)
+                await MainActor.run {
+                    markGoogleCalendarNeedsReconnect(
+                        feature: .recordingMatch,
+                        message: "Google Calendar needs reconnecting. Calendar-based note titles may be unavailable."
+                    )
+                }
                 return nil
             }
             os_log(
@@ -4701,13 +4779,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 Self.logTimestamp(recordingStartedAt),
                 Self.logTimestamp(recordingEndedAt)
             )
-            let fetchResult = await GoogleCalendarService().fetchEventsWithDiagnostics(
+            let fetchResult = await Self.googleCalendarServiceFactory().fetchEventsWithDiagnostics(
                 accessToken: token.accessToken,
                 calendarIDs: Array(selectedCalendarIDs),
                 timeMin: recordingStartedAt,
                 timeMax: recordingEndedAt
             )
             if !fetchResult.failedCalendarIDs.isEmpty {
+                await MainActor.run {
+                    markGoogleCalendarTemporarilyUnavailable(
+                        feature: .recordingMatch,
+                        message: "Some Google calendars could not be refreshed. Calendar-based note titles may be incomplete."
+                    )
+                }
                 os_log(
                     .error,
                     log: calendarLog,
@@ -4717,6 +4801,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     fetchResult.events.count
                 )
             } else {
+                await MainActor.run {
+                    markGoogleCalendarHealthy(feature: .recordingMatch)
+                }
                 os_log(
                     .info,
                     log: calendarLog,
@@ -4765,7 +4852,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 error.localizedDescription
             )
             await MainActor.run {
-                googleCalendarConnection.lastErrorMessage = error.localizedDescription
+                if Self.isGoogleCalendarReconnectError(error) {
+                    markGoogleCalendarNeedsReconnect(
+                        feature: .recordingMatch,
+                        message: "Google Calendar needs reconnecting. Calendar-based note titles may be unavailable."
+                    )
+                } else {
+                    markGoogleCalendarTemporarilyUnavailable(
+                        feature: .recordingMatch,
+                        message: "Unable to refresh Google Calendar for note titles: \(error.localizedDescription)"
+                    )
+                }
             }
             return nil
         }

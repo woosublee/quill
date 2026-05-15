@@ -1,5 +1,7 @@
 import CryptoKit
 import Foundation
+import LocalAuthentication
+import Security
 
 @main
 struct GoogleCalendarServiceTests {
@@ -10,8 +12,7 @@ struct GoogleCalendarServiceTests {
         try await testLoopbackReceiverUsesAssignedPort()
         try await testTokenExchangeSurfacesGoogleErrorResponse()
         testClientSecretMissingMessageExplainsClientTypeMismatch()
-        testOAuthConfigurationUsesCustomCredentialsFirst()
-        testOAuthConfigurationFallsBackToBuiltInCredentials()
+        testOAuthConfigurationUsesBuiltInCredentials()
         testOAuthConfigurationReportsMissingClientID()
         try await testTokenExchangeOmitsClientSecret()
         try await testTokenExchangeIncludesClientSecretWhenProvided()
@@ -22,6 +23,8 @@ struct GoogleCalendarServiceTests {
         testCalendarsGroupMyCalendarsBeforeSharedCalendars()
         testConnectionControlsShowCancelDuringOAuthConnection()
         testConnectionControlsAllowForcedRefreshForStoredToken()
+        testTokenStoreDisablesKeychainUIWhenRequested()
+        testTokenStoreDisablesKeychainUIForSaveWhenRequested()
         testSettingsTabsPlaceCalendarAfterAppearance()
         try await testEventsDecodeMinimalFieldsAndExcludeAllDayLaterInMatcher()
         try await testFetchEventsEncodesCalendarIDAsSinglePathSegment()
@@ -126,26 +129,10 @@ struct GoogleCalendarServiceTests {
         assert(error.localizedDescription.contains("Desktop app client"))
     }
 
-    private static func testOAuthConfigurationUsesCustomCredentialsFirst() {
-        let configuration = GoogleCalendarOAuthConfiguration(
-            builtInClientID: "built-in.apps.googleusercontent.com",
-            builtInClientSecret: "built-in-secret",
-            customClientID: " custom.apps.googleusercontent.com ",
-            customClientSecret: " secret-value "
-        )
-
-        assert(configuration.clientID == "custom.apps.googleusercontent.com")
-        assert(configuration.clientSecret == "secret-value")
-        assert(configuration.usesCustomCredentials)
-        assert(configuration.isConfigured)
-    }
-
-    private static func testOAuthConfigurationFallsBackToBuiltInCredentials() {
+    private static func testOAuthConfigurationUsesBuiltInCredentials() {
         let configuration = GoogleCalendarOAuthConfiguration(
             builtInClientID: " built-in.apps.googleusercontent.com ",
-            builtInClientSecret: " built-in-secret ",
-            customClientID: " ",
-            customClientSecret: " secret-value "
+            builtInClientSecret: " built-in-secret "
         )
 
         assert(configuration.clientID == "built-in.apps.googleusercontent.com")
@@ -157,9 +144,7 @@ struct GoogleCalendarServiceTests {
     private static func testOAuthConfigurationReportsMissingClientID() {
         let configuration = GoogleCalendarOAuthConfiguration(
             builtInClientID: " ",
-            builtInClientSecret: " built-in-secret ",
-            customClientID: " ",
-            customClientSecret: " secret-value "
+            builtInClientSecret: " built-in-secret "
         )
 
         assert(configuration.clientID.isEmpty)
@@ -316,6 +301,22 @@ struct GoogleCalendarServiceTests {
         assert(controls.allowsPrimaryAction)
         assert(controls.allowsRefresh)
         assert(controls.allowsDisconnect)
+    }
+
+    private static func testTokenStoreDisablesKeychainUIWhenRequested() {
+        let query = GoogleCalendarTokenStore.loadQuery(allowsAuthenticationUI: false)
+
+        assert(query[kSecUseAuthenticationUI as String] as? String == "fail")
+        let context = query[kSecUseAuthenticationContext as String] as? LAContext
+        assert(context?.interactionNotAllowed == true)
+    }
+
+    private static func testTokenStoreDisablesKeychainUIForSaveWhenRequested() {
+        let query = GoogleCalendarTokenStore.itemQuery(allowsAuthenticationUI: false)
+
+        assert(query[kSecUseAuthenticationUI as String] as? String == "fail")
+        let context = query[kSecUseAuthenticationContext as String] as? LAContext
+        assert(context?.interactionNotAllowed == true)
     }
 
     private static func testSettingsTabsPlaceCalendarAfterAppearance() {

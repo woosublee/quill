@@ -1,5 +1,4 @@
 import Foundation
-import Security
 
 enum AppSettingsStorage {
     private static let bundleID = Bundle.main.bundleIdentifier ?? "com.woosublee.quill"
@@ -66,52 +65,10 @@ enum AppSettingsStorage {
     private static let migrationDoneKey = "keychain_migration_done"
 
     private static func migrateFromKeychainIfNeeded(account: String) {
-        let dict = loadSettings()
+        var dict = loadSettings()
         if dict[migrationDoneKey] != nil { return }
-
-        // Try to load from Keychain
-        if let keychainValue = loadFromKeychain(account: account),
-           !keychainValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            var updated = dict
-            updated[account] = keychainValue
-            updated[migrationDoneKey] = "true"
-            writeSettings(updated)
-            // Clean up old keychain entry
-            deleteFromKeychain(account: account)
-        } else {
-            // Mark migration as done even if nothing was in Keychain
-            var updated = dict
-            updated[migrationDoneKey] = "true"
-            writeSettings(updated)
-        }
+        dict[migrationDoneKey] = "true"
+        writeSettings(dict)
     }
 
-    // MARK: - Legacy Keychain helpers (for migration only)
-
-    private static func loadFromKeychain(account: String) -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: bundleID,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess,
-              let data = result as? Data,
-              let value = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-        return value
-    }
-
-    private static func deleteFromKeychain(account: String) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: bundleID,
-            kSecAttrAccount as String: account
-        ]
-        SecItemDelete(query as CFDictionary)
-    }
 }
