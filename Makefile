@@ -1,5 +1,7 @@
 APP_NAME ?= Quill
 BUNDLE_ID ?= com.woosublee.quill
+SYSTEM_AUDIO_APP_NAME ?= Quill System Audio
+SYSTEM_AUDIO_BUNDLE_ID ?= com.woosublee.quill.systemaudio
 BUILD_DIR = build
 APP_BUNDLE = $(BUILD_DIR)/$(APP_NAME).app
 CODESIGN_IDENTITY ?= Quill
@@ -25,19 +27,19 @@ SOURCES = $(shell find Sources -name '*.swift' -type f | LC_ALL=C sort)
 RESOURCES = $(CONTENTS)/Resources
 ARCH ?= $(shell uname -m)
 
-# Pick the icon source based on which bundle we are building. Dev builds get
-# a distinct hammer-on-waveform icon so a developer's dock shows at a glance
-# which Quill build they are running when both are installed side by side.
-ifeq ($(APP_NAME),Quill Dev)
-ICON_SOURCE = Resources/AppIcon-Dev-Source.png
-ICON_ICNS = Resources/AppIcon-Dev.icns
-else
+# Pick the icon source based on which bundle we are building. Non-default
+# builds get a distinct hammer-on-waveform icon so a developer's dock shows
+# at a glance which Quill build they are running when both are side by side.
+ifeq ($(APP_NAME),Quill)
 ICON_SOURCE = Resources/AppIcon-Source.png
 ICON_ICNS = Resources/AppIcon.icns
+else
+ICON_SOURCE = Resources/AppIcon-Dev-Source.png
+ICON_ICNS = Resources/AppIcon-Dev.icns
 endif
 
 # Usage: make install CODESIGN_IDENTITY="Apple Development: you@example.com (TEAMID)"
-.PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run test FORCE
+.PHONY: all clean run run-system-audio icon dmg codesign-dmg notarize install install-system-audio reset-permissions install-and-run install-and-run-system-audio test FORCE
 
 all: $(APP_EXECUTABLE_TARGET)
 
@@ -163,8 +165,17 @@ install-and-run: install
 	fi
 	@open "/Applications/$(APP_NAME).app"
 
+install-system-audio:
+	$(MAKE) install APP_NAME="$(SYSTEM_AUDIO_APP_NAME)" BUNDLE_ID="$(SYSTEM_AUDIO_BUNDLE_ID)"
+
+install-and-run-system-audio:
+	$(MAKE) install-and-run APP_NAME="$(SYSTEM_AUDIO_APP_NAME)" BUNDLE_ID="$(SYSTEM_AUDIO_BUNDLE_ID)"
+
 run: all
 	open "$(APP_BUNDLE)"
+
+run-system-audio:
+	$(MAKE) run APP_NAME="$(SYSTEM_AUDIO_APP_NAME)" BUNDLE_ID="$(SYSTEM_AUDIO_BUNDLE_ID)"
 
 FORCE:
 
