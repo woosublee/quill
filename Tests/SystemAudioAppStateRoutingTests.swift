@@ -4,6 +4,7 @@ import Foundation
 struct SystemAudioAppStateRoutingTests {
     static func main() throws {
         let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let setupSource = try String(contentsOfFile: "Sources/SetupView.swift", encoding: .utf8)
 
         precondition(source.contains("let systemAudioRecorder = SystemAudioRecorder()"))
         precondition(source.contains("private var activeAudioInputID: String?"))
@@ -20,6 +21,14 @@ struct SystemAudioAppStateRoutingTests {
         precondition(source.contains("systemAudioRecorder.cancelRecording"))
         precondition(source.contains("systemAudioRecorder.cleanup"))
         precondition(source.contains("!AudioInputDevice.isSystemAudio(audioInputID)"))
+
+        precondition(setupSource.contains("@State private var testSystemAudioRecorder: SystemAudioRecorder? = nil"))
+        precondition(setupSource.contains("AudioInputDevice.isSystemAudio(appState.selectedMicrophoneID)"))
+        precondition(setupSource.contains("let recorder = SystemAudioRecorder()"))
+        precondition(setupSource.contains("try await recorder.startRecording()"))
+        precondition(setupSource.contains("testSystemAudioRecorder = recorder"))
+        precondition(setupSource.contains("testSystemAudioRecorder?.stopRecording"))
+        precondition(setupSource.contains("testSystemAudioRecorder?.cancelRecording()"))
 
         print("SystemAudioAppStateRoutingTests passed")
     }
