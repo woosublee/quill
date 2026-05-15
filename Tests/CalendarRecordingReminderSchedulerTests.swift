@@ -1,8 +1,9 @@
 import Foundation
+import UserNotifications
 
 @main
 struct CalendarRecordingReminderSchedulerTests {
-    static func main() {
+    static func main() async {
         testLeadMinutesAffectFireDate()
         testMultipleLeadMinutesCreateMultipleSchedules()
         testPastReminderTimeForUpcomingMeetingBecomesImmediate()
@@ -11,11 +12,15 @@ struct CalendarRecordingReminderSchedulerTests {
         testSkipsMeetingsStartedOutsideGracePeriod()
         testExcludesAllDayTitlelessInvalidAndSelfDeclinedEvents()
         testNotificationIdentifierIsStable()
+        testNotificationIdentifierNormalizesUnsupportedLeadMinutes()
         testCalendarReminderIdentifierFilteringUsesPrefix()
         testNotificationTitleDescribesRelativeStartTime()
         testNormalizesLeadMinutes()
         testNormalizesLeadMinuteSelections()
         testNormalizesRefreshIntervalMinutesToSupportedOptions()
+        await testRescheduleReturnsSuccessfulNotificationCount()
+        await testRescheduleKeepsStalePendingWhenScheduledAddFails()
+        await testRescheduleRemovesStalePendingAfterScheduledAddSucceeds()
         print("CalendarRecordingReminderSchedulerTests passed")
     }
 
@@ -146,6 +151,14 @@ struct CalendarRecordingReminderSchedulerTests {
         assert(identifier == "calendar-recording-reminder:calendar:event:2000:10")
     }
 
+    private static func testNotificationIdentifierNormalizesUnsupportedLeadMinutes() {
+        let event = calendarEvent(calendarID: "calendar", id: "event", start: 2_000, end: 2_500)
+
+        let identifier = CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 14)
+
+        assert(identifier == "calendar-recording-reminder:calendar:event:2000:15")
+    }
+
     private static func testCalendarReminderIdentifierFilteringUsesPrefix() {
         let identifiers = CalendarRecordingReminderScheduler.calendarReminderIdentifiers(in: [
             "calendar-recording-reminder:calendar:event:2000:10",
@@ -200,6 +213,50 @@ struct CalendarRecordingReminderSchedulerTests {
         assert(CalendarRecordingReminderScheduler.normalizedRefreshIntervalMinutes(50) == 60)
     }
 
+    @MainActor
+    private static func testRescheduleReturnsSuccessfulNotificationCount() async {
+        let start = Date().addingTimeInterval(3_600).timeIntervalSince1970
+        let event = calendarEvent(id: "meeting", start: start, end: start + 1_800)
+        let notificationManager = FakeNotificationManager()
+        let scheduler = CalendarRecordingReminderScheduler(notificationManager: notificationManager) { _, _ in [event] }
+
+        let count = try! await scheduler.rescheduleNow(leadMinutes: [10])
+
+        assert(count == 1)
+        assert(notificationManager.addedIdentifiers == [
+            CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 10)
+        ])
+    }
+
+    @MainActor
+    private static func testRescheduleKeepsStalePendingWhenScheduledAddFails() async {
+        let start = Date().addingTimeInterval(3_600).timeIntervalSince1970
+        let event = calendarEvent(id: "meeting", start: start, end: start + 1_800)
+        let staleIdentifier = CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 5)
+        let notificationManager = FakeNotificationManager(pendingIdentifiers: [staleIdentifier])
+        notificationManager.shouldFailAdd = true
+        let scheduler = CalendarRecordingReminderScheduler(notificationManager: notificationManager) { _, _ in [event] }
+
+        let count = try! await scheduler.rescheduleNow(leadMinutes: [10])
+
+        assert(count == 0)
+        assert(notificationManager.removedIdentifiers.isEmpty)
+    }
+
+    @MainActor
+    private static func testRescheduleRemovesStalePendingAfterScheduledAddSucceeds() async {
+        let start = Date().addingTimeInterval(3_600).timeIntervalSince1970
+        let event = calendarEvent(id: "meeting", start: start, end: start + 1_800)
+        let staleIdentifier = CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 5)
+        let notificationManager = FakeNotificationManager(pendingIdentifiers: [staleIdentifier])
+        let scheduler = CalendarRecordingReminderScheduler(notificationManager: notificationManager) { _, _ in [event] }
+
+        let count = try! await scheduler.rescheduleNow(leadMinutes: [10])
+
+        assert(count == 1)
+        assert(notificationManager.removedIdentifiers == [staleIdentifier])
+    }
+
     private static func calendarEvent(
         calendarID: String = "calendar",
         id: String,
@@ -218,5 +275,49 @@ struct CalendarRecordingReminderSchedulerTests {
             isAllDay: isAllDay,
             attendees: attendees
         )
+    }
+
+    private enum TestNotificationError: Error {
+        case addFailed
+    }
+
+    @MainActor
+    private final class FakeNotificationManager: CalendarRecordingReminderNotificationManaging {
+        var shouldFailAdd = false
+        var addedIdentifiers: [String] = []
+        var removedIdentifiers: [String] = []
+        private let pendingIdentifiers: [String]
+
+        init(pendingIdentifiers: [String] = []) {
+            self.pendingIdentifiers = pendingIdentifiers
+        }
+
+        func canShowAlerts() async -> Bool {
+            true
+        }
+
+        func add(_ request: UNNotificationRequest) async throws {
+            if shouldFailAdd {
+                throw TestNotificationError.addFailed
+            }
+            addedIdentifiers.append(request.identifier)
+        }
+
+        func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
+            removedIdentifiers.append(contentsOf: identifiers)
+        }
+
+        func pendingNotificationRequestIdentifiers() async -> [String] {
+            pendingIdentifiers
+        }
+
+        func deliveredNotificationRequestIdentifiers() async -> [String] {
+            []
+        }
+
+        func sendImmediateNotification(_ request: UNNotificationRequest) async -> Bool {
+            addedIdentifiers.append(request.identifier)
+            return true
+        }
     }
 }

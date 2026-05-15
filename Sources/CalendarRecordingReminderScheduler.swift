@@ -19,6 +19,18 @@ struct CalendarRecordingReminderSchedule: Equatable {
 }
 
 @MainActor
+protocol CalendarRecordingReminderNotificationManaging: AnyObject {
+    func canShowAlerts() async -> Bool
+    func add(_ request: UNNotificationRequest) async throws
+    func removePendingNotificationRequests(withIdentifiers identifiers: [String])
+    func pendingNotificationRequestIdentifiers() async -> [String]
+    func deliveredNotificationRequestIdentifiers() async -> [String]
+    func sendImmediateNotification(_ request: UNNotificationRequest) async -> Bool
+}
+
+extension AppNotificationManager: CalendarRecordingReminderNotificationManaging {}
+
+@MainActor
 final class CalendarRecordingReminderScheduler {
     typealias EventProvider = (_ timeMin: Date, _ timeMax: Date) async throws -> [GoogleCalendarEvent]
 
@@ -31,7 +43,7 @@ final class CalendarRecordingReminderScheduler {
     nonisolated static let scheduleWindow: TimeInterval = 24 * 60 * 60
     nonisolated static let startedMeetingGracePeriod: TimeInterval = 5 * 60
 
-    private let notificationManager: AppNotificationManager
+    private let notificationManager: CalendarRecordingReminderNotificationManaging
     private let eventProvider: EventProvider
     private var refreshTimer: Timer?
     private var refreshTask: Task<Void, Never>?
@@ -41,7 +53,7 @@ final class CalendarRecordingReminderScheduler {
     private var notifiedReminderIdentifiers: Set<String> = []
 
     init(
-        notificationManager: AppNotificationManager,
+        notificationManager: CalendarRecordingReminderNotificationManaging,
         eventProvider: @escaping EventProvider
     ) {
         self.notificationManager = notificationManager
@@ -127,12 +139,11 @@ final class CalendarRecordingReminderScheduler {
         try Task.checkCancellation()
         guard generation == refreshGeneration else { return 0 }
         guard !requiresStarted || isStarted else { return 0 }
-        let deliveredCount = try await replacePendingNotifications(
+        return try await replacePendingNotifications(
             plan: plan,
             calendar: .current,
             generation: refreshGeneration
         )
-        return plan.scheduled.count + deliveredCount
     }
 
     private func replacePendingNotifications(
@@ -154,9 +165,6 @@ final class CalendarRecordingReminderScheduler {
         let pendingToRemove = pendingIDs.subtracting(scheduledIDs)
         try Task.checkCancellation()
         guard generation == refreshGeneration else { return 0 }
-        if !pendingToRemove.isEmpty {
-            notificationManager.removePendingNotificationRequests(withIdentifiers: Array(pendingToRemove))
-        }
 
         var deliveredCount = 0
         for schedule in plan.immediate where !immediateNotifiedIDs.contains(schedule.identifier) {
@@ -169,15 +177,26 @@ final class CalendarRecordingReminderScheduler {
                 deliveredCount += 1
             }
         }
+
+        var scheduledCount = 0
+        var didFailScheduledAdd = false
         for schedule in plan.scheduled where !deliveredIDs.contains(schedule.identifier) {
             try Task.checkCancellation()
-            guard generation == refreshGeneration else { return deliveredCount }
+            guard generation == refreshGeneration else { return deliveredCount + scheduledCount }
             do {
                 try await notificationManager.add(Self.notificationRequest(for: schedule, calendar: calendar))
+                scheduledCount += 1
             } catch {
+                didFailScheduledAdd = true
             }
         }
-        return deliveredCount
+
+        try Task.checkCancellation()
+        guard generation == refreshGeneration else { return deliveredCount + scheduledCount }
+        if !didFailScheduledAdd && !pendingToRemove.isEmpty {
+            notificationManager.removePendingNotificationRequests(withIdentifiers: Array(pendingToRemove))
+        }
+        return deliveredCount + scheduledCount
     }
 
     private static func notificationRequest(
@@ -211,7 +230,7 @@ final class CalendarRecordingReminderScheduler {
         return UNNotificationRequest(identifier: schedule.identifier, content: content, trigger: trigger)
     }
 
-    private static func pendingCalendarReminderIdentifiers(notificationManager: AppNotificationManager) async -> [String] {
+    private static func pendingCalendarReminderIdentifiers(notificationManager: CalendarRecordingReminderNotificationManaging) async -> [String] {
         calendarReminderIdentifiers(in: await notificationManager.pendingNotificationRequestIdentifiers())
     }
 
@@ -297,7 +316,8 @@ final class CalendarRecordingReminderScheduler {
 
     nonisolated static func notificationIdentifier(for event: GoogleCalendarEvent, leadMinutes: Int) -> String {
         let startTimestamp = Int(event.start.timeIntervalSince1970.rounded())
-        return "\(notificationIdentifierPrefix):\(event.calendarID):\(event.id):\(startTimestamp):\(normalizedLeadMinutes(leadMinutes))"
+        let normalizedLeadMinutes = normalizedLeadMinuteOption(leadMinutes)
+        return "\(notificationIdentifierPrefix):\(event.calendarID):\(event.id):\(startTimestamp):\(normalizedLeadMinutes)"
     }
 
     nonisolated static func isCalendarReminderIdentifier(_ identifier: String) -> Bool {

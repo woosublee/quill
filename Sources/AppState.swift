@@ -965,7 +965,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var googleCalendarConnectionTask: Task<Void, Never>?
     @MainActor
     private lazy var calendarRecordingReminderScheduler = CalendarRecordingReminderScheduler(
-        notificationManager: .shared
+        notificationManager: AppNotificationManager.shared
     ) { [weak self] timeMin, timeMax in
         guard let self else { return [] }
         return try await self.fetchCalendarRecordingReminderEvents(timeMin: timeMin, timeMax: timeMax)
