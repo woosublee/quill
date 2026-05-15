@@ -719,7 +719,6 @@ struct OverlayLayoutPreview: View {
 
 struct CalendarSettingsView: View {
     @EnvironmentObject var appState: AppState
-    @State private var showsAdvancedGoogleCalendarSettings = false
     @State private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
 
     private var selectedCalendarCount: Int {
@@ -732,6 +731,17 @@ struct CalendarSettingsView: View {
 
     private var connectionControls: GoogleCalendarConnectionControls {
         appState.googleCalendarConnectionControls
+    }
+
+    private var calendarRecordingRemindersEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { appState.calendarRecordingRemindersEnabled },
+            set: { enabled in
+                appState.calendarRecordingRemindersEnabled = enabled
+                guard enabled else { return }
+                handleCalendarReminderNotificationAuthorization()
+            }
+        )
     }
 
     var body: some View {
@@ -760,6 +770,88 @@ struct CalendarSettingsView: View {
         }
     }
 
+    @ViewBuilder
+    private var googleCalendarConnectionStatusLabel: some View {
+        if appState.googleCalendarConnection.isConnected {
+            switch appState.googleCalendarConnection.health.status {
+            case .unknown:
+                Label("Connected · Not checked yet", systemImage: "questionmark.circle")
+                    .foregroundStyle(.secondary)
+            case .healthy:
+                Label(googleCalendarHealthyStatusTitle, systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            case .needsReconnect:
+                Label("Reconnect required", systemImage: "calendar.badge.exclamationmark")
+                    .foregroundStyle(.red)
+            case .temporaryFailure:
+                Label("Calendar refresh issue", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            }
+        } else {
+            Label("Not connected", systemImage: "xmark.circle")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var googleCalendarHealthyStatusTitle: String {
+        guard let checkedAt = appState.googleCalendarConnection.health.checkedAt else {
+            return "Connected"
+        }
+        return "Connected · Last checked \(checkedAt.formatted(date: .omitted, time: .shortened))"
+    }
+
+    private var googleCalendarHealthMessage: String? {
+        guard appState.googleCalendarConnection.isConnected else { return nil }
+        let health = appState.googleCalendarConnection.health
+        switch health.status {
+        case .unknown, .healthy:
+            return nil
+        case .needsReconnect:
+            return health.message ?? "Quill can’t access Google Calendar. Reconnect to restore meeting reminders and calendar-based note titles."
+        case .temporaryFailure:
+            return health.message ?? "Quill couldn’t refresh Google Calendar just now. Recording still works; reminders or note titles may be incomplete."
+        }
+    }
+
+    private var googleCalendarReminderHealthMessage: String? {
+        guard appState.googleCalendarConnection.isConnected else { return nil }
+        let health = appState.googleCalendarConnection.health
+        guard health.affectedFeature == .recordingReminders else { return nil }
+        switch health.status {
+        case .needsReconnect:
+            return "Reconnect Google Calendar to keep meeting recording reminders working."
+        case .temporaryFailure:
+            return "Calendar reminders may be incomplete until the next successful refresh."
+        case .unknown, .healthy:
+            return nil
+        }
+    }
+
+    private var googleCalendarHealthMessageIcon: String {
+        appState.googleCalendarConnection.health.status == .needsReconnect
+            ? "calendar.badge.exclamationmark"
+            : "exclamationmark.triangle.fill"
+    }
+
+    private var googleCalendarHealthMessageColor: Color {
+        appState.googleCalendarConnection.health.status == .needsReconnect ? .red : .orange
+    }
+
+    private func calendarRefreshIntervalTitle(_ minutes: Int) -> String {
+        minutes == 60 ? "Every hour" : "Every \(minutes) minutes"
+    }
+
+    @ViewBuilder
+    private func refreshActivityIndicator(isVisible: Bool) -> some View {
+        if isVisible {
+            ProgressView()
+                .controlSize(.small)
+                .scaleEffect(0.7)
+                .allowsHitTesting(false)
+                .accessibilityLabel("Refreshing")
+        }
+    }
+
     private var googleCalendarSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
@@ -767,7 +859,7 @@ struct CalendarSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 if !appState.googleCalendarOAuthConfiguration.isConfigured {
-                    Text("Google Calendar sign-in is not configured. Add a Google OAuth Desktop client ID in Advanced settings.")
+                    Text("Google Calendar sign-in is not configured for this build.")
                         .font(.caption)
                         .foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
@@ -775,22 +867,22 @@ struct CalendarSettingsView: View {
             }
 
             HStack(spacing: 8) {
-                if appState.googleCalendarConnection.isConnected {
-                    Label("Connected", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                    if let email = appState.googleCalendarConnection.accountEmail, !email.isEmpty {
-                        Text(email)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    Label("Not connected", systemImage: "xmark.circle")
+                googleCalendarConnectionStatusLabel
+                if appState.googleCalendarConnection.isConnected,
+                   let email = appState.googleCalendarConnection.accountEmail,
+                   !email.isEmpty {
+                    Text(email)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                if appState.isGoogleCalendarBusy {
-                    ProgressView().scaleEffect(0.7)
-                }
+            }
+
+            if let healthMessage = googleCalendarHealthMessage {
+                Label(healthMessage, systemImage: googleCalendarHealthMessageIcon)
+                    .font(.caption)
+                    .foregroundStyle(googleCalendarHealthMessageColor)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack {
@@ -803,7 +895,7 @@ struct CalendarSettingsView: View {
                 }
                 .disabled(!connectionControls.allowsPrimaryAction)
 
-                Button("Refresh Calendars") {
+                Button("Sync Now") {
                     appState.refreshGoogleCalendars()
                 }
                 .disabled(!connectionControls.allowsRefresh)
@@ -813,29 +905,38 @@ struct CalendarSettingsView: View {
                 }
                 .disabled(!connectionControls.allowsDisconnect)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .trailing) {
+                refreshActivityIndicator(isVisible: appState.isGoogleCalendarBusy)
+            }
 
-            DisclosureGroup("Advanced OAuth credentials", isExpanded: $showsAdvancedGoogleCalendarSettings) {
+            if appState.googleCalendarConnection.isConnected {
+                Divider()
+
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Use custom Google OAuth Desktop app credentials for development or personal testing. Leave these empty to use the built-in app configuration.")
+                    HStack {
+                        Text("Refresh calendars")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Picker("Refresh calendars", selection: $appState.calendarRecordingReminderRefreshIntervalMinutes) {
+                            ForEach(CalendarRecordingReminderScheduler.refreshIntervalMinuteOptions, id: \.self) { minutes in
+                                Text(calendarRefreshIntervalTitle(minutes)).tag(minutes)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .labelsHidden()
+                        .disabled(!appState.googleCalendarConnection.isConnected)
+                    }
+                    Text("Quill re-reads selected Google Calendar events on this interval to keep meeting reminders and calendar-based note titles current.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text("Google OAuth Desktop client ID")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    TextField("client-id.apps.googleusercontent.com", text: $appState.googleCalendarClientID)
-                        .textFieldStyle(.roundedBorder)
-                    Text("Google OAuth client secret")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    SecureField("Optional for some Google OAuth clients", text: $appState.googleCalendarClientSecret)
-                        .textFieldStyle(.roundedBorder)
                 }
-                .padding(.top, 6)
             }
-            .font(.caption.weight(.semibold))
 
-            if let error = appState.googleCalendarConnection.lastErrorMessage, !error.isEmpty {
+            if googleCalendarHealthMessage == nil,
+               let error = appState.googleCalendarConnection.lastErrorMessage,
+               !error.isEmpty {
                 Text(error)
                     .font(.caption)
                     .foregroundStyle(.red)
@@ -850,7 +951,7 @@ struct CalendarSettingsView: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     if appState.availableGoogleCalendars.isEmpty {
-                        Text("No calendars loaded. Click Refresh Calendars after connecting.")
+                        Text("No calendars loaded. Click Sync Now after connecting.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
@@ -872,7 +973,7 @@ struct CalendarSettingsView: View {
         VStack(alignment: .leading, spacing: 12) {
             Toggle(
                 "Remind me before meetings to record",
-                isOn: $appState.calendarRecordingRemindersEnabled
+                isOn: calendarRecordingRemindersEnabledBinding
             )
             .disabled(calendarReminderSettingsDisabled)
 
@@ -891,40 +992,17 @@ struct CalendarSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            if let reminderHealthMessage = googleCalendarReminderHealthMessage {
+                Label(reminderHealthMessage, systemImage: "calendar.badge.exclamationmark")
+                    .font(.caption)
+                    .foregroundStyle(googleCalendarHealthMessageColor)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             if notificationAuthorizationStatus == .denied {
                 Label("Notifications are disabled in System Settings.", systemImage: "bell.slash")
                     .font(.caption)
                     .foregroundStyle(.orange)
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Button(appState.isRefreshingCalendarRecordingReminders ? "Refreshing..." : "Refresh Reminders Now") {
-                        appState.refreshCalendarRecordingRemindersNow()
-                    }
-                    .disabled(
-                        calendarReminderSettingsDisabled
-                        || !appState.calendarRecordingRemindersEnabled
-                        || appState.isRefreshingCalendarRecordingReminders
-                    )
-
-                    if appState.isRefreshingCalendarRecordingReminders {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-
-                    Text("Fetches upcoming events now and rebuilds scheduled reminders.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let message = appState.calendarRecordingReminderStatusMessage {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(message.hasPrefix("Unable") ? .red : .secondary)
-                }
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -940,23 +1018,36 @@ struct CalendarSettingsView: View {
                 .labelsHidden()
                 .disabled(calendarReminderSettingsDisabled || !appState.calendarRecordingRemindersEnabled)
             }
+        }
+    }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Calendar refresh")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Picker("Calendar refresh", selection: $appState.calendarRecordingReminderRefreshIntervalMinutes) {
-                    ForEach(CalendarRecordingReminderScheduler.refreshIntervalMinuteOptions, id: \.self) { minutes in
-                        Text("Every \(minutes) min").tag(minutes)
-                    }
+    private func handleCalendarReminderNotificationAuthorization() {
+        Task {
+            let settings = await AppNotificationManager.shared.notificationSettings()
+            await MainActor.run {
+                notificationAuthorizationStatus = settings.authorizationStatus
+                switch settings.authorizationStatus {
+                case .denied:
+                    openNotificationSettings()
+                case .notDetermined:
+                    requestNotificationPermission()
+                default:
+                    break
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .disabled(calendarReminderSettingsDisabled || !appState.calendarRecordingRemindersEnabled)
-                Text("Quill refreshes upcoming events while the app is running, then lets macOS deliver the scheduled reminders.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private func requestNotificationPermission() {
+        Task {
+            _ = await AppNotificationManager.shared.requestAuthorization()
+            refreshNotificationAuthorizationStatus()
+        }
+    }
+
+    private func openNotificationSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
+            NSWorkspace.shared.open(url)
         }
     }
 

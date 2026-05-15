@@ -175,13 +175,79 @@ struct GoogleCalendarEvent: Identifiable, Equatable {
     }
 }
 
+enum GoogleCalendarHealthStatus: String, Codable, Equatable {
+    case unknown
+    case healthy
+    case needsReconnect
+    case temporaryFailure
+}
+
+enum GoogleCalendarHealthFeature: String, Codable, Equatable {
+    case calendarList
+    case recordingReminders
+    case recordingMatch
+}
+
+struct GoogleCalendarHealth: Codable, Equatable {
+    var status: GoogleCalendarHealthStatus
+    var checkedAt: Date?
+    var message: String?
+    var affectedFeature: GoogleCalendarHealthFeature?
+
+    static let unknown = GoogleCalendarHealth(status: .unknown)
+
+    init(
+        status: GoogleCalendarHealthStatus,
+        checkedAt: Date? = nil,
+        message: String? = nil,
+        affectedFeature: GoogleCalendarHealthFeature? = nil
+    ) {
+        self.status = status
+        self.checkedAt = checkedAt
+        self.message = message
+        self.affectedFeature = affectedFeature
+    }
+}
+
 struct GoogleCalendarConnectionState: Codable, Equatable {
     var isConnected: Bool
     var accountEmail: String?
     var selectedCalendarIDs: Set<String>
     var lastErrorMessage: String?
+    var health: GoogleCalendarHealth
 
     static let disconnected = GoogleCalendarConnectionState(isConnected: false, accountEmail: nil, selectedCalendarIDs: [], lastErrorMessage: nil)
+
+    init(
+        isConnected: Bool,
+        accountEmail: String?,
+        selectedCalendarIDs: Set<String>,
+        lastErrorMessage: String?,
+        health: GoogleCalendarHealth = .unknown
+    ) {
+        self.isConnected = isConnected
+        self.accountEmail = accountEmail
+        self.selectedCalendarIDs = selectedCalendarIDs
+        self.lastErrorMessage = lastErrorMessage
+        self.health = health
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case isConnected
+        case accountEmail
+        case selectedCalendarIDs
+        case lastErrorMessage
+        case health
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        isConnected = try container.decode(Bool.self, forKey: .isConnected)
+        accountEmail = try container.decodeIfPresent(String.self, forKey: .accountEmail)
+        selectedCalendarIDs = try container.decode(Set<String>.self, forKey: .selectedCalendarIDs)
+        lastErrorMessage = try container.decodeIfPresent(String.self, forKey: .lastErrorMessage)
+        health = try container.decodeIfPresent(GoogleCalendarHealth.self, forKey: .health) ?? .unknown
+    }
 }
 
 struct GoogleCalendarConnectionMetadata: Codable, Equatable {
@@ -225,8 +291,6 @@ struct GoogleCalendarConnectionControls: Equatable {
 struct GoogleCalendarOAuthConfiguration: Equatable {
     let builtInClientID: String
     let builtInClientSecret: String
-    let customClientID: String
-    let customClientSecret: String
 
     private var trimmedBuiltInClientID: String {
         builtInClientID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -236,25 +300,15 @@ struct GoogleCalendarOAuthConfiguration: Equatable {
         builtInClientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var trimmedCustomClientID: String {
-        customClientID.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private var trimmedCustomClientSecret: String {
-        customClientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    var usesCustomCredentials: Bool {
-        !trimmedCustomClientID.isEmpty
-    }
+    var usesCustomCredentials: Bool { false }
 
     var clientID: String {
-        usesCustomCredentials ? trimmedCustomClientID : trimmedBuiltInClientID
+        trimmedBuiltInClientID
     }
 
     var clientSecret: String {
         guard isConfigured else { return "" }
-        return usesCustomCredentials ? trimmedCustomClientSecret : trimmedBuiltInClientSecret
+        return trimmedBuiltInClientSecret
     }
 
     var isConfigured: Bool {
