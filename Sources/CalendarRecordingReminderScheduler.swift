@@ -82,7 +82,8 @@ final class CalendarRecordingReminderScheduler {
 
     @discardableResult
     func rescheduleNow(leadMinutes: [Int]) async throws -> Int {
-        try await refresh(leadMinutes: leadMinutes, requiresStarted: false)
+        let refreshGeneration = generation
+        return try await refresh(leadMinutes: leadMinutes, generation: refreshGeneration, requiresStarted: false)
     }
 
     private func stopTimer() {
@@ -92,9 +93,10 @@ final class CalendarRecordingReminderScheduler {
 
     private func scheduleRefresh(leadMinutes: [Int]) {
         refreshTask?.cancel()
+        let refreshGeneration = generation
         refreshTask = Task {
             do {
-                _ = try await refresh(leadMinutes: leadMinutes)
+                _ = try await refresh(leadMinutes: leadMinutes, generation: refreshGeneration)
             } catch is CancellationError {
             } catch {
             }
@@ -102,13 +104,19 @@ final class CalendarRecordingReminderScheduler {
     }
 
     @discardableResult
-    private func refresh(leadMinutes: [Int], requiresStarted: Bool = true) async throws -> Int {
+    private func refresh(
+        leadMinutes: [Int],
+        generation refreshGeneration: Int,
+        requiresStarted: Bool = true
+    ) async throws -> Int {
         guard await notificationManager.canShowAlerts() else { return 0 }
         try Task.checkCancellation()
+        guard generation == refreshGeneration else { return 0 }
         guard !requiresStarted || isStarted else { return 0 }
         let now = Date()
         let events = try await eventProvider(now, now.addingTimeInterval(Self.scheduleWindow))
         try Task.checkCancellation()
+        guard generation == refreshGeneration else { return 0 }
         guard !requiresStarted || isStarted else { return 0 }
         let plan = Self.reminderPlan(
             for: events,
@@ -117,35 +125,53 @@ final class CalendarRecordingReminderScheduler {
             calendar: .current
         )
         try Task.checkCancellation()
+        guard generation == refreshGeneration else { return 0 }
         guard !requiresStarted || isStarted else { return 0 }
-        let deliveredCount = await replacePendingNotifications(plan: plan, calendar: .current)
+        let deliveredCount = try await replacePendingNotifications(
+            plan: plan,
+            calendar: .current,
+            generation: refreshGeneration
+        )
         return plan.scheduled.count + deliveredCount
     }
 
     private func replacePendingNotifications(
         plan: CalendarRecordingReminderPlan,
-        calendar: Calendar
-    ) async -> Int {
+        calendar: Calendar,
+        generation refreshGeneration: Int
+    ) async throws -> Int {
         let pendingIDs = Set(await Self.pendingCalendarReminderIdentifiers(notificationManager: notificationManager))
+        try Task.checkCancellation()
+        guard generation == refreshGeneration else { return 0 }
         let deliveredIDs = Set(await notificationManager.deliveredNotificationRequestIdentifiers())
             .filter(Self.isCalendarReminderIdentifier)
+        try Task.checkCancellation()
+        guard generation == refreshGeneration else { return 0 }
         let planIDs = Set((plan.scheduled + plan.immediate).map(\.identifier))
         notifiedReminderIdentifiers = notifiedReminderIdentifiers.intersection(planIDs)
         let immediateNotifiedIDs = pendingIDs.union(deliveredIDs).union(notifiedReminderIdentifiers)
         let scheduledIDs = Set(plan.scheduled.map(\.identifier))
         let pendingToRemove = pendingIDs.subtracting(scheduledIDs)
+        try Task.checkCancellation()
+        guard generation == refreshGeneration else { return 0 }
         if !pendingToRemove.isEmpty {
             notificationManager.removePendingNotificationRequests(withIdentifiers: Array(pendingToRemove))
         }
 
         var deliveredCount = 0
         for schedule in plan.immediate where !immediateNotifiedIDs.contains(schedule.identifier) {
+            try Task.checkCancellation()
+            guard generation == refreshGeneration else { return deliveredCount }
             if await notificationManager.sendImmediateNotification(Self.notificationRequest(for: schedule, calendar: calendar)) {
+                try Task.checkCancellation()
+                guard generation == refreshGeneration else { return deliveredCount }
                 notifiedReminderIdentifiers.insert(schedule.identifier)
                 deliveredCount += 1
             }
         }
         for schedule in plan.scheduled where !deliveredIDs.contains(schedule.identifier) {
+            try Task.checkCancellation()
+            guard generation == refreshGeneration else { return deliveredCount }
             do {
                 try await notificationManager.add(Self.notificationRequest(for: schedule, calendar: calendar))
             } catch {

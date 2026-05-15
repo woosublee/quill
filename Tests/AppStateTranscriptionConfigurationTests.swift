@@ -26,6 +26,8 @@ struct AppStateTranscriptionConfigurationTests {
         try testGoogleCalendarConnectionMetadataRestoresStartupState()
         testGoogleCalendarConnectionMetadataClearsCorruptValue()
         testCalendarRecordingReminderLeadMinutesMigrateLegacyValue()
+        testCalendarRecordingReminderLeadMinutesNormalizesStoredSelection()
+        testCalendarRecordingReminderLeadMinutesDefaultsStoredEmptySelection()
         testCalendarRecordingReminderLeadMinutesPersistNormalizedSelection()
         await testGoogleCalendarStoredCustomOAuthCredentialsAreIgnored()
         await testGoogleCalendarRefreshMarksNeedsReconnectWhenTokenMissing()
@@ -386,6 +388,28 @@ struct AppStateTranscriptionConfigurationTests {
 
         assert(appState.calendarRecordingReminderLeadMinutes == [30])
         assert(defaults.array(forKey: "calendar_recording_reminder_lead_minutes_list") as? [Int] == [30])
+    }
+
+    private static func testCalendarRecordingReminderLeadMinutesNormalizesStoredSelection() {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set([120, 14, 14], forKey: "calendar_recording_reminder_lead_minutes_list")
+
+        let appState = AppState()
+
+        assert(appState.calendarRecordingReminderLeadMinutes == [15, 60])
+        assert(defaults.array(forKey: "calendar_recording_reminder_lead_minutes_list") as? [Int] == [15, 60])
+    }
+
+    private static func testCalendarRecordingReminderLeadMinutesDefaultsStoredEmptySelection() {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set([], forKey: "calendar_recording_reminder_lead_minutes_list")
+
+        let appState = AppState()
+
+        assert(appState.calendarRecordingReminderLeadMinutes == [CalendarRecordingReminderScheduler.defaultLeadMinutes])
+        assert(defaults.array(forKey: "calendar_recording_reminder_lead_minutes_list") as? [Int] == [CalendarRecordingReminderScheduler.defaultLeadMinutes])
     }
 
     private static func testCalendarRecordingReminderLeadMinutesPersistNormalizedSelection() {
