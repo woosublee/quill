@@ -93,7 +93,7 @@ struct SetupView: View {
 
     // Test transcription state
     private enum TestPhase: Equatable {
-        case idle, recording, transcribing, done
+        case idle, starting, recording, transcribing, done
     }
     @State private var testPhase: TestPhase = .idle
     @State private var testAudioRecorder: AudioRecorder? = nil
@@ -976,9 +976,9 @@ struct SetupView: View {
 
     var testTranscriptionStep: some View {
         VStack(spacing: 20) {
-            // Microphone picker
+            // Input picker
             VStack(spacing: 4) {
-                Picker("Microphone:", selection: $appState.selectedMicrophoneID) {
+                Picker("Input:", selection: $appState.selectedMicrophoneID) {
                     Text("System Audio").tag(AudioInputDevice.systemAudioID)
                     Text("System Default").tag(AudioInputDevice.defaultMicrophoneID)
                     ForEach(appState.availableMicrophones) { device in
@@ -1018,6 +1018,16 @@ struct SetupView: View {
                         Text("Say anything — a sentence or two is perfect.")
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
+                    }
+
+                case .starting:
+                    VStack(spacing: 20) {
+                        InlineTranscribingDots()
+
+                        Text("Starting...")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
                     }
 
                 case .recording:
@@ -1361,7 +1371,12 @@ struct SetupView: View {
                 }
 
             case .stop:
-                guard testPhase == .recording, testAudioRecorder != nil || testSystemAudioRecorder != nil else { return }
+                guard (testPhase == .starting || testPhase == .recording), testAudioRecorder != nil || testSystemAudioRecorder != nil else { return }
+                if testPhase == .starting {
+                    testSystemAudioRecorder?.cancelRecording()
+                    resetTest()
+                    return
+                }
                 testAudioLevelCancellable?.cancel()
                 testAudioLevelCancellable = nil
                 testAudioLevel = 0.0
@@ -1443,16 +1458,21 @@ struct SetupView: View {
             .sink { level in
                 testAudioLevel = level
             }
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            testPhase = .starting
+        }
         Task {
             do {
                 try await recorder.startRecording()
                 await MainActor.run {
+                    guard testPhase == .starting else { return }
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                         testPhase = .recording
                     }
                 }
             } catch {
                 await MainActor.run {
+                    guard testPhase == .starting else { return }
                     handleTestStartFailure(error)
                     recorder.cleanup()
                 }
