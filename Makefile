@@ -1,7 +1,9 @@
 APP_NAME ?= Quill
 BUNDLE_ID ?= com.woosublee.quill
-SYSTEM_AUDIO_APP_NAME ?= Quill System Audio
+SYSTEM_AUDIO_APP_NAME ?= Quill SA
 SYSTEM_AUDIO_BUNDLE_ID ?= com.woosublee.quill.systemaudio
+SYSTEM_AUDIO_DEV_APP_NAME ?= Quill SA dev
+SYSTEM_AUDIO_DEV_BUNDLE_ID ?= com.woosublee.quill.systemaudio.dev
 BUILD_DIR = build
 APP_BUNDLE = $(BUILD_DIR)/$(APP_NAME).app
 CODESIGN_IDENTITY ?= Quill
@@ -175,7 +177,7 @@ run: all
 	open "$(APP_BUNDLE)"
 
 run-system-audio:
-	$(MAKE) run APP_NAME="$(SYSTEM_AUDIO_APP_NAME)" BUNDLE_ID="$(SYSTEM_AUDIO_BUNDLE_ID)"
+	$(MAKE) run APP_NAME="$(SYSTEM_AUDIO_DEV_APP_NAME)" BUNDLE_ID="$(SYSTEM_AUDIO_DEV_BUNDLE_ID)"
 
 FORCE:
 

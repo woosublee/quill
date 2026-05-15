@@ -38,10 +38,14 @@ struct BuildMetadataTests {
     private static func testMakefileDefinesSeparateSystemAudioRunTarget() throws {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
 
-        assertContains(makefile, "SYSTEM_AUDIO_APP_NAME ?= Quill System Audio")
+        assertContains(makefile, "SYSTEM_AUDIO_APP_NAME ?= Quill SA")
         assertContains(makefile, "SYSTEM_AUDIO_BUNDLE_ID ?= com.woosublee.quill.systemaudio")
+        assertContains(makefile, "SYSTEM_AUDIO_DEV_APP_NAME ?= Quill SA dev")
+        assertContains(makefile, "SYSTEM_AUDIO_DEV_BUNDLE_ID ?= com.woosublee.quill.systemaudio.dev")
         assertContains(makefile, "run-system-audio:")
-        assertContains(makefile, "$(MAKE) run APP_NAME=\"$(SYSTEM_AUDIO_APP_NAME)\" BUNDLE_ID=\"$(SYSTEM_AUDIO_BUNDLE_ID)\"")
+        assertContains(makefile, "$(MAKE) run APP_NAME=\"$(SYSTEM_AUDIO_DEV_APP_NAME)\" BUNDLE_ID=\"$(SYSTEM_AUDIO_DEV_BUNDLE_ID)\"")
+        assertContains(makefile, "install-system-audio:")
+        assertContains(makefile, "$(MAKE) install APP_NAME=\"$(SYSTEM_AUDIO_APP_NAME)\" BUNDLE_ID=\"$(SYSTEM_AUDIO_BUNDLE_ID)\"")
     }
 
     private static func testReleaseWorkflowsPassBuildMetadataToMake() throws {
