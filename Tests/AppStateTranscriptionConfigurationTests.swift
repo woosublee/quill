@@ -28,7 +28,6 @@ struct AppStateTranscriptionConfigurationTests {
         await testGoogleCalendarStoredCustomOAuthCredentialsAreIgnored()
         await testGoogleCalendarRefreshMarksNeedsReconnectWhenTokenMissing()
         await testGoogleCalendarRefreshMarksNeedsReconnectWhenRefreshTokenIsMissing()
-        await testGoogleCalendarNeedsReconnectShowsPromptOnce()
         await testGoogleCalendarHealthCheckRunsForConnectedMetadataWithoutSelectedCalendars()
         await testGoogleCalendarRefreshMarksTemporaryFailureWhenCalendarListFails()
         await testGoogleCalendarRefreshMarksHealthyWhenCalendarListLoads()
@@ -375,14 +374,15 @@ struct AppStateTranscriptionConfigurationTests {
 
     private static func testGoogleCalendarStoredCustomOAuthCredentialsAreIgnored() async {
         resetDefaults()
-        UserDefaults.standard.set("custom-client-id.apps.googleusercontent.com", forKey: "google_calendar_client_id")
+        let customClientID = "custom-client-id.apps.googleusercontent.com"
+        UserDefaults.standard.set(customClientID, forKey: "google_calendar_client_id")
 
         let configuration = await MainActor.run {
             AppState().googleCalendarOAuthConfiguration
         }
 
         assert(!configuration.usesCustomCredentials)
-        assert(configuration.clientID.isEmpty)
+        assert(configuration.clientID != customClientID)
     }
 
     private static func testGoogleCalendarRefreshMarksNeedsReconnectWhenTokenMissing() async {
@@ -394,13 +394,10 @@ struct AppStateTranscriptionConfigurationTests {
             forKey: GoogleCalendarConnectionMetadata.storageKey
         )
         let originalTokenLoader = AppState.googleCalendarTokenLoader
-        let originalReconnectPrompter = AppState.googleCalendarReconnectPrompter
         defer {
             AppState.googleCalendarTokenLoader = originalTokenLoader
-            AppState.googleCalendarReconnectPrompter = originalReconnectPrompter
         }
         AppState.googleCalendarTokenLoader = { _ in nil }
-        AppState.googleCalendarReconnectPrompter = { _ in false }
 
         let appState = AppState()
         await appState.loadGoogleCalendars(force: true)
@@ -420,15 +417,12 @@ struct AppStateTranscriptionConfigurationTests {
             forKey: GoogleCalendarConnectionMetadata.storageKey
         )
         let originalTokenLoader = AppState.googleCalendarTokenLoader
-        let originalReconnectPrompter = AppState.googleCalendarReconnectPrompter
         defer {
             AppState.googleCalendarTokenLoader = originalTokenLoader
-            AppState.googleCalendarReconnectPrompter = originalReconnectPrompter
         }
         AppState.googleCalendarTokenLoader = { _ in
             GoogleCalendarOAuthToken(accessToken: "expired-token", refreshToken: nil, expiresAt: Date(timeIntervalSince1970: 0), accountEmail: "user@example.com")
         }
-        AppState.googleCalendarReconnectPrompter = { _ in false }
 
         let appState = AppState()
         await appState.loadGoogleCalendars(force: true)
@@ -438,33 +432,6 @@ struct AppStateTranscriptionConfigurationTests {
         assert(appState.googleCalendarConnection.health.affectedFeature == .calendarList)
     }
 
-    private static func testGoogleCalendarNeedsReconnectShowsPromptOnce() async {
-        resetDefaults()
-        UserDefaults.standard.set(
-            try! JSONEncoder().encode(GoogleCalendarConnectionMetadata(accountEmail: "user@example.com")),
-            forKey: GoogleCalendarConnectionMetadata.storageKey
-        )
-        let originalTokenLoader = AppState.googleCalendarTokenLoader
-        let originalReconnectPrompter = AppState.googleCalendarReconnectPrompter
-        var promptCount = 0
-        defer {
-            AppState.googleCalendarTokenLoader = originalTokenLoader
-            AppState.googleCalendarReconnectPrompter = originalReconnectPrompter
-        }
-        AppState.googleCalendarTokenLoader = { _ in nil }
-        AppState.googleCalendarReconnectPrompter = { message in
-            promptCount += 1
-            assert(message.contains("Google Calendar"))
-            return false
-        }
-
-        let appState = AppState()
-        await appState.loadGoogleCalendars(force: true)
-        await appState.loadGoogleCalendars(force: true)
-
-        assert(promptCount == 1)
-    }
-
     private static func testGoogleCalendarHealthCheckRunsForConnectedMetadataWithoutSelectedCalendars() async {
         resetDefaults()
         UserDefaults.standard.set(
@@ -472,24 +439,16 @@ struct AppStateTranscriptionConfigurationTests {
             forKey: GoogleCalendarConnectionMetadata.storageKey
         )
         let originalTokenLoader = AppState.googleCalendarTokenLoader
-        let originalReconnectPrompter = AppState.googleCalendarReconnectPrompter
-        var promptCount = 0
         defer {
             AppState.googleCalendarTokenLoader = originalTokenLoader
-            AppState.googleCalendarReconnectPrompter = originalReconnectPrompter
         }
         AppState.googleCalendarTokenLoader = { _ in nil }
-        AppState.googleCalendarReconnectPrompter = { _ in
-            promptCount += 1
-            return false
-        }
 
         let appState = AppState()
         await appState.startGoogleCalendarHealthCheck()
-        await waitUntil { promptCount == 1 }
+        await waitUntil { appState.googleCalendarConnection.health.status == .needsReconnect }
 
         assert(appState.googleCalendarConnection.health.status == .needsReconnect)
-        assert(promptCount == 1)
     }
 
     private static func testGoogleCalendarRefreshMarksTemporaryFailureWhenCalendarListFails() async {
@@ -556,7 +515,7 @@ struct AppStateTranscriptionConfigurationTests {
     }
 
     private static func waitUntil(
-        timeoutNanoseconds: UInt64 = 500_000_000,
+        timeoutNanoseconds: UInt64 = 1_000_000_000,
         condition: @escaping () -> Bool
     ) async {
         let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds

@@ -224,16 +224,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
     static var googleCalendarServiceFactory: () -> GoogleCalendarService = {
         GoogleCalendarService()
     }
-    static var googleCalendarReconnectPrompter: (String) -> Bool = { message in
-        let alert = NSAlert()
-        alert.messageText = "Reconnect Google Calendar?"
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Reconnect")
-        alert.addButton(withTitle: "Later")
-        alert.icon = NSImage(systemSymbolName: "calendar.badge.exclamationmark", accessibilityDescription: nil)
-        return alert.runModal() == .alertFirstButtonReturn
-    }
 
     private struct TranscriptionJob {
         let id: UUID
@@ -952,7 +942,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var currentRecordingLiveNoteID: UUID?
     private var activeRecordingStartedAt: Date?
     private var isCancelConfirmationShowing = false
-    private var hasShownGoogleCalendarReconnectPrompt = false
     private var overlayTranscriptionID: UUID = UUID()
     private var foregroundTranscriptionJobID: UUID?
     private var activeTranscriptionJobs: [UUID: TranscriptionJob] = [:]
@@ -1612,9 +1601,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func markGoogleCalendarNeedsReconnect(feature: GoogleCalendarHealthFeature, message: String) {
-        let shouldPrompt = googleCalendarConnection.isConnected
-            && googleCalendarConnection.health.status != .needsReconnect
-            && !hasShownGoogleCalendarReconnectPrompt
         googleCalendarConnection.lastErrorMessage = message
         googleCalendarConnection.health = GoogleCalendarHealth(
             status: .needsReconnect,
@@ -1622,13 +1608,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
             message: message,
             affectedFeature: feature
         )
-        guard shouldPrompt else { return }
-        hasShownGoogleCalendarReconnectPrompt = true
-        let shouldReconnect = Self.googleCalendarReconnectPrompter(message)
-        guard shouldReconnect else { return }
-        DispatchQueue.main.async { [weak self] in
-            self?.connectGoogleCalendar()
-        }
     }
 
     @MainActor
