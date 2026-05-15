@@ -4,6 +4,14 @@ import Foundation
 struct NoteListRowDisplayDataTests {
     static func main() {
         testFormatsRowDate()
+        testFormatsSameMorningRowDateStartTime()
+        testFormatsMorningToAfternoonRowDateStartTime()
+        testFormatsCrossDateRowDateStartTime()
+        testFormatsSameMorningRecordingInterval()
+        testFormatsMorningToAfternoonRecordingInterval()
+        testFormatsSameAfternoonRecordingInterval()
+        testFormatsCrossDateRecordingInterval()
+        testUsesSingleTimestampWhenRecordingIntervalIsMissing()
         testUsesItemCustomTitleAndContentPreview()
         testDropsAutomaticTitleFromPreview()
         testWhitespaceOnlyCustomTitleDoesNotForceContentPreview()
@@ -15,22 +23,116 @@ struct NoteListRowDisplayDataTests {
     }
 
     private static func testFormatsRowDate() {
-        var components = DateComponents()
-        components.calendar = Calendar(identifier: .gregorian)
-        components.timeZone = .current
-        components.year = 2025
-        components.month = 5
-        components.day = 5
-        components.hour = 9
-        components.minute = 0
         let item = historyItem(
-            timestamp: components.date!,
+            timestamp: date(year: 2025, month: 5, day: 5, hour: 9, minute: 0),
             transcript: "Team sync notes"
         )
 
         let data = NoteListRowDisplayData(item: item, retryingIDs: [])
 
         assert(data.rowDate == "5월 5일 · 09:00", "Unexpected row date: \(data.rowDate)")
+    }
+
+    private static func testFormatsSameMorningRowDateStartTime() {
+        let item = historyItem(
+            timestamp: date(year: 2026, month: 5, day: 15, hour: 11, minute: 12),
+            recordingStartedAt: date(year: 2026, month: 5, day: 15, hour: 10, minute: 38),
+            recordingEndedAt: date(year: 2026, month: 5, day: 15, hour: 11, minute: 12),
+            transcript: "Morning notes"
+        )
+
+        let data = NoteListRowDisplayData(item: item, retryingIDs: [])
+
+        assert(data.rowDate == "5월 15일 오전 10:38", "Unexpected row date: \(data.rowDate)")
+    }
+
+    private static func testFormatsMorningToAfternoonRowDateStartTime() {
+        let item = historyItem(
+            timestamp: date(year: 2026, month: 5, day: 15, hour: 12, minute: 12),
+            recordingStartedAt: date(year: 2026, month: 5, day: 15, hour: 10, minute: 38),
+            recordingEndedAt: date(year: 2026, month: 5, day: 15, hour: 12, minute: 12),
+            transcript: "Noon notes"
+        )
+
+        let data = NoteListRowDisplayData(item: item, retryingIDs: [])
+
+        assert(data.rowDate == "5월 15일 오전 10:38", "Unexpected row date: \(data.rowDate)")
+    }
+
+    private static func testFormatsCrossDateRowDateStartTime() {
+        let item = historyItem(
+            timestamp: date(year: 2026, month: 5, day: 16, hour: 0, minute: 10),
+            recordingStartedAt: date(year: 2026, month: 5, day: 15, hour: 23, minute: 40),
+            recordingEndedAt: date(year: 2026, month: 5, day: 16, hour: 0, minute: 10),
+            transcript: "Late notes"
+        )
+
+        let data = NoteListRowDisplayData(item: item, retryingIDs: [])
+
+        assert(data.rowDate == "5월 15일 오후 11:40", "Unexpected row date: \(data.rowDate)")
+    }
+
+    private static func testFormatsSameMorningRecordingInterval() {
+        let item = historyItem(
+            timestamp: date(year: 2026, month: 5, day: 15, hour: 11, minute: 12),
+            recordingStartedAt: date(year: 2026, month: 5, day: 15, hour: 10, minute: 38),
+            recordingEndedAt: date(year: 2026, month: 5, day: 15, hour: 11, minute: 12),
+            transcript: "Morning notes"
+        )
+
+        let formatted = NoteTimestampFormatter.detailTimestamp(for: item)
+
+        assert(formatted == "2026년 5월 15일 오전 10:38 - 11:12", "Unexpected interval: \(formatted)")
+    }
+
+    private static func testFormatsMorningToAfternoonRecordingInterval() {
+        let item = historyItem(
+            timestamp: date(year: 2026, month: 5, day: 15, hour: 12, minute: 12),
+            recordingStartedAt: date(year: 2026, month: 5, day: 15, hour: 10, minute: 38),
+            recordingEndedAt: date(year: 2026, month: 5, day: 15, hour: 12, minute: 12),
+            transcript: "Noon notes"
+        )
+
+        let formatted = NoteTimestampFormatter.detailTimestamp(for: item)
+
+        assert(formatted == "2026년 5월 15일 오전 10:38 - 오후 12:12", "Unexpected interval: \(formatted)")
+    }
+
+    private static func testFormatsSameAfternoonRecordingInterval() {
+        let item = historyItem(
+            timestamp: date(year: 2026, month: 5, day: 15, hour: 14, minute: 22),
+            recordingStartedAt: date(year: 2026, month: 5, day: 15, hour: 13, minute: 5),
+            recordingEndedAt: date(year: 2026, month: 5, day: 15, hour: 14, minute: 22),
+            transcript: "Afternoon notes"
+        )
+
+        let formatted = NoteTimestampFormatter.detailTimestamp(for: item)
+
+        assert(formatted == "2026년 5월 15일 오후 1:05 - 2:22", "Unexpected interval: \(formatted)")
+    }
+
+    private static func testFormatsCrossDateRecordingInterval() {
+        let item = historyItem(
+            timestamp: date(year: 2026, month: 5, day: 16, hour: 0, minute: 10),
+            recordingStartedAt: date(year: 2026, month: 5, day: 15, hour: 23, minute: 40),
+            recordingEndedAt: date(year: 2026, month: 5, day: 16, hour: 0, minute: 10),
+            transcript: "Late notes"
+        )
+
+        let formatted = NoteTimestampFormatter.detailTimestamp(for: item)
+
+        assert(formatted == "2026년 5월 15일 오후 11:40 - 2026년 5월 16일 오전 12:10", "Unexpected interval: \(formatted)")
+    }
+
+    private static func testUsesSingleTimestampWhenRecordingIntervalIsMissing() {
+        let item = historyItem(
+            timestamp: date(year: 2026, month: 5, day: 15, hour: 10, minute: 38),
+            transcript: "Imported notes"
+        )
+
+        let formatted = NoteTimestampFormatter.detailTimestamp(for: item)
+
+        assert(formatted == "2026년 5월 15일 오전 10:38", "Unexpected timestamp: \(formatted)")
     }
 
     private static func testUsesItemCustomTitleAndContentPreview() {
@@ -114,6 +216,8 @@ struct NoteListRowDisplayDataTests {
     private static func historyItem(
         id: UUID = UUID(),
         timestamp: Date = Date(timeIntervalSince1970: 1),
+        recordingStartedAt: Date? = nil,
+        recordingEndedAt: Date? = nil,
         transcript: String,
         postProcessingStatus: String = "Post-processing succeeded",
         customTitle: String? = nil
@@ -121,6 +225,8 @@ struct NoteListRowDisplayDataTests {
         PipelineHistoryItem(
             id: id,
             timestamp: timestamp,
+            recordingStartedAt: recordingStartedAt,
+            recordingEndedAt: recordingEndedAt,
             rawTranscript: transcript,
             postProcessedTranscript: transcript,
             postProcessingPrompt: nil,
@@ -133,5 +239,17 @@ struct NoteListRowDisplayDataTests {
             customVocabulary: "",
             customTitle: customTitle
         )
+    }
+
+    private static func date(year: Int, month: Int, day: Int, hour: Int, minute: Int) -> Date {
+        var components = DateComponents()
+        components.calendar = Calendar(identifier: .gregorian)
+        components.timeZone = .current
+        components.year = year
+        components.month = month
+        components.day = day
+        components.hour = hour
+        components.minute = minute
+        return components.date!
     }
 }

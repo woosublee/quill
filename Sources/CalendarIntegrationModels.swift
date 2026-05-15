@@ -40,6 +40,12 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     }
 }
 
+enum GoogleCalendarStartupTokenLoadPolicy {
+    static func shouldLoadToken(remindersEnabled: Bool, selectedCalendarIDs: Set<String>) -> Bool {
+        remindersEnabled && !selectedCalendarIDs.isEmpty
+    }
+}
+
 enum CalendarMatchSource: String, Codable, Equatable {
     case overlapSuggestion = "overlap_suggestion"
     case calendarNotification = "calendar_notification"
