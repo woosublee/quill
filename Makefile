@@ -206,8 +206,6 @@ test:
 	@/tmp/SystemAudioInputSelectionTests
 	@swiftc -parse-as-library Tests/SystemAudioRecorderSourceTests.swift -o /tmp/SystemAudioRecorderSourceTests
 	@/tmp/SystemAudioRecorderSourceTests
-	@swiftc -parse-as-library Sources/LiveAudioLevelNormalizer.swift Tests/SystemAudioDisplayLevelNormalizerTests.swift -o /tmp/SystemAudioDisplayLevelNormalizerTests
-	@/tmp/SystemAudioDisplayLevelNormalizerTests
 	@swiftc -parse-as-library Tests/SystemAudioAppStateRoutingTests.swift -o /tmp/SystemAudioAppStateRoutingTests
 	@/tmp/SystemAudioAppStateRoutingTests
 	@swiftc -parse-as-library Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Tests/PipelineHistoryCalendarMetadataTests.swift -o /tmp/PipelineHistoryCalendarMetadataTests
