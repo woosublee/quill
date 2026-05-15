@@ -23,6 +23,7 @@ struct AppStateTranscriptionConfigurationTests {
         testStoppedTranscriptionCompletionSummaryShowsFallbackIndicatorForNonEmptyRawFallback()
         testStoppedTranscriptionCompletionSummaryHidesFallbackIndicatorForEmptyRawFallback()
         testStoppedTranscriptionSettingsSnapshotCapturesHistoryMetadata()
+        try testGoogleCalendarConnectionMetadataRestoresStartupState()
         print("AppStateTranscriptionConfigurationTests passed")
     }
 
@@ -338,6 +339,20 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(!summary.shouldPersistRawDictationFallback)
     }
 
+    private static func testGoogleCalendarConnectionMetadataRestoresStartupState() throws {
+        resetDefaults()
+        let selectedCalendarIDs: Set<String> = ["primary"]
+        UserDefaults.standard.set(try JSONEncoder().encode(Array(selectedCalendarIDs).sorted()), forKey: "google_calendar_selected_ids")
+        let metadata = GoogleCalendarConnectionMetadata(accountEmail: "user@example.com")
+        UserDefaults.standard.set(try JSONEncoder().encode(metadata), forKey: GoogleCalendarConnectionMetadata.storageKey)
+
+        let appState = AppState()
+
+        assert(appState.googleCalendarConnection.isConnected)
+        assert(appState.googleCalendarConnection.accountEmail == "user@example.com")
+        assert(appState.googleCalendarConnection.selectedCalendarIDs == selectedCalendarIDs)
+    }
+
     private static func testStoppedTranscriptionSettingsSnapshotCapturesHistoryMetadata() {
         let snapshot = StoppedTranscriptionSettingsSnapshot(
             customVocabulary: "team terms",
@@ -375,6 +390,8 @@ struct AppStateTranscriptionConfigurationTests {
         defaults.removeObject(forKey: "command_mode_enabled")
         defaults.removeObject(forKey: "command_mode_style")
         defaults.removeObject(forKey: "command_mode_manual_modifier")
+        defaults.removeObject(forKey: "google_calendar_selected_ids")
+        defaults.removeObject(forKey: GoogleCalendarConnectionMetadata.storageKey)
     }
 
     private static func mirroredTranscriptionConfiguration(_ service: TranscriptionService) -> (

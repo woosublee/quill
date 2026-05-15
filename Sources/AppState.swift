@@ -791,6 +791,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func clearGoogleCalendarConnectionState() {
         cancelGoogleCalendarConnection()
         GoogleCalendarTokenStore.delete()
+        Self.clearGoogleCalendarConnectionMetadata()
         availableGoogleCalendars = []
         googleCalendarConnection = .disconnected
         UserDefaults.standard.removeObject(forKey: googleCalendarSelectedIDsStorageKey)
@@ -851,6 +852,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     redirectURI: callbackURL.absoluteString
                 )
                 try GoogleCalendarTokenStore.save(token)
+                Self.saveGoogleCalendarConnectionMetadata(accountEmail: token.accountEmail)
                 await MainActor.run {
                     self.googleCalendarConnection = GoogleCalendarConnectionState(
                         isConnected: true,
@@ -1065,10 +1067,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let googleCalendarClientID = UserDefaults.standard.string(forKey: googleCalendarClientIDStorageKey) ?? ""
         let googleCalendarClientSecret = Self.loadOptionalStoredAPIValue(account: googleCalendarClientSecretStorageKey)
         let selectedGoogleCalendarIDs = Self.loadStringSet(forKey: googleCalendarSelectedIDsStorageKey)
+        let storedGoogleCalendarConnectionMetadata = Self.loadGoogleCalendarConnectionMetadata()
         let calendarRecordingRemindersEnabled = UserDefaults.standard.bool(forKey: calendarRecordingRemindersEnabledStorageKey)
-        let storedCalendarToken = GoogleCalendarTokenStore.load(
-            allowsAuthenticationUI: GoogleCalendarStartupTokenLoadPolicy.allowsAuthenticationUI
-        )
         let storedCalendarRecordingReminderLeadMinutes = UserDefaults.standard.object(forKey: calendarRecordingReminderLeadMinutesStorageKey) != nil
             ? UserDefaults.standard.integer(forKey: calendarRecordingReminderLeadMinutesStorageKey)
             : CalendarRecordingReminderScheduler.defaultLeadMinutes
@@ -1181,12 +1181,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.recordingOverlayLayout = recordingOverlayLayout
         self.googleCalendarClientID = googleCalendarClientID
         self.googleCalendarClientSecret = googleCalendarClientSecret
-        self.googleCalendarConnection = GoogleCalendarConnectionState(
-            isConnected: storedCalendarToken != nil,
-            accountEmail: storedCalendarToken?.accountEmail,
-            selectedCalendarIDs: selectedGoogleCalendarIDs,
-            lastErrorMessage: nil
-        )
+        self.googleCalendarConnection = storedGoogleCalendarConnectionMetadata?.connectionState(
+            selectedCalendarIDs: selectedGoogleCalendarIDs
+        ) ?? .disconnected
         self.calendarRecordingRemindersEnabled = calendarRecordingRemindersEnabled
         self.calendarRecordingReminderLeadMinutes = calendarRecordingReminderLeadMinutes
         self.calendarRecordingReminderRefreshIntervalMinutes = calendarRecordingReminderRefreshIntervalMinutes
@@ -1299,6 +1296,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return stored
         }
         return defaultAPIBaseURL
+    }
+
+    private static func loadGoogleCalendarConnectionMetadata() -> GoogleCalendarConnectionMetadata? {
+        guard let data = UserDefaults.standard.data(forKey: GoogleCalendarConnectionMetadata.storageKey) else { return nil }
+        return try? JSONDecoder().decode(GoogleCalendarConnectionMetadata.self, from: data)
+    }
+
+    private static func saveGoogleCalendarConnectionMetadata(accountEmail: String?) {
+        guard let data = try? JSONEncoder().encode(GoogleCalendarConnectionMetadata(accountEmail: accountEmail)) else { return }
+        UserDefaults.standard.set(data, forKey: GoogleCalendarConnectionMetadata.storageKey)
+    }
+
+    private static func clearGoogleCalendarConnectionMetadata() {
+        UserDefaults.standard.removeObject(forKey: GoogleCalendarConnectionMetadata.storageKey)
     }
 
     private static func loadShortcutConfiguration(holdKey: String, toggleKey: String) -> StoredShortcutConfiguration {
@@ -1556,11 +1567,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         do {
             guard let token = try await validGoogleCalendarToken() else {
                 calendarRecordingReminderScheduler.stop()
+                Self.clearGoogleCalendarConnectionMetadata()
                 googleCalendarConnection = .disconnected
                 availableGoogleCalendars = []
                 return
             }
             let calendars = try await GoogleCalendarService().fetchCalendars(accessToken: token.accessToken)
+            Self.saveGoogleCalendarConnectionMetadata(accountEmail: token.accountEmail)
             availableGoogleCalendars = calendars
             googleCalendarConnection.isConnected = true
             googleCalendarConnection.accountEmail = token.accountEmail

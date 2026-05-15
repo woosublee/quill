@@ -40,10 +40,6 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     }
 }
 
-enum GoogleCalendarStartupTokenLoadPolicy {
-    static let allowsAuthenticationUI = false
-}
-
 enum CalendarMatchSource: String, Codable, Equatable {
     case overlapSuggestion = "overlap_suggestion"
     case calendarNotification = "calendar_notification"
@@ -186,6 +182,21 @@ struct GoogleCalendarConnectionState: Codable, Equatable {
     var lastErrorMessage: String?
 
     static let disconnected = GoogleCalendarConnectionState(isConnected: false, accountEmail: nil, selectedCalendarIDs: [], lastErrorMessage: nil)
+}
+
+struct GoogleCalendarConnectionMetadata: Codable, Equatable {
+    static let storageKey = "google_calendar_connection_metadata"
+
+    let accountEmail: String?
+
+    func connectionState(selectedCalendarIDs: Set<String>) -> GoogleCalendarConnectionState {
+        GoogleCalendarConnectionState(
+            isConnected: true,
+            accountEmail: accountEmail,
+            selectedCalendarIDs: selectedCalendarIDs,
+            lastErrorMessage: nil
+        )
+    }
 }
 
 struct GoogleCalendarConnectionControls: Equatable {

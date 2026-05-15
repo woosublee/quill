@@ -1,5 +1,4 @@
 import Foundation
-import LocalAuthentication
 import Security
 
 struct GoogleCalendarOAuthToken: Codable, Equatable {
@@ -17,19 +16,14 @@ enum GoogleCalendarTokenStore {
     private static let service = (Bundle.main.bundleIdentifier ?? "com.woosublee.quill") + ".google-calendar"
     private static let account = "oauth-token"
 
-    static func load(allowsAuthenticationUI: Bool = true) -> GoogleCalendarOAuthToken? {
-        var query: [String: Any] = [
+    static func load() -> GoogleCalendarOAuthToken? {
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
-        if !allowsAuthenticationUI {
-            let context = LAContext()
-            context.interactionNotAllowed = true
-            query[kSecUseAuthenticationContext as String] = context
-        }
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         guard status == errSecSuccess,
