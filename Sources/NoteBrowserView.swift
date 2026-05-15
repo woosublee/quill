@@ -905,35 +905,7 @@ private struct NoteDetailView: View {
 
     private var noteHeader: some View {
         VStack(alignment: .leading, spacing: 6) {
-            // Meta line — monospace, small caps
-            HStack(spacing: 8) {
-                Text(item.timestamp.formatted(date: .abbreviated, time: .shortened))
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                    .textCase(.uppercase)
-                    .kerning(0.5)
-                statusBadges
-                if isLiveRecording {
-                    LiveRecordingBadge()
-                } else if isError {
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 10, weight: .light))
-                        .foregroundStyle(.red.opacity(0.6))
-                        .help("Transcription failed")
-                }
-                if !item.contextSummary.isEmpty
-                    && !item.contextSummary.hasPrefix("Could not")
-                    && item.contextSummary != "Context capture disabled" {
-                    Text("·")
-                        .foregroundStyle(.quaternary)
-                        .font(.system(size: 10))
-                    Text(item.contextSummary)
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                }
-                Spacer()
-            }
+            metadataLine
 
             // Title — auto-save on change
             TextField(
@@ -1015,6 +987,66 @@ private struct NoteDetailView: View {
         }
     }
 
+    private var metadataLine: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                detailTimestampLabel
+                statusBadges
+                noteStateIndicator
+                contextSummaryLabel
+                Spacer(minLength: 0)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    detailTimestampLabel
+                    noteStateIndicator
+                    Spacer(minLength: 0)
+                }
+                HStack(spacing: 8) {
+                    statusBadges
+                    contextSummaryLabel
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+    }
+
+    private var detailTimestampLabel: some View {
+        Text(NoteTimestampFormatter.detailTimestamp(for: item))
+            .font(.system(size: 10, design: .monospaced))
+            .foregroundStyle(.tertiary)
+            .textCase(.uppercase)
+            .kerning(0.5)
+            .lineLimit(1)
+    }
+
+    @ViewBuilder
+    private var noteStateIndicator: some View {
+        if isLiveRecording {
+            LiveRecordingBadge()
+        } else if isError {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 10, weight: .light))
+                .foregroundStyle(.red.opacity(0.6))
+                .help("Transcription failed")
+        }
+    }
+
+    @ViewBuilder
+    private var contextSummaryLabel: some View {
+        if !item.contextSummary.isEmpty
+            && !item.contextSummary.hasPrefix("Could not")
+            && item.contextSummary != "Context capture disabled" {
+            Text("·")
+                .foregroundStyle(.quaternary)
+                .font(.system(size: 10))
+            Text(item.contextSummary)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+        }
+    }
+
     @ViewBuilder
     private var statusBadges: some View {
         HStack(spacing: 5) {
@@ -1044,6 +1076,7 @@ private struct NoteDetailView: View {
                 )
             }
         }
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var metaDot: some View {

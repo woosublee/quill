@@ -184,6 +184,21 @@ struct GoogleCalendarConnectionState: Codable, Equatable {
     static let disconnected = GoogleCalendarConnectionState(isConnected: false, accountEmail: nil, selectedCalendarIDs: [], lastErrorMessage: nil)
 }
 
+struct GoogleCalendarConnectionMetadata: Codable, Equatable {
+    static let storageKey = "google_calendar_connection_metadata"
+
+    let accountEmail: String?
+
+    func connectionState(selectedCalendarIDs: Set<String>) -> GoogleCalendarConnectionState {
+        GoogleCalendarConnectionState(
+            isConnected: true,
+            accountEmail: accountEmail,
+            selectedCalendarIDs: selectedCalendarIDs,
+            lastErrorMessage: nil
+        )
+    }
+}
+
 struct GoogleCalendarConnectionControls: Equatable {
     let isConnected: Bool
     let isBusy: Bool

@@ -9,7 +9,18 @@ struct PipelineHistoryCalendarMetadataTests {
         try testLegacyEncodedHistoryItemDecodesMissingCalendarMetadataAsNil()
         try testCustomTitlePersistsThroughPipelineHistoryStore()
         try testCalendarMetadataPersistsThroughPipelineHistoryStore()
+        testGoogleCalendarConnectionMetadataBuildsConnectedState()
         print("PipelineHistoryCalendarMetadataTests passed")
+    }
+
+    private static func testGoogleCalendarConnectionMetadataBuildsConnectedState() {
+        let metadata = GoogleCalendarConnectionMetadata(accountEmail: "user@example.com")
+        let state = metadata.connectionState(selectedCalendarIDs: ["primary"])
+
+        assert(state.isConnected)
+        assert(state.accountEmail == "user@example.com")
+        assert(state.selectedCalendarIDs == ["primary"])
+        assert(state.lastErrorMessage == nil)
     }
 
     private static func testCustomTitleRoundTripsThroughPipelineHistoryItemCodable() throws {
