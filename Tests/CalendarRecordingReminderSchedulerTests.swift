@@ -1,18 +1,27 @@
 import Foundation
+import UserNotifications
 
 @main
 struct CalendarRecordingReminderSchedulerTests {
-    static func main() {
+    static func main() async {
         testLeadMinutesAffectFireDate()
+        testMultipleLeadMinutesCreateMultipleSchedules()
         testPastReminderTimeForUpcomingMeetingBecomesImmediate()
         testRecentlyStartedMeetingBecomesImmediate()
+        testMixedImmediateAndScheduledLeadTimesForSameEvent()
         testSkipsMeetingsStartedOutsideGracePeriod()
         testExcludesAllDayTitlelessInvalidAndSelfDeclinedEvents()
         testNotificationIdentifierIsStable()
+        testNotificationIdentifierNormalizesUnsupportedLeadMinutes()
         testCalendarReminderIdentifierFilteringUsesPrefix()
         testNotificationTitleDescribesRelativeStartTime()
         testNormalizesLeadMinutes()
+        testNormalizesLeadMinuteSelections()
         testNormalizesRefreshIntervalMinutesToSupportedOptions()
+        await testRescheduleReturnsSuccessfulNotificationCount()
+        await testRescheduleKeepsStalePendingWhenScheduledAddFails()
+        await testRescheduleSendsImmediateNotificationForPendingIdentifier()
+        await testRescheduleRemovesStalePendingAfterScheduledAddSucceeds()
         print("CalendarRecordingReminderSchedulerTests passed")
     }
 
@@ -22,7 +31,7 @@ struct CalendarRecordingReminderSchedulerTests {
 
         let schedules = CalendarRecordingReminderScheduler.schedules(
             for: [event],
-            leadMinutes: 10,
+            leadMinutes: [10],
             now: now,
             calendar: .current
         )
@@ -31,13 +40,32 @@ struct CalendarRecordingReminderSchedulerTests {
         assert(schedules[0].fireDate == Date(timeIntervalSince1970: 1_300))
     }
 
+    private static func testMultipleLeadMinutesCreateMultipleSchedules() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let event = calendarEvent(calendarID: "calendar", id: "meeting", start: 4_600, end: 4_900)
+
+        let schedules = CalendarRecordingReminderScheduler.schedules(
+            for: [event],
+            leadMinutes: [10, 30, 1],
+            now: now,
+            calendar: .current
+        )
+
+        assert(schedules.map { Int($0.fireDate.timeIntervalSince1970) } == [2_800, 4_000, 4_540])
+        assert(schedules.map(\.identifier) == [
+            "calendar-recording-reminder:calendar:meeting:4600:30",
+            "calendar-recording-reminder:calendar:meeting:4600:10",
+            "calendar-recording-reminder:calendar:meeting:4600:1",
+        ])
+    }
+
     private static func testPastReminderTimeForUpcomingMeetingBecomesImmediate() {
         let now = Date(timeIntervalSince1970: 1_000)
         let event = calendarEvent(id: "soon", start: 1_100, end: 1_500)
 
         let plan = CalendarRecordingReminderScheduler.reminderPlan(
             for: [event],
-            leadMinutes: 10,
+            leadMinutes: [10],
             now: now,
             calendar: .current
         )
@@ -52,7 +80,7 @@ struct CalendarRecordingReminderSchedulerTests {
 
         let plan = CalendarRecordingReminderScheduler.reminderPlan(
             for: [event],
-            leadMinutes: 10,
+            leadMinutes: [10],
             now: now,
             calendar: .current
         )
@@ -61,13 +89,30 @@ struct CalendarRecordingReminderSchedulerTests {
         assert(plan.immediate.map { $0.event.id } == ["started"])
     }
 
+    private static func testMixedImmediateAndScheduledLeadTimesForSameEvent() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let event = calendarEvent(calendarID: "calendar", id: "soon", start: 1_300, end: 1_700)
+
+        let plan = CalendarRecordingReminderScheduler.reminderPlan(
+            for: [event],
+            leadMinutes: [10, 1],
+            now: now,
+            calendar: .current
+        )
+
+        assert(plan.immediate.map(\.identifier) == ["calendar-recording-reminder:calendar:soon:1300:10"])
+        assert(plan.immediate.map { $0.fireDate } == [now])
+        assert(plan.scheduled.map(\.identifier) == ["calendar-recording-reminder:calendar:soon:1300:1"])
+        assert(plan.scheduled.map { Int($0.fireDate.timeIntervalSince1970) } == [1_240])
+    }
+
     private static func testSkipsMeetingsStartedOutsideGracePeriod() {
         let now = Date(timeIntervalSince1970: 1_000)
         let event = calendarEvent(id: "old", start: 600, end: 1_500)
 
         let plan = CalendarRecordingReminderScheduler.reminderPlan(
             for: [event],
-            leadMinutes: 10,
+            leadMinutes: [10],
             now: now,
             calendar: .current
         )
@@ -91,7 +136,7 @@ struct CalendarRecordingReminderSchedulerTests {
 
         let schedules = CalendarRecordingReminderScheduler.schedules(
             for: [allDay, titleless, invalid, declined, valid],
-            leadMinutes: 5,
+            leadMinutes: [5],
             now: now,
             calendar: .current
         )
@@ -105,6 +150,14 @@ struct CalendarRecordingReminderSchedulerTests {
         let identifier = CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 10)
 
         assert(identifier == "calendar-recording-reminder:calendar:event:2000:10")
+    }
+
+    private static func testNotificationIdentifierNormalizesUnsupportedLeadMinutes() {
+        let event = calendarEvent(calendarID: "calendar", id: "event", start: 2_000, end: 2_500)
+
+        let identifier = CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 14)
+
+        assert(identifier == "calendar-recording-reminder:calendar:event:2000:15")
     }
 
     private static func testCalendarReminderIdentifierFilteringUsesPrefix() {
@@ -149,11 +202,75 @@ struct CalendarRecordingReminderSchedulerTests {
         assert(CalendarRecordingReminderScheduler.normalizedLeadMinutes(500) == 120)
     }
 
+    private static func testNormalizesLeadMinuteSelections() {
+        assert(CalendarRecordingReminderScheduler.normalizedLeadMinutes([30, 10, 10, -1, 14, 500]) == [1, 10, 15, 30, 60])
+        assert(CalendarRecordingReminderScheduler.normalizedLeadMinutes([]) == [CalendarRecordingReminderScheduler.defaultLeadMinutes])
+    }
+
     private static func testNormalizesRefreshIntervalMinutesToSupportedOptions() {
         assert(CalendarRecordingReminderScheduler.normalizedRefreshIntervalMinutes(1) == 5)
         assert(CalendarRecordingReminderScheduler.normalizedRefreshIntervalMinutes(14) == 15)
         assert(CalendarRecordingReminderScheduler.normalizedRefreshIntervalMinutes(20) == 15)
         assert(CalendarRecordingReminderScheduler.normalizedRefreshIntervalMinutes(50) == 60)
+    }
+
+    @MainActor
+    private static func testRescheduleReturnsSuccessfulNotificationCount() async {
+        let start = Date().addingTimeInterval(3_600).timeIntervalSince1970
+        let event = calendarEvent(id: "meeting", start: start, end: start + 1_800)
+        let notificationManager = FakeNotificationManager()
+        let scheduler = CalendarRecordingReminderScheduler(notificationManager: notificationManager) { _, _ in [event] }
+
+        let count = try! await scheduler.rescheduleNow(leadMinutes: [10])
+
+        assert(count == 1)
+        assert(notificationManager.addedIdentifiers == [
+            CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 10)
+        ])
+    }
+
+    @MainActor
+    private static func testRescheduleKeepsStalePendingWhenScheduledAddFails() async {
+        let start = Date().addingTimeInterval(3_600).timeIntervalSince1970
+        let event = calendarEvent(id: "meeting", start: start, end: start + 1_800)
+        let staleIdentifier = CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 5)
+        let notificationManager = FakeNotificationManager(pendingIdentifiers: [staleIdentifier])
+        notificationManager.shouldFailAdd = true
+        let scheduler = CalendarRecordingReminderScheduler(notificationManager: notificationManager) { _, _ in [event] }
+
+        let count = try! await scheduler.rescheduleNow(leadMinutes: [10])
+
+        assert(count == 0)
+        assert(notificationManager.removedIdentifiers.isEmpty)
+    }
+
+    @MainActor
+    private static func testRescheduleSendsImmediateNotificationForPendingIdentifier() async {
+        let start = Date().addingTimeInterval(300).timeIntervalSince1970
+        let event = calendarEvent(id: "meeting", start: start, end: start + 1_800)
+        let identifier = CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 10)
+        let notificationManager = FakeNotificationManager(pendingIdentifiers: [identifier])
+        let scheduler = CalendarRecordingReminderScheduler(notificationManager: notificationManager) { _, _ in [event] }
+
+        let count = try! await scheduler.rescheduleNow(leadMinutes: [10])
+
+        assert(count == 1)
+        assert(notificationManager.addedIdentifiers == [identifier])
+        assert(notificationManager.removedIdentifiers == [identifier])
+    }
+
+    @MainActor
+    private static func testRescheduleRemovesStalePendingAfterScheduledAddSucceeds() async {
+        let start = Date().addingTimeInterval(3_600).timeIntervalSince1970
+        let event = calendarEvent(id: "meeting", start: start, end: start + 1_800)
+        let staleIdentifier = CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 5)
+        let notificationManager = FakeNotificationManager(pendingIdentifiers: [staleIdentifier])
+        let scheduler = CalendarRecordingReminderScheduler(notificationManager: notificationManager) { _, _ in [event] }
+
+        let count = try! await scheduler.rescheduleNow(leadMinutes: [10])
+
+        assert(count == 1)
+        assert(notificationManager.removedIdentifiers == [staleIdentifier])
     }
 
     private static func calendarEvent(
@@ -174,5 +291,49 @@ struct CalendarRecordingReminderSchedulerTests {
             isAllDay: isAllDay,
             attendees: attendees
         )
+    }
+
+    private enum TestNotificationError: Error {
+        case addFailed
+    }
+
+    @MainActor
+    private final class FakeNotificationManager: CalendarRecordingReminderNotificationManaging {
+        var shouldFailAdd = false
+        var addedIdentifiers: [String] = []
+        var removedIdentifiers: [String] = []
+        private let pendingIdentifiers: [String]
+
+        init(pendingIdentifiers: [String] = []) {
+            self.pendingIdentifiers = pendingIdentifiers
+        }
+
+        func canShowAlerts() async -> Bool {
+            true
+        }
+
+        func add(_ request: UNNotificationRequest) async throws {
+            if shouldFailAdd {
+                throw TestNotificationError.addFailed
+            }
+            addedIdentifiers.append(request.identifier)
+        }
+
+        func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
+            removedIdentifiers.append(contentsOf: identifiers)
+        }
+
+        func pendingNotificationRequestIdentifiers() async -> [String] {
+            pendingIdentifiers
+        }
+
+        func deliveredNotificationRequestIdentifiers() async -> [String] {
+            []
+        }
+
+        func sendImmediateNotification(_ request: UNNotificationRequest) async -> Bool {
+            addedIdentifiers.append(request.identifier)
+            return true
+        }
     }
 }

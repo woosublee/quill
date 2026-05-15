@@ -25,6 +25,10 @@ struct AppStateTranscriptionConfigurationTests {
         testStoppedTranscriptionSettingsSnapshotCapturesHistoryMetadata()
         try testGoogleCalendarConnectionMetadataRestoresStartupState()
         testGoogleCalendarConnectionMetadataClearsCorruptValue()
+        testCalendarRecordingReminderLeadMinutesMigrateLegacyValue()
+        testCalendarRecordingReminderLeadMinutesNormalizesStoredSelection()
+        testCalendarRecordingReminderLeadMinutesDefaultsStoredEmptySelection()
+        testCalendarRecordingReminderLeadMinutesPersistNormalizedSelection()
         await testGoogleCalendarStoredCustomOAuthCredentialsAreIgnored()
         await testGoogleCalendarRefreshMarksNeedsReconnectWhenTokenMissing()
         await testGoogleCalendarRefreshMarksNeedsReconnectWhenRefreshTokenIsMissing()
@@ -374,6 +378,56 @@ struct AppStateTranscriptionConfigurationTests {
         assert(UserDefaults.standard.data(forKey: GoogleCalendarConnectionMetadata.storageKey) == nil)
     }
 
+    private static func testCalendarRecordingReminderLeadMinutesMigrateLegacyValue() {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set(30, forKey: "calendar_recording_reminder_lead_minutes")
+        defaults.removeObject(forKey: "calendar_recording_reminder_lead_minutes_list")
+
+        let appState = AppState()
+
+        assert(appState.calendarRecordingReminderLeadMinutes == [30])
+        assert(defaults.array(forKey: "calendar_recording_reminder_lead_minutes_list") as? [Int] == [30])
+    }
+
+    private static func testCalendarRecordingReminderLeadMinutesNormalizesStoredSelection() {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set([120, 14, 14], forKey: "calendar_recording_reminder_lead_minutes_list")
+
+        let appState = AppState()
+
+        assert(appState.calendarRecordingReminderLeadMinutes == [15, 60])
+        assert(defaults.array(forKey: "calendar_recording_reminder_lead_minutes_list") as? [Int] == [15, 60])
+    }
+
+    private static func testCalendarRecordingReminderLeadMinutesDefaultsStoredEmptySelection() {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set([], forKey: "calendar_recording_reminder_lead_minutes_list")
+
+        let appState = AppState()
+
+        assert(appState.calendarRecordingReminderLeadMinutes == [CalendarRecordingReminderScheduler.defaultLeadMinutes])
+        assert(defaults.array(forKey: "calendar_recording_reminder_lead_minutes_list") as? [Int] == [CalendarRecordingReminderScheduler.defaultLeadMinutes])
+    }
+
+    private static func testCalendarRecordingReminderLeadMinutesPersistNormalizedSelection() {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        let appState = AppState()
+
+        appState.calendarRecordingReminderLeadMinutes = [60, 5, 5, -1, 14, 500]
+
+        assert(appState.calendarRecordingReminderLeadMinutes == [1, 5, 15, 60])
+        assert(defaults.array(forKey: "calendar_recording_reminder_lead_minutes_list") as? [Int] == [1, 5, 15, 60])
+
+        appState.calendarRecordingReminderLeadMinutes = []
+
+        assert(appState.calendarRecordingReminderLeadMinutes == [CalendarRecordingReminderScheduler.defaultLeadMinutes])
+        assert(defaults.array(forKey: "calendar_recording_reminder_lead_minutes_list") as? [Int] == [CalendarRecordingReminderScheduler.defaultLeadMinutes])
+    }
+
     private static func testGoogleCalendarStoredCustomOAuthCredentialsAreIgnored() async {
         resetDefaults()
         let customClientID = "custom-client-id.apps.googleusercontent.com"
@@ -597,6 +651,7 @@ struct AppStateTranscriptionConfigurationTests {
         defaults.removeObject(forKey: "google_calendar_selected_ids")
         defaults.removeObject(forKey: "calendar_recording_reminders_enabled")
         defaults.removeObject(forKey: "calendar_recording_reminder_lead_minutes")
+        defaults.removeObject(forKey: "calendar_recording_reminder_lead_minutes_list")
         defaults.removeObject(forKey: "calendar_recording_reminder_refresh_interval_minutes")
         defaults.removeObject(forKey: GoogleCalendarConnectionMetadata.storageKey)
     }

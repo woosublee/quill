@@ -1006,17 +1006,34 @@ struct CalendarSettingsView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Reminder time")
+                Text("Reminder times")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                Picker("Reminder time", selection: $appState.calendarRecordingReminderLeadMinutes) {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 112), spacing: 8)],
+                    alignment: .leading,
+                    spacing: 8
+                ) {
                     ForEach(CalendarRecordingReminderScheduler.leadMinuteOptions, id: \.self) { minutes in
-                        Text("\(minutes) min before").tag(minutes)
+                        let isSelected = appState.calendarRecordingReminderLeadMinutes.contains(minutes)
+                        Button {
+                            appState.setCalendarRecordingReminderLeadTime(minutes, isSelected: !isSelected)
+                        } label: {
+                            Label(
+                                "\(minutes) min before",
+                                systemImage: isSelected ? "checkmark.circle.fill" : "circle"
+                            )
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(
+                            calendarReminderSettingsDisabled
+                                || !appState.calendarRecordingRemindersEnabled
+                                || (isSelected && appState.calendarRecordingReminderLeadMinutes.count == 1)
+                        )
                     }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .disabled(calendarReminderSettingsDisabled || !appState.calendarRecordingRemindersEnabled)
             }
         }
     }
