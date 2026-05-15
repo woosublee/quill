@@ -48,7 +48,7 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
     private let _recording = OSAllocatedUnfairLock(initialState: false)
     private let _bufferCount = OSAllocatedUnfairLock(initialState: 0)
     private let fileWriteErrorLock = OSAllocatedUnfairLock(initialState: ())
-    private let displayLevelNormalizerLock = OSAllocatedUnfairLock(initialState: SystemAudioDisplayLevelNormalizer())
+    private let liveLevelNormalizerLock = OSAllocatedUnfairLock(initialState: LiveAudioLevelNormalizer())
     private let recordingConverterLock = OSAllocatedUnfairLock<AVAudioConverter?>(initialState: nil)
     private let pcm16ConverterLock = OSAllocatedUnfairLock<AVAudioConverter?>(initialState: nil)
 
@@ -108,7 +108,7 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
         readyFired = false
         failureReported = false
         loggedCaptureFormat = false
-        displayLevelNormalizerLock.withLock { $0.reset() }
+        liveLevelNormalizerLock.withLock { $0.reset() }
 
         let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
         let content = try await Self.loadShareableContent()
@@ -259,7 +259,7 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
                 self.recordedFrameCount = 0
                 self.fileWriteErrorLock.withLock { _ in self.fileWriteError = nil }
                 self._recording.withLock { $0 = false }
-                self.displayLevelNormalizerLock.withLock { $0.reset() }
+                self.liveLevelNormalizerLock.withLock { $0.reset() }
                 try? FileManager.default.removeItem(at: outputURL)
                 DispatchQueue.main.async {
                     self.isRecording = false
@@ -283,7 +283,7 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
             let outputURL = self.finishAudioFileLocked(discard: discard)
             self.stream = nil
             self._recording.withLock { $0 = false }
-            self.displayLevelNormalizerLock.withLock { $0.reset() }
+            self.liveLevelNormalizerLock.withLock { $0.reset() }
             if discard, let outputURL {
                 try? FileManager.default.removeItem(at: outputURL)
             }
@@ -304,7 +304,7 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
 
             let discardURL = self.finishAudioFileLocked(discard: true)
             self.stream = nil
-            self.displayLevelNormalizerLock.withLock { $0.reset() }
+            self.liveLevelNormalizerLock.withLock { $0.reset() }
             if let discardURL {
                 try? FileManager.default.removeItem(at: discardURL)
             }
@@ -605,7 +605,7 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
         ) else { return 0 }
 
         let rms = rmsLevel(for: inputBuffer)
-        let normalizedDisplayLevel = displayLevelNormalizerLock.withLock {
+        let normalizedDisplayLevel = liveLevelNormalizerLock.withLock {
             $0.normalizedLevel(forRMS: rms)
         }
 
