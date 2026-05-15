@@ -288,7 +288,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let recordingOverlayLayoutStorageKey = "recording_overlay_layout"
     private let googleCalendarSelectedIDsStorageKey = "google_calendar_selected_ids"
     private let calendarRecordingRemindersEnabledStorageKey = "calendar_recording_reminders_enabled"
-    private let calendarRecordingReminderLeadMinutesStorageKey = "calendar_recording_reminder_lead_minutes"
+    private let legacyCalendarRecordingReminderLeadMinutesStorageKey = "calendar_recording_reminder_lead_minutes"
+    private let calendarRecordingReminderLeadMinutesListStorageKey = "calendar_recording_reminder_lead_minutes_list"
     private let calendarRecordingReminderRefreshIntervalMinutesStorageKey = "calendar_recording_reminder_refresh_interval_minutes"
     private let pendingMutedAudioRestoreStorageKey = "pending_muted_audio_restore"
     private let pasteAfterShortcutReleaseDelay: TimeInterval = 0.03
@@ -539,14 +540,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    @Published var calendarRecordingReminderLeadMinutes: Int {
+    @Published var calendarRecordingReminderLeadMinutes: [Int] {
         didSet {
             let normalized = CalendarRecordingReminderScheduler.normalizedLeadMinutes(calendarRecordingReminderLeadMinutes)
             if normalized != calendarRecordingReminderLeadMinutes {
                 calendarRecordingReminderLeadMinutes = normalized
                 return
             }
-            UserDefaults.standard.set(calendarRecordingReminderLeadMinutes, forKey: calendarRecordingReminderLeadMinutesStorageKey)
+            UserDefaults.standard.set(calendarRecordingReminderLeadMinutes, forKey: calendarRecordingReminderLeadMinutesListStorageKey)
             scheduleCalendarRecordingReminderRefreshFromPropertyChange()
         }
     }
@@ -733,6 +734,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         googleCalendarConnection.selectedCalendarIDs = selected
         Self.saveStringSet(selected, forKey: googleCalendarSelectedIDsStorageKey)
         scheduleCalendarRecordingReminderRefresh()
+    }
+
+    @MainActor
+    func setCalendarRecordingReminderLeadTime(_ minutes: Int, isSelected: Bool) {
+        var selection = Set(calendarRecordingReminderLeadMinutes)
+        if isSelected {
+            selection.insert(minutes)
+        } else if selection.count > 1 {
+            selection.remove(minutes)
+        }
+        let normalized = CalendarRecordingReminderScheduler.normalizedLeadMinutes(Array(selection))
+        guard normalized != calendarRecordingReminderLeadMinutes else { return }
+        calendarRecordingReminderLeadMinutes = normalized
     }
 
     @MainActor
@@ -1056,10 +1070,23 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let selectedGoogleCalendarIDs = Self.loadStringSet(forKey: googleCalendarSelectedIDsStorageKey)
         let storedGoogleCalendarConnectionMetadata = Self.loadGoogleCalendarConnectionMetadata()
         let calendarRecordingRemindersEnabled = UserDefaults.standard.bool(forKey: calendarRecordingRemindersEnabledStorageKey)
-        let storedCalendarRecordingReminderLeadMinutes = UserDefaults.standard.object(forKey: calendarRecordingReminderLeadMinutesStorageKey) != nil
-            ? UserDefaults.standard.integer(forKey: calendarRecordingReminderLeadMinutesStorageKey)
-            : CalendarRecordingReminderScheduler.defaultLeadMinutes
-        let calendarRecordingReminderLeadMinutes = CalendarRecordingReminderScheduler.normalizedLeadMinutes(storedCalendarRecordingReminderLeadMinutes)
+        let calendarRecordingReminderLeadMinutes: [Int]
+        if let storedCalendarRecordingReminderLeadMinuteList = UserDefaults.standard.array(
+            forKey: calendarRecordingReminderLeadMinutesListStorageKey
+        ) as? [Int] {
+            calendarRecordingReminderLeadMinutes = CalendarRecordingReminderScheduler.normalizedLeadMinutes(
+                storedCalendarRecordingReminderLeadMinuteList
+            )
+        } else {
+            let storedCalendarRecordingReminderLeadMinutes = UserDefaults.standard.object(
+                forKey: legacyCalendarRecordingReminderLeadMinutesStorageKey
+            ) != nil
+                ? UserDefaults.standard.integer(forKey: legacyCalendarRecordingReminderLeadMinutesStorageKey)
+                : CalendarRecordingReminderScheduler.defaultLeadMinutes
+            calendarRecordingReminderLeadMinutes = CalendarRecordingReminderScheduler.normalizedLeadMinutes([
+                storedCalendarRecordingReminderLeadMinutes
+            ])
+        }
         let storedCalendarRecordingReminderRefreshIntervalMinutes = UserDefaults.standard.object(forKey: calendarRecordingReminderRefreshIntervalMinutesStorageKey) != nil
             ? UserDefaults.standard.integer(forKey: calendarRecordingReminderRefreshIntervalMinutesStorageKey)
             : CalendarRecordingReminderScheduler.defaultRefreshIntervalMinutes
