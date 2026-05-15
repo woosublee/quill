@@ -17,6 +17,10 @@ struct SystemAudioRecorderSourceTests {
         precondition(source.contains("func cleanup()"))
         precondition(source.contains("var onPCM16Samples: ((Data) -> Void)?"))
         precondition(source.contains("onRecordingFailure?(error)"))
+        precondition(!source.contains("if !readyFired && rms > 0"))
+        precondition(source.contains("if !readyFired {\n            readyFired = true"))
+        precondition(!source.contains("if discard, let outputURL"))
+        precondition(countOccurrences(of: "let fileURLToDelete = self.tempFileURL", in: source) >= 2)
 
         let bannedSymbols = [
             "SCRecordingOutput",
@@ -29,5 +33,9 @@ struct SystemAudioRecorderSourceTests {
         }
 
         print("SystemAudioRecorderSourceTests passed")
+    }
+
+    private static func countOccurrences(of needle: String, in text: String) -> Int {
+        text.components(separatedBy: needle).count - 1
     }
 }

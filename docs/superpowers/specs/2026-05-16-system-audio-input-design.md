@@ -57,6 +57,14 @@ The important boundary is the temporary audio file. Once the selected recorder r
 - Large changes to note saving, transcription, post-processing, or history.
 - Replacing the existing microphone recorder.
 
+## Platform and permission requirements
+
+System audio capture uses ScreenCaptureKit and requires macOS Screen Recording permission. Quill must check this permission before starting `SystemAudioRecorder`.
+
+If permission is missing, Quill should request it through the system prompt. If the user denies permission, Quill should show a clear Screen Recording permission message, keep the selected input unchanged, and use the existing recording failure cleanup path rather than falling back to microphone recording.
+
+The app target remains macOS 13.0+, which is within ScreenCaptureKit's supported range.
+
 ## Failure behavior
 
 System audio recording should behave like the existing microphone recording when it fails:
@@ -96,4 +104,5 @@ Both branches should return a temporary audio file URL on stop. After that, AppS
 - `System Audio` appears at the top of the input device picker.
 - Selecting `System Audio` records audio playing from another app into a non-empty audio file.
 - The recorded system audio file is transcribed through the existing pipeline.
+- If `System Audio` is selected but no audio is playing on the machine, Quill handles the silent or empty recording through the existing recording failure path.
 - If system audio recording cannot start or produces no audio, Quill uses the existing recording failure path.

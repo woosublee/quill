@@ -46,6 +46,8 @@ struct BuildMetadataTests {
         assertContains(makefile, "$(MAKE) run APP_NAME=\"$(SYSTEM_AUDIO_DEV_APP_NAME)\" BUNDLE_ID=\"$(SYSTEM_AUDIO_DEV_BUNDLE_ID)\"")
         assertContains(makefile, "install-system-audio:")
         assertContains(makefile, "$(MAKE) install APP_NAME=\"$(SYSTEM_AUDIO_APP_NAME)\" BUNDLE_ID=\"$(SYSTEM_AUDIO_BUNDLE_ID)\"")
+        assertContains(makefile, "install-and-run-system-audio:")
+        assertContains(makefile, "$(MAKE) install-and-run APP_NAME=\"$(SYSTEM_AUDIO_APP_NAME)\" BUNDLE_ID=\"$(SYSTEM_AUDIO_BUNDLE_ID)\"")
     }
 
     private static func testReleaseWorkflowsPassBuildMetadataToMake() throws {

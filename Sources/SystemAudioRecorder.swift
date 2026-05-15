@@ -226,7 +226,7 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
             let elapsed = (CFAbsoluteTimeGetCurrent() - recordingStartTime) * 1000
             os_log(.info, log: systemAudioRecordingLog, "buffer #%d at %.3fms, rms=%.6f", count, elapsed, rms)
         }
-        if !readyFired && rms > 0 {
+        if !readyFired {
             readyFired = true
             DispatchQueue.main.async { self.onRecordingReady?() }
         }
@@ -280,17 +280,18 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
     private func finishRecording(discard: Bool, completion: ((URL?) -> Void)?) {
         sessionQueue.async {
             self.cancelWatchdog()
-            let outputURL = self.finishAudioFileLocked(discard: discard)
+            let fileURLToDelete = self.tempFileURL
+            let resultURL = self.finishAudioFileLocked(discard: discard)
             self.stream = nil
             self._recording.withLock { $0 = false }
             self.liveLevelNormalizerLock.withLock { $0.reset() }
-            if discard, let outputURL {
-                try? FileManager.default.removeItem(at: outputURL)
+            if discard || resultURL == nil, let fileURLToDelete {
+                try? FileManager.default.removeItem(at: fileURLToDelete)
             }
             DispatchQueue.main.async {
                 self.isRecording = false
                 self.audioLevel = 0.0
-                completion?(discard ? nil : outputURL)
+                completion?(discard ? nil : resultURL)
             }
         }
     }
@@ -302,11 +303,12 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
             self.cancelWatchdog()
             self._recording.withLock { $0 = false }
 
-            let discardURL = self.finishAudioFileLocked(discard: true)
+            let fileURLToDelete = self.tempFileURL
+            _ = self.finishAudioFileLocked(discard: true)
             self.stream = nil
             self.liveLevelNormalizerLock.withLock { $0.reset() }
-            if let discardURL {
-                try? FileManager.default.removeItem(at: discardURL)
+            if let fileURLToDelete {
+                try? FileManager.default.removeItem(at: fileURLToDelete)
             }
 
             DispatchQueue.main.async {

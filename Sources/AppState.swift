@@ -2594,6 +2594,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         CGPreflightScreenCaptureAccess()
     }
 
+    func requestScreenCapturePermissionForRecordingStart() -> Bool {
+        if hasScreenCapturePermission() {
+            return true
+        }
+        let granted = CGRequestScreenCaptureAccess()
+        return granted || hasScreenCapturePermission()
+    }
+
     func requestScreenCapturePermission() {
         // ScreenCaptureKit triggers the "Screen & System Audio Recording"
         // permission dialog on macOS Sequoia+, correctly identifying the
@@ -3532,7 +3540,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func ensureSystemAudioAccess() -> Bool {
-        let granted = hasScreenCapturePermission()
+        let granted = requestScreenCapturePermissionForRecordingStart()
         hasScreenRecordingPermission = granted
         guard granted else {
             let message = "System Audio recording permission not granted. Enable Screen & System Audio Recording in System Settings > Privacy & Security."
