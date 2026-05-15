@@ -5,7 +5,7 @@ struct BuildMetadataTests {
     static func main() throws {
         try testMakefileStampsLocalBuildMetadata()
         try testBuildSettingsTrackCodesignIdentity()
-        try testMakefileDefinesSeparateDevRunTarget()
+        try testMakefileDefinesSeparateSystemAudioRunTarget()
         try testReleaseWorkflowsPassBuildMetadataToMake()
         print("BuildMetadataTests passed")
     }
@@ -35,7 +35,7 @@ struct BuildMetadataTests {
         assertContains(makefile, "$(BUILD_TAG)\" \"$(GOOGLE_CALENDAR_OAUTH_CLIENT_ID)\" \"$(GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET)\" \"$(CODESIGN_IDENTITY)")
     }
 
-    private static func testMakefileDefinesSeparateDevRunTarget() throws {
+    private static func testMakefileDefinesSeparateSystemAudioRunTarget() throws {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
 
         assertContains(makefile, "SYSTEM_AUDIO_APP_NAME ?= Quill System Audio")
