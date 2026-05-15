@@ -268,9 +268,18 @@ struct MenuBarView: View {
 
             Menu("Microphone") {
                 Button {
-                    appState.selectedMicrophoneID = "default"
+                    appState.selectedMicrophoneID = AudioInputDevice.systemAudioID
                 } label: {
-                    if appState.selectedMicrophoneID == "default" || appState.selectedMicrophoneID.isEmpty {
+                    if appState.selectedMicrophoneID == AudioInputDevice.systemAudioID {
+                        Text("✓ System Audio")
+                    } else {
+                        Text("  System Audio")
+                    }
+                }
+                Button {
+                    appState.selectedMicrophoneID = AudioInputDevice.defaultMicrophoneID
+                } label: {
+                    if appState.selectedMicrophoneID == AudioInputDevice.defaultMicrophoneID || appState.selectedMicrophoneID.isEmpty {
                         Text("✓ System Default")
                     } else {
                         Text("  System Default")
