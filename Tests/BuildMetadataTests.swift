@@ -5,7 +5,8 @@ struct BuildMetadataTests {
     static func main() throws {
         try testMakefileStampsLocalBuildMetadata()
         try testBuildSettingsTrackCodesignIdentity()
-        try testMakefileDefinesSeparateSystemAudioRunTarget()
+        try testMakefileSeparatesDevRunFromInstallBuild()
+        try testMakefileCopiesSelectedIconToBundleIconName()
         try testReleaseWorkflowsPassBuildMetadataToMake()
         print("BuildMetadataTests passed")
     }
@@ -31,23 +32,30 @@ struct BuildMetadataTests {
     private static func testBuildSettingsTrackCodesignIdentity() throws {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
 
+        assertContains(makefile, "CODESIGN_IDENTITY ?= Quill")
         assertContains(makefile, "$(CODESIGN_IDENTITY)")
         assertContains(makefile, "$(BUILD_TAG)\" \"$(GOOGLE_CALENDAR_OAUTH_CLIENT_ID)\" \"$(GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET)\" \"$(CODESIGN_IDENTITY)")
     }
 
-    private static func testMakefileDefinesSeparateSystemAudioRunTarget() throws {
+    private static func testMakefileSeparatesDevRunFromInstallBuild() throws {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
 
-        assertContains(makefile, "SYSTEM_AUDIO_APP_NAME ?= Quill SA")
-        assertContains(makefile, "SYSTEM_AUDIO_BUNDLE_ID ?= com.woosublee.quill.systemaudio")
-        assertContains(makefile, "SYSTEM_AUDIO_DEV_APP_NAME ?= Quill SA dev")
-        assertContains(makefile, "SYSTEM_AUDIO_DEV_BUNDLE_ID ?= com.woosublee.quill.systemaudio.dev")
-        assertContains(makefile, "run-system-audio:")
-        assertContains(makefile, "$(MAKE) run APP_NAME=\"$(SYSTEM_AUDIO_DEV_APP_NAME)\" BUNDLE_ID=\"$(SYSTEM_AUDIO_DEV_BUNDLE_ID)\"")
-        assertContains(makefile, "install-system-audio:")
-        assertContains(makefile, "$(MAKE) install APP_NAME=\"$(SYSTEM_AUDIO_APP_NAME)\" BUNDLE_ID=\"$(SYSTEM_AUDIO_BUNDLE_ID)\"")
-        assertContains(makefile, "install-and-run-system-audio:")
-        assertContains(makefile, "$(MAKE) install-and-run APP_NAME=\"$(SYSTEM_AUDIO_APP_NAME)\" BUNDLE_ID=\"$(SYSTEM_AUDIO_BUNDLE_ID)\"")
+        assertContains(makefile, "APP_NAME ?= Quill")
+        assertContains(makefile, "BUNDLE_ID ?= com.woosublee.quill")
+        assertContains(makefile, "DEV_APP_NAME ?= Quill Dev")
+        assertContains(makefile, "DEV_BUNDLE_ID ?= com.woosublee.quill.dev")
+        assertContains(makefile, "run:\n\t$(MAKE) all APP_NAME=\"$(DEV_APP_NAME)\" BUNDLE_ID=\"$(DEV_BUNDLE_ID)\"")
+        assertContains(makefile, "\topen \"$(BUILD_DIR)/$(DEV_APP_NAME).app\"")
+        assertContains(makefile, "install: all\n\t@mkdir -p \"/Applications/$(APP_NAME).app\"")
+    }
+
+    private static func testMakefileCopiesSelectedIconToBundleIconName() throws {
+        let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
+        let infoPlist = try String(contentsOfFile: "Info.plist", encoding: .utf8)
+
+        assertContains(infoPlist, "<key>CFBundleIconFile</key>\n    <string>AppIcon</string>")
+        assertContains(makefile, "ICON_ICNS = Resources/AppIcon-Dev.icns")
+        assertContains(makefile, "@cp $(ICON_ICNS) \"$(RESOURCES)/AppIcon.icns\"")
     }
 
     private static func testReleaseWorkflowsPassBuildMetadataToMake() throws {

@@ -1964,14 +1964,14 @@ struct GeneralSettingsView: View {
 
             VStack(spacing: 6) {
                 MicrophoneOptionRow(
-                    name: "System Audio",
-                    isSelected: appState.selectedMicrophoneID == AudioInputDevice.systemAudioID,
-                    action: { appState.selectedMicrophoneID = AudioInputDevice.systemAudioID }
-                )
-                MicrophoneOptionRow(
                     name: "System Default",
                     isSelected: appState.selectedMicrophoneID == AudioInputDevice.defaultMicrophoneID || appState.selectedMicrophoneID.isEmpty,
                     action: { appState.selectedMicrophoneID = AudioInputDevice.defaultMicrophoneID }
+                )
+                MicrophoneOptionRow(
+                    name: "System Audio",
+                    isSelected: appState.selectedMicrophoneID == AudioInputDevice.systemAudioID,
+                    action: { appState.selectedMicrophoneID = AudioInputDevice.systemAudioID }
                 )
                 ForEach(appState.availableMicrophones) { device in
                     MicrophoneOptionRow(

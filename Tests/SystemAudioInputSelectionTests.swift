@@ -4,9 +4,9 @@ import Foundation
 struct SystemAudioInputSelectionTests {
     static func main() throws {
         testSystemAudioInputIdentifier()
-        try testSettingsPickerShowsSystemAudioBeforeMicrophones()
-        try testMenuBarPickerShowsSystemAudioBeforeMicrophones()
-        try testSetupPickerShowsSystemAudioBeforeMicrophones()
+        try testSettingsPickerShowsDefaultBeforeSystemAudio()
+        try testMenuBarPickerShowsDefaultBeforeSystemAudio()
+        try testSetupPickerShowsDefaultBeforeSystemAudio()
         print("SystemAudioInputSelectionTests passed")
     }
 
@@ -18,32 +18,32 @@ struct SystemAudioInputSelectionTests {
         assert(!AudioInputDevice.isSystemAudio(""))
     }
 
-    private static func testSettingsPickerShowsSystemAudioBeforeMicrophones() throws {
+    private static func testSettingsPickerShowsDefaultBeforeSystemAudio() throws {
         let source = try sourceFile("Sources/SettingsView.swift")
         assertOrder(
             source: source,
-            first: "name: \"System Audio\"",
-            second: "name: \"System Default\"",
+            first: "name: \"System Default\"",
+            second: "name: \"System Audio\"",
             file: "Sources/SettingsView.swift"
         )
     }
 
-    private static func testMenuBarPickerShowsSystemAudioBeforeMicrophones() throws {
+    private static func testMenuBarPickerShowsDefaultBeforeSystemAudio() throws {
         let source = try sourceFile("Sources/MenuBarView.swift")
         assertOrder(
             source: source,
-            first: "Text(\"✓ System Audio\")",
-            second: "Text(\"✓ System Default\")",
+            first: "Text(\"✓ System Default\")",
+            second: "Text(\"✓ System Audio\")",
             file: "Sources/MenuBarView.swift"
         )
     }
 
-    private static func testSetupPickerShowsSystemAudioBeforeMicrophones() throws {
+    private static func testSetupPickerShowsDefaultBeforeSystemAudio() throws {
         let source = try sourceFile("Sources/SetupView.swift")
         assertOrder(
             source: source,
-            first: "Text(\"System Audio\").tag(AudioInputDevice.systemAudioID)",
-            second: "Text(\"System Default\").tag(AudioInputDevice.defaultMicrophoneID)",
+            first: "Text(\"System Default\").tag(AudioInputDevice.defaultMicrophoneID)",
+            second: "Text(\"System Audio\").tag(AudioInputDevice.systemAudioID)",
             file: "Sources/SetupView.swift"
         )
     }
