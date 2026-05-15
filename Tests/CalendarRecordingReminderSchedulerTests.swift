@@ -4,14 +4,17 @@ import Foundation
 struct CalendarRecordingReminderSchedulerTests {
     static func main() {
         testLeadMinutesAffectFireDate()
+        testMultipleLeadMinutesCreateMultipleSchedules()
         testPastReminderTimeForUpcomingMeetingBecomesImmediate()
         testRecentlyStartedMeetingBecomesImmediate()
+        testMixedImmediateAndScheduledLeadTimesForSameEvent()
         testSkipsMeetingsStartedOutsideGracePeriod()
         testExcludesAllDayTitlelessInvalidAndSelfDeclinedEvents()
         testNotificationIdentifierIsStable()
         testCalendarReminderIdentifierFilteringUsesPrefix()
         testNotificationTitleDescribesRelativeStartTime()
         testNormalizesLeadMinutes()
+        testNormalizesLeadMinuteSelections()
         testNormalizesRefreshIntervalMinutesToSupportedOptions()
         print("CalendarRecordingReminderSchedulerTests passed")
     }
@@ -22,7 +25,7 @@ struct CalendarRecordingReminderSchedulerTests {
 
         let schedules = CalendarRecordingReminderScheduler.schedules(
             for: [event],
-            leadMinutes: 10,
+            leadMinutes: [10],
             now: now,
             calendar: .current
         )
@@ -31,13 +34,32 @@ struct CalendarRecordingReminderSchedulerTests {
         assert(schedules[0].fireDate == Date(timeIntervalSince1970: 1_300))
     }
 
+    private static func testMultipleLeadMinutesCreateMultipleSchedules() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let event = calendarEvent(calendarID: "calendar", id: "meeting", start: 4_600, end: 4_900)
+
+        let schedules = CalendarRecordingReminderScheduler.schedules(
+            for: [event],
+            leadMinutes: [10, 30, 1],
+            now: now,
+            calendar: .current
+        )
+
+        assert(schedules.map { Int($0.fireDate.timeIntervalSince1970) } == [2_800, 4_000, 4_540])
+        assert(schedules.map(\.identifier) == [
+            "calendar-recording-reminder:calendar:meeting:4600:30",
+            "calendar-recording-reminder:calendar:meeting:4600:10",
+            "calendar-recording-reminder:calendar:meeting:4600:1",
+        ])
+    }
+
     private static func testPastReminderTimeForUpcomingMeetingBecomesImmediate() {
         let now = Date(timeIntervalSince1970: 1_000)
         let event = calendarEvent(id: "soon", start: 1_100, end: 1_500)
 
         let plan = CalendarRecordingReminderScheduler.reminderPlan(
             for: [event],
-            leadMinutes: 10,
+            leadMinutes: [10],
             now: now,
             calendar: .current
         )
@@ -52,7 +74,7 @@ struct CalendarRecordingReminderSchedulerTests {
 
         let plan = CalendarRecordingReminderScheduler.reminderPlan(
             for: [event],
-            leadMinutes: 10,
+            leadMinutes: [10],
             now: now,
             calendar: .current
         )
@@ -61,13 +83,30 @@ struct CalendarRecordingReminderSchedulerTests {
         assert(plan.immediate.map { $0.event.id } == ["started"])
     }
 
+    private static func testMixedImmediateAndScheduledLeadTimesForSameEvent() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let event = calendarEvent(calendarID: "calendar", id: "soon", start: 1_300, end: 1_700)
+
+        let plan = CalendarRecordingReminderScheduler.reminderPlan(
+            for: [event],
+            leadMinutes: [10, 1],
+            now: now,
+            calendar: .current
+        )
+
+        assert(plan.immediate.map(\.identifier) == ["calendar-recording-reminder:calendar:soon:1300:10"])
+        assert(plan.immediate.map { $0.fireDate } == [now])
+        assert(plan.scheduled.map(\.identifier) == ["calendar-recording-reminder:calendar:soon:1300:1"])
+        assert(plan.scheduled.map { Int($0.fireDate.timeIntervalSince1970) } == [1_240])
+    }
+
     private static func testSkipsMeetingsStartedOutsideGracePeriod() {
         let now = Date(timeIntervalSince1970: 1_000)
         let event = calendarEvent(id: "old", start: 600, end: 1_500)
 
         let plan = CalendarRecordingReminderScheduler.reminderPlan(
             for: [event],
-            leadMinutes: 10,
+            leadMinutes: [10],
             now: now,
             calendar: .current
         )
@@ -91,7 +130,7 @@ struct CalendarRecordingReminderSchedulerTests {
 
         let schedules = CalendarRecordingReminderScheduler.schedules(
             for: [allDay, titleless, invalid, declined, valid],
-            leadMinutes: 5,
+            leadMinutes: [5],
             now: now,
             calendar: .current
         )
@@ -147,6 +186,11 @@ struct CalendarRecordingReminderSchedulerTests {
         assert(CalendarRecordingReminderScheduler.normalizedLeadMinutes(-1) == 1)
         assert(CalendarRecordingReminderScheduler.normalizedLeadMinutes(10) == 10)
         assert(CalendarRecordingReminderScheduler.normalizedLeadMinutes(500) == 120)
+    }
+
+    private static func testNormalizesLeadMinuteSelections() {
+        assert(CalendarRecordingReminderScheduler.normalizedLeadMinutes([30, 10, 10, -1, 500]) == [1, 10, 30, 120])
+        assert(CalendarRecordingReminderScheduler.normalizedLeadMinutes([]) == [CalendarRecordingReminderScheduler.defaultLeadMinutes])
     }
 
     private static func testNormalizesRefreshIntervalMinutesToSupportedOptions() {
