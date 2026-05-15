@@ -42,10 +42,6 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 
 enum GoogleCalendarStartupTokenLoadPolicy {
     static let allowsAuthenticationUI = false
-
-    static func shouldLoadToken(remindersEnabled: Bool, selectedCalendarIDs: Set<String>) -> Bool {
-        true
-    }
 }
 
 enum CalendarMatchSource: String, Codable, Equatable {

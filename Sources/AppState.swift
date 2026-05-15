@@ -1066,12 +1066,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let googleCalendarClientSecret = Self.loadOptionalStoredAPIValue(account: googleCalendarClientSecretStorageKey)
         let selectedGoogleCalendarIDs = Self.loadStringSet(forKey: googleCalendarSelectedIDsStorageKey)
         let calendarRecordingRemindersEnabled = UserDefaults.standard.bool(forKey: calendarRecordingRemindersEnabledStorageKey)
-        let storedCalendarToken = GoogleCalendarStartupTokenLoadPolicy.shouldLoadToken(
-            remindersEnabled: calendarRecordingRemindersEnabled,
-            selectedCalendarIDs: selectedGoogleCalendarIDs
-        ) ? GoogleCalendarTokenStore.load(
+        let storedCalendarToken = GoogleCalendarTokenStore.load(
             allowsAuthenticationUI: GoogleCalendarStartupTokenLoadPolicy.allowsAuthenticationUI
-        ) : nil
+        )
         let storedCalendarRecordingReminderLeadMinutes = UserDefaults.standard.object(forKey: calendarRecordingReminderLeadMinutesStorageKey) != nil
             ? UserDefaults.standard.integer(forKey: calendarRecordingReminderLeadMinutesStorageKey)
             : CalendarRecordingReminderScheduler.defaultLeadMinutes
