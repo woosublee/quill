@@ -82,7 +82,23 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
     }
 
     deinit {
-        cancelRecording()
+        let cleanup = {
+            self.cancelWatchdog()
+            self._recording.withLock { $0 = false }
+            self.stream = nil
+            self.activeAudioFile = nil
+            self.recordedFrameCount = 0
+            if let url = self.tempFileURL {
+                try? FileManager.default.removeItem(at: url)
+                self.tempFileURL = nil
+            }
+        }
+
+        if DispatchQueue.getSpecific(key: Self.sessionQueueKey) != nil {
+            cleanup()
+        } else {
+            sessionQueue.sync(execute: cleanup)
+        }
     }
 
     func startRecording() async throws {
