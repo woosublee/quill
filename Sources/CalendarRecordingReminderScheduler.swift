@@ -48,17 +48,18 @@ final class CalendarRecordingReminderScheduler {
         self.eventProvider = eventProvider
     }
 
-    func start(leadMinutes: Int, refreshIntervalMinutes: Int) {
+    func start(leadMinutes: [Int], refreshIntervalMinutes: Int) {
+        let normalizedLeadMinuteValues = Self.normalizedLeadMinutes(leadMinutes)
         generation += 1
         cleanupTask?.cancel()
         cleanupTask = nil
         isStarted = true
         stopTimer()
-        scheduleRefresh(leadMinutes: leadMinutes)
+        scheduleRefresh(leadMinutes: normalizedLeadMinuteValues)
         let interval = TimeInterval(Self.normalizedRefreshIntervalMinutes(refreshIntervalMinutes) * 60)
         refreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.scheduleRefresh(leadMinutes: leadMinutes)
+                self?.scheduleRefresh(leadMinutes: normalizedLeadMinuteValues)
             }
         }
     }
@@ -80,7 +81,7 @@ final class CalendarRecordingReminderScheduler {
     }
 
     @discardableResult
-    func rescheduleNow(leadMinutes: Int) async throws -> Int {
+    func rescheduleNow(leadMinutes: [Int]) async throws -> Int {
         try await refresh(leadMinutes: leadMinutes, requiresStarted: false)
     }
 
@@ -89,7 +90,7 @@ final class CalendarRecordingReminderScheduler {
         refreshTimer = nil
     }
 
-    private func scheduleRefresh(leadMinutes: Int) {
+    private func scheduleRefresh(leadMinutes: [Int]) {
         refreshTask?.cancel()
         refreshTask = Task {
             do {
@@ -101,7 +102,7 @@ final class CalendarRecordingReminderScheduler {
     }
 
     @discardableResult
-    private func refresh(leadMinutes: Int, requiresStarted: Bool = true) async throws -> Int {
+    private func refresh(leadMinutes: [Int], requiresStarted: Bool = true) async throws -> Int {
         guard await notificationManager.canShowAlerts() else { return 0 }
         try Task.checkCancellation()
         guard !requiresStarted || isStarted else { return 0 }
@@ -190,7 +191,7 @@ final class CalendarRecordingReminderScheduler {
 
     nonisolated static func schedules(
         for events: [GoogleCalendarEvent],
-        leadMinutes: Int,
+        leadMinutes: [Int],
         now: Date,
         calendar: Calendar
     ) -> [CalendarRecordingReminderSchedule] {
@@ -199,32 +200,34 @@ final class CalendarRecordingReminderScheduler {
 
     nonisolated static func reminderPlan(
         for events: [GoogleCalendarEvent],
-        leadMinutes: Int,
+        leadMinutes: [Int],
         now: Date,
         calendar: Calendar
     ) -> CalendarRecordingReminderPlan {
-        let normalizedLeadMinutes = normalizedLeadMinutes(leadMinutes)
-        let schedules = events.compactMap { event -> CalendarRecordingReminderSchedule? in
-            guard isReminderEligible(event) else { return nil }
-            let fireDate = event.start.addingTimeInterval(TimeInterval(-normalizedLeadMinutes * 60))
-            let identifier = notificationIdentifier(for: event, leadMinutes: normalizedLeadMinutes)
-            if fireDate > now {
+        let normalizedLeadMinuteValues = normalizedLeadMinutes(leadMinutes)
+        let schedules = events.flatMap { event -> [CalendarRecordingReminderSchedule] in
+            guard isReminderEligible(event) else { return [] }
+            return normalizedLeadMinuteValues.compactMap { normalizedLeadMinutes in
+                let fireDate = event.start.addingTimeInterval(TimeInterval(-normalizedLeadMinutes * 60))
+                let identifier = notificationIdentifier(for: event, leadMinutes: normalizedLeadMinutes)
+                if fireDate > now {
+                    return CalendarRecordingReminderSchedule(
+                        identifier: identifier,
+                        fireDate: fireDate,
+                        event: event,
+                        delivery: .scheduled
+                    )
+                }
+                guard event.start > now || now.timeIntervalSince(event.start) <= startedMeetingGracePeriod else {
+                    return nil
+                }
                 return CalendarRecordingReminderSchedule(
                     identifier: identifier,
-                    fireDate: fireDate,
+                    fireDate: now,
                     event: event,
-                    delivery: .scheduled
+                    delivery: .immediate
                 )
             }
-            guard event.start > now || now.timeIntervalSince(event.start) <= startedMeetingGracePeriod else {
-                return nil
-            }
-            return CalendarRecordingReminderSchedule(
-                identifier: identifier,
-                fireDate: now,
-                event: event,
-                delivery: .immediate
-            )
         }
         .sorted {
             if $0.fireDate != $1.fireDate { return $0.fireDate < $1.fireDate }
@@ -281,6 +284,11 @@ final class CalendarRecordingReminderScheduler {
 
     nonisolated static func normalizedLeadMinutes(_ value: Int) -> Int {
         min(max(value, 1), 120)
+    }
+
+    nonisolated static func normalizedLeadMinutes(_ values: [Int]) -> [Int] {
+        let normalized = Set(values.map(normalizedLeadMinutes)).sorted()
+        return normalized.isEmpty ? [defaultLeadMinutes] : normalized
     }
 
     nonisolated static func normalizedRefreshIntervalMinutes(_ value: Int) -> Int {
