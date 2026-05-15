@@ -385,6 +385,7 @@ struct AppStateTranscriptionConfigurationTests {
         let appState = AppState()
 
         assert(appState.calendarRecordingReminderLeadMinutes == [30])
+        assert(defaults.array(forKey: "calendar_recording_reminder_lead_minutes_list") as? [Int] == [30])
     }
 
     private static func testCalendarRecordingReminderLeadMinutesPersistNormalizedSelection() {
@@ -392,10 +393,10 @@ struct AppStateTranscriptionConfigurationTests {
         let defaults = UserDefaults.standard
         let appState = AppState()
 
-        appState.calendarRecordingReminderLeadMinutes = [60, 5, 5, -1]
+        appState.calendarRecordingReminderLeadMinutes = [60, 5, 5, -1, 14, 500]
 
-        assert(appState.calendarRecordingReminderLeadMinutes == [1, 5, 60])
-        assert(defaults.array(forKey: "calendar_recording_reminder_lead_minutes_list") as? [Int] == [1, 5, 60])
+        assert(appState.calendarRecordingReminderLeadMinutes == [1, 5, 15, 60])
+        assert(defaults.array(forKey: "calendar_recording_reminder_lead_minutes_list") as? [Int] == [1, 5, 15, 60])
 
         appState.calendarRecordingReminderLeadMinutes = []
 

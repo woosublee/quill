@@ -1086,6 +1086,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             calendarRecordingReminderLeadMinutes = CalendarRecordingReminderScheduler.normalizedLeadMinutes([
                 storedCalendarRecordingReminderLeadMinutes
             ])
+            UserDefaults.standard.set(
+                calendarRecordingReminderLeadMinutes,
+                forKey: calendarRecordingReminderLeadMinutesListStorageKey
+            )
         }
         let storedCalendarRecordingReminderRefreshIntervalMinutes = UserDefaults.standard.object(forKey: calendarRecordingReminderRefreshIntervalMinutesStorageKey) != nil
             ? UserDefaults.standard.integer(forKey: calendarRecordingReminderRefreshIntervalMinutesStorageKey)

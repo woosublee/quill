@@ -189,7 +189,7 @@ struct CalendarRecordingReminderSchedulerTests {
     }
 
     private static func testNormalizesLeadMinuteSelections() {
-        assert(CalendarRecordingReminderScheduler.normalizedLeadMinutes([30, 10, 10, -1, 500]) == [1, 10, 30, 120])
+        assert(CalendarRecordingReminderScheduler.normalizedLeadMinutes([30, 10, 10, -1, 14, 500]) == [1, 10, 15, 30, 60])
         assert(CalendarRecordingReminderScheduler.normalizedLeadMinutes([]) == [CalendarRecordingReminderScheduler.defaultLeadMinutes])
     }
 

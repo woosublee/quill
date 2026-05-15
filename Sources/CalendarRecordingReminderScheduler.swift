@@ -286,8 +286,14 @@ final class CalendarRecordingReminderScheduler {
         min(max(value, 1), 120)
     }
 
+    nonisolated static func normalizedLeadMinuteOption(_ value: Int) -> Int {
+        leadMinuteOptions.min { lhs, rhs in
+            abs(lhs - value) < abs(rhs - value)
+        } ?? defaultLeadMinutes
+    }
+
     nonisolated static func normalizedLeadMinutes(_ values: [Int]) -> [Int] {
-        let normalized = Set(values.map(normalizedLeadMinutes)).sorted()
+        let normalized = Set(values.map(normalizedLeadMinuteOption)).sorted()
         return normalized.isEmpty ? [defaultLeadMinutes] : normalized
     }
 
