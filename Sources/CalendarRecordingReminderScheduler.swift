@@ -160,9 +160,10 @@ final class CalendarRecordingReminderScheduler {
         guard generation == refreshGeneration else { return 0 }
         let planIDs = Set((plan.scheduled + plan.immediate).map(\.identifier))
         notifiedReminderIdentifiers = notifiedReminderIdentifiers.intersection(planIDs)
-        let immediateNotifiedIDs = pendingIDs.union(deliveredIDs).union(notifiedReminderIdentifiers)
+        let immediateNotifiedIDs = deliveredIDs.union(notifiedReminderIdentifiers)
         let scheduledIDs = Set(plan.scheduled.map(\.identifier))
-        let pendingToRemove = pendingIDs.subtracting(scheduledIDs)
+        let immediateIDs = Set(plan.immediate.map(\.identifier))
+        var pendingToRemove = pendingIDs.subtracting(scheduledIDs).subtracting(immediateIDs)
         try Task.checkCancellation()
         guard generation == refreshGeneration else { return 0 }
 
@@ -174,6 +175,9 @@ final class CalendarRecordingReminderScheduler {
                 try Task.checkCancellation()
                 guard generation == refreshGeneration else { return deliveredCount }
                 notifiedReminderIdentifiers.insert(schedule.identifier)
+                if pendingIDs.contains(schedule.identifier) {
+                    pendingToRemove.insert(schedule.identifier)
+                }
                 deliveredCount += 1
             }
         }

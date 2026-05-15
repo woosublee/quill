@@ -20,6 +20,7 @@ struct CalendarRecordingReminderSchedulerTests {
         testNormalizesRefreshIntervalMinutesToSupportedOptions()
         await testRescheduleReturnsSuccessfulNotificationCount()
         await testRescheduleKeepsStalePendingWhenScheduledAddFails()
+        await testRescheduleSendsImmediateNotificationForPendingIdentifier()
         await testRescheduleRemovesStalePendingAfterScheduledAddSucceeds()
         print("CalendarRecordingReminderSchedulerTests passed")
     }
@@ -241,6 +242,21 @@ struct CalendarRecordingReminderSchedulerTests {
 
         assert(count == 0)
         assert(notificationManager.removedIdentifiers.isEmpty)
+    }
+
+    @MainActor
+    private static func testRescheduleSendsImmediateNotificationForPendingIdentifier() async {
+        let start = Date().addingTimeInterval(300).timeIntervalSince1970
+        let event = calendarEvent(id: "meeting", start: start, end: start + 1_800)
+        let identifier = CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 10)
+        let notificationManager = FakeNotificationManager(pendingIdentifiers: [identifier])
+        let scheduler = CalendarRecordingReminderScheduler(notificationManager: notificationManager) { _, _ in [event] }
+
+        let count = try! await scheduler.rescheduleNow(leadMinutes: [10])
+
+        assert(count == 1)
+        assert(notificationManager.addedIdentifiers == [identifier])
+        assert(notificationManager.removedIdentifiers == [identifier])
     }
 
     @MainActor
