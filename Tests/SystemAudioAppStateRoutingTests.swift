@@ -13,6 +13,11 @@ struct SystemAudioAppStateRoutingTests {
         precondition(source.contains("ensureSystemAudioAccess()"))
         precondition(source.contains("requestScreenCapturePermissionForRecordingStart()"))
         precondition(source.contains("CGRequestScreenCaptureAccess()"))
+        precondition(source.contains("func requestScreenCapturePermissionForRecordingStart() async -> Bool"))
+        precondition(source.contains("await Task.detached(priority: .userInitiated) {\n            CGRequestScreenCaptureAccess()\n        }.value"))
+        precondition(source.contains("guard await ensureRecordingInputAccess(for: audioInputID) else { return }"))
+        precondition(source.contains("private func ensureRecordingInputAccess(for inputID: String) async -> Bool"))
+        precondition(source.contains("let granted = await requestScreenCapturePermissionForRecordingStart()"))
         precondition(source.contains("startSelectedAudioRecorder(inputID: audioInputID)"))
         precondition(source.contains("stopActiveAudioRecorder"))
         precondition(source.contains("cancelActiveAudioRecorder()"))
@@ -35,7 +40,14 @@ struct SystemAudioAppStateRoutingTests {
         precondition(setupSource.contains("testPhase == .starting"))
         precondition(setupSource.contains("guard testPhase == .starting else { return }"))
         precondition(setupSource.contains("testSystemAudioRecorder?.cancelRecording()"))
+        precondition(setupSource.contains("private func clearTestRecordingState()"))
+        precondition(setupSource.contains("testAudioLevelCancellable?.cancel()\n        testAudioLevelCancellable = nil\n        testAudioLevel = 0.0\n        testHotkeyHarness.isTranscribing = false"))
+        precondition(countOccurrences(of: "clearTestRecordingState()", in: setupSource) >= 2)
 
         print("SystemAudioAppStateRoutingTests passed")
+    }
+
+    private static func countOccurrences(of needle: String, in text: String) -> Int {
+        text.components(separatedBy: needle).count - 1
     }
 }

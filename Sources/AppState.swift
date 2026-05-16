@@ -2594,12 +2594,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         CGPreflightScreenCaptureAccess()
     }
 
-    func requestScreenCapturePermissionForRecordingStart() -> Bool {
-        if hasScreenCapturePermission() {
+    func requestScreenCapturePermissionForRecordingStart() async -> Bool {
+        if CGPreflightScreenCaptureAccess() {
             return true
         }
-        let granted = CGRequestScreenCaptureAccess()
-        return granted || hasScreenCapturePermission()
+        let granted = await Task.detached(priority: .userInitiated) {
+            CGRequestScreenCaptureAccess()
+        }.value
+        return granted || CGPreflightScreenCaptureAccess()
     }
 
     func requestScreenCapturePermission() {
@@ -3375,7 +3377,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 startedAt: t0
             ) else { return }
             let audioInputID = selectedMicrophoneID
-            guard ensureRecordingInputAccess(for: audioInputID) else { return }
+            guard await ensureRecordingInputAccess(for: audioInputID) else { return }
             os_log(.info, log: recordingLog, "audio input access check passed: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
             if !AudioInputDevice.isSystemAudio(audioInputID) {
                 applyAudioInterruptionIfNeeded()
@@ -3531,16 +3533,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
-    private func ensureRecordingInputAccess(for inputID: String) -> Bool {
+    private func ensureRecordingInputAccess(for inputID: String) async -> Bool {
         if AudioInputDevice.isSystemAudio(inputID) {
-            return ensureSystemAudioAccess()
+            return await ensureSystemAudioAccess()
         }
         return ensureMicrophoneAccess()
     }
 
     @MainActor
-    private func ensureSystemAudioAccess() -> Bool {
-        let granted = requestScreenCapturePermissionForRecordingStart()
+    private func ensureSystemAudioAccess() async -> Bool {
+        let granted = await requestScreenCapturePermissionForRecordingStart()
         hasScreenRecordingPermission = granted
         guard granted else {
             let message = "System Audio recording permission not granted. Enable Screen & System Audio Recording in System Settings > Privacy & Security."

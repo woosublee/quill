@@ -114,6 +114,15 @@ struct SetupView: View {
         isCapturingHoldShortcut || isCapturingToggleShortcut
     }
 
+    private var setupMicrophoneSelection: Binding<String> {
+        Binding(
+            get: {
+                appState.selectedMicrophoneID.isEmpty ? AudioInputDevice.defaultMicrophoneID : appState.selectedMicrophoneID
+            },
+            set: { appState.selectedMicrophoneID = $0 }
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             currentStepView
@@ -978,7 +987,7 @@ struct SetupView: View {
         VStack(spacing: 20) {
             // Input picker
             VStack(spacing: 4) {
-                Picker("Input:", selection: $appState.selectedMicrophoneID) {
+                Picker("Input:", selection: setupMicrophoneSelection) {
                     Text("System Default").tag(AudioInputDevice.defaultMicrophoneID)
                     Text("System Audio").tag(AudioInputDevice.systemAudioID)
                     ForEach(appState.availableMicrophones) { device in
@@ -1556,10 +1565,14 @@ struct SetupView: View {
         }
     }
 
-    private func stopTestHotkeyMonitoring() {
-        testHotkeyHarness.stop()
+    private func clearTestRecordingState() {
         testAudioLevelCancellable?.cancel()
         testAudioLevelCancellable = nil
+        testAudioLevel = 0.0
+        testHotkeyHarness.isTranscribing = false
+    }
+
+    private func cancelTestRecorders() {
         if let recorder = testAudioRecorder, recorder.isRecording {
             recorder.cancelRecording()
         }
@@ -1568,22 +1581,19 @@ struct SetupView: View {
         testSystemAudioRecorder = nil
     }
 
+    private func stopTestHotkeyMonitoring() {
+        testHotkeyHarness.stop()
+        resetTest()
+    }
+
     private func resetTest() {
         testPhase = .idle
         testTranscript = ""
         testError = nil
-        testAudioLevel = 0.0
         testMicPulsing = true
-        testHotkeyHarness.isTranscribing = false
+        clearTestRecordingState()
         testHotkeyHarness.resetSession()
-        if let recorder = testAudioRecorder {
-            if recorder.isRecording {
-                recorder.cancelRecording()
-            }
-            testAudioRecorder = nil
-        }
-        testSystemAudioRecorder?.cancelRecording()
-        testSystemAudioRecorder = nil
+        cancelTestRecorders()
     }
 
 }

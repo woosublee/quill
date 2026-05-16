@@ -51,6 +51,7 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
     private let liveLevelNormalizerLock = OSAllocatedUnfairLock(initialState: LiveAudioLevelNormalizer())
     private let recordingConverterLock = OSAllocatedUnfairLock<AVAudioConverter?>(initialState: nil)
     private let pcm16ConverterLock = OSAllocatedUnfairLock<AVAudioConverter?>(initialState: nil)
+    private let callbacksLock = OSAllocatedUnfairLock(initialState: CallbackState())
 
     private var stream: SCStream?
     private var tempFileURL: URL?
@@ -69,12 +70,32 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
     @Published var isRecording = false
     @Published var audioLevel: Float = 0.0
 
-    var onRecordingReady: (() -> Void)?
-    var onRecordingFailure: ((Error) -> Void)?
-    var onPCM16Samples: ((Data) -> Void)?
+    var onRecordingReady: (() -> Void)? {
+        get { callbacksLock.withLock { $0.onRecordingReady } }
+        set { callbacksLock.withLock { $0.onRecordingReady = newValue } }
+    }
+    var onRecordingFailure: ((Error) -> Void)? {
+        get { callbacksLock.withLock { $0.onRecordingFailure } }
+        set { callbacksLock.withLock { $0.onRecordingFailure = newValue } }
+    }
+    var onPCM16Samples: ((Data) -> Void)? {
+        get { callbacksLock.withLock { $0.onPCM16Samples } }
+        set { callbacksLock.withLock { $0.onPCM16Samples = newValue } }
+    }
 
     private let recordingTargetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: true)!
     private let pcm16TargetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 24_000, channels: 1, interleaved: true)!
+
+    private struct CallbackState {
+        var onRecordingReady: (() -> Void)?
+        var onRecordingFailure: ((Error) -> Void)?
+        var onPCM16Samples: ((Data) -> Void)?
+    }
+
+    private struct FinishedRecording {
+        let resultURL: URL?
+        let fileURLToDelete: URL?
+    }
 
     override init() {
         super.init()
@@ -86,11 +107,8 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
             self.cancelWatchdog()
             self._recording.withLock { $0 = false }
             self.stream = nil
-            self.activeAudioFile = nil
-            self.recordedFrameCount = 0
-            if let url = self.tempFileURL {
+            if let url = self.resetSampleBufferState(outputURL: nil) {
                 try? FileManager.default.removeItem(at: url)
-                self.tempFileURL = nil
             }
         }
 
@@ -103,11 +121,8 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
 
     func startRecording() async throws {
         let t0 = CFAbsoluteTimeGetCurrent()
-        recordingStartTime = t0
         _bufferCount.withLock { $0 = 0 }
-        readyFired = false
         failureReported = false
-        loggedCaptureFormat = false
         liveLevelNormalizerLock.withLock { $0.reset() }
 
         let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
@@ -137,14 +152,10 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
         await withCheckedContinuation { continuation in
             sessionQueue.async {
                 self.stream = stream
-                self.tempFileURL = outputURL
-                self.recordedFrameCount = 0
-                self.fileWriteErrorLock.withLock { _ in self.fileWriteError = nil }
-                self.recordingConverterLock.withLock { $0 = nil }
-                self.pcm16ConverterLock.withLock { $0 = nil }
-                self.pcm16InputFormat = nil
-                self.pcm16InputBuffer = nil
-                self.pcm16OutputBuffer = nil
+                let staleOutputURL = self.resetSampleBufferState(outputURL: outputURL, recordingStartTime: t0)
+                if let staleOutputURL {
+                    try? FileManager.default.removeItem(at: staleOutputURL)
+                }
                 self._recording.withLock { $0 = true }
                 self.startBufferWatchdog()
                 continuation.resume()
@@ -168,14 +179,16 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
     func stopRecording(completion: @escaping (URL?) -> Void) {
         let currentStream = currentStreamSnapshot()
         Task {
+            var shouldDiscardRecording = false
             if let currentStream {
                 do {
                     try await currentStream.stopCapture()
                 } catch {
+                    shouldDiscardRecording = true
                     os_log(.error, log: systemAudioRecordingLog, "stopCapture failed: %{public}@", error.localizedDescription)
                 }
             }
-            finishRecording(discard: false, completion: completion)
+            finishRecording(discard: shouldDiscardRecording, completion: completion)
         }
     }
 
@@ -191,9 +204,8 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
 
     func cleanup() {
         let cleanup = {
-            if let url = self.tempFileURL {
+            if let url = self.resetSampleBufferState(outputURL: nil) {
                 try? FileManager.default.removeItem(at: url)
-                self.tempFileURL = nil
             }
         }
         if DispatchQueue.getSpecific(key: Self.sessionQueueKey) != nil {
@@ -228,7 +240,8 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
         }
         if !readyFired {
             readyFired = true
-            DispatchQueue.main.async { self.onRecordingReady?() }
+            let onRecordingReady = self.onRecordingReady
+            DispatchQueue.main.async { onRecordingReady?() }
         }
     }
 
@@ -254,13 +267,10 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
             sessionQueue.async {
                 self.cancelWatchdog()
                 self.stream = nil
-                self.tempFileURL = nil
-                self.activeAudioFile = nil
-                self.recordedFrameCount = 0
-                self.fileWriteErrorLock.withLock { _ in self.fileWriteError = nil }
+                let fileURLToDelete = self.resetSampleBufferState(outputURL: nil) ?? outputURL
                 self._recording.withLock { $0 = false }
                 self.liveLevelNormalizerLock.withLock { $0.reset() }
-                try? FileManager.default.removeItem(at: outputURL)
+                try? FileManager.default.removeItem(at: fileURLToDelete)
                 DispatchQueue.main.async {
                     self.isRecording = false
                     self.audioLevel = 0.0
@@ -277,21 +287,40 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
         return sessionQueue.sync { stream }
     }
 
+    private func resetSampleBufferState(outputURL: URL?, recordingStartTime: CFAbsoluteTime = 0) -> URL? {
+        var staleOutputURL: URL?
+        sampleBufferQueue.sync {
+            staleOutputURL = self.tempFileURL
+            self.tempFileURL = outputURL
+            self.activeAudioFile = nil
+            self.recordedFrameCount = 0
+            self.fileWriteErrorLock.withLock { _ in self.fileWriteError = nil }
+            self.recordingConverterLock.withLock { $0 = nil }
+            self.pcm16ConverterLock.withLock { $0 = nil }
+            self.recordingStartTime = recordingStartTime
+            self.readyFired = false
+            self.loggedCaptureFormat = false
+            self.pcm16InputFormat = nil
+            self.pcm16InputBuffer = nil
+            self.pcm16OutputBuffer = nil
+        }
+        return staleOutputURL
+    }
+
     private func finishRecording(discard: Bool, completion: ((URL?) -> Void)?) {
         sessionQueue.async {
             self.cancelWatchdog()
-            let fileURLToDelete = self.tempFileURL
-            let resultURL = self.finishAudioFileLocked(discard: discard)
+            let finishedRecording = self.finishAudioFileLocked(discard: discard)
             self.stream = nil
             self._recording.withLock { $0 = false }
             self.liveLevelNormalizerLock.withLock { $0.reset() }
-            if discard || resultURL == nil, let fileURLToDelete {
+            if let fileURLToDelete = finishedRecording.fileURLToDelete {
                 try? FileManager.default.removeItem(at: fileURLToDelete)
             }
             DispatchQueue.main.async {
                 self.isRecording = false
                 self.audioLevel = 0.0
-                completion?(discard ? nil : resultURL)
+                completion?(discard ? nil : finishedRecording.resultURL)
             }
         }
     }
@@ -303,18 +332,18 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
             self.cancelWatchdog()
             self._recording.withLock { $0 = false }
 
-            let fileURLToDelete = self.tempFileURL
-            _ = self.finishAudioFileLocked(discard: true)
+            let finishedRecording = self.finishAudioFileLocked(discard: true)
             self.stream = nil
             self.liveLevelNormalizerLock.withLock { $0.reset() }
-            if let fileURLToDelete {
+            if let fileURLToDelete = finishedRecording.fileURLToDelete {
                 try? FileManager.default.removeItem(at: fileURLToDelete)
             }
 
+            let onRecordingFailure = self.onRecordingFailure
             DispatchQueue.main.async {
                 self.isRecording = false
                 self.audioLevel = 0.0
-                self.onRecordingFailure?(error)
+                onRecordingFailure?(error)
             }
         }
     }
@@ -346,29 +375,29 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
         watchdogTimer = nil
     }
 
-    private func finishAudioFileLocked(discard: Bool) -> URL? {
-        var finalizedURL: URL?
-        var shouldKeepFile = false
+    private func finishAudioFileLocked(discard: Bool) -> FinishedRecording {
+        var resultURL: URL?
+        var fileURLToDelete: URL?
 
         sampleBufferQueue.sync {
-            finalizedURL = self.tempFileURL
-            shouldKeepFile = !discard && self.recordedFrameCount > 0 && self.fileWriteErrorLock.withLock { _ in
+            let finalizedURL = self.tempFileURL
+            let shouldKeepFile = !discard && self.recordedFrameCount > 0 && self.fileWriteErrorLock.withLock { _ in
                 self.fileWriteError == nil
             }
             self.activeAudioFile = nil
-        }
-
-        defer {
             self.recordedFrameCount = 0
             self.fileWriteErrorLock.withLock { _ in
                 self.fileWriteError = nil
             }
-            if !shouldKeepFile {
+            if shouldKeepFile {
+                resultURL = finalizedURL
+            } else {
+                fileURLToDelete = finalizedURL
                 self.tempFileURL = nil
             }
         }
 
-        return shouldKeepFile ? finalizedURL : nil
+        return FinishedRecording(resultURL: resultURL, fileURLToDelete: fileURLToDelete)
     }
 
     private func appendSampleBufferToFile(_ sampleBuffer: CMSampleBuffer) throws {

@@ -20,7 +20,16 @@ struct SystemAudioRecorderSourceTests {
         precondition(!source.contains("if !readyFired && rms > 0"))
         precondition(source.contains("if !readyFired {\n            readyFired = true"))
         precondition(!source.contains("if discard, let outputURL"))
-        precondition(countOccurrences(of: "let fileURLToDelete = self.tempFileURL", in: source) >= 2)
+        precondition(source.contains("fileURLToDelete = finalizedURL"))
+        precondition(source.contains("if let fileURLToDelete = finishedRecording.fileURLToDelete"))
+        precondition(source.contains("var shouldDiscardRecording = false"))
+        precondition(source.contains("shouldDiscardRecording = true"))
+        precondition(source.contains("finishRecording(discard: shouldDiscardRecording, completion: completion)"))
+        precondition(source.contains("private let callbacksLock = OSAllocatedUnfairLock(initialState: CallbackState())"))
+        precondition(source.contains("private struct CallbackState"))
+        precondition(source.contains("private func resetSampleBufferState(outputURL: URL?, recordingStartTime: CFAbsoluteTime = 0) -> URL?"))
+        precondition(source.contains("let staleOutputURL = self.resetSampleBufferState(outputURL: outputURL, recordingStartTime: t0)"))
+        precondition(source.contains("let finishedRecording = self.finishAudioFileLocked(discard: discard)"))
 
         let bannedSymbols = [
             "SCRecordingOutput",

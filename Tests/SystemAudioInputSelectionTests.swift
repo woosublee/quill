@@ -7,6 +7,7 @@ struct SystemAudioInputSelectionTests {
         try testSettingsPickerShowsDefaultBeforeSystemAudio()
         try testMenuBarPickerShowsDefaultBeforeSystemAudio()
         try testSetupPickerShowsDefaultBeforeSystemAudio()
+        try testSetupPickerTreatsEmptySelectionAsSystemDefault()
         print("SystemAudioInputSelectionTests passed")
     }
 
@@ -48,6 +49,13 @@ struct SystemAudioInputSelectionTests {
         )
     }
 
+    private static func testSetupPickerTreatsEmptySelectionAsSystemDefault() throws {
+        let source = try sourceFile("Sources/SetupView.swift")
+        assertContains(source, "private var setupMicrophoneSelection: Binding<String>")
+        assertContains(source, "appState.selectedMicrophoneID.isEmpty ? AudioInputDevice.defaultMicrophoneID : appState.selectedMicrophoneID")
+        assertContains(source, "Picker(\"Input:\", selection: setupMicrophoneSelection)")
+    }
+
     private static func sourceFile(_ path: String) throws -> String {
         try String(contentsOfFile: path, encoding: .utf8)
     }
@@ -63,5 +71,9 @@ struct SystemAudioInputSelectionTests {
             firstRange.lowerBound < secondRange.lowerBound,
             "Expected \(first) to appear before \(second) in \(file)"
         )
+    }
+
+    private static func assertContains(_ source: String, _ marker: String) {
+        precondition(source.contains(marker), "Missing marker: \(marker)")
     }
 }
