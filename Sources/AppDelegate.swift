@@ -43,8 +43,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppNotificationManager.shared.install()
-        AppNotificationManager.shared.setCalendarReminderHandler { [weak self] in
-            self?.appState.startRecordingFromCalendarReminder()
+        AppNotificationManager.shared.setCalendarReminderHandler { [weak self] action in
+            self?.appState.startRecordingFromCalendarReminder(action)
         }
 
         // 저장된 appearance 설정 적용

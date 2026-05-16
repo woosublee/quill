@@ -6,6 +6,11 @@ struct CalendarRecordingReminderPlan: Equatable {
     let immediate: [CalendarRecordingReminderSchedule]
 }
 
+struct CalendarRecordingReminderNotificationAction: Equatable {
+    let identifier: String
+    let reminderGroupIdentifier: String?
+}
+
 struct CalendarRecordingReminderSchedule: Equatable {
     let identifier: String
     let fireDate: Date
@@ -13,8 +18,7 @@ struct CalendarRecordingReminderSchedule: Equatable {
     let delivery: Delivery
 
     var reminderGroupIdentifier: String {
-        let startTimestamp = Int(event.start.timeIntervalSince1970.rounded())
-        return "\(event.calendarID):\(event.id):\(startTimestamp)"
+        CalendarRecordingReminderScheduler.reminderGroupIdentifier(for: event)
     }
 
     enum Delivery: Equatable {
@@ -69,6 +73,8 @@ final class CalendarRecordingReminderScheduler {
     private var generation = 0
     private var isStarted = false
     private var notifiedReminderIdentifiers: Set<String> = []
+    private var externallyHandledReminderIdentifiers: Set<String> = []
+    private var externallyHandledReminderGroupIdentifiers: Set<String> = []
 
     init(
         notificationManager: CalendarRecordingReminderNotificationManaging,
@@ -121,6 +127,16 @@ final class CalendarRecordingReminderScheduler {
 
     func pendingInAppReminderFireDates() -> [Date] {
         inAppTimers.values.map(\.fireDate).sorted()
+    }
+
+    func markReminderHandledExternally(identifier: String, reminderGroupIdentifier: String?) {
+        externallyHandledReminderIdentifiers.insert(identifier)
+        if let reminderGroupIdentifier {
+            externallyHandledReminderGroupIdentifiers.insert(reminderGroupIdentifier)
+        }
+        inAppTimers[identifier]?.invalidate()
+        inAppTimers.removeValue(forKey: identifier)
+        notificationManager.removePendingNotificationRequests(withIdentifiers: [identifier])
     }
 
     private func stopTimer() {
@@ -186,18 +202,26 @@ final class CalendarRecordingReminderScheduler {
             .filter(Self.isCalendarReminderIdentifier)
         try Task.checkCancellation()
         guard generation == refreshGeneration else { return 0 }
-        let planIDs = Set((plan.scheduled + plan.immediate).map(\.identifier))
-        cancelStaleInAppTimers(keeping: planIDs)
+        let plannedSchedules = plan.scheduled + plan.immediate
+        let planIDs = Set(plannedSchedules.map(\.identifier))
+        let planGroupIDs = Set(plannedSchedules.map(\.reminderGroupIdentifier))
+        externallyHandledReminderIdentifiers = externallyHandledReminderIdentifiers.intersection(planIDs)
+        externallyHandledReminderGroupIdentifiers = externallyHandledReminderGroupIdentifiers.intersection(planGroupIDs)
+        let externallyHandledIDs = Set(plannedSchedules
+            .filter(isExternallyHandled)
+            .map(\.identifier))
+        cancelStaleInAppTimers(keeping: planIDs.subtracting(externallyHandledIDs))
         notifiedReminderIdentifiers = notifiedReminderIdentifiers.intersection(planIDs)
         let immediateNotifiedIDs = deliveredIDs.union(notifiedReminderIdentifiers)
         let scheduledIDs = Set(plan.scheduled.map(\.identifier))
         let immediateIDs = Set(plan.immediate.map(\.identifier))
         var pendingToRemove = pendingIDs.subtracting(scheduledIDs).subtracting(immediateIDs)
+        pendingToRemove.formUnion(pendingIDs.intersection(externallyHandledIDs))
         try Task.checkCancellation()
         guard generation == refreshGeneration else { return 0 }
 
         var deliveredCount = 0
-        for schedule in plan.immediate where !immediateNotifiedIDs.contains(schedule.identifier) {
+        for schedule in plan.immediate where !immediateNotifiedIDs.contains(schedule.identifier) && !isExternallyHandled(schedule) {
             try Task.checkCancellation()
             guard generation == refreshGeneration else { return deliveredCount }
             if await presentInApp(schedule) {
@@ -219,7 +243,7 @@ final class CalendarRecordingReminderScheduler {
 
         var scheduledCount = 0
         var didFailScheduledAdd = false
-        for schedule in plan.scheduled where !deliveredIDs.contains(schedule.identifier) {
+        for schedule in plan.scheduled where !deliveredIDs.contains(schedule.identifier) && !isExternallyHandled(schedule) {
             try Task.checkCancellation()
             guard generation == refreshGeneration else { return deliveredCount + scheduledCount }
             do {
@@ -252,6 +276,11 @@ final class CalendarRecordingReminderScheduler {
             self.notifiedReminderIdentifiers.insert(presentedSchedule.identifier)
             self.notificationManager.removePendingNotificationRequests(withIdentifiers: [presentedSchedule.identifier])
         }
+    }
+
+    private func isExternallyHandled(_ schedule: CalendarRecordingReminderSchedule) -> Bool {
+        externallyHandledReminderIdentifiers.contains(schedule.identifier)
+            || externallyHandledReminderGroupIdentifiers.contains(schedule.reminderGroupIdentifier)
     }
 
     private func scheduleInAppTimer(for schedule: CalendarRecordingReminderSchedule, generation timerGeneration: Int) {
@@ -409,6 +438,35 @@ final class CalendarRecordingReminderScheduler {
         let startTimestamp = Int(event.start.timeIntervalSince1970.rounded())
         let normalizedLeadMinutes = normalizedLeadMinuteOption(leadMinutes)
         return "\(notificationIdentifierPrefix):\(event.calendarID):\(event.id):\(startTimestamp):\(normalizedLeadMinutes)"
+    }
+
+    nonisolated static func reminderGroupIdentifier(for event: GoogleCalendarEvent) -> String {
+        reminderGroupIdentifier(
+            calendarID: event.calendarID,
+            eventID: event.id,
+            startTimestamp: Int(event.start.timeIntervalSince1970.rounded())
+        )
+    }
+
+    nonisolated static func reminderGroupIdentifier(from userInfo: [AnyHashable: Any]) -> String? {
+        guard let calendarID = userInfo["calendarID"] as? String,
+              let eventID = userInfo["eventID"] as? String,
+              let eventStart = timeIntervalValue(userInfo["eventStart"]) else { return nil }
+        return reminderGroupIdentifier(
+            calendarID: calendarID,
+            eventID: eventID,
+            startTimestamp: Int(eventStart.rounded())
+        )
+    }
+
+    private nonisolated static func reminderGroupIdentifier(calendarID: String, eventID: String, startTimestamp: Int) -> String {
+        "\(calendarID):\(eventID):\(startTimestamp)"
+    }
+
+    private nonisolated static func timeIntervalValue(_ value: Any?) -> TimeInterval? {
+        if let value = value as? TimeInterval { return value }
+        if let value = value as? NSNumber { return value.doubleValue }
+        return nil
     }
 
     nonisolated static func isCalendarReminderIdentifier(_ identifier: String) -> Bool {

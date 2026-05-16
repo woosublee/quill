@@ -30,6 +30,7 @@ struct CalendarRecordingReminderSchedulerTests {
         await testImmediateReminderUsesInAppPresenterWhenAlertsAreUnavailable()
         await testScheduledReminderCreatesInAppTimerAndKeepsLocalFallback()
         await testScheduledReminderDelaysLocalFallbackPastInAppFireDate()
+        await testExternallyHandledReminderSuppressesSameEventInAppPresentation()
         print("CalendarRecordingReminderSchedulerTests passed")
     }
 
@@ -444,6 +445,31 @@ struct CalendarRecordingReminderSchedulerTests {
             return
         }
         assert(localNotificationDate.timeIntervalSince(inAppFireDate) >= CalendarRecordingReminderScheduler.localNotificationFallbackDelay - 1)
+    }
+
+    @MainActor
+    private static func testExternallyHandledReminderSuppressesSameEventInAppPresentation() async {
+        let start = Date().addingTimeInterval(300).timeIntervalSince1970
+        let event = calendarEvent(id: "meeting", start: start, end: start + 1_800)
+        let tenMinuteIdentifier = CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 10)
+        let oneMinuteIdentifier = CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 1)
+        let notificationManager = FakeNotificationManager(pendingIdentifiers: [tenMinuteIdentifier, oneMinuteIdentifier])
+        let presenter = FakeInAppPresenter()
+        let scheduler = CalendarRecordingReminderScheduler(
+            notificationManager: notificationManager,
+            inAppPresenter: presenter
+        ) { _, _ in [event] }
+        scheduler.markReminderHandledExternally(
+            identifier: tenMinuteIdentifier,
+            reminderGroupIdentifier: CalendarRecordingReminderScheduler.reminderGroupIdentifier(for: event)
+        )
+
+        let count = try! await scheduler.rescheduleNow(leadMinutes: [10, 1])
+
+        assert(count == 0)
+        assert(presenter.presentedIdentifiers.isEmpty)
+        assert(notificationManager.addedIdentifiers.isEmpty)
+        assert(Set(notificationManager.removedIdentifiers) == [tenMinuteIdentifier, oneMinuteIdentifier])
     }
 
     private static func calendarEvent(

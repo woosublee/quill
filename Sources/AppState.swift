@@ -3132,6 +3132,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    func startRecordingFromCalendarReminder(_ action: CalendarRecordingReminderNotificationAction) {
+        calendarRecordingReminderScheduler.markReminderHandledExternally(
+            identifier: action.identifier,
+            reminderGroupIdentifier: action.reminderGroupIdentifier
+        )
+        startRecordingFromCalendarReminder()
+    }
+
+    @MainActor
     func startRecordingFromCalendarReminder() {
         guard !isRecording else { return }
         lastTranscript = ""
