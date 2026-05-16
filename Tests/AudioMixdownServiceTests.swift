@@ -105,13 +105,20 @@ struct AudioMixdownServiceTests {
     }
 
     private static func activeRMSAvoidsIntermediateArrays() throws {
-        let source = try String(contentsOfFile: "Sources/AudioMixdownService.swift", encoding: .utf8)
+        let source = try String(contentsOf: audioMixdownServiceSourceURL, encoding: .utf8)
         guard !source.contains("samples.map { Float($0) }.filter") else {
             throw TestFailure("activeRMS should avoid building an intermediate activeSamples array")
         }
         guard source.contains("for sample in samples") else {
             throw TestFailure("activeRMS should scan samples directly")
         }
+    }
+
+    private static var audioMixdownServiceSourceURL: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/AudioMixdownService.swift")
     }
 
     private static func writeTinyWAV(samples: [Int16]) throws -> URL {

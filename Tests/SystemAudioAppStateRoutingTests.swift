@@ -60,18 +60,29 @@ struct SystemAudioAppStateRoutingTests {
         let systemDefaultAndSystemAudioAccessBody = try functionBody(named: "ensureSystemDefaultAndSystemAudioAccess", in: source)
         let microphoneUndeterminedBranch = """
         if microphoneStatus == .notDetermined {
-            let systemGranted = hasScreenCapturePermission()
-            hasScreenRecordingPermission = systemGranted
-            if systemGranted {
-                return true
-            }
             _ = ensureMicrophoneAccess()
             return false
         }
 """
         precondition(
             systemDefaultAndSystemAudioAccessBody.contains(microphoneUndeterminedBranch),
-            "System Default + System Audio access must proceed when Screen & System Audio is already granted while still prompting for microphone access when neither source is available"
+            "System Default + System Audio should always request microphone access instead of treating Screen & System Audio alone as enough"
+        )
+        precondition(
+            systemDefaultAndSystemAudioAccessBody.contains("guard microphoneGranted else"),
+            "System Default + System Audio should require microphone permission before starting"
+        )
+        precondition(
+            systemDefaultAndSystemAudioAccessBody.contains("guard systemGranted else"),
+            "System Default + System Audio should require Screen & System Audio permission before starting"
+        )
+        precondition(
+            !systemDefaultAndSystemAudioAccessBody.contains("microphoneGranted || systemGranted"),
+            "System Default + System Audio should not start with only one permission granted"
+        )
+        precondition(
+            source.contains("needs Microphone and Screen & System Audio Recording access"),
+            "System Default + System Audio error text should describe both required permissions"
         )
 
         precondition(setupSource.contains("@State private var testSystemAudioRecorder: SystemAudioRecorder? = nil"))

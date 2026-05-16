@@ -198,7 +198,7 @@ test:
 	@/tmp/SystemAudioRecorderSourceTests
 	@swiftc -parse-as-library Tests/SystemDefaultAndSystemAudioRecorderSourceTests.swift -o /tmp/SystemDefaultAndSystemAudioRecorderSourceTests
 	@/tmp/SystemDefaultAndSystemAudioRecorderSourceTests
-	@swiftc -parse-as-library Sources/AudioMixdownService.swift Tests/AudioMixdownServiceTests.swift -o /tmp/AudioMixdownServiceTests
+	@swiftc -parse-as-library "$(CURDIR)/Sources/AudioMixdownService.swift" "$(CURDIR)/Tests/AudioMixdownServiceTests.swift" -o /tmp/AudioMixdownServiceTests
 	@/tmp/AudioMixdownServiceTests
 	@swiftc -parse-as-library Sources/AudioWaveformHeights.swift Tests/AudioWaveformHeightsTests.swift -o /tmp/AudioWaveformHeightsTests
 	@/tmp/AudioWaveformHeightsTests

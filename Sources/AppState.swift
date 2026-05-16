@@ -3603,30 +3603,36 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func ensureSystemDefaultAndSystemAudioAccess() async -> Bool {
         let microphoneStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         if microphoneStatus == .notDetermined {
-            let systemGranted = hasScreenCapturePermission()
-            hasScreenRecordingPermission = systemGranted
-            if systemGranted {
-                return true
-            }
             _ = ensureMicrophoneAccess()
             return false
         }
 
         let microphoneGranted = microphoneStatus == .authorized
-        let systemGranted = await requestScreenCapturePermissionForRecordingStart()
-        hasScreenRecordingPermission = systemGranted
-        if microphoneGranted || systemGranted {
-            return true
+        guard microphoneGranted else {
+            hasScreenRecordingPermission = hasScreenCapturePermission()
+            showSystemDefaultAndSystemAudioAccessError()
+            return false
         }
 
-        let message = "System Default + System Audio recording needs Microphone or Screen & System Audio Recording access. Enable at least one in System Settings > Privacy & Security."
+        let systemGranted = await requestScreenCapturePermissionForRecordingStart()
+        hasScreenRecordingPermission = systemGranted
+        guard systemGranted else {
+            showSystemDefaultAndSystemAudioAccessError()
+            return false
+        }
+
+        return true
+    }
+
+    @MainActor
+    private func showSystemDefaultAndSystemAudioAccessError() {
+        let message = "System Default + System Audio recording needs Microphone and Screen & System Audio Recording access. Enable both in System Settings > Privacy & Security."
         errorMessage = message
         statusText = "System Default + System Audio Required"
         activeRecordingTriggerMode = nil
         currentSessionIntent = .dictation
         shortcutSessionController.reset()
         playAlertSound(named: "Basso")
-        return false
     }
 
     @MainActor
