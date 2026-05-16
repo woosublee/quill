@@ -98,6 +98,7 @@ struct SetupView: View {
     @State private var testPhase: TestPhase = .idle
     @State private var testAudioRecorder: AudioRecorder? = nil
     @State private var testSystemAudioRecorder: SystemAudioRecorder? = nil
+    @State private var testMeetingAudioRecorder: MeetingAudioRecorder? = nil
     @State private var testAudioLevel: Float = 0.0
     @State private var testTranscript: String = ""
     @State private var testError: String? = nil
@@ -990,6 +991,7 @@ struct SetupView: View {
                 Picker("Input:", selection: setupMicrophoneSelection) {
                     Text("System Default").tag(AudioInputDevice.defaultMicrophoneID)
                     Text("System Audio").tag(AudioInputDevice.systemAudioID)
+                    Text("Meeting Audio").tag(AudioInputDevice.meetingAudioID)
                     ForEach(appState.availableMicrophones) { device in
                         Text(device.name).tag(device.uid)
                     }
@@ -1373,16 +1375,19 @@ struct SetupView: View {
                 if testPhase == .done {
                     resetTest()
                 }
-                if AudioInputDevice.isSystemAudio(appState.selectedMicrophoneID) {
+                if AudioInputDevice.isMeetingAudio(appState.selectedMicrophoneID) {
+                    startMeetingAudioTestRecording()
+                } else if AudioInputDevice.isSystemAudio(appState.selectedMicrophoneID) {
                     startSystemAudioTestRecording()
                 } else {
                     startMicrophoneTestRecording()
                 }
 
             case .stop:
-                guard (testPhase == .starting || testPhase == .recording), testAudioRecorder != nil || testSystemAudioRecorder != nil else { return }
+                guard (testPhase == .starting || testPhase == .recording), testAudioRecorder != nil || testSystemAudioRecorder != nil || testMeetingAudioRecorder != nil else { return }
                 if testPhase == .starting {
                     testSystemAudioRecorder?.cancelRecording()
+                    testMeetingAudioRecorder?.cancelRecording()
                     resetTest()
                     return
                 }
@@ -1400,9 +1405,16 @@ struct SetupView: View {
                             recorder.cleanup()
                         }
                     }
-                } else {
+                } else if testSystemAudioRecorder != nil {
                     let recorder = testSystemAudioRecorder
                     testSystemAudioRecorder?.stopRecording { url in
+                        finishTestRecording(url) {
+                            recorder?.cleanup()
+                        }
+                    }
+                } else {
+                    let recorder = testMeetingAudioRecorder
+                    testMeetingAudioRecorder?.stopRecording { url in
                         finishTestRecording(url) {
                             recorder?.cleanup()
                         }
@@ -1437,6 +1449,7 @@ struct SetupView: View {
             try recorder.startRecording(deviceUID: appState.selectedMicrophoneID)
             testAudioRecorder = recorder
             testSystemAudioRecorder = nil
+            testMeetingAudioRecorder = nil
             testError = nil
             testAudioLevelCancellable = recorder.$audioLevel
                 .receive(on: DispatchQueue.main)
@@ -1461,6 +1474,51 @@ struct SetupView: View {
         }
         testAudioRecorder = nil
         testSystemAudioRecorder = recorder
+        testMeetingAudioRecorder = nil
+        testError = nil
+        testAudioLevelCancellable = recorder.$audioLevel
+            .receive(on: DispatchQueue.main)
+            .sink { level in
+                testAudioLevel = level
+            }
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            testPhase = .starting
+        }
+        Task {
+            do {
+                try await recorder.startRecording()
+                await MainActor.run {
+                    guard testPhase == .starting else { return }
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        testPhase = .recording
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    guard testPhase == .starting else { return }
+                    handleTestStartFailure(error)
+                    recorder.cleanup()
+                }
+            }
+        }
+    }
+
+    private func startMeetingAudioTestRecording() {
+        let microphoneRecorder = AudioRecorder()
+        let systemAudioRecorder = SystemAudioRecorder()
+        let recorder = MeetingAudioRecorder(
+            microphoneRecorder: microphoneRecorder,
+            systemAudioRecorder: systemAudioRecorder
+        )
+        recorder.onRecordingFailure = { [weak recorder] error in
+            guard let recorder else { return }
+            handleTestRecordingFailure(error) {
+                recorder.cleanup()
+            }
+        }
+        testAudioRecorder = nil
+        testSystemAudioRecorder = nil
+        testMeetingAudioRecorder = recorder
         testError = nil
         testAudioLevelCancellable = recorder.$audioLevel
             .receive(on: DispatchQueue.main)
@@ -1496,6 +1554,7 @@ struct SetupView: View {
         testAudioLevel = 0.0
         testAudioRecorder = nil
         testSystemAudioRecorder = nil
+        testMeetingAudioRecorder = nil
         testError = error.localizedDescription
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
             testPhase = .done
@@ -1510,6 +1569,7 @@ struct SetupView: View {
             testHotkeyHarness.isTranscribing = false
             testAudioRecorder = nil
             testSystemAudioRecorder = nil
+            testMeetingAudioRecorder = nil
             testError = error.localizedDescription
             withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                 testPhase = .done
@@ -1524,6 +1584,7 @@ struct SetupView: View {
                 testHotkeyHarness.isTranscribing = false
                 testAudioRecorder = nil
                 testSystemAudioRecorder = nil
+                testMeetingAudioRecorder = nil
                 if testError == nil {
                     testError = "No audio file was created."
                 }
@@ -1543,6 +1604,7 @@ struct SetupView: View {
                     testHotkeyHarness.isTranscribing = false
                     testAudioRecorder = nil
                     testSystemAudioRecorder = nil
+                    testMeetingAudioRecorder = nil
                     testTranscript = transcript
                     withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
                         testPhase = .done
@@ -1553,6 +1615,7 @@ struct SetupView: View {
                     testHotkeyHarness.isTranscribing = false
                     testAudioRecorder = nil
                     testSystemAudioRecorder = nil
+                    testMeetingAudioRecorder = nil
                     testError = error.localizedDescription
                     withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
                         testPhase = .done
@@ -1577,8 +1640,13 @@ struct SetupView: View {
             recorder.cancelRecording()
         }
         testSystemAudioRecorder?.cancelRecording()
+        if let recorder = testMeetingAudioRecorder {
+            recorder.cancelRecording()
+            recorder.cleanup()
+        }
         testAudioRecorder = nil
         testSystemAudioRecorder = nil
+        testMeetingAudioRecorder = nil
     }
 
     private func stopTestHotkeyMonitoring() {
