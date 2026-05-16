@@ -13,6 +13,7 @@ struct CalendarRecordingReminderSchedulerTests {
         testExcludesAllDayTitlelessInvalidAndSelfDeclinedEvents()
         testNotificationIdentifierIsStable()
         testNotificationIdentifierNormalizesUnsupportedLeadMinutes()
+        testReminderGroupIdentifierIgnoresLeadMinutes()
         testCalendarReminderIdentifierFilteringUsesPrefix()
         testNotificationTitleDescribesRelativeStartTime()
         testNormalizesLeadMinutes()
@@ -165,6 +166,24 @@ struct CalendarRecordingReminderSchedulerTests {
         let identifier = CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 14)
 
         assert(identifier == "calendar-recording-reminder:calendar:event:2000:15")
+    }
+
+    private static func testReminderGroupIdentifierIgnoresLeadMinutes() {
+        let event = calendarEvent(calendarID: "calendar", id: "event", start: 2_000, end: 2_500)
+        let fiveMinuteReminder = CalendarRecordingReminderSchedule(
+            identifier: CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 5),
+            fireDate: Date(timeIntervalSince1970: 1_700),
+            event: event,
+            delivery: .scheduled
+        )
+        let oneMinuteReminder = CalendarRecordingReminderSchedule(
+            identifier: CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 1),
+            fireDate: Date(timeIntervalSince1970: 1_940),
+            event: event,
+            delivery: .scheduled
+        )
+
+        assert(fiveMinuteReminder.reminderGroupIdentifier == oneMinuteReminder.reminderGroupIdentifier)
     }
 
     private static func testCalendarReminderIdentifierFilteringUsesPrefix() {

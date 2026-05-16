@@ -1,5 +1,9 @@
 import AppKit
+import Combine
 import SwiftUI
+
+private let meetingReminderContentTransitionAnimation = Animation.spring(response: 0.28, dampingFraction: 0.88, blendDuration: 0.08)
+private let meetingReminderCenterOverlayWidth: CGFloat = 150
 
 struct MeetingReminderOverlayContext: Equatable {
     var phase: Phase
@@ -141,9 +145,11 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
     }
 
     private var panel: NSPanel?
+    private var viewModel: MeetingReminderOverlayViewModel?
     private var visibleReminder: QueuedReminder?
     private var queue: [QueuedReminder] = []
     private var queuedIdentifiers: Set<String> = []
+    private var queuedReminderGroupIdentifiers: Set<String> = []
     private let contextProvider: () -> MeetingReminderOverlayContext
 
     var onStart: ((CalendarRecordingReminderSchedule) -> Void)?
@@ -167,10 +173,14 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
     }
 
     private func enqueue(_ schedule: CalendarRecordingReminderSchedule, onPresented: @escaping CalendarRecordingReminderPresentedHandler) {
-        guard visibleReminder?.schedule.identifier != schedule.identifier,
-              !queuedIdentifiers.contains(schedule.identifier) else { return }
+        if visibleReminder?.schedule.reminderGroupIdentifier == schedule.reminderGroupIdentifier || queuedReminderGroupIdentifiers.contains(schedule.reminderGroupIdentifier) {
+            onPresented(schedule)
+            return
+        }
+        guard !queuedIdentifiers.contains(schedule.identifier) else { return }
         queue.append(QueuedReminder(schedule: schedule, onPresented: onPresented))
         queuedIdentifiers.insert(schedule.identifier)
+        queuedReminderGroupIdentifiers.insert(schedule.reminderGroupIdentifier)
         showNextIfNeeded()
     }
 
@@ -178,6 +188,7 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
         guard visibleReminder == nil, !queue.isEmpty else { return }
         let reminder = queue.removeFirst()
         queuedIdentifiers.remove(reminder.schedule.identifier)
+        queuedReminderGroupIdentifiers.remove(reminder.schedule.reminderGroupIdentifier)
         visibleReminder = reminder
         render(reminder, markPresented: true, animated: true)
     }
@@ -191,17 +202,25 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
             for: context,
             hasNotchGeometry: MeetingReminderOverlayGeometry.hasNotchGeometry(for: screen)
         )
-        let rootView = MeetingReminderOverlayView(
-            displayData: displayData(for: schedule, context: context, variant: variant),
-            onStart: { [weak self] in self?.handleStart() },
-            onDismiss: { [weak self] in self?.handleDismiss() }
-        )
-        let hostingView = NSHostingView(rootView: rootView.frame(width: frame.width, height: frame.height))
-        hostingView.frame = NSRect(origin: .zero, size: frame.size)
-
+        let displayData = displayData(for: schedule, context: context, variant: variant)
         let panel = panel ?? makePanel(frame: frame)
         panel.ignoresMouseEvents = false
-        panel.contentView = hostingView
+        if let viewModel, panel.contentView != nil {
+            withAnimation(meetingReminderContentTransitionAnimation) {
+                viewModel.displayData = displayData
+            }
+            panel.contentView?.frame = NSRect(origin: .zero, size: frame.size)
+        } else {
+            let viewModel = MeetingReminderOverlayViewModel(displayData: displayData)
+            let hostingView = NSHostingView(rootView: MeetingReminderOverlayRootView(
+                viewModel: viewModel,
+                onStart: { [weak self] in self?.handleStart() },
+                onDismiss: { [weak self] in self?.handleDismiss() }
+            ))
+            hostingView.frame = NSRect(origin: .zero, size: frame.size)
+            panel.contentView = hostingView
+            self.viewModel = viewModel
+        }
         panel.level = variant.isRecordingContext ? Self.recordingContextLevel : .screenSaver
         self.panel = panel
 
@@ -320,32 +339,66 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
     }
 }
 
+@MainActor
+private final class MeetingReminderOverlayViewModel: ObservableObject {
+    @Published var displayData: MeetingReminderOverlayDisplayData
+
+    init(displayData: MeetingReminderOverlayDisplayData) {
+        self.displayData = displayData
+    }
+}
+
+private struct MeetingReminderOverlayRootView: View {
+    @ObservedObject var viewModel: MeetingReminderOverlayViewModel
+    let onStart: () -> Void
+    let onDismiss: () -> Void
+    @Namespace private var animationNamespace
+
+    var body: some View {
+        MeetingReminderOverlayView(
+            displayData: viewModel.displayData,
+            animationNamespace: animationNamespace,
+            onStart: onStart,
+            onDismiss: onDismiss
+        )
+        .animation(meetingReminderContentTransitionAnimation, value: viewModel.displayData)
+    }
+}
+
 private struct MeetingReminderOverlayView: View {
     let displayData: MeetingReminderOverlayDisplayData
+    let animationNamespace: Namespace.ID
     let onStart: () -> Void
     let onDismiss: () -> Void
 
     var body: some View {
         switch displayData.variant {
         case .defaultReminder:
-            DefaultMeetingReminderOverlayView(displayData: displayData, onStart: onStart, onDismiss: onDismiss)
+            DefaultMeetingReminderOverlayView(
+                displayData: displayData,
+                animationNamespace: animationNamespace,
+                onStart: onStart,
+                onDismiss: onDismiss
+            )
         case .notchSidesRecording, .notchSidesProcessing:
-            NotchSidesMeetingReminderOverlayView(displayData: displayData, onDismiss: onDismiss)
+            NotchSidesMeetingReminderOverlayView(
+                displayData: displayData,
+                animationNamespace: animationNamespace,
+                onDismiss: onDismiss
+            )
         case .notchCenterRecording, .notchCenterProcessing:
             CenterMeetingReminderOverlayView(
                 displayData: displayData,
+                animationNamespace: animationNamespace,
                 topContentHeight: 62,
-                appIconX: 56,
-                closeButtonX: 56,
                 rowTop: 76,
                 onDismiss: onDismiss
             )
         case .centerRecording, .centerProcessing:
             CenterMeetingReminderOverlayView(
                 displayData: displayData,
+                animationNamespace: animationNamespace,
                 topContentHeight: 38,
-                appIconX: 54,
-                closeButtonX: 54,
                 rowTop: 58,
                 onDismiss: onDismiss
             )
@@ -355,25 +408,35 @@ private struct MeetingReminderOverlayView: View {
 
 private struct DefaultMeetingReminderOverlayView: View {
     let displayData: MeetingReminderOverlayDisplayData
+    let animationNamespace: Namespace.ID
     let onStart: () -> Void
     let onDismiss: () -> Void
 
     var body: some View {
         ZStack(alignment: .top) {
             OverlayBackground(cornerRadius: 26)
+                .matchedGeometryEffect(id: "background", in: animationNamespace)
             VStack(spacing: 0) {
-                HStack {
-                    HStack(spacing: 7) {
-                        AppIconView(size: 20, cornerRadius: 6)
-                        Text("Quill")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.76))
+                GeometryReader { proxy in
+                    let topSideAreaWidth = max(0, (proxy.size.width - meetingReminderCenterOverlayWidth) / 2)
+                    ZStack(alignment: .topLeading) {
+                        HStack(spacing: 6) {
+                            AppIconView(size: 22, cornerRadius: 6)
+                                .matchedGeometryEffect(id: "appIcon", in: animationNamespace)
+                            Text("Quill")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.72))
+                                .lineLimit(1)
+                        }
+                        .frame(width: topSideAreaWidth, height: 30)
+                        .position(x: topSideAreaWidth / 2, y: 15)
+                        CloseButton(action: onDismiss)
+                            .matchedGeometryEffect(id: "closeButton", in: animationNamespace)
+                            .frame(width: topSideAreaWidth, height: 30)
+                            .position(x: proxy.size.width - topSideAreaWidth / 2, y: 15)
                     }
-                    Spacer()
-                    CloseButton(action: onDismiss)
                 }
                 .frame(height: 30)
-                .padding(.horizontal, 14)
 
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -382,15 +445,18 @@ private struct DefaultMeetingReminderOverlayView: View {
                             .foregroundStyle(.white)
                             .lineLimit(1)
                             .truncationMode(.tail)
+                            .matchedGeometryEffect(id: "title", in: animationNamespace)
                         Text(displayData.startText)
                             .font(.system(size: 10.5, weight: .medium))
                             .foregroundStyle(.white.opacity(0.64))
                             .lineLimit(1)
                             .truncationMode(.tail)
+                            .matchedGeometryEffect(id: "startText", in: animationNamespace)
                     }
                     Spacer(minLength: 0)
                     Button("Start", action: onStart)
                         .buttonStyle(MeetingReminderPrimaryButtonStyle())
+                        .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 8)
@@ -403,14 +469,17 @@ private struct DefaultMeetingReminderOverlayView: View {
 
 private struct NotchSidesMeetingReminderOverlayView: View {
     let displayData: MeetingReminderOverlayDisplayData
+    let animationNamespace: Namespace.ID
     let onDismiss: () -> Void
 
     var body: some View {
         ZStack(alignment: .top) {
             OverlayBackground(cornerRadius: 12)
+                .matchedGeometryEffect(id: "background", in: animationNamespace)
             MeetingInfoRow(
                 displayData: displayData,
                 includesIcon: true,
+                animationNamespace: animationNamespace,
                 onDismiss: onDismiss
             )
             .padding(.leading, 12)
@@ -423,23 +492,35 @@ private struct NotchSidesMeetingReminderOverlayView: View {
 
 private struct CenterMeetingReminderOverlayView: View {
     let displayData: MeetingReminderOverlayDisplayData
+    let animationNamespace: Namespace.ID
     let topContentHeight: CGFloat
-    let appIconX: CGFloat
-    let closeButtonX: CGFloat
     let rowTop: CGFloat
     let onDismiss: () -> Void
 
     var body: some View {
         GeometryReader { proxy in
+            let topSideAreaWidth = max(0, (proxy.size.width - meetingReminderCenterOverlayWidth) / 2)
             ZStack(alignment: .topLeading) {
                 OverlayBackground(cornerRadius: displayData.variant == .centerRecording || displayData.variant == .centerProcessing ? 22 : 24)
-                AppIconView(size: 22, cornerRadius: 6)
-                    .position(x: appIconX + 11, y: topContentHeight / 2)
+                    .matchedGeometryEffect(id: "background", in: animationNamespace)
+                HStack(spacing: 6) {
+                    AppIconView(size: 22, cornerRadius: 6)
+                        .matchedGeometryEffect(id: "appIcon", in: animationNamespace)
+                    Text("Quill")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.72))
+                        .lineLimit(1)
+                }
+                .frame(width: topSideAreaWidth, height: topContentHeight)
+                .position(x: topSideAreaWidth / 2, y: topContentHeight / 2)
                 CloseButton(action: onDismiss)
-                    .position(x: proxy.size.width - closeButtonX + 10, y: topContentHeight / 2)
+                    .matchedGeometryEffect(id: "closeButton", in: animationNamespace)
+                    .frame(width: topSideAreaWidth, height: topContentHeight)
+                    .position(x: proxy.size.width - topSideAreaWidth / 2, y: topContentHeight / 2)
                 MeetingInfoRow(
                     displayData: displayData,
                     includesIcon: false,
+                    animationNamespace: animationNamespace,
                     onDismiss: onDismiss
                 )
                 .padding(.horizontal, 16)
@@ -456,26 +537,31 @@ private struct CenterMeetingReminderOverlayView: View {
 private struct MeetingInfoRow: View {
     let displayData: MeetingReminderOverlayDisplayData
     let includesIcon: Bool
+    let animationNamespace: Namespace.ID
     let onDismiss: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
             if includesIcon {
                 AppIconView(size: 18, cornerRadius: 5)
+                    .matchedGeometryEffect(id: "appIcon", in: animationNamespace)
             }
             Text(displayData.title)
                 .font(.system(size: includesIcon ? 13 : 14, weight: .bold))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .truncationMode(.tail)
+                .matchedGeometryEffect(id: "title", in: animationNamespace)
             Spacer(minLength: 0)
             Text(displayData.startText)
                 .font(.system(size: includesIcon ? 10 : 10.5, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.62))
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
+                .matchedGeometryEffect(id: "startText", in: animationNamespace)
             if includesIcon {
                 CloseButton(action: onDismiss)
+                    .matchedGeometryEffect(id: "closeButton", in: animationNamespace)
             }
         }
     }

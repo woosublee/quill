@@ -12,6 +12,11 @@ struct CalendarRecordingReminderSchedule: Equatable {
     let event: GoogleCalendarEvent
     let delivery: Delivery
 
+    var reminderGroupIdentifier: String {
+        let startTimestamp = Int(event.start.timeIntervalSince1970.rounded())
+        return "\(event.calendarID):\(event.id):\(startTimestamp)"
+    }
+
     enum Delivery: Equatable {
         case scheduled
         case immediate

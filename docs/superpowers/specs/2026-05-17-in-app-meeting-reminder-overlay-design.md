@@ -64,8 +64,8 @@ Default reminder panel:
 - The center-top notch-safe zone contains no content on notch displays.
 - Approximate final dimensions: 336 pt wide and 92 pt tall.
 - If the screen is too narrow, keep safe side margins and fall back to a smaller centered variant rather than clipping controls.
-- Top-left: real Quill app icon and `Quill` label.
-- Top-right: circular `×` dismiss button.
+- Top-left side area: real Quill app icon and `Quill` label centered on the same left-side basis used by contextual center layouts.
+- Top-right side area: circular `×` dismiss button centered on the same right-side basis used by contextual center layouts.
 - Body left: one-line meeting title and `Starts at 10:30 AM` secondary text.
 - Body right: primary `Start` button.
 
@@ -73,7 +73,7 @@ Recording-context reminder panels:
 
 - The existing recording overlay remains visible and foregrounded; the reminder panel sits behind or around it.
 - For Notch Sides, size the reminder panel from the notch-side overlay width and keep the panel compact vertically. The reminder row uses app icon, truncated title, start time, and an `×` button aligned to the right edge.
-- For Center Dropdown Fill on a notch display, keep the notch+center recording overlay foregrounded. Put only the app icon in the left top side area and `×` in the right top side area. Put title and `Starts at 10:30 AM` on one row below; the title truncates and the start time is right-aligned.
+- For Center Dropdown Fill on a notch display, keep the notch+center recording overlay foregrounded. Put the app icon and `Quill` label in the left top side area and `×` in the right top side area. Put title and `Starts at 10:30 AM` on one row below; the title truncates and the start time is right-aligned.
 - For Center Dropdown Fill on a non-notch display, use the same C layout without the notch-safe zone.
 - Long meeting titles are always single-line truncated with an ellipsis.
 
@@ -150,7 +150,7 @@ This intentionally keeps the first implementation smaller than the issue's sugge
 - If the in-app overlay cannot be shown, keep the local notification fallback.
 - If multiple reminders are due in one refresh, enqueue them sorted by fire date and identifier.
 - If duplicate immediate reminders are encountered, keep using identifier-based suppression.
-- If a reminder is already queued or visible, do not enqueue the same identifier again.
+- If a reminder for the same calendar event and start time is already queued or visible, treat later lead-time reminders as already represented and do not enqueue another overlay.
 - If the meeting title is empty or the event is all-day, keep existing scheduler eligibility rules and do not show the reminder.
 - If recording starts from the overlay but permission checks fail, existing recording start error handling applies.
 
