@@ -700,8 +700,40 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    func isNoteBrowserTranscriptionModeAvailable(_ mode: NoteBrowserTranscriptionMode) -> Bool {
+        guard AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID) else { return true }
+        switch mode {
+        case .apiRealtime, .localAppleLive:
+            return false
+        case .apiStandard, .localWhisper:
+            return true
+        }
+    }
+
     @MainActor
     func setNoteBrowserTranscriptionMode(_ mode: NoteBrowserTranscriptionMode) {
+        applyNoteBrowserTranscriptionMode(normalizedNoteBrowserTranscriptionMode(mode))
+    }
+
+    private func normalizeNoteBrowserTranscriptionModeForSelectedInput() {
+        let normalizedMode = normalizedNoteBrowserTranscriptionMode(currentNoteBrowserTranscriptionMode)
+        guard normalizedMode != currentNoteBrowserTranscriptionMode else { return }
+        applyNoteBrowserTranscriptionMode(normalizedMode)
+    }
+
+    private func normalizedNoteBrowserTranscriptionMode(_ mode: NoteBrowserTranscriptionMode) -> NoteBrowserTranscriptionMode {
+        guard !isNoteBrowserTranscriptionModeAvailable(mode) else { return mode }
+        switch mode {
+        case .apiRealtime:
+            return .apiStandard
+        case .localAppleLive:
+            return .localWhisper
+        case .apiStandard, .localWhisper:
+            return mode
+        }
+    }
+
+    private func applyNoteBrowserTranscriptionMode(_ mode: NoteBrowserTranscriptionMode) {
         switch mode {
         case .apiStandard:
             useLocalTranscription = false
@@ -940,6 +972,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var selectedMicrophoneID: String {
         didSet {
             UserDefaults.standard.set(selectedMicrophoneID, forKey: selectedMicrophoneStorageKey)
+            normalizeNoteBrowserTranscriptionModeForSelectedInput()
         }
     }
     @Published var availableMicrophones: [AudioDevice] = []
@@ -1234,6 +1267,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.hasScreenRecordingPermission = initialScreenCapturePermission
         self.launchAtLogin = SMAppService.mainApp.status == .enabled
         self.selectedMicrophoneID = selectedMicrophoneID
+        normalizeNoteBrowserTranscriptionModeForSelectedInput()
         self.precomputeMacros()
 
         speechRecognitionAuthorizationStatus = Self.currentSpeechRecognitionAuthorizationStatus()

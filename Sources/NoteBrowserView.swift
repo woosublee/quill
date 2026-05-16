@@ -398,6 +398,13 @@ struct NoteBrowserView: View {
         }
     }
 
+    private var transcriptionModeSelection: Binding<NoteBrowserTranscriptionMode> {
+        Binding(
+            get: { appState.currentNoteBrowserTranscriptionMode },
+            set: { appState.setNoteBrowserTranscriptionMode($0) }
+        )
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             sidebarPanel
@@ -503,22 +510,23 @@ struct NoteBrowserView: View {
                 Spacer()
 
                 Menu {
-                    Section("API") {
-                        Button("Standard") {
-                            appState.setNoteBrowserTranscriptionMode(.apiStandard)
+                    Picker("Transcription Mode", selection: transcriptionModeSelection) {
+                        Section("API") {
+                            Text("Standard")
+                                .tag(NoteBrowserTranscriptionMode.apiStandard)
+                            Text("Realtime")
+                                .tag(NoteBrowserTranscriptionMode.apiRealtime)
+                                .disabled(!appState.isNoteBrowserTranscriptionModeAvailable(.apiRealtime))
                         }
-                        Button("Realtime") {
-                            appState.setNoteBrowserTranscriptionMode(.apiRealtime)
+                        Section("Local") {
+                            Text("Whisper")
+                                .tag(NoteBrowserTranscriptionMode.localWhisper)
+                            Text("Apple Live")
+                                .tag(NoteBrowserTranscriptionMode.localAppleLive)
+                                .disabled(!appState.isNoteBrowserTranscriptionModeAvailable(.localAppleLive))
                         }
                     }
-                    Section("Local") {
-                        Button("Whisper") {
-                            appState.setNoteBrowserTranscriptionMode(.localWhisper)
-                        }
-                        Button("Apple Live") {
-                            appState.setNoteBrowserTranscriptionMode(.localAppleLive)
-                        }
-                    }
+                    .pickerStyle(.inline)
                 } label: {
                     Text(appState.noteBrowserTranscriptionModeLabel)
                         .font(.system(size: 11, weight: .semibold))

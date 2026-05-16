@@ -5,6 +5,7 @@ struct SystemAudioAppStateRoutingTests {
     static func main() throws {
         let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
         let setupSource = try String(contentsOfFile: "Sources/SetupView.swift", encoding: .utf8)
+        let noteBrowserSource = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
 
         precondition(source.contains("let systemAudioRecorder = SystemAudioRecorder()"))
         precondition(source.contains("lazy var systemDefaultAndSystemAudioRecorder = SystemDefaultAndSystemAudioRecorder("))
@@ -20,6 +21,15 @@ struct SystemAudioAppStateRoutingTests {
         precondition(source.contains("private func ensureSystemDefaultAndSystemAudioAccess() async -> Bool"))
         precondition(source.contains("let supportsLiveTranscription = !AudioInputDevice.isSystemDefaultAndSystemAudio(audioInputID)"))
         precondition(source.contains("if supportsLiveTranscription {\n            startRealtimeStreamingIfEnabled()\n        }"))
+        precondition(source.contains("func isNoteBrowserTranscriptionModeAvailable(_ mode: NoteBrowserTranscriptionMode) -> Bool"))
+        precondition(source.contains("normalizeNoteBrowserTranscriptionModeForSelectedInput()"))
+        precondition(noteBrowserSource.contains("Picker(\"Transcription Mode\", selection: transcriptionModeSelection)"))
+        precondition(noteBrowserSource.contains(".tag(NoteBrowserTranscriptionMode.apiStandard)"))
+        precondition(noteBrowserSource.contains(".tag(NoteBrowserTranscriptionMode.apiRealtime)"))
+        precondition(noteBrowserSource.contains(".tag(NoteBrowserTranscriptionMode.localWhisper)"))
+        precondition(noteBrowserSource.contains(".tag(NoteBrowserTranscriptionMode.localAppleLive)"))
+        precondition(noteBrowserSource.contains(".disabled(!appState.isNoteBrowserTranscriptionModeAvailable(.apiRealtime))"))
+        precondition(noteBrowserSource.contains(".disabled(!appState.isNoteBrowserTranscriptionModeAvailable(.localAppleLive))"))
         precondition(source.contains("private var activeAudioInputID: String?"))
         precondition(source.contains("ensureRecordingInputAccess(for: audioInputID)"))
         precondition(source.contains("AudioInputDevice.isSystemAudio(inputID)"))

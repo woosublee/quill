@@ -1,6 +1,6 @@
 import Foundation
 
-enum NoteBrowserTranscriptionMode: CaseIterable, Equatable {
+enum NoteBrowserTranscriptionMode: CaseIterable, Equatable, Hashable {
     case apiStandard
     case apiRealtime
     case localWhisper
