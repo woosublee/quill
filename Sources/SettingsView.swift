@@ -1974,9 +1974,9 @@ struct GeneralSettingsView: View {
                     action: { appState.selectedMicrophoneID = AudioInputDevice.systemAudioID }
                 )
                 MicrophoneOptionRow(
-                    name: "Meeting Audio",
-                    isSelected: appState.selectedMicrophoneID == AudioInputDevice.meetingAudioID,
-                    action: { appState.selectedMicrophoneID = AudioInputDevice.meetingAudioID }
+                    name: "System Default + System Audio",
+                    isSelected: appState.selectedMicrophoneID == AudioInputDevice.systemDefaultAndSystemAudioID,
+                    action: { appState.selectedMicrophoneID = AudioInputDevice.systemDefaultAndSystemAudioID }
                 )
                 ForEach(appState.availableMicrophones) { device in
                     MicrophoneOptionRow(

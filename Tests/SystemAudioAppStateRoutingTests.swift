@@ -7,18 +7,18 @@ struct SystemAudioAppStateRoutingTests {
         let setupSource = try String(contentsOfFile: "Sources/SetupView.swift", encoding: .utf8)
 
         precondition(source.contains("let systemAudioRecorder = SystemAudioRecorder()"))
-        precondition(source.contains("lazy var meetingAudioRecorder = MeetingAudioRecorder("))
-        precondition(source.contains("meetingAudioRecorder.cleanup()"))
-        precondition(source.contains("meetingAudioRecorder.onRecordingReady = nil"))
-        precondition(source.contains("meetingAudioRecorder.onRecordingFailure = nil"))
-        precondition(source.contains("AudioInputDevice.isMeetingAudio(inputID)"))
-        precondition(source.contains("return meetingAudioRecorder.$audioLevel.eraseToAnyPublisher()"))
-        precondition(source.contains("meetingAudioRecorder.startRecording()"))
-        precondition(source.contains("meetingAudioRecorder.stopRecording(completion: completion)"))
-        precondition(source.contains("meetingAudioRecorder.cancelRecording()"))
+        precondition(source.contains("lazy var systemDefaultAndSystemAudioRecorder = SystemDefaultAndSystemAudioRecorder("))
+        precondition(source.contains("systemDefaultAndSystemAudioRecorder.cleanup()"))
+        precondition(source.contains("systemDefaultAndSystemAudioRecorder.onRecordingReady = nil"))
+        precondition(source.contains("systemDefaultAndSystemAudioRecorder.onRecordingFailure = nil"))
+        precondition(source.contains("AudioInputDevice.isSystemDefaultAndSystemAudio(inputID)"))
+        precondition(source.contains("return systemDefaultAndSystemAudioRecorder.$audioLevel.eraseToAnyPublisher()"))
+        precondition(source.contains("systemDefaultAndSystemAudioRecorder.startRecording()"))
+        precondition(source.contains("systemDefaultAndSystemAudioRecorder.stopRecording(completion: completion)"))
+        precondition(source.contains("systemDefaultAndSystemAudioRecorder.cancelRecording()"))
         precondition(source.contains("AudioInputDevice.isMicrophoneOnly(audioInputID)"))
-        precondition(source.contains("private func ensureMeetingAudioAccess() async -> Bool"))
-        precondition(source.contains("let supportsLiveTranscription = !AudioInputDevice.isMeetingAudio(audioInputID)"))
+        precondition(source.contains("private func ensureSystemDefaultAndSystemAudioAccess() async -> Bool"))
+        precondition(source.contains("let supportsLiveTranscription = !AudioInputDevice.isSystemDefaultAndSystemAudio(audioInputID)"))
         precondition(source.contains("if supportsLiveTranscription {\n            startRealtimeStreamingIfEnabled()\n        }"))
         precondition(source.contains("private var activeAudioInputID: String?"))
         precondition(source.contains("ensureRecordingInputAccess(for: audioInputID)"))
@@ -42,7 +42,7 @@ struct SystemAudioAppStateRoutingTests {
         precondition(source.contains("systemAudioRecorder.cleanup"))
         precondition(source.contains("AudioInputDevice.isMicrophoneOnly(audioInputID)"))
 
-        let meetingAudioAccessBody = try functionBody(named: "ensureMeetingAudioAccess", in: source)
+        let systemDefaultAndSystemAudioAccessBody = try functionBody(named: "ensureSystemDefaultAndSystemAudioAccess", in: source)
         let microphoneUndeterminedBranch = """
         if microphoneStatus == .notDetermined {
             let systemGranted = hasScreenCapturePermission()
@@ -55,30 +55,30 @@ struct SystemAudioAppStateRoutingTests {
         }
 """
         precondition(
-            meetingAudioAccessBody.contains(microphoneUndeterminedBranch),
-            "Meeting Audio access must proceed when Screen & System Audio is already granted while still prompting for microphone access when neither source is available"
+            systemDefaultAndSystemAudioAccessBody.contains(microphoneUndeterminedBranch),
+            "System Default + System Audio access must proceed when Screen & System Audio is already granted while still prompting for microphone access when neither source is available"
         )
 
         precondition(setupSource.contains("@State private var testSystemAudioRecorder: SystemAudioRecorder? = nil"))
-        precondition(setupSource.contains("@State private var testMeetingAudioRecorder: MeetingAudioRecorder? = nil"))
+        precondition(setupSource.contains("@State private var testSystemDefaultAndSystemAudioRecorder: SystemDefaultAndSystemAudioRecorder? = nil"))
         precondition(setupSource.contains("case idle, starting, recording"))
         precondition(setupSource.contains("Picker(\"Input:\""))
-        precondition(setupSource.contains("AudioInputDevice.isMeetingAudio(appState.selectedMicrophoneID)"))
-        precondition(setupSource.contains("startMeetingAudioTestRecording()"))
+        precondition(setupSource.contains("AudioInputDevice.isSystemDefaultAndSystemAudio(appState.selectedMicrophoneID)"))
+        precondition(setupSource.contains("startSystemDefaultAndSystemAudioTestRecording()"))
         precondition(setupSource.contains("AudioInputDevice.isSystemAudio(appState.selectedMicrophoneID)"))
         precondition(setupSource.contains("let microphoneRecorder = AudioRecorder()"))
         precondition(setupSource.contains("let systemAudioRecorder = SystemAudioRecorder()"))
         precondition(setupSource.contains("let recorder = SystemAudioRecorder()"))
-        precondition(setupSource.contains("let recorder = MeetingAudioRecorder("))
+        precondition(setupSource.contains("let recorder = SystemDefaultAndSystemAudioRecorder("))
         precondition(setupSource.contains("try await recorder.startRecording()"))
         precondition(setupSource.contains("testSystemAudioRecorder = recorder"))
         precondition(setupSource.contains("testSystemAudioRecorder?.stopRecording"))
-        precondition(setupSource.contains("testMeetingAudioRecorder?.stopRecording"))
+        precondition(setupSource.contains("testSystemDefaultAndSystemAudioRecorder?.stopRecording"))
         precondition(setupSource.contains("testPhase == .starting"))
         precondition(setupSource.contains("guard testPhase == .starting else { return }"))
         precondition(setupSource.contains("testSystemAudioRecorder?.cancelRecording()"))
-        precondition(setupSource.contains("testMeetingAudioRecorder?.cancelRecording()"))
-        precondition(setupSource.contains("testMeetingAudioRecorder = nil"))
+        precondition(setupSource.contains("testSystemDefaultAndSystemAudioRecorder?.cancelRecording()"))
+        precondition(setupSource.contains("testSystemDefaultAndSystemAudioRecorder = nil"))
         precondition(setupSource.contains("private func clearTestRecordingState()"))
         precondition(setupSource.contains("testAudioLevelCancellable?.cancel()\n        testAudioLevelCancellable = nil\n        testAudioLevel = 0.0\n        testHotkeyHarness.isTranscribing = false"))
         precondition(countOccurrences(of: "clearTestRecordingState()", in: setupSource) >= 2)

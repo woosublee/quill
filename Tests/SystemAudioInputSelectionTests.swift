@@ -4,16 +4,16 @@ import Foundation
 struct SystemAudioInputSelectionTests {
     static func main() throws {
         testSystemAudioInputIdentifier()
-        testMeetingAudioInputIdentifier()
+        testSystemDefaultAndSystemAudioInputIdentifier()
         testSpecialInputClassification()
         testMicrophoneOnlyClassification()
         try testSettingsPickerShowsDefaultBeforeSystemAudio()
         try testMenuBarPickerShowsDefaultBeforeSystemAudio()
         try testSetupPickerShowsDefaultBeforeSystemAudio()
         try testSetupPickerTreatsEmptySelectionAsSystemDefault()
-        try testSettingsPickerIncludesMeetingAudio()
-        try testMenuBarPickerIncludesMeetingAudio()
-        try testSetupPickerIncludesMeetingAudio()
+        try testSettingsPickerIncludesSystemDefaultAndSystemAudio()
+        try testMenuBarPickerIncludesSystemDefaultAndSystemAudio()
+        try testSetupPickerIncludesSystemDefaultAndSystemAudio()
         print("SystemAudioInputSelectionTests passed")
     }
 
@@ -25,23 +25,23 @@ struct SystemAudioInputSelectionTests {
         assert(!AudioInputDevice.isSystemAudio(""))
     }
 
-    private static func testMeetingAudioInputIdentifier() {
-        assert(AudioInputDevice.meetingAudioID == "__meeting_audio__")
-        assert(AudioInputDevice.isMeetingAudio(AudioInputDevice.meetingAudioID))
-        assert(!AudioInputDevice.isMeetingAudio(AudioInputDevice.systemAudioID))
-        assert(!AudioInputDevice.isMeetingAudio(AudioInputDevice.defaultMicrophoneID))
+    private static func testSystemDefaultAndSystemAudioInputIdentifier() {
+        assert(AudioInputDevice.systemDefaultAndSystemAudioID == "__system_default_and_system_audio__")
+        assert(AudioInputDevice.isSystemDefaultAndSystemAudio(AudioInputDevice.systemDefaultAndSystemAudioID))
+        assert(!AudioInputDevice.isSystemDefaultAndSystemAudio(AudioInputDevice.systemAudioID))
+        assert(!AudioInputDevice.isSystemDefaultAndSystemAudio(AudioInputDevice.defaultMicrophoneID))
     }
 
     private static func testSpecialInputClassification() {
         assert(AudioInputDevice.isSpecialInput(AudioInputDevice.systemAudioID))
-        assert(AudioInputDevice.isSpecialInput(AudioInputDevice.meetingAudioID))
+        assert(AudioInputDevice.isSpecialInput(AudioInputDevice.systemDefaultAndSystemAudioID))
         assert(!AudioInputDevice.isSpecialInput(AudioInputDevice.defaultMicrophoneID))
     }
 
     private static func testMicrophoneOnlyClassification() {
         assert(AudioInputDevice.isMicrophoneOnly(AudioInputDevice.defaultMicrophoneID))
         assert(!AudioInputDevice.isMicrophoneOnly(AudioInputDevice.systemAudioID))
-        assert(!AudioInputDevice.isMicrophoneOnly(AudioInputDevice.meetingAudioID))
+        assert(!AudioInputDevice.isMicrophoneOnly(AudioInputDevice.systemDefaultAndSystemAudioID))
     }
 
     private static func testSettingsPickerShowsDefaultBeforeSystemAudio() throws {
@@ -81,22 +81,22 @@ struct SystemAudioInputSelectionTests {
         assertContains(source, "Picker(\"Input:\", selection: setupMicrophoneSelection)")
     }
 
-    private static func testSettingsPickerIncludesMeetingAudio() throws {
+    private static func testSettingsPickerIncludesSystemDefaultAndSystemAudio() throws {
         let source = try sourceFile("Sources/SettingsView.swift")
-        assertContains(source, "name: \"Meeting Audio\"")
-        assertContains(source, "AudioInputDevice.meetingAudioID")
+        assertContains(source, "name: \"System Default + System Audio\"")
+        assertContains(source, "AudioInputDevice.systemDefaultAndSystemAudioID")
     }
 
-    private static func testMenuBarPickerIncludesMeetingAudio() throws {
+    private static func testMenuBarPickerIncludesSystemDefaultAndSystemAudio() throws {
         let source = try sourceFile("Sources/MenuBarView.swift")
-        assertContains(source, "Text(\"✓ Meeting Audio\")")
-        assertContains(source, "AudioInputDevice.meetingAudioID")
+        assertContains(source, "Text(\"✓ System Default + System Audio\")")
+        assertContains(source, "AudioInputDevice.systemDefaultAndSystemAudioID")
     }
 
-    private static func testSetupPickerIncludesMeetingAudio() throws {
+    private static func testSetupPickerIncludesSystemDefaultAndSystemAudio() throws {
         let source = try sourceFile("Sources/SetupView.swift")
-        assertContains(source, "Text(\"Meeting Audio\").tag(AudioInputDevice.meetingAudioID)")
-        assertContains(source, "AudioInputDevice.meetingAudioID")
+        assertContains(source, "Text(\"System Default + System Audio\").tag(AudioInputDevice.systemDefaultAndSystemAudioID)")
+        assertContains(source, "AudioInputDevice.systemDefaultAndSystemAudioID")
     }
 
     private static func sourceFile(_ path: String) throws -> String {

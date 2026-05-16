@@ -2,7 +2,7 @@ import Combine
 import Foundation
 import os
 
-final class MeetingAudioRecorder: ObservableObject {
+final class SystemDefaultAndSystemAudioRecorder: ObservableObject {
     let microphoneRecorder: AudioRecorder
     let systemAudioRecorder: SystemAudioRecorder
     let mixdownService: AudioMixdownService
@@ -89,7 +89,7 @@ final class MeetingAudioRecorder: ObservableObject {
             (state.microphoneStarted, state.systemStarted)
         }
         guard microphoneStarted || systemStarted else {
-            throw MeetingAudioRecorderError.failedToStartAnyRecorder(startErrors)
+            throw SystemDefaultAndSystemAudioRecorderError.failedToStartAnyRecorder(startErrors)
         }
     }
 
@@ -243,14 +243,14 @@ final class MeetingAudioRecorder: ObservableObject {
     }
 }
 
-enum MeetingAudioRecorderError: LocalizedError {
+enum SystemDefaultAndSystemAudioRecorderError: LocalizedError {
     case failedToStartAnyRecorder([Error])
 
     var errorDescription: String? {
         switch self {
         case .failedToStartAnyRecorder(let errors):
             let details = errors.map(\.localizedDescription).joined(separator: "; ")
-            return details.isEmpty ? "Could not start meeting audio recording." : "Could not start meeting audio recording: \(details)"
+            return details.isEmpty ? "Could not start System Default + System Audio recording." : "Could not start System Default + System Audio recording: \(details)"
         }
     }
 }

@@ -1,8 +1,8 @@
-# Meeting Audio End-to-End Design
+# System Default + System Audio End-to-End Design
 
 ## Goal
 
-Add a user-facing `Meeting Audio` input that records the system default microphone and system audio together, mixes them into one final WAV after recording stops, and sends that final file through the existing transcription/history pipeline.
+Add a user-facing `System Default + System Audio` input that records the system default microphone and system audio together, mixes them into one final WAV after recording stops, and sends that final file through the existing transcription/history pipeline.
 
 ## Architecture
 
@@ -10,13 +10,13 @@ Keep existing single-source paths intact:
 
 - Microphone inputs continue to use `AudioRecorder`.
 - `System Audio` continues to use `SystemAudioRecorder`.
-- `Meeting Audio` adds a thin coordinator that reuses those same recorders and returns one final audio URL to `AppState`.
+- `System Default + System Audio` adds a thin coordinator that reuses those same recorders and returns one final audio URL to `AppState`.
 
 ```text
 selectedMicrophoneID
   ├─ normal mic ID / default → AudioRecorder → final URL
   ├─ __system_audio__       → SystemAudioRecorder → final URL
-  └─ __meeting_audio__      → MeetingAudioRecorder
+  └─ __system_default_and_system_audio__      → SystemDefaultAndSystemAudioRecorder
                                ├─ AudioRecorder → mic.wav
                                ├─ SystemAudioRecorder → system.wav
                                └─ AudioMixdownService → mixed.wav/fallback URL
@@ -26,19 +26,19 @@ selectedMicrophoneID
 
 ## Input selection
 
-Add `AudioInputDevice.meetingAudioID = "__meeting_audio__"` and expose it as `Meeting Audio` wherever `System Audio` is currently selectable.
+Add `AudioInputDevice.systemDefaultAndSystemAudioID = "__system_default_and_system_audio__"` and expose it as `System Default + System Audio` wherever `System Audio` is currently selectable.
 
 Meaning:
 
 - `System Default` and physical devices: microphone-only.
 - `System Audio`: computer audio only.
-- `Meeting Audio`: system default microphone plus computer audio.
+- `System Default + System Audio`: system default microphone plus computer audio.
 
-For this PR, `Meeting Audio` always uses `AudioInputDevice.defaultMicrophoneID` for the microphone side. Choosing a separate microphone inside Meeting Audio is out of scope.
+For this PR, `System Default + System Audio` always uses `AudioInputDevice.defaultMicrophoneID` for the microphone side. Choosing a separate microphone inside System Default + System Audio is out of scope.
 
 ## Recorder coordination
 
-Add `MeetingAudioRecorder` with the same external shape used by the current routing helpers:
+Add `SystemDefaultAndSystemAudioRecorder` with the same external shape used by the current routing helpers:
 
 - `@Published var audioLevel: Float`
 - `var onRecordingReady: (() -> Void)?`
@@ -58,7 +58,7 @@ Start policy:
 
 Ready policy:
 
-- The first child recorder to receive real audio fires `MeetingAudioRecorder.onRecordingReady()`.
+- The first child recorder to receive real audio fires `SystemDefaultAndSystemAudioRecorder.onRecordingReady()`.
 - Do not wait for both sources; this prevents the overlay from being stuck when one source is silent or failed.
 
 Audio level policy:
@@ -95,9 +95,9 @@ This is intentionally simple. More advanced gain control and realtime alignment 
 
 ## Permission and fallback
 
-`Meeting Audio` needs both microphone access and Screen/System Audio Recording access for the full experience. However, the recording should preserve usable audio when one source is unavailable.
+`System Default + System Audio` needs both microphone access and Screen/System Audio Recording access for the full experience. However, the recording should preserve usable audio when one source is unavailable.
 
-- Both permissions available: full Meeting Audio.
+- Both permissions available: full System Default + System Audio.
 - Only microphone available: record microphone and continue.
 - Only system audio available: record system audio and continue.
 - Neither available: fail to start.
@@ -106,11 +106,11 @@ First-time permission prompts should reuse the existing microphone and system au
 
 ## Live/realtime transcription
 
-Meeting Audio realtime mixing is out of scope for this PR.
+System Default + System Audio realtime mixing is out of scope for this PR.
 
 - Microphone: existing realtime/live behavior remains.
 - System Audio: existing single-source behavior remains.
-- Meeting Audio: skip realtime/live streaming and transcribe the final file after stop.
+- System Default + System Audio: skip realtime/live streaming and transcribe the final file after stop.
 
 A follow-up PR can add a realtime mixer that aligns two PCM streams before sending a single stream to the realtime transcription service.
 
@@ -137,12 +137,12 @@ Automated validation:
 
 - `make test`
 - New `AudioMixdownServiceTests` for output shape and fallback-independent mix behavior.
-- Source-shape tests that ensure Meeting Audio uses the coordinator and does not replace existing mic/system paths.
+- Source-shape tests that ensure System Default + System Audio uses the coordinator and does not replace existing mic/system paths.
 
 Manual validation:
 
 - Build with `make run`.
-- Select `Meeting Audio`.
+- Select `System Default + System Audio`.
 - Play system audio and speak into the microphone.
 - Stop recording and confirm the final transcript contains both sources.
 - Confirm microphone-only and System Audio-only inputs still work.

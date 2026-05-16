@@ -1,11 +1,11 @@
 import Foundation
 
 @main
-struct MeetingAudioRecorderSourceTests {
+struct SystemDefaultAndSystemAudioRecorderSourceTests {
     static func main() throws {
-        let source = try String(contentsOfFile: "Sources/MeetingAudioRecorder.swift", encoding: .utf8)
+        let source = try String(contentsOfFile: "Sources/SystemDefaultAndSystemAudioRecorder.swift", encoding: .utf8)
 
-        precondition(source.contains("final class MeetingAudioRecorder: ObservableObject"))
+        precondition(source.contains("final class SystemDefaultAndSystemAudioRecorder: ObservableObject"))
         precondition(source.contains("@Published var audioLevel: Float"))
         precondition(source.contains("var onRecordingReady: (() -> Void)?"))
         precondition(source.contains("var onRecordingFailure: ((Error) -> Void)?"))
@@ -22,7 +22,7 @@ struct MeetingAudioRecorderSourceTests {
         precondition(source.contains("try await systemAudioRecorder.startRecording()"))
         precondition(source.contains("guard microphoneStarted || systemStarted else"))
         precondition(source.contains("fireRecordingReadyOnce()"))
-        precondition(source.contains("handleSourceFailure"), "MeetingAudioRecorder should aggregate child recorder failures before reporting overall failure")
+        precondition(source.contains("handleSourceFailure"), "SystemDefaultAndSystemAudioRecorder should aggregate child recorder failures before reporting overall failure")
         precondition(!source.contains("self?.onRecordingFailure?(error)"), "Child recorder failures should not be forwarded directly as overall failures")
         precondition(source.contains("subscribeToAudioLevelsIfNeeded()"), "startRecording should be able to restore audio level subscriptions after cleanup")
 
@@ -48,9 +48,9 @@ struct MeetingAudioRecorderSourceTests {
 
         let bannedSymbols = ["SCStream(", "AVCaptureSession(", "SCContentFilter(", "NSLock()"]
         for symbol in bannedSymbols {
-            precondition(!source.contains(symbol), "MeetingAudioRecorder must not create a new capture path with \(symbol)")
+            precondition(!source.contains(symbol), "SystemDefaultAndSystemAudioRecorder must not create a new capture path with \(symbol)")
         }
 
-        print("MeetingAudioRecorderSourceTests passed")
+        print("SystemDefaultAndSystemAudioRecorderSourceTests passed")
     }
 }

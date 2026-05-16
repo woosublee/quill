@@ -946,7 +946,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     let audioRecorder = AudioRecorder()
     let systemAudioRecorder = SystemAudioRecorder()
-    lazy var meetingAudioRecorder = MeetingAudioRecorder(
+    lazy var systemDefaultAndSystemAudioRecorder = SystemDefaultAndSystemAudioRecorder(
         microphoneRecorder: audioRecorder,
         systemAudioRecorder: systemAudioRecorder
     )
@@ -1928,7 +1928,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard !isRecording else { return }
         audioRecorder.cleanup()
         systemAudioRecorder.cleanup()
-        meetingAudioRecorder.cleanup()
+        systemDefaultAndSystemAudioRecorder.cleanup()
         activeAudioInputID = nil
         refreshAvailableMicrophonesIfNeeded()
     }
@@ -1941,8 +1941,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         systemAudioRecorder.onRecordingReady = nil
         systemAudioRecorder.onRecordingFailure = nil
         systemAudioRecorder.onPCM16Samples = nil
-        meetingAudioRecorder.onRecordingReady = nil
-        meetingAudioRecorder.onRecordingFailure = nil
+        systemDefaultAndSystemAudioRecorder.onRecordingReady = nil
+        systemDefaultAndSystemAudioRecorder.onRecordingFailure = nil
     }
 
     @MainActor
@@ -1952,9 +1952,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         onFailure: @escaping (Error) -> Void
     ) {
         clearAudioRecorderCallbacks()
-        if AudioInputDevice.isMeetingAudio(inputID) {
-            meetingAudioRecorder.onRecordingReady = onReady
-            meetingAudioRecorder.onRecordingFailure = onFailure
+        if AudioInputDevice.isSystemDefaultAndSystemAudio(inputID) {
+            systemDefaultAndSystemAudioRecorder.onRecordingReady = onReady
+            systemDefaultAndSystemAudioRecorder.onRecordingFailure = onFailure
         } else if AudioInputDevice.isSystemAudio(inputID) {
             systemAudioRecorder.onRecordingReady = onReady
             systemAudioRecorder.onRecordingFailure = onFailure
@@ -1965,8 +1965,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func activeRecorderAudioLevelPublisher(inputID: String) -> AnyPublisher<Float, Never> {
-        if AudioInputDevice.isMeetingAudio(inputID) {
-            return meetingAudioRecorder.$audioLevel.eraseToAnyPublisher()
+        if AudioInputDevice.isSystemDefaultAndSystemAudio(inputID) {
+            return systemDefaultAndSystemAudioRecorder.$audioLevel.eraseToAnyPublisher()
         }
         if AudioInputDevice.isSystemAudio(inputID) {
             return systemAudioRecorder.$audioLevel.eraseToAnyPublisher()
@@ -1976,7 +1976,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private func setActiveRecorderPCMHandler(_ handler: ((Data) -> Void)?) {
         let inputID = activeAudioInputID ?? selectedMicrophoneID
-        if AudioInputDevice.isMeetingAudio(inputID) {
+        if AudioInputDevice.isSystemDefaultAndSystemAudio(inputID) {
             audioRecorder.onPCM16Samples = nil
             systemAudioRecorder.onPCM16Samples = nil
         } else if AudioInputDevice.isSystemAudio(inputID) {
@@ -1989,8 +1989,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func startSelectedAudioRecorder(inputID: String) async throws {
-        if AudioInputDevice.isMeetingAudio(inputID) {
-            try await meetingAudioRecorder.startRecording()
+        if AudioInputDevice.isSystemDefaultAndSystemAudio(inputID) {
+            try await systemDefaultAndSystemAudioRecorder.startRecording()
         } else if AudioInputDevice.isSystemAudio(inputID) {
             try await systemAudioRecorder.startRecording()
         } else {
@@ -2000,8 +2000,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private func stopActiveAudioRecorder(completion: @escaping (URL?) -> Void) {
         let inputID = activeAudioInputID ?? selectedMicrophoneID
-        if AudioInputDevice.isMeetingAudio(inputID) {
-            meetingAudioRecorder.stopRecording(completion: completion)
+        if AudioInputDevice.isSystemDefaultAndSystemAudio(inputID) {
+            systemDefaultAndSystemAudioRecorder.stopRecording(completion: completion)
         } else if AudioInputDevice.isSystemAudio(inputID) {
             systemAudioRecorder.stopRecording(completion: completion)
         } else {
@@ -2011,8 +2011,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private func cancelActiveAudioRecorder() {
         let inputID = activeAudioInputID ?? selectedMicrophoneID
-        if AudioInputDevice.isMeetingAudio(inputID) {
-            meetingAudioRecorder.cancelRecording()
+        if AudioInputDevice.isSystemDefaultAndSystemAudio(inputID) {
+            systemDefaultAndSystemAudioRecorder.cancelRecording()
         } else if AudioInputDevice.isSystemAudio(inputID) {
             systemAudioRecorder.cancelRecording()
         } else {
@@ -3556,8 +3556,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func ensureRecordingInputAccess(for inputID: String) async -> Bool {
-        if AudioInputDevice.isMeetingAudio(inputID) {
-            return await ensureMeetingAudioAccess()
+        if AudioInputDevice.isSystemDefaultAndSystemAudio(inputID) {
+            return await ensureSystemDefaultAndSystemAudioAccess()
         }
         if AudioInputDevice.isSystemAudio(inputID) {
             return await ensureSystemAudioAccess()
@@ -3566,7 +3566,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
-    private func ensureMeetingAudioAccess() async -> Bool {
+    private func ensureSystemDefaultAndSystemAudioAccess() async -> Bool {
         let microphoneStatus = AVCaptureDevice.authorizationStatus(for: .audio)
         if microphoneStatus == .notDetermined {
             let systemGranted = hasScreenCapturePermission()
@@ -3585,9 +3585,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return true
         }
 
-        let message = "Meeting Audio recording needs Microphone or Screen & System Audio Recording access. Enable at least one in System Settings > Privacy & Security."
+        let message = "System Default + System Audio recording needs Microphone or Screen & System Audio Recording access. Enable at least one in System Settings > Privacy & Security."
         errorMessage = message
-        statusText = "Meeting Audio Required"
+        statusText = "System Default + System Audio Required"
         activeRecordingTriggerMode = nil
         currentSessionIntent = .dictation
         shortcutSessionController.reset()
@@ -3745,7 +3745,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         clearPendingOverlayDismissToken()
         errorMessage = nil
         let audioInputID = selectedMicrophoneID
-        let supportsLiveTranscription = !AudioInputDevice.isMeetingAudio(audioInputID)
+        let supportsLiveTranscription = !AudioInputDevice.isSystemDefaultAndSystemAudio(audioInputID)
 
         if supportsLiveTranscription && useLocalTranscription && localTranscriptionModel.isAppleSpeech {
             refreshSpeechRecognitionAuthorizationStatus()

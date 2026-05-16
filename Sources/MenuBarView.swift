@@ -286,12 +286,12 @@ struct MenuBarView: View {
                     }
                 }
                 Button {
-                    appState.selectedMicrophoneID = AudioInputDevice.meetingAudioID
+                    appState.selectedMicrophoneID = AudioInputDevice.systemDefaultAndSystemAudioID
                 } label: {
-                    if appState.selectedMicrophoneID == AudioInputDevice.meetingAudioID {
-                        Text("✓ Meeting Audio")
+                    if appState.selectedMicrophoneID == AudioInputDevice.systemDefaultAndSystemAudioID {
+                        Text("✓ System Default + System Audio")
                     } else {
-                        Text("  Meeting Audio")
+                        Text("  System Default + System Audio")
                     }
                 }
                 ForEach(appState.availableMicrophones) { device in
