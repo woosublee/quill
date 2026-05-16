@@ -151,12 +151,17 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
     private var queuedIdentifiers: Set<String> = []
     private var queuedReminderGroupIdentifiers: Set<String> = []
     private let contextProvider: () -> MeetingReminderOverlayContext
+    private let screenProvider: () -> NSScreen?
 
-    var onStart: ((CalendarRecordingReminderSchedule) -> Void)?
-    var onDismiss: ((CalendarRecordingReminderSchedule) -> Void)?
+    var onStart: (@MainActor (CalendarRecordingReminderSchedule) -> Void)?
+    var onDismiss: (@MainActor (CalendarRecordingReminderSchedule) -> Void)?
 
-    init(contextProvider: @escaping () -> MeetingReminderOverlayContext) {
+    init(
+        contextProvider: @escaping () -> MeetingReminderOverlayContext,
+        screenProvider: @escaping () -> NSScreen? = { NSScreen.main }
+    ) {
         self.contextProvider = contextProvider
+        self.screenProvider = screenProvider
     }
 
     func presentCalendarRecordingReminder(
@@ -164,38 +169,42 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
         onPresented: @escaping CalendarRecordingReminderPresentedHandler
     ) async -> Bool {
         enqueue(schedule, onPresented: onPresented)
-        return true
     }
 
     func refreshVisibleReminder() {
         guard let visibleReminder else { return }
-        render(visibleReminder, markPresented: false, animated: true)
+        _ = render(visibleReminder, markPresented: false, animated: true)
     }
 
-    private func enqueue(_ schedule: CalendarRecordingReminderSchedule, onPresented: @escaping CalendarRecordingReminderPresentedHandler) {
+    private func enqueue(_ schedule: CalendarRecordingReminderSchedule, onPresented: @escaping CalendarRecordingReminderPresentedHandler) -> Bool {
         if visibleReminder?.schedule.reminderGroupIdentifier == schedule.reminderGroupIdentifier || queuedReminderGroupIdentifiers.contains(schedule.reminderGroupIdentifier) {
             onPresented(schedule)
-            return
+            return true
         }
-        guard !queuedIdentifiers.contains(schedule.identifier) else { return }
+        guard !queuedIdentifiers.contains(schedule.identifier) else { return true }
+        guard screenProvider() != nil else { return false }
         queue.append(QueuedReminder(schedule: schedule, onPresented: onPresented))
         queuedIdentifiers.insert(schedule.identifier)
         queuedReminderGroupIdentifiers.insert(schedule.reminderGroupIdentifier)
-        showNextIfNeeded()
+        return showNextIfNeeded()
     }
 
-    private func showNextIfNeeded() {
-        guard visibleReminder == nil, !queue.isEmpty else { return }
+    private func showNextIfNeeded() -> Bool {
+        guard visibleReminder == nil, !queue.isEmpty else { return true }
         let reminder = queue.removeFirst()
         queuedIdentifiers.remove(reminder.schedule.identifier)
         queuedReminderGroupIdentifiers.remove(reminder.schedule.reminderGroupIdentifier)
         visibleReminder = reminder
-        render(reminder, markPresented: true, animated: true)
+        if render(reminder, markPresented: true, animated: true) {
+            return true
+        }
+        visibleReminder = nil
+        return false
     }
 
-    private func render(_ reminder: QueuedReminder, markPresented: Bool, animated: Bool) {
+    private func render(_ reminder: QueuedReminder, markPresented: Bool, animated: Bool) -> Bool {
         let schedule = reminder.schedule
-        guard let screen = NSScreen.main else { return }
+        guard let screen = screenProvider() else { return false }
         let context = contextProvider()
         let frame = MeetingReminderOverlayGeometry.frame(for: screen, context: context)
         let variant = MeetingReminderOverlayGeometry.variant(
@@ -249,6 +258,7 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
         if markPresented {
             reminder.onPresented(schedule)
         }
+        return true
     }
 
     private static var recordingContextLevel: NSWindow.Level {
@@ -277,7 +287,7 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
         guard contextProvider().phase == .idle else { return }
         hideVisibleReminder(animated: true) { [weak self] in
             self?.onStart?(reminder.schedule)
-            self?.showNextIfNeeded()
+            _ = self?.showNextIfNeeded()
         }
     }
 
@@ -285,7 +295,7 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
         guard let reminder = visibleReminder else { return }
         hideVisibleReminder(animated: true) { [weak self] in
             self?.onDismiss?(reminder.schedule)
-            self?.showNextIfNeeded()
+            _ = self?.showNextIfNeeded()
         }
     }
 

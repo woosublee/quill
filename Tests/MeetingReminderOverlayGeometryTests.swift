@@ -1,8 +1,9 @@
 import CoreGraphics
+import Foundation
 
 @main
 struct MeetingReminderOverlayGeometryTests {
-    static func main() {
+    static func main() async {
         testDefaultSize()
         testUsesCompactWidthWhenScreenAllows()
         testClampsToScreenMargins()
@@ -12,6 +13,7 @@ struct MeetingReminderOverlayGeometryTests {
         testRecordingCenterWithNotchUsesNotchCenterVariant()
         testRecordingCenterWithoutNotchUsesCenterVariant()
         testContextualSizesMatchFinalDesign()
+        await testPresenterFailureWhenScreenUnavailableFallsBack()
         print("MeetingReminderOverlayGeometryTests passed")
     }
 
@@ -77,5 +79,36 @@ struct MeetingReminderOverlayGeometryTests {
         assert(MeetingReminderOverlayGeometry.size(for: .notchCenterProcessing, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 388, height: 112))
         assert(MeetingReminderOverlayGeometry.size(for: .centerRecording, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 336, height: 92))
         assert(MeetingReminderOverlayGeometry.size(for: .centerProcessing, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 336, height: 92))
+    }
+
+    @MainActor
+    private static func testPresenterFailureWhenScreenUnavailableFallsBack() async {
+        let manager = MeetingReminderOverlayManager(
+            contextProvider: { MeetingReminderOverlayContext(phase: .idle, layout: .centerDropdownFill) },
+            screenProvider: { nil }
+        )
+        let event = GoogleCalendarEvent(
+            id: "meeting",
+            calendarID: "calendar",
+            title: "Meeting",
+            start: Date(timeIntervalSince1970: 2_000),
+            end: Date(timeIntervalSince1970: 2_500),
+            isAllDay: false,
+            attendees: []
+        )
+        let schedule = CalendarRecordingReminderSchedule(
+            identifier: CalendarRecordingReminderScheduler.notificationIdentifier(for: event, leadMinutes: 10),
+            fireDate: Date(timeIntervalSince1970: 1_400),
+            event: event,
+            delivery: .immediate
+        )
+        var didMarkPresented = false
+
+        let didPresent = await manager.presentCalendarRecordingReminder(schedule) { _ in
+            didMarkPresented = true
+        }
+
+        assert(!didPresent)
+        assert(!didMarkPresented)
     }
 }
