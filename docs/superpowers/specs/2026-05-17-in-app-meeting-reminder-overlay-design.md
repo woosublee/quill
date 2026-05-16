@@ -63,6 +63,7 @@ Default reminder panel:
 - The lower corners are rounded.
 - The center-top notch-safe zone contains no content on notch displays.
 - Approximate final dimensions: 336 pt wide and 92 pt tall.
+- Default reminder shape is consistent across Notch Sides and Center Dropdown Fill; contextual recording/processing panels reuse that shell language and differ primarily by the width basis of the active recording overlay.
 - If the screen is too narrow, keep safe side margins and fall back to a smaller centered variant rather than clipping controls.
 - Top-left side area: real Quill app icon and `Quill` label centered on the same left-side basis used by contextual center layouts.
 - Top-right side area: circular `×` dismiss button centered on the same right-side basis used by contextual center layouts.
@@ -72,7 +73,7 @@ Default reminder panel:
 Recording-context reminder panels:
 
 - The existing recording overlay remains visible and foregrounded; the reminder panel sits behind or around it.
-- For Notch Sides, size the reminder panel from the notch-side overlay width and keep the panel compact vertically. The reminder row uses app icon, truncated title, start time, and an `×` button aligned to the right edge.
+- For Notch Sides, size the reminder panel from the notch-side overlay width while keeping the same default shell height and rounded lower corners. The reminder row uses app icon, truncated title, full `Starts at 10:30 AM` text, and an `×` button aligned to the right edge.
 - For Center Dropdown Fill on a notch display, keep the notch+center recording overlay foregrounded. Put the app icon and `Quill` label in the left top side area and `×` in the right top side area. Put title and `Starts at 10:30 AM` on one row below; the title truncates and the start time is right-aligned.
 - For Center Dropdown Fill on a non-notch display, use the same C layout without the notch-safe zone.
 - Long meeting titles are always single-line truncated with an ellipsis.
@@ -81,7 +82,7 @@ Processing-context reminder panels:
 
 - When recording stops while a reminder is still visible, keep the same reminder-in-recording panel shape.
 - Only the foreground recording overlay changes to its processing indicator.
-- When processing fully finishes and the reminder is still visible, transition to the default reminder panel with `Start` available.
+- When processing fully finishes and the reminder is still visible, transition to the standard default reminder panel with `Start` available.
 
 ## Overlay behavior
 

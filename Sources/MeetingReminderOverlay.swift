@@ -80,7 +80,7 @@ struct MeetingReminderOverlayGeometry {
         case .defaultReminder:
             return size(forScreenWidth: screenWidth)
         case .notchSidesRecording, .notchSidesProcessing:
-            return CGSize(width: max(280, notchSideWidth ?? defaultSize.width), height: notchSideHeight)
+            return CGSize(width: max(280, notchSideWidth ?? defaultSize.width), height: defaultSize.height)
         case .notchCenterRecording, .notchCenterProcessing:
             return CGSize(
                 width: min(notchCenterSize.width, max(280, screenWidth - horizontalScreenMargin * 2)),
@@ -427,6 +427,7 @@ private struct DefaultMeetingReminderOverlayView: View {
                                 .font(.system(size: 11, weight: .bold))
                                 .foregroundStyle(.white.opacity(0.72))
                                 .lineLimit(1)
+                                .matchedGeometryEffect(id: "appName", in: animationNamespace, properties: .position)
                         }
                         .frame(width: topSideAreaWidth, height: 30)
                         .position(x: topSideAreaWidth / 2, y: 15)
@@ -441,17 +442,17 @@ private struct DefaultMeetingReminderOverlayView: View {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(displayData.title)
-                            .font(.system(size: 15, weight: .bold))
+                            .font(.system(size: 14, weight: .bold))
                             .foregroundStyle(.white)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                            .matchedGeometryEffect(id: "title", in: animationNamespace)
+                            .matchedGeometryEffect(id: "title", in: animationNamespace, properties: .position)
                         Text(displayData.startText)
-                            .font(.system(size: 10.5, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.64))
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.62))
                             .lineLimit(1)
                             .truncationMode(.tail)
-                            .matchedGeometryEffect(id: "startText", in: animationNamespace)
+                            .matchedGeometryEffect(id: "startText", in: animationNamespace, properties: .position)
                     }
                     Spacer(minLength: 0)
                     Button("Start", action: onStart)
@@ -474,7 +475,7 @@ private struct NotchSidesMeetingReminderOverlayView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            OverlayBackground(cornerRadius: 12)
+            OverlayBackground(cornerRadius: 26)
                 .matchedGeometryEffect(id: "background", in: animationNamespace)
             MeetingInfoRow(
                 displayData: displayData,
@@ -486,7 +487,7 @@ private struct NotchSidesMeetingReminderOverlayView: View {
             .padding(.trailing, 6)
             .padding(.top, 50)
         }
-        .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 12, bottomTrailingRadius: 12))
+        .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 26, bottomTrailingRadius: 26))
     }
 }
 
@@ -510,6 +511,7 @@ private struct CenterMeetingReminderOverlayView: View {
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.white.opacity(0.72))
                         .lineLimit(1)
+                        .matchedGeometryEffect(id: "appName", in: animationNamespace, properties: .position)
                 }
                 .frame(width: topSideAreaWidth, height: topContentHeight)
                 .position(x: topSideAreaWidth / 2, y: topContentHeight / 2)
@@ -551,14 +553,14 @@ private struct MeetingInfoRow: View {
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .matchedGeometryEffect(id: "title", in: animationNamespace)
+                .matchedGeometryEffect(id: "title", in: animationNamespace, properties: .position)
             Spacer(minLength: 0)
             Text(displayData.startText)
                 .font(.system(size: includesIcon ? 10 : 10.5, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.62))
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                .matchedGeometryEffect(id: "startText", in: animationNamespace)
+                .matchedGeometryEffect(id: "startText", in: animationNamespace, properties: .position)
             if includesIcon {
                 CloseButton(action: onDismiss)
                     .matchedGeometryEffect(id: "closeButton", in: animationNamespace)
