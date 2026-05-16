@@ -1640,6 +1640,7 @@ struct SetupView: View {
             recorder.cancelRecording()
         }
         testSystemAudioRecorder?.cancelRecording()
+        testSystemAudioRecorder?.cleanup()
         if let recorder = testSystemDefaultAndSystemAudioRecorder {
             recorder.cancelRecording()
             recorder.cleanup()

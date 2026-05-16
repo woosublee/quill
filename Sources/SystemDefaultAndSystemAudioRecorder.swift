@@ -128,9 +128,12 @@ final class SystemDefaultAndSystemAudioRecorder: ObservableObject {
             }
         }
 
-        group.notify(queue: .main) {
+        group.notify(queue: .global(qos: .userInitiated)) {
             let urls = stoppedURLs.withLock { $0 }
-            completion(self.finalRecordingURL(microphoneURL: urls.microphoneURL, systemAudioURL: urls.systemAudioURL))
+            let finalURL = self.finalRecordingURL(microphoneURL: urls.microphoneURL, systemAudioURL: urls.systemAudioURL)
+            DispatchQueue.main.async {
+                completion(finalURL)
+            }
         }
     }
 
@@ -158,8 +161,10 @@ final class SystemDefaultAndSystemAudioRecorder: ObservableObject {
         audioLevel = 0.0
         microphoneRecorder.onRecordingReady = nil
         microphoneRecorder.onRecordingFailure = nil
+        microphoneRecorder.onPCM16Samples = nil
         systemAudioRecorder.onRecordingReady = nil
         systemAudioRecorder.onRecordingFailure = nil
+        systemAudioRecorder.onPCM16Samples = nil
     }
 
     private func configureChildCallbacks() {

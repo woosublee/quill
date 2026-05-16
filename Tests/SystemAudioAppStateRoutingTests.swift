@@ -51,6 +51,11 @@ struct SystemAudioAppStateRoutingTests {
         precondition(source.contains("systemAudioRecorder.cancelRecording"))
         precondition(source.contains("systemAudioRecorder.cleanup"))
         precondition(source.contains("AudioInputDevice.isMicrophoneOnly(audioInputID)"))
+        precondition(source.contains("let audioInputID = strongSelf.selectedMicrophoneID"))
+        precondition(source.contains("guard await strongSelf.ensureRecordingInputAccess(for: audioInputID) else { return }"))
+        precondition(source.contains("if AudioInputDevice.isMicrophoneOnly(audioInputID) {\n                                    strongSelf.applyAudioInterruptionIfNeeded()\n                                }"))
+        precondition(source.contains("let audioInputID = self.selectedMicrophoneID"))
+        precondition(source.contains("if AudioInputDevice.isMicrophoneOnly(audioInputID) {\n                                    self.applyAudioInterruptionIfNeeded()\n                                }"))
 
         let systemDefaultAndSystemAudioAccessBody = try functionBody(named: "ensureSystemDefaultAndSystemAudioAccess", in: source)
         let microphoneUndeterminedBranch = """
@@ -87,6 +92,7 @@ struct SystemAudioAppStateRoutingTests {
         precondition(setupSource.contains("testPhase == .starting"))
         precondition(setupSource.contains("guard testPhase == .starting else { return }"))
         precondition(setupSource.contains("testSystemAudioRecorder?.cancelRecording()"))
+        precondition(setupSource.contains("testSystemAudioRecorder?.cleanup()"))
         precondition(setupSource.contains("testSystemDefaultAndSystemAudioRecorder?.cancelRecording()"))
         precondition(setupSource.contains("testSystemDefaultAndSystemAudioRecorder = nil"))
         precondition(setupSource.contains("private func clearTestRecordingState()"))

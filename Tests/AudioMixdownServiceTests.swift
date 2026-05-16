@@ -10,6 +10,7 @@ struct AudioMixdownServiceTests {
             try preservesSystemAudioWhenMicrophoneIsSilent()
             try doesNotClipLoudSystemAudio()
             try outputFormatIs16kHzMonoInt16AndFrameCountIsMaxInputFrameCount()
+            try activeRMSAvoidsIntermediateArrays()
             print("AudioMixdownServiceTests passed")
         } catch {
             fputs("AudioMixdownServiceTests failed: \(error)\n", stderr)
@@ -103,6 +104,16 @@ struct AudioMixdownServiceTests {
         try expectEqual(samples, [250, 400, 800, 1000, 1200], "mixed samples should silence-pad shorter input")
     }
 
+    private static func activeRMSAvoidsIntermediateArrays() throws {
+        let source = try String(contentsOfFile: "Sources/AudioMixdownService.swift", encoding: .utf8)
+        guard !source.contains("samples.map { Float($0) }.filter") else {
+            throw TestFailure("activeRMS should avoid building an intermediate activeSamples array")
+        }
+        guard source.contains("for sample in samples") else {
+            throw TestFailure("activeRMS should scan samples directly")
+        }
+    }
+
     private static func writeTinyWAV(samples: [Int16]) throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("wav")
         var data = Data()
@@ -138,7 +149,11 @@ struct AudioMixdownServiceTests {
         guard let channelData = buffer.floatChannelData?[0] else {
             throw TestFailure("missing readable audio buffer data")
         }
-        return (0..<Int(buffer.frameLength)).map { Int16((channelData[$0] * 32768).rounded()) }
+        return (0..<Int(buffer.frameLength)).map {
+            let scaled = Int((channelData[$0] * 32768).rounded())
+            let clamped = min(Int(Int16.max), max(Int(Int16.min), scaled))
+            return Int16(clamped)
+        }
     }
 
     private static func expectEqual<T: Equatable>(_ actual: T, _ expected: T, _ label: String) throws {

@@ -57,13 +57,17 @@ public struct AudioMixdownService {
     }
 
     private func activeRMS(_ samples: [Int16]) -> Float {
-        let activeSamples = samples.map { Float($0) }.filter { abs($0) > 32 }
-        guard !activeSamples.isEmpty else { return 0 }
-
-        let sum = activeSamples.reduce(Float(0)) { partial, sample in
-            partial + sample * sample
+        var sum = Float(0)
+        var count = 0
+        for sample in samples {
+            let floatSample = Float(sample)
+            if abs(floatSample) > 32 {
+                sum += floatSample * floatSample
+                count += 1
+            }
         }
-        return sqrt(sum / Float(activeSamples.count))
+        guard count > 0 else { return 0 }
+        return sqrt(sum / Float(count))
     }
 
     private func mix(microphoneSample: Int16, systemAudioSample: Int16, systemGain: Float) -> Int16 {

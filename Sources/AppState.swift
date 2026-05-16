@@ -3686,8 +3686,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                                     selectionSnapshot: pendingSelectionSnapshot,
                                     manualCommandRequested: pendingManualCommandRequested
                                 ) else { return }
+                                let audioInputID = strongSelf.selectedMicrophoneID
+                                guard await strongSelf.ensureRecordingInputAccess(for: audioInputID) else { return }
                                 strongSelf.shortcutSessionController.beginManual(mode: .toggle)
-                                if AudioInputDevice.isMicrophoneOnly(strongSelf.selectedMicrophoneID) {
+                                if AudioInputDevice.isMicrophoneOnly(audioInputID) {
                                     strongSelf.applyAudioInterruptionIfNeeded()
                                 }
                                 strongSelf.beginRecording(triggerMode: .toggle)
@@ -3815,8 +3817,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                                     selectionSnapshot: pendingSelectionSnapshot,
                                     manualCommandRequested: pendingManualCommandRequested
                                 ) else { return }
+                                let audioInputID = self.selectedMicrophoneID
                                 self.shortcutSessionController.beginManual(mode: .toggle)
-                                self.applyAudioInterruptionIfNeeded()
+                                if AudioInputDevice.isMicrophoneOnly(audioInputID) {
+                                    self.applyAudioInterruptionIfNeeded()
+                                }
                                 self.beginRecording(triggerMode: .toggle)
                             }
                         } else {

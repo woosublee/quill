@@ -103,12 +103,6 @@ struct DictationShortcutEditor: View {
             Text("Custom shortcuts can use regular keys, modifier-only shortcuts, or modifier combinations.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-
-            if appState.usesFnShortcut {
-                Text("Tip: If Fn opens the Emoji picker, go to System Settings > Keyboard and change \"Press fn key to\" to \"Do Nothing\".")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            }
         }
         .onChange(of: activeCaptureTarget) { target in
             onCaptureStateChange?(target != nil)
