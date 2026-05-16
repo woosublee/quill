@@ -6,20 +6,76 @@ struct MeetingReminderOverlayGeometryTests {
         testDefaultSize()
         testUsesCompactWidthWhenScreenAllows()
         testClampsToScreenMargins()
+        testIdleContextUsesDefaultVariant()
+        testRecordingNotchSidesUsesNotchSideVariant()
+        testProcessingKeepsNotchSideVariant()
+        testRecordingCenterWithNotchUsesNotchCenterVariant()
+        testRecordingCenterWithoutNotchUsesCenterVariant()
+        testContextualSizesMatchFinalDesign()
         print("MeetingReminderOverlayGeometryTests passed")
     }
 
     private static func testDefaultSize() {
-        assert(MeetingReminderOverlayGeometry.defaultSize == CGSize(width: 368, height: 112))
+        assert(MeetingReminderOverlayGeometry.defaultSize == CGSize(width: 336, height: 92))
     }
 
     private static func testUsesCompactWidthWhenScreenAllows() {
         let size = MeetingReminderOverlayGeometry.size(forScreenWidth: 1_440)
-        assert(size == CGSize(width: 368, height: 112))
+        assert(size == CGSize(width: 336, height: 92))
     }
 
     private static func testClampsToScreenMargins() {
-        let size = MeetingReminderOverlayGeometry.size(forScreenWidth: 340)
-        assert(size == CGSize(width: 308, height: 112))
+        let size = MeetingReminderOverlayGeometry.size(forScreenWidth: 300)
+        assert(size == CGSize(width: 280, height: 92))
+    }
+
+    private static func testIdleContextUsesDefaultVariant() {
+        let variant = MeetingReminderOverlayGeometry.variant(
+            for: MeetingReminderOverlayContext(phase: .idle, layout: .notchSides),
+            hasNotchGeometry: true
+        )
+        assert(variant == .defaultReminder)
+    }
+
+    private static func testRecordingNotchSidesUsesNotchSideVariant() {
+        let variant = MeetingReminderOverlayGeometry.variant(
+            for: MeetingReminderOverlayContext(phase: .recording, layout: .notchSides),
+            hasNotchGeometry: true
+        )
+        assert(variant == .notchSidesRecording)
+    }
+
+    private static func testProcessingKeepsNotchSideVariant() {
+        let variant = MeetingReminderOverlayGeometry.variant(
+            for: MeetingReminderOverlayContext(phase: .processing, layout: .notchSides),
+            hasNotchGeometry: true
+        )
+        assert(variant == .notchSidesProcessing)
+    }
+
+    private static func testRecordingCenterWithNotchUsesNotchCenterVariant() {
+        let variant = MeetingReminderOverlayGeometry.variant(
+            for: MeetingReminderOverlayContext(phase: .recording, layout: .centerDropdownFill),
+            hasNotchGeometry: true
+        )
+        assert(variant == .notchCenterRecording)
+    }
+
+    private static func testRecordingCenterWithoutNotchUsesCenterVariant() {
+        let variant = MeetingReminderOverlayGeometry.variant(
+            for: MeetingReminderOverlayContext(phase: .recording, layout: .centerDropdownFill),
+            hasNotchGeometry: false
+        )
+        assert(variant == .centerRecording)
+    }
+
+    private static func testContextualSizesMatchFinalDesign() {
+        assert(MeetingReminderOverlayGeometry.size(for: .defaultReminder, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 336, height: 92))
+        assert(MeetingReminderOverlayGeometry.size(for: .notchSidesRecording, screenWidth: 1_440, notchSideWidth: 330) == CGSize(width: 330, height: 88))
+        assert(MeetingReminderOverlayGeometry.size(for: .notchSidesProcessing, screenWidth: 1_440, notchSideWidth: 330) == CGSize(width: 330, height: 88))
+        assert(MeetingReminderOverlayGeometry.size(for: .notchCenterRecording, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 388, height: 112))
+        assert(MeetingReminderOverlayGeometry.size(for: .notchCenterProcessing, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 388, height: 112))
+        assert(MeetingReminderOverlayGeometry.size(for: .centerRecording, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 336, height: 92))
+        assert(MeetingReminderOverlayGeometry.size(for: .centerProcessing, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 336, height: 92))
     }
 }

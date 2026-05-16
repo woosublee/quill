@@ -54,26 +54,34 @@ Recommended structure:
 
 ## Overlay visual design
 
-Use the approved compact unified island design.
+Use the approved compact unified island design for non-recording reminders, and expand from the active recording overlay layout when recording or processing is active. The backed-up visual matrix is in `docs/superpowers/specs/2026-05-17-recording-reminder-matrix-mockup.html`.
+
+Default reminder panel:
 
 - The overlay is a flush-top black panel centered at the top of the screen.
-- The shape is the same on notch and non-notch displays.
 - The top edge is square and attached to the screen edge.
 - The lower corners are rounded.
-- The center-top notch-safe zone contains no content.
-- The panel itself remains filled; do not leave visual gaps between the notch area and banner area.
-- Approximate initial dimensions: 368 pt wide and 112 pt tall.
+- The center-top notch-safe zone contains no content on notch displays.
+- Approximate final dimensions: 336 pt wide and 92 pt tall.
 - If the screen is too narrow, keep safe side margins and fall back to a smaller centered variant rather than clipping controls.
-
-Content layout:
-
-- Top-left: Quill icon and `Quill` label.
+- Top-left: real Quill app icon and `Quill` label.
 - Top-right: circular `×` dismiss button.
-- Body left: one-line meeting title.
-- Body secondary line: `Starts at 10:30 AM · in 5 minutes`.
+- Body left: one-line meeting title and `Starts at 10:30 AM` secondary text.
 - Body right: primary `Start` button.
 
-Long meeting titles are single-line truncated with an ellipsis. The start-time line and Start button must remain visible.
+Recording-context reminder panels:
+
+- The existing recording overlay remains visible and foregrounded; the reminder panel sits behind or around it.
+- For Notch Sides, size the reminder panel from the notch-side overlay width and keep the panel compact vertically. The reminder row uses app icon, truncated title, start time, and an `×` button aligned to the right edge.
+- For Center Dropdown Fill on a notch display, keep the notch+center recording overlay foregrounded. Put only the app icon in the left top side area and `×` in the right top side area. Put title and `Starts at 10:30 AM` on one row below; the title truncates and the start time is right-aligned.
+- For Center Dropdown Fill on a non-notch display, use the same C layout without the notch-safe zone.
+- Long meeting titles are always single-line truncated with an ellipsis.
+
+Processing-context reminder panels:
+
+- When recording stops while a reminder is still visible, keep the same reminder-in-recording panel shape.
+- Only the foreground recording overlay changes to its processing indicator.
+- When processing fully finishes and the reminder is still visible, transition to the default reminder panel with `Start` available.
 
 ## Overlay behavior
 
@@ -89,22 +97,28 @@ Dismiss behavior:
 
 Start behavior:
 
-- When not recording, clicking `Start` dismisses the current reminder and starts a normal toggle recording through the same path as a regular user-started recording.
+- When not recording and not processing, clicking `Start` dismisses the current reminder first and starts a normal toggle recording only after the reminder closes.
 - The overlay-started recording uses the existing calendar overlap suggestion flow for note metadata and titles.
 - No special `calendarNotification` match source is added in this first pass.
 - No calendar title is auto-applied.
 
 Recording-active behavior:
 
-- If a reminder arrives while recording is already active, show the overlay as information.
-- The primary action should be disabled or rendered as a non-starting `Recording` state.
-- Clicking the disabled action must not stop, restart, or replace the current recording.
+- If a reminder arrives while recording is already active, show the contextual information panel for the current recording overlay layout.
+- The contextual panel has no `Start` or `Recording` action label.
 - The `×` button still dismisses the reminder.
+- This reminder must not stop, restart, or replace the current recording.
 - This reminder must not override the calendar match for the active recording.
 
-Transcribing behavior:
+External recording start behavior:
 
-- If a reminder arrives while transcribing but not recording, prefer allowing `Start` to use the existing normal recording path, which already handles dismissing or transferring transcribing overlay ownership as needed.
+- If the default reminder panel is visible and the user starts recording through another path, keep the reminder visible and transition it into the contextual recording panel.
+- This differs from pressing `Start`, which closes the reminder before starting recording.
+
+Processing behavior:
+
+- If recording stops while a contextual reminder is visible, keep the contextual reminder panel visible and transition only the foreground recording overlay to processing.
+- Once processing fully finishes, the visible reminder transitions back to the default reminder panel and `Start` becomes available again.
 - Calendar reminder UI must not take ownership of existing transcription jobs.
 
 ## macOS notification fallback
@@ -155,6 +169,9 @@ Add testable layout helpers where practical for `MeetingReminderOverlayManager` 
 
 - default compact dimensions;
 - minimum screen-width fallback;
+- idle, recording, and processing variant selection;
+- Notch Sides contextual sizing;
+- notch and non-notch Center Dropdown Fill contextual sizing;
 - title truncation constraints represented in display data or view model.
 
 Manual verification:
@@ -165,6 +182,9 @@ Manual verification:
 4. Confirm long meeting titles truncate without moving the time line or Start button.
 5. Confirm `×` dismisses only the current reminder.
 6. Confirm simultaneous reminders show one at a time.
-7. Confirm `Start` begins a normal recording.
-8. Confirm reminder arrival during an active recording shows information and does not stop or restart recording.
-9. Confirm quitting Quill before a scheduled reminder still allows the existing macOS notification fallback to fire.
+7. Confirm `Start` closes the reminder before normal recording starts.
+8. Confirm starting recording from a non-reminder path while a reminder is visible transitions the reminder into the contextual recording panel.
+9. Confirm reminder arrival during an active recording shows information and does not stop or restart recording.
+10. Confirm stopping recording while the contextual reminder is visible keeps the reminder panel and changes only the foreground recording overlay to processing.
+11. Confirm finishing processing transitions the visible reminder back to the default reminder panel.
+12. Confirm quitting Quill before a scheduled reminder still allows the existing macOS notification fallback to fire.

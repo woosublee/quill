@@ -987,7 +987,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
     let overlayManager = RecordingOverlayManager()
     @MainActor
     private lazy var meetingReminderOverlayManager = MeetingReminderOverlayManager { [weak self] in
-        self?.isRecording == true
+        guard let self else {
+            return MeetingReminderOverlayContext(phase: .idle, layout: .centerDropdownFill)
+        }
+        let phase: MeetingReminderOverlayContext.Phase = if self.isRecording {
+            .recording
+        } else if self.isTranscribing {
+            .processing
+        } else {
+            .idle
+        }
+        let layout: MeetingReminderOverlayContext.Layout = self.recordingOverlayLayout == .notchSides ? .notchSides : .centerDropdownFill
+        return MeetingReminderOverlayContext(phase: phase, layout: layout)
     }
     private var accessibilityTimer: Timer?
     private var audioLevelCancellable: AnyCancellable?
@@ -1900,6 +1911,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func refreshTranscribingState() {
         isTranscribing = !activeTranscriptionJobs.isEmpty
         syncCriticalDictationActivity()
+        meetingReminderOverlayManager.refreshVisibleReminder()
     }
 
     @MainActor
@@ -3878,6 +3890,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         isRecording = true
         syncCriticalDictationActivity()
+        meetingReminderOverlayManager.refreshVisibleReminder()
         statusText = "Starting..."
         hasShownScreenshotPermissionAlert = false
 
@@ -3896,6 +3909,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 mode: self.activeRecordingTriggerMode ?? triggerMode,
                 isCommandMode: self.currentSessionIntent.isCommandMode
             )
+            self.meetingReminderOverlayManager.refreshVisibleReminder()
         }
         initTimer.resume()
 
@@ -3920,6 +3934,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             isCommandMode: self.currentSessionIntent.isCommandMode
                         )
                     }
+                    self.meetingReminderOverlayManager.refreshVisibleReminder()
                     overlayShown = true
                     self.playAlertSound(named: "Tink")
                 }
