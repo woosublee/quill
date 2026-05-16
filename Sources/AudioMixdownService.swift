@@ -8,6 +8,7 @@ public struct AudioMixdownService {
         let microphoneSamples = try readSamples(from: microphoneURL)
         let systemAudioSamples = try readSamples(from: systemAudioURL)
         let outputFrameCount = max(microphoneSamples.count, systemAudioSamples.count)
+        let systemGain = systemAudioGain(microphoneSamples: microphoneSamples, systemAudioSamples: systemAudioSamples)
 
         var mixedSamples: [Int16] = []
         mixedSamples.reserveCapacity(outputFrameCount)
@@ -18,12 +19,11 @@ public struct AudioMixdownService {
 
             switch (hasMicrophoneSample, hasSystemAudioSample) {
             case (true, true):
-                let average = (Int(microphoneSamples[index]) + Int(systemAudioSamples[index])) / 2
-                mixedSamples.append(Int16(average))
+                mixedSamples.append(mix(microphoneSample: microphoneSamples[index], systemAudioSample: systemAudioSamples[index], systemGain: systemGain))
             case (true, false):
                 mixedSamples.append(microphoneSamples[index])
             case (false, true):
-                mixedSamples.append(systemAudioSamples[index])
+                mixedSamples.append(applyGain(systemAudioSamples[index], gain: systemGain))
             case (false, false):
                 mixedSamples.append(0)
             }
@@ -34,6 +34,61 @@ public struct AudioMixdownService {
             .appendingPathExtension("wav")
         try writeWAV(samples: mixedSamples, to: outputURL)
         return outputURL
+    }
+
+    private func systemAudioGain(microphoneSamples: [Int16], systemAudioSamples: [Int16]) -> Float {
+        let systemRMS = activeRMS(systemAudioSamples)
+        guard systemRMS > 0 else { return 1 }
+
+        let microphoneRMS = activeRMS(microphoneSamples)
+        guard microphoneRMS > 0 else { return 1 }
+
+        let targetSystemRMS = microphoneRMS * 0.8
+        let requestedGain = min(2, max(1, targetSystemRMS / systemRMS))
+        return peakSafeGain(for: systemAudioSamples, requestedGain: requestedGain)
+    }
+
+    private func peakSafeGain(for samples: [Int16], requestedGain: Float) -> Float {
+        let peak = samples.map { abs(Int($0)) }.max() ?? 0
+        guard peak > 0 else { return requestedGain }
+
+        let headroomGain = (Float(Int16.max) * 0.95) / Float(peak)
+        return min(requestedGain, max(1, headroomGain))
+    }
+
+    private func activeRMS(_ samples: [Int16]) -> Float {
+        let activeSamples = samples.map { Float($0) }.filter { abs($0) > 32 }
+        guard !activeSamples.isEmpty else { return 0 }
+
+        let sum = activeSamples.reduce(Float(0)) { partial, sample in
+            partial + sample * sample
+        }
+        return sqrt(sum / Float(activeSamples.count))
+    }
+
+    private func mix(microphoneSample: Int16, systemAudioSample: Int16, systemGain: Float) -> Int16 {
+        let adjustedSystemSample = applyGain(systemAudioSample, gain: systemGain)
+        let microphoneActive = abs(Int(microphoneSample)) > 32
+        let systemActive = abs(Int(adjustedSystemSample)) > 32
+
+        switch (microphoneActive, systemActive) {
+        case (true, true):
+            return clampedInt16((Int(microphoneSample) + Int(adjustedSystemSample)) / 2)
+        case (true, false):
+            return microphoneSample
+        case (false, true):
+            return adjustedSystemSample
+        case (false, false):
+            return 0
+        }
+    }
+
+    private func applyGain(_ sample: Int16, gain: Float) -> Int16 {
+        clampedInt16(Int((Float(sample) * gain).rounded()))
+    }
+
+    private func clampedInt16(_ sample: Int) -> Int16 {
+        Int16(max(Int(Int16.min), min(Int(Int16.max), sample)))
     }
 
     private func readSamples(from url: URL) throws -> [Int16] {

@@ -6,6 +6,9 @@ struct AudioMixdownServiceTests {
     static func main() {
         do {
             try averagesOverlappingSamplesAndPreservesLongerTail()
+            try boostsQuietSystemAudioBeforeMixing()
+            try preservesSystemAudioWhenMicrophoneIsSilent()
+            try doesNotClipLoudSystemAudio()
             try outputFormatIs16kHzMonoInt16AndFrameCountIsMaxInputFrameCount()
             print("AudioMixdownServiceTests passed")
         } catch {
@@ -25,6 +28,47 @@ struct AudioMixdownServiceTests {
 
         let samples = try readSamples(from: outputURL)
         try expectEqual(samples, [2000, 2000, 1000, 1000], "mixed samples should average overlap and preserve tail")
+    }
+
+    private static func boostsQuietSystemAudioBeforeMixing() throws {
+        let microphoneURL = try writeTinyWAV(samples: [1000, 1000])
+        let systemAudioURL = try writeTinyWAV(samples: [100, 100])
+        defer { try? FileManager.default.removeItem(at: microphoneURL) }
+        defer { try? FileManager.default.removeItem(at: systemAudioURL) }
+
+        let outputURL = try AudioMixdownService().mix(microphoneURL: microphoneURL, systemAudioURL: systemAudioURL)
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let samples = try readSamples(from: outputURL)
+        try expectEqual(samples, [600, 600], "quiet system audio should be boosted conservatively before averaging with microphone")
+    }
+
+    private static func preservesSystemAudioWhenMicrophoneIsSilent() throws {
+        let microphoneURL = try writeTinyWAV(samples: [0, 0])
+        let systemAudioURL = try writeTinyWAV(samples: [100, 100])
+        defer { try? FileManager.default.removeItem(at: microphoneURL) }
+        defer { try? FileManager.default.removeItem(at: systemAudioURL) }
+
+        let outputURL = try AudioMixdownService().mix(microphoneURL: microphoneURL, systemAudioURL: systemAudioURL)
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let samples = try readSamples(from: outputURL)
+        try expectEqual(samples, [100, 100], "system audio should not be halved by silent microphone samples")
+    }
+
+    private static func doesNotClipLoudSystemAudio() throws {
+        let microphoneURL = try writeTinyWAV(samples: [0, 0])
+        let systemAudioURL = try writeTinyWAV(samples: [20_000, -20_000])
+        defer { try? FileManager.default.removeItem(at: microphoneURL) }
+        defer { try? FileManager.default.removeItem(at: systemAudioURL) }
+
+        let outputURL = try AudioMixdownService().mix(microphoneURL: microphoneURL, systemAudioURL: systemAudioURL)
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let samples = try readSamples(from: outputURL)
+        guard !samples.contains(Int16.max), !samples.contains(Int16.min) else {
+            throw TestFailure("system audio gain should not hard-clip loud samples, got \(samples)")
+        }
     }
 
     private static func outputFormatIs16kHzMonoInt16AndFrameCountIsMaxInputFrameCount() throws {

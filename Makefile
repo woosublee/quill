@@ -200,6 +200,8 @@ test:
 	@/tmp/MeetingAudioRecorderSourceTests
 	@swiftc -parse-as-library Sources/AudioMixdownService.swift Tests/AudioMixdownServiceTests.swift -o /tmp/AudioMixdownServiceTests
 	@/tmp/AudioMixdownServiceTests
+	@swiftc -parse-as-library Sources/AudioWaveformHeights.swift Tests/AudioWaveformHeightsTests.swift -o /tmp/AudioWaveformHeightsTests
+	@/tmp/AudioWaveformHeightsTests
 	@swiftc -parse-as-library Tests/SystemAudioAppStateRoutingTests.swift -o /tmp/SystemAudioAppStateRoutingTests
 	@/tmp/SystemAudioAppStateRoutingTests
 	@swiftc -parse-as-library Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Tests/PipelineHistoryCalendarMetadataTests.swift -o /tmp/PipelineHistoryCalendarMetadataTests

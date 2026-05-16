@@ -1423,16 +1423,7 @@ struct NoteAudioPlayerView: View {
                 }
             }
 
-            guard !samples.isEmpty else { return }
-            let bucketSize = max(1, samples.count / 80)
-            var heights: [CGFloat] = []
-            for i in 0..<80 {
-                let start = i * bucketSize
-                let end = min(start + bucketSize, samples.count)
-                let rms = sqrt(samples[start..<end].map { $0 * $0 }.reduce(0, +) / Float(end - start))
-                heights.append(CGFloat(min(1.0, max(0.04, rms * 8))))
-            }
-            let resolvedHeights = heights
+            let resolvedHeights = AudioWaveformHeights.heights(from: samples).map(CGFloat.init)
             await MainActor.run {
                 withAnimation(.easeInOut(duration: 0.4)) { barHeights = resolvedHeights }
             }
