@@ -23,6 +23,11 @@ struct AppStateTranscriptionConfigurationTests {
         testStoppedTranscriptionCompletionSummaryShowsFallbackIndicatorForNonEmptyRawFallback()
         testStoppedTranscriptionCompletionSummaryHidesFallbackIndicatorForEmptyRawFallback()
         testStoppedTranscriptionSettingsSnapshotCapturesHistoryMetadata()
+        await testSystemDefaultAndSystemAudioConvertsAPIRealtimeToStandard()
+        await testSystemDefaultAndSystemAudioConvertsAppleLiveToWhisper()
+        await testSystemDefaultAndSystemAudioRejectsLiveModeSelections()
+        await testSystemDefaultAndSystemAudioNormalizesStoredAPIRealtimeOnStartup()
+        await testSystemDefaultAndSystemAudioNormalizesStoredAppleLiveOnStartup()
         try testGoogleCalendarConnectionMetadataRestoresStartupState()
         testGoogleCalendarConnectionMetadataClearsCorruptValue()
         testCalendarRecordingReminderLeadMinutesMigrateLegacyValue()
@@ -352,6 +357,86 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(!summary.shouldPersistRawDictationFallback)
     }
 
+    private static func testSystemDefaultAndSystemAudioConvertsAPIRealtimeToStandard() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = AppState()
+            appState.setNoteBrowserTranscriptionMode(.apiRealtime)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .apiRealtime)
+
+            appState.selectedMicrophoneID = AudioInputDevice.systemDefaultAndSystemAudioID
+
+            precondition(appState.currentNoteBrowserTranscriptionMode == .apiStandard)
+            precondition(!appState.useLocalTranscription)
+            precondition(!appState.realtimeStreamingEnabled)
+        }
+    }
+
+    private static func testSystemDefaultAndSystemAudioConvertsAppleLiveToWhisper() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = AppState()
+            appState.setNoteBrowserTranscriptionMode(.localAppleLive)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .localAppleLive)
+
+            appState.selectedMicrophoneID = AudioInputDevice.systemDefaultAndSystemAudioID
+
+            precondition(appState.currentNoteBrowserTranscriptionMode == .localWhisper)
+            precondition(appState.useLocalTranscription)
+            precondition(!appState.localTranscriptionModel.isAppleSpeech)
+        }
+    }
+
+    private static func testSystemDefaultAndSystemAudioRejectsLiveModeSelections() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = AppState()
+            appState.selectedMicrophoneID = AudioInputDevice.systemDefaultAndSystemAudioID
+            precondition(!appState.isNoteBrowserTranscriptionModeAvailable(.apiRealtime))
+            precondition(!appState.isNoteBrowserTranscriptionModeAvailable(.localAppleLive))
+            precondition(appState.isNoteBrowserTranscriptionModeAvailable(.apiStandard))
+            precondition(appState.isNoteBrowserTranscriptionModeAvailable(.localWhisper))
+
+            appState.setNoteBrowserTranscriptionMode(.apiRealtime)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .apiStandard)
+
+            appState.setNoteBrowserTranscriptionMode(.localAppleLive)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .localWhisper)
+        }
+    }
+
+    private static func testSystemDefaultAndSystemAudioNormalizesStoredAPIRealtimeOnStartup() async {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set(AudioInputDevice.systemDefaultAndSystemAudioID, forKey: "selected_microphone_id")
+        defaults.set(false, forKey: "use_local_transcription")
+        defaults.set(true, forKey: "realtime_streaming_enabled")
+
+        await MainActor.run {
+            let appState = AppState()
+
+            precondition(appState.currentNoteBrowserTranscriptionMode == .apiStandard)
+            precondition(!appState.useLocalTranscription)
+            precondition(!appState.realtimeStreamingEnabled)
+        }
+    }
+
+    private static func testSystemDefaultAndSystemAudioNormalizesStoredAppleLiveOnStartup() async {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set(AudioInputDevice.systemDefaultAndSystemAudioID, forKey: "selected_microphone_id")
+        defaults.set(true, forKey: "use_local_transcription")
+        defaults.set("apple-speech", forKey: "local_transcription_model")
+
+        await MainActor.run {
+            let appState = AppState()
+
+            precondition(appState.currentNoteBrowserTranscriptionMode == .localWhisper)
+            precondition(appState.useLocalTranscription)
+            precondition(!appState.localTranscriptionModel.isAppleSpeech)
+        }
+    }
+
     private static func testGoogleCalendarConnectionMetadataRestoresStartupState() throws {
         resetDefaults()
         let selectedCalendarIDs: Set<String> = ["primary"]
@@ -638,6 +723,8 @@ struct AppStateTranscriptionConfigurationTests {
         defaults.removeObject(forKey: "use_local_transcription")
         defaults.removeObject(forKey: "local_transcription_model")
         defaults.removeObject(forKey: "transcription_language")
+        defaults.removeObject(forKey: "selected_microphone_id")
+        defaults.removeObject(forKey: "realtime_streaming_enabled")
         defaults.removeObject(forKey: "hold_shortcut")
         defaults.removeObject(forKey: "toggle_shortcut")
         defaults.removeObject(forKey: "recording_cancel_shortcut")
