@@ -945,6 +945,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var availableMicrophones: [AudioDevice] = []
 
     let audioRecorder = AudioRecorder()
+    let systemAudioRecorder = SystemAudioRecorder()
     let hotkeyManager = HotkeyManager()
     let overlayManager = RecordingOverlayManager()
     private var accessibilityTimer: Timer?
@@ -955,6 +956,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var liveTranscriber: (any LiveTranscriber)?
     private var currentRecordingLiveNoteID: UUID?
     private var activeRecordingStartedAt: Date?
+    private var activeAudioInputID: String?
     private var isCancelConfirmationShowing = false
     private var overlayTranscriptionID: UUID = UUID()
     private var foregroundTranscriptionJobID: UUID?
@@ -1918,10 +1920,82 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
-    private func cleanupRecorderIfIdle() {
+    private func cleanupActiveAudioRecordersIfIdle() {
         guard !isRecording else { return }
         audioRecorder.cleanup()
+        systemAudioRecorder.cleanup()
+        activeAudioInputID = nil
         refreshAvailableMicrophonesIfNeeded()
+    }
+
+    @MainActor
+    private func clearAudioRecorderCallbacks() {
+        audioRecorder.onRecordingReady = nil
+        audioRecorder.onRecordingFailure = nil
+        audioRecorder.onPCM16Samples = nil
+        systemAudioRecorder.onRecordingReady = nil
+        systemAudioRecorder.onRecordingFailure = nil
+        systemAudioRecorder.onPCM16Samples = nil
+    }
+
+    @MainActor
+    private func configureSelectedAudioRecorderCallbacks(
+        inputID: String,
+        onReady: @escaping () -> Void,
+        onFailure: @escaping (Error) -> Void
+    ) {
+        clearAudioRecorderCallbacks()
+        if AudioInputDevice.isSystemAudio(inputID) {
+            systemAudioRecorder.onRecordingReady = onReady
+            systemAudioRecorder.onRecordingFailure = onFailure
+        } else {
+            audioRecorder.onRecordingReady = onReady
+            audioRecorder.onRecordingFailure = onFailure
+        }
+    }
+
+    private func activeRecorderAudioLevelPublisher(inputID: String) -> AnyPublisher<Float, Never> {
+        if AudioInputDevice.isSystemAudio(inputID) {
+            return systemAudioRecorder.$audioLevel.eraseToAnyPublisher()
+        }
+        return audioRecorder.$audioLevel.eraseToAnyPublisher()
+    }
+
+    private func setActiveRecorderPCMHandler(_ handler: ((Data) -> Void)?) {
+        let inputID = activeAudioInputID ?? selectedMicrophoneID
+        if AudioInputDevice.isSystemAudio(inputID) {
+            systemAudioRecorder.onPCM16Samples = handler
+            audioRecorder.onPCM16Samples = nil
+        } else {
+            audioRecorder.onPCM16Samples = handler
+            systemAudioRecorder.onPCM16Samples = nil
+        }
+    }
+
+    private func startSelectedAudioRecorder(inputID: String) async throws {
+        if AudioInputDevice.isSystemAudio(inputID) {
+            try await systemAudioRecorder.startRecording()
+        } else {
+            try audioRecorder.startRecording(deviceUID: inputID)
+        }
+    }
+
+    private func stopActiveAudioRecorder(completion: @escaping (URL?) -> Void) {
+        let inputID = activeAudioInputID ?? selectedMicrophoneID
+        if AudioInputDevice.isSystemAudio(inputID) {
+            systemAudioRecorder.stopRecording(completion: completion)
+        } else {
+            audioRecorder.stopRecording(completion: completion)
+        }
+    }
+
+    private func cancelActiveAudioRecorder() {
+        let inputID = activeAudioInputID ?? selectedMicrophoneID
+        if AudioInputDevice.isSystemAudio(inputID) {
+            systemAudioRecorder.cancelRecording()
+        } else {
+            audioRecorder.cancelRecording()
+        }
     }
 
     func clearPipelineHistory() {
@@ -2520,6 +2594,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
         CGPreflightScreenCaptureAccess()
     }
 
+    func requestScreenCapturePermissionForRecordingStart() async -> Bool {
+        if CGPreflightScreenCaptureAccess() {
+            return true
+        }
+        let granted = await Task.detached(priority: .userInitiated) {
+            CGRequestScreenCaptureAccess()
+        }.value
+        return granted || CGPreflightScreenCaptureAccess()
+    }
+
     func requestScreenCapturePermission() {
         // ScreenCaptureKit triggers the "Screen & System Audio Recording"
         // permission dialog on macOS Sequoia+, correctly identifying the
@@ -3070,9 +3154,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         cancelPendingShortcutStart()
         shortcutSessionController.reset()
         activeRecordingTriggerMode = nil
-        audioRecorder.onRecordingReady = nil
-        audioRecorder.onRecordingFailure = nil
-        audioRecorder.onPCM16Samples = nil
+        clearAudioRecorderCallbacks()
         liveTranscriber?.cancel()
         liveTranscriber = nil
         if let id = currentRecordingLiveNoteID {
@@ -3103,7 +3185,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         statusText = "Cancelled"
         dismissTranscribingOverlay()
         tearDownRealtimeService()
-        audioRecorder.cancelRecording()
+        cancelActiveAudioRecorder()
         restoreAudioInterruptionIfNeeded()
         syncCriticalDictationActivity()
         refreshAvailableMicrophonesIfNeeded()
@@ -3127,7 +3209,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         debugStatusMessage = "Cancelled"
         statusText = "Cancelled"
         dismissTranscribingOverlay()
-        cleanupRecorderIfIdle()
+        cleanupActiveAudioRecordersIfIdle()
         if let audioFileName = job.audioFileName {
             Self.deleteAudioFile(audioFileName)
         }
@@ -3294,9 +3376,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 manualCommandRequested: manualCommandRequested,
                 startedAt: t0
             ) else { return }
-            guard ensureMicrophoneAccess() else { return }
-            os_log(.info, log: recordingLog, "mic access check passed: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
-            applyAudioInterruptionIfNeeded()
+            let audioInputID = selectedMicrophoneID
+            guard await ensureRecordingInputAccess(for: audioInputID) else { return }
+            os_log(.info, log: recordingLog, "audio input access check passed: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
+            if !AudioInputDevice.isSystemAudio(audioInputID) {
+                applyAudioInterruptionIfNeeded()
+            }
             beginRecording(triggerMode: triggerMode)
             os_log(.info, log: recordingLog, "startRecording() finished: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
         }
@@ -3423,8 +3508,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         shortcutSessionController.reset()
         activeRecordingTriggerMode = nil
         cancelRecordingInitializationTimer()
-        audioRecorder.onRecordingReady = nil
-        audioRecorder.onRecordingFailure = nil
+        clearAudioRecorderCallbacks()
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
         dismissTranscribingOverlay()
@@ -3445,6 +3529,32 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return false
         }
 
+        return true
+    }
+
+    @MainActor
+    private func ensureRecordingInputAccess(for inputID: String) async -> Bool {
+        if AudioInputDevice.isSystemAudio(inputID) {
+            return await ensureSystemAudioAccess()
+        }
+        return ensureMicrophoneAccess()
+    }
+
+    @MainActor
+    private func ensureSystemAudioAccess() async -> Bool {
+        let granted = await requestScreenCapturePermissionForRecordingStart()
+        hasScreenRecordingPermission = granted
+        guard granted else {
+            let message = "System Audio recording permission not granted. Enable Screen & System Audio Recording in System Settings > Privacy & Security."
+            errorMessage = message
+            statusText = "System Audio Required"
+            activeRecordingTriggerMode = nil
+            currentSessionIntent = .dictation
+            shortcutSessionController.reset()
+            playAlertSound(named: "Basso")
+            showScreenshotPermissionAlert(message: message)
+            return false
+        }
         return true
     }
 
@@ -3535,8 +3645,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         shortcutSessionController.reset()
         activeRecordingTriggerMode = nil
         cancelRecordingInitializationTimer()
-        audioRecorder.onRecordingReady = nil
-        audioRecorder.onRecordingFailure = nil
+        clearAudioRecorderCallbacks()
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
         dismissTranscribingOverlay()
@@ -3674,37 +3783,40 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         initTimer.resume()
 
-        // Transition to waveform when first real audio arrives (any non-zero RMS)
-        let deviceUID = selectedMicrophoneID
-        audioRecorder.onRecordingReady = { [weak self] in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.cancelRecordingInitializationTimer()
-                os_log(.info, log: recordingLog, "first real audio — transitioning to waveform")
-                self.statusText = "Recording..."
-                self.clearPendingOverlayDismissToken()
-                if overlayShown {
-                    self.overlayManager.transitionToRecording(
-                        mode: self.activeRecordingTriggerMode ?? triggerMode,
-                        isCommandMode: self.currentSessionIntent.isCommandMode
-                    )
-                } else {
-                    self.overlayManager.showRecording(
-                        mode: self.activeRecordingTriggerMode ?? triggerMode,
-                        isCommandMode: self.currentSessionIntent.isCommandMode
-                    )
+        let audioInputID = selectedMicrophoneID
+        activeAudioInputID = audioInputID
+        configureSelectedAudioRecorderCallbacks(
+            inputID: audioInputID,
+            onReady: { [weak self] in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.cancelRecordingInitializationTimer()
+                    os_log(.info, log: recordingLog, "first real audio — transitioning to waveform")
+                    self.statusText = "Recording..."
+                    self.clearPendingOverlayDismissToken()
+                    if overlayShown {
+                        self.overlayManager.transitionToRecording(
+                            mode: self.activeRecordingTriggerMode ?? triggerMode,
+                            isCommandMode: self.currentSessionIntent.isCommandMode
+                        )
+                    } else {
+                        self.overlayManager.showRecording(
+                            mode: self.activeRecordingTriggerMode ?? triggerMode,
+                            isCommandMode: self.currentSessionIntent.isCommandMode
+                        )
+                    }
+                    overlayShown = true
+                    self.playAlertSound(named: "Tink")
                 }
-                overlayShown = true
-                self.playAlertSound(named: "Tink")
+            },
+            onFailure: { [weak self] error in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.cancelRecordingInitializationTimer()
+                    self.handleRecordingFailure(error)
+                }
             }
-        }
-        audioRecorder.onRecordingFailure = { [weak self] error in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.cancelRecordingInitializationTimer()
-                self.handleRecordingFailure(error)
-            }
-        }
+        )
 
         startRealtimeStreamingIfEnabled()
 
@@ -3718,7 +3830,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     try await transcriber.start(locale: transcriptionLanguage.sfSpeechLocale)
                     self.liveTranscriber = transcriber
                     if !transcriber.handlesRecording {
-                        self.audioRecorder.onPCM16Samples = { [weak transcriber] data in
+                        self.setActiveRecorderPCMHandler { [weak transcriber] data in
                             transcriber?.appendPCM16(data)
                         }
                     }
@@ -3750,18 +3862,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         }
                         self.audioRecorder.onRecordingReady?()
                     } else {
-                        try self.audioRecorder.startRecording(deviceUID: deviceUID)
+                        try await self.startSelectedAudioRecorder(inputID: audioInputID)
                         let actualRecordingStartedAt = Date()
                         await MainActor.run {
                             self.markRecordingStarted(actualRecordingStartedAt)
                         }
-                        os_log(.info, log: recordingLog, "audioRecorder.startRecording() done: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
+                        os_log(.info, log: recordingLog, "selected audio recorder start done: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
                     }
                     await MainActor.run {
                         guard self.isRecording, self.activeRecordingTriggerMode != nil else { return }
                         self.startContextCapture()
                         if !transcriber.handlesRecording {
-                            self.audioLevelCancellable = self.audioRecorder.$audioLevel
+                            self.audioLevelCancellable = self.activeRecorderAudioLevelPublisher(inputID: audioInputID)
                                 .receive(on: DispatchQueue.main)
                                 .sink { [weak self] level in
                                     self?.overlayManager.updateAudioLevel(level)
@@ -3777,25 +3889,25 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             }
         } else {
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            Task { [weak self] in
                 guard let self else { return }
                 let t0 = CFAbsoluteTimeGetCurrent()
                 do {
-                    try self.audioRecorder.startRecording(deviceUID: deviceUID)
+                    try await self.startSelectedAudioRecorder(inputID: audioInputID)
                     let actualRecordingStartedAt = Date()
-                    os_log(.info, log: recordingLog, "audioRecorder.startRecording() done: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
-                    DispatchQueue.main.async {
+                    os_log(.info, log: recordingLog, "selected audio recorder start done: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
+                    await MainActor.run {
                         self.markRecordingStarted(actualRecordingStartedAt)
                         guard self.isRecording, self.activeRecordingTriggerMode != nil else { return }
                         self.startContextCapture()
-                        self.audioLevelCancellable = self.audioRecorder.$audioLevel
+                        self.audioLevelCancellable = self.activeRecorderAudioLevelPublisher(inputID: audioInputID)
                             .receive(on: DispatchQueue.main)
                             .sink { [weak self] level in
                                 self?.overlayManager.updateAudioLevel(level)
                             }
                     }
                 } catch {
-                    DispatchQueue.main.async {
+                    await MainActor.run {
                         self.cancelRecordingInitializationTimer()
                         guard self.isRecording || self.activeRecordingTriggerMode != nil else { return }
                         self.handleRecordingFailure(error)
@@ -3808,8 +3920,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     private func handleRecordingFailure(_ error: Error) {
         cancelRecordingInitializationTimer()
-        audioRecorder.onRecordingReady = nil
-        audioRecorder.onRecordingFailure = nil
+        clearAudioRecorderCallbacks()
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
         contextCaptureTask?.cancel()
@@ -3824,9 +3935,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
         }
         tearDownRealtimeService()
-        audioRecorder.cleanup()
         restoreAudioInterruptionIfNeeded()
         isRecording = false
+        cleanupActiveAudioRecordersIfIdle()
         syncCriticalDictationActivity()
         transcribingIndicatorTask?.cancel()
         transcribingIndicatorTask = nil
@@ -4183,7 +4294,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 customSystemPromptOverride: settings.customSystemPrompt,
                 calendarMatch: calendarMatch
             )
-            cleanupRecorderIfIdle()
+            cleanupActiveAudioRecordersIfIdle()
             let completionStatusText = disableAutoPaste || !preserveClipboard ? "Copied to clipboard!" : "Pasted at cursor!"
             updateForegroundUIForStoppedTranscriptionCompletion(
                 overlayID: overlayID,
@@ -4266,8 +4377,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         activeRecordingTriggerMode = nil
         let sessionIntent = currentSessionIntent
         currentSessionIntent = .dictation
-        audioRecorder.onRecordingReady = nil
-        audioRecorder.onRecordingFailure = nil
+        clearAudioRecorderCallbacks()
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
 
@@ -4338,7 +4448,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let capturedLiveTranscriber = liveTranscriber
         let capturedPressEnterCommandEnabled = isPressEnterVoiceCommandEnabled
         liveTranscriber = nil
-        audioRecorder.onPCM16Samples = nil
+        setActiveRecorderPCMHandler(nil)
 
         if let transcriber = capturedLiveTranscriber, transcriber.handlesRecording {
             if overlayTranscriptionID == myOverlayID {
@@ -4416,7 +4526,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             customSystemPromptOverride: capturedSettings.customSystemPrompt,
                             calendarMatch: calendarMatch
                         )
-                        self.cleanupRecorderIfIdle()
+                        self.cleanupActiveAudioRecordersIfIdle()
                         guard self.overlayTranscriptionID == myOverlayID else {
                             self.finishTranscriptionJob(jobID, overlayID: myOverlayID)
                             return
@@ -4440,7 +4550,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return
         }
 
-        audioRecorder.stopRecording { [weak self] fileURL in
+        stopActiveAudioRecorder { [weak self] fileURL in
             guard let self else { return }
             guard let fileURL else {
                 if self.overlayTranscriptionID == myOverlayID {
@@ -4450,8 +4560,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
                 self.mcpLastRecordingFailed = true
                 self.tearDownRealtimeService()
-                self.audioRecorder.cleanup()
-                self.refreshAvailableMicrophonesIfNeeded()
+                self.cleanupActiveAudioRecordersIfIdle()
                 self.finishTranscriptionJob(jobID)
                 return
             }
@@ -4479,7 +4588,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
             let activeRealtime = self.realtimeService
             self.realtimeService = nil
-            self.audioRecorder.onPCM16Samples = nil
+            self.setActiveRecorderPCMHandler(nil)
 
             if self.overlayTranscriptionID == myOverlayID {
                 self.prepareTranscribingOverlay(for: myOverlayID, statusText: "Transcribing...", debugStatus: "Transcribing audio")
@@ -4563,7 +4672,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             customSystemPromptOverride: capturedSettings.customSystemPrompt,
                             calendarMatch: calendarMatch
                         )
-                        self.cleanupRecorderIfIdle()
+                        self.cleanupActiveAudioRecordersIfIdle()
                         guard self.overlayTranscriptionID == myOverlayID else {
                             self.finishTranscriptionJob(jobID, overlayID: myOverlayID)
                             return
@@ -5022,13 +5131,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return
         }
         realtimeService = service
-        audioRecorder.onPCM16Samples = { [weak service] data in
+        setActiveRecorderPCMHandler { [weak service] data in
             service?.appendPCM16(data)
         }
     }
 
     private func tearDownRealtimeService() {
-        audioRecorder.onPCM16Samples = nil
+        setActiveRecorderPCMHandler(nil)
         realtimeService?.cancel()
         realtimeService = nil
     }
@@ -5153,7 +5262,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
             // Permission errors are fatal — stop recording
             tearDownRealtimeService()
-            audioRecorder.cancelRecording()
+            cancelActiveAudioRecorder()
             audioLevelCancellable?.cancel()
             audioLevelCancellable = nil
             contextCaptureTask?.cancel()

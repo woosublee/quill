@@ -1,5 +1,7 @@
 APP_NAME ?= Quill
 BUNDLE_ID ?= com.woosublee.quill
+DEV_APP_NAME ?= Quill Dev
+DEV_BUNDLE_ID ?= com.woosublee.quill.dev
 BUILD_DIR = build
 APP_BUNDLE = $(BUILD_DIR)/$(APP_NAME).app
 CODESIGN_IDENTITY ?= Quill
@@ -83,7 +85,7 @@ endif
 	@plutil -replace QuillBuildTag -string "$(BUILD_TAG)" "$(CONTENTS)/Info.plist"
 	@plutil -replace GoogleCalendarOAuthClientID -string "$(GOOGLE_CALENDAR_OAUTH_CLIENT_ID)" "$(CONTENTS)/Info.plist"
 	@plutil -replace GoogleCalendarOAuthClientSecret -string "$(GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET)" "$(CONTENTS)/Info.plist"
-	@cp $(ICON_ICNS) "$(RESOURCES)/"
+	@cp $(ICON_ICNS) "$(RESOURCES)/AppIcon.icns"
 	@xattr -cr "$(APP_BUNDLE)"
 	@rm -rf "$(BUILD_DIR)/codesign-staging"
 	@mkdir -p "$(BUILD_DIR)/codesign-staging"
@@ -163,8 +165,9 @@ install-and-run: install
 	fi
 	@open "/Applications/$(APP_NAME).app"
 
-run: all
-	open "$(APP_BUNDLE)"
+run:
+	$(MAKE) all APP_NAME="$(DEV_APP_NAME)" BUNDLE_ID="$(DEV_BUNDLE_ID)"
+	open "$(BUILD_DIR)/$(DEV_APP_NAME).app"
 
 FORCE:
 
@@ -189,6 +192,12 @@ test:
 	@/tmp/BuildMetadataTests
 	@swiftc -parse-as-library Tests/ReleaseSDKCompatibilityTests.swift -o /tmp/ReleaseSDKCompatibilityTests
 	@/tmp/ReleaseSDKCompatibilityTests
+	@swiftc -parse-as-library Sources/AudioInputDevice.swift Tests/SystemAudioInputSelectionTests.swift -o /tmp/SystemAudioInputSelectionTests
+	@/tmp/SystemAudioInputSelectionTests
+	@swiftc -parse-as-library Tests/SystemAudioRecorderSourceTests.swift -o /tmp/SystemAudioRecorderSourceTests
+	@/tmp/SystemAudioRecorderSourceTests
+	@swiftc -parse-as-library Tests/SystemAudioAppStateRoutingTests.swift -o /tmp/SystemAudioAppStateRoutingTests
+	@/tmp/SystemAudioAppStateRoutingTests
 	@swiftc -parse-as-library Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Tests/PipelineHistoryCalendarMetadataTests.swift -o /tmp/PipelineHistoryCalendarMetadataTests
 	@/tmp/PipelineHistoryCalendarMetadataTests
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/GoogleCalendarTokenStore.swift Sources/GoogleCalendarAuthService.swift Sources/GoogleCalendarService.swift Tests/GoogleCalendarServiceTests.swift -o /tmp/GoogleCalendarServiceTests

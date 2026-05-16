@@ -5,6 +5,8 @@ struct BuildMetadataTests {
     static func main() throws {
         try testMakefileStampsLocalBuildMetadata()
         try testBuildSettingsTrackCodesignIdentity()
+        try testMakefileSeparatesDevRunFromInstallBuild()
+        try testMakefileCopiesSelectedIconToBundleIconName()
         try testReleaseWorkflowsPassBuildMetadataToMake()
         print("BuildMetadataTests passed")
     }
@@ -30,8 +32,30 @@ struct BuildMetadataTests {
     private static func testBuildSettingsTrackCodesignIdentity() throws {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
 
+        assertContains(makefile, "CODESIGN_IDENTITY ?= Quill")
         assertContains(makefile, "$(CODESIGN_IDENTITY)")
         assertContains(makefile, "$(BUILD_TAG)\" \"$(GOOGLE_CALENDAR_OAUTH_CLIENT_ID)\" \"$(GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET)\" \"$(CODESIGN_IDENTITY)")
+    }
+
+    private static func testMakefileSeparatesDevRunFromInstallBuild() throws {
+        let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
+
+        assertContains(makefile, "APP_NAME ?= Quill")
+        assertContains(makefile, "BUNDLE_ID ?= com.woosublee.quill")
+        assertContains(makefile, "DEV_APP_NAME ?= Quill Dev")
+        assertContains(makefile, "DEV_BUNDLE_ID ?= com.woosublee.quill.dev")
+        assertContains(makefile, "run:\n\t$(MAKE) all APP_NAME=\"$(DEV_APP_NAME)\" BUNDLE_ID=\"$(DEV_BUNDLE_ID)\"")
+        assertContains(makefile, "\topen \"$(BUILD_DIR)/$(DEV_APP_NAME).app\"")
+        assertContains(makefile, "install: all\n\t@mkdir -p \"/Applications/$(APP_NAME).app\"")
+    }
+
+    private static func testMakefileCopiesSelectedIconToBundleIconName() throws {
+        let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
+        let infoPlist = try String(contentsOfFile: "Info.plist", encoding: .utf8)
+
+        assertContains(infoPlist, "<key>CFBundleIconFile</key>\n    <string>AppIcon</string>")
+        assertContains(makefile, "ICON_ICNS = Resources/AppIcon-Dev.icns")
+        assertContains(makefile, "@cp $(ICON_ICNS) \"$(RESOURCES)/AppIcon.icns\"")
     }
 
     private static func testReleaseWorkflowsPassBuildMetadataToMake() throws {

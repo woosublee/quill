@@ -93,10 +93,11 @@ struct SetupView: View {
 
     // Test transcription state
     private enum TestPhase: Equatable {
-        case idle, recording, transcribing, done
+        case idle, starting, recording, transcribing, done
     }
     @State private var testPhase: TestPhase = .idle
     @State private var testAudioRecorder: AudioRecorder? = nil
+    @State private var testSystemAudioRecorder: SystemAudioRecorder? = nil
     @State private var testAudioLevel: Float = 0.0
     @State private var testTranscript: String = ""
     @State private var testError: String? = nil
@@ -111,6 +112,15 @@ struct SetupView: View {
     private let totalSteps: [SetupStep] = SetupStep.allCases
     private var isCapturingShortcut: Bool {
         isCapturingHoldShortcut || isCapturingToggleShortcut
+    }
+
+    private var setupMicrophoneSelection: Binding<String> {
+        Binding(
+            get: {
+                appState.selectedMicrophoneID.isEmpty ? AudioInputDevice.defaultMicrophoneID : appState.selectedMicrophoneID
+            },
+            set: { appState.selectedMicrophoneID = $0 }
+        )
     }
 
     var body: some View {
@@ -975,10 +985,11 @@ struct SetupView: View {
 
     var testTranscriptionStep: some View {
         VStack(spacing: 20) {
-            // Microphone picker
+            // Input picker
             VStack(spacing: 4) {
-                Picker("Microphone:", selection: $appState.selectedMicrophoneID) {
-                    Text("System Default").tag("default")
+                Picker("Input:", selection: setupMicrophoneSelection) {
+                    Text("System Default").tag(AudioInputDevice.defaultMicrophoneID)
+                    Text("System Audio").tag(AudioInputDevice.systemAudioID)
                     ForEach(appState.availableMicrophones) { device in
                         Text(device.name).tag(device.uid)
                     }
@@ -1016,6 +1027,16 @@ struct SetupView: View {
                         Text("Say anything — a sentence or two is perfect.")
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
+                    }
+
+                case .starting:
+                    VStack(spacing: 20) {
+                        InlineTranscribingDots()
+
+                        Text("Starting...")
+                            .font(.title2)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.secondary)
                     }
 
                 case .recording:
@@ -1352,44 +1373,19 @@ struct SetupView: View {
                 if testPhase == .done {
                     resetTest()
                 }
-                do {
-                    let recorder = AudioRecorder()
-                    recorder.onRecordingFailure = { [weak recorder] error in
-                        guard let recorder else { return }
-                        Task { @MainActor in
-                            testAudioLevelCancellable?.cancel()
-                            testAudioLevelCancellable = nil
-                            testAudioLevel = 0.0
-                            testHotkeyHarness.isTranscribing = false
-                            testAudioRecorder = nil
-                            testError = error.localizedDescription
-                            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                                testPhase = .done
-                            }
-                            recorder.cleanup()
-                        }
-                    }
-                    try recorder.startRecording(deviceUID: appState.selectedMicrophoneID)
-                    testAudioRecorder = recorder
-                    testError = nil
-                    testAudioLevelCancellable = recorder.$audioLevel
-                        .receive(on: DispatchQueue.main)
-                        .sink { level in
-                            testAudioLevel = level
-                        }
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                        testPhase = .recording
-                    }
-                } catch {
-                    testHotkeyHarness.resetSession()
-                    testError = error.localizedDescription
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                        testPhase = .done
-                    }
+                if AudioInputDevice.isSystemAudio(appState.selectedMicrophoneID) {
+                    startSystemAudioTestRecording()
+                } else {
+                    startMicrophoneTestRecording()
                 }
 
             case .stop:
-                guard testPhase == .recording, let recorder = testAudioRecorder else { return }
+                guard (testPhase == .starting || testPhase == .recording), testAudioRecorder != nil || testSystemAudioRecorder != nil else { return }
+                if testPhase == .starting {
+                    testSystemAudioRecorder?.cancelRecording()
+                    resetTest()
+                    return
+                }
                 testAudioLevelCancellable?.cancel()
                 testAudioLevelCancellable = nil
                 testAudioLevel = 0.0
@@ -1398,46 +1394,17 @@ struct SetupView: View {
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                     testPhase = .transcribing
                 }
-                recorder.stopRecording { url in
-                    guard let url else {
-                        Task { @MainActor in
-                            testHotkeyHarness.isTranscribing = false
-                            testAudioRecorder = nil
-                            if testError == nil {
-                                testError = "No audio file was created."
-                            }
-                            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                                testPhase = .done
-                            }
+                if let recorder = testAudioRecorder {
+                    recorder.stopRecording { url in
+                        finishTestRecording(url) {
                             recorder.cleanup()
                         }
-                        return
                     }
-
-                    Task {
-                        do {
-                            let service = try appState.makeTranscriptionService()
-                            let transcript = try await service.transcribe(fileURL: url)
-                            await MainActor.run {
-                                testHotkeyHarness.isTranscribing = false
-                                testAudioRecorder = nil
-                                testTranscript = transcript
-                                withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
-                                    testPhase = .done
-                                }
-                            }
-                        } catch {
-                            await MainActor.run {
-                                testHotkeyHarness.isTranscribing = false
-                                testAudioRecorder = nil
-                                testError = error.localizedDescription
-                                withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
-                                    testPhase = .done
-                                }
-                            }
-                        }
-                        await MainActor.run {
-                            recorder.cleanup()
+                } else {
+                    let recorder = testSystemAudioRecorder
+                    testSystemAudioRecorder?.stopRecording { url in
+                        finishTestRecording(url) {
+                            recorder?.cleanup()
                         }
                     }
                 }
@@ -1458,30 +1425,175 @@ struct SetupView: View {
         }
     }
 
-    private func stopTestHotkeyMonitoring() {
-        testHotkeyHarness.stop()
+    private func startMicrophoneTestRecording() {
+        do {
+            let recorder = AudioRecorder()
+            recorder.onRecordingFailure = { [weak recorder] error in
+                guard let recorder else { return }
+                handleTestRecordingFailure(error) {
+                    recorder.cleanup()
+                }
+            }
+            try recorder.startRecording(deviceUID: appState.selectedMicrophoneID)
+            testAudioRecorder = recorder
+            testSystemAudioRecorder = nil
+            testError = nil
+            testAudioLevelCancellable = recorder.$audioLevel
+                .receive(on: DispatchQueue.main)
+                .sink { level in
+                    testAudioLevel = level
+                }
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                testPhase = .recording
+            }
+        } catch {
+            handleTestStartFailure(error)
+        }
+    }
+
+    private func startSystemAudioTestRecording() {
+        let recorder = SystemAudioRecorder()
+        recorder.onRecordingFailure = { [weak recorder] error in
+            guard let recorder else { return }
+            handleTestRecordingFailure(error) {
+                recorder.cleanup()
+            }
+        }
+        testAudioRecorder = nil
+        testSystemAudioRecorder = recorder
+        testError = nil
+        testAudioLevelCancellable = recorder.$audioLevel
+            .receive(on: DispatchQueue.main)
+            .sink { level in
+                testAudioLevel = level
+            }
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            testPhase = .starting
+        }
+        Task {
+            do {
+                try await recorder.startRecording()
+                await MainActor.run {
+                    guard testPhase == .starting else { return }
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                        testPhase = .recording
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    guard testPhase == .starting else { return }
+                    handleTestStartFailure(error)
+                    recorder.cleanup()
+                }
+            }
+        }
+    }
+
+    private func handleTestStartFailure(_ error: Error) {
+        testHotkeyHarness.resetSession()
         testAudioLevelCancellable?.cancel()
         testAudioLevelCancellable = nil
+        testAudioLevel = 0.0
+        testAudioRecorder = nil
+        testSystemAudioRecorder = nil
+        testError = error.localizedDescription
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            testPhase = .done
+        }
+    }
+
+    private func handleTestRecordingFailure(_ error: Error, cleanup: @escaping @MainActor () -> Void) {
+        Task { @MainActor in
+            testAudioLevelCancellable?.cancel()
+            testAudioLevelCancellable = nil
+            testAudioLevel = 0.0
+            testHotkeyHarness.isTranscribing = false
+            testAudioRecorder = nil
+            testSystemAudioRecorder = nil
+            testError = error.localizedDescription
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                testPhase = .done
+            }
+            cleanup()
+        }
+    }
+
+    private func finishTestRecording(_ url: URL?, cleanup: @escaping @MainActor () -> Void) {
+        guard let url else {
+            Task { @MainActor in
+                testHotkeyHarness.isTranscribing = false
+                testAudioRecorder = nil
+                testSystemAudioRecorder = nil
+                if testError == nil {
+                    testError = "No audio file was created."
+                }
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                    testPhase = .done
+                }
+                cleanup()
+            }
+            return
+        }
+
+        Task {
+            do {
+                let service = try appState.makeTranscriptionService()
+                let transcript = try await service.transcribe(fileURL: url)
+                await MainActor.run {
+                    testHotkeyHarness.isTranscribing = false
+                    testAudioRecorder = nil
+                    testSystemAudioRecorder = nil
+                    testTranscript = transcript
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                        testPhase = .done
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    testHotkeyHarness.isTranscribing = false
+                    testAudioRecorder = nil
+                    testSystemAudioRecorder = nil
+                    testError = error.localizedDescription
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                        testPhase = .done
+                    }
+                }
+            }
+            await MainActor.run {
+                cleanup()
+            }
+        }
+    }
+
+    private func clearTestRecordingState() {
+        testAudioLevelCancellable?.cancel()
+        testAudioLevelCancellable = nil
+        testAudioLevel = 0.0
+        testHotkeyHarness.isTranscribing = false
+    }
+
+    private func cancelTestRecorders() {
         if let recorder = testAudioRecorder, recorder.isRecording {
             recorder.cancelRecording()
         }
+        testSystemAudioRecorder?.cancelRecording()
         testAudioRecorder = nil
+        testSystemAudioRecorder = nil
+    }
+
+    private func stopTestHotkeyMonitoring() {
+        testHotkeyHarness.stop()
+        resetTest()
     }
 
     private func resetTest() {
         testPhase = .idle
         testTranscript = ""
         testError = nil
-        testAudioLevel = 0.0
         testMicPulsing = true
-        testHotkeyHarness.isTranscribing = false
+        clearTestRecordingState()
         testHotkeyHarness.resetSession()
-        if let recorder = testAudioRecorder {
-            if recorder.isRecording {
-                recorder.cancelRecording()
-            }
-            testAudioRecorder = nil
-        }
+        cancelTestRecorders()
     }
 
 }
