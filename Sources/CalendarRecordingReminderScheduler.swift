@@ -6,11 +6,20 @@ struct CalendarRecordingReminderPlan: Equatable {
     let immediate: [CalendarRecordingReminderSchedule]
 }
 
+struct CalendarRecordingReminderNotificationAction: Equatable {
+    let identifier: String
+    let reminderGroupIdentifier: String?
+}
+
 struct CalendarRecordingReminderSchedule: Equatable {
     let identifier: String
     let fireDate: Date
     let event: GoogleCalendarEvent
     let delivery: Delivery
+
+    var reminderGroupIdentifier: String {
+        CalendarRecordingReminderScheduler.reminderGroupIdentifier(for: event)
+    }
 
     enum Delivery: Equatable {
         case scheduled
@@ -28,6 +37,16 @@ protocol CalendarRecordingReminderNotificationManaging: AnyObject {
     func sendImmediateNotification(_ request: UNNotificationRequest) async -> Bool
 }
 
+typealias CalendarRecordingReminderPresentedHandler = (CalendarRecordingReminderSchedule) -> Void
+
+@MainActor
+protocol CalendarRecordingReminderInAppPresenting: AnyObject {
+    func presentCalendarRecordingReminder(
+        _ schedule: CalendarRecordingReminderSchedule,
+        onPresented: @escaping CalendarRecordingReminderPresentedHandler
+    ) async -> Bool
+}
+
 extension AppNotificationManager: CalendarRecordingReminderNotificationManaging {}
 
 @MainActor
@@ -42,21 +61,28 @@ final class CalendarRecordingReminderScheduler {
     nonisolated static let refreshIntervalMinuteOptions = [5, 15, 30, 60]
     nonisolated static let scheduleWindow: TimeInterval = 24 * 60 * 60
     nonisolated static let startedMeetingGracePeriod: TimeInterval = 5 * 60
+    nonisolated static let localNotificationFallbackDelay: TimeInterval = 2
 
     private let notificationManager: CalendarRecordingReminderNotificationManaging
+    private weak var inAppPresenter: CalendarRecordingReminderInAppPresenting?
     private let eventProvider: EventProvider
     private var refreshTimer: Timer?
     private var refreshTask: Task<Void, Never>?
     private var cleanupTask: Task<Void, Never>?
+    private var inAppTimers: [String: Timer] = [:]
     private var generation = 0
     private var isStarted = false
     private var notifiedReminderIdentifiers: Set<String> = []
+    private var externallyHandledReminderIdentifiers: Set<String> = []
+    private var externallyHandledReminderGroupIdentifiers: Set<String> = []
 
     init(
         notificationManager: CalendarRecordingReminderNotificationManaging,
+        inAppPresenter: CalendarRecordingReminderInAppPresenting? = nil,
         eventProvider: @escaping EventProvider
     ) {
         self.notificationManager = notificationManager
+        self.inAppPresenter = inAppPresenter
         self.eventProvider = eventProvider
     }
 
@@ -81,6 +107,7 @@ final class CalendarRecordingReminderScheduler {
         let stopGeneration = generation
         isStarted = false
         stopTimer()
+        invalidateInAppTimers()
         refreshTask?.cancel()
         refreshTask = nil
         cleanupTask?.cancel()
@@ -96,6 +123,20 @@ final class CalendarRecordingReminderScheduler {
     func rescheduleNow(leadMinutes: [Int]) async throws -> Int {
         let refreshGeneration = generation
         return try await refresh(leadMinutes: leadMinutes, generation: refreshGeneration, requiresStarted: false)
+    }
+
+    func pendingInAppReminderFireDates() -> [Date] {
+        inAppTimers.values.map(\.fireDate).sorted()
+    }
+
+    func markReminderHandledExternally(identifier: String, reminderGroupIdentifier: String?) {
+        externallyHandledReminderIdentifiers.insert(identifier)
+        if let reminderGroupIdentifier {
+            externallyHandledReminderGroupIdentifiers.insert(reminderGroupIdentifier)
+        }
+        inAppTimers[identifier]?.invalidate()
+        inAppTimers.removeValue(forKey: identifier)
+        notificationManager.removePendingNotificationRequests(withIdentifiers: [identifier])
     }
 
     private func stopTimer() {
@@ -121,7 +162,8 @@ final class CalendarRecordingReminderScheduler {
         generation refreshGeneration: Int,
         requiresStarted: Bool = true
     ) async throws -> Int {
-        guard await notificationManager.canShowAlerts() else { return 0 }
+        let canShowAlerts = await notificationManager.canShowAlerts()
+        guard canShowAlerts || inAppPresenter != nil else { return 0 }
         try Task.checkCancellation()
         guard generation == refreshGeneration else { return 0 }
         guard !requiresStarted || isStarted else { return 0 }
@@ -142,14 +184,16 @@ final class CalendarRecordingReminderScheduler {
         return try await replacePendingNotifications(
             plan: plan,
             calendar: .current,
-            generation: refreshGeneration
+            generation: refreshGeneration,
+            canShowAlerts: canShowAlerts
         )
     }
 
     private func replacePendingNotifications(
         plan: CalendarRecordingReminderPlan,
         calendar: Calendar,
-        generation refreshGeneration: Int
+        generation refreshGeneration: Int,
+        canShowAlerts: Bool
     ) async throws -> Int {
         let pendingIDs = Set(await Self.pendingCalendarReminderIdentifiers(notificationManager: notificationManager))
         try Task.checkCancellation()
@@ -158,20 +202,35 @@ final class CalendarRecordingReminderScheduler {
             .filter(Self.isCalendarReminderIdentifier)
         try Task.checkCancellation()
         guard generation == refreshGeneration else { return 0 }
-        let planIDs = Set((plan.scheduled + plan.immediate).map(\.identifier))
+        let plannedSchedules = plan.scheduled + plan.immediate
+        let planIDs = Set(plannedSchedules.map(\.identifier))
+        let planGroupIDs = Set(plannedSchedules.map(\.reminderGroupIdentifier))
+        externallyHandledReminderIdentifiers = externallyHandledReminderIdentifiers.intersection(planIDs)
+        externallyHandledReminderGroupIdentifiers = externallyHandledReminderGroupIdentifiers.intersection(planGroupIDs)
+        let externallyHandledIDs = Set(plannedSchedules
+            .filter(isExternallyHandled)
+            .map(\.identifier))
+        cancelStaleInAppTimers(keeping: planIDs.subtracting(externallyHandledIDs))
         notifiedReminderIdentifiers = notifiedReminderIdentifiers.intersection(planIDs)
         let immediateNotifiedIDs = deliveredIDs.union(notifiedReminderIdentifiers)
         let scheduledIDs = Set(plan.scheduled.map(\.identifier))
         let immediateIDs = Set(plan.immediate.map(\.identifier))
         var pendingToRemove = pendingIDs.subtracting(scheduledIDs).subtracting(immediateIDs)
+        pendingToRemove.formUnion(pendingIDs.intersection(externallyHandledIDs))
         try Task.checkCancellation()
         guard generation == refreshGeneration else { return 0 }
 
         var deliveredCount = 0
-        for schedule in plan.immediate where !immediateNotifiedIDs.contains(schedule.identifier) {
+        for schedule in plan.immediate where !immediateNotifiedIDs.contains(schedule.identifier) && !isExternallyHandled(schedule) {
             try Task.checkCancellation()
             guard generation == refreshGeneration else { return deliveredCount }
-            if await notificationManager.sendImmediateNotification(Self.notificationRequest(for: schedule, calendar: calendar)) {
+            if await presentInApp(schedule) {
+                try Task.checkCancellation()
+                guard generation == refreshGeneration else { return deliveredCount }
+                deliveredCount += 1
+                continue
+            }
+            if canShowAlerts, await notificationManager.sendImmediateNotification(Self.notificationRequest(for: schedule, calendar: calendar)) {
                 try Task.checkCancellation()
                 guard generation == refreshGeneration else { return deliveredCount }
                 notifiedReminderIdentifiers.insert(schedule.identifier)
@@ -184,11 +243,18 @@ final class CalendarRecordingReminderScheduler {
 
         var scheduledCount = 0
         var didFailScheduledAdd = false
-        for schedule in plan.scheduled where !deliveredIDs.contains(schedule.identifier) {
+        for schedule in plan.scheduled where !deliveredIDs.contains(schedule.identifier) && !isExternallyHandled(schedule) {
             try Task.checkCancellation()
             guard generation == refreshGeneration else { return deliveredCount + scheduledCount }
             do {
-                try await notificationManager.add(Self.notificationRequest(for: schedule, calendar: calendar))
+                if canShowAlerts {
+                    try await notificationManager.add(Self.notificationRequest(
+                        for: schedule,
+                        calendar: calendar,
+                        scheduledDelay: inAppPresenter == nil ? 0 : Self.localNotificationFallbackDelay
+                    ))
+                }
+                scheduleInAppTimer(for: schedule, generation: refreshGeneration)
                 scheduledCount += 1
             } catch {
                 didFailScheduledAdd = true
@@ -203,9 +269,58 @@ final class CalendarRecordingReminderScheduler {
         return deliveredCount + scheduledCount
     }
 
+    private func presentInApp(_ schedule: CalendarRecordingReminderSchedule) async -> Bool {
+        guard let inAppPresenter else { return false }
+        return await inAppPresenter.presentCalendarRecordingReminder(schedule) { [weak self] presentedSchedule in
+            guard let self else { return }
+            self.notifiedReminderIdentifiers.insert(presentedSchedule.identifier)
+            self.notificationManager.removePendingNotificationRequests(withIdentifiers: [presentedSchedule.identifier])
+        }
+    }
+
+    private func isExternallyHandled(_ schedule: CalendarRecordingReminderSchedule) -> Bool {
+        externallyHandledReminderIdentifiers.contains(schedule.identifier)
+            || externallyHandledReminderGroupIdentifiers.contains(schedule.reminderGroupIdentifier)
+    }
+
+    private func scheduleInAppTimer(for schedule: CalendarRecordingReminderSchedule, generation timerGeneration: Int) {
+        guard inAppPresenter != nil else { return }
+        inAppTimers[schedule.identifier]?.invalidate()
+        let timer = Timer.scheduledTimer(withTimeInterval: max(0, schedule.fireDate.timeIntervalSinceNow), repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                await self?.fireInAppReminder(schedule, generation: timerGeneration)
+            }
+        }
+        inAppTimers[schedule.identifier] = timer
+    }
+
+    private func cancelStaleInAppTimers(keeping identifiers: Set<String>) {
+        for identifier in Array(inAppTimers.keys) where !identifiers.contains(identifier) {
+            inAppTimers[identifier]?.invalidate()
+            inAppTimers.removeValue(forKey: identifier)
+        }
+    }
+
+    private func invalidateInAppTimers() {
+        for timer in inAppTimers.values {
+            timer.invalidate()
+        }
+        inAppTimers.removeAll()
+    }
+
+    private func fireInAppReminder(_ schedule: CalendarRecordingReminderSchedule, generation timerGeneration: Int) async {
+        inAppTimers[schedule.identifier]?.invalidate()
+        inAppTimers.removeValue(forKey: schedule.identifier)
+        guard generation == timerGeneration, isStarted else { return }
+        let deliveredIDs = await notificationManager.deliveredNotificationRequestIdentifiers()
+        guard !deliveredIDs.contains(schedule.identifier) else { return }
+        guard await presentInApp(schedule) else { return }
+    }
+
     private static func notificationRequest(
         for schedule: CalendarRecordingReminderSchedule,
-        calendar: Calendar
+        calendar: Calendar,
+        scheduledDelay: TimeInterval = 0
     ) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
         content.title = notificationTitle(
@@ -224,8 +339,9 @@ final class CalendarRecordingReminderScheduler {
         let trigger: UNNotificationTrigger?
         switch schedule.delivery {
         case .scheduled:
+            let notificationFireDate = schedule.fireDate.addingTimeInterval(scheduledDelay)
             trigger = UNCalendarNotificationTrigger(
-                dateMatching: calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: schedule.fireDate),
+                dateMatching: calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: notificationFireDate),
                 repeats: false
             )
         case .immediate:
@@ -322,6 +438,35 @@ final class CalendarRecordingReminderScheduler {
         let startTimestamp = Int(event.start.timeIntervalSince1970.rounded())
         let normalizedLeadMinutes = normalizedLeadMinuteOption(leadMinutes)
         return "\(notificationIdentifierPrefix):\(event.calendarID):\(event.id):\(startTimestamp):\(normalizedLeadMinutes)"
+    }
+
+    nonisolated static func reminderGroupIdentifier(for event: GoogleCalendarEvent) -> String {
+        reminderGroupIdentifier(
+            calendarID: event.calendarID,
+            eventID: event.id,
+            startTimestamp: Int(event.start.timeIntervalSince1970.rounded())
+        )
+    }
+
+    nonisolated static func reminderGroupIdentifier(from userInfo: [AnyHashable: Any]) -> String? {
+        guard let calendarID = userInfo["calendarID"] as? String,
+              let eventID = userInfo["eventID"] as? String,
+              let eventStart = timeIntervalValue(userInfo["eventStart"]) else { return nil }
+        return reminderGroupIdentifier(
+            calendarID: calendarID,
+            eventID: eventID,
+            startTimestamp: Int(eventStart.rounded())
+        )
+    }
+
+    private nonisolated static func reminderGroupIdentifier(calendarID: String, eventID: String, startTimestamp: Int) -> String {
+        "\(calendarID):\(eventID):\(startTimestamp)"
+    }
+
+    private nonisolated static func timeIntervalValue(_ value: Any?) -> TimeInterval? {
+        if let value = value as? TimeInterval { return value }
+        if let value = value as? NSNumber { return value.doubleValue }
+        return nil
     }
 
     nonisolated static func isCalendarReminderIdentifier(_ identifier: String) -> Bool {

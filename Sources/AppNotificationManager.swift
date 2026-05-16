@@ -6,7 +6,7 @@ final class AppNotificationManager: NSObject, UNUserNotificationCenterDelegate {
     static let shared = AppNotificationManager()
 
     private let notificationCenter: UNUserNotificationCenter
-    private var calendarReminderHandler: (() -> Void)?
+    private var calendarReminderHandler: ((CalendarRecordingReminderNotificationAction) -> Void)?
 
     private override init() {
         notificationCenter = .current()
@@ -17,7 +17,7 @@ final class AppNotificationManager: NSObject, UNUserNotificationCenterDelegate {
         notificationCenter.delegate = self
     }
 
-    func setCalendarReminderHandler(_ handler: @escaping () -> Void) {
+    func setCalendarReminderHandler(_ handler: @escaping (CalendarRecordingReminderNotificationAction) -> Void) {
         calendarReminderHandler = handler
     }
 
@@ -104,8 +104,13 @@ final class AppNotificationManager: NSObject, UNUserNotificationCenterDelegate {
         guard CalendarRecordingReminderScheduler.isCalendarReminderIdentifier(response.notification.request.identifier) else {
             return
         }
+        let request = response.notification.request
+        let action = CalendarRecordingReminderNotificationAction(
+            identifier: request.identifier,
+            reminderGroupIdentifier: CalendarRecordingReminderScheduler.reminderGroupIdentifier(from: request.content.userInfo)
+        )
         await MainActor.run {
-            calendarReminderHandler?()
+            calendarReminderHandler?(action)
         }
     }
 }

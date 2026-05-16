@@ -985,6 +985,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
     )
     let hotkeyManager = HotkeyManager()
     let overlayManager = RecordingOverlayManager()
+    @MainActor
+    private lazy var meetingReminderOverlayManager = MeetingReminderOverlayManager { [weak self] in
+        guard let self else {
+            return MeetingReminderOverlayContext(phase: .idle, layout: .centerDropdownFill)
+        }
+        let phase: MeetingReminderOverlayContext.Phase = if self.isRecording {
+            .recording
+        } else if self.isTranscribing {
+            .processing
+        } else {
+            .idle
+        }
+        let layout: MeetingReminderOverlayContext.Layout = self.recordingOverlayLayout == .notchSides ? .notchSides : .centerDropdownFill
+        return MeetingReminderOverlayContext(phase: phase, layout: layout)
+    }
     private var accessibilityTimer: Timer?
     private var audioLevelCancellable: AnyCancellable?
     private var debugOverlayTimer: Timer?
@@ -1004,7 +1019,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var googleCalendarConnectionTask: Task<Void, Never>?
     @MainActor
     private lazy var calendarRecordingReminderScheduler = CalendarRecordingReminderScheduler(
-        notificationManager: AppNotificationManager.shared
+        notificationManager: AppNotificationManager.shared,
+        inAppPresenter: meetingReminderOverlayManager
     ) { [weak self] timeMin, timeMax in
         guard let self else { return [] }
         return try await self.fetchCalendarRecordingReminderEvents(timeMin: timeMin, timeMax: timeMax)
@@ -1301,6 +1317,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         overlayManager.onStopButtonPressed = { [weak self] in
             DispatchQueue.main.async {
                 self?.handleOverlayStopButtonPressed()
+            }
+        }
+        Task { @MainActor [weak self] in
+            self?.meetingReminderOverlayManager.onStart = { [weak self] _ in
+                self?.startRecordingFromCalendarReminder()
             }
         }
     }
@@ -1888,6 +1909,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func refreshTranscribingState() {
         isTranscribing = !activeTranscriptionJobs.isEmpty
         syncCriticalDictationActivity()
+        meetingReminderOverlayManager.refreshVisibleReminder()
     }
 
     @MainActor
@@ -3108,11 +3130,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    func startRecordingFromCalendarReminder(_ action: CalendarRecordingReminderNotificationAction) {
+        beginCalendarReminderRecording { [weak self] in
+            self?.calendarRecordingReminderScheduler.markReminderHandledExternally(
+                identifier: action.identifier,
+                reminderGroupIdentifier: action.reminderGroupIdentifier
+            )
+        }
+    }
+
+    @MainActor
     func startRecordingFromCalendarReminder() {
-        guard !isRecording, !isTranscribing else { return }
+        beginCalendarReminderRecording()
+    }
+
+    @MainActor
+    private func beginCalendarReminderRecording(onStarted: (@MainActor () -> Void)? = nil) {
+        guard !isRecording else { return }
         lastTranscript = ""
         shortcutSessionController.beginManual(mode: .toggle)
-        startRecording(triggerMode: .toggle)
+        startRecording(triggerMode: .toggle, onStarted: onStarted)
     }
 
     @MainActor
@@ -3404,7 +3441,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
-    private func startRecording(triggerMode: RecordingTriggerMode) {
+    private func startRecording(triggerMode: RecordingTriggerMode, onStarted: (@MainActor () -> Void)? = nil) {
         let t0 = CFAbsoluteTimeGetCurrent()
         os_log(.info, log: recordingLog, "startRecording() entered")
         guard !isRecording else { return }
@@ -3438,7 +3475,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             if AudioInputDevice.isMicrophoneOnly(audioInputID) {
                 applyAudioInterruptionIfNeeded()
             }
-            beginRecording(triggerMode: triggerMode)
+            beginRecording(triggerMode: triggerMode, onStarted: onStarted)
             os_log(.info, log: recordingLog, "startRecording() finished: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
         }
     }
@@ -3782,7 +3819,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
-    private func beginRecording(triggerMode: RecordingTriggerMode) {
+    private func beginRecording(triggerMode: RecordingTriggerMode, onStarted: (@MainActor () -> Void)? = nil) {
         os_log(.info, log: recordingLog, "beginRecording() entered")
         clearPendingOverlayDismissToken()
         errorMessage = nil
@@ -3828,7 +3865,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                                 if AudioInputDevice.isMicrophoneOnly(audioInputID) {
                                     self.applyAudioInterruptionIfNeeded()
                                 }
-                                self.beginRecording(triggerMode: .toggle)
+                                self.beginRecording(triggerMode: .toggle, onStarted: onStarted)
                             }
                         } else {
                             self.currentSessionIntent = .dictation
@@ -3866,6 +3903,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         isRecording = true
         syncCriticalDictationActivity()
+        meetingReminderOverlayManager.refreshVisibleReminder()
         statusText = "Starting..."
         hasShownScreenshotPermissionAlert = false
 
@@ -3884,6 +3922,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 mode: self.activeRecordingTriggerMode ?? triggerMode,
                 isCommandMode: self.currentSessionIntent.isCommandMode
             )
+            self.meetingReminderOverlayManager.refreshVisibleReminder()
         }
         initTimer.resume()
 
@@ -3908,6 +3947,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             isCommandMode: self.currentSessionIntent.isCommandMode
                         )
                     }
+                    self.meetingReminderOverlayManager.refreshVisibleReminder()
                     overlayShown = true
                     self.playAlertSound(named: "Tink")
                 }
@@ -3964,6 +4004,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         let actualRecordingStartedAt = Date()
                         await MainActor.run {
                             self.markRecordingStarted(actualRecordingStartedAt)
+                            if self.isRecording, self.activeRecordingTriggerMode != nil {
+                                onStarted?()
+                            }
                         }
                         self.audioRecorder.onRecordingReady?()
                     } else {
@@ -3971,6 +4014,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         let actualRecordingStartedAt = Date()
                         await MainActor.run {
                             self.markRecordingStarted(actualRecordingStartedAt)
+                            if self.isRecording, self.activeRecordingTriggerMode != nil {
+                                onStarted?()
+                            }
                         }
                         os_log(.info, log: recordingLog, "selected audio recorder start done: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
                     }
@@ -4004,6 +4050,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     await MainActor.run {
                         self.markRecordingStarted(actualRecordingStartedAt)
                         guard self.isRecording, self.activeRecordingTriggerMode != nil else { return }
+                        onStarted?()
                         self.startContextCapture()
                         self.audioLevelCancellable = self.activeRecorderAudioLevelPublisher(inputID: audioInputID)
                             .receive(on: DispatchQueue.main)
