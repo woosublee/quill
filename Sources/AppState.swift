@@ -985,6 +985,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     )
     let hotkeyManager = HotkeyManager()
     let overlayManager = RecordingOverlayManager()
+    @MainActor
+    private lazy var meetingReminderOverlayManager = MeetingReminderOverlayManager { [weak self] in
+        self?.isRecording == true
+    }
     private var accessibilityTimer: Timer?
     private var audioLevelCancellable: AnyCancellable?
     private var debugOverlayTimer: Timer?
@@ -1004,7 +1008,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var googleCalendarConnectionTask: Task<Void, Never>?
     @MainActor
     private lazy var calendarRecordingReminderScheduler = CalendarRecordingReminderScheduler(
-        notificationManager: AppNotificationManager.shared
+        notificationManager: AppNotificationManager.shared,
+        inAppPresenter: meetingReminderOverlayManager
     ) { [weak self] timeMin, timeMax in
         guard let self else { return [] }
         return try await self.fetchCalendarRecordingReminderEvents(timeMin: timeMin, timeMax: timeMax)
@@ -1301,6 +1306,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         overlayManager.onStopButtonPressed = { [weak self] in
             DispatchQueue.main.async {
                 self?.handleOverlayStopButtonPressed()
+            }
+        }
+        Task { @MainActor [weak self] in
+            self?.meetingReminderOverlayManager.onStart = { [weak self] _ in
+                Task { @MainActor in
+                    self?.startRecordingFromCalendarReminder()
+                }
             }
         }
     }
@@ -3109,7 +3121,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func startRecordingFromCalendarReminder() {
-        guard !isRecording, !isTranscribing else { return }
+        guard !isRecording else { return }
         lastTranscript = ""
         shortcutSessionController.beginManual(mode: .toggle)
         startRecording(triggerMode: .toggle)
