@@ -1180,9 +1180,11 @@ struct GeneralSettingsView: View {
     }
 
     private var appBuildNumber: String {
-        Bundle.main.object(forInfoDictionaryKey: "QuillBuildTag") as? String
-            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
-            ?? "unknown"
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+    }
+
+    private var appReleaseTag: String {
+        Bundle.main.object(forInfoDictionaryKey: "QuillBuildTag") as? String ?? "unknown"
     }
 
     private var macOSVersion: String {
@@ -1201,7 +1203,7 @@ struct GeneralSettingsView: View {
     }
 
     private var buildDiagnosticsText: String {
-        "\(appDisplayName) \(appVersion) (\(appBuildNumber))\nmacOS \(macOSVersion) (\(appArchitecture))"
+        "\(appDisplayName) \(appVersion) (build \(appBuildNumber), \(appReleaseTag))\nmacOS \(macOSVersion) (\(appArchitecture))"
     }
 
     var body: some View {
@@ -1543,10 +1545,30 @@ struct GeneralSettingsView: View {
     private var buildInfoSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
+                Text("Version")
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Text(appVersion)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            HStack(alignment: .firstTextBaseline) {
                 Text("Build number")
                     .font(.caption.weight(.semibold))
                 Spacer()
                 Text(appBuildNumber)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            HStack(alignment: .firstTextBaseline) {
+                Text("Release tag")
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Text(appReleaseTag)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)

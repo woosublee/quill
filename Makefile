@@ -89,10 +89,11 @@ endif
 	@xattr -cr "$(APP_BUNDLE)"
 	@rm -rf "$(BUILD_DIR)/codesign-staging"
 	@mkdir -p "$(BUILD_DIR)/codesign-staging"
-	@ditto --norsrc "$(APP_BUNDLE)" "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app"
+	@ditto --norsrc --noextattr "$(APP_BUNDLE)" "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app"
 	@codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" --entitlements Quill.entitlements "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app"
 	@rm -rf "$(APP_BUNDLE)"
-	@ditto "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app" "$(APP_BUNDLE)"
+	@ditto --norsrc --noextattr "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app" "$(APP_BUNDLE)"
+	@xattr -cr "$(APP_BUNDLE)"
 	@rm -rf "$(BUILD_DIR)/codesign-staging"
 	@echo "Built $(APP_BUNDLE)"
 
@@ -115,27 +116,27 @@ $(ICON_ICNS): $(ICON_SOURCE)
 	@echo "Generated $@"
 
 dmg: all
-	@rm -f "$(BUILD_DIR)/$(APP_NAME).dmg"
-	@rm -rf $(BUILD_DIR)/dmg-staging
-	@mkdir -p $(BUILD_DIR)/dmg-staging
-	@cp -R "$(APP_BUNDLE)" $(BUILD_DIR)/dmg-staging/
-	@osascript -e 'tell application "Finder" to make alias file to POSIX file "/Applications" at POSIX file "'"$$(cd $(BUILD_DIR)/dmg-staging && pwd)"'"'
-	@ALIAS=$$(find $(BUILD_DIR)/dmg-staging -maxdepth 1 -not -name '*.app' -not -name '.DS_Store' -type f | head -1) && mv "$$ALIAS" "$(BUILD_DIR)/dmg-staging/Applications"
-	@fileicon set "$(BUILD_DIR)/dmg-staging/Applications" /System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/ApplicationsFolderIcon.icns
+	@rm -f "$(BUILD_DIR)/$(APP_NAME).dmg" "$(BUILD_DIR)/$(APP_NAME)-rw.dmg"
+	@rm -rf "$(BUILD_DIR)/dmg-mount"
+	@mkdir -p "$(BUILD_DIR)/dmg-mount"
 	@echo "Creating DMG..."
-	@create-dmg \
-		--volname "$(APP_NAME)" \
-		--volicon "$(ICON_ICNS)" \
-		--window-pos 200 120 \
-		--window-size 660 400 \
-		--icon-size 128 \
-		--icon "$(APP_NAME).app" 180 170 \
-		--hide-extension "$(APP_NAME).app" \
-		--icon "Applications" 480 170 \
-		--no-internet-enable \
-		"$(BUILD_DIR)/$(APP_NAME).dmg" \
-		"$(BUILD_DIR)/dmg-staging"
-	@rm -rf $(BUILD_DIR)/dmg-staging
+	@set -e; \
+		mount_dir="$(BUILD_DIR)/dmg-mount"; \
+		rw_dmg="$(BUILD_DIR)/$(APP_NAME)-rw.dmg"; \
+		xattr -cr "$(APP_BUNDLE)"; \
+		hdiutil create -size 120m -fs HFS+ -volname "$(APP_NAME)" -ov "$$rw_dmg" >/dev/null; \
+		hdiutil attach "$$rw_dmg" -nobrowse -mountpoint "$$mount_dir" >/dev/null; \
+		trap 'hdiutil detach "$$mount_dir" >/dev/null 2>&1 || true' EXIT; \
+		ditto --norsrc --noextattr "$(APP_BUNDLE)" "$$mount_dir/$(APP_NAME).app"; \
+		ln -s /Applications "$$mount_dir/Applications"; \
+		xattr -cr "$$mount_dir/$(APP_NAME).app"; \
+		codesign --verify --deep --strict --verbose=2 "$$mount_dir/$(APP_NAME).app" >/dev/null; \
+		hdiutil detach "$$mount_dir" >/dev/null; \
+		trap - EXIT; \
+		hdiutil convert "$$rw_dmg" -format UDZO -o "$(BUILD_DIR)/$(APP_NAME).dmg" >/dev/null
+	@rm -f "$(BUILD_DIR)/$(APP_NAME)-rw.dmg"
+	@rm -rf "$(BUILD_DIR)/dmg-mount"
+	@xattr -cr "$(APP_BUNDLE)"
 	@echo "Created $(BUILD_DIR)/$(APP_NAME).dmg"
 
 codesign-dmg: dmg

@@ -1,12 +1,45 @@
 # Changelog
 
-All notable changes to FreeFlow are documented here.
+All notable changes to Quill are documented here.
 
 This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATCH`, where:
 
 - `MAJOR` changes include breaking behavior or major compatibility changes.
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
+
+## [0.1.0] - 2026-05-17
+
+### Added
+
+- First public Quill release as a maintained fork of `zachlatta/freeflow`.
+- Quill branding, bundle identity, app metadata, release packaging, and fork-specific setup flow.
+- Local transcription setup path with model download lifecycle improvements and clearer local-only setup messaging.
+- Google Calendar connection, calendar-based note title suggestions, meeting recording reminders, sync status, and calendar matching diagnostics.
+- In-app meeting reminder overlay for upcoming recordings, with macOS notification fallback.
+- Note Browser workflow improvements, including custom note titles, persisted title migration, and clearer recording time display.
+- Configurable recording cancel shortcut with conflict validation and settings UI.
+- System Audio capture and System default + System Audio recording for meeting audio workflows.
+- Quill MCP setup instructions for connecting the running app to Claude Code.
+
+### Improved
+
+- Recording overlay behavior now follows upstream notch-side improvements while preserving Quill-specific layout choices.
+- Stopped transcription completion now has a more reliable completion flow.
+- Google Calendar sync and error states are clearer in Settings.
+- Release metadata is stamped into app bundles so release builds can be traced by version, build number, and release tag.
+- Privacy and Google data-sharing disclosures now better match Quill's Calendar integration behavior.
+
+### Fixed
+
+- Fixed cases where the recording overlay could disappear after display changes.
+- Fixed local model download cancellation and download progress layout edge cases.
+- Fixed duplicate legacy note title migration keys.
+- Fixed calendar reconnect prompt paths that could send users through an unnecessary flow.
+
+## Upstream FreeFlow history
+
+The entries below come from the upstream FreeFlow project before this fork started publishing Quill releases.
 
 ## [0.3.3] - 2026-04-25
 
