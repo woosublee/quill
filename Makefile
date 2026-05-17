@@ -123,19 +123,20 @@ dmg: all
 	@set -e; \
 		mount_dir="$(BUILD_DIR)/dmg-mount"; \
 		rw_dmg="$(BUILD_DIR)/$(APP_NAME)-rw.dmg"; \
+		dmg_size_mb=$$(($$(du -sm "$(APP_BUNDLE)" | cut -f1) + 64)); \
 		xattr -cr "$(APP_BUNDLE)"; \
-		hdiutil create -size 120m -fs HFS+ -volname "$(APP_NAME)" -ov "$$rw_dmg" >/dev/null; \
+		hdiutil create -size "$${dmg_size_mb}m" -fs HFS+ -volname "$(APP_NAME)" -ov "$$rw_dmg" >/dev/null; \
 		hdiutil attach "$$rw_dmg" -nobrowse -mountpoint "$$mount_dir" >/dev/null; \
-		trap 'hdiutil detach "$$mount_dir" >/dev/null 2>&1 || true' EXIT; \
+		trap 'hdiutil detach "$$mount_dir" >/dev/null 2>&1 || true; rm -f "$$rw_dmg"; rm -rf "$$mount_dir"' EXIT; \
 		ditto --norsrc --noextattr "$(APP_BUNDLE)" "$$mount_dir/$(APP_NAME).app"; \
 		ln -s /Applications "$$mount_dir/Applications"; \
 		xattr -cr "$$mount_dir/$(APP_NAME).app"; \
 		codesign --verify --deep --strict --verbose=2 "$$mount_dir/$(APP_NAME).app" >/dev/null; \
 		hdiutil detach "$$mount_dir" >/dev/null; \
-		trap - EXIT; \
-		hdiutil convert "$$rw_dmg" -format UDZO -o "$(BUILD_DIR)/$(APP_NAME).dmg" >/dev/null
-	@rm -f "$(BUILD_DIR)/$(APP_NAME)-rw.dmg"
-	@rm -rf "$(BUILD_DIR)/dmg-mount"
+		hdiutil convert "$$rw_dmg" -format UDZO -o "$(BUILD_DIR)/$(APP_NAME).dmg" >/dev/null; \
+		rm -f "$$rw_dmg"; \
+		rm -rf "$$mount_dir"; \
+		trap - EXIT
 	@xattr -cr "$(APP_BUNDLE)"
 	@echo "Created $(BUILD_DIR)/$(APP_NAME).dmg"
 

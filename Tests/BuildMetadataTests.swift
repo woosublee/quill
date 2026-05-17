@@ -82,14 +82,18 @@ struct BuildMetadataTests {
     private static func testMakefileCreatesDmgWithoutFinderMetadata() throws {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
 
-        assertContains(makefile, "hdiutil create -size 120m -fs HFS+ -volname \"$(APP_NAME)\"")
+        assertContains(makefile, "dmg_size_mb=$$(($$(du -sm \"$(APP_BUNDLE)\" | cut -f1) + 64))")
+        assertContains(makefile, "hdiutil create -size \"$${dmg_size_mb}m\" -fs HFS+ -volname \"$(APP_NAME)\"")
+        assertContains(makefile, "trap 'hdiutil detach \"$$mount_dir\" >/dev/null 2>&1 || true; rm -f \"$$rw_dmg\"; rm -rf \"$$mount_dir\"' EXIT")
         assertContains(makefile, "ditto --norsrc --noextattr \"$(APP_BUNDLE)\" \"$$mount_dir/$(APP_NAME).app\"")
         assertContains(makefile, "ln -s /Applications \"$$mount_dir/Applications\"")
         assertContains(makefile, "xattr -cr \"$$mount_dir/$(APP_NAME).app\"")
+        assertContains(makefile, "codesign --verify --deep --strict --verbose=2 \"$$mount_dir/$(APP_NAME).app\"")
         assertContains(makefile, "hdiutil convert \"$$rw_dmg\" -format UDZO -o \"$(BUILD_DIR)/$(APP_NAME).dmg\"")
-        assertContains(makefile, "@xattr -cr \"$(APP_BUNDLE)\"\n\t@echo \"Created $(BUILD_DIR)/$(APP_NAME).dmg\"")
         assertDoesNotContain(makefile, "create-dmg")
         assertDoesNotContain(makefile, "fileicon set")
+        assertDoesNotContain(makefile, "hdiutil create -srcfolder")
+        assertDoesNotContain(makefile, "-size 120m")
     }
 
     private static func testReleaseWorkflowsPassBuildMetadataToMake() throws {
