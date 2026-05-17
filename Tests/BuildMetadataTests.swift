@@ -11,6 +11,7 @@ struct BuildMetadataTests {
         try testMakefileStripsExtendedAttributesDuringDmgStaging()
         try testMakefileCreatesDmgWithoutFinderMetadata()
         try testReleaseWorkflowsPassBuildMetadataToMake()
+        try testNotarizedReleaseWorkflowIsManualByDefault()
         try testSettingsSeparatesVersionBuildAndReleaseTag()
         print("BuildMetadataTests passed")
     }
@@ -100,8 +101,23 @@ struct BuildMetadataTests {
         assertContains(manualReleaseWorkflow, "BUILD_TAG=\"${{ steps.metadata.outputs.tag }}\"")
 
         assertContains(releaseWorkflow, "APP_VERSION=\"${{ steps.version.outputs.version }}\"")
-        assertContains(releaseWorkflow, "BUILD_NUMBER=\"${{ github.run_number }}\"")
+        assertContains(releaseWorkflow, "BUILD_NUMBER=\"${{ steps.version.outputs.build_number }}\"")
         assertContains(releaseWorkflow, "BUILD_TAG=\"${{ steps.version.outputs.tag }}\"")
+    }
+
+    private static func testNotarizedReleaseWorkflowIsManualByDefault() throws {
+        let releaseWorkflow = try String(contentsOfFile: ".github/workflows/release.yml", encoding: .utf8)
+
+        assertContains(releaseWorkflow, "name: Official Notarized Release")
+        assertContains(releaseWorkflow, "workflow_dispatch:")
+        assertContains(releaseWorkflow, "# To re-enable automatic notarized releases from version tags:")
+        assertContains(releaseWorkflow, "# push:")
+        assertContains(releaseWorkflow, "#   tags:")
+        assertContains(releaseWorkflow, "#     - \"v*.*.*\"")
+        assertContains(releaseWorkflow, "TAG=\"${{ inputs.tag }}\"")
+        assertContains(releaseWorkflow, "BUILD_NUMBER=\"${{ inputs.build_number }}\"")
+        assertDoesNotContain(releaseWorkflow, "on:\n  push:")
+        assertDoesNotContain(releaseWorkflow, "BUILD_NUMBER=\"${{ github.run_number }}\"")
     }
 
     private static func testSettingsSeparatesVersionBuildAndReleaseTag() throws {

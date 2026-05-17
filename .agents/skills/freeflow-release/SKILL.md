@@ -9,7 +9,7 @@ description: Prepare and publish FreeFlow app releases. Use when the user asks t
 
 Use this skill to prepare a Quill release from the local repository. Quill currently uses `.github/workflows/manual-release.yml` for public fork releases: start the workflow manually, provide the release tag and build number, and let it stamp the app bundle, extract the matching `CHANGELOG.md` section, build the DMG, and create the GitHub Release.
 
-Do not push public release tags from a local machine unless the user explicitly asks for the signed/notarized tag workflow. Pushing a tag like `v0.1.0` triggers `.github/workflows/release.yml`, which is the signed/notarized path and uses GitHub Actions run numbers for `CFBundleVersion`.
+Public release tags no longer trigger `.github/workflows/release.yml` automatically. The notarized release workflow is `workflow_dispatch` only until Apple notarization secrets are ready; it keeps a commented tag trigger example in the workflow file for re-enabling later.
 
 Every release prep must update `CHANGELOG.md` by comparing the previous public Quill release with the current release target. The changelog section should describe the user-visible changes that shipped since the previous release, not just summarize the final release-prep commit.
 
@@ -83,13 +83,12 @@ Every release prep must update `CHANGELOG.md` by comparing the previous public Q
    ```
    Include other files only when they are deliberately part of the release prep.
 
-7. After user approval, run the Manual Release workflow with:
-   - `tag`: `v<version>`
-   - `build_number`: the intended `CFBundleVersion`, such as `3`
-   - `release_name`: optional; defaults to `Quill v<version>`
-   - `release_notes`: optional extra notes appended after the changelog
+7. After user approval, choose the release path:
+   - Local signed release: build with the local `Quill` signing identity and create the GitHub Release with the verified local `Quill.dmg`.
+   - Manual fallback release: run `.github/workflows/manual-release.yml` with `tag`, `build_number`, optional `release_name`, and optional `release_notes`.
+   - Official notarized release: run `.github/workflows/release.yml` manually after Apple notarization secrets are configured.
 
-8. After GitHub Actions finishes, verify:
+8. After the release finishes, verify:
    - GitHub Release `v<version>` exists and is marked latest for stable releases.
    - `Quill.dmg` is attached.
    - The DMG app bundle has `CFBundleShortVersionString=<version>`, `CFBundleVersion=<build-number>`, and `QuillBuildTag=v<version>`.

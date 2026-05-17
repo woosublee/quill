@@ -1,9 +1,20 @@
-name: Release
+name: Official Notarized Release
 
 on:
-  push:
-    tags:
-      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v0.1.0"
+        required: true
+        type: string
+      build_number:
+        description: "CFBundleVersion build number, for example 4"
+        required: true
+        type: string
+  # To re-enable automatic notarized releases from version tags:
+  # push:
+  #   tags:
+  #     - "v*.*.*"
 
 permissions:
   contents: write
@@ -19,21 +30,33 @@ jobs:
       - name: Resolve release version
         id: version
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${{ inputs.tag }}"
+          BUILD_NUMBER="${{ inputs.build_number }}"
           VERSION="${TAG#v}"
 
-          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Release tags must use semantic versioning, for example v0.3.1." >&2
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tags must use semantic versioning, for example v0.1.0." >&2
+            exit 1
+          fi
+
+          if ! [[ "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Build number must be a positive integer." >&2
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Release tag $TAG already exists on origin. Choose a new release tag." >&2
             exit 1
           fi
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
 
       - name: Stamp app version
         run: |
           plutil -replace CFBundleShortVersionString -string "${{ steps.version.outputs.version }}" Info.plist
-          plutil -replace CFBundleVersion -string "${{ github.run_number }}" Info.plist
+          plutil -replace CFBundleVersion -string "${{ steps.version.outputs.build_number }}" Info.plist
           plutil -replace QuillBuildTag -string "${{ steps.version.outputs.tag }}" Info.plist
 
       - name: Build release notes from changelog
@@ -53,7 +76,6 @@ jobs:
       - name: Install build tools
         run: brew install create-dmg fileicon
 
-      # --- Code signing setup ---
       # Required GitHub secrets:
       #   DEVELOPER_ID_CERTIFICATE_BASE64 — base64-encoded .p12 Developer ID certificate
       #   DEVELOPER_ID_CERTIFICATE_PASSWORD — password for the .p12
@@ -69,15 +91,12 @@ jobs:
           KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
           KEYCHAIN_PASSWORD="$(openssl rand -hex 20)"
 
-          # Decode certificate
           echo "$CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
 
-          # Create temporary keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          # Import certificate and delete .p12 from disk immediately
           security import "$CERTIFICATE_PATH" \
             -P "$CERTIFICATE_PASSWORD" \
             -A \
@@ -86,14 +105,11 @@ jobs:
             -k "$KEYCHAIN_PATH"
           rm -f "$CERTIFICATE_PATH"
 
-          # Allow codesign to access the keychain without UI prompt
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          # Add temporary keychain to search list
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
 
-          # Extract signing identity
           IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | head -1 | sed 's/.*"\(.*\)".*/\1/')
           echo "CODESIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
@@ -111,12 +127,11 @@ jobs:
             --password "$APPLE_APP_PASSWORD" \
             --keychain "$KEYCHAIN_PATH"
 
-      # --- Build universal ---
       - name: Build universal
-        run: make ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY="$CODESIGN_IDENTITY" APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ github.run_number }}" BUILD_TAG="${{ steps.version.outputs.tag }}"
+        run: make ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY="$CODESIGN_IDENTITY" APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.tag }}"
 
       - name: Create universal DMG
-        run: make dmg ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY="$CODESIGN_IDENTITY" APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ github.run_number }}" BUILD_TAG="${{ steps.version.outputs.tag }}"
+        run: make dmg ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY="$CODESIGN_IDENTITY" APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.tag }}"
 
       - name: Sign universal DMG
         run: codesign --force --sign "$CODESIGN_IDENTITY" build/Quill.dmg
@@ -132,11 +147,16 @@ jobs:
       - name: Save universal DMG
         run: mv build/Quill.dmg Quill.dmg
 
-      # --- Release ---
+      - name: Create tag
+        run: |
+          git tag "${{ steps.version.outputs.tag }}" "$GITHUB_SHA"
+          git push origin "refs/tags/${{ steps.version.outputs.tag }}"
+
       - name: Create Release
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           name: Quill ${{ steps.version.outputs.version }}
           body: ${{ steps.release_notes.outputs.body }}
           generate_release_notes: false
@@ -144,7 +164,6 @@ jobs:
           files: |
             Quill.dmg
 
-      # --- Cleanup ---
       - name: Cleanup signing artifacts
         if: always()
         run: |
