@@ -167,6 +167,8 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
 
     private var panel: NSPanel?
     private var viewModel: MeetingReminderOverlayViewModel?
+    private var contentContainer: FixedHostingContainer<AnyView>?
+    private var isHidingVisibleReminder = false
     private var visibleReminder: QueuedReminder?
     private var queue: [QueuedReminder] = []
     private var queuedIdentifiers: Set<String> = []
@@ -235,7 +237,7 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
     }
 
     private func showNextIfNeeded() -> Bool {
-        guard visibleReminder == nil, !queue.isEmpty else { return true }
+        guard !isHidingVisibleReminder, visibleReminder == nil, !queue.isEmpty else { return true }
         let reminder = queue.removeFirst()
         queuedIdentifiers.remove(reminder.schedule.identifier)
         queuedReminderGroupIdentifiers.remove(reminder.schedule.reminderGroupIdentifier)
@@ -263,50 +265,105 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
             variant: variant,
             centerOverlayWidth: MeetingReminderOverlayGeometry.centerRecordingOverlayWidth(for: geometry)
         )
-        let panel = panel ?? makePanel(frame: frame)
-        panel.ignoresMouseEvents = false
-        let viewModel = MeetingReminderOverlayViewModel(displayData: displayData)
+
+        if let panel, let viewModel, let contentContainer {
+            updateExistingPresentation(
+                panel: panel,
+                viewModel: viewModel,
+                contentContainer: contentContainer,
+                displayData: displayData,
+                frame: frame,
+                animated: animated
+            )
+        } else {
+            let viewModel = MeetingReminderOverlayViewModel(displayData: displayData, frameSize: frame.size)
+            let container = makeContentContainer(viewModel: viewModel, frame: frame)
+            let panel = panel ?? makePanel(frame: frame)
+            panel.contentView = container
+            self.viewModel = viewModel
+            self.contentContainer = container
+            self.panel = panel
+            presentNewPanel(panel, frame: frame, screen: screen, animated: animated)
+        }
+
+        panel?.ignoresMouseEvents = false
+        panel?.level = variant.isRecordingContext ? Self.recordingContextLevel : .screenSaver
+
+        if markPresented {
+            reminder.onPresented(schedule)
+        }
+        return true
+    }
+
+    private func makeContentContainer(
+        viewModel: MeetingReminderOverlayViewModel,
+        frame: NSRect
+    ) -> FixedHostingContainer<AnyView> {
         let rootView = MeetingReminderOverlayRootView(
             viewModel: viewModel,
             onStart: { [weak self] in self?.handleStart() },
             onDismiss: { [weak self] in self?.handleDismiss() }
         )
         let container = FixedHostingContainer(
-            rootView: AnyView(rootView.frame(width: frame.width, height: frame.height)),
+            rootView: AnyView(rootView),
             size: frame.size
         )
         container.autoresizingMask = [.width, .height]
-        panel.contentView = container
-        self.viewModel = viewModel
-        panel.level = variant.isRecordingContext ? Self.recordingContextLevel : .screenSaver
-        self.panel = panel
+        return container
+    }
 
-        if panel.isVisible, animated {
-            NSAnimationContext.runAnimationGroup { animationContext in
-                animationContext.duration = 0.18
-                animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.34, 1.56, 0.64, 1.0)
-                panel.animator().setFrame(frame, display: true)
-            }
-        } else if animated {
-            let hiddenFrame = NSRect(x: frame.origin.x, y: screen.frame.maxY, width: frame.width, height: frame.height)
-            panel.setFrame(hiddenFrame, display: true)
-            panel.alphaValue = 1
-            panel.orderFrontRegardless()
-            NSAnimationContext.runAnimationGroup { animationContext in
-                animationContext.duration = 0.18
-                animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.34, 1.56, 0.64, 1.0)
-                panel.animator().setFrame(frame, display: true)
-            }
-        } else {
+    private func updateExistingPresentation(
+        panel: NSPanel,
+        viewModel: MeetingReminderOverlayViewModel,
+        contentContainer: FixedHostingContainer<AnyView>,
+        displayData: MeetingReminderOverlayDisplayData,
+        frame: NSRect,
+        animated: Bool
+    ) {
+        contentContainer.setFixedContentSize(frame.size)
+        viewModel.update(displayData: displayData, frameSize: frame.size, animated: animated)
+        resize(panel: panel, to: frame, animated: animated)
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+    }
+
+    private func presentNewPanel(
+        _ panel: NSPanel,
+        frame: NSRect,
+        screen: NSScreen,
+        animated: Bool
+    ) {
+        guard animated else {
             panel.setFrame(frame, display: true)
             panel.alphaValue = 1
             panel.orderFrontRegardless()
+            return
         }
 
-        if markPresented {
-            reminder.onPresented(schedule)
+        let hiddenFrame = NSRect(x: frame.origin.x, y: screen.frame.maxY, width: frame.width, height: frame.height)
+        panel.setFrame(hiddenFrame, display: true)
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+        NSAnimationContext.runAnimationGroup { animationContext in
+            animationContext.duration = 0.18
+            animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.34, 1.56, 0.64, 1.0)
+            panel.animator().setFrame(frame, display: true)
         }
-        return true
+    }
+
+    private func resize(panel: NSPanel, to frame: NSRect, animated: Bool) {
+        guard animated else {
+            panel.setFrame(frame, display: true)
+            panel.alphaValue = 1
+            panel.orderFrontRegardless()
+            return
+        }
+
+        NSAnimationContext.runAnimationGroup { animationContext in
+            animationContext.duration = 0.18
+            animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.34, 1.56, 0.64, 1.0)
+            panel.animator().setFrame(frame, display: true)
+        }
     }
 
     private static var recordingContextLevel: NSWindow.Level {
@@ -349,16 +406,23 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
 
     private func hideVisibleReminder(animated: Bool, completion: @escaping () -> Void) {
         visibleReminder = nil
+        isHidingVisibleReminder = true
         guard let panel, panel.isVisible, let screen = NSScreen.main else {
             panel?.orderOut(nil)
+            resetPresentationHost()
+            isHidingVisibleReminder = false
             completion()
+            _ = showNextIfNeeded()
             return
         }
         let currentFrame = panel.frame
         let hiddenFrame = NSRect(x: currentFrame.origin.x, y: screen.frame.maxY, width: currentFrame.width, height: currentFrame.height)
         guard animated else {
             panel.orderOut(nil)
+            resetPresentationHost()
+            isHidingVisibleReminder = false
             completion()
+            _ = showNextIfNeeded()
             return
         }
         NSAnimationContext.runAnimationGroup { animationContext in
@@ -366,11 +430,25 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
             animationContext.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel.animator().setFrame(hiddenFrame, display: true)
             panel.animator().alphaValue = 0
-        } completionHandler: {
+        } completionHandler: { [weak self] in
             panel.orderOut(nil)
             panel.alphaValue = 1
-            completion()
+            MainActor.assumeIsolated {
+                self?.resetPresentationHost()
+                self?.isHidingVisibleReminder = false
+                completion()
+                _ = self?.showNextIfNeeded()
+            }
         }
+    }
+
+    private func resetPresentationHost() {
+        if let panel {
+            panel.contentView = nil
+        }
+        panel = nil
+        viewModel = nil
+        contentContainer = nil
     }
 
     private func displayData(
@@ -402,9 +480,27 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
 @MainActor
 private final class MeetingReminderOverlayViewModel: ObservableObject {
     @Published var displayData: MeetingReminderOverlayDisplayData
+    @Published var frameSize: CGSize
 
-    init(displayData: MeetingReminderOverlayDisplayData) {
+    init(displayData: MeetingReminderOverlayDisplayData, frameSize: CGSize) {
         self.displayData = displayData
+        self.frameSize = frameSize
+    }
+
+    func update(displayData: MeetingReminderOverlayDisplayData, frameSize: CGSize, animated: Bool) {
+        if animated {
+            withAnimation(meetingReminderContentTransitionAnimation) {
+                self.displayData = displayData
+                self.frameSize = frameSize
+            }
+        } else {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                self.displayData = displayData
+                self.frameSize = frameSize
+            }
+        }
     }
 }
 
@@ -421,6 +517,7 @@ private struct MeetingReminderOverlayRootView: View {
             onStart: onStart,
             onDismiss: onDismiss
         )
+        .frame(width: viewModel.frameSize.width, height: viewModel.frameSize.height)
         .animation(meetingReminderContentTransitionAnimation, value: viewModel.displayData)
     }
 }
