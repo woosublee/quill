@@ -24,20 +24,27 @@ jobs:
       - name: Resolve dev version
         id: version
         run: |
-          BASE_VERSION="$(plutil -extract CFBundleShortVersionString raw Info.plist)"
+          BASE_VERSION="$(make -s print-app-version)"
+          BUILD_NUMBER="$(make -s print-build-number)"
           SHORT_SHA="$(git rev-parse --short=12 HEAD)"
           BUILD_TAG="dev-${SHORT_SHA}"
 
+          if ! [[ "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Build number must be a positive integer." >&2
+            exit 1
+          fi
+
           echo "tag=dev" >> "$GITHUB_OUTPUT"
           echo "version=$BASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
           echo "build_tag=$BUILD_TAG" >> "$GITHUB_OUTPUT"
           echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Stamp app version
         run: |
           plutil -replace CFBundleShortVersionString -string "${{ steps.version.outputs.version }}" Info.plist
-          plutil -replace CFBundleVersion -string "${{ github.run_number }}" Info.plist
-          plutil -replace FreeFlowBuildTag -string "${{ steps.version.outputs.build_tag }}" Info.plist
+          plutil -replace CFBundleVersion -string "${{ steps.version.outputs.build_number }}" Info.plist
+          plutil -replace QuillBuildTag -string "${{ steps.version.outputs.build_tag }}" Info.plist
 
       - name: Install build tools
         run: brew install create-dmg fileicon
@@ -102,10 +109,10 @@ jobs:
 
       # --- Build universal dev app ---
       - name: Build universal
-        run: make ARCH=universal CODESIGN_IDENTITY="$CODESIGN_IDENTITY"
+        run: make ARCH=universal CODESIGN_IDENTITY="$CODESIGN_IDENTITY" APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.build_tag }}"
 
       - name: Create universal DMG
-        run: make dmg ARCH=universal CODESIGN_IDENTITY="$CODESIGN_IDENTITY"
+        run: make dmg ARCH=universal CODESIGN_IDENTITY="$CODESIGN_IDENTITY" APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.build_tag }}"
 
       - name: Sign universal DMG
         run: codesign --force --sign "$CODESIGN_IDENTITY" "build/Quill.dmg"

@@ -1,3 +1,5 @@
+-include version.mk
+
 APP_NAME ?= Quill
 BUNDLE_ID ?= com.woosublee.quill
 DEV_APP_NAME ?= Quill Dev
@@ -6,10 +8,9 @@ BUILD_DIR = build
 APP_BUNDLE = $(BUILD_DIR)/$(APP_NAME).app
 CODESIGN_IDENTITY ?= Quill
 GIT_RELEASE_TAG := $(shell git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null)
-GIT_COMMIT_COUNT := $(shell git rev-list --count HEAD 2>/dev/null)
 GIT_SHORT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null)
 APP_VERSION ?= $(patsubst v%,%,$(if $(GIT_RELEASE_TAG),$(GIT_RELEASE_TAG),v0.0.1))
-BUILD_NUMBER ?= $(if $(GIT_COMMIT_COUNT),$(GIT_COMMIT_COUNT),1)
+BUILD_NUMBER ?= 1
 BUILD_TAG ?= $(if $(GIT_SHORT_SHA),local-$(GIT_SHORT_SHA),local-unknown)
 GOOGLE_CALENDAR_OAUTH_CLIENT_ID ?=
 GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET ?=
@@ -39,7 +40,7 @@ ICON_ICNS = Resources/AppIcon.icns
 endif
 
 # Usage: make install CODESIGN_IDENTITY="Apple Development: you@example.com (TEAMID)"
-.PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run test FORCE
+.PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run test print-app-version print-build-number print-build-tag print-version-metadata FORCE
 
 all: $(APP_EXECUTABLE_TARGET)
 
@@ -170,6 +171,18 @@ install-and-run: install
 run:
 	$(MAKE) all APP_NAME="$(DEV_APP_NAME)" BUNDLE_ID="$(DEV_BUNDLE_ID)"
 	open "$(BUILD_DIR)/$(DEV_APP_NAME).app"
+
+print-app-version:
+	@printf '%s\n' "$(APP_VERSION)"
+
+print-build-number:
+	@printf '%s\n' "$(BUILD_NUMBER)"
+
+print-build-tag:
+	@printf '%s\n' "$(BUILD_TAG)"
+
+print-version-metadata:
+	@printf 'app_version=%s\nbuild_number=%s\nbuild_tag=%s\n' "$(APP_VERSION)" "$(BUILD_NUMBER)" "$(BUILD_TAG)"
 
 FORCE:
 

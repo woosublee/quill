@@ -7,7 +7,7 @@ description: Prepare and publish FreeFlow app releases. Use when the user asks t
 
 ## Overview
 
-Use this skill to prepare a Quill release from the local repository. Quill currently uses `.github/workflows/manual-release.yml` for public fork releases: start the workflow manually, provide the release tag and build number, and let it stamp the app bundle, extract the matching `CHANGELOG.md` section, build the DMG, and create the GitHub Release.
+Use this skill to prepare a Quill release from the local repository. Quill uses `version.mk` as the release metadata source of truth and `.github/workflows/manual-release.yml` for public fork releases: update `version.mk`, start the workflow manually with the release tag, and let it stamp the app bundle, extract the matching `CHANGELOG.md` section, build the DMG, and create the GitHub Release.
 
 Public release tags no longer trigger `.github/workflows/release.yml` automatically. The notarized release workflow is `workflow_dispatch` only until Apple notarization secrets are ready; it keeps a commented tag trigger example in the workflow file for re-enabling later.
 
@@ -16,6 +16,7 @@ Every release prep must update `CHANGELOG.md` by comparing the previous public Q
 ## Ground Rules
 
 - Treat `CHANGELOG.md` as the release notes source of truth, and update it before any release commit or tag.
+- Treat `version.mk` as the source of truth for `APP_VERSION`, `BUILD_NUMBER`, and `BUILD_TAG`; release workflows must agree with it before building.
 - Keep changelog language user-facing. Avoid implementation details unless they affect maintainers or troubleshooting.
 - Do not edit `README.md` or unrelated docs unless the user explicitly asks.
 - Do not push tags or branches until the user has approved the exact release version and changelog.
@@ -34,8 +35,8 @@ Every release prep must update `CHANGELOG.md` by comparing the previous public Q
    ```bash
    git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-version:refname
    git describe --tags --match 'v[0-9]*.[0-9]*.[0-9]*' --abbrev=0
-   git log --oneline --decorate -- Info.plist CHANGELOG.md .github/workflows/manual-release.yml .github/workflows/release.yml
-   git blame -L 11,14 Info.plist
+   git log --oneline --decorate -- version.mk Info.plist CHANGELOG.md .github/workflows/manual-release.yml .github/workflows/release.yml
+   git blame version.mk
    ```
    Use the latest reachable public Quill semver tag, such as `v0.1.0`, as the previous-release boundary. Ignore upstream FreeFlow-only tags when preparing Quill release notes. If tags are missing or inconsistent, fall back to the commit that introduced the prior `CHANGELOG.md` section or changed `CFBundleShortVersionString`/`CFBundleVersion`, and state that fallback explicitly.
 
@@ -45,7 +46,15 @@ Every release prep must update `CHANGELOG.md` by comparing the previous public Q
    - `MAJOR` only for breaking behavior or major compatibility changes.
    Confirm the version with the user if it was not specified.
 
-4. Build and write the `CHANGELOG.md` entry from the previous release to the current release target:
+4. Update `version.mk` for the approved release:
+   ```make
+   APP_VERSION := <version>
+   BUILD_NUMBER := <next-build-number>
+   BUILD_TAG := v<version>
+   ```
+   Use a monotonically increasing positive integer for `BUILD_NUMBER`; do not derive it from git commit count.
+
+5. Build and write the `CHANGELOG.md` entry from the previous release to the current release target:
    ```bash
    git log --first-parent --reverse --oneline <previous-release-tag>..HEAD
    git log --reverse --oneline <previous-release-tag>..HEAD
@@ -67,31 +76,32 @@ Every release prep must update `CHANGELOG.md` by comparing the previous public Q
    ```
    Include only categories that have entries. If the release contains mostly internal work, describe the user-facing effect, such as reliability, update behavior, packaging, or troubleshooting improvements. Do not include raw commit hashes in the changelog.
 
-5. Validate locally before commit/release:
+6. Validate locally before commit/release:
    ```bash
    .github/scripts/changelog-section.sh <version>
    .agents/skills/freeflow-release/scripts/freeflow-release-check.sh <version>
    git diff --check
    make clean
-   make ARCH="$(uname -m)" CODESIGN_IDENTITY=- APP_VERSION=<version> BUILD_NUMBER=<build-number> BUILD_TAG=v<version>
+   make -s print-version-metadata
+   make ARCH="$(uname -m)" CODESIGN_IDENTITY=-
    ```
 
-6. Commit only release-prep files:
+7. Commit only release-prep files:
    ```bash
-   git add CHANGELOG.md .github/workflows/manual-release.yml Tests/ManualReleaseWorkflowTests.swift Tests/BuildMetadataTests.swift Sources/SettingsView.swift
+   git add version.mk CHANGELOG.md .github/workflows/manual-release.yml .github/workflows/release.yml Tests/ManualReleaseWorkflowTests.swift Tests/BuildMetadataTests.swift Sources/SettingsView.swift
    git commit -m "Prepare v<version> release"
    ```
    Include other files only when they are deliberately part of the release prep.
 
-7. After user approval, choose the release path:
+8. After user approval, choose the release path:
    - Local signed release: build with the local `Quill` signing identity and create the GitHub Release with the verified local `Quill.dmg`.
-   - Manual fallback release: run `.github/workflows/manual-release.yml` with `tag`, `build_number`, optional `release_name`, and optional `release_notes`.
+   - Manual fallback release: run `.github/workflows/manual-release.yml` with `tag`, optional `release_name`, and optional `release_notes`; `APP_VERSION`, `BUILD_NUMBER`, and `BUILD_TAG` come from `version.mk`.
    - Official notarized release: run `.github/workflows/release.yml` manually after Apple notarization secrets are configured.
 
-8. After the release finishes, verify:
+9. After the release finishes, verify:
    - GitHub Release `v<version>` exists and is marked latest for stable releases.
    - `Quill.dmg` is attached.
-   - The DMG app bundle has `CFBundleShortVersionString=<version>`, `CFBundleVersion=<build-number>`, and `QuillBuildTag=v<version>`.
+   - The DMG app bundle has `CFBundleShortVersionString`, `CFBundleVersion`, and `QuillBuildTag` matching `version.mk`.
    - Release body starts with the matching `CHANGELOG.md` section.
 
 ## Helper Script
