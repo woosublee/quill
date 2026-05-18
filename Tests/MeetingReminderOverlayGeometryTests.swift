@@ -115,6 +115,8 @@ struct MeetingReminderOverlayGeometryTests {
         assert(sharedHostSource.contains("final class FixedIntrinsicHostingView"))
         assert(sharedHostSource.contains("override var intrinsicContentSize"))
         assert(sharedHostSource.contains("sizingOptions = []"), "Fixed hosting views must opt out of window sizing")
+        assert(sharedHostSource.contains("required dynamic init?(coder: NSCoder) {\n        return nil\n    }"), "Fixed hosting views must not support storyboard/XIB initialization")
+        assert(sharedHostSource.contains("fatalError(\"init(rootView:) is not supported on FixedIntrinsicHostingView. Use init(rootView:size:) instead.\")"), "Fixed hosting views must require an explicit fixed size")
         assert(source.contains("FixedHostingContainer("), "Meeting reminders must host SwiftUI inside a plain NSView container")
         assert(source.contains("rootView: AnyView(rootView.frame("), "Meeting reminders must give SwiftUI a fixed panel-sized root frame")
         assert(source.contains("centerOverlayWidth: MeetingReminderOverlayGeometry.centerRecordingOverlayWidth(for: screen)"), "Center reminder layout must reserve the actual center recording overlay width")

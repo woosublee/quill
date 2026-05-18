@@ -11,15 +11,11 @@ final class FixedIntrinsicHostingView<Content: View>: NSHostingView<Content> {
     }
 
     @MainActor @preconcurrency required dynamic init?(coder: NSCoder) {
-        self.fixedIntrinsicContentSize = .zero
-        super.init(coder: coder)
-        sizingOptions = []
+        return nil
     }
 
     @MainActor @preconcurrency required dynamic init(rootView: Content) {
-        self.fixedIntrinsicContentSize = .zero
-        super.init(rootView: rootView)
-        sizingOptions = []
+        fatalError("init(rootView:) is not supported on FixedIntrinsicHostingView. Use init(rootView:size:) instead.")
     }
 
     override var intrinsicContentSize: NSSize {
