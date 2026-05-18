@@ -1,38 +1,17 @@
-import Foundation
+import AppKit
 import CoreGraphics
+import Foundation
 
 @main
 struct RecordingOverlayGeometryTests {
     static func main() throws {
-        testNotchSideContentStartsAtTopOfVisiblePill()
         testTranscribingWidthFallsBackToCenteredWidthAfterNotchSideRecording()
         testTranscribingWidthKeepsExistingLockOnRepeatedTranscribingUpdate()
-        testCenteredFrameUsesUpdatedMainScreenGeometry()
         testNotchSideLayoutPhaseEligibility()
+        testRecordingOverlayUsesSharedScreenGeometry()
         try testNotchSideOverlayAvoidsContainerAudioLevelAnimation()
         try testHostingViewsUseFixedIntrinsicContentSize()
         print("RecordingOverlayGeometryTests passed")
-    }
-
-    private static func testNotchSideContentStartsAtTopOfVisiblePill() {
-        let geometry = RecordingOverlayGeometry.notchSideGeometry(
-            screenFrame: CGRect(x: 0, y: 0, width: 1512, height: 982),
-            visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 944),
-            leftArea: CGRect(x: 0, y: 944, width: 682, height: 38),
-            rightArea: CGRect(x: 830, y: 944, width: 682, height: 38),
-            regionWidth: 92,
-            panelHeight: 38,
-            horizontalInset: 8
-        )
-
-        assert(geometry != nil)
-        assert(geometry?.frame.maxX == 922)
-        assert(geometry?.frame.minX == 590)
-        assert(geometry?.leftContentFrame.origin.x == 0)
-        assert(geometry?.rightContentFrame.maxX == geometry?.frame.width)
-        assert(geometry?.leftContentFrame.origin.y == 0)
-        assert(geometry?.rightContentFrame.origin.y == 0)
-        assert(geometry?.frame.height == 38)
     }
 
     private static func testTranscribingWidthFallsBackToCenteredWidthAfterNotchSideRecording() {
@@ -55,23 +34,6 @@ struct RecordingOverlayGeometryTests {
         )
 
         assert(lockedWidth == 148)
-    }
-
-    private static func testCenteredFrameUsesUpdatedMainScreenGeometry() {
-        let oldFrame = RecordingOverlayGeometry.centeredFrame(
-            screenFrame: CGRect(x: 0, y: 0, width: 1512, height: 982),
-            width: 92,
-            height: 76
-        )
-        let updatedFrame = RecordingOverlayGeometry.centeredFrame(
-            screenFrame: CGRect(x: 0, y: 0, width: 1728, height: 1117),
-            width: 92,
-            height: 76
-        )
-
-        assert(oldFrame.origin.x == 710)
-        assert(updatedFrame.origin.x == 818)
-        assert(updatedFrame.origin.y == 1041)
     }
 
     private static func testNotchSideLayoutPhaseEligibility() {
@@ -110,6 +72,33 @@ struct RecordingOverlayGeometryTests {
             phase: .recording,
             hasNotchGeometry: false
         ))
+    }
+
+    private static func testRecordingOverlayUsesSharedScreenGeometry() {
+        let notchGeometry = OverlayScreenGeometry(
+            screenFrame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 944),
+            safeAreaInsets: NSEdgeInsets(top: 38, left: 0, bottom: 0, right: 0),
+            auxiliaryTopLeftArea: CGRect(x: 0, y: 944, width: 682, height: 38),
+            auxiliaryTopRightArea: CGRect(x: 830, y: 944, width: 682, height: 38)
+        )
+
+        assert(notchGeometry.hasTopSafeArea)
+        assert(notchGeometry.hasNotchGeometry)
+        assert(notchGeometry.notchOverlap == 38)
+        assert(notchGeometry.notchWidth == 148)
+        assert(notchGeometry.centeredTopFrame(width: 92, height: 76) == NSRect(x: 710, y: 906, width: 92, height: 76))
+        assert(notchGeometry.notchSideGeometry(regionWidth: 92, panelHeight: 38, horizontalInset: 8)?.frame == NSRect(x: 590, y: 944, width: 332, height: 38))
+
+        let safeAreaOnlyGeometry = OverlayScreenGeometry(
+            screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 875),
+            safeAreaInsets: NSEdgeInsets(top: 25, left: 0, bottom: 0, right: 0)
+        )
+
+        assert(safeAreaOnlyGeometry.hasTopSafeArea)
+        assert(!safeAreaOnlyGeometry.hasNotchGeometry)
+        assert(safeAreaOnlyGeometry.notchSideGeometry(regionWidth: 92, panelHeight: 38, horizontalInset: 8) == nil)
     }
 
     private static func testNotchSideOverlayAvoidsContainerAudioLevelAnimation() throws {

@@ -2,7 +2,8 @@ import AppKit
 import Combine
 import SwiftUI
 
-private let meetingReminderContentTransitionAnimation = Animation.spring(response: 0.28, dampingFraction: 0.88, blendDuration: 0.08)
+private let meetingReminderPanelResizeDuration: TimeInterval = 0.28
+private let meetingReminderContentTransitionAnimation = Animation.spring(response: meetingReminderPanelResizeDuration, dampingFraction: 0.88, blendDuration: 0.08)
 
 struct MeetingReminderOverlayContext: Equatable {
     var phase: Phase
@@ -95,60 +96,54 @@ struct MeetingReminderOverlayGeometry {
     }
 
     static func frame(for screen: NSScreen, context: MeetingReminderOverlayContext) -> NSRect {
-        let hasNotchGeometry = hasNotchGeometry(for: screen)
-        let variant = variant(for: context, hasNotchGeometry: hasNotchGeometry)
+        frame(for: OverlayScreenGeometry(screen: screen), context: context)
+    }
+
+    static func frame(for geometry: OverlayScreenGeometry, context: MeetingReminderOverlayContext) -> NSRect {
+        let variant = variant(for: context, hasNotchGeometry: hasNotchGeometry(for: geometry))
         let size = size(
             for: variant,
-            screenWidth: screen.frame.width,
-            notchSideWidth: notchSideWidth(for: screen)
+            screenWidth: geometry.screenFrame.width,
+            notchSideWidth: notchSideWidth(for: geometry)
         )
-        return NSRect(
-            x: screen.frame.midX - size.width / 2,
-            y: screen.frame.maxY - size.height,
-            width: size.width,
-            height: size.height
-        )
+        if (variant == .notchSidesRecording || variant == .notchSidesProcessing),
+           let notchSideGeometry = geometry.notchSideGeometry(
+               regionWidth: notchSideRegionWidth,
+               panelHeight: size.height,
+               horizontalInset: notchSideHorizontalInset
+           ) {
+            return notchSideGeometry.frame
+        }
+        return geometry.centeredTopFrame(width: size.width, height: size.height)
     }
 
     static func hasNotchGeometry(for screen: NSScreen) -> Bool {
-        guard screen.safeAreaInsets.top > 0 else { return false }
-        guard let leftArea = screen.auxiliaryTopLeftArea,
-              let rightArea = screen.auxiliaryTopRightArea else { return false }
-        return rightArea.minX > leftArea.maxX
+        hasNotchGeometry(for: OverlayScreenGeometry(screen: screen))
+    }
+
+    static func hasNotchGeometry(for geometry: OverlayScreenGeometry) -> Bool {
+        geometry.hasNotchGeometry
     }
 
     static func notchSideWidth(for screen: NSScreen) -> CGFloat? {
-        guard hasNotchGeometry(for: screen),
-              let leftArea = screen.auxiliaryTopLeftArea,
-              let rightArea = screen.auxiliaryTopRightArea else { return nil }
-        return notchSideWidth(
-            leftAreaWidth: leftArea.width,
-            rightAreaWidth: rightArea.width,
-            screenWidth: screen.frame.width
-        )
+        notchSideWidth(for: OverlayScreenGeometry(screen: screen))
     }
 
-    static func notchSideWidth(leftAreaWidth: CGFloat, rightAreaWidth: CGFloat, screenWidth: CGFloat) -> CGFloat? {
-        let availableSideWidth = min(leftAreaWidth, rightAreaWidth)
-        let contentWidth = min(notchSideRegionWidth, max(0, availableSideWidth - notchSideHorizontalInset * 2))
-        guard contentWidth >= 64 else { return nil }
-        let notchWidth = screenWidth - leftAreaWidth - rightAreaWidth
-        return notchWidth + contentWidth * 2
-    }
-
-    static func centerRecordingOverlayWidth(leftAreaWidth: CGFloat, rightAreaWidth: CGFloat, screenWidth: CGFloat) -> CGFloat {
-        max(screenWidth - leftAreaWidth - rightAreaWidth, centerRecordingBaseWidth)
+    static func notchSideWidth(for geometry: OverlayScreenGeometry) -> CGFloat? {
+        geometry.notchSideGeometry(
+            regionWidth: notchSideRegionWidth,
+            panelHeight: defaultSize.height,
+            horizontalInset: notchSideHorizontalInset
+        )?.frame.width
     }
 
     static func centerRecordingOverlayWidth(for screen: NSScreen) -> CGFloat {
-        guard hasNotchGeometry(for: screen),
-              let leftArea = screen.auxiliaryTopLeftArea,
-              let rightArea = screen.auxiliaryTopRightArea else { return centerRecordingBaseWidth }
-        return centerRecordingOverlayWidth(
-            leftAreaWidth: leftArea.width,
-            rightAreaWidth: rightArea.width,
-            screenWidth: screen.frame.width
-        )
+        centerRecordingOverlayWidth(for: OverlayScreenGeometry(screen: screen))
+    }
+
+    static func centerRecordingOverlayWidth(for geometry: OverlayScreenGeometry) -> CGFloat {
+        guard let notchWidth = geometry.notchWidth else { return centerRecordingBaseWidth }
+        return max(notchWidth, centerRecordingBaseWidth)
     }
 }
 
@@ -173,12 +168,15 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
 
     private var panel: NSPanel?
     private var viewModel: MeetingReminderOverlayViewModel?
+    private var contentContainer: FixedHostingContainer<AnyView>?
+    private var isHidingVisibleReminder = false
     private var visibleReminder: QueuedReminder?
     private var queue: [QueuedReminder] = []
     private var queuedIdentifiers: Set<String> = []
     private var queuedReminderGroupIdentifiers: Set<String> = []
     private let contextProvider: () -> MeetingReminderOverlayContext
     private let screenProvider: () -> NSScreen?
+    private var screenParametersObserver: NSObjectProtocol?
 
     var onStart: (@MainActor (CalendarRecordingReminderSchedule) -> Void)?
     var onDismiss: (@MainActor (CalendarRecordingReminderSchedule) -> Void)?
@@ -189,6 +187,21 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
     ) {
         self.contextProvider = contextProvider
         self.screenProvider = screenProvider
+        screenParametersObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.handleScreenParametersChanged()
+            }
+        }
+    }
+
+    deinit {
+        if let screenParametersObserver {
+            NotificationCenter.default.removeObserver(screenParametersObserver)
+        }
     }
 
     func presentCalendarRecordingReminder(
@@ -199,8 +212,16 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
     }
 
     func refreshVisibleReminder() {
+        refreshVisibleReminder(animated: true)
+    }
+
+    private func refreshVisibleReminder(animated: Bool) {
         guard let visibleReminder else { return }
-        _ = render(visibleReminder, markPresented: false, animated: true)
+        _ = render(visibleReminder, markPresented: false, animated: animated)
+    }
+
+    private func handleScreenParametersChanged() {
+        refreshVisibleReminder(animated: false)
     }
 
     private func enqueue(_ schedule: CalendarRecordingReminderSchedule, onPresented: @escaping CalendarRecordingReminderPresentedHandler) -> Bool {
@@ -217,7 +238,7 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
     }
 
     private func showNextIfNeeded() -> Bool {
-        guard visibleReminder == nil, !queue.isEmpty else { return true }
+        guard !isHidingVisibleReminder, visibleReminder == nil, !queue.isEmpty else { return true }
         let reminder = queue.removeFirst()
         queuedIdentifiers.remove(reminder.schedule.identifier)
         queuedReminderGroupIdentifiers.remove(reminder.schedule.reminderGroupIdentifier)
@@ -233,61 +254,117 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
         let schedule = reminder.schedule
         guard let screen = screenProvider() else { return false }
         let context = contextProvider()
-        let frame = MeetingReminderOverlayGeometry.frame(for: screen, context: context)
+        let geometry = OverlayScreenGeometry(screen: screen)
+        let frame = MeetingReminderOverlayGeometry.frame(for: geometry, context: context)
         let variant = MeetingReminderOverlayGeometry.variant(
             for: context,
-            hasNotchGeometry: MeetingReminderOverlayGeometry.hasNotchGeometry(for: screen)
+            hasNotchGeometry: MeetingReminderOverlayGeometry.hasNotchGeometry(for: geometry)
         )
         let displayData = displayData(
             for: schedule,
             context: context,
             variant: variant,
-            centerOverlayWidth: MeetingReminderOverlayGeometry.centerRecordingOverlayWidth(for: screen)
+            centerOverlayWidth: MeetingReminderOverlayGeometry.centerRecordingOverlayWidth(for: geometry)
         )
-        let panel = panel ?? makePanel(frame: frame)
-        panel.ignoresMouseEvents = false
-        let viewModel = MeetingReminderOverlayViewModel(displayData: displayData)
+
+        if let panel, let viewModel, let contentContainer {
+            updateExistingPresentation(
+                panel: panel,
+                viewModel: viewModel,
+                contentContainer: contentContainer,
+                displayData: displayData,
+                frame: frame,
+                animated: animated
+            )
+        } else {
+            let viewModel = MeetingReminderOverlayViewModel(displayData: displayData, frameSize: frame.size)
+            let container = makeContentContainer(viewModel: viewModel, frame: frame)
+            let panel = panel ?? makePanel(frame: frame)
+            panel.contentView = container
+            self.viewModel = viewModel
+            self.contentContainer = container
+            self.panel = panel
+            presentNewPanel(panel, frame: frame, screen: screen, animated: animated)
+        }
+
+        panel?.ignoresMouseEvents = false
+        panel?.level = variant.isRecordingContext ? Self.recordingContextLevel : .screenSaver
+
+        if markPresented {
+            reminder.onPresented(schedule)
+        }
+        return true
+    }
+
+    private func makeContentContainer(
+        viewModel: MeetingReminderOverlayViewModel,
+        frame: NSRect
+    ) -> FixedHostingContainer<AnyView> {
         let rootView = MeetingReminderOverlayRootView(
             viewModel: viewModel,
             onStart: { [weak self] in self?.handleStart() },
             onDismiss: { [weak self] in self?.handleDismiss() }
         )
         let container = FixedHostingContainer(
-            rootView: AnyView(rootView.frame(width: frame.width, height: frame.height)),
+            rootView: AnyView(rootView),
             size: frame.size
         )
         container.autoresizingMask = [.width, .height]
-        panel.contentView = container
-        self.viewModel = viewModel
-        panel.level = variant.isRecordingContext ? Self.recordingContextLevel : .screenSaver
-        self.panel = panel
+        return container
+    }
 
-        if panel.isVisible, animated {
-            NSAnimationContext.runAnimationGroup { animationContext in
-                animationContext.duration = 0.18
-                animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.34, 1.56, 0.64, 1.0)
-                panel.animator().setFrame(frame, display: true)
-            }
-        } else if animated {
-            let hiddenFrame = NSRect(x: frame.origin.x, y: screen.frame.maxY, width: frame.width, height: frame.height)
-            panel.setFrame(hiddenFrame, display: true)
-            panel.alphaValue = 1
-            panel.orderFrontRegardless()
-            NSAnimationContext.runAnimationGroup { animationContext in
-                animationContext.duration = 0.18
-                animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.34, 1.56, 0.64, 1.0)
-                panel.animator().setFrame(frame, display: true)
-            }
-        } else {
+    private func updateExistingPresentation(
+        panel: NSPanel,
+        viewModel: MeetingReminderOverlayViewModel,
+        contentContainer: FixedHostingContainer<AnyView>,
+        displayData: MeetingReminderOverlayDisplayData,
+        frame: NSRect,
+        animated: Bool
+    ) {
+        contentContainer.setFixedContentSize(frame.size)
+        viewModel.update(displayData: displayData, frameSize: frame.size, animated: animated)
+        resize(panel: panel, to: frame, animated: animated)
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+    }
+
+    private func presentNewPanel(
+        _ panel: NSPanel,
+        frame: NSRect,
+        screen: NSScreen,
+        animated: Bool
+    ) {
+        guard animated else {
             panel.setFrame(frame, display: true)
             panel.alphaValue = 1
             panel.orderFrontRegardless()
+            return
         }
 
-        if markPresented {
-            reminder.onPresented(schedule)
+        let hiddenFrame = NSRect(x: frame.origin.x, y: screen.frame.maxY, width: frame.width, height: frame.height)
+        panel.setFrame(hiddenFrame, display: true)
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+        NSAnimationContext.runAnimationGroup { animationContext in
+            animationContext.duration = meetingReminderPanelResizeDuration
+            animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.34, 1.56, 0.64, 1.0)
+            panel.animator().setFrame(frame, display: true)
         }
-        return true
+    }
+
+    private func resize(panel: NSPanel, to frame: NSRect, animated: Bool) {
+        guard animated else {
+            panel.setFrame(frame, display: true)
+            panel.alphaValue = 1
+            panel.orderFrontRegardless()
+            return
+        }
+
+        NSAnimationContext.runAnimationGroup { animationContext in
+            animationContext.duration = meetingReminderPanelResizeDuration
+            animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.34, 1.56, 0.64, 1.0)
+            panel.animator().setFrame(frame, display: true)
+        }
     }
 
     private static var recordingContextLevel: NSWindow.Level {
@@ -330,16 +407,23 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
 
     private func hideVisibleReminder(animated: Bool, completion: @escaping () -> Void) {
         visibleReminder = nil
-        guard let panel, panel.isVisible, let screen = NSScreen.main else {
+        isHidingVisibleReminder = true
+        guard let panel, panel.isVisible, let screen = panel.screen ?? screenProvider() ?? NSScreen.main else {
             panel?.orderOut(nil)
+            resetPresentationHost()
+            isHidingVisibleReminder = false
             completion()
+            _ = showNextIfNeeded()
             return
         }
         let currentFrame = panel.frame
         let hiddenFrame = NSRect(x: currentFrame.origin.x, y: screen.frame.maxY, width: currentFrame.width, height: currentFrame.height)
         guard animated else {
             panel.orderOut(nil)
+            resetPresentationHost()
+            isHidingVisibleReminder = false
             completion()
+            _ = showNextIfNeeded()
             return
         }
         NSAnimationContext.runAnimationGroup { animationContext in
@@ -347,11 +431,25 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
             animationContext.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel.animator().setFrame(hiddenFrame, display: true)
             panel.animator().alphaValue = 0
-        } completionHandler: {
+        } completionHandler: { [weak self] in
             panel.orderOut(nil)
             panel.alphaValue = 1
-            completion()
+            MainActor.assumeIsolated {
+                self?.resetPresentationHost()
+                self?.isHidingVisibleReminder = false
+                completion()
+                _ = self?.showNextIfNeeded()
+            }
         }
+    }
+
+    private func resetPresentationHost() {
+        if let panel {
+            panel.contentView = nil
+        }
+        panel = nil
+        viewModel = nil
+        contentContainer = nil
     }
 
     private func displayData(
@@ -383,9 +481,27 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
 @MainActor
 private final class MeetingReminderOverlayViewModel: ObservableObject {
     @Published var displayData: MeetingReminderOverlayDisplayData
+    @Published var frameSize: CGSize
 
-    init(displayData: MeetingReminderOverlayDisplayData) {
+    init(displayData: MeetingReminderOverlayDisplayData, frameSize: CGSize) {
         self.displayData = displayData
+        self.frameSize = frameSize
+    }
+
+    func update(displayData: MeetingReminderOverlayDisplayData, frameSize: CGSize, animated: Bool) {
+        if animated {
+            withAnimation(meetingReminderContentTransitionAnimation) {
+                self.displayData = displayData
+                self.frameSize = frameSize
+            }
+        } else {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                self.displayData = displayData
+                self.frameSize = frameSize
+            }
+        }
     }
 }
 
@@ -402,6 +518,7 @@ private struct MeetingReminderOverlayRootView: View {
             onStart: onStart,
             onDismiss: onDismiss
         )
+        .frame(width: viewModel.frameSize.width, height: viewModel.frameSize.height)
         .animation(meetingReminderContentTransitionAnimation, value: viewModel.displayData)
     }
 }

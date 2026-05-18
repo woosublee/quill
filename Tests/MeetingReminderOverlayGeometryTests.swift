@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 
@@ -14,6 +15,12 @@ struct MeetingReminderOverlayGeometryTests {
         testRecordingCenterWithoutNotchUsesCenterVariant()
         testNotchSideWidthMatchesRecordingOverlayGeometry()
         testContextualSizesMatchFinalDesign()
+        testFrameUsesSharedScreenGeometryForUpdatedFrames()
+        testFrameUsesSharedNotchSideGeometryWidth()
+        try testMeetingReminderUsesSharedScreenGeometry()
+        try testMeetingReminderObservesScreenParameterChanges()
+        try testMeetingReminderKeepsPersistentAnimationHost()
+        try testMeetingReminderDefersNextReminderWhileHiding()
         try testHostingViewsUseFixedIntrinsicContentSize()
         await testPresenterFailureWhenScreenUnavailableFallsBack()
         print("MeetingReminderOverlayGeometryTests passed")
@@ -74,22 +81,21 @@ struct MeetingReminderOverlayGeometryTests {
     }
 
     private static func testNotchSideWidthMatchesRecordingOverlayGeometry() {
-        let recordingGeometry = RecordingOverlayGeometry.notchSideGeometry(
+        let geometry = OverlayScreenGeometry(
             screenFrame: CGRect(x: 0, y: 0, width: 1512, height: 982),
             visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 944),
-            leftArea: CGRect(x: 0, y: 944, width: 682, height: 38),
-            rightArea: CGRect(x: 830, y: 944, width: 682, height: 38),
+            safeAreaInsets: NSEdgeInsets(top: 38, left: 0, bottom: 0, right: 0),
+            auxiliaryTopLeftArea: CGRect(x: 0, y: 944, width: 682, height: 38),
+            auxiliaryTopRightArea: CGRect(x: 830, y: 944, width: 682, height: 38)
+        )
+        let recordingGeometry = geometry.notchSideGeometry(
             regionWidth: 92,
-            panelHeight: 38,
+            panelHeight: 92,
             horizontalInset: 8
         )
 
         assert(recordingGeometry != nil)
-        let reminderWidth = MeetingReminderOverlayGeometry.notchSideWidth(
-            leftAreaWidth: 682,
-            rightAreaWidth: 682,
-            screenWidth: 1512
-        )
+        let reminderWidth = MeetingReminderOverlayGeometry.notchSideWidth(for: geometry)
 
         assert(reminderWidth == recordingGeometry?.frame.width)
         assert(MeetingReminderOverlayGeometry.size(for: .notchSidesRecording, screenWidth: 1512, notchSideWidth: reminderWidth) == CGSize(width: reminderWidth!, height: 92))
@@ -109,6 +115,89 @@ struct MeetingReminderOverlayGeometryTests {
         assert(MeetingReminderOverlayGeometry.size(for: .centerProcessing, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 336, height: 92))
     }
 
+    private static func testFrameUsesSharedScreenGeometryForUpdatedFrames() {
+        let context = MeetingReminderOverlayContext(phase: .idle, layout: .centerDropdownFill)
+        let oldGeometry = OverlayScreenGeometry(
+            screenFrame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 944)
+        )
+        let updatedGeometry = OverlayScreenGeometry(
+            screenFrame: CGRect(x: 0, y: 0, width: 1728, height: 1117),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1728, height: 1079)
+        )
+
+        let oldFrame = MeetingReminderOverlayGeometry.frame(for: oldGeometry, context: context)
+        let updatedFrame = MeetingReminderOverlayGeometry.frame(for: updatedGeometry, context: context)
+
+        assert(oldFrame.origin.x == 588)
+        assert(oldFrame.origin.y == 890)
+        assert(updatedFrame.origin.x == 696)
+        assert(updatedFrame.origin.y == 1025)
+    }
+
+    private static func testFrameUsesSharedNotchSideGeometryWidth() {
+        let context = MeetingReminderOverlayContext(phase: .recording, layout: .notchSides)
+        let geometry = OverlayScreenGeometry(
+            screenFrame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 944),
+            safeAreaInsets: NSEdgeInsets(top: 38, left: 0, bottom: 0, right: 0),
+            auxiliaryTopLeftArea: CGRect(x: 0, y: 944, width: 600, height: 38),
+            auxiliaryTopRightArea: CGRect(x: 830, y: 944, width: 682, height: 38)
+        )
+
+        let frame = MeetingReminderOverlayGeometry.frame(for: geometry, context: context)
+
+        assert(frame.width == 414)
+        assert(frame.origin.x == 508)
+        assert(frame.origin.y == 890)
+    }
+
+    private static func testMeetingReminderUsesSharedScreenGeometry() throws {
+        let source = try String(contentsOfFile: "Sources/MeetingReminderOverlay.swift", encoding: .utf8)
+        assert(source.contains("OverlayScreenGeometry(screen: screen)"))
+        assert(source.contains("static func frame(for geometry: OverlayScreenGeometry"))
+        assert(source.contains("geometry.centeredTopFrame("))
+        assert(source.contains("centerOverlayWidth: MeetingReminderOverlayGeometry.centerRecordingOverlayWidth(for: geometry)"))
+    }
+
+    private static func testMeetingReminderObservesScreenParameterChanges() throws {
+        let source = try String(contentsOfFile: "Sources/MeetingReminderOverlay.swift", encoding: .utf8)
+        assert(source.contains("private var screenParametersObserver: NSObjectProtocol?"))
+        assert(source.contains("NSApplication.didChangeScreenParametersNotification"))
+        assert(source.contains("handleScreenParametersChanged()"))
+        assert(source.contains("refreshVisibleReminder(animated: false)"))
+        assert(source.contains("NotificationCenter.default.removeObserver(screenParametersObserver)"))
+    }
+
+    private static func testMeetingReminderKeepsPersistentAnimationHost() throws {
+        let source = try String(contentsOfFile: "Sources/MeetingReminderOverlay.swift", encoding: .utf8)
+        assert(source.contains("private var contentContainer: FixedHostingContainer<AnyView>?"))
+        assert(source.contains("if let panel, let viewModel, let contentContainer"))
+        assert(source.contains("viewModel.update(displayData: displayData, frameSize: frame.size, animated: animated)"))
+        assert(source.contains("contentContainer.setFixedContentSize(frame.size)"))
+        assert(source.contains(".frame(width: viewModel.frameSize.width, height: viewModel.frameSize.height)"))
+        assert(source.contains("transaction.disablesAnimations = true"))
+        assert(source.contains("makeContentContainer("))
+        assert(source.contains("resetPresentationHost()"))
+        assert(source.contains("panel.contentView = nil"))
+        assert(source.contains("viewModel = nil"))
+        assert(source.contains("contentContainer = nil"))
+        assert(source.contains("refreshVisibleReminder(animated: false)"))
+        assert(source.contains("let screen = panel.screen ?? screenProvider() ?? NSScreen.main"))
+        assert(source.contains("meetingReminderPanelResizeDuration"))
+        assert(source.contains("animationContext.duration = meetingReminderPanelResizeDuration"))
+    }
+
+    private static func testMeetingReminderDefersNextReminderWhileHiding() throws {
+        let source = try String(contentsOfFile: "Sources/MeetingReminderOverlay.swift", encoding: .utf8)
+        assert(source.contains("private var isHidingVisibleReminder = false"))
+        assert(source.contains("guard !isHidingVisibleReminder, visibleReminder == nil, !queue.isEmpty else { return true }"))
+        assert(source.contains("isHidingVisibleReminder = true"))
+        assert(source.contains("isHidingVisibleReminder = false"))
+        assert(source.contains("resetPresentationHost()"))
+        assert(source.contains("_ = showNextIfNeeded()"))
+    }
+
     private static func testHostingViewsUseFixedIntrinsicContentSize() throws {
         let sharedHostSource = try String(contentsOfFile: "Sources/FixedIntrinsicHostingView.swift", encoding: .utf8)
         let source = try String(contentsOfFile: "Sources/MeetingReminderOverlay.swift", encoding: .utf8)
@@ -118,8 +207,8 @@ struct MeetingReminderOverlayGeometryTests {
         assert(sharedHostSource.contains("required dynamic init?(coder: NSCoder) {\n        return nil\n    }"), "Fixed hosting views must not support storyboard/XIB initialization")
         assert(sharedHostSource.contains("fatalError(\"init(rootView:) is not supported on FixedIntrinsicHostingView. Use init(rootView:size:) instead.\")"), "Fixed hosting views must require an explicit fixed size")
         assert(source.contains("FixedHostingContainer("), "Meeting reminders must host SwiftUI inside a plain NSView container")
-        assert(source.contains("rootView: AnyView(rootView.frame("), "Meeting reminders must give SwiftUI a fixed panel-sized root frame")
-        assert(source.contains("centerOverlayWidth: MeetingReminderOverlayGeometry.centerRecordingOverlayWidth(for: screen)"), "Center reminder layout must reserve the actual center recording overlay width")
+        assert(source.contains(".frame(width: viewModel.frameSize.width, height: viewModel.frameSize.height)"), "Meeting reminders must give SwiftUI a fixed panel-sized root frame")
+        assert(source.contains("centerOverlayWidth: MeetingReminderOverlayGeometry.centerRecordingOverlayWidth(for: geometry)"), "Center reminder layout must reserve the actual center recording overlay width")
         assert(!source.contains("panel.contentView = hostingView"), "Meeting reminders must not install NSHostingView directly as the panel content view")
     }
 
