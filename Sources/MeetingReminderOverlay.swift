@@ -3,7 +3,6 @@ import Combine
 import SwiftUI
 
 private let meetingReminderContentTransitionAnimation = Animation.spring(response: 0.28, dampingFraction: 0.88, blendDuration: 0.08)
-private let meetingReminderCenterOverlayWidth: CGFloat = 150
 
 struct MeetingReminderOverlayContext: Equatable {
     var phase: Phase
@@ -39,10 +38,11 @@ struct MeetingReminderOverlayGeometry {
     static let defaultSize = CGSize(width: 336, height: 92)
     static let horizontalScreenMargin: CGFloat = 16
     static let notchSideHeight: CGFloat = 88
-    static let notchCenterSize = CGSize(width: 388, height: 112)
+    static let notchCenterSize = CGSize(width: 360, height: 112)
 
     private static let notchSideRegionWidth: CGFloat = 92
     private static let notchSideHorizontalInset: CGFloat = 8
+    private static let centerRecordingBaseWidth: CGFloat = 150
 
     static func size(forScreenWidth screenWidth: CGFloat) -> CGSize {
         CGSize(
@@ -78,12 +78,15 @@ struct MeetingReminderOverlayGeometry {
     ) -> CGSize {
         switch variant {
         case .defaultReminder:
-            return size(forScreenWidth: screenWidth)
+            let defaultSize = size(forScreenWidth: screenWidth)
+            guard let notchSideWidth else { return defaultSize }
+            return CGSize(width: max(defaultSize.width, notchSideWidth), height: defaultSize.height)
         case .notchSidesRecording, .notchSidesProcessing:
             return CGSize(width: max(280, notchSideWidth ?? defaultSize.width), height: defaultSize.height)
         case .notchCenterRecording, .notchCenterProcessing:
+            let width = max(notchCenterSize.width, notchSideWidth ?? 0)
             return CGSize(
-                width: min(notchCenterSize.width, max(280, screenWidth - horizontalScreenMargin * 2)),
+                width: min(width, max(280, screenWidth - horizontalScreenMargin * 2)),
                 height: notchCenterSize.height
             )
         case .centerRecording, .centerProcessing:
@@ -118,11 +121,34 @@ struct MeetingReminderOverlayGeometry {
         guard hasNotchGeometry(for: screen),
               let leftArea = screen.auxiliaryTopLeftArea,
               let rightArea = screen.auxiliaryTopRightArea else { return nil }
-        let availableSideWidth = min(leftArea.width, rightArea.width)
+        return notchSideWidth(
+            leftAreaWidth: leftArea.width,
+            rightAreaWidth: rightArea.width,
+            screenWidth: screen.frame.width
+        )
+    }
+
+    static func notchSideWidth(leftAreaWidth: CGFloat, rightAreaWidth: CGFloat, screenWidth: CGFloat) -> CGFloat? {
+        let availableSideWidth = min(leftAreaWidth, rightAreaWidth)
         let contentWidth = min(notchSideRegionWidth, max(0, availableSideWidth - notchSideHorizontalInset * 2))
         guard contentWidth >= 64 else { return nil }
-        let notchWidth = screen.frame.width - leftArea.width - rightArea.width
+        let notchWidth = screenWidth - leftAreaWidth - rightAreaWidth
         return notchWidth + contentWidth * 2
+    }
+
+    static func centerRecordingOverlayWidth(leftAreaWidth: CGFloat, rightAreaWidth: CGFloat, screenWidth: CGFloat) -> CGFloat {
+        max(screenWidth - leftAreaWidth - rightAreaWidth, centerRecordingBaseWidth)
+    }
+
+    static func centerRecordingOverlayWidth(for screen: NSScreen) -> CGFloat {
+        guard hasNotchGeometry(for: screen),
+              let leftArea = screen.auxiliaryTopLeftArea,
+              let rightArea = screen.auxiliaryTopRightArea else { return centerRecordingBaseWidth }
+        return centerRecordingOverlayWidth(
+            leftAreaWidth: leftArea.width,
+            rightAreaWidth: rightArea.width,
+            screenWidth: screen.frame.width
+        )
     }
 }
 
@@ -133,6 +159,7 @@ struct MeetingReminderOverlayDisplayData: Equatable {
     let startTimeText: String
     let context: MeetingReminderOverlayContext
     let variant: MeetingReminderOverlayVariant
+    let centerOverlayWidth: CGFloat
 
     var showsStartButton: Bool { variant == .defaultReminder }
 }
@@ -211,25 +238,27 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
             for: context,
             hasNotchGeometry: MeetingReminderOverlayGeometry.hasNotchGeometry(for: screen)
         )
-        let displayData = displayData(for: schedule, context: context, variant: variant)
+        let displayData = displayData(
+            for: schedule,
+            context: context,
+            variant: variant,
+            centerOverlayWidth: MeetingReminderOverlayGeometry.centerRecordingOverlayWidth(for: screen)
+        )
         let panel = panel ?? makePanel(frame: frame)
         panel.ignoresMouseEvents = false
-        if let viewModel, panel.contentView != nil {
-            withAnimation(meetingReminderContentTransitionAnimation) {
-                viewModel.displayData = displayData
-            }
-            panel.contentView?.frame = NSRect(origin: .zero, size: frame.size)
-        } else {
-            let viewModel = MeetingReminderOverlayViewModel(displayData: displayData)
-            let hostingView = NSHostingView(rootView: MeetingReminderOverlayRootView(
-                viewModel: viewModel,
-                onStart: { [weak self] in self?.handleStart() },
-                onDismiss: { [weak self] in self?.handleDismiss() }
-            ))
-            hostingView.frame = NSRect(origin: .zero, size: frame.size)
-            panel.contentView = hostingView
-            self.viewModel = viewModel
-        }
+        let viewModel = MeetingReminderOverlayViewModel(displayData: displayData)
+        let rootView = MeetingReminderOverlayRootView(
+            viewModel: viewModel,
+            onStart: { [weak self] in self?.handleStart() },
+            onDismiss: { [weak self] in self?.handleDismiss() }
+        )
+        let container = FixedHostingContainer(
+            rootView: AnyView(rootView.frame(width: frame.width, height: frame.height)),
+            size: frame.size
+        )
+        container.autoresizingMask = [.width, .height]
+        panel.contentView = container
+        self.viewModel = viewModel
         panel.level = variant.isRecordingContext ? Self.recordingContextLevel : .screenSaver
         self.panel = panel
 
@@ -328,7 +357,8 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
     private func displayData(
         for schedule: CalendarRecordingReminderSchedule,
         context: MeetingReminderOverlayContext,
-        variant: MeetingReminderOverlayVariant
+        variant: MeetingReminderOverlayVariant,
+        centerOverlayWidth: CGFloat
     ) -> MeetingReminderOverlayDisplayData {
         MeetingReminderOverlayDisplayData(
             identifier: schedule.identifier,
@@ -336,7 +366,8 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
             startText: Self.startText(for: schedule.event.start),
             startTimeText: Self.startTimeText(for: schedule.event.start),
             context: context,
-            variant: variant
+            variant: variant,
+            centerOverlayWidth: centerOverlayWidth
         )
     }
 
@@ -400,7 +431,7 @@ private struct MeetingReminderOverlayView: View {
             CenterMeetingReminderOverlayView(
                 displayData: displayData,
                 animationNamespace: animationNamespace,
-                topContentHeight: 62,
+                topContentHeight: 77,
                 rowTop: 76,
                 onDismiss: onDismiss
             )
@@ -428,7 +459,7 @@ private struct DefaultMeetingReminderOverlayView: View {
                 .matchedGeometryEffect(id: "background", in: animationNamespace)
             VStack(spacing: 0) {
                 GeometryReader { proxy in
-                    let topSideAreaWidth = max(0, (proxy.size.width - meetingReminderCenterOverlayWidth) / 2)
+                    let topSideAreaWidth = max(0, (proxy.size.width - displayData.centerOverlayWidth) / 2)
                     ZStack(alignment: .topLeading) {
                         HStack(spacing: 6) {
                             AppIconView(size: 22, cornerRadius: 6)
@@ -510,7 +541,7 @@ private struct CenterMeetingReminderOverlayView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let topSideAreaWidth = max(0, (proxy.size.width - meetingReminderCenterOverlayWidth) / 2)
+            let topSideAreaWidth = max(0, (proxy.size.width - displayData.centerOverlayWidth) / 2)
             ZStack(alignment: .topLeading) {
                 OverlayBackground(cornerRadius: displayData.variant == .centerRecording || displayData.variant == .centerProcessing ? 22 : 24)
                     .matchedGeometryEffect(id: "background", in: animationNamespace)

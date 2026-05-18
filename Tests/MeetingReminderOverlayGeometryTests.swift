@@ -3,7 +3,7 @@ import Foundation
 
 @main
 struct MeetingReminderOverlayGeometryTests {
-    static func main() async {
+    static func main() async throws {
         testDefaultSize()
         testUsesCompactWidthWhenScreenAllows()
         testClampsToScreenMargins()
@@ -12,7 +12,9 @@ struct MeetingReminderOverlayGeometryTests {
         testProcessingKeepsNotchSideVariant()
         testRecordingCenterWithNotchUsesNotchCenterVariant()
         testRecordingCenterWithoutNotchUsesCenterVariant()
+        testNotchSideWidthMatchesRecordingOverlayGeometry()
         testContextualSizesMatchFinalDesign()
+        try testHostingViewsUseFixedIntrinsicContentSize()
         await testPresenterFailureWhenScreenUnavailableFallsBack()
         print("MeetingReminderOverlayGeometryTests passed")
     }
@@ -71,14 +73,52 @@ struct MeetingReminderOverlayGeometryTests {
         assert(variant == .centerRecording)
     }
 
+    private static func testNotchSideWidthMatchesRecordingOverlayGeometry() {
+        let recordingGeometry = RecordingOverlayGeometry.notchSideGeometry(
+            screenFrame: CGRect(x: 0, y: 0, width: 1512, height: 982),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1512, height: 944),
+            leftArea: CGRect(x: 0, y: 944, width: 682, height: 38),
+            rightArea: CGRect(x: 830, y: 944, width: 682, height: 38),
+            regionWidth: 92,
+            panelHeight: 38,
+            horizontalInset: 8
+        )
+
+        assert(recordingGeometry != nil)
+        let reminderWidth = MeetingReminderOverlayGeometry.notchSideWidth(
+            leftAreaWidth: 682,
+            rightAreaWidth: 682,
+            screenWidth: 1512
+        )
+
+        assert(reminderWidth == recordingGeometry?.frame.width)
+        assert(MeetingReminderOverlayGeometry.size(for: .notchSidesRecording, screenWidth: 1512, notchSideWidth: reminderWidth) == CGSize(width: reminderWidth!, height: 92))
+        assert(MeetingReminderOverlayGeometry.size(for: .notchSidesProcessing, screenWidth: 1512, notchSideWidth: reminderWidth) == CGSize(width: reminderWidth!, height: 92))
+    }
+
     private static func testContextualSizesMatchFinalDesign() {
         assert(MeetingReminderOverlayGeometry.size(for: .defaultReminder, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 336, height: 92))
+        assert(MeetingReminderOverlayGeometry.size(for: .defaultReminder, screenWidth: 1_440, notchSideWidth: 404) == CGSize(width: 404, height: 92))
         assert(MeetingReminderOverlayGeometry.size(for: .notchSidesRecording, screenWidth: 1_440, notchSideWidth: 330) == CGSize(width: 330, height: 92))
         assert(MeetingReminderOverlayGeometry.size(for: .notchSidesProcessing, screenWidth: 1_440, notchSideWidth: 330) == CGSize(width: 330, height: 92))
-        assert(MeetingReminderOverlayGeometry.size(for: .notchCenterRecording, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 388, height: 112))
-        assert(MeetingReminderOverlayGeometry.size(for: .notchCenterProcessing, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 388, height: 112))
+        assert(MeetingReminderOverlayGeometry.size(for: .notchCenterRecording, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 360, height: 112))
+        assert(MeetingReminderOverlayGeometry.size(for: .notchCenterProcessing, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 360, height: 112))
+        assert(MeetingReminderOverlayGeometry.size(for: .notchCenterRecording, screenWidth: 2_056, notchSideWidth: 404) == CGSize(width: 404, height: 112))
+        assert(MeetingReminderOverlayGeometry.size(for: .notchCenterProcessing, screenWidth: 2_056, notchSideWidth: 404) == CGSize(width: 404, height: 112))
         assert(MeetingReminderOverlayGeometry.size(for: .centerRecording, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 336, height: 92))
         assert(MeetingReminderOverlayGeometry.size(for: .centerProcessing, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 336, height: 92))
+    }
+
+    private static func testHostingViewsUseFixedIntrinsicContentSize() throws {
+        let sharedHostSource = try String(contentsOfFile: "Sources/FixedIntrinsicHostingView.swift", encoding: .utf8)
+        let source = try String(contentsOfFile: "Sources/MeetingReminderOverlay.swift", encoding: .utf8)
+        assert(sharedHostSource.contains("final class FixedIntrinsicHostingView"))
+        assert(sharedHostSource.contains("override var intrinsicContentSize"))
+        assert(sharedHostSource.contains("sizingOptions = []"), "Fixed hosting views must opt out of window sizing")
+        assert(source.contains("FixedHostingContainer("), "Meeting reminders must host SwiftUI inside a plain NSView container")
+        assert(source.contains("rootView: AnyView(rootView.frame("), "Meeting reminders must give SwiftUI a fixed panel-sized root frame")
+        assert(source.contains("centerOverlayWidth: MeetingReminderOverlayGeometry.centerRecordingOverlayWidth(for: screen)"), "Center reminder layout must reserve the actual center recording overlay width")
+        assert(!source.contains("panel.contentView = hostingView"), "Meeting reminders must not install NSHostingView directly as the panel content view")
     }
 
     @MainActor

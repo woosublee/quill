@@ -79,8 +79,9 @@ private func makeNotchContent<V: View>(
         .background(Color.black)
         .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: cornerRadius, bottomTrailingRadius: cornerRadius))
 
-    let hosting = NSHostingView(rootView: shaped)
-    hosting.frame = NSRect(x: 0, y: 0, width: width, height: height)
+    let size = NSSize(width: width, height: height)
+    let hosting = FixedIntrinsicHostingView(rootView: shaped, size: size)
+    hosting.frame = NSRect(origin: .zero, size: size)
     hosting.autoresizingMask = [.width, .height]
     return hosting
 }
@@ -90,8 +91,9 @@ private func makeTransparentContent<V: View>(
     height: CGFloat,
     rootView: V
 ) -> NSView {
-    let hosting = NSHostingView(rootView: rootView.frame(width: width, height: height))
-    hosting.frame = NSRect(x: 0, y: 0, width: width, height: height)
+    let size = NSSize(width: width, height: height)
+    let hosting = FixedIntrinsicHostingView(rootView: rootView.frame(width: width, height: height), size: size)
+    hosting.frame = NSRect(origin: .zero, size: size)
     hosting.autoresizingMask = [.width, .height]
     return hosting
 }
