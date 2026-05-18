@@ -99,54 +99,6 @@ private func makeTransparentContent<V: View>(
 }
 
 struct RecordingOverlayGeometry {
-    struct NotchSideGeometry {
-        let frame: NSRect
-        let leftContentFrame: CGRect
-        let rightContentFrame: CGRect
-    }
-
-    static func notchSideGeometry(
-        screenFrame: CGRect,
-        visibleFrame: CGRect,
-        leftArea: CGRect,
-        rightArea: CGRect,
-        regionWidth: CGFloat,
-        panelHeight: CGFloat,
-        horizontalInset: CGFloat
-    ) -> NotchSideGeometry? {
-        let availableSideWidth = min(leftArea.width, rightArea.width)
-        let contentWidth = min(regionWidth, max(0, availableSideWidth - horizontalInset * 2))
-        guard contentWidth >= 64 else { return nil }
-
-        let notchMinX = leftArea.maxX
-        let notchMaxX = rightArea.minX
-        guard notchMaxX > notchMinX else { return nil }
-
-        let panelMinX = leftArea.maxX - contentWidth
-        let panelMaxX = rightArea.minX + contentWidth
-        let frame = NSRect(
-            x: panelMinX,
-            y: screenFrame.maxY - panelHeight,
-            width: panelMaxX - panelMinX,
-            height: panelHeight
-        )
-
-        let leftFrame = CGRect(
-            x: 0,
-            y: 0,
-            width: contentWidth,
-            height: panelHeight
-        )
-        let rightFrame = CGRect(
-            x: frame.width - contentWidth,
-            y: 0,
-            width: contentWidth,
-            height: panelHeight
-        )
-
-        return NotchSideGeometry(frame: frame, leftContentFrame: leftFrame, rightContentFrame: rightFrame)
-    }
-
     static func lockedTranscribingWidth(
         existingLockedWidth: CGFloat?,
         currentPanelWidth: CGFloat,
@@ -155,15 +107,6 @@ struct RecordingOverlayGeometry {
     ) -> CGFloat {
         if let existingLockedWidth { return existingLockedWidth }
         return wasNotchSideRecordingLayout ? centeredTranscribingWidth : currentPanelWidth
-    }
-
-    static func centeredFrame(screenFrame: CGRect, width: CGFloat, height: CGFloat) -> NSRect {
-        NSRect(
-            x: screenFrame.midX - width / 2,
-            y: screenFrame.maxY - height,
-            width: width,
-            height: height
-        )
     }
 
     static func usesNotchSideLayout(
@@ -193,7 +136,7 @@ final class RecordingOverlayManager {
     private let notchSidePanelHeight: CGFloat = 38
     private let notchSideHorizontalInset: CGFloat = 8
 
-    private typealias NotchSideGeometry = RecordingOverlayGeometry.NotchSideGeometry
+    private typealias NotchSideGeometry = OverlayScreenGeometry.NotchSideGeometry
 
     var onStopButtonPressed: (() -> Void)?
     var onUpdateOverlayPressed: (() -> Void)?
@@ -214,21 +157,21 @@ final class RecordingOverlayManager {
         }
     }
 
-    private var screenHasNotch: Bool {
-        guard let screen = NSScreen.main else { return false }
-        return screen.safeAreaInsets.top > 0
+    private var screenGeometry: OverlayScreenGeometry? {
+        guard let screen = NSScreen.main else { return nil }
+        return OverlayScreenGeometry(screen: screen)
+    }
+
+    private var screenHasTopSafeArea: Bool {
+        screenGeometry?.hasTopSafeArea ?? false
     }
 
     private var notchWidth: CGFloat {
-        guard let screen = NSScreen.main, screenHasNotch else { return 0 }
-        guard let leftArea = screen.auxiliaryTopLeftArea,
-              let rightArea = screen.auxiliaryTopRightArea else { return 0 }
-        return screen.frame.width - leftArea.width - rightArea.width
+        screenGeometry?.notchWidth ?? 0
     }
 
     private var notchOverlap: CGFloat {
-        guard let screen = NSScreen.main else { return 0 }
-        return screen.frame.maxY - screen.visibleFrame.maxY
+        screenGeometry?.notchOverlap ?? 0
     }
 
     private var usesNotchSideLayout: Bool {
@@ -240,15 +183,7 @@ final class RecordingOverlayManager {
     }
 
     private var notchSideGeometry: NotchSideGeometry? {
-        guard let screen = NSScreen.main, screenHasNotch else { return nil }
-        guard let leftArea = screen.auxiliaryTopLeftArea,
-              let rightArea = screen.auxiliaryTopRightArea else { return nil }
-
-        return RecordingOverlayGeometry.notchSideGeometry(
-            screenFrame: screen.frame,
-            visibleFrame: screen.visibleFrame,
-            leftArea: leftArea,
-            rightArea: rightArea,
+        screenGeometry?.notchSideGeometry(
             regionWidth: notchSideRegionWidth,
             panelHeight: notchSidePanelHeight,
             horizontalInset: notchSideHorizontalInset
@@ -406,7 +341,7 @@ final class RecordingOverlayManager {
         return makeNotchContent(
             width: frame.width,
             height: frame.height,
-            cornerRadius: screenHasNotch ? 18 : 12,
+            cornerRadius: screenHasTopSafeArea ? 18 : 12,
             rootView: RecordingOverlayView(
                 state: overlayState,
                 onStopButtonPressed: { [weak self] in
@@ -416,7 +351,7 @@ final class RecordingOverlayManager {
                     self?.onUpdateOverlayPressed?()
                 }
             )
-            .padding(.top, screenHasNotch ? notchOverlap : 0)
+            .padding(.top, screenHasTopSafeArea ? notchOverlap : 0)
         )
     }
 
@@ -449,21 +384,21 @@ final class RecordingOverlayManager {
     }
 
     private var overlayFrame: NSRect {
-        guard let screen = NSScreen.main else { return .zero }
+        guard let screenGeometry else { return .zero }
         if let geometry = notchSideGeometry,
            usesNotchSideLayout {
             return geometry.frame
         }
 
         let width = overlayWidth
-        let overlap = screenHasNotch ? notchOverlap : 0
+        let overlap = screenHasTopSafeArea ? notchOverlap : 0
         let height: CGFloat = 38 + overlap
-        return RecordingOverlayGeometry.centeredFrame(screenFrame: screen.frame, width: width, height: height)
+        return screenGeometry.centeredTopFrame(width: width, height: height)
     }
 
     private var centeredTranscribingOverlayWidth: CGFloat {
         let defaultWidth: CGFloat = 92
-        guard screenHasNotch else { return defaultWidth }
+        guard screenHasTopSafeArea else { return defaultWidth }
         return max(notchWidth, defaultWidth)
     }
 
@@ -474,13 +409,13 @@ final class RecordingOverlayManager {
 
         if overlayState.phase == .feedback {
             let feedbackWidth: CGFloat = 92
-            guard screenHasNotch else { return feedbackWidth }
+            guard screenHasTopSafeArea else { return feedbackWidth }
             return max(notchWidth, feedbackWidth)
         }
 
         if overlayState.phase == .updateAvailable {
             let updateWidth: CGFloat = 190
-            guard screenHasNotch else { return updateWidth }
+            guard screenHasTopSafeArea else { return updateWidth }
             return max(notchWidth, updateWidth)
         }
 
@@ -497,7 +432,7 @@ final class RecordingOverlayManager {
             baseWidth = defaultWidth
         }
 
-        guard screenHasNotch else { return baseWidth }
+        guard screenHasTopSafeArea else { return baseWidth }
         return max(notchWidth, baseWidth)
     }
 
