@@ -7,10 +7,6 @@ on:
         description: "Release tag, for example v0.1.0 or v0.1.0-beta.1"
         required: true
         type: string
-      build_number:
-        description: "CFBundleVersion build number, for example 3"
-        required: true
-        type: string
       release_name:
         description: "Release title. Defaults to Quill <tag>."
         required: false
@@ -39,7 +35,6 @@ jobs:
         id: metadata
         env:
           INPUT_TAG: ${{ inputs.tag }}
-          INPUT_BUILD_NUMBER: ${{ inputs.build_number }}
           INPUT_RELEASE_NAME: ${{ inputs.release_name }}
         run: |
           TAG="$INPUT_TAG"
@@ -48,13 +43,25 @@ jobs:
             exit 1
           fi
 
-          BUILD_NUMBER="$INPUT_BUILD_NUMBER"
+          APP_VERSION="$(make -s print-app-version)"
+          BUILD_NUMBER="$(make -s print-build-number)"
+          BUILD_TAG="$(make -s print-build-tag)"
+          VERSION="${TAG#v}"
+
+          if [ "$TAG" != "$BUILD_TAG" ]; then
+            echo "Workflow tag $TAG must match BUILD_TAG $BUILD_TAG from version.mk." >&2
+            exit 1
+          fi
+
+          if [ "$VERSION" != "$APP_VERSION" ]; then
+            echo "Workflow version $VERSION must match APP_VERSION $APP_VERSION from version.mk." >&2
+            exit 1
+          fi
+
           if ! [[ "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
             echo "Build number must be a positive integer." >&2
             exit 1
           fi
-
-          VERSION="${TAG#v}"
           RELEASE_NAME="$INPUT_RELEASE_NAME"
           if [ -z "$RELEASE_NAME" ]; then
             RELEASE_NAME="Quill $TAG"

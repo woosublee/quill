@@ -7,10 +7,6 @@ on:
         description: "Release tag, for example v0.1.0"
         required: true
         type: string
-      build_number:
-        description: "CFBundleVersion build number, for example 4"
-        required: true
-        type: string
   # To re-enable automatic notarized releases from version tags:
   # push:
   #   tags:
@@ -29,13 +25,27 @@ jobs:
 
       - name: Resolve release version
         id: version
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          TAG="${{ inputs.tag }}"
-          BUILD_NUMBER="${{ inputs.build_number }}"
+          TAG="$INPUT_TAG"
+          APP_VERSION="$(make -s print-app-version)"
+          BUILD_NUMBER="$(make -s print-build-number)"
+          BUILD_TAG="$(make -s print-build-tag)"
           VERSION="${TAG#v}"
 
           if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Release tags must use semantic versioning, for example v0.1.0." >&2
+            exit 1
+          fi
+
+          if [ "$TAG" != "$BUILD_TAG" ]; then
+            echo "Workflow tag $TAG must match BUILD_TAG $BUILD_TAG from version.mk." >&2
+            exit 1
+          fi
+
+          if [ "$VERSION" != "$APP_VERSION" ]; then
+            echo "Workflow version $VERSION must match APP_VERSION $APP_VERSION from version.mk." >&2
             exit 1
           fi
 

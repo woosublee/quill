@@ -4,6 +4,7 @@ import Foundation
 struct BuildMetadataTests {
     static func main() throws {
         try testMakefileStampsLocalBuildMetadata()
+        try testMakefilePrintsVersionMetadata()
         try testBuildSettingsTrackCodesignIdentity()
         try testMakefileSeparatesDevRunFromInstallBuild()
         try testMakefileCopiesSelectedIconToBundleIconName()
@@ -18,11 +19,17 @@ struct BuildMetadataTests {
 
     private static func testMakefileStampsLocalBuildMetadata() throws {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
+        let versionFile = try String(contentsOfFile: "version.mk", encoding: .utf8)
 
-        assertContains(makefile, "GIT_RELEASE_TAG := $(shell git describe --tags --abbrev=0 --match 'v[0-9]*'")
+        let versionMetadata = parseVersionMetadata(versionFile)
+        assertMatches(versionMetadata["APP_VERSION"], #"^\d+\.\d+\.\d+$"#)
+        assertMatches(versionMetadata["BUILD_NUMBER"], #"^[1-9]\d*$"#)
+        assertMatches(versionMetadata["BUILD_TAG"], #"^v\d+\.\d+\.\d+$"#)
+        assertContains(makefile, "-include version.mk")
         assertContains(makefile, "APP_VERSION ?= $(patsubst v%,%,$(if $(GIT_RELEASE_TAG),$(GIT_RELEASE_TAG),v0.0.1))")
-        assertContains(makefile, "GIT_COMMIT_COUNT := $(shell git rev-list --count HEAD")
-        assertContains(makefile, "BUILD_NUMBER ?= $(if $(GIT_COMMIT_COUNT),$(GIT_COMMIT_COUNT),1)")
+        assertContains(makefile, "BUILD_NUMBER ?= 1")
+        assertDoesNotContain(makefile, "GIT_COMMIT_COUNT := $(shell git rev-list --count HEAD")
+        assertDoesNotContain(makefile, "BUILD_NUMBER ?= $(if $(GIT_COMMIT_COUNT),$(GIT_COMMIT_COUNT),1)")
         assertContains(makefile, "GIT_SHORT_SHA := $(shell git rev-parse --short HEAD")
         assertContains(makefile, "BUILD_TAG ?= $(if $(GIT_SHORT_SHA),local-$(GIT_SHORT_SHA),local-unknown)")
         assertContains(makefile, "$(APP_VERSION)")
@@ -32,6 +39,21 @@ struct BuildMetadataTests {
         assertContains(makefile, "plutil -replace CFBundleShortVersionString -string \"$(APP_VERSION)\" \"$(CONTENTS)/Info.plist\"")
         assertContains(makefile, "plutil -replace CFBundleVersion -string \"$(BUILD_NUMBER)\" \"$(CONTENTS)/Info.plist\"")
         assertContains(makefile, "plutil -replace QuillBuildTag -string \"$(BUILD_TAG)\" \"$(CONTENTS)/Info.plist\"")
+    }
+
+    private static func testMakefilePrintsVersionMetadata() throws {
+        let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
+
+        assertContains(makefile, ".PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run test print-app-version print-build-number print-build-tag print-version-metadata FORCE")
+        assertContains(makefile, "print-app-version:")
+        assertContains(makefile, "print-build-number:")
+        assertContains(makefile, "print-build-tag:")
+        assertContains(makefile, "print-version-metadata:")
+        assertContains(makefile, "@printf '%s\\n' \"$(APP_VERSION)\"")
+        assertContains(makefile, "@printf '%s\\n' \"$(BUILD_NUMBER)\"")
+        assertContains(makefile, "@printf '%s\\n' \"$(BUILD_TAG)\"")
+        assertContains(makefile, "app_version=%s\\nbuild_number=%s\\nbuild_tag=%s\\n")
+        assertContains(makefile, "\"$(APP_VERSION)\" \"$(BUILD_NUMBER)\" \"$(BUILD_TAG)\"")
     }
 
     private static func testBuildSettingsTrackCodesignIdentity() throws {
@@ -99,6 +121,14 @@ struct BuildMetadataTests {
     private static func testReleaseWorkflowsPassBuildMetadataToMake() throws {
         let manualReleaseWorkflow = try String(contentsOfFile: ".github/workflows/manual-release.yml", encoding: .utf8)
         let releaseWorkflow = try String(contentsOfFile: ".github/workflows/release.yml", encoding: .utf8)
+        let devReleaseWorkflow = try String(contentsOfFile: ".github/workflows/dev-release.yml", encoding: .utf8)
+
+        assertContains(manualReleaseWorkflow, "APP_VERSION=\"$(make -s print-app-version)\"")
+        assertContains(manualReleaseWorkflow, "BUILD_NUMBER=\"$(make -s print-build-number)\"")
+        assertContains(manualReleaseWorkflow, "BUILD_TAG=\"$(make -s print-build-tag)\"")
+        assertContains(releaseWorkflow, "APP_VERSION=\"$(make -s print-app-version)\"")
+        assertContains(releaseWorkflow, "BUILD_NUMBER=\"$(make -s print-build-number)\"")
+        assertContains(releaseWorkflow, "BUILD_TAG=\"$(make -s print-build-tag)\"")
 
         assertContains(manualReleaseWorkflow, "APP_VERSION=\"${{ steps.metadata.outputs.version }}\"")
         assertContains(manualReleaseWorkflow, "BUILD_NUMBER=\"${{ steps.metadata.outputs.build_number }}\"")
@@ -107,6 +137,18 @@ struct BuildMetadataTests {
         assertContains(releaseWorkflow, "APP_VERSION=\"${{ steps.version.outputs.version }}\"")
         assertContains(releaseWorkflow, "BUILD_NUMBER=\"${{ steps.version.outputs.build_number }}\"")
         assertContains(releaseWorkflow, "BUILD_TAG=\"${{ steps.version.outputs.tag }}\"")
+
+        assertContains(devReleaseWorkflow, "BASE_VERSION=\"$(make -s print-app-version)\"")
+        assertContains(devReleaseWorkflow, "BUILD_NUMBER=\"$(make -s print-build-number)\"")
+        assertContains(devReleaseWorkflow, #"BUILD_TAG="dev-${SHORT_SHA}""#)
+        assertContains(devReleaseWorkflow, #"BUILD_NUMBER="${{ steps.version.outputs.build_number }}""#)
+        assertContains(devReleaseWorkflow, #"BUILD_TAG="${{ steps.version.outputs.build_tag }}""#)
+        assertContains(devReleaseWorkflow, #"run: make ARCH=universal CODESIGN_IDENTITY="$CODESIGN_IDENTITY" APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.build_tag }}""#)
+        assertContains(devReleaseWorkflow, #"run: make dmg ARCH=universal CODESIGN_IDENTITY="$CODESIGN_IDENTITY" APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.build_tag }}""#)
+        assertContains(devReleaseWorkflow, #"plutil -replace CFBundleVersion -string "${{ steps.version.outputs.build_number }}" Info.plist"#)
+        assertDoesNotContain(devReleaseWorkflow, #"plutil -replace CFBundleVersion -string "${{ github.run_number }}" Info.plist"#)
+        assertContains(devReleaseWorkflow, #"plutil -replace QuillBuildTag -string "${{ steps.version.outputs.build_tag }}" Info.plist"#)
+        assertDoesNotContain(devReleaseWorkflow, "plutil -replace FreeFlowBuildTag")
     }
 
     private static func testNotarizedReleaseWorkflowIsManualByDefault() throws {
@@ -118,8 +160,11 @@ struct BuildMetadataTests {
         assertContains(releaseWorkflow, "# push:")
         assertContains(releaseWorkflow, "#   tags:")
         assertContains(releaseWorkflow, "#     - \"v*.*.*\"")
-        assertContains(releaseWorkflow, "TAG=\"${{ inputs.tag }}\"")
-        assertContains(releaseWorkflow, "BUILD_NUMBER=\"${{ inputs.build_number }}\"")
+        assertContains(releaseWorkflow, "INPUT_TAG: ${{ inputs.tag }}")
+        assertContains(releaseWorkflow, "TAG=\"$INPUT_TAG\"")
+        assertContains(releaseWorkflow, "BUILD_NUMBER=\"$(make -s print-build-number)\"")
+        assertDoesNotContain(releaseWorkflow, "build_number:")
+        assertDoesNotContain(releaseWorkflow, "BUILD_NUMBER=\"${{ inputs.build_number }}\"")
         assertDoesNotContain(releaseWorkflow, "on:\n  push:")
         assertDoesNotContain(releaseWorkflow, "BUILD_NUMBER=\"${{ github.run_number }}\"")
     }
@@ -136,11 +181,32 @@ struct BuildMetadataTests {
         assertContains(settingsView, #"\(appDisplayName) \(appVersion) (build \(appBuildNumber), \(appReleaseTag))"#)
     }
 
+    private static func parseVersionMetadata(_ text: String) -> [String: String] {
+        var metadata: [String: String] = [:]
+
+        for line in text.split(separator: "\n") {
+            let parts = line.split(separator: ":=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            if parts.count == 2 {
+                metadata[parts[0]] = parts[1]
+            }
+        }
+
+        return metadata
+    }
+
     private static func assertContains(_ text: String, _ expected: String) {
         precondition(text.contains(expected), "Expected content to contain \(expected)")
     }
 
     private static func assertDoesNotContain(_ text: String, _ unexpected: String) {
         precondition(!text.contains(unexpected), "Expected content not to contain \(unexpected)")
+    }
+
+    private static func assertMatches(_ value: String?, _ pattern: String) {
+        guard let value else {
+            preconditionFailure("Expected metadata value matching \(pattern)")
+        }
+
+        precondition(value.range(of: pattern, options: .regularExpression) != nil, "Expected \(value) to match \(pattern)")
     }
 }
