@@ -86,12 +86,19 @@ Every release prep must update `CHANGELOG.md` by comparing the previous public Q
    make ARCH="$(uname -m)" CODESIGN_IDENTITY=-
    ```
 
-7. Commit only release-prep files:
+7. Commit release-prep files:
    ```bash
-   git add version.mk CHANGELOG.md .github/workflows/manual-release.yml .github/workflows/release.yml Tests/ManualReleaseWorkflowTests.swift Tests/BuildMetadataTests.swift Sources/SettingsView.swift
+   git add version.mk CHANGELOG.md
+
+   # Include only if intentionally modified for this release:
+   # git add Sources/SettingsView.swift
+   # git add .github/workflows/dev-release.yml .github/workflows/manual-release.yml .github/workflows/release.yml
+   # git add Tests/BuildMetadataTests.swift Tests/ManualReleaseWorkflowTests.swift
+
+   git status --short
    git commit -m "Prepare v<version> release"
    ```
-   Include other files only when they are deliberately part of the release prep.
+   Verify `git status` shows only intended release-prep changes before committing.
 
 8. After user approval, choose the release path:
    - Local signed release: build with the local `Quill` signing identity and create the GitHub Release with the verified local `Quill.dmg`.

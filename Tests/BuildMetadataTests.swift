@@ -21,9 +21,10 @@ struct BuildMetadataTests {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
         let versionFile = try String(contentsOfFile: "version.mk", encoding: .utf8)
 
-        assertContains(versionFile, "APP_VERSION := 0.1.0")
-        assertContains(versionFile, "BUILD_NUMBER := 3")
-        assertContains(versionFile, "BUILD_TAG := v0.1.0")
+        let versionMetadata = parseVersionMetadata(versionFile)
+        assertMatches(versionMetadata["APP_VERSION"], #"^\d+\.\d+\.\d+$"#)
+        assertMatches(versionMetadata["BUILD_NUMBER"], #"^[1-9]\d*$"#)
+        assertMatches(versionMetadata["BUILD_TAG"], #"^v\d+\.\d+\.\d+$"#)
         assertContains(makefile, "-include version.mk")
         assertContains(makefile, "APP_VERSION ?= $(patsubst v%,%,$(if $(GIT_RELEASE_TAG),$(GIT_RELEASE_TAG),v0.0.1))")
         assertContains(makefile, "BUILD_NUMBER ?= 1")
@@ -44,12 +45,15 @@ struct BuildMetadataTests {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
 
         assertContains(makefile, ".PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run test print-app-version print-build-number print-build-tag print-version-metadata FORCE")
-        assertContains(makefile, "print-app-version:\n\t@printf '%s\\n' \"$(APP_VERSION)\"")
-        assertContains(makefile, "print-build-number:\n\t@printf '%s\\n' \"$(BUILD_NUMBER)\"")
-        assertContains(makefile, "print-build-tag:\n\t@printf '%s\\n' \"$(BUILD_TAG)\"")
-        assertContains(makefile, "print-version-metadata:\n\t@printf 'app_version=%s\\nbuild_number=%s\\nbuild_tag=%s\\n' \"$(APP_VERSION)\" \"$(BUILD_NUMBER)\" \"$(BUILD_TAG)\"")
+        assertContains(makefile, "print-app-version:")
+        assertContains(makefile, "print-build-number:")
+        assertContains(makefile, "print-build-tag:")
         assertContains(makefile, "print-version-metadata:")
-        assertContains(makefile, "@printf 'app_version=%s\\nbuild_number=%s\\nbuild_tag=%s\\n' \"$(APP_VERSION)\" \"$(BUILD_NUMBER)\" \"$(BUILD_TAG)\"")
+        assertContains(makefile, "@printf '%s\\n' \"$(APP_VERSION)\"")
+        assertContains(makefile, "@printf '%s\\n' \"$(BUILD_NUMBER)\"")
+        assertContains(makefile, "@printf '%s\\n' \"$(BUILD_TAG)\"")
+        assertContains(makefile, "app_version=%s\\nbuild_number=%s\\nbuild_tag=%s\\n")
+        assertContains(makefile, "\"$(APP_VERSION)\" \"$(BUILD_NUMBER)\" \"$(BUILD_TAG)\"")
     }
 
     private static func testBuildSettingsTrackCodesignIdentity() throws {
@@ -177,11 +181,32 @@ struct BuildMetadataTests {
         assertContains(settingsView, #"\(appDisplayName) \(appVersion) (build \(appBuildNumber), \(appReleaseTag))"#)
     }
 
+    private static func parseVersionMetadata(_ text: String) -> [String: String] {
+        var metadata: [String: String] = [:]
+
+        for line in text.split(separator: "\n") {
+            let parts = line.split(separator: ":=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+            if parts.count == 2 {
+                metadata[parts[0]] = parts[1]
+            }
+        }
+
+        return metadata
+    }
+
     private static func assertContains(_ text: String, _ expected: String) {
         precondition(text.contains(expected), "Expected content to contain \(expected)")
     }
 
     private static func assertDoesNotContain(_ text: String, _ unexpected: String) {
         precondition(!text.contains(unexpected), "Expected content not to contain \(unexpected)")
+    }
+
+    private static func assertMatches(_ value: String?, _ pattern: String) {
+        guard let value else {
+            preconditionFailure("Expected metadata value matching \(pattern)")
+        }
+
+        precondition(value.range(of: pattern, options: .regularExpression) != nil, "Expected \(value) to match \(pattern)")
     }
 }
