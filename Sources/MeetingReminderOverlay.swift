@@ -2,7 +2,8 @@ import AppKit
 import Combine
 import SwiftUI
 
-private let meetingReminderContentTransitionAnimation = Animation.spring(response: 0.28, dampingFraction: 0.88, blendDuration: 0.08)
+private let meetingReminderPanelResizeDuration: TimeInterval = 0.28
+private let meetingReminderContentTransitionAnimation = Animation.spring(response: meetingReminderPanelResizeDuration, dampingFraction: 0.88, blendDuration: 0.08)
 
 struct MeetingReminderOverlayContext: Equatable {
     var phase: Phase
@@ -345,7 +346,7 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
         panel.alphaValue = 1
         panel.orderFrontRegardless()
         NSAnimationContext.runAnimationGroup { animationContext in
-            animationContext.duration = 0.18
+            animationContext.duration = meetingReminderPanelResizeDuration
             animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.34, 1.56, 0.64, 1.0)
             panel.animator().setFrame(frame, display: true)
         }
@@ -360,7 +361,7 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
         }
 
         NSAnimationContext.runAnimationGroup { animationContext in
-            animationContext.duration = 0.18
+            animationContext.duration = meetingReminderPanelResizeDuration
             animationContext.timingFunction = CAMediaTimingFunction(controlPoints: 0.34, 1.56, 0.64, 1.0)
             panel.animator().setFrame(frame, display: true)
         }
@@ -407,7 +408,7 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
     private func hideVisibleReminder(animated: Bool, completion: @escaping () -> Void) {
         visibleReminder = nil
         isHidingVisibleReminder = true
-        guard let panel, panel.isVisible, let screen = NSScreen.main else {
+        guard let panel, panel.isVisible, let screen = panel.screen ?? screenProvider() ?? NSScreen.main else {
             panel?.orderOut(nil)
             resetPresentationHost()
             isHidingVisibleReminder = false

@@ -80,7 +80,7 @@ The tests should check that:
 - The reset path clears `panel`, `viewModel`, and `contentContainer`.
 - `handleScreenParametersChanged()` still calls `refreshVisibleReminder(animated: false)`.
 
-Run `make test` after implementation. Build and run the development app with `make run CODESIGN_IDENTITY="Quill"` to manually inspect the recording transition when a reminder is visible. Actual visual quality still requires human inspection, but the structure should make matched geometry transitions possible.
+Run `make test` after implementation. Build and run the development app with `make run` to manually inspect the recording transition when a reminder is visible. If the local setup requires explicit signing, run `make run CODESIGN_IDENTITY="<YOUR_IDENTITY>"`. Actual visual quality still requires human inspection, but the structure should make matched geometry transitions possible.
 
 ## Non-goals
 

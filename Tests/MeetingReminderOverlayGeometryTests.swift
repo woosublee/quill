@@ -183,6 +183,9 @@ struct MeetingReminderOverlayGeometryTests {
         assert(source.contains("viewModel = nil"))
         assert(source.contains("contentContainer = nil"))
         assert(source.contains("refreshVisibleReminder(animated: false)"))
+        assert(source.contains("let screen = panel.screen ?? screenProvider() ?? NSScreen.main"))
+        assert(source.contains("meetingReminderPanelResizeDuration"))
+        assert(source.contains("animationContext.duration = meetingReminderPanelResizeDuration"))
     }
 
     private static func testMeetingReminderDefersNextReminderWhileHiding() throws {
