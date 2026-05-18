@@ -10,6 +10,7 @@ struct RecordingOverlayGeometryTests {
         testCenteredFrameUsesUpdatedMainScreenGeometry()
         testNotchSideLayoutPhaseEligibility()
         try testNotchSideOverlayAvoidsContainerAudioLevelAnimation()
+        try testHostingViewsUseFixedIntrinsicContentSize()
         print("RecordingOverlayGeometryTests passed")
     }
 
@@ -124,5 +125,13 @@ struct RecordingOverlayGeometryTests {
             !viewSource.contains("value: state.audioLevel"),
             "NotchSideOverlayView must not animate the whole container for high-frequency audioLevel updates"
         )
+    }
+
+    private static func testHostingViewsUseFixedIntrinsicContentSize() throws {
+        let sharedHostSource = try String(contentsOfFile: "Sources/FixedIntrinsicHostingView.swift", encoding: .utf8)
+        let source = try String(contentsOfFile: "Sources/RecordingOverlay.swift", encoding: .utf8)
+        assert(sharedHostSource.contains("final class FixedIntrinsicHostingView"))
+        assert(sharedHostSource.contains("override var intrinsicContentSize"))
+        assert(source.contains("FixedIntrinsicHostingView(rootView:"))
     }
 }
