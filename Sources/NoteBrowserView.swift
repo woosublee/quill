@@ -514,6 +514,7 @@ struct NoteBrowserView: View {
                         Section("API") {
                             Text("Standard")
                                 .tag(NoteBrowserTranscriptionMode.apiStandard)
+                                .disabled(!appState.isNoteBrowserTranscriptionModeAvailable(.apiStandard))
                             Text("Realtime")
                                 .tag(NoteBrowserTranscriptionMode.apiRealtime)
                                 .disabled(!appState.isNoteBrowserTranscriptionModeAvailable(.apiRealtime))

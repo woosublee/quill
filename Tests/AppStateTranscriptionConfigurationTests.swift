@@ -26,6 +26,7 @@ struct AppStateTranscriptionConfigurationTests {
         await testSystemDefaultAndSystemAudioConvertsAPIRealtimeToStandard()
         await testSystemDefaultAndSystemAudioConvertsAppleLiveToWhisper()
         await testSystemDefaultAndSystemAudioRejectsLiveModeSelections()
+        await testMissingTranscriptionAPIKeyRejectsAPIModeSelections()
         await testSystemDefaultAndSystemAudioNormalizesStoredAPIRealtimeOnStartup()
         await testSystemDefaultAndSystemAudioNormalizesStoredAppleLiveOnStartup()
         try testGoogleCalendarConnectionMetadataRestoresStartupState()
@@ -405,6 +406,24 @@ struct AppStateTranscriptionConfigurationTests {
         }
     }
 
+    private static func testMissingTranscriptionAPIKeyRejectsAPIModeSelections() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = appStateWithNoTranscriptionAPIKey()
+            precondition(!appState.hasTranscriptionAPIKey)
+            precondition(!appState.isNoteBrowserTranscriptionModeAvailable(.apiStandard))
+            precondition(!appState.isNoteBrowserTranscriptionModeAvailable(.apiRealtime))
+            precondition(appState.isNoteBrowserTranscriptionModeAvailable(.localWhisper))
+            precondition(appState.isNoteBrowserTranscriptionModeAvailable(.localAppleLive))
+
+            appState.setNoteBrowserTranscriptionMode(.apiStandard)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .localWhisper)
+
+            appState.setNoteBrowserTranscriptionMode(.apiRealtime)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .localWhisper)
+        }
+    }
+
     private static func testSystemDefaultAndSystemAudioNormalizesStoredAPIRealtimeOnStartup() async {
         resetDefaults()
         let defaults = UserDefaults.standard
@@ -713,6 +732,25 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(snapshot.transcriptionLanguage.code == "en")
         precondition(snapshot.usedContextCapture)
         precondition(!snapshot.usedPostProcessing)
+    }
+
+    private static func appStateWithNoTranscriptionAPIKey() -> AppState {
+        let storedAPIKey = AppSettingsStorage.load(account: "groq_api_key")
+        let storedTranscriptionAPIKey = AppSettingsStorage.load(account: "transcription_api_key")
+        AppSettingsStorage.delete(account: "groq_api_key")
+        AppSettingsStorage.delete(account: "transcription_api_key")
+        let appState = AppState()
+        restoreStoredAPIValue(storedAPIKey, account: "groq_api_key")
+        restoreStoredAPIValue(storedTranscriptionAPIKey, account: "transcription_api_key")
+        return appState
+    }
+
+    private static func restoreStoredAPIValue(_ value: String?, account: String) {
+        if let value {
+            AppSettingsStorage.save(value, account: account)
+        } else {
+            AppSettingsStorage.delete(account: account)
+        }
     }
 
     private static func resetDefaults() {

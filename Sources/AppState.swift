@@ -701,6 +701,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     func isNoteBrowserTranscriptionModeAvailable(_ mode: NoteBrowserTranscriptionMode) -> Bool {
+        switch mode {
+        case .apiStandard, .apiRealtime:
+            guard hasTranscriptionAPIKey else { return false }
+        case .localWhisper, .localAppleLive:
+            break
+        }
+
         guard AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID) else { return true }
         switch mode {
         case .apiRealtime, .localAppleLive:
@@ -723,14 +730,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private func normalizedNoteBrowserTranscriptionMode(_ mode: NoteBrowserTranscriptionMode) -> NoteBrowserTranscriptionMode {
         guard !isNoteBrowserTranscriptionModeAvailable(mode) else { return mode }
+        let fallbackModes: [NoteBrowserTranscriptionMode]
         switch mode {
         case .apiRealtime:
-            return .apiStandard
-        case .localAppleLive:
-            return .localWhisper
-        case .apiStandard, .localWhisper:
-            return mode
+            fallbackModes = [.apiStandard, .localWhisper]
+        case .apiStandard, .localAppleLive:
+            fallbackModes = [.localWhisper]
+        case .localWhisper:
+            fallbackModes = []
         }
+        return fallbackModes.first(where: isNoteBrowserTranscriptionModeAvailable) ?? mode
     }
 
     private func applyNoteBrowserTranscriptionMode(_ mode: NoteBrowserTranscriptionMode) {
