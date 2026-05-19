@@ -398,11 +398,13 @@ struct NoteBrowserView: View {
         }
     }
 
-    private var transcriptionModeSelection: Binding<NoteBrowserTranscriptionMode> {
-        Binding(
-            get: { appState.currentNoteBrowserTranscriptionMode },
-            set: { appState.setNoteBrowserTranscriptionMode($0) }
-        )
+    private func transcriptionModeMenuItem(_ title: String, mode: NoteBrowserTranscriptionMode) -> some View {
+        Button {
+            appState.setNoteBrowserTranscriptionMode(mode)
+        } label: {
+            Text(title)
+        }
+        .disabled(!appState.isNoteBrowserTranscriptionModeAvailable(mode))
     }
 
     var body: some View {
@@ -510,23 +512,14 @@ struct NoteBrowserView: View {
                 Spacer()
 
                 Menu {
-                    Picker("Transcription Mode", selection: transcriptionModeSelection) {
-                        Section("API") {
-                            Text("Standard")
-                                .tag(NoteBrowserTranscriptionMode.apiStandard)
-                            Text("Realtime")
-                                .tag(NoteBrowserTranscriptionMode.apiRealtime)
-                                .disabled(!appState.isNoteBrowserTranscriptionModeAvailable(.apiRealtime))
-                        }
-                        Section("Local") {
-                            Text("Whisper")
-                                .tag(NoteBrowserTranscriptionMode.localWhisper)
-                            Text("Apple Live")
-                                .tag(NoteBrowserTranscriptionMode.localAppleLive)
-                                .disabled(!appState.isNoteBrowserTranscriptionModeAvailable(.localAppleLive))
-                        }
+                    Section("API") {
+                        transcriptionModeMenuItem("Standard", mode: .apiStandard)
+                        transcriptionModeMenuItem("Realtime", mode: .apiRealtime)
                     }
-                    .pickerStyle(.inline)
+                    Section("Local") {
+                        transcriptionModeMenuItem("Whisper", mode: .localWhisper)
+                        transcriptionModeMenuItem("Apple Live", mode: .localAppleLive)
+                    }
                 } label: {
                     Text(appState.noteBrowserTranscriptionModeLabel)
                         .font(.system(size: 11, weight: .semibold))

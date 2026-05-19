@@ -339,6 +339,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         didSet {
             persistAPIKey(apiKey)
             rebuildContextService()
+            normalizeNoteBrowserTranscriptionModeForProviderConfiguration()
         }
     }
 
@@ -358,6 +359,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var transcriptionAPIKey: String {
         didSet {
             persistOptionalAPIValue(transcriptionAPIKey, account: transcriptionAPIKeyStorageKey)
+            normalizeNoteBrowserTranscriptionModeForProviderConfiguration()
         }
     }
 
@@ -701,12 +703,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     func isNoteBrowserTranscriptionModeAvailable(_ mode: NoteBrowserTranscriptionMode) -> Bool {
-        guard AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID) else { return true }
         switch mode {
-        case .apiRealtime, .localAppleLive:
-            return false
-        case .apiStandard, .localWhisper:
+        case .apiStandard:
+            return hasTranscriptionAPIKey
+        case .apiRealtime:
+            return hasTranscriptionAPIKey && !AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID)
+        case .localWhisper:
             return true
+        case .localAppleLive:
+            return !AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID)
         }
     }
 
@@ -716,6 +721,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func normalizeNoteBrowserTranscriptionModeForSelectedInput() {
+        normalizeNoteBrowserTranscriptionMode()
+    }
+
+    private func normalizeNoteBrowserTranscriptionModeForProviderConfiguration() {
+        guard !isRecording, !isTranscribing else { return }
+        normalizeNoteBrowserTranscriptionMode()
+    }
+
+    private func normalizeNoteBrowserTranscriptionMode() {
         let normalizedMode = normalizedNoteBrowserTranscriptionMode(currentNoteBrowserTranscriptionMode)
         guard normalizedMode != currentNoteBrowserTranscriptionMode else { return }
         applyNoteBrowserTranscriptionMode(normalizedMode)
@@ -725,10 +739,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard !isNoteBrowserTranscriptionModeAvailable(mode) else { return mode }
         switch mode {
         case .apiRealtime:
-            return .apiStandard
-        case .localAppleLive:
+            return isNoteBrowserTranscriptionModeAvailable(.apiStandard) ? .apiStandard : .localWhisper
+        case .apiStandard, .localAppleLive:
             return .localWhisper
-        case .apiStandard, .localWhisper:
+        case .localWhisper:
             return mode
         }
     }
@@ -2242,7 +2256,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             preferredModel: postProcessingModel,
             preferredFallbackModel: postProcessingFallbackModel
         )
-        let capturedApiKey = apiKey
+        let capturedApiKey = resolvedTranscriptionAPIKey
         let capturedApiBaseURL = resolvedTranscriptionBaseURL
         let capturedLocalWhisperPath = localWhisperPath
         let capturedTranscriptionLanguage = transcriptionLanguage
@@ -2404,7 +2418,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let updatedItem: PipelineHistoryItem
             do {
                 let transcriptionService = try TranscriptionService(
-                    apiKey: apiKey,
+                    apiKey: resolvedTranscriptionAPIKey,
                     baseURL: resolvedTranscriptionBaseURL,
                     useLocalTranscription: snapshot.useLocalTranscription,
                     localWhisperPath: snapshot.localWhisperPath,
@@ -4579,7 +4593,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             preferredModel: postProcessingModel,
             preferredFallbackModel: postProcessingFallbackModel
         )
-        let capturedApiKey = apiKey
+        let capturedApiKey = resolvedTranscriptionAPIKey
         let capturedApiBaseURL = resolvedTranscriptionBaseURL
         let capturedUseLocalTranscription = useLocalTranscription
         let capturedLocalWhisperPath = localWhisperPath

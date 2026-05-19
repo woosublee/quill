@@ -2,14 +2,16 @@ import Foundation
 
 enum AppSettingsStorage {
     private static let bundleID = Bundle.main.bundleIdentifier ?? "com.woosublee.quill"
+    static var storageDirectoryOverride: URL?
+
+    private static var defaultStorageDirectory: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent(AppName.displayName, isDirectory: true)
+    }
 
     private static var storageDirectory: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let appName = AppName.displayName
-        let dir = appSupport.appendingPathComponent(appName, isDirectory: true)
-        if !FileManager.default.fileExists(atPath: dir.path) {
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        }
+        let dir = storageDirectoryOverride ?? defaultStorageDirectory
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
 

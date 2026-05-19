@@ -23,10 +23,16 @@ struct AppStateTranscriptionConfigurationTests {
         testStoppedTranscriptionCompletionSummaryShowsFallbackIndicatorForNonEmptyRawFallback()
         testStoppedTranscriptionCompletionSummaryHidesFallbackIndicatorForEmptyRawFallback()
         testStoppedTranscriptionSettingsSnapshotCapturesHistoryMetadata()
+        await testAPITranscriptionModesRequireResolvedAPIKey()
+        await testTranscriptionAPIKeyEnablesAPIModesWithoutGlobalAPIKey()
+        await testEmptyTranscriptionAPIKeyFallsBackToGlobalAPIKey()
+        await testRemovingAPIKeyNormalizesSelectedAPIMode()
+        await testRemovingAPIKeyDoesNotNormalizeWhileRecording()
         await testSystemDefaultAndSystemAudioConvertsAPIRealtimeToStandard()
         await testSystemDefaultAndSystemAudioConvertsAppleLiveToWhisper()
         await testSystemDefaultAndSystemAudioRejectsLiveModeSelections()
         await testSystemDefaultAndSystemAudioNormalizesStoredAPIRealtimeOnStartup()
+        await testSystemDefaultAndSystemAudioNormalizesStoredAPIRealtimeWithoutAPIKeyToLocalWhisper()
         await testSystemDefaultAndSystemAudioNormalizesStoredAppleLiveOnStartup()
         try testGoogleCalendarConnectionMetadataRestoresStartupState()
         testGoogleCalendarConnectionMetadataClearsCorruptValue()
@@ -357,10 +363,87 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(!summary.shouldPersistRawDictationFallback)
     }
 
+    private static func testAPITranscriptionModesRequireResolvedAPIKey() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = AppState()
+
+            precondition(!appState.isNoteBrowserTranscriptionModeAvailable(.apiStandard))
+            precondition(!appState.isNoteBrowserTranscriptionModeAvailable(.apiRealtime))
+            precondition(appState.isNoteBrowserTranscriptionModeAvailable(.localWhisper))
+            precondition(appState.isNoteBrowserTranscriptionModeAvailable(.localAppleLive))
+
+            appState.setNoteBrowserTranscriptionMode(.apiStandard)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .localWhisper)
+
+            appState.setNoteBrowserTranscriptionMode(.apiRealtime)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .localWhisper)
+        }
+    }
+
+    private static func testTranscriptionAPIKeyEnablesAPIModesWithoutGlobalAPIKey() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = AppState()
+            appState.transcriptionAPIKey = "transcription-key"
+
+            precondition(appState.isNoteBrowserTranscriptionModeAvailable(.apiStandard))
+            precondition(appState.isNoteBrowserTranscriptionModeAvailable(.apiRealtime))
+
+            appState.setNoteBrowserTranscriptionMode(.apiRealtime)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .apiRealtime)
+        }
+    }
+
+    private static func testEmptyTranscriptionAPIKeyFallsBackToGlobalAPIKey() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = AppState()
+            appState.apiKey = "global-key"
+            appState.transcriptionAPIKey = "  "
+
+            precondition(appState.isNoteBrowserTranscriptionModeAvailable(.apiStandard))
+            precondition(appState.isNoteBrowserTranscriptionModeAvailable(.apiRealtime))
+        }
+    }
+
+    private static func testRemovingAPIKeyNormalizesSelectedAPIMode() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = AppState()
+            appState.apiKey = "global-key"
+            appState.setNoteBrowserTranscriptionMode(.apiStandard)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .apiStandard)
+
+            appState.apiKey = ""
+
+            precondition(appState.currentNoteBrowserTranscriptionMode == .localWhisper)
+            precondition(appState.useLocalTranscription)
+        }
+    }
+
+    private static func testRemovingAPIKeyDoesNotNormalizeWhileRecording() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = AppState()
+            appState.apiKey = "global-key"
+            appState.setNoteBrowserTranscriptionMode(.apiRealtime)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .apiRealtime)
+
+            appState.isRecording = true
+            appState.apiKey = ""
+
+            precondition(appState.currentNoteBrowserTranscriptionMode == .apiRealtime)
+            precondition(!appState.useLocalTranscription)
+            precondition(appState.realtimeStreamingEnabled)
+        }
+    }
+
     private static func testSystemDefaultAndSystemAudioConvertsAPIRealtimeToStandard() async {
         resetDefaults()
         await MainActor.run {
             let appState = AppState()
+            appState.apiKey = "global-key"
             appState.setNoteBrowserTranscriptionMode(.apiRealtime)
             precondition(appState.currentNoteBrowserTranscriptionMode == .apiRealtime)
 
@@ -391,6 +474,7 @@ struct AppStateTranscriptionConfigurationTests {
         resetDefaults()
         await MainActor.run {
             let appState = AppState()
+            appState.apiKey = "global-key"
             appState.selectedMicrophoneID = AudioInputDevice.systemDefaultAndSystemAudioID
             precondition(!appState.isNoteBrowserTranscriptionModeAvailable(.apiRealtime))
             precondition(!appState.isNoteBrowserTranscriptionModeAvailable(.localAppleLive))
@@ -411,12 +495,29 @@ struct AppStateTranscriptionConfigurationTests {
         defaults.set(AudioInputDevice.systemDefaultAndSystemAudioID, forKey: "selected_microphone_id")
         defaults.set(false, forKey: "use_local_transcription")
         defaults.set(true, forKey: "realtime_streaming_enabled")
+        AppSettingsStorage.save("global-key", account: "groq_api_key")
 
         await MainActor.run {
             let appState = AppState()
 
             precondition(appState.currentNoteBrowserTranscriptionMode == .apiStandard)
             precondition(!appState.useLocalTranscription)
+            precondition(!appState.realtimeStreamingEnabled)
+        }
+    }
+
+    private static func testSystemDefaultAndSystemAudioNormalizesStoredAPIRealtimeWithoutAPIKeyToLocalWhisper() async {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set(AudioInputDevice.systemDefaultAndSystemAudioID, forKey: "selected_microphone_id")
+        defaults.set(false, forKey: "use_local_transcription")
+        defaults.set(true, forKey: "realtime_streaming_enabled")
+
+        await MainActor.run {
+            let appState = AppState()
+
+            precondition(appState.currentNoteBrowserTranscriptionMode == .localWhisper)
+            precondition(appState.useLocalTranscription)
             precondition(!appState.realtimeStreamingEnabled)
         }
     }
@@ -716,6 +817,15 @@ struct AppStateTranscriptionConfigurationTests {
     }
 
     private static func resetDefaults() {
+        let isolatedSettingsDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "quill-app-state-transcription-tests-\(ProcessInfo.processInfo.globallyUniqueString)",
+                isDirectory: true
+            )
+        try? FileManager.default.removeItem(at: isolatedSettingsDirectory)
+        AppSettingsStorage.storageDirectoryOverride = isolatedSettingsDirectory
+        AppSettingsStorage.delete(account: "groq_api_key")
+        AppSettingsStorage.delete(account: "transcription_api_key")
         let defaults = UserDefaults.standard
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("app_state_transcription_test_") {
             defaults.removeObject(forKey: key)
