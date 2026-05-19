@@ -402,11 +402,7 @@ struct NoteBrowserView: View {
         Button {
             appState.setNoteBrowserTranscriptionMode(mode)
         } label: {
-            if appState.currentNoteBrowserTranscriptionMode == mode {
-                Label(title, systemImage: "checkmark")
-            } else {
-                Text(title)
-            }
+            Text(title)
         }
         .disabled(!appState.isNoteBrowserTranscriptionModeAvailable(mode))
     }

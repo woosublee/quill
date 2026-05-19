@@ -27,6 +27,7 @@ struct AppStateTranscriptionConfigurationTests {
         await testTranscriptionAPIKeyEnablesAPIModesWithoutGlobalAPIKey()
         await testEmptyTranscriptionAPIKeyFallsBackToGlobalAPIKey()
         await testRemovingAPIKeyNormalizesSelectedAPIMode()
+        await testRemovingAPIKeyDoesNotNormalizeWhileRecording()
         await testSystemDefaultAndSystemAudioConvertsAPIRealtimeToStandard()
         await testSystemDefaultAndSystemAudioConvertsAppleLiveToWhisper()
         await testSystemDefaultAndSystemAudioRejectsLiveModeSelections()
@@ -421,6 +422,23 @@ struct AppStateTranscriptionConfigurationTests {
         }
     }
 
+    private static func testRemovingAPIKeyDoesNotNormalizeWhileRecording() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = AppState()
+            appState.apiKey = "global-key"
+            appState.setNoteBrowserTranscriptionMode(.apiRealtime)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .apiRealtime)
+
+            appState.isRecording = true
+            appState.apiKey = ""
+
+            precondition(appState.currentNoteBrowserTranscriptionMode == .apiRealtime)
+            precondition(!appState.useLocalTranscription)
+            precondition(appState.realtimeStreamingEnabled)
+        }
+    }
+
     private static func testSystemDefaultAndSystemAudioConvertsAPIRealtimeToStandard() async {
         resetDefaults()
         await MainActor.run {
@@ -799,8 +817,13 @@ struct AppStateTranscriptionConfigurationTests {
     }
 
     private static func resetDefaults() {
-        AppSettingsStorage.storageDirectoryOverride = FileManager.default.temporaryDirectory
-            .appendingPathComponent("quill-app-state-transcription-tests", isDirectory: true)
+        let isolatedSettingsDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "quill-app-state-transcription-tests-\(ProcessInfo.processInfo.globallyUniqueString)",
+                isDirectory: true
+            )
+        try? FileManager.default.removeItem(at: isolatedSettingsDirectory)
+        AppSettingsStorage.storageDirectoryOverride = isolatedSettingsDirectory
         AppSettingsStorage.delete(account: "groq_api_key")
         AppSettingsStorage.delete(account: "transcription_api_key")
         let defaults = UserDefaults.standard

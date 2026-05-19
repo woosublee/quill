@@ -725,6 +725,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func normalizeNoteBrowserTranscriptionModeForProviderConfiguration() {
+        guard !isRecording, !isTranscribing else { return }
         normalizeNoteBrowserTranscriptionMode()
     }
 
