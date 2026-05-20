@@ -12,6 +12,8 @@ struct ShortcutMatcherTests {
         testCancelDeclinePassesThrough()
         testCancelAcceptConsumes()
         testCancelDeclinePreservesForwardedShortcutConsumption()
+        testCopyAgainDeclinePassesThrough()
+        testCopyAgainAcceptConsumes()
         print("ShortcutMatcherTests passed")
     }
 
@@ -219,6 +221,44 @@ struct ShortcutMatcherTests {
         )
 
         assert(forwardedEvents == [.holdActivated])
+        assert(decision == .consume)
+    }
+
+    private static func testCopyAgainDeclinePassesThrough() {
+        let result = ShortcutMatchResult(
+            state: ShortcutInputState(),
+            emittedEvents: [.copyAgainTriggered],
+            consumeDecision: .consume
+        )
+        var forwardedEvents: [ShortcutEvent] = []
+
+        let decision = HotkeyManager.dispatchShortcutMatchResult(
+            result,
+            onShortcutEvent: { forwardedEvents.append($0) },
+            onRecordingCancelShortcut: { false },
+            onCopyAgainShortcut: { false }
+        )
+
+        assert(forwardedEvents.isEmpty)
+        assert(decision == .passthrough)
+    }
+
+    private static func testCopyAgainAcceptConsumes() {
+        let result = ShortcutMatchResult(
+            state: ShortcutInputState(),
+            emittedEvents: [.copyAgainTriggered],
+            consumeDecision: .consume
+        )
+        var forwardedEvents: [ShortcutEvent] = []
+
+        let decision = HotkeyManager.dispatchShortcutMatchResult(
+            result,
+            onShortcutEvent: { forwardedEvents.append($0) },
+            onRecordingCancelShortcut: { false },
+            onCopyAgainShortcut: { true }
+        )
+
+        assert(forwardedEvents.isEmpty)
         assert(decision == .consume)
     }
 }

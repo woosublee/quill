@@ -2,6 +2,7 @@
 struct ShortcutValidationMessagesTests {
     static func main() {
         testSuccessfulSelectionClearsAllValidationMessages()
+        testSuccessfulCopyAgainSelectionClearsAllValidationMessages()
         print("ShortcutValidationMessagesTests passed")
     }
 
@@ -9,7 +10,8 @@ struct ShortcutValidationMessagesTests {
         var messages = ShortcutValidationMessages(
             hold: "Hold and tap shortcuts must be distinct.",
             toggle: "Hold and tap shortcuts must be distinct.",
-            recordingCancel: "Cancel shortcut must be distinct from dictation shortcuts."
+            recordingCancel: "Cancel shortcut must be distinct from dictation shortcuts.",
+            copyAgain: "Paste Again cannot share a shortcut with Cancel Recording."
         )
 
         messages.applySelectionResult(nil, target: .toggle)
@@ -17,5 +19,22 @@ struct ShortcutValidationMessagesTests {
         assert(messages.hold == nil)
         assert(messages.toggle == nil)
         assert(messages.recordingCancel == nil)
+        assert(messages.copyAgain == nil)
+    }
+
+    private static func testSuccessfulCopyAgainSelectionClearsAllValidationMessages() {
+        var messages = ShortcutValidationMessages(
+            hold: "Hold and tap shortcuts must be distinct.",
+            toggle: "Hold and tap shortcuts must be distinct.",
+            recordingCancel: "Cancel shortcut must be distinct from dictation shortcuts.",
+            copyAgain: "Paste Again cannot share a shortcut with Cancel Recording."
+        )
+
+        messages.applySelectionResult(nil, target: .copyAgain)
+
+        assert(messages.hold == nil)
+        assert(messages.toggle == nil)
+        assert(messages.recordingCancel == nil)
+        assert(messages.copyAgain == nil)
     }
 }

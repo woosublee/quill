@@ -10,6 +10,7 @@ final class HotkeyManager {
 
     var onShortcutEvent: ((ShortcutEvent) -> Void)?
     var onRecordingCancelShortcut: (() -> Bool)?
+    var onCopyAgainShortcut: (() -> Bool)?
 
     var currentPressedModifiers: ShortcutModifiers {
         inputState.currentModifiers
@@ -54,34 +55,41 @@ final class HotkeyManager {
         return Self.dispatchShortcutMatchResult(
             result,
             onShortcutEvent: { [weak self] event in self?.onShortcutEvent?(event) },
-            onRecordingCancelShortcut: { [weak self] in self?.onRecordingCancelShortcut?() ?? false }
+            onRecordingCancelShortcut: { [weak self] in self?.onRecordingCancelShortcut?() ?? false },
+            onCopyAgainShortcut: { [weak self] in self?.onCopyAgainShortcut?() ?? false }
         )
     }
 
     static func dispatchShortcutMatchResult(
         _ result: ShortcutMatchResult,
         onShortcutEvent: (ShortcutEvent) -> Void,
-        onRecordingCancelShortcut: () -> Bool
+        onRecordingCancelShortcut: () -> Bool,
+        onCopyAgainShortcut: () -> Bool = { true }
     ) -> ShortcutConsumeDecision {
         var consumedByForwardedShortcut = false
         var consumedByRecordingCancel = false
+        var consumedByCopyAgain = false
         var sawRecordingCancelEvent = false
+        var sawCopyAgainEvent = false
 
         for event in result.emittedEvents {
             switch event {
             case .recordingCancelRequested:
                 sawRecordingCancelEvent = true
                 consumedByRecordingCancel = onRecordingCancelShortcut() || consumedByRecordingCancel
+            case .copyAgainTriggered:
+                sawCopyAgainEvent = true
+                consumedByCopyAgain = onCopyAgainShortcut() || consumedByCopyAgain
             case .holdActivated, .holdDeactivated, .toggleActivated, .toggleDeactivated:
                 consumedByForwardedShortcut = true
                 onShortcutEvent(event)
             }
         }
 
-        if consumedByForwardedShortcut || consumedByRecordingCancel {
+        if consumedByForwardedShortcut || consumedByRecordingCancel || consumedByCopyAgain {
             return .consume
         }
-        if result.consumeDecision == .consume && !sawRecordingCancelEvent {
+        if result.consumeDecision == .consume && !sawRecordingCancelEvent && !sawCopyAgainEvent {
             return .consume
         }
         return .passthrough

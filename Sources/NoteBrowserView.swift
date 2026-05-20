@@ -399,9 +399,12 @@ struct NoteBrowserView: View {
     }
 
     private func transcriptionModeMenuItem(_ title: String, mode: NoteBrowserTranscriptionMode) -> some View {
-        Button {
-            appState.setNoteBrowserTranscriptionMode(mode)
-        } label: {
+        Toggle(isOn: Binding<Bool>(
+            get: { appState.currentNoteBrowserTranscriptionMode == mode },
+            set: { isSelected in
+                if isSelected { appState.setNoteBrowserTranscriptionMode(mode) }
+            }
+        )) {
             Text(title)
         }
         .disabled(!appState.isNoteBrowserTranscriptionModeAvailable(mode))
