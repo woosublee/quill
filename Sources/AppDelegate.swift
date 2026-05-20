@@ -91,10 +91,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             appState.startHotkeyMonitoring()
             appState.startAccessibilityPolling()
-            // Quill releases are not distributed through the in-app updater yet.
-            // Task { @MainActor in
-            //     UpdateManager.shared.startPeriodicChecks()
-            // }
+            Task { @MainActor in
+                UpdateManager.shared.startPeriodicChecks()
+            }
 
             if !AXIsProcessTrusted() {
                 appState.showAccessibilityAlert()
@@ -305,10 +304,9 @@ private func showNoteBrowserWindow() {
         appState.startAccessibilityPolling()
         appState.startCalendarRecordingReminderScheduling()
         appState.startGoogleCalendarHealthCheck()
-        // Quill releases are not distributed through the in-app updater yet.
-        // Task { @MainActor in
-        //     UpdateManager.shared.startPeriodicChecks()
-        // }
+        Task { @MainActor in
+            UpdateManager.shared.startPeriodicChecks()
+        }
 
         if !AXIsProcessTrusted() {
             Task { @MainActor in
