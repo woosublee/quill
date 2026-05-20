@@ -122,6 +122,23 @@ struct UpdateValidationCommandResult: Sendable {
     let standardError: String
 }
 
+private final class UpdateValidationDataBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func set(_ data: Data) {
+        lock.lock()
+        self.data = data
+        lock.unlock()
+    }
+
+    func contents() -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return data
+    }
+}
+
 typealias UpdateValidationCommandRunner = (_ executablePath: String, _ arguments: [String]) throws -> UpdateValidationCommandResult
 
 // MARK: - Update Status
@@ -231,11 +248,28 @@ final class UpdateManager: ObservableObject {
         process.standardOutput = outputPipe
         process.standardError = errorPipe
 
-        try process.run()
-        process.waitUntilExit()
+        let outputDataBox = UpdateValidationDataBox()
+        let errorDataBox = UpdateValidationDataBox()
+        let readerGroup = DispatchGroup()
 
-        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        try process.run()
+
+        readerGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            outputDataBox.set(outputPipe.fileHandleForReading.readDataToEndOfFile())
+            readerGroup.leave()
+        }
+        readerGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            errorDataBox.set(errorPipe.fileHandleForReading.readDataToEndOfFile())
+            readerGroup.leave()
+        }
+
+        process.waitUntilExit()
+        readerGroup.wait()
+
+        let outputData = outputDataBox.contents()
+        let errorData = errorDataBox.contents()
 
         return UpdateValidationCommandResult(
             terminationStatus: process.terminationStatus,
@@ -263,11 +297,41 @@ final class UpdateManager: ObservableObject {
         }
     }
 
+    nonisolated static func currentAppRequirement(
+        commandRunner: UpdateValidationCommandRunner = runValidationCommand
+    ) throws -> String {
+        try appRequirement(at: Bundle.main.bundleURL, commandRunner: commandRunner)
+    }
+
+    nonisolated static func appRequirement(
+        at appURL: URL,
+        commandRunner: UpdateValidationCommandRunner = runValidationCommand
+    ) throws -> String {
+        let result = try commandRunner("/usr/bin/codesign", ["-d", "-r-", appURL.path])
+        guard result.terminationStatus == 0 else {
+            throw NSError(domain: "UpdateManager", code: 8, userInfo: [
+                NSLocalizedDescriptionKey: "codesign requirement extraction failed with exit code \(result.terminationStatus): \(result.standardError)"
+            ])
+        }
+
+        let combinedOutput = [result.standardOutput, result.standardError].joined(separator: "\n")
+        guard let requirementLine = combinedOutput
+            .split(separator: "\n")
+            .first(where: { $0.hasPrefix("designated => ") }) else {
+            throw NSError(domain: "UpdateManager", code: 8, userInfo: [
+                NSLocalizedDescriptionKey: "Could not read current app designated requirement"
+            ])
+        }
+
+        return String(requirementLine.dropFirst("designated => ".count))
+    }
+
     nonisolated static func validateStagedApp(
         at appURL: URL,
         expectedBundleIdentifier: String,
         expectedShortVersion: String,
         expectedBuildTag: String,
+        expectedRequirement: String,
         commandRunner: UpdateValidationCommandRunner = runValidationCommand
     ) throws {
         guard appURL.pathExtension == "app" else {
@@ -299,6 +363,7 @@ final class UpdateManager: ObservableObject {
             "--deep",
             "--strict",
             "--verbose=2",
+            "-R=\(expectedRequirement)",
             appURL.path
         ])
 
@@ -859,12 +924,16 @@ final class UpdateManager: ObservableObject {
             let expectedBundleIdentifier = Bundle.main.bundleIdentifier ?? "com.woosublee.quill"
             let expectedShortVersion = normalizedVersionString(from: release.tagName)
             let expectedBuildTag = release.tagName
+            let expectedRequirement = try await Task.detached {
+                try Self.currentAppRequirement()
+            }.value
             try await Task.detached {
                 try Self.validateStagedApp(
                     at: stagedApp,
                     expectedBundleIdentifier: expectedBundleIdentifier,
                     expectedShortVersion: expectedShortVersion,
-                    expectedBuildTag: expectedBuildTag
+                    expectedBuildTag: expectedBuildTag,
+                    expectedRequirement: expectedRequirement
                 )
             }.value
 

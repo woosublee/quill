@@ -8,8 +8,10 @@ struct UpdateManagerSafetyTests {
         try testTimingPoliciesRemainConservative()
         try testDownloadedDMGValidationUsesSpctl()
         try testDownloadedDMGValidationRejectsFailedAssessment()
+        try testValidationCommandDrainsPipesBeforeWaiting()
         try testStagedAppValidationChecksMetadataAndCodesign()
         try testStagedAppValidationRejectsMetadataMismatch()
+        try testStagedAppValidationRejectsSignerMismatch()
         try testInstallFlowValidatesBeforeReplacing()
         try testStagedAppValidationRejectsNonAppBeforeCodesign()
         try testMountDMGDoesNotDisableVerification()
@@ -89,6 +91,28 @@ struct UpdateManagerSafetyTests {
         }
     }
 
+    private static func testValidationCommandDrainsPipesBeforeWaiting() throws {
+        let source = try String(contentsOfFile: "Sources/UpdateManager.swift", encoding: .utf8)
+        let methodSource = extract(
+            source,
+            from: "nonisolated static func runValidationCommand(",
+            to: "nonisolated static func validateDownloadedDMG("
+        )
+
+        assertOrdered(
+            methodSource,
+            "outputPipe.fileHandleForReading.readDataToEndOfFile()",
+            before: "process.waitUntilExit()",
+            message: "Expected stdout to be drained before waiting for the process"
+        )
+        assertOrdered(
+            methodSource,
+            "errorPipe.fileHandleForReading.readDataToEndOfFile()",
+            before: "process.waitUntilExit()",
+            message: "Expected stderr to be drained before waiting for the process"
+        )
+    }
+
     private static func testStagedAppValidationChecksMetadataAndCodesign() throws {
         let appURL = try makeTemporaryApp(
             bundleIdentifier: "com.classmethod.Quill",
@@ -98,11 +122,13 @@ struct UpdateManagerSafetyTests {
         var recordedExecutablePath: String?
         var recordedArguments: [String]?
 
+        let expectedRequirement = "identifier \"com.classmethod.Quill\" and anchor apple generic"
         try UpdateManager.validateStagedApp(
             at: appURL,
             expectedBundleIdentifier: "com.classmethod.Quill",
             expectedShortVersion: "1.2.3",
-            expectedBuildTag: "v1.2.3"
+            expectedBuildTag: "v1.2.3",
+            expectedRequirement: expectedRequirement
         ) { executablePath, arguments in
             recordedExecutablePath = executablePath
             recordedArguments = arguments
@@ -115,6 +141,7 @@ struct UpdateManagerSafetyTests {
             "--deep",
             "--strict",
             "--verbose=2",
+            "-R=\(expectedRequirement)",
             appURL.path
         ], "Expected codesign verification arguments")
     }
@@ -132,7 +159,8 @@ struct UpdateManagerSafetyTests {
                 at: appURL,
                 expectedBundleIdentifier: "com.classmethod.Quill",
                 expectedShortVersion: "1.2.4",
-                expectedBuildTag: "v1.2.3"
+                expectedBuildTag: "v1.2.3",
+                expectedRequirement: "identifier \"com.classmethod.Quill\" and anchor apple generic"
             ) { _, _ in
                 didRunCodesign = true
                 return UpdateValidationCommandResult(terminationStatus: 0, standardOutput: "valid", standardError: "")
@@ -142,18 +170,49 @@ struct UpdateManagerSafetyTests {
         precondition(!didRunCodesign, "Expected metadata mismatch to fail before codesign")
     }
 
+    private static func testStagedAppValidationRejectsSignerMismatch() throws {
+        let appURL = try makeTemporaryApp(
+            bundleIdentifier: "com.classmethod.Quill",
+            shortVersion: "1.2.3",
+            buildTag: "v1.2.3"
+        )
+
+        assertThrows {
+            try UpdateManager.validateStagedApp(
+                at: appURL,
+                expectedBundleIdentifier: "com.classmethod.Quill",
+                expectedShortVersion: "1.2.3",
+                expectedBuildTag: "v1.2.3",
+                expectedRequirement: "identifier \"com.classmethod.Quill\" and anchor apple generic"
+            ) { _, _ in
+                UpdateValidationCommandResult(terminationStatus: 1, standardOutput: "", standardError: "explicit requirement failed")
+            }
+        }
+    }
+
     private static func testInstallFlowValidatesBeforeReplacing() throws {
         let source = try String(contentsOfFile: "Sources/UpdateManager.swift", encoding: .utf8)
 
         assertContains(source, "private func performUpdate(downloadURL: URL, expectedSize: Int, release: GitHubRelease) async")
-        assertOrdered(
+        let performUpdateSource = extract(
             source,
+            from: "private func performUpdate(downloadURL: URL, expectedSize: Int, release: GitHubRelease) async",
+            to: "nonisolated private func mountDMG"
+        )
+        assertOrdered(
+            performUpdateSource,
+            "currentAppRequirement()",
+            before: "validateStagedApp(",
+            message: "Expected current app signer requirement before staged app validation"
+        )
+        assertOrdered(
+            performUpdateSource,
             "validateDownloadedDMG(at: dmgPath)",
             before: "mountDMG(at: dmgPath)",
             message: "Expected downloaded DMG validation before mounting"
         )
         assertOrdered(
-            source,
+            performUpdateSource,
             "validateStagedApp(",
             before: "replaceAndRelaunch(stagedApp: stagedApp, stagingDir: stagingDir)",
             message: "Expected staged app validation before replacement"
@@ -181,7 +240,8 @@ struct UpdateManagerSafetyTests {
                 at: directoryURL,
                 expectedBundleIdentifier: "com.classmethod.Quill",
                 expectedShortVersion: "1.2.3",
-                expectedBuildTag: "v1.2.3"
+                expectedBuildTag: "v1.2.3",
+                expectedRequirement: "identifier \"com.classmethod.Quill\" and anchor apple generic"
             ) { _, _ in
                 didRunCodesign = true
                 return UpdateValidationCommandResult(terminationStatus: 0, standardOutput: "valid", standardError: "")
@@ -246,13 +306,17 @@ struct UpdateManagerSafetyTests {
         let settingsView = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
 
         let setupWelcomeStep = extract(setupView, from: "var welcomeStep: some View", to: "var apiKeyStep: some View")
-        let settingsHeader = extract(settingsView, from: "// App branding header", to: "SettingsCard(\"App\", icon: \"power\")")
+        let settingsHeader = extract(
+            settingsView,
+            from: "Image(nsImage: NSApp.applicationIconImage)",
+            to: "SettingsCard(\"App\", icon: \"power\")"
+        )
 
         assertDoesNotContain(setupWelcomeStep, "zachlatta/freeflow")
-        assertDoesNotContain(setupWelcomeStep, "recent contributors")
+        assertDoesNotContain(setupWelcomeStep, "contributors")
         assertDoesNotContain(settingsHeader, "zachlatta/freeflow")
-        assertDoesNotContain(settingsHeader, "recently starred")
-        assertDoesNotContain(settingsView, "Task { await githubCache.fetchIfNeeded() }")
+        assertDoesNotContain(settingsHeader, "starred")
+        assertDoesNotContain(settingsView, "githubCache.fetchIfNeeded(")
     }
 
     private static func asset(named name: String) -> GitHubReleaseAsset {
