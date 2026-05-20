@@ -116,6 +116,31 @@ private struct SemanticRelease {
     let releaseDateString: String
 }
 
+struct UpdateValidationCommandResult: Sendable {
+    let terminationStatus: Int32
+    let standardOutput: String
+    let standardError: String
+}
+
+private final class UpdateValidationDataBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func set(_ data: Data) {
+        lock.lock()
+        self.data = data
+        lock.unlock()
+    }
+
+    func contents() -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return data
+    }
+}
+
+typealias UpdateValidationCommandRunner = (_ executablePath: String, _ arguments: [String]) throws -> UpdateValidationCommandResult
+
 // MARK: - Update Status
 
 enum UpdateStatus: Equatable {
@@ -197,6 +222,158 @@ final class UpdateManager: ObservableObject {
         lastCheckDate = UserDefaults.standard.object(forKey: "updateLastCheckDate") as? Date
     }
 
+    nonisolated static func installableDMGAsset(for release: GitHubRelease) -> GitHubReleaseAsset? {
+        release.assets.first { $0.name == "Quill.dmg" }
+    }
+
+    nonisolated static func isReleaseBuildTagForAutomaticChecks(_ buildTag: String?) -> Bool {
+        guard let buildTag,
+              buildTag.hasPrefix("v") || buildTag.hasPrefix("V") else {
+            return false
+        }
+
+        return SemanticVersion(buildTag) != nil
+    }
+
+    nonisolated static func runValidationCommand(
+        executablePath: String,
+        arguments: [String]
+    ) throws -> UpdateValidationCommandResult {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        let outputDataBox = UpdateValidationDataBox()
+        let errorDataBox = UpdateValidationDataBox()
+        let readerGroup = DispatchGroup()
+
+        try process.run()
+
+        readerGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            outputDataBox.set(outputPipe.fileHandleForReading.readDataToEndOfFile())
+            readerGroup.leave()
+        }
+        readerGroup.enter()
+        DispatchQueue.global(qos: .utility).async {
+            errorDataBox.set(errorPipe.fileHandleForReading.readDataToEndOfFile())
+            readerGroup.leave()
+        }
+
+        process.waitUntilExit()
+        readerGroup.wait()
+
+        let outputData = outputDataBox.contents()
+        let errorData = errorDataBox.contents()
+
+        return UpdateValidationCommandResult(
+            terminationStatus: process.terminationStatus,
+            standardOutput: String(data: outputData, encoding: .utf8) ?? "",
+            standardError: String(data: errorData, encoding: .utf8) ?? ""
+        )
+    }
+
+    nonisolated static func validateDownloadedDMG(
+        at dmgURL: URL,
+        commandRunner: UpdateValidationCommandRunner = runValidationCommand
+    ) throws {
+        let result = try commandRunner("/usr/sbin/spctl", [
+            "--assess",
+            "--type", "open",
+            "--context", "context:primary-signature",
+            "--verbose=4",
+            dmgURL.path
+        ])
+
+        guard result.terminationStatus == 0 else {
+            throw NSError(domain: "UpdateManager", code: 4, userInfo: [
+                NSLocalizedDescriptionKey: "spctl assessment failed with exit code \(result.terminationStatus): \(result.standardError)"
+            ])
+        }
+    }
+
+    nonisolated static func currentAppRequirement(
+        commandRunner: UpdateValidationCommandRunner = runValidationCommand
+    ) throws -> String {
+        try appRequirement(at: Bundle.main.bundleURL, commandRunner: commandRunner)
+    }
+
+    nonisolated static func appRequirement(
+        at appURL: URL,
+        commandRunner: UpdateValidationCommandRunner = runValidationCommand
+    ) throws -> String {
+        let result = try commandRunner("/usr/bin/codesign", ["-d", "-r-", appURL.path])
+        guard result.terminationStatus == 0 else {
+            throw NSError(domain: "UpdateManager", code: 8, userInfo: [
+                NSLocalizedDescriptionKey: "codesign requirement extraction failed with exit code \(result.terminationStatus): \(result.standardError)"
+            ])
+        }
+
+        let combinedOutput = [result.standardOutput, result.standardError].joined(separator: "\n")
+        guard let requirementLine = combinedOutput
+            .split(separator: "\n")
+            .first(where: { $0.hasPrefix("designated => ") }) else {
+            throw NSError(domain: "UpdateManager", code: 8, userInfo: [
+                NSLocalizedDescriptionKey: "Could not read current app designated requirement"
+            ])
+        }
+
+        return String(requirementLine.dropFirst("designated => ".count))
+    }
+
+    nonisolated static func validateStagedApp(
+        at appURL: URL,
+        expectedBundleIdentifier: String,
+        expectedShortVersion: String,
+        expectedBuildTag: String,
+        expectedRequirement: String,
+        commandRunner: UpdateValidationCommandRunner = runValidationCommand
+    ) throws {
+        guard appURL.pathExtension == "app" else {
+            throw NSError(domain: "UpdateManager", code: 5, userInfo: [
+                NSLocalizedDescriptionKey: "Staged app is not an .app bundle"
+            ])
+        }
+
+        let infoPlistURL = appURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("Info.plist")
+        let infoPlistData = try Data(contentsOf: infoPlistURL)
+        guard let infoPlist = try PropertyListSerialization.propertyList(from: infoPlistData, format: nil) as? [String: Any] else {
+            throw NSError(domain: "UpdateManager", code: 5, userInfo: [
+                NSLocalizedDescriptionKey: "Could not parse staged app Info.plist"
+            ])
+        }
+
+        guard infoPlist["CFBundleIdentifier"] as? String == expectedBundleIdentifier,
+              infoPlist["CFBundleShortVersionString"] as? String == expectedShortVersion,
+              infoPlist["QuillBuildTag"] as? String == expectedBuildTag else {
+            throw NSError(domain: "UpdateManager", code: 6, userInfo: [
+                NSLocalizedDescriptionKey: "Staged app metadata does not match the expected release"
+            ])
+        }
+
+        let result = try commandRunner("/usr/bin/codesign", [
+            "--verify",
+            "--deep",
+            "--strict",
+            "--verbose=2",
+            "-R=\(expectedRequirement)",
+            appURL.path
+        ])
+
+        guard result.terminationStatus == 0 else {
+            throw NSError(domain: "UpdateManager", code: 7, userInfo: [
+                NSLocalizedDescriptionKey: "codesign verification failed with exit code \(result.terminationStatus): \(result.standardError)"
+            ])
+        }
+    }
+
     // MARK: - Periodic Checks
 
     func startPeriodicChecks() {
@@ -235,8 +412,8 @@ final class UpdateManager: ObservableObject {
         let currentBuildTag = Bundle.main.infoDictionary?["QuillBuildTag"] as? String
         let currentVersionString = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
 
-        // Dev builds (no embedded tag): skip auto-checks, but allow manual checks
-        if !userInitiated && currentBuildTag == nil {
+        // Dev/local builds: skip auto-checks, but allow manual checks
+        if !userInitiated && !Self.isReleaseBuildTagForAutomaticChecks(currentBuildTag) {
             return
         }
 
@@ -500,7 +677,6 @@ final class UpdateManager: ObservableObject {
             showRecentReleaseAlert(daysSincePublished: daysSincePublished)
         default:
             suppressPostTranscriptionReminder(for: release.tagName)
-            updateAvailable = false
         }
     }
 
@@ -605,7 +781,7 @@ final class UpdateManager: ObservableObject {
     }
 
     func downloadAndInstall(release: GitHubRelease) {
-        guard let dmgAsset = release.assets.first(where: { $0.name.hasSuffix(".dmg") }) else {
+        guard let dmgAsset = Self.installableDMGAsset(for: release) else {
             if let url = URL(string: release.htmlUrl) {
                 NSWorkspace.shared.open(url)
             }
@@ -616,11 +792,11 @@ final class UpdateManager: ObservableObject {
 
         activeDownloadTask?.cancel()
         activeDownloadTask = Task {
-            await performUpdate(downloadURL: downloadURL, expectedSize: dmgAsset.size)
+            await performUpdate(downloadURL: downloadURL, expectedSize: dmgAsset.size, release: release)
         }
     }
 
-    private func performUpdate(downloadURL: URL, expectedSize: Int) async {
+    private func performUpdate(downloadURL: URL, expectedSize: Int, release: GitHubRelease) async {
         let fm = FileManager.default
         let tempDir = fm.temporaryDirectory.appendingPathComponent("quill-update-\(UUID().uuidString)")
 
@@ -709,7 +885,13 @@ final class UpdateManager: ObservableObject {
         updateStatus = .installing
         downloadProgress = nil
 
+        var stagingDirForCleanup: URL?
+
         do {
+            try await Task.detached {
+                try Self.validateDownloadedDMG(at: dmgPath)
+            }.value
+
             let mountPoint = try await Task.detached {
                 try self.mountDMG(at: dmgPath)
             }.value
@@ -734,9 +916,26 @@ final class UpdateManager: ObservableObject {
 
             // Copy app to staging directory
             let stagingDir = fm.temporaryDirectory.appendingPathComponent("quill-staged-\(UUID().uuidString)")
+            stagingDirForCleanup = stagingDir
             try fm.createDirectory(at: stagingDir, withIntermediateDirectories: true)
             let stagedApp = stagingDir.appendingPathComponent(appBundle.lastPathComponent)
             try fm.copyItem(at: appBundle, to: stagedApp)
+
+            let expectedBundleIdentifier = Bundle.main.bundleIdentifier ?? "com.woosublee.quill"
+            let expectedShortVersion = normalizedVersionString(from: release.tagName)
+            let expectedBuildTag = release.tagName
+            let expectedRequirement = try await Task.detached {
+                try Self.currentAppRequirement()
+            }.value
+            try await Task.detached {
+                try Self.validateStagedApp(
+                    at: stagedApp,
+                    expectedBundleIdentifier: expectedBundleIdentifier,
+                    expectedShortVersion: expectedShortVersion,
+                    expectedBuildTag: expectedBuildTag,
+                    expectedRequirement: expectedRequirement
+                )
+            }.value
 
             // Clean up DMG (detach happens in defer above, delete temp dir)
             try? fm.removeItem(at: tempDir)
@@ -748,13 +947,16 @@ final class UpdateManager: ObservableObject {
         } catch {
             updateStatus = .error("Install failed: \(error.localizedDescription)")
             try? fm.removeItem(at: tempDir)
+            if let stagingDirForCleanup {
+                try? fm.removeItem(at: stagingDirForCleanup)
+            }
         }
     }
 
     nonisolated private func mountDMG(at path: URL) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
-        process.arguments = ["attach", path.path, "-nobrowse", "-noverify", "-noautoopen", "-plist"]
+        process.arguments = ["attach", path.path, "-nobrowse", "-noautoopen", "-plist"]
 
         let pipe = Pipe()
         process.standardOutput = pipe
