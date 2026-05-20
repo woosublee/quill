@@ -2926,6 +2926,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
               !cancelShortcutOverlapsDictationShortcut(binding, toggleShortcut) else {
             return "Cancel shortcut must be distinct from dictation shortcuts."
         }
+        guard !binding.conflicts(with: copyAgainShortcut) else {
+            return "Cancel shortcut must be distinct from Paste Again."
+        }
 
         if binding.isCustom && binding != .defaultRecordingCancel {
             savedRecordingCancelCustomShortcut = binding
@@ -2952,6 +2955,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return "This shortcut is already used by Paste Again."
         }
         if role == .copyAgain {
+            if binding.conflicts(with: recordingCancelShortcut) {
+                return "Paste Again cannot share a shortcut with Cancel Recording."
+            }
             if binding.conflicts(with: holdShortcut) {
                 return "Paste Again cannot share a shortcut with Hold to Talk."
             }
@@ -2959,8 +2965,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 return "Paste Again cannot share a shortcut with Tap to Toggle."
             }
             if isCommandModeEnabled, commandModeStyle == .manual,
-               bindingCollides(binding, with: commandModeManualModifier) {
-                return "Paste Again cannot share the Edit Mode modifier."
+               let message = commandModeManualModifierCollisionMessage(
+                for: commandModeManualModifier,
+                copyAgainBinding: binding
+               ) {
+                return message
             }
         }
         guard !cancelShortcutOverlapsDictationShortcut(recordingCancelShortcut, binding) else {
@@ -2979,20 +2988,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return message
         }
 
-        switch role {
-        case .hold:
+        if role == .hold {
             if binding.isCustom {
                 savedHoldCustomShortcut = binding
             }
             holdShortcut = binding
-        case .toggle:
+        } else if role == .toggle {
             if binding.isCustom {
                 savedToggleCustomShortcut = binding
             }
             toggleShortcut = binding
-        case .recordingCancel:
-            return setRecordingCancelShortcut(binding)
-        case .copyAgain:
+        } else if role == .copyAgain {
             if binding.isCustom {
                 savedCopyAgainCustomShortcut = binding
             }
@@ -3097,18 +3103,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return nil
     }
 
-    private func bindingCollides(_ binding: ShortcutBinding, with modifier: CommandModeManualModifier) -> Bool {
-        guard !binding.isDisabled else { return false }
-        let manualModifier = modifier.shortcutModifier
-        if binding.modifiers.contains(manualModifier) { return true }
-        if binding.kind == .modifierKey,
-           let bindingModifier = ShortcutBinding.modifier(forKeyCode: binding.keyCode),
-           bindingModifier == manualModifier {
-            return true
-        }
-        return false
-    }
-
     func startHotkeyMonitoring() {
         shouldMonitorHotkeys = true
         hotkeyManager.onShortcutEvent = { [weak self] event in
@@ -3129,6 +3123,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
             return true
         }
+        hotkeyManager.onCopyAgainShortcut = { [weak self] in
+            guard let self else { return false }
+            if Thread.isMainThread {
+                return MainActor.assumeIsolated {
+                    self.copyLastTranscriptToPasteboard()
+                }
+            }
+            return DispatchQueue.main.sync {
+                MainActor.assumeIsolated {
+                    self.copyLastTranscriptToPasteboard()
+                }
+            }
+        }
         restartHotkeyMonitoring()
     }
 
@@ -3137,6 +3144,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         hotkeyMonitoringErrorMessage = nil
         hotkeyManager.onShortcutEvent = nil
         hotkeyManager.onRecordingCancelShortcut = nil
+        hotkeyManager.onCopyAgainShortcut = nil
         hotkeyManager.stop()
     }
 
@@ -3184,11 +3192,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func handleShortcutEvent(_ event: ShortcutEvent) {
-        if event == .copyAgainTriggered {
-            copyLastTranscriptToPasteboard()
-            return
-        }
-
         guard let action = shortcutSessionController.handle(event: event, isTranscribing: isTranscribing) else {
             return
         }
@@ -3223,12 +3226,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
-    func copyLastTranscriptToPasteboard() {
-        guard !lastTranscript.isEmpty else { return }
+    @discardableResult
+    func copyLastTranscriptToPasteboard() -> Bool {
+        guard !lastTranscript.isEmpty else { return false }
         let pendingClipboardRestore = writeTranscriptToPasteboard(lastTranscript)
         pasteAtCursorWhenShortcutReleased { [weak self] in
             self?.restoreClipboardIfNeeded(pendingClipboardRestore)
         }
+        return true
     }
 
     @MainActor

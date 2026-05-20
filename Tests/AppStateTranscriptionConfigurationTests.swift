@@ -13,6 +13,9 @@ struct AppStateTranscriptionConfigurationTests {
         testRecordingCancelShortcutPersistsCustomShortcut()
         testRecordingCancelShortcutDisablesDefaultWhenStoredHoldUsesEscape()
         testRecordingCancelShortcutRejectsHoldConflict()
+        testRecordingCancelShortcutRejectsPasteAgainConflict()
+        testPasteAgainShortcutRejectsRecordingCancelConflict()
+        testPasteAgainShortcutReportsManualModifierCollision()
         testHoldShortcutRejectsCancelConflict()
         testHoldShortcutRejectsMoreSpecificCancelOverlap()
         testRecordingCancelShortcutRejectsModifierOnlyOverlapWithKeyCombo()
@@ -176,6 +179,41 @@ struct AppStateTranscriptionConfigurationTests {
 
         assert(validation == "Cancel shortcut must be distinct from dictation shortcuts.")
         assert(appState.recordingCancelShortcut == .defaultRecordingCancel)
+    }
+
+    private static func testRecordingCancelShortcutRejectsPasteAgainConflict() {
+        resetDefaults()
+        let appState = AppState()
+        let f5 = ShortcutPreset.f5.binding
+
+        assert(appState.setShortcut(f5, for: .copyAgain) == nil)
+        let validation = appState.setRecordingCancelShortcut(f5)
+
+        assert(validation == "Cancel shortcut must be distinct from Paste Again.")
+        assert(appState.recordingCancelShortcut == .defaultRecordingCancel)
+    }
+
+    private static func testPasteAgainShortcutRejectsRecordingCancelConflict() {
+        resetDefaults()
+        let appState = AppState()
+
+        let validation = appState.setShortcut(.defaultRecordingCancel, for: .copyAgain)
+
+        assert(validation == "Paste Again cannot share a shortcut with Cancel Recording.")
+        assert(appState.copyAgainShortcut == .disabled)
+    }
+
+    private static func testPasteAgainShortcutReportsManualModifierCollision() {
+        resetDefaults()
+        let appState = AppState()
+        _ = appState.setCommandModeEnabled(true)
+        _ = appState.setCommandModeStyle(.manual)
+        _ = appState.setCommandModeManualModifier(.option)
+
+        let validation = appState.setShortcut(ShortcutPreset.rightOption.binding, for: .copyAgain)
+
+        assert(validation == "That modifier is already the Paste Again shortcut.")
+        assert(appState.copyAgainShortcut == .disabled)
     }
 
     private static func testHoldShortcutRejectsCancelConflict() {
@@ -366,17 +404,22 @@ struct AppStateTranscriptionConfigurationTests {
 
     private static func testNoteBrowserTranscriptionMenuUsesFlatNativeCheckedItems() throws {
         let source = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+        guard let itemStart = source.range(of: "private func transcriptionModeMenuItem")?.lowerBound,
+              let bodyStart = source.range(of: "var body: some View", range: itemStart..<source.endIndex)?.lowerBound else {
+            preconditionFailure("Expected transcription menu item block")
+        }
+        let menuItemSource = String(source[itemStart..<bodyStart])
 
         precondition(source.contains("transcriptionModeMenuItem(\"Standard\", mode: .apiStandard)"))
         precondition(source.contains("transcriptionModeMenuItem(\"Realtime\", mode: .apiRealtime)"))
         precondition(source.contains("transcriptionModeMenuItem(\"Whisper\", mode: .localWhisper)"))
         precondition(source.contains("transcriptionModeMenuItem(\"Apple Live\", mode: .localAppleLive)"))
-        precondition(source.contains("Toggle(isOn: Binding<Bool>("))
-        precondition(source.contains("get: { appState.currentNoteBrowserTranscriptionMode == mode }"))
-        precondition(source.contains("if isSelected { appState.setNoteBrowserTranscriptionMode(mode) }"))
-        precondition(source.contains(".disabled(!appState.isNoteBrowserTranscriptionModeAvailable(mode))"))
-        precondition(!source.contains("Picker(\"Transcription\", selection:"))
-        precondition(!source.contains("Image(systemName: \"checkmark\")"))
+        precondition(menuItemSource.contains("Toggle(isOn: Binding<Bool>("))
+        precondition(menuItemSource.contains("get: { appState.currentNoteBrowserTranscriptionMode == mode }"))
+        precondition(menuItemSource.contains("if isSelected { appState.setNoteBrowserTranscriptionMode(mode) }"))
+        precondition(menuItemSource.contains(".disabled(!appState.isNoteBrowserTranscriptionModeAvailable(mode))"))
+        precondition(!menuItemSource.contains("Picker(\"Transcription\", selection:"))
+        precondition(!menuItemSource.contains("Image(systemName: \"checkmark\")"))
     }
 
     private static func testAPITranscriptionModesRequireResolvedAPIKey() async {
@@ -854,9 +897,11 @@ struct AppStateTranscriptionConfigurationTests {
         defaults.removeObject(forKey: "hold_shortcut")
         defaults.removeObject(forKey: "toggle_shortcut")
         defaults.removeObject(forKey: "recording_cancel_shortcut")
+        defaults.removeObject(forKey: "copy_again_shortcut")
         defaults.removeObject(forKey: "saved_hold_custom_shortcut")
         defaults.removeObject(forKey: "saved_toggle_custom_shortcut")
         defaults.removeObject(forKey: "saved_recording_cancel_custom_shortcut")
+        defaults.removeObject(forKey: "saved_copy_again_custom_shortcut")
         defaults.removeObject(forKey: "command_mode_enabled")
         defaults.removeObject(forKey: "command_mode_style")
         defaults.removeObject(forKey: "command_mode_manual_modifier")

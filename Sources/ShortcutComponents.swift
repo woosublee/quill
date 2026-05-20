@@ -51,12 +51,14 @@ struct DictationShortcutEditor: View {
                     var messages = ShortcutValidationMessages(
                         hold: holdValidationMessage,
                         toggle: toggleValidationMessage,
-                        recordingCancel: cancelValidationMessage
+                        recordingCancel: cancelValidationMessage,
+                        copyAgain: copyAgainValidationMessage
                     )
                     messages.applySelectionResult(appState.setShortcut(binding, for: .hold), target: .hold)
                     holdValidationMessage = messages.hold
                     toggleValidationMessage = messages.toggle
                     cancelValidationMessage = messages.recordingCancel
+                    copyAgainValidationMessage = messages.copyAgain
                 }
             )
 
@@ -72,12 +74,14 @@ struct DictationShortcutEditor: View {
                     var messages = ShortcutValidationMessages(
                         hold: holdValidationMessage,
                         toggle: toggleValidationMessage,
-                        recordingCancel: cancelValidationMessage
+                        recordingCancel: cancelValidationMessage,
+                        copyAgain: copyAgainValidationMessage
                     )
                     messages.applySelectionResult(appState.setShortcut(binding, for: .toggle), target: .toggle)
                     holdValidationMessage = messages.hold
                     toggleValidationMessage = messages.toggle
                     cancelValidationMessage = messages.recordingCancel
+                    copyAgainValidationMessage = messages.copyAgain
                 }
             )
 
@@ -93,12 +97,14 @@ struct DictationShortcutEditor: View {
                     var messages = ShortcutValidationMessages(
                         hold: holdValidationMessage,
                         toggle: toggleValidationMessage,
-                        recordingCancel: cancelValidationMessage
+                        recordingCancel: cancelValidationMessage,
+                        copyAgain: copyAgainValidationMessage
                     )
                     messages.applySelectionResult(appState.setRecordingCancelShortcut(binding), target: .recordingCancel)
                     holdValidationMessage = messages.hold
                     toggleValidationMessage = messages.toggle
                     cancelValidationMessage = messages.recordingCancel
+                    copyAgainValidationMessage = messages.copyAgain
                 }
             )
 
@@ -111,7 +117,17 @@ struct DictationShortcutEditor: View {
                     set: { activeCaptureTarget = $0 ? .copyAgain : nil }
                 ),
                 onSelect: { binding in
-                    copyAgainValidationMessage = appState.setShortcut(binding, for: .copyAgain)
+                    var messages = ShortcutValidationMessages(
+                        hold: holdValidationMessage,
+                        toggle: toggleValidationMessage,
+                        recordingCancel: cancelValidationMessage,
+                        copyAgain: copyAgainValidationMessage
+                    )
+                    messages.applySelectionResult(appState.setShortcut(binding, for: .copyAgain), target: .copyAgain)
+                    holdValidationMessage = messages.hold
+                    toggleValidationMessage = messages.toggle
+                    cancelValidationMessage = messages.recordingCancel
+                    copyAgainValidationMessage = messages.copyAgain
                 }
             )
 
