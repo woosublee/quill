@@ -17,6 +17,8 @@ struct ShortcutInputState: Equatable {
     var pressedModifierKeyCodes: Set<UInt16> = []
     var holdIsActive = false
     var toggleIsActive = false
+    var recordingCancelIsActive = false
+    var copyAgainIsActive = false
 
     var currentModifiers: ShortcutModifiers {
         ShortcutBinding.modifiers(for: pressedModifierKeyCodes)
@@ -25,9 +27,11 @@ struct ShortcutInputState: Equatable {
     func hasPressedShortcutInputs(configuration: ShortcutConfiguration) -> Bool {
         let currentModifiers = currentModifiers
         let keyReferenceHeld = pressedKeyCodes.contains { keyCode in
-            configuration.hold.kind == .key && configuration.hold.keyCode == keyCode
-                || configuration.toggle.kind == .key && configuration.toggle.keyCode == keyCode
-                || configuration.recordingCancel.kind == .key && configuration.recordingCancel.keyCode == keyCode
+            let isHoldKey = configuration.hold.kind == .key && configuration.hold.keyCode == keyCode
+            let isToggleKey = configuration.toggle.kind == .key && configuration.toggle.keyCode == keyCode
+            let isRecordingCancelKey = configuration.recordingCancel.kind == .key && configuration.recordingCancel.keyCode == keyCode
+            let isCopyAgainKey = configuration.copyAgain.kind == .key && configuration.copyAgain.keyCode == keyCode
+            return isHoldKey || isToggleKey || isRecordingCancelKey || isCopyAgainKey
         }
         if keyReferenceHeld {
             return true
@@ -50,6 +54,14 @@ struct ShortcutInputState: Equatable {
         }
 
         if configuration.recordingCancel.referencesPressedModifiers(
+            pressedModifierKeyCodes: pressedModifierKeyCodes,
+            currentModifiers: currentModifiers,
+            permittedAdditionalExactMatchModifiers: configuration.permittedAdditionalExactMatchModifiers
+        ) {
+            return true
+        }
+
+        if configuration.copyAgain.referencesPressedModifiers(
             pressedModifierKeyCodes: pressedModifierKeyCodes,
             currentModifiers: currentModifiers,
             permittedAdditionalExactMatchModifiers: configuration.permittedAdditionalExactMatchModifiers
@@ -107,20 +119,11 @@ enum ShortcutMatcher {
                 state: nextState,
                 configuration: configuration
             )
-            var emittedEvents = updateActiveBindings(in: &nextState, configuration: configuration)
-            if recordingCancelWasActivated(
-                by: keyCode,
-                isDown: isDown,
-                previousState: state,
-                currentState: nextState,
-                configuration: configuration
-            ) {
-                emittedEvents.append(.recordingCancelRequested)
-            }
+            let emittedEvents = updateActiveBindings(in: &nextState, configuration: configuration)
             return ShortcutMatchResult(
                 state: nextState,
                 emittedEvents: emittedEvents,
-                consumeDecision: (shouldConsumeBefore || shouldConsumeAfter || emittedEvents.contains(.recordingCancelRequested)) ? .consume : .passthrough
+                consumeDecision: (shouldConsumeBefore || shouldConsumeAfter || !emittedEvents.isEmpty) ? .consume : .passthrough
             )
 
         case .keyChanged(let keyCode, let isDown, let isRepeat):
@@ -150,20 +153,11 @@ enum ShortcutMatcher {
                 state: nextState,
                 configuration: configuration
             )
-            var emittedEvents = updateActiveBindings(in: &nextState, configuration: configuration)
-            if recordingCancelWasActivated(
-                by: keyCode,
-                isDown: isDown,
-                isRepeat: isRepeat,
-                state: nextState,
-                configuration: configuration
-            ) {
-                emittedEvents.append(.recordingCancelRequested)
-            }
+            let emittedEvents = updateActiveBindings(in: &nextState, configuration: configuration)
             return ShortcutMatchResult(
                 state: nextState,
                 emittedEvents: emittedEvents,
-                consumeDecision: (shouldConsumeBefore || shouldConsumeAfter || emittedEvents.contains(.recordingCancelRequested)) ? .consume : .passthrough
+                consumeDecision: (shouldConsumeBefore || shouldConsumeAfter || !emittedEvents.isEmpty) ? .consume : .passthrough
             )
         }
     }
@@ -189,15 +183,23 @@ enum ShortcutMatcher {
     ) -> [ShortcutEvent] {
         let previousHold = state.holdIsActive
         let previousToggle = state.toggleIsActive
+        let previousRecordingCancel = state.recordingCancelIsActive
+        let previousCopyAgain = state.copyAgainIsActive
 
         state.holdIsActive = bindingIsActive(configuration.hold, state: state, configuration: configuration)
         state.toggleIsActive = bindingIsActive(configuration.toggle, state: state, configuration: configuration)
+        state.recordingCancelIsActive = bindingIsActive(configuration.recordingCancel, state: state, configuration: configuration)
+        state.copyAgainIsActive = bindingIsActive(configuration.copyAgain, state: state, configuration: configuration)
 
         return emitChanges(
             previousHold: previousHold,
             previousToggle: previousToggle,
+            previousRecordingCancel: previousRecordingCancel,
+            previousCopyAgain: previousCopyAgain,
             currentHold: state.holdIsActive,
             currentToggle: state.toggleIsActive,
+            currentRecordingCancel: state.recordingCancelIsActive,
+            currentCopyAgain: state.copyAgainIsActive,
             configuration: configuration
         )
     }
@@ -205,8 +207,12 @@ enum ShortcutMatcher {
     private static func emitChanges(
         previousHold: Bool,
         previousToggle: Bool,
+        previousRecordingCancel: Bool,
+        previousCopyAgain: Bool,
         currentHold: Bool,
         currentToggle: Bool,
+        currentRecordingCancel: Bool,
+        currentCopyAgain: Bool,
         configuration: ShortcutConfiguration
     ) -> [ShortcutEvent] {
         var activations: [(ShortcutEvent, Int)] = []
@@ -217,6 +223,12 @@ enum ShortcutMatcher {
         }
         if !previousToggle && currentToggle {
             activations.append((.toggleActivated, configuration.toggle.specificityScore))
+        }
+        if !previousRecordingCancel && currentRecordingCancel {
+            activations.append((.recordingCancelRequested, configuration.recordingCancel.specificityScore))
+        }
+        if !previousCopyAgain && currentCopyAgain {
+            activations.append((.copyAgainTriggered, configuration.copyAgain.specificityScore))
         }
         if previousHold && !currentHold {
             deactivations.append((.holdDeactivated, configuration.hold.specificityScore))
@@ -255,36 +267,6 @@ enum ShortcutMatcher {
         }
     }
 
-    private static func recordingCancelWasActivated(
-        by keyCode: UInt16,
-        isDown: Bool,
-        isRepeat: Bool,
-        state: ShortcutInputState,
-        configuration: ShortcutConfiguration
-    ) -> Bool {
-        guard isDown, !isRepeat else { return false }
-        guard configuration.recordingCancel.kind == .key,
-              configuration.recordingCancel.keyCode == keyCode else {
-            return false
-        }
-        return bindingIsActive(configuration.recordingCancel, state: state, configuration: configuration)
-    }
-
-    private static func recordingCancelWasActivated(
-        by keyCode: UInt16,
-        isDown: Bool,
-        previousState: ShortcutInputState,
-        currentState: ShortcutInputState,
-        configuration: ShortcutConfiguration
-    ) -> Bool {
-        guard isDown else { return false }
-        guard configuration.recordingCancel.kind == .modifierKey else {
-            return false
-        }
-        return !bindingIsActive(configuration.recordingCancel, state: previousState, configuration: configuration)
-            && bindingIsActive(configuration.recordingCancel, state: currentState, configuration: configuration)
-    }
-
     private static func shouldConsumeKeyEvent(
         for keyCode: UInt16,
         state: ShortcutInputState,
@@ -309,7 +291,7 @@ enum ShortcutMatcher {
         for keyCode: UInt16,
         configuration: ShortcutConfiguration
     ) -> [ShortcutBinding] {
-        [configuration.hold, configuration.toggle].filter { binding in
+        [configuration.hold, configuration.toggle, configuration.copyAgain].filter { binding in
             binding.kind == .key && binding.keyCode == keyCode
         }
     }
@@ -318,7 +300,7 @@ enum ShortcutMatcher {
         for keyCode: UInt16,
         configuration: ShortcutConfiguration
     ) -> [ShortcutBinding] {
-        [configuration.hold, configuration.toggle].filter { binding in
+        [configuration.hold, configuration.toggle, configuration.copyAgain].filter { binding in
             switch binding.kind {
             case .key, .modifierKey:
                 return modifierEvent(for: keyCode, affects: binding)

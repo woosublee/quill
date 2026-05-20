@@ -72,7 +72,7 @@ final class HotkeyManager {
             case .recordingCancelRequested:
                 sawRecordingCancelEvent = true
                 consumedByRecordingCancel = onRecordingCancelShortcut() || consumedByRecordingCancel
-            case .holdActivated, .holdDeactivated, .toggleActivated, .toggleDeactivated:
+            case .holdActivated, .holdDeactivated, .toggleActivated, .toggleDeactivated, .copyAgainTriggered:
                 consumedByForwardedShortcut = true
                 onShortcutEvent(event)
             }

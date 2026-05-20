@@ -23,6 +23,7 @@ struct AppStateTranscriptionConfigurationTests {
         testStoppedTranscriptionCompletionSummaryShowsFallbackIndicatorForNonEmptyRawFallback()
         testStoppedTranscriptionCompletionSummaryHidesFallbackIndicatorForEmptyRawFallback()
         testStoppedTranscriptionSettingsSnapshotCapturesHistoryMetadata()
+        try testNoteBrowserTranscriptionMenuUsesFlatNativeCheckedItems()
         await testAPITranscriptionModesRequireResolvedAPIKey()
         await testTranscriptionAPIKeyEnablesAPIModesWithoutGlobalAPIKey()
         await testEmptyTranscriptionAPIKeyFallsBackToGlobalAPIKey()
@@ -361,6 +362,21 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(summary.finalTranscript.isEmpty)
         precondition(summary.shouldPressEnterAfterPaste)
         precondition(!summary.shouldPersistRawDictationFallback)
+    }
+
+    private static func testNoteBrowserTranscriptionMenuUsesFlatNativeCheckedItems() throws {
+        let source = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+
+        precondition(source.contains("transcriptionModeMenuItem(\"Standard\", mode: .apiStandard)"))
+        precondition(source.contains("transcriptionModeMenuItem(\"Realtime\", mode: .apiRealtime)"))
+        precondition(source.contains("transcriptionModeMenuItem(\"Whisper\", mode: .localWhisper)"))
+        precondition(source.contains("transcriptionModeMenuItem(\"Apple Live\", mode: .localAppleLive)"))
+        precondition(source.contains("Toggle(isOn: Binding<Bool>("))
+        precondition(source.contains("get: { appState.currentNoteBrowserTranscriptionMode == mode }"))
+        precondition(source.contains("if isSelected { appState.setNoteBrowserTranscriptionMode(mode) }"))
+        precondition(source.contains(".disabled(!appState.isNoteBrowserTranscriptionModeAvailable(mode))"))
+        precondition(!source.contains("Picker(\"Transcription\", selection:"))
+        precondition(!source.contains("Image(systemName: \"checkmark\")"))
     }
 
     private static func testAPITranscriptionModesRequireResolvedAPIKey() async {

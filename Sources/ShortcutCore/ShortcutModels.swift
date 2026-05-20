@@ -55,11 +55,15 @@ enum RecordingTriggerMode: String, Codable {
 enum ShortcutRole {
     case hold
     case toggle
+    case recordingCancel
+    case copyAgain
 
     var title: String {
         switch self {
         case .hold: return "Hold to Talk"
         case .toggle: return "Tap to Toggle"
+        case .recordingCancel: return "Cancel Recording"
+        case .copyAgain: return "Paste Again"
         }
     }
 }
@@ -70,27 +74,36 @@ enum ShortcutEvent: Equatable {
     case toggleActivated
     case toggleDeactivated
     case recordingCancelRequested
+    case copyAgainTriggered
 }
 
 struct ShortcutConfiguration: Equatable {
     let hold: ShortcutBinding
     let toggle: ShortcutBinding
     let recordingCancel: ShortcutBinding
+    let copyAgain: ShortcutBinding
     let permittedAdditionalExactMatchModifiers: ShortcutModifiers
 
     init(
         hold: ShortcutBinding,
         toggle: ShortcutBinding,
         recordingCancel: ShortcutBinding = .defaultRecordingCancel,
+        copyAgain: ShortcutBinding = .disabled,
         permittedAdditionalExactMatchModifiers: ShortcutModifiers = []
     ) {
         self.hold = hold
         self.toggle = toggle
         self.recordingCancel = recordingCancel
+        self.copyAgain = copyAgain
         self.permittedAdditionalExactMatchModifiers = permittedAdditionalExactMatchModifiers
     }
 
-    static let disabled = ShortcutConfiguration(hold: .disabled, toggle: .disabled, recordingCancel: .disabled)
+    static let disabled = ShortcutConfiguration(
+        hold: .disabled,
+        toggle: .disabled,
+        recordingCancel: .disabled,
+        copyAgain: .disabled
+    )
 }
 
 enum ShortcutPreset: String, CaseIterable, Identifiable, Codable {
