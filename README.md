@@ -58,7 +58,7 @@ Then:
 </p>
 
 <p align="center">
-  <a href="https://github.com/woosublee/freeflow/releases/latest/download/Quill.dmg"><b>⬇ Download Quill.dmg</b></a><br>
+  <a href="https://github.com/woosublee/quill/releases/latest/download/Quill.dmg"><b>⬇ Download Quill.dmg</b></a><br>
   <sub>Works on all Macs (Apple Silicon + Intel)</sub>
 </p>
 
@@ -78,7 +78,7 @@ Quill is a free Mac dictation app inspired by [Wispr Flow](https://wisprflow.ai/
 
 ## Quick Start
 
-1. Download the app from above or [click here](https://github.com/woosublee/freeflow/releases/latest/download/Quill.dmg)
+1. Download the app from above or [click here](https://github.com/woosublee/quill/releases/latest/download/Quill.dmg)
 2. Get a free Groq API key from [groq.com](https://groq.com/)
 3. Hold `Fn` to talk, or tap `Command-Fn` to start and stop dictation, and have whatever you say pasted into the current text field
 
