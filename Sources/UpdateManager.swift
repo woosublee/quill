@@ -122,6 +122,16 @@ struct UpdateValidationCommandResult: Sendable {
     let standardError: String
 }
 
+enum DownloadedDMGTrustPath: Equatable, Sendable {
+    case gatekeeperAccepted
+    case temporarySelfSignedQuillFallback(String)
+}
+
+private let allowedCertificateLeaves = [
+    "0CB0C8717D9317864A1B93312AB4DD166E254DDF",
+    "7172DCFFF89F1A17F40FD14BAC80F975536C97ED"
+]
+
 private final class UpdateValidationDataBox: @unchecked Sendable {
     private let lock = NSLock()
     private var data = Data()
@@ -278,10 +288,11 @@ final class UpdateManager: ObservableObject {
         )
     }
 
+    @discardableResult
     nonisolated static func validateDownloadedDMG(
         at dmgURL: URL,
         commandRunner: UpdateValidationCommandRunner = runValidationCommand
-    ) throws {
+    ) throws -> DownloadedDMGTrustPath {
         let result = try commandRunner("/usr/sbin/spctl", [
             "--assess",
             "--type", "open",
@@ -291,9 +302,46 @@ final class UpdateManager: ObservableObject {
         ])
 
         guard result.terminationStatus == 0 else {
-            throw NSError(domain: "UpdateManager", code: 4, userInfo: [
-                NSLocalizedDescriptionKey: "spctl assessment failed with exit code \(result.terminationStatus): \(result.standardError)"
-            ])
+            guard try isAllowlistedQuillDMG(at: dmgURL, commandRunner: commandRunner) else {
+                throw NSError(domain: "UpdateManager", code: 4, userInfo: [
+                    NSLocalizedDescriptionKey: "spctl assessment failed with exit code \(result.terminationStatus): \(result.standardError)"
+                ])
+            }
+
+            return .temporarySelfSignedQuillFallback(
+                "spctl assessment failed with exit code \(result.terminationStatus): \(result.standardError)"
+            )
+        }
+
+        return .gatekeeperAccepted
+    }
+
+    nonisolated static func temporarySelfSignedQuillFallbackRequirement(
+        currentRequirement: String,
+        expectedBundleIdentifier: String
+    ) -> String {
+        let allowedLeafRequirement = allowedCertificateLeaves
+            .map { #"certificate leaf = H"\#($0)""# }
+            .joined(separator: " or ")
+
+        return "(\(currentRequirement)) or (identifier \"\(expectedBundleIdentifier)\" and (\(allowedLeafRequirement)))"
+    }
+
+    nonisolated static func isAllowlistedQuillDMG(
+        at dmgURL: URL,
+        commandRunner: UpdateValidationCommandRunner = runValidationCommand
+    ) throws -> Bool {
+        let verifyResult = try commandRunner("/usr/bin/codesign", [
+            "--verify",
+            "--strict",
+            "--verbose=2",
+            dmgURL.path
+        ])
+        guard verifyResult.terminationStatus == 0 else { return false }
+
+        let requirement = try appRequirement(at: dmgURL, commandRunner: commandRunner).uppercased()
+        return allowedCertificateLeaves.contains { leaf in
+            requirement.contains(#"CERTIFICATE LEAF = H"\#(leaf)""#)
         }
     }
 
@@ -888,7 +936,7 @@ final class UpdateManager: ObservableObject {
         var stagingDirForCleanup: URL?
 
         do {
-            try await Task.detached {
+            let downloadedDMGTrustPath = try await Task.detached {
                 try Self.validateDownloadedDMG(at: dmgPath)
             }.value
 
@@ -924,9 +972,19 @@ final class UpdateManager: ObservableObject {
             let expectedBundleIdentifier = Bundle.main.bundleIdentifier ?? "com.woosublee.quill"
             let expectedShortVersion = normalizedVersionString(from: release.tagName)
             let expectedBuildTag = release.tagName
-            let expectedRequirement = try await Task.detached {
+            let currentRequirement = try await Task.detached {
                 try Self.currentAppRequirement()
             }.value
+            let expectedRequirement: String
+            switch downloadedDMGTrustPath {
+            case .gatekeeperAccepted:
+                expectedRequirement = currentRequirement
+            case .temporarySelfSignedQuillFallback(_):
+                expectedRequirement = Self.temporarySelfSignedQuillFallbackRequirement(
+                    currentRequirement: currentRequirement,
+                    expectedBundleIdentifier: expectedBundleIdentifier
+                )
+            }
             try await Task.detached {
                 try Self.validateStagedApp(
                     at: stagedApp,
