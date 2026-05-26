@@ -14,6 +14,7 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 
 - Updated Quill repository, release, updater, and website links to use the renamed `woosublee/quill` repository.
 - Reworded the README download link so the link purpose is clear to readers and assistive technology.
+- Fixed local release signing by clearing staged app metadata before codesigning.
 
 ## [0.1.1] - 2026-05-26
 

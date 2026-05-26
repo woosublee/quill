@@ -91,6 +91,7 @@ endif
 	@rm -rf "$(BUILD_DIR)/codesign-staging"
 	@mkdir -p "$(BUILD_DIR)/codesign-staging"
 	@ditto --norsrc --noextattr "$(APP_BUNDLE)" "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app"
+	@xattr -cr "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app"
 	@codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" --entitlements Quill.entitlements "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app"
 	@rm -rf "$(APP_BUNDLE)"
 	@ditto --norsrc --noextattr "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app" "$(APP_BUNDLE)"
