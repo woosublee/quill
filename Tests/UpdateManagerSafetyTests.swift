@@ -114,8 +114,8 @@ struct UpdateManagerSafetyTests {
 
         assertContains(requirement, "(\(currentRequirement))")
         assertContains(requirement, "identifier \"com.woosublee.quill\"")
-        assertContains(requirement, "certificate leaf = H\"0cb0c8717d9317864a1b93312ab4dd166e254ddf\"")
-        assertContains(requirement, "certificate leaf = H\"7172dcfff89f1a17f40fd14bac80f975536c97ed\"")
+        assertContains(requirement, "certificate leaf = H\"0CB0C8717D9317864A1B93312AB4DD166E254DDF\"")
+        assertContains(requirement, "certificate leaf = H\"7172DCFFF89F1A17F40FD14BAC80F975536C97ED\"")
         assertContains(requirement, ") or (")
     }
 

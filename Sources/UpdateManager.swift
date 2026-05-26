@@ -310,8 +310,8 @@ final class UpdateManager: ObservableObject {
         expectedBundleIdentifier: String
     ) -> String {
         let allowedCertificateLeaves = [
-            "0cb0c8717d9317864a1b93312ab4dd166e254ddf",
-            "7172dcfff89f1a17f40fd14bac80f975536c97ed"
+            "0CB0C8717D9317864A1B93312AB4DD166E254DDF",
+            "7172DCFFF89F1A17F40FD14BAC80F975536C97ED"
         ]
         let allowedLeafRequirement = allowedCertificateLeaves
             .map { #"certificate leaf = H"\#($0)""# }
@@ -954,7 +954,7 @@ final class UpdateManager: ObservableObject {
             switch downloadedDMGTrustPath {
             case .gatekeeperAccepted:
                 expectedRequirement = currentRequirement
-            case .temporarySelfSignedQuillFallback:
+            case .temporarySelfSignedQuillFallback(_):
                 expectedRequirement = Self.temporarySelfSignedQuillFallbackRequirement(
                     currentRequirement: currentRequirement,
                     expectedBundleIdentifier: expectedBundleIdentifier
