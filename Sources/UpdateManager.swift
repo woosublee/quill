@@ -127,6 +127,11 @@ enum DownloadedDMGTrustPath: Equatable, Sendable {
     case temporarySelfSignedQuillFallback(String)
 }
 
+private let allowedCertificateLeaves = [
+    "0CB0C8717D9317864A1B93312AB4DD166E254DDF",
+    "7172DCFFF89F1A17F40FD14BAC80F975536C97ED"
+]
+
 private final class UpdateValidationDataBox: @unchecked Sendable {
     private let lock = NSLock()
     private var data = Data()
@@ -297,6 +302,12 @@ final class UpdateManager: ObservableObject {
         ])
 
         guard result.terminationStatus == 0 else {
+            guard try isAllowlistedQuillDMG(at: dmgURL, commandRunner: commandRunner) else {
+                throw NSError(domain: "UpdateManager", code: 4, userInfo: [
+                    NSLocalizedDescriptionKey: "spctl assessment failed with exit code \(result.terminationStatus): \(result.standardError)"
+                ])
+            }
+
             return .temporarySelfSignedQuillFallback(
                 "spctl assessment failed with exit code \(result.terminationStatus): \(result.standardError)"
             )
@@ -309,15 +320,29 @@ final class UpdateManager: ObservableObject {
         currentRequirement: String,
         expectedBundleIdentifier: String
     ) -> String {
-        let allowedCertificateLeaves = [
-            "0CB0C8717D9317864A1B93312AB4DD166E254DDF",
-            "7172DCFFF89F1A17F40FD14BAC80F975536C97ED"
-        ]
         let allowedLeafRequirement = allowedCertificateLeaves
             .map { #"certificate leaf = H"\#($0)""# }
             .joined(separator: " or ")
 
         return "(\(currentRequirement)) or (identifier \"\(expectedBundleIdentifier)\" and (\(allowedLeafRequirement)))"
+    }
+
+    nonisolated static func isAllowlistedQuillDMG(
+        at dmgURL: URL,
+        commandRunner: UpdateValidationCommandRunner = runValidationCommand
+    ) throws -> Bool {
+        let verifyResult = try commandRunner("/usr/bin/codesign", [
+            "--verify",
+            "--strict",
+            "--verbose=2",
+            dmgURL.path
+        ])
+        guard verifyResult.terminationStatus == 0 else { return false }
+
+        let requirement = try appRequirement(at: dmgURL, commandRunner: commandRunner).uppercased()
+        return allowedCertificateLeaves.contains { leaf in
+            requirement.contains(#"CERTIFICATE LEAF = H"\#(leaf)""#)
+        }
     }
 
     nonisolated static func currentAppRequirement(
