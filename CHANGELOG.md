@@ -8,6 +8,13 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.2] - 2026-05-27
+
+### Fixed
+
+- Updated Quill repository, release, updater, and website links to use the renamed `woosublee/quill` repository.
+- Reworded the README download link so the link purpose is clear to readers and assistive technology.
+
 ## [0.1.1] - 2026-05-26
 
 ### Fixed
