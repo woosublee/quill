@@ -79,7 +79,7 @@ jobs:
             echo
             echo "## Download"
             echo
-            echo "**[Quill.dmg](https://github.com/woosublee/freeflow/releases/download/${{ steps.version.outputs.tag }}/Quill.dmg)** — Universal build for all Macs (Apple Silicon + Intel)."
+            echo "**[Quill.dmg](https://github.com/woosublee/quill/releases/download/${{ steps.version.outputs.tag }}/Quill.dmg)** — Universal build for all Macs (Apple Silicon + Intel)."
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 

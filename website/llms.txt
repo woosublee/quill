@@ -3,8 +3,8 @@
 Quill is an open-source macOS dictation app and a maintained fork of FreeFlow.
 
 Canonical site: https://quill.vicals.com/
-Source code: https://github.com/woosublee/freeflow
-Releases: https://github.com/woosublee/freeflow/releases
+Source code: https://github.com/woosublee/quill
+Releases: https://github.com/woosublee/quill/releases
 License: MIT
 Platform: macOS 13 or later on Apple Silicon and Intel Macs
 
