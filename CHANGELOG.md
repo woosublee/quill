@@ -8,6 +8,12 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.1] - 2026-05-26
+
+### Fixed
+
+- Fixed in-app updates for the temporary self-signed Quill release channel by allowing known Quill signing certificates after Gatekeeper rejects the DMG, while keeping staged app metadata and code-signing validation before replacement.
+
 ## [0.1.0] - 2026-05-17
 
 ### Added

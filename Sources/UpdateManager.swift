@@ -122,6 +122,11 @@ struct UpdateValidationCommandResult: Sendable {
     let standardError: String
 }
 
+enum DownloadedDMGTrustPath: Equatable, Sendable {
+    case gatekeeperAccepted
+    case temporarySelfSignedQuillFallback(String)
+}
+
 private final class UpdateValidationDataBox: @unchecked Sendable {
     private let lock = NSLock()
     private var data = Data()
@@ -278,10 +283,11 @@ final class UpdateManager: ObservableObject {
         )
     }
 
+    @discardableResult
     nonisolated static func validateDownloadedDMG(
         at dmgURL: URL,
         commandRunner: UpdateValidationCommandRunner = runValidationCommand
-    ) throws {
+    ) throws -> DownloadedDMGTrustPath {
         let result = try commandRunner("/usr/sbin/spctl", [
             "--assess",
             "--type", "open",
@@ -291,10 +297,27 @@ final class UpdateManager: ObservableObject {
         ])
 
         guard result.terminationStatus == 0 else {
-            throw NSError(domain: "UpdateManager", code: 4, userInfo: [
-                NSLocalizedDescriptionKey: "spctl assessment failed with exit code \(result.terminationStatus): \(result.standardError)"
-            ])
+            return .temporarySelfSignedQuillFallback(
+                "spctl assessment failed with exit code \(result.terminationStatus): \(result.standardError)"
+            )
         }
+
+        return .gatekeeperAccepted
+    }
+
+    nonisolated static func temporarySelfSignedQuillFallbackRequirement(
+        currentRequirement: String,
+        expectedBundleIdentifier: String
+    ) -> String {
+        let allowedCertificateLeaves = [
+            "0cb0c8717d9317864a1b93312ab4dd166e254ddf",
+            "7172dcfff89f1a17f40fd14bac80f975536c97ed"
+        ]
+        let allowedLeafRequirement = allowedCertificateLeaves
+            .map { #"certificate leaf = H"\#($0)""# }
+            .joined(separator: " or ")
+
+        return "(\(currentRequirement)) or (identifier \"\(expectedBundleIdentifier)\" and (\(allowedLeafRequirement)))"
     }
 
     nonisolated static func currentAppRequirement(
@@ -888,7 +911,7 @@ final class UpdateManager: ObservableObject {
         var stagingDirForCleanup: URL?
 
         do {
-            try await Task.detached {
+            let downloadedDMGTrustPath = try await Task.detached {
                 try Self.validateDownloadedDMG(at: dmgPath)
             }.value
 
@@ -924,9 +947,19 @@ final class UpdateManager: ObservableObject {
             let expectedBundleIdentifier = Bundle.main.bundleIdentifier ?? "com.woosublee.quill"
             let expectedShortVersion = normalizedVersionString(from: release.tagName)
             let expectedBuildTag = release.tagName
-            let expectedRequirement = try await Task.detached {
+            let currentRequirement = try await Task.detached {
                 try Self.currentAppRequirement()
             }.value
+            let expectedRequirement: String
+            switch downloadedDMGTrustPath {
+            case .gatekeeperAccepted:
+                expectedRequirement = currentRequirement
+            case .temporarySelfSignedQuillFallback:
+                expectedRequirement = Self.temporarySelfSignedQuillFallbackRequirement(
+                    currentRequirement: currentRequirement,
+                    expectedBundleIdentifier: expectedBundleIdentifier
+                )
+            }
             try await Task.detached {
                 try Self.validateStagedApp(
                     at: stagedApp,
