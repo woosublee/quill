@@ -2334,8 +2334,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     from: rawTranscript,
                     pressEnterCommandEnabled: capturedPressEnterCommandEnabled
                 )
-                let result = await self.processImportedTranscript(
+                let result = await self.processTranscript(
                     parsedTranscript.transcript,
+                    intent: .dictation,
                     context: importedContext,
                     postProcessingService: postProcessingService,
                     customVocabulary: capturedCustomVocabulary,
@@ -2393,40 +2394,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
         }
         updateTranscriptionJob(jobID) { $0.task = task }
-    }
-
-    @MainActor
-    private func processImportedTranscript(
-        _ rawTranscript: String,
-        context: AppContext,
-        postProcessingService: PostProcessingService,
-        customVocabulary: String,
-        customSystemPrompt: String,
-        outputLanguage: String,
-        postProcessingEnabled: Bool
-    ) async -> (finalTranscript: String, outcome: TranscriptProcessingOutcome, prompt: String) {
-        let trimmedRawTranscript = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedRawTranscript.isEmpty else {
-            return ("", .skippedEmptyRawTranscript, "")
-        }
-        if let macro = findMatchingMacro(for: trimmedRawTranscript) {
-            return (macro.payload, .voiceMacro(command: macro.command), "")
-        }
-        guard postProcessingEnabled else {
-            return (rawTranscript, .postProcessingDisabled, "")
-        }
-        do {
-            let result = try await postProcessingService.postProcess(
-                transcript: trimmedRawTranscript,
-                context: context,
-                customVocabulary: customVocabulary,
-                customSystemPrompt: customSystemPrompt,
-                outputLanguage: outputLanguage
-            )
-            return (result.transcript, .postProcessingSucceeded, result.prompt)
-        } catch {
-            return (trimmedRawTranscript, .postProcessingFailedFallback, "")
-        }
     }
 
     @MainActor
