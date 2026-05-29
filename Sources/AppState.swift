@@ -2334,8 +2334,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     from: rawTranscript,
                     pressEnterCommandEnabled: capturedPressEnterCommandEnabled
                 )
-                let result = await self.processImportedTranscript(
+                let result = await self.processTranscript(
                     parsedTranscript.transcript,
+                    intent: .dictation,
                     context: importedContext,
                     postProcessingService: postProcessingService,
                     customVocabulary: capturedCustomVocabulary,
@@ -2396,40 +2397,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
-    private func processImportedTranscript(
-        _ rawTranscript: String,
-        context: AppContext,
-        postProcessingService: PostProcessingService,
-        customVocabulary: String,
-        customSystemPrompt: String,
-        outputLanguage: String,
-        postProcessingEnabled: Bool
-    ) async -> (finalTranscript: String, outcome: TranscriptProcessingOutcome, prompt: String) {
-        let trimmedRawTranscript = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedRawTranscript.isEmpty else {
-            return ("", .skippedEmptyRawTranscript, "")
-        }
-        if let macro = findMatchingMacro(for: trimmedRawTranscript) {
-            return (macro.payload, .voiceMacro(command: macro.command), "")
-        }
-        guard postProcessingEnabled else {
-            return (rawTranscript, .postProcessingDisabled, "")
-        }
-        do {
-            let result = try await postProcessingService.postProcess(
-                transcript: trimmedRawTranscript,
-                context: context,
-                customVocabulary: customVocabulary,
-                customSystemPrompt: customSystemPrompt,
-                outputLanguage: outputLanguage
-            )
-            return (result.transcript, .postProcessingSucceeded, result.prompt)
-        } catch {
-            return (trimmedRawTranscript, .postProcessingFailedFallback, "")
-        }
-    }
-
-    @MainActor
     func retryTranscription(item: PipelineHistoryItem) {
         guard !retryingItemIDs.contains(item.id) else { return }
 
@@ -2469,10 +2436,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     from: rawTranscript,
                     pressEnterCommandEnabled: self.isPressEnterVoiceCommandEnabled
                 )
-                let result = await self.processTranscriptForRetry(
+                let result = await self.processTranscript(
                     parsedTranscript.transcript,
-                    snapshot: snapshot,
-                    postProcessingService: postProcessingService
+                    intent: snapshot.restoredIntent,
+                    context: snapshot.restoredContext,
+                    postProcessingService: postProcessingService,
+                    customVocabulary: snapshot.customVocabulary,
+                    customSystemPrompt: snapshot.customSystemPrompt,
+                    outputLanguage: snapshot.outputLanguage,
+                    postProcessingEnabled: snapshot.postProcessingEnabled
                 )
                 updatedItem = self.makeRetryHistoryItem(
                     from: snapshot,
@@ -2594,57 +2566,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
             localTranscriptionModelID: snapshot.localTranscriptionModel.id,
             transcriptFileName: snapshot.item.transcriptFileName
         )
-    }
-
-    private func processTranscriptForRetry(
-        _ rawTranscript: String,
-        snapshot: RetrySnapshot,
-        postProcessingService: PostProcessingService
-    ) async -> (finalTranscript: String, outcome: TranscriptProcessingOutcome, prompt: String) {
-        let trimmedRawTranscript = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !trimmedRawTranscript.isEmpty else {
-            return ("", .skippedEmptyRawTranscript, "")
-        }
-
-        if case .command(let invocation, let selectedText) = snapshot.restoredIntent {
-            do {
-                let result = try await postProcessingService.commandTransform(
-                    selectedText: selectedText,
-                    voiceCommand: rawTranscript,
-                    context: snapshot.restoredContext,
-                    customVocabulary: snapshot.customVocabulary,
-                    outputLanguage: snapshot.outputLanguage
-                )
-                return (result.transcript, .commandModeSucceeded(invocation: invocation), result.prompt)
-            } catch {
-                os_log(.error, log: recordingLog, "Edit mode failed: %{public}@", error.localizedDescription)
-                return (selectedText, .commandModeFailedFallback(invocation: invocation), "")
-            }
-        }
-
-        if let macro = findMatchingMacro(for: trimmedRawTranscript) {
-            os_log(.info, log: recordingLog, "Voice macro triggered: %{public}@", macro.command)
-            return (macro.payload, .voiceMacro(command: macro.command), "")
-        }
-
-        if !snapshot.postProcessingEnabled {
-            return (rawTranscript, .postProcessingDisabled, "")
-        }
-
-        do {
-            let result = try await postProcessingService.postProcess(
-                transcript: trimmedRawTranscript,
-                context: snapshot.restoredContext,
-                customVocabulary: snapshot.customVocabulary,
-                customSystemPrompt: snapshot.customSystemPrompt,
-                outputLanguage: snapshot.outputLanguage
-            )
-            return (result.transcript, .postProcessingSucceeded, result.prompt)
-        } catch {
-            os_log(.error, log: recordingLog, "Post-processing failed: %{public}@", error.localizedDescription)
-            return (trimmedRawTranscript, .postProcessingFailedFallback, "")
-        }
     }
 
     func updatePermissionStatus(accessibility: Bool, screenRecording: Bool) {
@@ -4405,7 +4326,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         postProcessingService: PostProcessingService,
         customVocabulary: String,
         customSystemPrompt: String,
-        outputLanguage: String
+        outputLanguage: String,
+        postProcessingEnabled: Bool
     ) async -> (finalTranscript: String, outcome: TranscriptProcessingOutcome, prompt: String) {
         let trimmedRawTranscript = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -4434,7 +4356,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return (macro.payload, .voiceMacro(command: macro.command), "")
         }
 
-        if disablePostProcessing {
+        if !postProcessingEnabled {
             return (rawTranscript, .postProcessingDisabled, "")
         }
 
@@ -4501,6 +4423,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         customVocabulary: String,
         customSystemPrompt: String,
         outputLanguage: String,
+        postProcessingEnabled: Bool,
         pressEnterCommandEnabled: Bool
     ) async throws -> StoppedTranscriptionCompletionSummary {
         let parsedTranscript = Self.parseTranscriptCommands(
@@ -4518,7 +4441,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             postProcessingService: postProcessingService,
             customVocabulary: customVocabulary,
             customSystemPrompt: customSystemPrompt,
-            outputLanguage: outputLanguage
+            outputLanguage: outputLanguage,
+            postProcessingEnabled: postProcessingEnabled
         )
         try Task.checkCancellation()
         let processingStatus = Self.statusMessage(
@@ -4760,6 +4684,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         customVocabulary: capturedCustomVocabulary,
                         customSystemPrompt: capturedCustomSystemPrompt,
                         outputLanguage: capturedOutputLanguage,
+                        postProcessingEnabled: capturedSettings.usedPostProcessing,
                         pressEnterCommandEnabled: capturedPressEnterCommandEnabled
                     )
                     try await self.runSuccessfulStoppedTranscriptionCompletionPipeline(
@@ -4912,6 +4837,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         customVocabulary: capturedCustomVocabulary,
                         customSystemPrompt: capturedCustomSystemPrompt,
                         outputLanguage: capturedOutputLanguage,
+                        postProcessingEnabled: capturedSettings.usedPostProcessing,
                         pressEnterCommandEnabled: capturedPressEnterCommandEnabled
                     )
                     try await self.runSuccessfulStoppedTranscriptionCompletionPipeline(
