@@ -411,7 +411,7 @@ struct SettingsView: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
-                ForEach(SettingsTab.orderedCases.filter { $0 != .debug || AppBuild.isDevBundle }) { tab in
+                ForEach(SettingsTab.orderedCases.filter { ($0 != .debug && $0 != .runLog) || AppBuild.isDevBundle }) { tab in
                     Button {
                         appState.selectedSettingsTab = tab
                     } label: {
@@ -441,16 +441,22 @@ struct SettingsView: View {
                     GeneralSettingsView()
                 case .appearance:
                     AppearanceSettingsView()
-                case .prompts:
-                    PromptsSettingsView()
-                case .macros:
-                    VoiceMacrosSettingsView()
+                case .models:
+                    ModelsSettingsView()
+                case .shortcuts:
+                    ShortcutsSettingsView()
+                case .input:
+                    InputSettingsView()
                 case .calendar:
                     CalendarSettingsView()
-                case .runLog:
+                case .about:
+                    AboutSettingsView()
+                case .runLog where AppBuild.isDevBundle:
                     RunLogView()
-                case .debug:
+                case .debug where AppBuild.isDevBundle:
                     DebugSettingsView()
+                case .runLog, .debug:
+                    GeneralSettingsView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1139,35 +1145,9 @@ struct GeneralSettingsView: View {
     @EnvironmentObject var appState: AppState
     @Environment(\.openURL) private var openURL
     @AppStorage("show_menu_bar_icon") private var showMenuBarIcon = true
-    @State private var apiKeyInput: String = ""
-    @State private var apiBaseURLInput: String = ""
-    @State private var transcriptionAPIURLInput: String = ""
-    @State private var transcriptionAPIKeyInput: String = ""
-    @State private var isValidatingKey = false
-    @State private var keyValidationError: String?
-    @State private var keyValidationSuccess = false
-    @State private var customVocabularyInput: String = ""
+    @ObservedObject private var updateManager = UpdateManager.shared
     @State private var micPermissionGranted = false
     @State private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
-    @State private var showMutedHint = false
-    @State private var advancedProviderSettingsExpanded = false
-    @State private var copiedBuildInfo = false
-    @State private var copiedBuildInfoResetWorkItem: DispatchWorkItem?
-    @StateObject private var githubCache = GitHubMetadataCache.shared
-    @ObservedObject private var updateManager = UpdateManager.shared
-    private let upstreamRepoURL = URL(string: "https://github.com/zachlatta/freeflow")!
-
-    private static let outputLanguageOptions: [(label: String, value: String)] = [
-        ("Same as spoken language", ""),
-        ("English", "English"),
-        ("한국어", "Korean"),
-        ("日本語", "Japanese"),
-        ("中文", "Chinese"),
-        ("Español", "Spanish"),
-        ("Français", "French"),
-        ("Deutsch", "German"),
-        ("Português", "Portuguese"),
-    ]
 
     private var appDisplayName: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
@@ -1179,119 +1159,28 @@ struct GeneralSettingsView: View {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
     }
 
-    private var appBuildNumber: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
-    }
-
-    private var appReleaseTag: String {
-        Bundle.main.object(forInfoDictionaryKey: "QuillBuildTag") as? String ?? "unknown"
-    }
-
-    private var macOSVersion: String {
-        let version = ProcessInfo.processInfo.operatingSystemVersion
-        return "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
-    }
-
-    private var appArchitecture: String {
-        #if arch(arm64)
-        return "arm64"
-        #elseif arch(x86_64)
-        return "x86_64"
-        #else
-        return "unknown"
-        #endif
-    }
-
-    private var buildDiagnosticsText: String {
-        "\(appDisplayName) \(appVersion) (build \(appBuildNumber), \(appReleaseTag))\nmacOS \(macOSVersion) (\(appArchitecture))"
-    }
-
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                // App branding header
-                VStack(spacing: 12) {
-                    Image(nsImage: NSApp.applicationIconImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 64, height: 64)
-
-                    Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Quill")
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
-
-                    Text("v\(appVersion)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.top, 4)
-                .padding(.bottom, 4)
-
                 SettingsCard("App", icon: "power") {
                     startupSection
                 }
                 SettingsCard("Updates", icon: "arrow.triangle.2.circlepath") {
                     updatesSection
                 }
-                SettingsCard("Transcription", icon: "waveform.badge.magnifyingglass") {
-                    transcriptionSection
-                }
-                SettingsCard("Language", icon: "globe") {
-                    languageSettings
-                }
-                SettingsCard("Dictation Shortcuts", icon: "keyboard.fill") {
-                    hotkeySection
-                }
-                SettingsCard("Audio During Dictation", icon: "speaker.slash.fill") {
-                    dictationAudioSection
-                }
-                SettingsCard("Edit Mode", icon: "pencil") {
-                    commandModeSection
-                }
-                SettingsCard("Clipboard", icon: "doc.on.clipboard") {
-                    clipboardSection
-                }
-                SettingsCard("Microphone", icon: "mic.fill") {
-                    microphoneSection
-                }
-                SettingsCard("Sound Volume", icon: "speaker.wave.2.fill") {
-                    soundVolumeSection
-                }
-                SettingsCard("Custom Vocabulary", icon: "text.book.closed.fill") {
-                    vocabularySection
-                }
                 SettingsCard("Permissions", icon: "lock.shield.fill") {
                     permissionsSection
-                }
-                SettingsCard("Build", icon: "info.circle.fill") {
-                    buildInfoSection
                 }
             }
             .padding(24)
         }
         .onAppear {
-            apiKeyInput = appState.apiKey
-            apiBaseURLInput = appState.apiBaseURL
-            transcriptionAPIURLInput = appState.transcriptionAPIURL
-            transcriptionAPIKeyInput = appState.transcriptionAPIKey
-            customVocabularyInput = appState.customVocabulary
+            appState.refreshLaunchAtLoginStatus()
             checkMicPermission()
             refreshNotificationAuthorizationStatus()
-            appState.refreshLaunchAtLoginStatus()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshNotificationAuthorizationStatus()
-        }
-        .onChange(of: appState.transcriptionAPIURL) { value in
-            if transcriptionAPIURLInput != value {
-                transcriptionAPIURLInput = value
-            }
-        }
-        .onChange(of: appState.transcriptionAPIKey) { value in
-            if transcriptionAPIKeyInput != value {
-                transcriptionAPIKeyInput = value
-            }
         }
     }
 
@@ -1440,74 +1329,195 @@ struct GeneralSettingsView: View {
         }
     }
 
-    // MARK: Build
+    // MARK: Permissions
 
-    private var buildInfoSection: some View {
+    private var permissionsSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Version")
-                    .font(.caption.weight(.semibold))
-                Spacer()
-                Text(appVersion)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-
-            HStack(alignment: .firstTextBaseline) {
-                Text("Build number")
-                    .font(.caption.weight(.semibold))
-                Spacer()
-                Text(appBuildNumber)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-
-            HStack(alignment: .firstTextBaseline) {
-                Text("Release tag")
-                    .font(.caption.weight(.semibold))
-                Spacer()
-                Text(appReleaseTag)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
-
-            HStack(alignment: .top, spacing: 12) {
-                Text(buildDiagnosticsText)
-                    .font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-
-                Spacer()
-
-                Button {
-                    copyBuildDiagnostics()
-                } label: {
-                    Label(copiedBuildInfo ? "Copied" : "Copy", systemImage: copiedBuildInfo ? "checkmark" : "doc.on.doc")
+            permissionRow(
+                title: "Microphone",
+                icon: "mic.fill",
+                granted: micPermissionGranted,
+                action: {
+                    appState.requestMicrophoneAccess { granted in
+                        micPermissionGranted = granted
+                    }
                 }
-                .font(.caption)
+            )
+            permissionRow(
+                title: "Accessibility",
+                icon: "hand.raised.fill",
+                granted: appState.hasAccessibility,
+                action: { appState.openAccessibilitySettings() }
+            )
+            permissionRow(
+                title: "Speech Recognition",
+                icon: "waveform.badge.mic",
+                granted: appState.hasSpeechRecognitionPermission,
+                action: { appState.requestSpeechRecognitionAccess() }
+            )
+            permissionRow(
+                title: "Screen Recording",
+                icon: "camera.viewfinder",
+                granted: appState.hasScreenRecordingPermission,
+                action: { appState.requestScreenCapturePermission() }
+            )
+            permissionRow(
+                title: "Notifications",
+                icon: "bell.fill",
+                granted: notificationAuthorizationGranted,
+                actionTitle: notificationAuthorizationStatus == .denied ? "Open Settings" : "Grant Access",
+                action: {
+                    if notificationAuthorizationStatus == .denied {
+                        openNotificationSettings()
+                    } else {
+                        requestNotificationPermission()
+                    }
+                }
+            )
+        }
+    }
+
+    private func permissionRow(
+        title: String,
+        icon: String,
+        granted: Bool,
+        actionTitle: String = "Grant Access",
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack {
+            Image(systemName: icon)
+                .frame(width: 20)
+                .foregroundStyle(.blue)
+            Text(title)
+            Spacer()
+            if granted {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text("Granted")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            } else {
+                Button(actionTitle) { action() }
+                    .font(.caption)
+            }
+        }
+        .padding(10)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(6)
+    }
+
+    private var notificationAuthorizationGranted: Bool {
+        notificationAuthorizationStatus == .authorized || notificationAuthorizationStatus == .provisional
+    }
+
+    private func requestNotificationPermission() {
+        Task {
+            _ = await AppNotificationManager.shared.requestAuthorization()
+            refreshNotificationAuthorizationStatus()
+        }
+    }
+
+    private func openNotificationSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func refreshNotificationAuthorizationStatus() {
+        Task {
+            let settings = await AppNotificationManager.shared.notificationSettings()
+            await MainActor.run {
+                notificationAuthorizationStatus = settings.authorizationStatus
             }
         }
     }
 
-    private func copyBuildDiagnostics() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(buildDiagnosticsText, forType: .string)
-        copiedBuildInfo = true
-
-        copiedBuildInfoResetWorkItem?.cancel()
-
-        let resetWorkItem = DispatchWorkItem {
-            copiedBuildInfo = false
-            copiedBuildInfoResetWorkItem = nil
-        }
-        copiedBuildInfoResetWorkItem = resetWorkItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: resetWorkItem)
+    private func checkMicPermission() {
+        micPermissionGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
     }
+}
 
-    // MARK: Transcription
+// MARK: - Models Settings
+
+struct ModelsSettingsView: View {
+    @EnvironmentObject var appState: AppState
+    @State private var apiKeyInput: String = ""
+    @State private var apiBaseURLInput: String = ""
+    @State private var transcriptionAPIURLInput: String = ""
+    @State private var transcriptionAPIKeyInput: String = ""
+    @State private var isValidatingKey = false
+    @State private var keyValidationError: String?
+    @State private var keyValidationSuccess = false
+    @State private var customVocabularyInput: String = ""
+    @State private var advancedProviderSettingsExpanded = false
+
+    @State private var customSystemPromptInput: String = ""
+    @State private var customContextPromptInput: String = ""
+    @State private var showDefaultSystemPrompt = false
+    @State private var showDefaultContextPrompt = false
+    @State private var systemTestInput: String = "Um, so I was like, thinking we should uh, refactor the authentication module, you know?"
+    @State private var systemTestRunning = false
+    @State private var systemTestOutput: String? = nil
+    @State private var systemTestError: String? = nil
+    @State private var systemTestPrompt: String? = nil
+    @State private var contextTestRunning = false
+    @State private var contextTestOutput: String? = nil
+    @State private var contextTestError: String? = nil
+    @State private var contextTestPrompt: String? = nil
+
+    private static let outputLanguageOptions: [(label: String, value: String)] = [
+        ("Same as spoken language", ""),
+        ("English", "English"),
+        ("한국어", "Korean"),
+        ("日本語", "Japanese"),
+        ("中文", "Chinese"),
+        ("Español", "Spanish"),
+        ("Français", "French"),
+        ("Deutsch", "German"),
+        ("Português", "Portuguese"),
+    ]
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                SettingsCard("Transcription", icon: "waveform.badge.magnifyingglass") {
+                    transcriptionSection
+                }
+                SettingsCard("Language", icon: "globe") {
+                    languageSettings
+                }
+                SettingsCard("Custom Vocabulary", icon: "text.book.closed.fill") {
+                    vocabularySection
+                }
+                SettingsCard("System Prompt", icon: "text.bubble.fill") {
+                    systemPromptSection
+                }
+                SettingsCard("Context Prompt", icon: "eye.fill") {
+                    contextPromptSection
+                }
+            }
+            .padding(24)
+        }
+        .onAppear {
+            apiKeyInput = appState.apiKey
+            apiBaseURLInput = appState.apiBaseURL
+            transcriptionAPIURLInput = appState.transcriptionAPIURL
+            transcriptionAPIKeyInput = appState.transcriptionAPIKey
+            customVocabularyInput = appState.customVocabulary
+            customSystemPromptInput = appState.customSystemPrompt.isEmpty
+                ? PostProcessingService.defaultSystemPrompt
+                : appState.customSystemPrompt
+            customContextPromptInput = appState.customContextPrompt.isEmpty
+                ? AppContextService.defaultContextPrompt
+                : appState.customContextPrompt
+        }
+        .onChange(of: appState.transcriptionAPIURL) { value in
+            if transcriptionAPIURLInput != value { transcriptionAPIURLInput = value }
+        }
+        .onChange(of: appState.transcriptionAPIKey) { value in
+            if transcriptionAPIKeyInput != value { transcriptionAPIKeyInput = value }
+        }
+    }
 
     private var transcriptionSection: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -1556,9 +1566,7 @@ struct GeneralSettingsView: View {
                         whisperBin: appState.localWhisperPath.isEmpty
                             ? "\(FileManager.default.homeDirectoryForCurrentUser.path)/.local/bin/mlx_whisper"
                             : appState.localWhisperPath,
-                        onSelect: {
-                            appState.localTranscriptionModel = model
-                        },
+                        onSelect: { appState.localTranscriptionModel = model },
                         onDeleted: {
                             if appState.localTranscriptionModel == model {
                                 appState.localTranscriptionModel = .default
@@ -1633,9 +1641,7 @@ struct GeneralSettingsView: View {
                     Spacer()
                 }
                 .contentShape(Rectangle())
-                .onTapGesture {
-                    advancedProviderSettingsExpanded.toggle()
-                }
+                .onTapGesture { advancedProviderSettingsExpanded.toggle() }
             }
             .padding(.top, 4)
         }
@@ -1718,6 +1724,29 @@ struct GeneralSettingsView: View {
         }
     }
 
+    private var vocabularySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Words and phrases to preserve during post-processing.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            TextEditor(text: $customVocabularyInput)
+                .font(.system(.body, design: .monospaced))
+                .frame(minHeight: 80, maxHeight: 140)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                )
+                .onChange(of: customVocabularyInput) { newValue in
+                    appState.customVocabulary = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+
+            Text("Separate entries with commas, new lines, or semicolons.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     private func validateAndSaveKey() {
         let key = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
         let baseURL = apiBaseURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1742,447 +1771,6 @@ struct GeneralSettingsView: View {
         }
     }
 
-    // MARK: Dictation Shortcuts
-
-    private var hotkeySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            DictationShortcutEditor { isCapturing in
-                if isCapturing {
-                    appState.suspendHotkeyMonitoringForShortcutCapture()
-                } else {
-                    appState.resumeHotkeyMonitoringAfterShortcutCapture()
-                }
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text("Shortcut Start Delay")
-                        .font(.caption.weight(.semibold))
-                    Spacer()
-                    Text("\(appState.shortcutStartDelayMilliseconds) ms")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-
-                Slider(
-                    value: $appState.shortcutStartDelay,
-                    in: 0...0.5,
-                    step: 0.025
-                )
-
-                Text("Applies before recording starts for both hold and tap shortcuts. Stopping still happens immediately.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var dictationAudioSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Toggle(
-                "Mute audio when dictation starts",
-                isOn: $appState.dictationAudioInterruptionEnabled
-            )
-
-            Text("\(appDisplayName) restores the audio state it changed when dictation ends.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var commandModeSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Toggle("Enable Edit Mode", isOn: Binding(
-                get: { appState.isCommandModeEnabled },
-                set: { newValue in
-                    _ = appState.setCommandModeEnabled(newValue)
-                }
-            ))
-
-            Text("Transform highlighted text with a spoken instruction instead of dictating over it.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Picker("Invocation Style", selection: Binding(
-                get: { appState.commandModeStyle },
-                set: { newValue in
-                    _ = appState.setCommandModeStyle(newValue)
-                }
-            )) {
-                ForEach(CommandModeStyle.allCases) { style in
-                    Text(style.title).tag(style)
-                }
-            }
-            .pickerStyle(.segmented)
-            .disabled(!appState.isCommandModeEnabled)
-
-            Group {
-                switch appState.commandModeStyle {
-                case .automatic:
-                    Text("If text is selected, your normal dictation shortcut transforms the selection instead of dictating over it.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                case .manual:
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Hold the extra modifier together with your normal dictation shortcut to transform selected text.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        Picker("Extra Modifier", selection: Binding(
-                            get: { appState.commandModeManualModifier },
-                            set: { newValue in
-                                _ = appState.setCommandModeManualModifier(newValue)
-                            }
-                        )) {
-                            ForEach(CommandModeManualModifier.allCases) { modifier in
-                                Text(modifier.title).tag(modifier)
-                            }
-                        }
-                        .disabled(!appState.isCommandModeEnabled || appState.commandModeStyle != .manual)
-                    }
-                }
-            }
-            .opacity(appState.isCommandModeEnabled ? 1 : 0.5)
-
-            if let validationMessage = appState.commandModeManualModifierValidationMessage {
-                Label(validationMessage, systemImage: "xmark.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-            }
-        }
-    }
-
-    // MARK: Clipboard
-
-    private var clipboardSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Toggle("Preserve clipboard after paste", isOn: $appState.preserveClipboard)
-
-            Text("Quill will temporarily place the transcript on your clipboard to paste it, then restore whatever was there before. If you copy something else before the restore happens, Quill leaves it alone.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Divider()
-                .padding(.vertical, 2)
-
-            Toggle("Say \"press enter\" to submit after paste", isOn: $appState.isPressEnterVoiceCommandEnabled)
-
-            Text("When the transcription ends with \"press enter\", Quill removes those words before cleanup, pastes the remaining transcript, then presses Return.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-        }
-    }
-
-    // MARK: Microphone
-
-    private var microphoneSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Select which audio input to use for recording.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            VStack(spacing: 6) {
-                MicrophoneOptionRow(
-                    name: "System Default",
-                    isSelected: appState.selectedMicrophoneID == AudioInputDevice.defaultMicrophoneID || appState.selectedMicrophoneID.isEmpty,
-                    action: { appState.selectedMicrophoneID = AudioInputDevice.defaultMicrophoneID }
-                )
-                MicrophoneOptionRow(
-                    name: "System Audio",
-                    isSelected: appState.selectedMicrophoneID == AudioInputDevice.systemAudioID,
-                    action: { appState.selectedMicrophoneID = AudioInputDevice.systemAudioID }
-                )
-                MicrophoneOptionRow(
-                    name: "System Default + System Audio",
-                    isSelected: appState.selectedMicrophoneID == AudioInputDevice.systemDefaultAndSystemAudioID,
-                    action: { appState.selectedMicrophoneID = AudioInputDevice.systemDefaultAndSystemAudioID }
-                )
-                ForEach(appState.availableMicrophones) { device in
-                    MicrophoneOptionRow(
-                        name: device.name,
-                        isSelected: appState.selectedMicrophoneID == device.uid,
-                        action: { appState.selectedMicrophoneID = device.uid }
-                    )
-                }
-            }
-        }
-        .onAppear {
-            appState.refreshAvailableMicrophones()
-        }
-    }
-
-    // MARK: Sound Volume
-
-    private var soundVolumeSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Toggle("Play alert sounds", isOn: $appState.alertSoundsEnabled)
-
-            HStack(spacing: 12) {
-                Image(systemName: "speaker.fill")
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
-                Slider(value: $appState.soundVolume, in: 0...1, step: 0.1)
-                Image(systemName: "speaker.wave.3.fill")
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
-                Text("\(Int(appState.soundVolume * 100))%")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(width: 36, alignment: .trailing)
-            }
-            .disabled(!appState.alertSoundsEnabled)
-            .opacity(appState.alertSoundsEnabled ? 1 : 0.5)
-
-            HStack(spacing: 8) {
-                Button("Preview") {
-                    let muted = SystemAudioStatus.isDefaultOutputMuted()
-                    let volume = SystemAudioStatus.defaultOutputVolume()
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showMutedHint = muted || (volume ?? 1) < 0.10
-                    }
-                    appState.playAlertSound(named: "Tink")
-                }
-                .font(.caption)
-                .disabled(!appState.alertSoundsEnabled)
-
-                if showMutedHint {
-                    HStack(spacing: 4) {
-                        Image(systemName: "speaker.slash.fill")
-                            .foregroundStyle(.orange)
-                        Text("System volume is muted or very low. Unmute to hear the preview.")
-                            .foregroundStyle(.secondary)
-                    }
-                    .font(.caption)
-                    .transition(.opacity)
-                }
-            }
-        }
-        .onChange(of: appState.alertSoundsEnabled) { enabled in
-            if !enabled { showMutedHint = false }
-        }
-    }
-
-    // MARK: Custom Vocabulary
-
-    private var vocabularySection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Words and phrases to preserve during post-processing.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            TextEditor(text: $customVocabularyInput)
-                .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 80, maxHeight: 140)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-                )
-                .onChange(of: customVocabularyInput) { newValue in
-                    appState.customVocabulary = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-
-            Text("Separate entries with commas, new lines, or semicolons.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    // MARK: Permissions
-
-    private var permissionsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            permissionRow(
-                title: "Microphone",
-                icon: "mic.fill",
-                granted: micPermissionGranted,
-                action: {
-                    appState.requestMicrophoneAccess { granted in
-                        micPermissionGranted = granted
-                    }
-                }
-            )
-
-            permissionRow(
-                title: "Accessibility",
-                icon: "hand.raised.fill",
-                granted: appState.hasAccessibility,
-                action: {
-                    appState.openAccessibilitySettings()
-                }
-            )
-
-            permissionRow(
-                title: "Speech Recognition",
-                icon: "waveform.badge.mic",
-                granted: appState.hasSpeechRecognitionPermission,
-                action: {
-                    appState.requestSpeechRecognitionAccess()
-                }
-            )
-
-            permissionRow(
-                title: "Screen Recording",
-                icon: "camera.viewfinder",
-                granted: appState.hasScreenRecordingPermission,
-                action: {
-                    appState.requestScreenCapturePermission()
-                }
-            )
-
-            permissionRow(
-                title: "Notifications",
-                icon: "bell.fill",
-                granted: notificationAuthorizationGranted,
-                actionTitle: notificationAuthorizationStatus == .denied ? "Open Settings" : "Grant Access",
-                action: {
-                    if notificationAuthorizationStatus == .denied {
-                        openNotificationSettings()
-                    } else {
-                        requestNotificationPermission()
-                    }
-                }
-            )
-        }
-    }
-
-    private func permissionRow(
-        title: String,
-        icon: String,
-        granted: Bool,
-        actionTitle: String = "Grant Access",
-        action: @escaping () -> Void
-    ) -> some View {
-        HStack {
-            Image(systemName: icon)
-                .frame(width: 20)
-                .foregroundStyle(.blue)
-            Text(title)
-            Spacer()
-            if granted {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                Text("Granted")
-                    .font(.caption)
-                    .foregroundStyle(.green)
-            } else {
-                Button(actionTitle) {
-                    action()
-                }
-                .font(.caption)
-            }
-        }
-        .padding(10)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(6)
-    }
-
-    private var notificationAuthorizationGranted: Bool {
-        notificationAuthorizationStatus == .authorized || notificationAuthorizationStatus == .provisional
-    }
-
-    private func requestNotificationPermission() {
-        Task {
-            _ = await AppNotificationManager.shared.requestAuthorization()
-            refreshNotificationAuthorizationStatus()
-        }
-    }
-
-    private func openNotificationSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    private func refreshNotificationAuthorizationStatus() {
-        Task {
-            let settings = await AppNotificationManager.shared.notificationSettings()
-            await MainActor.run {
-                notificationAuthorizationStatus = settings.authorizationStatus
-            }
-        }
-    }
-
-    private func checkMicPermission() {
-        micPermissionGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-    }
-
-}
-
-// MARK: - Microphone Option Row
-
-struct MicrophoneOptionRow: View {
-    let name: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isSelected ? .blue : .secondary)
-                Text(name)
-                    .foregroundStyle(.primary)
-                Spacer()
-            }
-            .padding(12)
-            .background(isSelected ? Color.blue.opacity(0.1) : Color(nsColor: .controlBackgroundColor))
-            .cornerRadius(8)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 1.5)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Prompts Settings
-
-struct PromptsSettingsView: View {
-    @EnvironmentObject var appState: AppState
-    @State private var customSystemPromptInput: String = ""
-    @State private var customContextPromptInput: String = ""
-    @State private var showDefaultSystemPrompt = false
-    @State private var showDefaultContextPrompt = false
-
-    // System prompt test state
-    @State private var systemTestInput: String = "Um, so I was like, thinking we should uh, refactor the authentication module, you know?"
-    @State private var systemTestRunning = false
-    @State private var systemTestOutput: String? = nil
-    @State private var systemTestError: String? = nil
-    @State private var systemTestPrompt: String? = nil
-
-    // Context prompt test state
-    @State private var contextTestRunning = false
-    @State private var contextTestOutput: String? = nil
-    @State private var contextTestError: String? = nil
-    @State private var contextTestPrompt: String? = nil
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                SettingsCard("System Prompt", icon: "text.bubble.fill") {
-                    systemPromptSection
-                }
-                SettingsCard("Context Prompt", icon: "eye.fill") {
-                    contextPromptSection
-                }
-            }
-            .padding(24)
-        }
-        .onAppear {
-            customSystemPromptInput = appState.customSystemPrompt.isEmpty
-                ? PostProcessingService.defaultSystemPrompt
-                : appState.customSystemPrompt
-            customContextPromptInput = appState.customContextPrompt.isEmpty
-                ? AppContextService.defaultContextPrompt
-                : appState.customContextPrompt
-        }
-    }
-
     // MARK: System Prompt
 
     private var systemPromptSection: some View {
@@ -2203,10 +1791,8 @@ struct PromptsSettingsView: View {
                     Text("A newer default prompt is available.")
                         .font(.caption.weight(.semibold))
                     Spacer()
-                    Button("View Default") {
-                        showDefaultSystemPrompt.toggle()
-                    }
-                    .font(.caption)
+                    Button("View Default") { showDefaultSystemPrompt.toggle() }
+                        .font(.caption)
                     Button("Switch to Default") {
                         customSystemPromptInput = PostProcessingService.defaultSystemPrompt
                         appState.customSystemPrompt = ""
@@ -2225,10 +1811,8 @@ struct PromptsSettingsView: View {
                         Text("Default System Prompt")
                             .font(.caption.weight(.semibold))
                         Spacer()
-                        Button("Hide") {
-                            showDefaultSystemPrompt = false
-                        }
-                        .font(.caption)
+                        Button("Hide") { showDefaultSystemPrompt = false }
+                            .font(.caption)
                     }
                     Text(PostProcessingService.defaultSystemPrompt)
                         .font(.system(.caption, design: .monospaced))
@@ -2242,10 +1826,7 @@ struct PromptsSettingsView: View {
             TextEditor(text: $customSystemPromptInput)
                 .font(.system(.body, design: .monospaced))
                 .frame(minHeight: 120, maxHeight: 200)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-                )
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
                 .onChange(of: customSystemPromptInput) { newValue in
                     let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                     let defaultTrimmed = PostProcessingService.defaultSystemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2286,7 +1867,6 @@ struct PromptsSettingsView: View {
 
             Divider()
 
-            // Test section
             VStack(alignment: .leading, spacing: 8) {
                 Text("Test System Prompt")
                     .font(.caption.weight(.semibold))
@@ -2297,18 +1877,14 @@ struct PromptsSettingsView: View {
                 TextEditor(text: $systemTestInput)
                     .font(.system(.body, design: .monospaced))
                     .frame(minHeight: 60, maxHeight: 100)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-                    )
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
 
                 Button {
                     runSystemPromptTest()
                 } label: {
                     HStack(spacing: 6) {
                         if systemTestRunning {
-                            ProgressView()
-                                .controlSize(.small)
+                            ProgressView().controlSize(.small)
                             Text("Running...")
                         } else {
                             Image(systemName: "play.fill")
@@ -2427,10 +2003,8 @@ struct PromptsSettingsView: View {
                     Text("A newer default prompt is available.")
                         .font(.caption.weight(.semibold))
                     Spacer()
-                    Button("View Default") {
-                        showDefaultContextPrompt.toggle()
-                    }
-                    .font(.caption)
+                    Button("View Default") { showDefaultContextPrompt.toggle() }
+                        .font(.caption)
                     Button("Switch to Default") {
                         customContextPromptInput = AppContextService.defaultContextPrompt
                         appState.customContextPrompt = ""
@@ -2449,10 +2023,8 @@ struct PromptsSettingsView: View {
                         Text("Default Context Prompt")
                             .font(.caption.weight(.semibold))
                         Spacer()
-                        Button("Hide") {
-                            showDefaultContextPrompt = false
-                        }
-                        .font(.caption)
+                        Button("Hide") { showDefaultContextPrompt = false }
+                            .font(.caption)
                     }
                     Text(AppContextService.defaultContextPrompt)
                         .font(.system(.caption, design: .monospaced))
@@ -2466,10 +2038,7 @@ struct PromptsSettingsView: View {
             TextEditor(text: $customContextPromptInput)
                 .font(.system(.body, design: .monospaced))
                 .frame(minHeight: 120, maxHeight: 200)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-                )
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3), lineWidth: 1))
                 .onChange(of: customContextPromptInput) { newValue in
                     let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                     let defaultTrimmed = AppContextService.defaultContextPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2513,7 +2082,6 @@ struct PromptsSettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Screenshot Resolution")
                     .font(.caption.weight(.semibold))
-
                 Text("Controls the maximum image dimension sent for context inference.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -2549,7 +2117,6 @@ struct PromptsSettingsView: View {
 
             Divider()
 
-            // Test section
             VStack(alignment: .leading, spacing: 8) {
                 Text("Test Context Prompt")
                     .font(.caption.weight(.semibold))
@@ -2562,8 +2129,7 @@ struct PromptsSettingsView: View {
                 } label: {
                     HStack(spacing: 6) {
                         if contextTestRunning {
-                            ProgressView()
-                                .controlSize(.small)
+                            ProgressView().controlSize(.small)
                             Text("Running...")
                         } else {
                             Image(systemName: "play.fill")
@@ -2633,7 +2199,498 @@ struct PromptsSettingsView: View {
             }
         }
     }
+}
 
+// MARK: - Shortcuts Settings
+
+struct ShortcutsSettingsView: View {
+    @EnvironmentObject var appState: AppState
+    @State private var showingAddMacro = false
+    @State private var editingMacro: VoiceMacro?
+
+    private var appDisplayName: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? "Quill"
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                SettingsCard("Dictation Shortcuts", icon: "keyboard.fill") {
+                    hotkeySection
+                }
+                SettingsCard("Audio During Dictation", icon: "speaker.slash.fill") {
+                    dictationAudioSection
+                }
+                SettingsCard("Edit Mode", icon: "pencil") {
+                    commandModeSection
+                }
+                SettingsCard("Clipboard", icon: "doc.on.clipboard") {
+                    clipboardSection
+                }
+                SettingsCard("Voice Macros", icon: "music.mic") {
+                    macrosSection
+                }
+            }
+            .padding(24)
+        }
+        .sheet(isPresented: $showingAddMacro, onDismiss: { editingMacro = nil }) {
+            VoiceMacroEditorView(isPresented: $showingAddMacro, macro: $editingMacro)
+        }
+    }
+
+    private var hotkeySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            DictationShortcutEditor { isCapturing in
+                if isCapturing {
+                    appState.suspendHotkeyMonitoringForShortcutCapture()
+                } else {
+                    appState.resumeHotkeyMonitoringAfterShortcutCapture()
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Shortcut Start Delay")
+                        .font(.caption.weight(.semibold))
+                    Spacer()
+                    Text("\(appState.shortcutStartDelayMilliseconds) ms")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+
+                Slider(value: $appState.shortcutStartDelay, in: 0...0.5, step: 0.025)
+
+                Text("Applies before recording starts for both hold and tap shortcuts. Stopping still happens immediately.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var dictationAudioSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle(
+                "Mute audio when dictation starts",
+                isOn: $appState.dictationAudioInterruptionEnabled
+            )
+            Text("\(appDisplayName) restores the audio state it changed when dictation ends.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var commandModeSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle("Enable Edit Mode", isOn: Binding(
+                get: { appState.isCommandModeEnabled },
+                set: { newValue in _ = appState.setCommandModeEnabled(newValue) }
+            ))
+
+            Text("Transform highlighted text with a spoken instruction instead of dictating over it.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Picker("Invocation Style", selection: Binding(
+                get: { appState.commandModeStyle },
+                set: { newValue in _ = appState.setCommandModeStyle(newValue) }
+            )) {
+                ForEach(CommandModeStyle.allCases) { style in
+                    Text(style.title).tag(style)
+                }
+            }
+            .pickerStyle(.segmented)
+            .disabled(!appState.isCommandModeEnabled)
+
+            Group {
+                switch appState.commandModeStyle {
+                case .automatic:
+                    Text("If text is selected, your normal dictation shortcut transforms the selection instead of dictating over it.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                case .manual:
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Hold the extra modifier together with your normal dictation shortcut to transform selected text.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Picker("Extra Modifier", selection: Binding(
+                            get: { appState.commandModeManualModifier },
+                            set: { newValue in _ = appState.setCommandModeManualModifier(newValue) }
+                        )) {
+                            ForEach(CommandModeManualModifier.allCases) { modifier in
+                                Text(modifier.title).tag(modifier)
+                            }
+                        }
+                        .disabled(!appState.isCommandModeEnabled || appState.commandModeStyle != .manual)
+                    }
+                }
+            }
+            .opacity(appState.isCommandModeEnabled ? 1 : 0.5)
+
+            if let validationMessage = appState.commandModeManualModifierValidationMessage {
+                Label(validationMessage, systemImage: "xmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+    }
+
+    private var clipboardSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle("Preserve clipboard after paste", isOn: $appState.preserveClipboard)
+
+            Text("Quill will temporarily place the transcript on your clipboard to paste it, then restore whatever was there before. If you copy something else before the restore happens, Quill leaves it alone.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Divider()
+                .padding(.vertical, 2)
+
+            Toggle("Say \"press enter\" to submit after paste", isOn: $appState.isPressEnterVoiceCommandEnabled)
+
+            Text("When the transcription ends with \"press enter\", Quill removes those words before cleanup, pastes the remaining transcript, then presses Return.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var macrosSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Bypass post-processing and immediately paste your predefined text.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button(action: { showingAddMacro = true }) {
+                    Text("Add Macro")
+                }
+            }
+
+            if appState.voiceMacros.isEmpty {
+                VStack {
+                    Image(systemName: "music.mic")
+                        .font(.system(size: 30))
+                        .foregroundStyle(.tertiary)
+                        .padding(.bottom, 4)
+                    Text("No Voice Macros Yet")
+                        .font(.headline)
+                        .foregroundStyle(.secondary)
+                    Text("Click 'Add Macro' to define your first voice macro.")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 32)
+            } else {
+                VStack(spacing: 1) {
+                    ForEach(Array(appState.voiceMacros.enumerated()), id: \.element.id) { index, macro in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(macro.command)
+                                    .font(.headline)
+                                Spacer()
+                                Button("Edit") {
+                                    editingMacro = macro
+                                    showingAddMacro = true
+                                }
+                                .buttonStyle(.borderless)
+                                .font(.caption)
+                                Button("Delete") {
+                                    appState.voiceMacros.removeAll { $0.id == macro.id }
+                                }
+                                .buttonStyle(.borderless)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                            }
+                            Text(macro.payload)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                        .padding(12)
+                        .background(Color(nsColor: .controlBackgroundColor).opacity(0.8))
+                    }
+                }
+                .cornerRadius(8)
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.06), lineWidth: 1))
+            }
+        }
+    }
+}
+
+// MARK: - Input Settings
+
+struct InputSettingsView: View {
+    @EnvironmentObject var appState: AppState
+    @State private var showMutedHint = false
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                SettingsCard("Microphone", icon: "mic.fill") {
+                    microphoneSection
+                }
+                SettingsCard("Sound Volume", icon: "speaker.wave.2.fill") {
+                    soundVolumeSection
+                }
+            }
+            .padding(24)
+        }
+    }
+
+    private var microphoneSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Select which audio input to use for recording.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 6) {
+                MicrophoneOptionRow(
+                    name: "System Default",
+                    isSelected: appState.selectedMicrophoneID == AudioInputDevice.defaultMicrophoneID || appState.selectedMicrophoneID.isEmpty,
+                    action: { appState.selectedMicrophoneID = AudioInputDevice.defaultMicrophoneID }
+                )
+                MicrophoneOptionRow(
+                    name: "System Audio",
+                    isSelected: appState.selectedMicrophoneID == AudioInputDevice.systemAudioID,
+                    action: { appState.selectedMicrophoneID = AudioInputDevice.systemAudioID }
+                )
+                MicrophoneOptionRow(
+                    name: "System Default + System Audio",
+                    isSelected: appState.selectedMicrophoneID == AudioInputDevice.systemDefaultAndSystemAudioID,
+                    action: { appState.selectedMicrophoneID = AudioInputDevice.systemDefaultAndSystemAudioID }
+                )
+                ForEach(appState.availableMicrophones) { device in
+                    MicrophoneOptionRow(
+                        name: device.name,
+                        isSelected: appState.selectedMicrophoneID == device.uid,
+                        action: { appState.selectedMicrophoneID = device.uid }
+                    )
+                }
+            }
+        }
+        .onAppear {
+            appState.refreshAvailableMicrophones()
+        }
+    }
+
+    private var soundVolumeSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle("Play alert sounds", isOn: $appState.alertSoundsEnabled)
+
+            HStack(spacing: 12) {
+                Image(systemName: "speaker.fill")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+                Slider(value: $appState.soundVolume, in: 0...1, step: 0.1)
+                Image(systemName: "speaker.wave.3.fill")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+                Text("\(Int(appState.soundVolume * 100))%")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 36, alignment: .trailing)
+            }
+            .disabled(!appState.alertSoundsEnabled)
+            .opacity(appState.alertSoundsEnabled ? 1 : 0.5)
+
+            HStack(spacing: 8) {
+                Button("Preview") {
+                    let muted = SystemAudioStatus.isDefaultOutputMuted()
+                    let volume = SystemAudioStatus.defaultOutputVolume()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showMutedHint = muted || (volume ?? 1) < 0.10
+                    }
+                    appState.playAlertSound(named: "Tink")
+                }
+                .font(.caption)
+                .disabled(!appState.alertSoundsEnabled)
+
+                if showMutedHint {
+                    HStack(spacing: 4) {
+                        Image(systemName: "speaker.slash.fill")
+                            .foregroundStyle(.orange)
+                        Text("System volume is muted or very low. Unmute to hear the preview.")
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.caption)
+                    .transition(.opacity)
+                }
+            }
+        }
+        .onChange(of: appState.alertSoundsEnabled) { enabled in
+            if !enabled { showMutedHint = false }
+        }
+    }
+}
+
+// MARK: - About Settings
+
+struct AboutSettingsView: View {
+    @EnvironmentObject var appState: AppState
+    @State private var copiedBuildInfo = false
+    @State private var copiedBuildInfoResetWorkItem: DispatchWorkItem?
+
+    private var appDisplayName: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? "Quill"
+    }
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+    }
+
+    private var appBuildNumber: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
+    }
+
+    private var appReleaseTag: String {
+        Bundle.main.object(forInfoDictionaryKey: "QuillBuildTag") as? String ?? "unknown"
+    }
+
+    private var macOSVersion: String {
+        let version = ProcessInfo.processInfo.operatingSystemVersion
+        return "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
+    }
+
+    private var appArchitecture: String {
+        #if arch(arm64)
+        return "arm64"
+        #elseif arch(x86_64)
+        return "x86_64"
+        #else
+        return "unknown"
+        #endif
+    }
+
+    private var buildDiagnosticsText: String {
+        "\(appDisplayName) \(appVersion) (build \(appBuildNumber), \(appReleaseTag))\nmacOS \(macOSVersion) (\(appArchitecture))"
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                VStack(spacing: 12) {
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 64, height: 64)
+                    Text(appDisplayName)
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                    Text("v\(appVersion)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 4)
+                .padding(.bottom, 4)
+
+                SettingsCard("Build", icon: "info.circle.fill") {
+                    buildInfoSection
+                }
+            }
+            .padding(24)
+        }
+    }
+
+    private var buildInfoSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Version")
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Text(appVersion)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            HStack(alignment: .firstTextBaseline) {
+                Text("Build number")
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Text(appBuildNumber)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            HStack(alignment: .firstTextBaseline) {
+                Text("Release tag")
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Text(appReleaseTag)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            HStack(alignment: .top, spacing: 12) {
+                Text(buildDiagnosticsText)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+
+                Spacer()
+
+                Button {
+                    copyBuildDiagnostics()
+                } label: {
+                    Label(copiedBuildInfo ? "Copied" : "Copy", systemImage: copiedBuildInfo ? "checkmark" : "doc.on.doc")
+                }
+                .font(.caption)
+            }
+        }
+    }
+
+    private func copyBuildDiagnostics() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(buildDiagnosticsText, forType: .string)
+        copiedBuildInfo = true
+
+        copiedBuildInfoResetWorkItem?.cancel()
+
+        let resetWorkItem = DispatchWorkItem {
+            copiedBuildInfo = false
+            copiedBuildInfoResetWorkItem = nil
+        }
+        copiedBuildInfoResetWorkItem = resetWorkItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: resetWorkItem)
+    }
+}
+
+// MARK: - Microphone Option Row
+
+struct MicrophoneOptionRow: View {
+    let name: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? .blue : .secondary)
+                Text(name)
+                    .foregroundStyle(.primary)
+                Spacer()
+            }
+            .padding(12)
+            .background(isSelected ? Color.blue.opacity(0.1) : Color(nsColor: .controlBackgroundColor))
+            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 1.5)
+            )
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 // MARK: - Run Log
@@ -3366,92 +3423,7 @@ struct FlowLayout: Layout {
     }
 }
 
-// MARK: - Voice Macros Settings
-
-struct VoiceMacrosSettingsView: View {
-    @EnvironmentObject var appState: AppState
-    @State private var showingAddMacro = false
-    @State private var editingMacro: VoiceMacro?
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                SettingsCard("Voice Macros", icon: "music.mic") {
-                    macrosSection
-                }
-            }
-            .padding(24)
-        }
-        .sheet(isPresented: $showingAddMacro, onDismiss: { editingMacro = nil }) {
-            VoiceMacroEditorView(isPresented: $showingAddMacro, macro: $editingMacro)
-        }
-    }
-
-    private var macrosSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Bypass post-processing and immediately paste your predefined text.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button(action: { showingAddMacro = true }) {
-                    Text("Add Macro")
-                }
-            }
-
-            if appState.voiceMacros.isEmpty {
-                VStack {
-                    Image(systemName: "music.mic")
-                        .font(.system(size: 30))
-                        .foregroundStyle(.tertiary)
-                        .padding(.bottom, 4)
-                    Text("No Voice Macros Yet")
-                        .font(.headline)
-                        .foregroundStyle(.secondary)
-                    Text("Click 'Add Macro' to define your first voice macro.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 32)
-            } else {
-                VStack(spacing: 1) {
-                    ForEach(Array(appState.voiceMacros.enumerated()), id: \.element.id) { index, macro in
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(macro.command)
-                                    .font(.headline)
-                                Spacer()
-                                Button("Edit") {
-                                    editingMacro = macro
-                                    showingAddMacro = true
-                                }
-                                .buttonStyle(.borderless)
-                                .font(.caption)
-                                
-                                Button("Delete") {
-                                    appState.voiceMacros.removeAll { $0.id == macro.id }
-                                }
-                                .buttonStyle(.borderless)
-                                .font(.caption)
-                                .foregroundStyle(.red)
-                            }
-                            Text(macro.payload)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                        }
-                        .padding(12)
-                        .background(Color(nsColor: .controlBackgroundColor).opacity(0.8))
-                    }
-                }
-                .cornerRadius(8)
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.06), lineWidth: 1))
-            }
-        }
-    }
-}
+// MARK: - Voice Macro Editor
 
 struct VoiceMacroEditorView: View {
     @EnvironmentObject var appState: AppState
@@ -3493,7 +3465,6 @@ struct VoiceMacroEditorView: View {
                         command: command.trimmingCharacters(in: .whitespacesAndNewlines),
                         payload: payload
                     )
-                    
                     if let existingIndex = appState.voiceMacros.firstIndex(where: { $0.id == newMacro.id }) {
                         appState.voiceMacros[existingIndex] = newMacro
                     } else {

@@ -3,25 +3,29 @@ import Foundation
 enum SettingsTab: String, CaseIterable, Identifiable {
     case general
     case appearance
+    case models
+    case shortcuts
+    case input
     case calendar
-    case prompts
-    case macros
+    case about
     case runLog
     case debug
 
     var id: String { rawValue }
 
     static var orderedCases: [SettingsTab] {
-        [.general, .appearance, .calendar, .prompts, .macros, .runLog, .debug]
+        [.general, .appearance, .models, .shortcuts, .input, .calendar, .about, .runLog, .debug]
     }
 
     var title: String {
         switch self {
         case .general: return "General"
         case .appearance: return "Appearance"
+        case .models: return "Models"
+        case .shortcuts: return "Shortcuts"
+        case .input: return "Input"
         case .calendar: return "Calendar"
-        case .prompts: return "Prompts"
-        case .macros: return "Voice Macros"
+        case .about: return "About"
         case .runLog: return "Run Log"
         case .debug: return "Debug"
         }
@@ -31,9 +35,11 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "gearshape"
         case .appearance: return "paintbrush"
+        case .models: return "waveform.badge.magnifyingglass"
+        case .shortcuts: return "keyboard.fill"
+        case .input: return "mic.fill"
         case .calendar: return "calendar"
-        case .prompts: return "text.bubble"
-        case .macros: return "music.mic"
+        case .about: return "info.circle"
         case .runLog: return "clock.arrow.circlepath"
         case .debug: return "wrench.and.screwdriver"
         }
