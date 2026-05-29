@@ -147,7 +147,6 @@ struct UpdateManagerSafetyTests {
         precondition(
             Set(pinnedLeaves) == Set([
                 "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-                "0CB0C8717D9317864A1B93312AB4DD166E254DDF",
                 "7172DCFFF89F1A17F40FD14BAC80F975536C97ED"
             ]),
             "Expected exact pinned leaf set for temporary self-signed fallback requirement"
