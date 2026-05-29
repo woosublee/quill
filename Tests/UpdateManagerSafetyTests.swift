@@ -407,7 +407,7 @@ struct UpdateManagerSafetyTests {
         let settingsHeader = extract(
             settingsView,
             from: "Image(nsImage: NSApp.applicationIconImage)",
-            to: "SettingsCard(\"App\", icon: \"power\")"
+            to: "SettingsCard(\"Build\", icon: \"info.circle.fill\")"
         )
 
         assertDoesNotContain(setupWelcomeStep, "zachlatta/freeflow")

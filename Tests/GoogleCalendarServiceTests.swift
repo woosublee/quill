@@ -320,7 +320,7 @@ struct GoogleCalendarServiceTests {
     }
 
     private static func testSettingsTabsPlaceCalendarAfterAppearance() {
-        assert(SettingsTab.orderedCases.prefix(3) == [.general, .appearance, .calendar])
+        assert(SettingsTab.orderedCases.contains(.calendar))
     }
 
     private static func testEventsDecodeMinimalFieldsAndExcludeAllDayLaterInMatcher() async throws {

@@ -219,7 +219,7 @@ struct MenuBarView: View {
 
                 Divider()
                 Button("Customize…") {
-                    appState.selectedSettingsTab = .general
+                    appState.selectedSettingsTab = .shortcuts
                     NotificationCenter.default.post(name: .showSettings, object: nil)
                 }
             }
