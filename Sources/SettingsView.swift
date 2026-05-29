@@ -451,10 +451,12 @@ struct SettingsView: View {
                     CalendarSettingsView()
                 case .about:
                     AboutSettingsView()
-                case .runLog:
+                case .runLog where AppBuild.isDevBundle:
                     RunLogView()
-                case .debug:
+                case .debug where AppBuild.isDevBundle:
                     DebugSettingsView()
+                case .runLog, .debug:
+                    GeneralSettingsView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -2533,8 +2535,6 @@ struct AboutSettingsView: View {
     @EnvironmentObject var appState: AppState
     @State private var copiedBuildInfo = false
     @State private var copiedBuildInfoResetWorkItem: DispatchWorkItem?
-    @StateObject private var githubCache = GitHubMetadataCache.shared
-    private let upstreamRepoURL = URL(string: "https://github.com/zachlatta/freeflow")!
 
     private var appDisplayName: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String

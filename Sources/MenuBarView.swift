@@ -170,11 +170,15 @@ struct MenuBarView: View {
                         .disabled(transcript.isEmpty)
                     }
 
-                    Divider()
+                    if AppBuild.isDevBundle {
+                        Divider()
+                    }
                 }
 
-                Button("Open Run Log") {
-                    openRunLog()
+                if AppBuild.isDevBundle {
+                    Button("Open Run Log") {
+                        openRunLog()
+                    }
                 }
             }
 
@@ -263,7 +267,7 @@ struct MenuBarView: View {
 
                 Divider()
                 Button("Customize…") {
-                    appState.selectedSettingsTab = .general
+                    appState.selectedSettingsTab = .shortcuts
                     NotificationCenter.default.post(name: .showSettings, object: nil)
                 }
             }
@@ -307,7 +311,7 @@ struct MenuBarView: View {
 
                 Divider()
                 Button("Customize…") {
-                    appState.selectedSettingsTab = .general
+                    appState.selectedSettingsTab = .shortcuts
                     NotificationCenter.default.post(name: .showSettings, object: nil)
                 }
             }
