@@ -2568,7 +2568,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
     }
 
-
     func updatePermissionStatus(accessibility: Bool, screenRecording: Bool) {
         if hasAccessibility != accessibility {
             hasAccessibility = accessibility
