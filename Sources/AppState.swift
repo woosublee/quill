@@ -4405,7 +4405,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         postProcessingService: PostProcessingService,
         customVocabulary: String,
         customSystemPrompt: String,
-        outputLanguage: String
+        outputLanguage: String,
+        postProcessingEnabled: Bool
     ) async -> (finalTranscript: String, outcome: TranscriptProcessingOutcome, prompt: String) {
         let trimmedRawTranscript = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -4434,7 +4435,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return (macro.payload, .voiceMacro(command: macro.command), "")
         }
 
-        if disablePostProcessing {
+        if !postProcessingEnabled {
             return (rawTranscript, .postProcessingDisabled, "")
         }
 
@@ -4501,6 +4502,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         customVocabulary: String,
         customSystemPrompt: String,
         outputLanguage: String,
+        postProcessingEnabled: Bool,
         pressEnterCommandEnabled: Bool
     ) async throws -> StoppedTranscriptionCompletionSummary {
         let parsedTranscript = Self.parseTranscriptCommands(
@@ -4518,7 +4520,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             postProcessingService: postProcessingService,
             customVocabulary: customVocabulary,
             customSystemPrompt: customSystemPrompt,
-            outputLanguage: outputLanguage
+            outputLanguage: outputLanguage,
+            postProcessingEnabled: postProcessingEnabled
         )
         try Task.checkCancellation()
         let processingStatus = Self.statusMessage(
@@ -4760,6 +4763,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         customVocabulary: capturedCustomVocabulary,
                         customSystemPrompt: capturedCustomSystemPrompt,
                         outputLanguage: capturedOutputLanguage,
+                        postProcessingEnabled: capturedSettings.usedPostProcessing,
                         pressEnterCommandEnabled: capturedPressEnterCommandEnabled
                     )
                     try await self.runSuccessfulStoppedTranscriptionCompletionPipeline(
@@ -4912,6 +4916,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         customVocabulary: capturedCustomVocabulary,
                         customSystemPrompt: capturedCustomSystemPrompt,
                         outputLanguage: capturedOutputLanguage,
+                        postProcessingEnabled: capturedSettings.usedPostProcessing,
                         pressEnterCommandEnabled: capturedPressEnterCommandEnabled
                     )
                     try await self.runSuccessfulStoppedTranscriptionCompletionPipeline(
