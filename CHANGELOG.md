@@ -8,6 +8,17 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.3] - 2026-05-29
+
+### Improved
+
+- Reorganized Settings into focused sidebar sections (Models, Shortcuts, Input, About) so the General page is no longer overcrowded. General now keeps app, updates, and permissions, and menu-bar shortcut links open the Shortcuts section.
+- Run Log is now a developer-only tab, since the Note Browser covers transcript history for everyday use.
+
+### Fixed
+
+- Removed a retired signing certificate from the updater allowlist now that signing is consolidated on a single certificate.
+
 ## [0.1.2] - 2026-05-27
 
 ### Fixed
