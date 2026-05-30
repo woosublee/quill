@@ -8,6 +8,7 @@ struct RecordingOverlayGeometryTests {
         testTranscribingWidthFallsBackToCenteredWidthAfterNotchSideRecording()
         testTranscribingWidthKeepsExistingLockOnRepeatedTranscribingUpdate()
         testNotchSideLayoutPhaseEligibility()
+        testNSScreenNumberBridgesThroughNSNumber()
         testRecordingOverlayUsesSharedScreenGeometry()
         try testNotchSideOverlayAvoidsContainerAudioLevelAnimation()
         try testHostingViewsUseFixedIntrinsicContentSize()
@@ -78,6 +79,14 @@ struct RecordingOverlayGeometryTests {
             phase: .recording,
             hasNotchGeometry: false
         ))
+    }
+
+    private static func testNSScreenNumberBridgesThroughNSNumber() {
+        let deviceDescription: [NSDeviceDescriptionKey: Any] = [
+            NSDeviceDescriptionKey("NSScreenNumber"): NSNumber(value: UInt32(42))
+        ]
+
+        assert(deviceDescription.displayID == 42)
     }
 
     private static func testRecordingOverlayUsesSharedScreenGeometry() {
