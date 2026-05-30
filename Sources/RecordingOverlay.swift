@@ -52,11 +52,17 @@ enum RecordingOverlayLayout: String, CaseIterable, Identifiable {
 
 // MARK: - NSScreen Helpers
 
+extension Dictionary where Key == NSDeviceDescriptionKey, Value == Any {
+    var displayID: CGDirectDisplayID? {
+        (self[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+    }
+}
+
 extension NSScreen {
     /// CoreGraphics display identifier for this screen, or nil if the device
     /// description is missing the key.
     var displayID: CGDirectDisplayID? {
-        deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+        deviceDescription.displayID
     }
 }
 
