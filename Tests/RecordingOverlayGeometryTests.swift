@@ -59,6 +59,12 @@ struct RecordingOverlayGeometryTests {
         ))
         assert(!RecordingOverlayGeometry.usesNotchSideLayout(
             layout: .notchSides,
+            phase: .feedback,
+            hasNotchGeometry: true,
+            hasErrorMessage: true
+        ))
+        assert(!RecordingOverlayGeometry.usesNotchSideLayout(
+            layout: .notchSides,
             phase: .updateAvailable,
             hasNotchGeometry: true
         ))

@@ -534,6 +534,8 @@ struct DebugSettingsView: View {
 struct AppearanceSettingsView: View {
     @EnvironmentObject var appState: AppState
     @AppStorage("app_appearance") private var appAppearance: String = "system"
+    @AppStorage("overlay_display_id") private var overlayDisplayID = 0
+    @State private var screensVersion = 0
 
     var body: some View {
         ScrollView {
@@ -579,10 +581,45 @@ struct AppearanceSettingsView: View {
                             layout: .centered,
                             selection: $appState.recordingOverlayLayout
                         )
+
+                        Divider()
+
+                        overlayDisplaySection
                     }
                 }
             }
             .padding(24)
+        }
+    }
+
+    /// Picks which physical display the recording overlay drops down on.
+    private var overlayDisplaySection: some View {
+        HStack {
+            Text("Show on")
+                .font(.system(size: 13))
+            Spacer()
+            Picker("", selection: $overlayDisplayID) {
+                Text("Active window (default)").tag(0)
+                Text("Primary display").tag(-1)
+                ForEach(connectedScreenEntries, id: \.tag) { entry in
+                    Text(entry.name).tag(entry.tag)
+                }
+            }
+            .labelsHidden()
+            .accessibilityLabel("Show on")
+            .pickerStyle(.menu)
+            .frame(maxWidth: 240)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)) { _ in
+            screensVersion &+= 1
+        }
+    }
+
+    private var connectedScreenEntries: [(name: String, tag: Int)] {
+        _ = screensVersion
+        return NSScreen.screens.compactMap { screen in
+            guard let id = screen.displayID else { return nil }
+            return (name: screen.localizedName, tag: Int(id))
         }
     }
 
