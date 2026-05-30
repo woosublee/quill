@@ -5,19 +5,24 @@ enum LLMAPITransport {
         makeEphemeralSession()
     }()
 
-    private static func makeEphemeralSession() -> URLSession {
+    private static func makeEphemeralSession(resourceTimeout: TimeInterval = 30) -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.urlCache = nil
         configuration.timeoutIntervalForRequest = 20
-        configuration.timeoutIntervalForResource = 30
+        configuration.timeoutIntervalForResource = max(30, resourceTimeout)
         return URLSession(configuration: configuration)
     }
 
     static func data(
         for request: URLRequest
     ) async throws -> (Data, URLResponse) {
-        try await requestSession.data(for: request)
+        if request.timeoutInterval > requestSession.configuration.timeoutIntervalForResource {
+            let session = makeEphemeralSession(resourceTimeout: request.timeoutInterval)
+            defer { session.finishTasksAndInvalidate() }
+            return try await session.data(for: request)
+        }
+        return try await requestSession.data(for: request)
     }
 
     static func upload(
@@ -26,7 +31,7 @@ enum LLMAPITransport {
     ) async throws -> (Data, URLResponse) {
         // Use a fresh session for each upload so a bad reused connection cannot
         // poison subsequent transcription uploads.
-        let session = makeEphemeralSession()
+        let session = makeEphemeralSession(resourceTimeout: request.timeoutInterval)
         defer { session.finishTasksAndInvalidate() }
         return try await session.upload(for: request, from: bodyData)
     }

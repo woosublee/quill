@@ -2421,6 +2421,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             guard let self else { return }
 
             let updatedItem: PipelineHistoryItem
+            let retrySucceeded: Bool
             do {
                 let transcriptionService = try TranscriptionService(
                     apiKey: resolvedTranscriptionAPIKey,
@@ -2458,6 +2459,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     ),
                     debugStatus: "Retried"
                 )
+                retrySucceeded = true
             } catch {
                 updatedItem = self.makeRetryHistoryItem(
                     from: snapshot,
@@ -2467,18 +2469,31 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     postProcessingStatus: "Error: \(error.localizedDescription)",
                     debugStatus: "Retry failed"
                 )
+                retrySucceeded = false
             }
 
             await MainActor.run {
                 do {
                     try self.pipelineHistoryStore.update(updatedItem)
                     self.pipelineHistory = self.pipelineHistoryStore.loadAllHistory()
+                    if retrySucceeded {
+                        self.copyRetryTranscriptToPasteboardIfNeeded(updatedItem.postProcessedTranscript)
+                    }
                 } catch {
                     self.errorMessage = "Failed to save retry result: \(error.localizedDescription)"
                 }
                 self.retryingItemIDs.remove(snapshot.item.id)
             }
         }
+    }
+
+    @MainActor
+    private func copyRetryTranscriptToPasteboardIfNeeded(_ transcript: String) {
+        let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTranscript.isEmpty else { return }
+        lastTranscript = trimmedTranscript
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(trimmedTranscript, forType: .string)
     }
 
     @MainActor
@@ -4415,6 +4430,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return fallbackContextAtStop()
     }
 
+    @MainActor
+    private func bootstrapLastTranscriptForPasteAgain(_ transcript: String, pressEnterCommandEnabled: Bool) {
+        let parsedTranscript = Self.parseTranscriptCommands(
+            from: transcript,
+            pressEnterCommandEnabled: pressEnterCommandEnabled
+        )
+        let bootstrapTranscript = parsedTranscript.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !bootstrapTranscript.isEmpty else { return }
+        lastTranscript = bootstrapTranscript
+    }
+
     private func makeStoppedTranscriptionCompletionSummary(
         rawTranscript: String,
         intent: SessionIntent,
@@ -4672,6 +4698,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.updateTranscriptionJob(jobID) { $0.audioFileName = savedAudioFile?.fileName }
                     }
                     try Task.checkCancellation()
+                    await MainActor.run {
+                        self.bootstrapLastTranscriptForPasteAgain(rawTranscript, pressEnterCommandEnabled: capturedPressEnterCommandEnabled)
+                    }
                     let appContext = await self.resolveStoppedRecordingContext(
                         sessionContext: sessionContext,
                         inFlightContextTask: inFlightContextTask
@@ -4825,6 +4854,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         )
                     }
                     try Task.checkCancellation()
+                    await MainActor.run {
+                        self.bootstrapLastTranscriptForPasteAgain(rawTranscript, pressEnterCommandEnabled: capturedPressEnterCommandEnabled)
+                    }
                     let appContext = await self.resolveStoppedRecordingContext(
                         sessionContext: sessionContext,
                         inFlightContextTask: inFlightContextTask
@@ -5491,7 +5523,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private func isScreenCapturePermissionError(_ message: String) -> Bool {
         let lowered = message.lowercased()
-        return lowered.contains("permission") || lowered.contains("screen recording")
+        return lowered.contains("screen recording permission not granted")
+            || lowered.contains("requires screen recording permission")
     }
 
     private func showScreenshotPermissionAlert(message: String) {

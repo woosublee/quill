@@ -10,6 +10,8 @@ final class RecordingOverlayState: ObservableObject {
     @Published var recordingOverlayLayout: RecordingOverlayLayout = .centered
     @Published var isCommandMode = false
     @Published var updateVersion: String = ""
+    @Published var errorMessage: String?
+    @Published var toastID: UUID?
 }
 
 enum OverlayPhase {
@@ -45,6 +47,16 @@ enum RecordingOverlayLayout: String, CaseIterable, Identifiable {
     static func find(rawValue: String?) -> RecordingOverlayLayout {
         guard let rawValue, let layout = RecordingOverlayLayout(rawValue: rawValue) else { return .centered }
         return layout
+    }
+}
+
+// MARK: - NSScreen Helpers
+
+extension NSScreen {
+    /// CoreGraphics display identifier for this screen, or nil if the device
+    /// description is missing the key.
+    var displayID: CGDirectDisplayID? {
+        deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
     }
 }
 
@@ -112,13 +124,16 @@ struct RecordingOverlayGeometry {
     static func usesNotchSideLayout(
         layout: RecordingOverlayLayout,
         phase: OverlayPhase,
-        hasNotchGeometry: Bool
+        hasNotchGeometry: Bool,
+        hasErrorMessage: Bool = false
     ) -> Bool {
         guard layout == .notchSides, hasNotchGeometry else { return false }
 
         switch phase {
-        case .initializing, .recording, .transcribing, .feedback:
+        case .initializing, .recording, .transcribing:
             return true
+        case .feedback:
+            return !hasErrorMessage
         case .updateAvailable:
             return false
         }
@@ -137,6 +152,7 @@ final class RecordingOverlayManager {
     private let notchSideHorizontalInset: CGFloat = 8
 
     private typealias NotchSideGeometry = OverlayScreenGeometry.NotchSideGeometry
+    private static let maxToastMessageLength = 90
 
     var onStopButtonPressed: (() -> Void)?
     var onUpdateOverlayPressed: (() -> Void)?
@@ -157,8 +173,32 @@ final class RecordingOverlayManager {
         }
     }
 
+    /// The screen the overlay should drop down on. The user picks one of
+    /// three modes in Settings, stored in UserDefaults under
+    /// `overlay_display_id`:
+    ///
+    /// - `0` (default) — Active window: follows focus across monitors via
+    ///   NSScreen.main.
+    /// - `-1` — Primary display: always NSScreen.screens.first.
+    /// - any positive integer — specific NSScreen displayID. Falls back to
+    ///   primary if that display is unplugged.
+    private var targetScreen: NSScreen? {
+        let savedID = UserDefaults.standard.integer(forKey: "overlay_display_id")
+        switch savedID {
+        case 0:
+            return NSScreen.main ?? NSScreen.screens.first
+        case -1:
+            return NSScreen.screens.first ?? NSScreen.main
+        default:
+            if let match = NSScreen.screens.first(where: { Int($0.displayID ?? 0) == savedID }) {
+                return match
+            }
+            return NSScreen.screens.first ?? NSScreen.main
+        }
+    }
+
     private var screenGeometry: OverlayScreenGeometry? {
-        guard let screen = NSScreen.main else { return nil }
+        guard let screen = targetScreen else { return nil }
         return OverlayScreenGeometry(screen: screen)
     }
 
@@ -178,7 +218,8 @@ final class RecordingOverlayManager {
         RecordingOverlayGeometry.usesNotchSideLayout(
             layout: overlayState.recordingOverlayLayout,
             phase: overlayState.phase,
-            hasNotchGeometry: notchSideGeometry != nil
+            hasNotchGeometry: notchSideGeometry != nil,
+            hasErrorMessage: overlayState.errorMessage?.isEmpty == false
         )
     }
 
@@ -255,7 +296,38 @@ final class RecordingOverlayManager {
 
     func showFailureIndicator() {
         DispatchQueue.main.async {
+            self.overlayState.errorMessage = nil
+            self.overlayState.toastID = nil
             self.showFeedbackPanel()
+        }
+    }
+
+    /// Surface a transient error in the menu-bar pill. The pill resizes to fit
+    /// the message, holds briefly, then dismisses.
+    func showError(_ message: String) {
+        let truncated: String = {
+            guard message.count > Self.maxToastMessageLength else { return message }
+            let cutoff = message.index(message.startIndex, offsetBy: Self.maxToastMessageLength - 1)
+            return String(message[..<cutoff]) + "…"
+        }()
+        DispatchQueue.main.async {
+            let toastID = UUID()
+            self.overlayState.errorMessage = truncated
+            self.overlayState.toastID = toastID
+            self.lockedOverlayWidth = nil
+            self.overlayState.phase = .feedback
+            self.showOverlayPanel(animatedResize: true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) { [weak self] in
+                guard let self else { return }
+                guard self.overlayState.phase == .feedback,
+                      self.overlayState.errorMessage == truncated,
+                      self.overlayState.toastID == toastID else {
+                    return
+                }
+                self.overlayState.errorMessage = nil
+                self.overlayState.toastID = nil
+                self.dismissAll()
+            }
         }
     }
 
@@ -292,7 +364,7 @@ final class RecordingOverlayManager {
         panel.ignoresMouseEvents = !overlayAcceptsMouseEvents
         panel.contentView = makeOverlayContent(frame: frame)
 
-        guard let screen = NSScreen.main else { return }
+        guard let screen = targetScreen else { return }
 
         let hiddenFrame = NSRect(x: frame.origin.x, y: screen.frame.maxY, width: frame.width, height: frame.height)
         panel.setFrame(hiddenFrame, display: true)
@@ -408,7 +480,13 @@ final class RecordingOverlayManager {
         }
 
         if overlayState.phase == .feedback {
-            let feedbackWidth: CGFloat = 92
+            let feedbackWidth: CGFloat = {
+                guard let message = overlayState.errorMessage, !message.isEmpty else {
+                    return 92
+                }
+                let estimated = CGFloat(message.count) * 6.8 + 60
+                return min(420, max(180, estimated))
+            }()
             guard screenHasTopSafeArea else { return feedbackWidth }
             return max(notchWidth, feedbackWidth)
         }
@@ -792,7 +870,9 @@ struct RecordingOverlayView: View {
 
     var body: some View {
         Group {
-            if state.phase == .feedback {
+            if state.phase == .feedback, let message = state.errorMessage {
+                ErrorOverlayView(message: message)
+            } else if state.phase == .feedback {
                 FailureIndicatorView()
             } else if state.phase == .updateAvailable {
                 UpdateAvailableOverlayView(onPress: onUpdateOverlayPressed)
@@ -871,6 +951,25 @@ struct FailureIndicatorView: View {
             .frame(width: 20, height: 20)
             .background(Circle().fill(Color.red.opacity(0.92)))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// In-pill error toast rendered inside the standard menu-bar pill.
+struct ErrorOverlayView: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Color.red.opacity(0.92))
+            Text(message)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 }
 
