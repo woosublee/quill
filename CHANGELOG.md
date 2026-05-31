@@ -8,6 +8,19 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.4] - 2026-05-31
+
+### Improved
+
+- Adopted upstream overlay improvements, including multi-display overlay selection, in-pill error notifications, retry-to-clipboard behavior, and configurable local model timeout settings.
+- Unified transcript post-processing so app context, API transport, and transcription flows use the same shared path.
+
+### Fixed
+
+- Fixed recording overlay target screen resolution by bridging the AppKit screen number through `NSNumber` before converting to a display ID.
+- Preserved Paste Again behavior when post-processing fails by keeping the completed transcript available earlier in the flow.
+- Avoided false screen recording alerts in upstream permission handling.
+
 ## [0.1.3] - 2026-05-29
 
 ### Improved
