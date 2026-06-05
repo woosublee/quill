@@ -88,7 +88,7 @@ struct ModelDropdownView: View {
         }
         .onChange(of: textDraft) { newValue in
             let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
+            if !trimmed.isEmpty && !isEditingCustom {
                 isCustom = !predefinedModels.contains(trimmed)
             }
         }

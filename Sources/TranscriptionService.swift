@@ -1,5 +1,4 @@
 import AVFoundation
-import AVFoundation
 import Foundation
 import Speech
 import os.log
@@ -81,7 +80,7 @@ class TranscriptionService {
                 }
 
                 group.addTask {
-                    try await Task.sleep(nanoseconds: UInt64(self.localTranscriptionTimeoutSeconds * 1_000_000_000))
+                    try await Task.sleep(for: .seconds(self.localTranscriptionTimeoutSeconds))
                     throw TranscriptionError.transcriptionTimedOut(self.localTranscriptionTimeoutSeconds)
                 }
 
@@ -117,7 +116,7 @@ class TranscriptionService {
 
                 let timeoutTask = Task {
                     do {
-                        try await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+                        try await Task.sleep(for: .seconds(timeoutSeconds))
                         raceState.finish(.failure(TranscriptionError.transcriptionTimedOut(timeoutSeconds)))
                     } catch is CancellationError {
                     } catch {
@@ -653,7 +652,7 @@ enum TranscriptionError: LocalizedError {
     }
 }
 
-private final class TranscriptionTimeoutRaceState {
+private final class TranscriptionTimeoutRaceState: @unchecked Sendable {
     private let lock = NSLock()
     private var didFinish = false
     private var continuation: CheckedContinuation<String, Error>?

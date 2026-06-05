@@ -169,16 +169,16 @@ public struct ModelConfiguration {
         var cleaned = text
         
         // First, replace fully closed tags: <think>...</think>
-        // We use a group with + to catch multiple consecutive think blocks.
-        let closedRegexPattern = "^(?:\\s*<think>[\\s\\S]*?</think>)+"
+        // Match anywhere in the text so blocks after leading content are stripped too.
+        let closedRegexPattern = "<think>[\\s\\S]*?</think>"
         if let regex = try? NSRegularExpression(pattern: closedRegexPattern, options: []) {
             let range = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
             cleaned = regex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
         }
         
         // Next, if there is an unclosed <think> tag remaining (meaning it started thinking but got truncated),
-        // we strip from the opening <think> tag to the very end of the string.
-        let openRegexPattern = "^\\s*<think>[\\s\\S]*$"
+        // strip from the first remaining <think> tag to the very end of the string.
+        let openRegexPattern = "<think>[\\s\\S]*$"
         if let regex = try? NSRegularExpression(pattern: openRegexPattern, options: []) {
             let range = NSRange(cleaned.startIndex..<cleaned.endIndex, in: cleaned)
             cleaned = regex.stringByReplacingMatches(in: cleaned, options: [], range: range, withTemplate: "")
