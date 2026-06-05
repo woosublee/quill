@@ -8,6 +8,20 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.5] - 2026-06-05
+
+### Added
+
+- Model picker dropdowns in Settings for the post-processing, fallback, context, and transcription models, including qwen3-32b and a Custom entry for any other model ID.
+
+### Improved
+
+- Post-processing handles reasoning-model output more cleanly, stripping `<think>` tags and normalizing providerless model aliases.
+
+### Fixed
+
+- Transcription no longer hangs indefinitely when a provider accepts the connection but never returns a response.
+
 ## [0.1.4] - 2026-05-31
 
 ### Improved
