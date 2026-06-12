@@ -1218,7 +1218,7 @@ struct GeneralSettingsView: View {
                         Text("Check for Updates Now")
                     }
                 }
-                .disabled(updateManager.isChecking || updateManager.updateStatus != .idle)
+                .disabled(updateManager.isChecking)
 
                 if let lastCheck = updateManager.lastCheckDate {
                     Text("Last checked: \(lastCheck.formatted(date: .abbreviated, time: .shortened))")
@@ -1227,36 +1227,26 @@ struct GeneralSettingsView: View {
                 }
             }
 
-            if updateManager.updateAvailable {
+            Text("Updates are delivered by Sparkle and verified before installation.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if updateManager.updateAvailable || updateManager.updateStatus != .idle {
                 VStack(alignment: .leading, spacing: 8) {
                     switch updateManager.updateStatus {
                     case .downloading:
                         HStack(spacing: 8) {
-                            Image(systemName: "arrow.down.circle.fill")
-                                .foregroundStyle(.blue)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Downloading update...")
-                                    .font(.caption.weight(.semibold))
-                                ProgressView(value: updateManager.downloadProgress ?? 0)
-                                    .progressViewStyle(.linear)
-                                if let progress = updateManager.downloadProgress {
-                                    Text("\(Int(progress * 100))%")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            Spacer()
-                            Button("Cancel") {
-                                updateManager.cancelDownload()
-                            }
-                            .font(.caption)
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Downloading update...")
+                                .font(.caption.weight(.semibold))
                         }
 
                     case .installing:
                         HStack(spacing: 8) {
                             ProgressView()
                                 .controlSize(.small)
-                            Text("Installing update...")
+                            Text("Preparing update...")
                                 .font(.caption.weight(.semibold))
                         }
 
@@ -1276,10 +1266,9 @@ struct GeneralSettingsView: View {
                                 .font(.caption)
                                 .foregroundStyle(.red)
                             Spacer()
-                            Button("Retry") {
-                                updateManager.updateStatus = .idle
-                                if let release = updateManager.latestRelease {
-                                    updateManager.downloadAndInstall(release: release)
+                            Button("Check Again") {
+                                Task {
+                                    await updateManager.checkForUpdates(userInitiated: true)
                                 }
                             }
                             .font(.caption)
@@ -1299,9 +1288,7 @@ struct GeneralSettingsView: View {
                             }
                             .font(.caption)
                             Button("Update Now") {
-                                if let release = updateManager.latestRelease {
-                                    updateManager.downloadAndInstall(release: release)
-                                }
+                                updateManager.showUpdateAlert()
                             }
                             .font(.caption)
                         }

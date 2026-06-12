@@ -381,19 +381,18 @@ struct MenuBarView: View {
             }
             .disabled(updateManager.isChecking)
 
-            if updateManager.updateAvailable {
+            if updateManager.updateAvailable || updateManager.updateStatus != .idle {
                 Divider()
 
                 switch updateManager.updateStatus {
                 case .downloading:
-                    VStack(spacing: 4) {
-                        Text("Downloading update... \(Int((updateManager.downloadProgress ?? 0) * 100))%")
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Downloading update...")
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white)
-                        ProgressView(value: updateManager.downloadProgress ?? 0)
-                            .progressViewStyle(.linear)
-                            .tint(.white)
                     }
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity)
@@ -403,7 +402,7 @@ struct MenuBarView: View {
                     HStack(spacing: 6) {
                         ProgressView()
                             .controlSize(.small)
-                        Text("Installing update...")
+                        Text("Preparing update...")
                             .font(.caption.weight(.semibold))
                     }
                     .foregroundStyle(.white)
@@ -412,7 +411,21 @@ struct MenuBarView: View {
                     .frame(maxWidth: .infinity)
                     .background(Color.blue)
 
-                default:
+                case .error(let message):
+                    Button {
+                        updateManager.showUpdateAlert()
+                    } label: {
+                        Label(message, systemImage: "exclamationmark.triangle.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.red)
+
+                case .idle:
                     Button {
                         updateManager.showUpdateAlert()
                     } label: {

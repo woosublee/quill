@@ -18,7 +18,11 @@ GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET ?=
 -include .env
 CONTENTS = $(APP_BUNDLE)/Contents
 MACOS_DIR = $(CONTENTS)/MacOS
+FRAMEWORKS = $(CONTENTS)/Frameworks
 BUILD_SETTINGS = $(BUILD_DIR)/.build-settings
+SPARKLE_STAMP = $(BUILD_DIR)/.sparkle-framework
+SPARKLE_VERSION ?= 2.9.2
+SPARKLE_FRAMEWORK_FIND = find .build/artifacts -path '*/Sparkle.framework' -type d -print -quit
 empty :=
 space := $(empty) $(empty)
 APP_EXECUTABLE = $(MACOS_DIR)/$(APP_NAME)
@@ -49,19 +53,44 @@ $(BUILD_SETTINGS): FORCE
 	@printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' "$(APP_NAME)" "$(BUNDLE_ID)" "$(APP_VERSION)" "$(BUILD_NUMBER)" "$(BUILD_TAG)" "$(GOOGLE_CALENDAR_OAUTH_CLIENT_ID)" "$(GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET)" "$(CODESIGN_IDENTITY)" > "$@.tmp"
 	@if [ ! -f "$@" ] || ! cmp -s "$@.tmp" "$@"; then mv "$@.tmp" "$@"; else rm "$@.tmp"; fi
 
-$(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS) $(BUILD_SETTINGS)
-	@mkdir -p "$(MACOS_DIR)" "$(RESOURCES)"
+$(SPARKLE_STAMP): Package.swift BuildSupport/SparkleResolver/main.swift
+	@swift build --product SparkleResolver >/dev/null
+	@mkdir -p "$(BUILD_DIR)"
+	@framework="$$($(SPARKLE_FRAMEWORK_FIND))"; \
+		if [ -z "$$framework" ]; then \
+			echo "Missing Sparkle.framework artifact after swift build." >&2; \
+			exit 1; \
+		fi; \
+		printf '%s\n' "$$framework" > "$@"
+
+$(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS) $(BUILD_SETTINGS) $(SPARKLE_STAMP)
+	@mkdir -p "$(MACOS_DIR)" "$(RESOURCES)" "$(FRAMEWORKS)"
+	@framework="$(shell cat $(SPARKLE_STAMP) 2>/dev/null)"; \
+		if [ -z "$$framework" ] || [ ! -d "$$framework" ]; then \
+			echo "Missing Sparkle.framework artifact. Run swift package resolve first." >&2; \
+			exit 1; \
+		fi; \
+		rm -rf "$(FRAMEWORKS)/Sparkle.framework"; \
+		ditto --norsrc --noextattr "$$framework" "$(FRAMEWORKS)/Sparkle.framework"
 ifeq ($(ARCH),universal)
+	@framework="$(shell cat $(SPARKLE_STAMP) 2>/dev/null)"; framework_parent="$$(dirname "$$framework")"; \
 	swiftc \
 		-parse-as-library \
+		-F "$$framework_parent" \
+		-framework Sparkle \
+		-Xlinker -rpath -Xlinker @executable_path/../Frameworks \
 		-o "$(MACOS_DIR)/$(APP_NAME)-arm64" \
-		-sdk $(shell xcrun --show-sdk-path) \
+		-sdk $(shell xcrun --sdk macosx --show-sdk-path) \
 		-target arm64-apple-macosx13.0 \
 		$(SOURCES)
+	@framework="$(shell cat $(SPARKLE_STAMP) 2>/dev/null)"; framework_parent="$$(dirname "$$framework")"; \
 	swiftc \
 		-parse-as-library \
+		-F "$$framework_parent" \
+		-framework Sparkle \
+		-Xlinker -rpath -Xlinker @executable_path/../Frameworks \
 		-o "$(MACOS_DIR)/$(APP_NAME)-x86_64" \
-		-sdk $(shell xcrun --show-sdk-path) \
+		-sdk $(shell xcrun --sdk macosx --show-sdk-path) \
 		-target x86_64-apple-macosx13.0 \
 		$(SOURCES)
 	lipo -create -output "$(MACOS_DIR)/$(APP_NAME)" \
@@ -69,10 +98,14 @@ ifeq ($(ARCH),universal)
 		"$(MACOS_DIR)/$(APP_NAME)-x86_64"
 	@rm "$(MACOS_DIR)/$(APP_NAME)-arm64" "$(MACOS_DIR)/$(APP_NAME)-x86_64"
 else
+	@framework="$(shell cat $(SPARKLE_STAMP) 2>/dev/null)"; framework_parent="$$(dirname "$$framework")"; \
 	swiftc \
 		-parse-as-library \
+		-F "$$framework_parent" \
+		-framework Sparkle \
+		-Xlinker -rpath -Xlinker @executable_path/../Frameworks \
 		-o "$(MACOS_DIR)/$(APP_NAME)" \
-		-sdk $(shell xcrun --show-sdk-path) \
+		-sdk $(shell xcrun --sdk macosx --show-sdk-path) \
 		-target $(ARCH)-apple-macosx13.0 \
 		$(SOURCES)
 endif
@@ -92,6 +125,17 @@ endif
 	@mkdir -p "$(BUILD_DIR)/codesign-staging"
 	@ditto --norsrc --noextattr "$(APP_BUNDLE)" "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app"
 	@xattr -cr "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app"
+	@staged_framework="$(BUILD_DIR)/codesign-staging/$(APP_NAME).app/Contents/Frameworks/Sparkle.framework"; \
+		if [ -d "$$staged_framework/Versions/Current/XPCServices" ]; then \
+			find -L "$$staged_framework/Versions/Current/XPCServices" -maxdepth 1 -name '*.xpc' -type d -exec codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" {} \; ; \
+		fi; \
+		if [ -d "$$staged_framework/Versions/Current/Updater.app" ]; then \
+			codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" "$$staged_framework/Versions/Current/Updater.app"; \
+		fi; \
+		if [ -x "$$staged_framework/Versions/Current/Autoupdate" ]; then \
+			codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" "$$staged_framework/Versions/Current/Autoupdate"; \
+		fi; \
+		codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" "$$staged_framework"
 	@codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" --entitlements Quill.entitlements "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app"
 	@rm -rf "$(APP_BUNDLE)"
 	@ditto --norsrc --noextattr "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app" "$(APP_BUNDLE)"
@@ -187,7 +231,7 @@ print-version-metadata:
 
 FORCE:
 
-test:
+test: $(SPARKLE_STAMP)
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/CalendarEventMatcher.swift Tests/CalendarEventMatcherTests.swift -o /tmp/CalendarEventMatcherTests
 	@swiftc -parse-as-library Sources/AppName.swift Sources/ModifierKeyEventState.swift Sources/ShortcutCore/ShortcutModels.swift Sources/ShortcutCore/ShortcutMatcher.swift Sources/GlobalShortcutBackend.swift Sources/HotkeyManager.swift Tests/ShortcutMatcherTests.swift -o /tmp/ShortcutMatcherTests
 	@swiftc -parse-as-library Sources/ShortcutCore/ShortcutModels.swift Sources/ShortcutBinding.swift Sources/ShortcutCaptureKeyHandling.swift Tests/ShortcutCaptureKeyHandlingTests.swift -o /tmp/ShortcutCaptureKeyHandlingTests
@@ -204,7 +248,7 @@ test:
 	@/tmp/LegacyNoteTitleMigrationTests
 	@swiftc -parse-as-library Tests/ManualReleaseWorkflowTests.swift -o /tmp/ManualReleaseWorkflowTests
 	@/tmp/ManualReleaseWorkflowTests
-	@swiftc -parse-as-library Sources/UpdateManager.swift Tests/UpdateManagerSafetyTests.swift -o /tmp/UpdateManagerSafetyTests
+	@framework="$$(cat "$(SPARKLE_STAMP)")"; framework_parent="$$(dirname "$$framework")"; swiftc -parse-as-library -F "$$framework_parent" -framework Sparkle -Xlinker -rpath -Xlinker "$$framework_parent" Sources/UpdateManager.swift Tests/UpdateManagerSafetyTests.swift -o /tmp/UpdateManagerSafetyTests
 	@/tmp/UpdateManagerSafetyTests
 	@swiftc -parse-as-library Tests/BuildMetadataTests.swift -o /tmp/BuildMetadataTests
 	@/tmp/BuildMetadataTests
@@ -240,5 +284,5 @@ test:
 	@/tmp/UpstreamMergeBehaviorTests
 	@swiftc -parse-as-library Sources/OverlayScreenGeometry.swift Sources/FixedIntrinsicHostingView.swift Sources/ShortcutCore/ShortcutModels.swift Sources/RecordingOverlay.swift Sources/CalendarIntegrationModels.swift Sources/AppNotificationManager.swift Sources/CalendarRecordingReminderScheduler.swift Sources/MeetingReminderOverlay.swift Tests/MeetingReminderOverlayGeometryTests.swift -o /tmp/MeetingReminderOverlayGeometryTests
 	@/tmp/MeetingReminderOverlayGeometryTests
-	@swiftc -parse-as-library -target $(shell uname -m)-apple-macosx13.0 $(filter-out Sources/App.swift,$(SOURCES)) Tests/AppStateTranscriptionConfigurationTests.swift -o /tmp/AppStateTranscriptionConfigurationTests
+	@framework="$$(cat "$(SPARKLE_STAMP)")"; framework_parent="$$(dirname "$$framework")"; swiftc -parse-as-library -F "$$framework_parent" -framework Sparkle -Xlinker -rpath -Xlinker "$$framework_parent" -target $(shell uname -m)-apple-macosx13.0 $(filter-out Sources/App.swift,$(SOURCES)) Tests/AppStateTranscriptionConfigurationTests.swift -o /tmp/AppStateTranscriptionConfigurationTests
 	@/tmp/AppStateTranscriptionConfigurationTests

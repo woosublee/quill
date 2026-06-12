@@ -67,12 +67,8 @@ jobs:
             RELEASE_NAME="Quill $TAG"
           fi
 
-          IS_PRERELEASE=false
-          MAKE_LATEST=true
-          if [[ "$VERSION" == *-* ]]; then
-            IS_PRERELEASE=true
-            MAKE_LATEST=false
-          fi
+          IS_PRERELEASE=true
+          MAKE_LATEST=false
 
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -107,7 +103,7 @@ jobs:
         run: make dmg ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY=- APP_VERSION="${{ steps.metadata.outputs.version }}" BUILD_NUMBER="${{ steps.metadata.outputs.build_number }}" BUILD_TAG="${{ steps.metadata.outputs.tag }}"
 
       - name: Save DMG
-        run: mv build/Quill.dmg Quill.dmg
+        run: mv build/Quill.dmg Quill-Manual.dmg
 
       - name: Build release notes
         id: release_notes
@@ -122,7 +118,7 @@ jobs:
             echo
             echo "## Installation note"
             echo
-            echo "This is a release build from ${{ github.repository }}."
+            echo "This is a manual release build from ${{ github.repository }}. It is not used by Sparkle automatic updates."
             echo
             echo "- macOS may show a first-launch security warning."
             echo "- If that happens, open System Settings > Privacy & Security and choose Open Anyway."
@@ -130,7 +126,7 @@ jobs:
             echo
             echo "## Download"
             echo
-            echo "**Quill.dmg** — Universal build for Apple Silicon and Intel Macs."
+            echo "**Quill-Manual.dmg** — Universal build for Apple Silicon and Intel Macs."
             if [ -n "$RELEASE_NOTES" ]; then
               echo
               echo "## Additional notes"
@@ -151,4 +147,4 @@ jobs:
           make_latest: ${{ steps.metadata.outputs.make_latest }}
           prerelease: ${{ steps.metadata.outputs.prerelease }}
           files: |
-            Quill.dmg
+            Quill-Manual.dmg

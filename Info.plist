@@ -22,6 +22,16 @@
     <string>13.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>SUFeedURL</key>
+    <string>https://github.com/woosublee/quill/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>CnlcVsnQ8m/2VyZD7xL4ovP/ukAJtDJY19aVlfOSoOg=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUAutomaticallyUpdate</key>
+    <false/>
+    <key>SUUpdateCheckInterval</key>
+    <integer>604800</integer>
     <key>GoogleCalendarOAuthClientID</key>
     <string></string>
     <key>GoogleCalendarOAuthClientSecret</key>
