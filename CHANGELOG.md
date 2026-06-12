@@ -8,6 +8,13 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.7] - 2026-06-13
+
+### Improved
+
+- Adopted the upstream permission polling fix so Accessibility and Screen Recording polling stops once both permissions are granted.
+- Re-checks Accessibility trust immediately before recording starts to avoid stale permission state.
+
 ## [0.1.6] - 2026-06-13
 
 ### Added
