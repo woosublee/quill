@@ -2592,6 +2592,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     func startAccessibilityPolling() {
         accessibilityTimer?.invalidate()
         accessibilityTimer = nil
@@ -2616,6 +2617,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     func stopAccessibilityPolling() {
         accessibilityTimer?.invalidate()
         accessibilityTimer = nil
