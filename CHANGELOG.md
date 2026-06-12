@@ -8,6 +8,17 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.6] - 2026-06-13
+
+### Added
+
+- Replaced the custom in-app updater with Sparkle 2, including Sparkle-signed appcast generation for future updates.
+
+### Improved
+
+- Kept the stable `Quill.dmg` release asset as the bridge path for existing installs using the previous updater.
+- Separated manual ad-hoc release artifacts from the stable update channel.
+
 ## [0.1.5] - 2026-06-05
 
 ### Added
