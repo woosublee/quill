@@ -11,6 +11,7 @@ struct BuildMetadataTests {
         try testMakefileStripsExtendedAttributesDuringCodesignStaging()
         try testMakefileStripsExtendedAttributesDuringDmgStaging()
         try testMakefileCreatesDmgWithoutFinderMetadata()
+        try testSparkleMetadataAndBuildIntegration()
         try testReleaseWorkflowsPassBuildMetadataToMake()
         try testNotarizedReleaseWorkflowIsManualByDefault()
         try testSettingsSeparatesVersionBuildAndReleaseTag()
@@ -118,6 +119,33 @@ struct BuildMetadataTests {
         assertDoesNotContain(makefile, "-size 120m")
     }
 
+    private static func testSparkleMetadataAndBuildIntegration() throws {
+        let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
+        let infoPlist = try String(contentsOfFile: "Info.plist", encoding: .utf8)
+        let package = try String(contentsOfFile: "Package.swift", encoding: .utf8)
+
+        assertContains(package, #".package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.9.2")"#)
+        assertContains(package, #".product(name: "Sparkle", package: "Sparkle")"#)
+        assertContains(infoPlist, "<key>SUFeedURL</key>")
+        assertContains(infoPlist, "https://github.com/woosublee/quill/releases/latest/download/appcast.xml")
+        assertContains(infoPlist, "<key>SUPublicEDKey</key>")
+        assertContains(infoPlist, "CnlcVsnQ8m/2VyZD7xL4ovP/ukAJtDJY19aVlfOSoOg=")
+        assertContains(infoPlist, "<key>SUEnableAutomaticChecks</key>")
+        assertContains(infoPlist, "<key>SUAutomaticallyUpdate</key>")
+        assertContains(infoPlist, "<key>SUUpdateCheckInterval</key>")
+        assertContains(infoPlist, "<integer>604800</integer>")
+
+        assertContains(makefile, "SPARKLE_VERSION ?= 2.9.2")
+        assertContains(makefile, "swift build --product SparkleResolver")
+        assertContains(makefile, "Sparkle.framework")
+        assertContains(makefile, "-framework Sparkle")
+        assertContains(makefile, "@executable_path/../Frameworks")
+        assertContains(makefile, "Contents/Frameworks")
+        assertContains(makefile, "Versions/Current/XPCServices")
+        assertContains(makefile, "Versions/Current/Updater.app")
+        assertContains(makefile, "Versions/Current/Autoupdate")
+    }
+
     private static func testReleaseWorkflowsPassBuildMetadataToMake() throws {
         let manualReleaseWorkflow = try String(contentsOfFile: ".github/workflows/manual-release.yml", encoding: .utf8)
         let releaseWorkflow = try String(contentsOfFile: ".github/workflows/release.yml", encoding: .utf8)
@@ -148,6 +176,11 @@ struct BuildMetadataTests {
         assertContains(devReleaseWorkflow, #"plutil -replace CFBundleVersion -string "${{ steps.version.outputs.build_number }}" Info.plist"#)
         assertDoesNotContain(devReleaseWorkflow, #"plutil -replace CFBundleVersion -string "${{ github.run_number }}" Info.plist"#)
         assertContains(devReleaseWorkflow, #"plutil -replace QuillBuildTag -string "${{ steps.version.outputs.build_tag }}" Info.plist"#)
+        assertContains(releaseWorkflow, "Generate Sparkle appcast")
+        assertContains(releaseWorkflow, "SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}")
+        assertContains(releaseWorkflow, "scripts/generate-sparkle-appcast.sh")
+        assertContains(releaseWorkflow, "appcast.xml")
+        assertContains(releaseWorkflow, "Quill.dmg")
         assertDoesNotContain(devReleaseWorkflow, "plutil -replace FreeFlowBuildTag")
     }
 

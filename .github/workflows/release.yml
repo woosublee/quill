@@ -92,6 +92,7 @@ jobs:
       #   APPLE_ID — Apple ID email for notarization
       #   APPLE_TEAM_ID — 10-character Apple Team ID
       #   APPLE_APP_PASSWORD — app-specific password for notarization
+      #   SPARKLE_PRIVATE_KEY — Sparkle EdDSA private key for appcast signing
       - name: Import Developer ID certificate
         env:
           CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
@@ -157,6 +158,16 @@ jobs:
       - name: Save universal DMG
         run: mv build/Quill.dmg Quill.dmg
 
+      - name: Generate Sparkle appcast
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+          DMG_PATH: Quill.dmg
+          APPCAST_PATH: appcast.xml
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: scripts/generate-sparkle-appcast.sh
+
       - name: Create tag
         run: |
           git tag "${{ steps.version.outputs.tag }}" "$GITHUB_SHA"
@@ -173,6 +184,7 @@ jobs:
           make_latest: true
           files: |
             Quill.dmg
+            appcast.xml
 
       - name: Cleanup signing artifacts
         if: always()
