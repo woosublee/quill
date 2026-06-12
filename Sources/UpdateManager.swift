@@ -143,8 +143,8 @@ final class UpdateManager: NSObject, ObservableObject {
         startUpdaterIfNeeded()
         guard updaterController.updater.canCheckForUpdates else { return }
 
-        isChecking = true
         if userInitiated {
+            isChecking = true
             updaterController.checkForUpdates(nil)
         }
     }

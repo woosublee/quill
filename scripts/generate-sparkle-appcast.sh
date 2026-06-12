@@ -23,7 +23,7 @@ require_env() {
 
 sparkle_private_key() {
   if [[ -n "${SPARKLE_PRIVATE_KEY:-}" ]]; then
-    printf '%s' "$SPARKLE_PRIVATE_KEY"
+    printf '%s\n' "$SPARKLE_PRIVATE_KEY"
     return
   fi
 
@@ -96,12 +96,12 @@ release_notes_url="https://github.com/${REPOSITORY}/releases/tag/${RELEASE_TAG}"
 appcast_dir="$(dirname "$APPCAST_PATH")"
 mkdir -p "$appcast_dir"
 
-escaped_app_name="$(printf '%s' "$APP_NAME" | xml_escape)"
-escaped_version="$(printf '%s' "$VERSION" | xml_escape)"
-escaped_build="$(printf '%s' "$BUILD_NUMBER" | xml_escape)"
-escaped_dmg_url="$(printf '%s' "$dmg_url" | xml_escape)"
-escaped_release_notes_url="$(printf '%s' "$release_notes_url" | xml_escape)"
-escaped_signature="$(printf '%s' "$ed_signature" | xml_escape)"
+escaped_app_name="$(printf '%s\n' "$APP_NAME" | xml_escape)"
+escaped_version="$(printf '%s\n' "$VERSION" | xml_escape)"
+escaped_build="$(printf '%s\n' "$BUILD_NUMBER" | xml_escape)"
+escaped_dmg_url="$(printf '%s\n' "$dmg_url" | xml_escape)"
+escaped_release_notes_url="$(printf '%s\n' "$release_notes_url" | xml_escape)"
+escaped_signature="$(printf '%s\n' "$ed_signature" | xml_escape)"
 
 cat > "$APPCAST_PATH" <<EOF
 <?xml version="1.0" encoding="utf-8"?>

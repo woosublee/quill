@@ -65,7 +65,7 @@ $(SPARKLE_STAMP): Package.swift BuildSupport/SparkleResolver/main.swift
 
 $(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS) $(BUILD_SETTINGS) $(SPARKLE_STAMP)
 	@mkdir -p "$(MACOS_DIR)" "$(RESOURCES)" "$(FRAMEWORKS)"
-	@framework="$(shell cat $(SPARKLE_STAMP) 2>/dev/null)"; \
+	@framework="$$(cat "$(SPARKLE_STAMP)" 2>/dev/null)"; \
 		if [ -z "$$framework" ] || [ ! -d "$$framework" ]; then \
 			echo "Missing Sparkle.framework artifact. Run swift package resolve first." >&2; \
 			exit 1; \
@@ -73,7 +73,7 @@ $(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS) $(BUILD_SETTINGS) $
 		rm -rf "$(FRAMEWORKS)/Sparkle.framework"; \
 		ditto --norsrc --noextattr "$$framework" "$(FRAMEWORKS)/Sparkle.framework"
 ifeq ($(ARCH),universal)
-	@framework="$(shell cat $(SPARKLE_STAMP) 2>/dev/null)"; framework_parent="$$(dirname "$$framework")"; \
+	@framework="$$(cat "$(SPARKLE_STAMP)" 2>/dev/null)"; framework_parent="$$(dirname "$$framework")"; \
 	swiftc \
 		-parse-as-library \
 		-F "$$framework_parent" \
@@ -83,7 +83,7 @@ ifeq ($(ARCH),universal)
 		-sdk $(shell xcrun --sdk macosx --show-sdk-path) \
 		-target arm64-apple-macosx13.0 \
 		$(SOURCES)
-	@framework="$(shell cat $(SPARKLE_STAMP) 2>/dev/null)"; framework_parent="$$(dirname "$$framework")"; \
+	@framework="$$(cat "$(SPARKLE_STAMP)" 2>/dev/null)"; framework_parent="$$(dirname "$$framework")"; \
 	swiftc \
 		-parse-as-library \
 		-F "$$framework_parent" \
@@ -98,7 +98,7 @@ ifeq ($(ARCH),universal)
 		"$(MACOS_DIR)/$(APP_NAME)-x86_64"
 	@rm "$(MACOS_DIR)/$(APP_NAME)-arm64" "$(MACOS_DIR)/$(APP_NAME)-x86_64"
 else
-	@framework="$(shell cat $(SPARKLE_STAMP) 2>/dev/null)"; framework_parent="$$(dirname "$$framework")"; \
+	@framework="$$(cat "$(SPARKLE_STAMP)" 2>/dev/null)"; framework_parent="$$(dirname "$$framework")"; \
 	swiftc \
 		-parse-as-library \
 		-F "$$framework_parent" \
