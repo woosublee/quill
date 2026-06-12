@@ -11,6 +11,7 @@ struct BuildMetadataTests {
         try testMakefileStripsExtendedAttributesDuringCodesignStaging()
         try testMakefileStripsExtendedAttributesDuringDmgStaging()
         try testMakefileCreatesDmgWithoutFinderMetadata()
+        try testSparkleEntitlementsAllowFrameworkLoading()
         try testSparkleMetadataAndBuildIntegration()
         try testReleaseWorkflowsPassBuildMetadataToMake()
         try testNotarizedReleaseWorkflowIsManualByDefault()
@@ -117,6 +118,13 @@ struct BuildMetadataTests {
         assertDoesNotContain(makefile, "fileicon set")
         assertDoesNotContain(makefile, "hdiutil create -srcfolder")
         assertDoesNotContain(makefile, "-size 120m")
+    }
+
+    private static func testSparkleEntitlementsAllowFrameworkLoading() throws {
+        let entitlements = try String(contentsOfFile: "Quill.entitlements", encoding: .utf8)
+
+        assertContains(entitlements, "<key>com.apple.security.device.audio-input</key>")
+        assertContains(entitlements, "<key>com.apple.security.cs.disable-library-validation</key>")
     }
 
     private static func testSparkleMetadataAndBuildIntegration() throws {
