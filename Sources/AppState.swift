@@ -2592,12 +2592,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     func startAccessibilityPolling() {
         accessibilityTimer?.invalidate()
+        accessibilityTimer = nil
         updatePermissionStatus(
             accessibility: AXIsProcessTrusted(),
             screenRecording: hasScreenCapturePermission()
         )
+        if hasAccessibility && hasScreenRecordingPermission {
+            return
+        }
         accessibilityTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -2605,10 +2610,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     accessibility: AXIsProcessTrusted(),
                     screenRecording: self.hasScreenCapturePermission()
                 )
+                if self.hasAccessibility && self.hasScreenRecordingPermission {
+                    self.stopAccessibilityPolling()
+                }
             }
         }
     }
 
+    @MainActor
     func stopAccessibilityPolling() {
         accessibilityTimer?.invalidate()
         accessibilityTimer = nil
@@ -3553,7 +3562,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         startedAt: CFAbsoluteTime? = nil
     ) async -> Bool {
         activeRecordingTriggerMode = triggerMode
-        guard hasAccessibility else {
+        let isAccessibilityTrusted = AXIsProcessTrusted()
+        hasAccessibility = isAccessibilityTrusted
+        guard isAccessibilityTrusted else {
             errorMessage = "Accessibility permission required. Grant access in System Settings > Privacy & Security > Accessibility."
             statusText = "No Accessibility"
             activeRecordingTriggerMode = nil
