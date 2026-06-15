@@ -242,6 +242,8 @@ test: $(SPARKLE_STAMP)
 	@/tmp/CalendarEventMatcherTests
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Tests/NoteTitleResolutionTests.swift -o /tmp/NoteTitleResolutionTests
 	@/tmp/NoteTitleResolutionTests
+	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/MeetingSourcePayload.swift Tests/MeetingSourcePayloadTests.swift -o /tmp/MeetingSourcePayloadTests
+	@/tmp/MeetingSourcePayloadTests
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Sources/NoteListRowDisplayData.swift Tests/NoteListRowDisplayDataTests.swift -o /tmp/NoteListRowDisplayDataTests
 	@/tmp/NoteListRowDisplayDataTests
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/LegacyNoteTitleMigration.swift Tests/LegacyNoteTitleMigrationTests.swift -o /tmp/LegacyNoteTitleMigrationTests
