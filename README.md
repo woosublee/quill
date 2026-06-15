@@ -89,6 +89,7 @@ Available MCP tools:
 - `get_status` — check whether Quill is idle, recording, or transcribing.
 - `list_transcripts` — list recent transcript history entries.
 - `get_transcript` — fetch a specific transcript by id.
+- `get_meeting_source` — fetch structured meeting data for a transcript id as JSON (resolved title, ISO 8601 timestamps, calendar match, attendees, audio file path, transcript, and context) for meeting-note generation.
 
 Notes:
 
