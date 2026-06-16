@@ -2153,6 +2153,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let currentInputID = activeAudioInputID ?? selectedMicrophoneID
         guard !AudioInputDevice.isSameInput(newInputID, currentInputID) else { return }
 
+        // Verify access to the new input BEFORE stopping the current recorder.
+        // A failed start (e.g. System Audio without Screen Recording permission)
+        // runs handleRecordingFailure, which would discard the whole in-progress
+        // recording. Use non-prompting checks so we don't trigger the
+        // recording-start permission UI / state resets mid-session.
+        guard canAccessRecordingInput(newInputID) else {
+            errorMessage = recordingInputAccessErrorMessage(for: newInputID)
+            return
+        }
+
         liveTranscriber = nil
         tearDownRealtimeService()
         setActiveRecorderPCMHandler(nil)
@@ -2217,6 +2227,31 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             }
         }
+    }
+
+    /// Non-prompting permission check for switching to an input mid-recording.
+    /// Unlike ensureRecordingInputAccess(for:) this has no side effects (no
+    /// prompts, no error UI, no session-state resets).
+    private func canAccessRecordingInput(_ inputID: String) -> Bool {
+        let microphoneGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        if AudioInputDevice.isSystemDefaultAndSystemAudio(inputID) {
+            return microphoneGranted && hasScreenCapturePermission()
+        }
+        if AudioInputDevice.isSystemAudio(inputID) {
+            return hasScreenCapturePermission()
+        }
+        return microphoneGranted
+    }
+
+    private func recordingInputAccessErrorMessage(for inputID: String) -> String {
+        let tail = "Recording continues on the current input."
+        if AudioInputDevice.isSystemDefaultAndSystemAudio(inputID) {
+            return "Couldn't switch input: System Default + System Audio needs Microphone and Screen & System Audio Recording access (System Settings > Privacy & Security). \(tail)"
+        }
+        if AudioInputDevice.isSystemAudio(inputID) {
+            return "Couldn't switch input: System Audio needs Screen & System Audio Recording access (System Settings > Privacy & Security). \(tail)"
+        }
+        return "Couldn't switch input: Microphone access is required (System Settings > Privacy & Security). \(tail)"
     }
 
     /// Removes any captured segment temp files and resets the switch state.
