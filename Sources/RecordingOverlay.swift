@@ -159,6 +159,8 @@ final class RecordingOverlayManager {
 
     private typealias NotchSideGeometry = OverlayScreenGeometry.NotchSideGeometry
     private static let maxToastMessageLength = 90
+    /// Fixed height of the centered pill on notched displays (sits below the notch).
+    private static let overlayPillHeight: CGFloat = 38
 
     var onStopButtonPressed: (() -> Void)?
     var onUpdateOverlayPressed: (() -> Void)?
@@ -469,8 +471,19 @@ final class RecordingOverlayManager {
         }
 
         let width = overlayWidth
-        let overlap = screenHasTopSafeArea ? notchOverlap : 0
-        let height: CGFloat = 38 + overlap
+        let height: CGFloat
+        if screenHasTopSafeArea {
+            // Notched displays: the pill sits below the notch/menu bar, so add
+            // the menu bar gap on top of the fixed pill height.
+            height = Self.overlayPillHeight + notchOverlap
+        } else {
+            // No notch: match the menu bar height so the overlay occupies exactly
+            // the menu bar area instead of overflowing below it. This is shared
+            // with the reminder overlay's top strip so the two stay aligned when
+            // shown together. The overlay content is <=20pt tall, so the floor
+            // keeps it from clipping.
+            height = screenGeometry.menuBarStripHeight
+        }
         return screenGeometry.centeredTopFrame(width: width, height: height)
     }
 

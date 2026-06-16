@@ -15,6 +15,7 @@ struct MeetingReminderOverlayGeometryTests {
         testRecordingCenterWithoutNotchUsesCenterVariant()
         testNotchSideWidthMatchesRecordingOverlayGeometry()
         testContextualSizesMatchFinalDesign()
+        testCenterRecordingMatchesIdleHeight()
         testFrameUsesSharedScreenGeometryForUpdatedFrames()
         testFrameUsesSharedNotchSideGeometryWidth()
         try testMeetingReminderUsesSharedScreenGeometry()
@@ -103,16 +104,50 @@ struct MeetingReminderOverlayGeometryTests {
     }
 
     private static func testContextualSizesMatchFinalDesign() {
-        assert(MeetingReminderOverlayGeometry.size(for: .defaultReminder, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 336, height: 92))
-        assert(MeetingReminderOverlayGeometry.size(for: .defaultReminder, screenWidth: 1_440, notchSideWidth: 404) == CGSize(width: 404, height: 92))
+        assert(MeetingReminderOverlayGeometry.size(for: .defaultReminder, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 336, height: 80))
+        assert(MeetingReminderOverlayGeometry.size(for: .defaultReminder, screenWidth: 1_440, notchSideWidth: 404) == CGSize(width: 404, height: 80))
         assert(MeetingReminderOverlayGeometry.size(for: .notchSidesRecording, screenWidth: 1_440, notchSideWidth: 330) == CGSize(width: 330, height: 92))
         assert(MeetingReminderOverlayGeometry.size(for: .notchSidesProcessing, screenWidth: 1_440, notchSideWidth: 330) == CGSize(width: 330, height: 92))
         assert(MeetingReminderOverlayGeometry.size(for: .notchCenterRecording, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 360, height: 112))
         assert(MeetingReminderOverlayGeometry.size(for: .notchCenterProcessing, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 360, height: 112))
         assert(MeetingReminderOverlayGeometry.size(for: .notchCenterRecording, screenWidth: 2_056, notchSideWidth: 404) == CGSize(width: 404, height: 112))
         assert(MeetingReminderOverlayGeometry.size(for: .notchCenterProcessing, screenWidth: 2_056, notchSideWidth: 404) == CGSize(width: 404, height: 112))
-        assert(MeetingReminderOverlayGeometry.size(for: .centerRecording, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 336, height: 92))
-        assert(MeetingReminderOverlayGeometry.size(for: .centerProcessing, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 336, height: 92))
+        assert(MeetingReminderOverlayGeometry.size(for: .centerRecording, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 336, height: 80))
+        assert(MeetingReminderOverlayGeometry.size(for: .centerProcessing, screenWidth: 1_440, notchSideWidth: nil) == CGSize(width: 336, height: 80))
+    }
+
+    private static func testCenterRecordingMatchesIdleHeight() {
+        // No-notch display with a 24pt menu bar. The pill and the reminder's top
+        // strip both derive from menuBarStripHeight so they align.
+        let geometry = OverlayScreenGeometry(
+            screenFrame: CGRect(x: 0, y: 0, width: 1_440, height: 900),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_440, height: 876)
+        )
+        assert(geometry.menuBarStripHeight == 24)
+
+        // Idle reminder and recording banner share one height so the card morphs
+        // smoothly when recording starts from a visible reminder.
+        let idle = MeetingReminderOverlayGeometry.frame(
+            for: geometry,
+            context: MeetingReminderOverlayContext(phase: .idle, layout: .centerDropdownFill)
+        )
+        let recording = MeetingReminderOverlayGeometry.frame(
+            for: geometry,
+            context: MeetingReminderOverlayContext(phase: .recording, layout: .centerDropdownFill)
+        )
+        assert(idle.height == MeetingReminderOverlayGeometry.centerReminderCardHeight)
+        assert(recording.height == MeetingReminderOverlayGeometry.centerReminderCardHeight)
+        assert(idle.height == recording.height)
+
+        // The single-line meeting row is centered in the area below the 24pt strip.
+        assert(MeetingReminderOverlayGeometry.centerRecordingRowTop(stripHeight: 24) == 42)
+
+        // Falls back to the floor when the display reports no menu bar.
+        let noMenuBar = OverlayScreenGeometry(
+            screenFrame: CGRect(x: 0, y: 0, width: 1_440, height: 900),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        )
+        assert(noMenuBar.menuBarStripHeight == OverlayScreenGeometry.minMenuBarStripHeight)
     }
 
     private static func testFrameUsesSharedScreenGeometryForUpdatedFrames() {
@@ -130,9 +165,9 @@ struct MeetingReminderOverlayGeometryTests {
         let updatedFrame = MeetingReminderOverlayGeometry.frame(for: updatedGeometry, context: context)
 
         assert(oldFrame.origin.x == 588)
-        assert(oldFrame.origin.y == 890)
+        assert(oldFrame.origin.y == 902)
         assert(updatedFrame.origin.x == 696)
-        assert(updatedFrame.origin.y == 1025)
+        assert(updatedFrame.origin.y == 1037)
     }
 
     private static func testFrameUsesSharedNotchSideGeometryWidth() {
