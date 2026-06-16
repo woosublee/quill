@@ -1060,7 +1060,9 @@ private struct InputMenuClickCatcher: NSViewRepresentable {
                 item.state = AudioInputDevice.isSameInput(option.id, selectedID) ? .on : .off
                 menu.addItem(item)
             }
-            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 4), in: self)
+            // Anchor just below the view's bottom-left so the menu drops downward
+            // consistently (NSView is not flipped, so y grows upward).
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: -4), in: self)
         }
 
         @objc private func selectOption(_ sender: NSMenuItem) {

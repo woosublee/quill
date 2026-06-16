@@ -2159,8 +2159,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
 
+        // All recorders deliver stopRecording's completion on the main thread
+        // (AudioRecorder, SystemAudioRecorder, SystemDefaultAndSystemAudioRecorder),
+        // matching the existing stopAndTranscribe path, so it is safe to touch
+        // main-actor state here.
         stopActiveAudioRecorder { [weak self] segmentURL in
             guard let self else { return }
+            // The session may have been stopped/cancelled while the old recorder
+            // was finishing. Don't start a new recorder in that case — it would
+            // leak a recording the app thinks has ended.
+            guard self.isRecording else {
+                if let segmentURL {
+                    try? FileManager.default.removeItem(at: segmentURL)
+                }
+                return
+            }
             if let segmentURL {
                 self.recordingSegmentURLs.append(segmentURL)
             }
