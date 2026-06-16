@@ -454,6 +454,23 @@ struct NoteBrowserView: View {
     // Down-chevron beside the Rec button to choose the audio input for the next
     // recording (mirrors the menu bar Microphone submenu). Disabled while
     // recording — switching the live input is done from the recording overlay.
+    // Starts/stops the Rec dot pulse. Stopping is wrapped in a finite animation
+    // so the repeatForever context is cleanly torn down (no idle CPU), and this
+    // is also called from onAppear so the pulse runs if the view opens while a
+    // recording is already in progress.
+    private func updateRecordingPulse(_ isRecording: Bool) {
+        if isRecording {
+            recordingPulse = false
+            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                recordingPulse = true
+            }
+        } else {
+            withAnimation(.default) {
+                recordingPulse = false
+            }
+        }
+    }
+
     private var inputPickerMenu: some View {
         // Custom chevron + an AppKit NSMenu on click, so the glyph is fully ours
         // (SwiftUI Menu draws its own fixed indicator that ignores label sizing)
@@ -527,13 +544,9 @@ struct NoteBrowserView: View {
                             .font(.system(size: 11, weight: .semibold))
                     }
                     .onChange(of: appState.isRecording) { isRecording in
-                        recordingPulse = false
-                        if isRecording {
-                            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-                                recordingPulse = true
-                            }
-                        }
+                        updateRecordingPulse(isRecording)
                     }
+                    .onAppear { updateRecordingPulse(appState.isRecording) }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
                     .background(appState.isRecording ? Color.orange : Color.red, in: Capsule())
@@ -1946,6 +1959,8 @@ private struct InputMenuCatcher: NSViewRepresentable {
         private var onSelect: ((String) -> Void)?
 
         override var isFlipped: Bool { true }
+        // Open the menu on the first click even when the window is in the background.
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
         func apply(
             sources: [(id: String, name: String)],
