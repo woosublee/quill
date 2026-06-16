@@ -289,6 +289,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let realtimeStreamingModelStorageKey = "realtime_streaming_model"
     private let dictationAudioInterruptionEnabledStorageKey = "dictation_audio_interruption_enabled"
     private let recordingOverlayLayoutStorageKey = "recording_overlay_layout"
+    private let overlayWaveformDisplayModeStorageKey = "overlay_waveform_display_mode"
     private let googleCalendarSelectedIDsStorageKey = "google_calendar_selected_ids"
     private let calendarRecordingRemindersEnabledStorageKey = "calendar_recording_reminders_enabled"
     private let legacyCalendarRecordingReminderLeadMinutesStorageKey = "calendar_recording_reminder_lead_minutes"
@@ -543,6 +544,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         didSet {
             UserDefaults.standard.set(recordingOverlayLayout.rawValue, forKey: recordingOverlayLayoutStorageKey)
             overlayManager.setRecordingOverlayLayout(recordingOverlayLayout)
+        }
+    }
+
+    @Published var overlayWaveformDisplayMode: OverlayWaveformDisplayMode {
+        didSet {
+            UserDefaults.standard.set(overlayWaveformDisplayMode.rawValue, forKey: overlayWaveformDisplayModeStorageKey)
+            overlayManager.setWaveformDisplayMode(overlayWaveformDisplayMode)
         }
     }
 
@@ -1165,6 +1173,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let recordingOverlayLayout = RecordingOverlayLayout.find(
             rawValue: UserDefaults.standard.string(forKey: recordingOverlayLayoutStorageKey)
         )
+        let overlayWaveformDisplayMode = OverlayWaveformDisplayMode.find(
+            rawValue: UserDefaults.standard.string(forKey: overlayWaveformDisplayModeStorageKey)
+        )
         let selectedGoogleCalendarIDs = Self.loadStringSet(forKey: googleCalendarSelectedIDsStorageKey)
         let storedGoogleCalendarConnectionMetadata = Self.loadGoogleCalendarConnectionMetadata()
         let calendarRecordingRemindersEnabled = UserDefaults.standard.bool(forKey: calendarRecordingRemindersEnabledStorageKey)
@@ -1303,6 +1314,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.realtimeStreamingModel = realtimeStreamingModel
         self.dictationAudioInterruptionEnabled = dictationAudioInterruptionEnabled
         self.recordingOverlayLayout = recordingOverlayLayout
+        self.overlayWaveformDisplayMode = overlayWaveformDisplayMode
         self.googleCalendarConnection = storedGoogleCalendarConnectionMetadata?.connectionState(
             selectedCalendarIDs: selectedGoogleCalendarIDs
         ) ?? .disconnected
@@ -1310,6 +1322,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.calendarRecordingReminderLeadMinutes = calendarRecordingReminderLeadMinutes
         self.calendarRecordingReminderRefreshIntervalMinutes = calendarRecordingReminderRefreshIntervalMinutes
         self.overlayManager.setRecordingOverlayLayout(recordingOverlayLayout)
+        self.overlayManager.setWaveformDisplayMode(overlayWaveformDisplayMode)
         self.isPressEnterVoiceCommandEnabled = isPressEnterVoiceCommandEnabled
         self.alertSoundsEnabled = alertSoundsEnabled
         self.useLocalTranscription = useLocalTranscription
