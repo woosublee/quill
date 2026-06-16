@@ -52,9 +52,10 @@ public struct AudioMixdownService {
         // header, then patch the sizes. This avoids decoding/re-encoding every
         // sample and holding the whole recording in memory.
         try wavHeader(dataByteCount: 0).write(to: outputURL, options: .atomic)
-        let handle = try FileHandle(forWritingTo: outputURL)
         var totalDataBytes = 0
         do {
+            let handle = try FileHandle(forWritingTo: outputURL)
+            defer { try? handle.close() }
             try handle.seekToEnd()
             for url in segmentURLs {
                 let pcm = try pcmDataChunk(from: url)
@@ -66,9 +67,7 @@ public struct AudioMixdownService {
             try handle.write(contentsOf: uint32LEData(UInt32(36 + totalDataBytes)))
             try handle.seek(toOffset: 40)
             try handle.write(contentsOf: uint32LEData(UInt32(totalDataBytes)))
-            try handle.close()
         } catch {
-            try? handle.close()
             try? FileManager.default.removeItem(at: outputURL)
             throw error
         }
