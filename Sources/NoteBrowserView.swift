@@ -386,6 +386,7 @@ struct NoteBrowserView: View {
     @State private var searchText = ""
     @State private var knownHistoryIDs: Set<UUID> = []
     @State private var pendingAudioImport: PendingAudioImport?
+    @State private var recordingPulse = false
 
     private var filteredHistory: [PipelineHistoryItem] {
         guard !searchText.isEmpty else { return appState.pipelineHistory }
@@ -450,6 +451,38 @@ struct NoteBrowserView: View {
 
     // MARK: - Sidebar
 
+    // Down-chevron beside the Rec button to choose the audio input for the next
+    // recording (mirrors the menu bar Microphone submenu). Disabled while
+    // recording — switching the live input is done from the recording overlay.
+    private var inputPickerMenu: some View {
+        // Custom chevron + an AppKit NSMenu on click, so the glyph is fully ours
+        // (SwiftUI Menu draws its own fixed indicator that ignores label sizing)
+        // and the selected input gets a native checkmark.
+        Image(systemName: "chevron.down")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(width: 11, height: 22)
+            .contentShape(Rectangle())
+            .padding(.leading, -2)
+            .opacity(appState.isRecording ? 0.3 : 1.0)
+            .overlay {
+                if !appState.isRecording {
+                    InputMenuCatcher(
+                        sources: [
+                            (AudioInputDevice.defaultMicrophoneID, "System Default"),
+                            (AudioInputDevice.systemAudioID, "System Audio"),
+                            (AudioInputDevice.systemDefaultAndSystemAudioID, "System Default + System Audio")
+                        ],
+                        mics: appState.availableMicrophones.map { ($0.uid, $0.name) },
+                        selectedID: appState.selectedMicrophoneID,
+                        onSelect: { appState.selectedMicrophoneID = $0 }
+                    )
+                }
+            }
+            .help("Choose audio input for the next recording")
+            .overrideCursor(.arrow)
+    }
+
     private var sidebarPanel: some View {
         VStack(spacing: 0) {
             // Title row
@@ -487,11 +520,19 @@ struct NoteBrowserView: View {
                         Circle()
                             .fill(.white)
                             .frame(width: 6, height: 6)
-                            .opacity(appState.isRecording ? 0.6 : 1.0)
-                            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true),
-                                       value: appState.isRecording)
+                            // Pulse opacity only (via recordingPulse) so the dot blinks
+                            // in place and isn't dragged by the Rec/Stop layout change.
+                            .opacity(appState.isRecording ? (recordingPulse ? 0.35 : 1.0) : 1.0)
                         Text(appState.isRecording ? "Stop" : "Rec")
                             .font(.system(size: 11, weight: .semibold))
+                    }
+                    .onChange(of: appState.isRecording) { isRecording in
+                        recordingPulse = false
+                        if isRecording {
+                            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                                recordingPulse = true
+                            }
+                        }
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
@@ -500,6 +541,8 @@ struct NoteBrowserView: View {
                 }
                 .buttonStyle(.plain)
                 .overrideCursor(.arrow)
+
+                inputPickerMenu
             }
             .padding(.horizontal, 14)
             .padding(.top, 14)
@@ -1874,5 +1917,75 @@ private struct LiveRecordingBadge: View {
                 .foregroundStyle(.red.opacity(0.7))
         }
         .help("실시간 전사 중")
+    }
+}
+
+/// Transparent click target that pops up a native NSMenu of audio inputs.
+/// Used so the Note Browser's chevron glyph is fully custom and the current
+/// input shows a native checkmark.
+private struct InputMenuCatcher: NSViewRepresentable {
+    let sources: [(id: String, name: String)]
+    let mics: [(id: String, name: String)]
+    let selectedID: String
+    let onSelect: (String) -> Void
+
+    func makeNSView(context: Context) -> CatcherView {
+        let view = CatcherView()
+        view.apply(sources: sources, mics: mics, selectedID: selectedID, onSelect: onSelect)
+        return view
+    }
+
+    func updateNSView(_ nsView: CatcherView, context: Context) {
+        nsView.apply(sources: sources, mics: mics, selectedID: selectedID, onSelect: onSelect)
+    }
+
+    final class CatcherView: NSView {
+        private var sources: [(id: String, name: String)] = []
+        private var mics: [(id: String, name: String)] = []
+        private var selectedID = ""
+        private var onSelect: ((String) -> Void)?
+
+        override var isFlipped: Bool { true }
+
+        func apply(
+            sources: [(id: String, name: String)],
+            mics: [(id: String, name: String)],
+            selectedID: String,
+            onSelect: @escaping (String) -> Void
+        ) {
+            self.sources = sources
+            self.mics = mics
+            self.selectedID = selectedID
+            self.onSelect = onSelect
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            let menu = NSMenu()
+            for option in sources {
+                menu.addItem(makeItem(option))
+            }
+            if !mics.isEmpty {
+                menu.addItem(.separator())
+                for option in mics {
+                    menu.addItem(makeItem(option))
+                }
+            }
+            // Flipped view: y == bounds.height is the bottom edge, so the menu
+            // drops just below the chevron.
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 2), in: self)
+        }
+
+        private func makeItem(_ option: (id: String, name: String)) -> NSMenuItem {
+            let item = NSMenuItem(title: option.name, action: #selector(pick(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = option.id
+            item.state = AudioInputDevice.isSameInput(option.id, selectedID) ? .on : .off
+            return item
+        }
+
+        @objc private func pick(_ sender: NSMenuItem) {
+            guard let id = sender.representedObject as? String else { return }
+            onSelect?(id)
+        }
     }
 }
