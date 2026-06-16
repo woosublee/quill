@@ -8,6 +8,16 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.10] - 2026-06-17
+
+### Added
+
+- Note Browser: a down-chevron beside the Rec button lets you choose the audio input for the next recording — System Default, System Audio, or System Default + System Audio, plus any connected microphones — with the current input checked.
+
+### Improved
+
+- Recordings that switched inputs mid-session now finish faster: the captured segments are stitched by copying the raw audio instead of re-encoding it sample by sample, removing the pause before transcription on longer recordings.
+
 ## [0.1.9] - 2026-06-16
 
 ### Added
