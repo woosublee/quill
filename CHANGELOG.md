@@ -8,6 +8,12 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.9] - 2026-06-16
+
+### Added
+
+- Hover the recording overlay's waveform to see the elapsed recording time without taking up extra space — it shows in the same spot as `MM:SS` (or `H:MM:SS` past an hour) and reflects the full session, including across mid-recording input switches. Clicking the waveform still opens the input switcher.
+
 ## [0.1.8] - 2026-06-16
 
 ### Added
