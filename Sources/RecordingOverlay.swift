@@ -3,6 +3,11 @@ import AppKit
 
 // MARK: - State
 
+struct RecordingOverlayInputOption: Identifiable, Equatable {
+    let id: String
+    let name: String
+}
+
 final class RecordingOverlayState: ObservableObject {
     @Published var phase: OverlayPhase = .recording
     @Published var audioLevel: Float = 0.0
@@ -12,6 +17,8 @@ final class RecordingOverlayState: ObservableObject {
     @Published var updateVersion: String = ""
     @Published var errorMessage: String?
     @Published var toastID: UUID?
+    @Published var inputOptions: [RecordingOverlayInputOption] = []
+    @Published var selectedInputID: String = ""
 }
 
 enum OverlayPhase {
@@ -164,6 +171,12 @@ final class RecordingOverlayManager {
 
     var onStopButtonPressed: (() -> Void)?
     var onUpdateOverlayPressed: (() -> Void)?
+    var onSelectInput: ((String) -> Void)?
+
+    func updateInputOptions(_ options: [RecordingOverlayInputOption], selectedID: String) {
+        overlayState.inputOptions = options
+        overlayState.selectedInputID = selectedID
+    }
 
     init() {
         screenParametersObserver = NotificationCenter.default.addObserver(
@@ -429,6 +442,9 @@ final class RecordingOverlayManager {
                 },
                 onUpdateOverlayPressed: { [weak self] in
                     self?.onUpdateOverlayPressed?()
+                },
+                onSelectInput: { [weak self] id in
+                    self?.onSelectInput?(id)
                 }
             )
             .padding(.top, screenHasTopSafeArea ? notchOverlap : 0)
@@ -445,6 +461,9 @@ final class RecordingOverlayManager {
                 rightContentFrame: geometry.rightContentFrame,
                 onStopButtonPressed: { [weak self] in
                     self?.onStopButtonPressed?()
+                },
+                onSelectInput: { [weak self] id in
+                    self?.onSelectInput?(id)
                 }
             )
         )
@@ -790,6 +809,7 @@ private struct NotchSideOverlayView: View {
     let leftContentFrame: CGRect
     let rightContentFrame: CGRect
     let onStopButtonPressed: () -> Void
+    let onSelectInput: (String) -> Void
 
     private var showsLiveRecordingContent: Bool {
         state.phase == .recording
@@ -797,6 +817,12 @@ private struct NotchSideOverlayView: View {
 
     private var showsStopButton: Bool {
         showsLiveRecordingContent && state.recordingTriggerMode == .toggle
+    }
+
+    private var showsInputSwitcher: Bool {
+        showsLiveRecordingContent
+            && state.recordingTriggerMode == .toggle
+            && !state.inputOptions.isEmpty
     }
 
     var body: some View {
@@ -832,7 +858,17 @@ private struct NotchSideOverlayView: View {
                             .foregroundStyle(.white.opacity(0.92))
                             .transition(.opacity.combined(with: .scale(scale: 0.96)))
                     }
-                    CompactWaveformView(audioLevel: state.audioLevel, showsActivityPulse: true)
+                    if showsInputSwitcher {
+                        InputSwitchMenu(
+                            options: state.inputOptions,
+                            selectedID: state.selectedInputID,
+                            onSelect: onSelectInput
+                        ) {
+                            CompactWaveformView(audioLevel: state.audioLevel, showsActivityPulse: true)
+                        }
+                    } else {
+                        CompactWaveformView(audioLevel: state.audioLevel, showsActivityPulse: true)
+                    }
                 }
                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
             case .transcribing:
@@ -875,6 +911,7 @@ struct RecordingOverlayView: View {
     @ObservedObject var state: RecordingOverlayState
     let onStopButtonPressed: () -> Void
     let onUpdateOverlayPressed: () -> Void
+    let onSelectInput: (String) -> Void
 
     private let leadingAccessoryWidth: CGFloat = 24
     private let trailingAccessoryWidth: CGFloat = 32
@@ -885,6 +922,12 @@ struct RecordingOverlayView: View {
 
     private var showsStopButton: Bool {
         showsLiveRecordingContent && state.recordingTriggerMode == .toggle
+    }
+
+    private var showsInputSwitcher: Bool {
+        showsLiveRecordingContent
+            && state.recordingTriggerMode == .toggle
+            && !state.inputOptions.isEmpty
     }
 
     var body: some View {
@@ -902,11 +945,22 @@ struct RecordingOverlayView: View {
                             InitializingDotsView()
                                 .transition(.opacity)
                         } else if showsLiveRecordingContent {
-                            WaveformView(
-                                audioLevel: state.audioLevel,
-                                showsActivityPulse: state.phase == .recording
-                            )
+                            if showsInputSwitcher {
+                                InputSwitchMenu(
+                                    options: state.inputOptions,
+                                    selectedID: state.selectedInputID,
+                                    onSelect: onSelectInput
+                                ) {
+                                    WaveformView(audioLevel: state.audioLevel, showsActivityPulse: true)
+                                }
                                 .transition(.opacity)
+                            } else {
+                                WaveformView(
+                                    audioLevel: state.audioLevel,
+                                    showsActivityPulse: state.phase == .recording
+                                )
+                                .transition(.opacity)
+                            }
                         } else {
                             ProcessingIndicatorView()
                                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
@@ -948,6 +1002,71 @@ struct RecordingOverlayView: View {
         .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.phase)
         .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.recordingTriggerMode)
         .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.isCommandMode)
+    }
+}
+
+/// Wraps overlay content (the waveform) so clicking it opens a menu to switch
+/// the audio input mid-recording. Uses an AppKit NSMenu (via a transparent click
+/// catcher) because SwiftUI's `Menu` does not reliably open/reopen inside the
+/// borderless, non-activating overlay panel.
+struct InputSwitchMenu<Content: View>: View {
+    let options: [RecordingOverlayInputOption]
+    let selectedID: String
+    let onSelect: (String) -> Void
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        content()
+            .overlay(
+                InputMenuClickCatcher(options: options, selectedID: selectedID, onSelect: onSelect)
+            )
+            .help("Switch audio input")
+    }
+}
+
+private struct InputMenuClickCatcher: NSViewRepresentable {
+    let options: [RecordingOverlayInputOption]
+    let selectedID: String
+    let onSelect: (String) -> Void
+
+    func makeNSView(context: Context) -> ClickCatcherView {
+        let view = ClickCatcherView()
+        view.apply(options: options, selectedID: selectedID, onSelect: onSelect)
+        return view
+    }
+
+    func updateNSView(_ nsView: ClickCatcherView, context: Context) {
+        nsView.apply(options: options, selectedID: selectedID, onSelect: onSelect)
+    }
+
+    final class ClickCatcherView: NSView {
+        private var options: [RecordingOverlayInputOption] = []
+        private var selectedID: String = ""
+        private var onSelect: ((String) -> Void)?
+
+        func apply(options: [RecordingOverlayInputOption], selectedID: String, onSelect: @escaping (String) -> Void) {
+            self.options = options
+            self.selectedID = selectedID
+            self.onSelect = onSelect
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            guard !options.isEmpty else { return }
+            let menu = NSMenu()
+            for option in options {
+                let item = NSMenuItem(title: option.name, action: #selector(selectOption(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = option.id
+                item.state = AudioInputDevice.isSameInput(option.id, selectedID) ? .on : .off
+                menu.addItem(item)
+            }
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 4), in: self)
+        }
+
+        @objc private func selectOption(_ sender: NSMenuItem) {
+            guard let id = sender.representedObject as? String else { return }
+            onSelect?(id)
+        }
     }
 }
 

@@ -1370,6 +1370,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 self?.handleOverlayStopButtonPressed()
             }
         }
+        overlayManager.onSelectInput = { [weak self] inputID in
+            DispatchQueue.main.async {
+                self?.switchActiveRecordingInput(to: inputID)
+            }
+        }
         Task { @MainActor [weak self] in
             self?.meetingReminderOverlayManager.onStart = { [weak self] _ in
                 self?.startRecordingFromCalendarReminder()
@@ -2162,6 +2167,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             self.didSwitchInputDuringRecording = true
             self.selectedMicrophoneID = newInputID
             self.activeAudioInputID = newInputID
+            self.refreshOverlayInputOptions()
             self.configureSelectedAudioRecorderCallbacks(
                 inputID: newInputID,
                 onReady: {},
@@ -2216,6 +2222,24 @@ final class AppState: ObservableObject, @unchecked Sendable {
             os_log(.error, log: recordingLog, "failed to stitch recording segments: %{public}@", String(describing: error))
             return finalSegmentURL
         }
+    }
+
+    /// Audio source choices shown in the recording overlay's input switcher.
+    /// Limited to the source modes — the meaningful mid-recording choice — rather
+    /// than the full hardware microphone list.
+    private func recordingOverlayInputOptions() -> [RecordingOverlayInputOption] {
+        [
+            RecordingOverlayInputOption(id: AudioInputDevice.defaultMicrophoneID, name: "System Default"),
+            RecordingOverlayInputOption(id: AudioInputDevice.systemAudioID, name: "System Audio"),
+            RecordingOverlayInputOption(id: AudioInputDevice.systemDefaultAndSystemAudioID, name: "System Default + System Audio")
+        ]
+    }
+
+    private func refreshOverlayInputOptions() {
+        overlayManager.updateInputOptions(
+            recordingOverlayInputOptions(),
+            selectedID: activeAudioInputID ?? selectedMicrophoneID
+        )
     }
 
     func clearPipelineHistory() {
@@ -4095,6 +4119,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         activeAudioInputID = audioInputID
         discardRecordingSegments()
+        refreshOverlayInputOptions()
         configureSelectedAudioRecorderCallbacks(
             inputID: audioInputID,
             onReady: { [weak self] in
