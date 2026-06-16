@@ -44,15 +44,33 @@ public struct AudioMixdownService {
             throw AudioMixdownServiceError.noSegmentsToConcatenate
         }
 
-        var combinedSamples: [Int16] = []
-        for url in segmentURLs {
-            combinedSamples.append(contentsOf: try readSamples(from: url))
-        }
-
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("wav")
-        try writeWAV(samples: combinedSamples, to: outputURL)
+
+        // Stream each segment's raw PCM bytes straight to disk after a placeholder
+        // header, then patch the sizes. This avoids decoding/re-encoding every
+        // sample and holding the whole recording in memory.
+        try wavHeader(dataByteCount: 0).write(to: outputURL, options: .atomic)
+        var totalDataBytes = 0
+        do {
+            let handle = try FileHandle(forWritingTo: outputURL)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            for url in segmentURLs {
+                let pcm = try pcmDataChunk(from: url)
+                try handle.write(contentsOf: pcm)
+                totalDataBytes += pcm.count
+            }
+            // Patch the RIFF chunk size (offset 4) and data chunk size (offset 40).
+            try handle.seek(toOffset: 4)
+            try handle.write(contentsOf: uint32LEData(UInt32(36 + totalDataBytes)))
+            try handle.seek(toOffset: 40)
+            try handle.write(contentsOf: uint32LEData(UInt32(totalDataBytes)))
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw error
+        }
         return outputURL
     }
 
@@ -115,7 +133,10 @@ public struct AudioMixdownService {
         Int16(max(Int(Int16.min), min(Int(Int16.max), sample)))
     }
 
-    private func readSamples(from url: URL) throws -> [Int16] {
+    /// Parses a 16 kHz mono 16-bit PCM WAV and returns just its `data` chunk
+    /// bytes (0-based copy), validating the format. Used both to decode samples
+    /// and to concatenate raw PCM without a per-sample round trip.
+    private func pcmDataChunk(from url: URL) throws -> Data {
         let data = try Data(contentsOf: url)
         guard data.count >= 44 else {
             throw AudioMixdownServiceError.invalidWAVFile
@@ -163,7 +184,11 @@ public struct AudioMixdownService {
               let sampleData else {
             throw AudioMixdownServiceError.unsupportedWAVFormat
         }
+        return Data(sampleData)
+    }
 
+    private func readSamples(from url: URL) throws -> [Int16] {
+        let sampleData = try pcmDataChunk(from: url)
         var samples: [Int16] = []
         samples.reserveCapacity(sampleData.count / 2)
         var sampleOffset = sampleData.startIndex
@@ -176,12 +201,11 @@ public struct AudioMixdownService {
         return samples
     }
 
-    private func writeWAV(samples: [Int16], to url: URL) throws {
+    /// 44-byte canonical header for 16 kHz mono 16-bit PCM WAV.
+    private func wavHeader(dataByteCount: UInt32) -> Data {
         var data = Data()
-        let sampleDataByteCount = UInt32(samples.count * MemoryLayout<Int16>.size)
-
         data.appendASCII("RIFF")
-        data.appendUInt32LE(36 + sampleDataByteCount)
+        data.appendUInt32LE(36 + dataByteCount)
         data.appendASCII("WAVE")
         data.appendASCII("fmt ")
         data.appendUInt32LE(16)
@@ -192,11 +216,21 @@ public struct AudioMixdownService {
         data.appendUInt16LE(2)
         data.appendUInt16LE(16)
         data.appendASCII("data")
-        data.appendUInt32LE(sampleDataByteCount)
+        data.appendUInt32LE(dataByteCount)
+        return data
+    }
+
+    private func uint32LEData(_ value: UInt32) -> Data {
+        var data = Data()
+        data.appendUInt32LE(value)
+        return data
+    }
+
+    private func writeWAV(samples: [Int16], to url: URL) throws {
+        var data = wavHeader(dataByteCount: UInt32(samples.count * MemoryLayout<Int16>.size))
         for sample in samples {
             data.appendUInt16LE(UInt16(bitPattern: sample))
         }
-
         try data.write(to: url, options: .atomic)
     }
 
