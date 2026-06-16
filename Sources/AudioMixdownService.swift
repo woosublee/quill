@@ -36,6 +36,26 @@ public struct AudioMixdownService {
         return outputURL
     }
 
+    /// Concatenates 16 kHz mono 16-bit PCM WAV segments end to end into a single
+    /// WAV file, preserving order. Used to stitch recording segments captured
+    /// across a mid-recording input switch into one continuous file.
+    public func concatenate(_ segmentURLs: [URL]) throws -> URL {
+        guard !segmentURLs.isEmpty else {
+            throw AudioMixdownServiceError.noSegmentsToConcatenate
+        }
+
+        var combinedSamples: [Int16] = []
+        for url in segmentURLs {
+            combinedSamples.append(contentsOf: try readSamples(from: url))
+        }
+
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+        try writeWAV(samples: combinedSamples, to: outputURL)
+        return outputURL
+    }
+
     private func systemAudioGain(microphoneSamples: [Int16], systemAudioSamples: [Int16]) -> Float {
         let systemRMS = activeRMS(systemAudioSamples)
         guard systemRMS > 0 else { return 1 }
@@ -195,6 +215,7 @@ public struct AudioMixdownService {
 enum AudioMixdownServiceError: Error {
     case invalidWAVFile
     case unsupportedWAVFormat
+    case noSegmentsToConcatenate
 }
 
 private extension Data {

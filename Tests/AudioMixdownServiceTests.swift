@@ -11,6 +11,10 @@ struct AudioMixdownServiceTests {
             try doesNotClipLoudSystemAudio()
             try outputFormatIs16kHzMonoInt16AndFrameCountIsMaxInputFrameCount()
             try activeRMSAvoidsIntermediateArrays()
+            try concatenatesSegmentsInOrder()
+            try concatenateWithSingleSegmentReturnsSameSamples()
+            try concatenateOutputIs16kHzMonoInt16InTempDir()
+            try concatenateThrowsOnEmptyInput()
             print("AudioMixdownServiceTests passed")
         } catch {
             fputs("AudioMixdownServiceTests failed: \(error)\n", stderr)
@@ -102,6 +106,67 @@ struct AudioMixdownServiceTests {
 
         let samples = try readSamples(from: outputURL)
         try expectEqual(samples, [250, 400, 800, 1000, 1200], "mixed samples should silence-pad shorter input")
+    }
+
+    private static func concatenatesSegmentsInOrder() throws {
+        let first = try writeTinyWAV(samples: [1, 2, 3])
+        let second = try writeTinyWAV(samples: [4, 5])
+        let third = try writeTinyWAV(samples: [6])
+        defer { try? FileManager.default.removeItem(at: first) }
+        defer { try? FileManager.default.removeItem(at: second) }
+        defer { try? FileManager.default.removeItem(at: third) }
+
+        let outputURL = try AudioMixdownService().concatenate([first, second, third])
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let samples = try readSamples(from: outputURL)
+        try expectEqual(samples, [1, 2, 3, 4, 5, 6], "segments should be joined end to end in order")
+    }
+
+    private static func concatenateWithSingleSegmentReturnsSameSamples() throws {
+        let only = try writeTinyWAV(samples: [7, 8, 9])
+        defer { try? FileManager.default.removeItem(at: only) }
+
+        let outputURL = try AudioMixdownService().concatenate([only])
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        let samples = try readSamples(from: outputURL)
+        try expectEqual(samples, [7, 8, 9], "single segment should be copied unchanged")
+    }
+
+    private static func concatenateOutputIs16kHzMonoInt16InTempDir() throws {
+        let first = try writeTinyWAV(samples: [100, 200])
+        let second = try writeTinyWAV(samples: [300, 400, 500])
+        defer { try? FileManager.default.removeItem(at: first) }
+        defer { try? FileManager.default.removeItem(at: second) }
+
+        let outputURL = try AudioMixdownService().concatenate([first, second])
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        guard outputURL.pathExtension == "wav" else {
+            throw TestFailure("expected .wav output, got \(outputURL.lastPathComponent)")
+        }
+        guard outputURL.deletingLastPathComponent().standardizedFileURL == FileManager.default.temporaryDirectory.standardizedFileURL else {
+            throw TestFailure("expected output in temporaryDirectory, got \(outputURL.path)")
+        }
+
+        let file = try AVAudioFile(forReading: outputURL)
+        let format = file.fileFormat
+        try expectEqual(format.sampleRate, 16_000, "sample rate")
+        try expectEqual(format.channelCount, 1, "channel count")
+        guard format.commonFormat == .pcmFormatInt16 else {
+            throw TestFailure("expected pcmFormatInt16, got \(format.commonFormat)")
+        }
+        try expectEqual(file.length, 5, "output frame count should be the sum of segment frame counts")
+    }
+
+    private static func concatenateThrowsOnEmptyInput() throws {
+        do {
+            _ = try AudioMixdownService().concatenate([])
+            throw TestFailure("concatenate([]) should throw")
+        } catch AudioMixdownServiceError.noSegmentsToConcatenate {
+            // expected
+        }
     }
 
     private static func activeRMSAvoidsIntermediateArrays() throws {
