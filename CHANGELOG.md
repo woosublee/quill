@@ -8,6 +8,16 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.8] - 2026-06-16
+
+### Added
+
+- Switch the audio input while a recording is in progress: click the recording overlay's waveform to choose System Default, System Audio, or System Default + System Audio without ending the session. Audio captured before each switch is stitched into a single continuous note.
+
+### Fixed
+
+- On displays without a notch, the recording overlay no longer extends past the menu bar — its height now matches the menu bar. The meeting reminder overlay uses the same height so it stays aligned when it wraps an active recording.
+
 ## [0.1.7] - 2026-06-13
 
 ### Improved
