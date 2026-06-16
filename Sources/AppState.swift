@@ -2180,6 +2180,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
             self.didSwitchInputDuringRecording = true
             self.selectedMicrophoneID = newInputID
             self.activeAudioInputID = newInputID
+            // Keep the output-mute interruption in sync with the new input: mic-only
+            // mutes output to avoid echo, but System Audio must stay unmuted or it
+            // would be captured silent.
+            if AudioInputDevice.isMicrophoneOnly(newInputID) {
+                self.applyAudioInterruptionIfNeeded()
+            } else {
+                self.restoreAudioInterruptionIfNeeded()
+            }
             self.refreshOverlayInputOptions()
             self.configureSelectedAudioRecorderCallbacks(
                 inputID: newInputID,
@@ -4944,6 +4952,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let recordingFileURL = self.stitchedRecordingURL(finalSegmentURL: fileURL)
             let savedAudioFile = Self.saveAudioFile(from: recordingFileURL)
             let transcriptionFileURL = savedAudioFile?.fileURL ?? recordingFileURL
+            // Remove the stitched temp file once it has been copied to permanent
+            // storage (only created when segments were stitched, i.e. a new path).
+            if savedAudioFile != nil, recordingFileURL.path != fileURL.path {
+                try? FileManager.default.removeItem(at: recordingFileURL)
+            }
             if let savedAudioFile {
                 let recoveryContext = sessionContext ?? self.fallbackContextAtStop()
                 let activeJob = self.activeTranscriptionJobs[jobID]
