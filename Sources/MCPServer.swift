@@ -239,6 +239,20 @@ final class MCPServer {
                     ],
                     "required": ["id"]
                 ]
+            ],
+            [
+                "name": "get_meeting_source",
+                "description": "Get structured meeting source data (title, timestamps, calendar match, attendees, audio path, transcript) for a transcript id as JSON. Use this for meeting-note generation.",
+                "inputSchema": [
+                    "type": "object",
+                    "properties": [
+                        "id": [
+                            "type": "string",
+                            "description": "UUID of the transcript entry from list_transcripts"
+                        ]
+                    ],
+                    "required": ["id"]
+                ]
             ]
         ]
     }
@@ -334,6 +348,28 @@ final class MCPServer {
                 lines.append("context: \(item.contextSummary)")
             }
             return textContent(lines.joined(separator: "\n"))
+
+        case "get_meeting_source":
+            guard let idString = args["id"] as? String, let uuid = UUID(uuidString: idString) else {
+                return textContent("Error: valid 'id' is required.", isError: true)
+            }
+            guard let item = appState.pipelineHistory.first(where: { $0.id == uuid }) else {
+                return textContent("Error: transcript not found.", isError: true)
+            }
+            let isoFormatter = ISO8601DateFormatter()
+            isoFormatter.formatOptions = [.withInternetDateTime]
+            isoFormatter.timeZone = TimeZone.current
+            let payload = MeetingSourcePayload.make(
+                item: item,
+                audioDirectory: AppState.audioStorageDirectory(),
+                fileExists: { FileManager.default.fileExists(atPath: $0.path) },
+                formatter: isoFormatter
+            )
+            guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys, .prettyPrinted]),
+                  let json = String(data: data, encoding: .utf8) else {
+                return textContent("Error: failed to encode meeting source.", isError: true)
+            }
+            return textContent(json)
 
         default:
             return textContent("Unknown tool: \(name)", isError: true)
