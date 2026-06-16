@@ -60,6 +60,17 @@ struct OverlayScreenGeometry {
         max(0, screenFrame.maxY - visibleFrame.maxY)
     }
 
+    /// Floor for the top overlay strip on a display that has no menu bar
+    /// (e.g. a secondary display). Keeps the strip tall enough for its content.
+    static let minMenuBarStripHeight: CGFloat = 24
+
+    /// Height of the menu-bar strip on a display without a notch. The recording
+    /// pill and the meeting-reminder overlay's top strip both use this value so
+    /// they stay vertically aligned when shown together.
+    var menuBarStripHeight: CGFloat {
+        notchOverlap > 0 ? notchOverlap : Self.minMenuBarStripHeight
+    }
+
     func centeredTopFrame(width: CGFloat, height: CGFloat) -> NSRect {
         NSRect(
             x: screenFrame.midX - width / 2,

@@ -45,6 +45,21 @@ struct MeetingReminderOverlayGeometry {
     private static let notchSideHorizontalInset: CGFloat = 8
     private static let centerRecordingBaseWidth: CGFloat = 150
 
+    /// Shared height for the centered reminder card. The idle (default) reminder
+    /// and the recording/processing banner use the same height so the card morphs
+    /// smoothly between them when recording starts from a visible reminder.
+    static let centerReminderCardHeight: CGFloat = 80
+    /// Approximate height of the single-line meeting-info row, used to vertically
+    /// center it in the content area below the top strip.
+    private static let centerRecordingRowHeight: CGFloat = 20
+
+    /// Top inset that vertically centers the single-line meeting-info row in the
+    /// content area below the top strip (which tracks the recording pill height).
+    static func centerRecordingRowTop(stripHeight: CGFloat) -> CGFloat {
+        let contentArea = centerReminderCardHeight - stripHeight
+        return stripHeight + max(0, (contentArea - centerRecordingRowHeight) / 2)
+    }
+
     static func size(forScreenWidth screenWidth: CGFloat) -> CGSize {
         CGSize(
             width: min(defaultSize.width, max(280, screenWidth - horizontalScreenMargin * 2)),
@@ -79,9 +94,9 @@ struct MeetingReminderOverlayGeometry {
     ) -> CGSize {
         switch variant {
         case .defaultReminder:
-            let defaultSize = size(forScreenWidth: screenWidth)
-            guard let notchSideWidth else { return defaultSize }
-            return CGSize(width: max(defaultSize.width, notchSideWidth), height: defaultSize.height)
+            let width = size(forScreenWidth: screenWidth).width
+            let resolvedWidth = notchSideWidth.map { max(width, $0) } ?? width
+            return CGSize(width: resolvedWidth, height: centerReminderCardHeight)
         case .notchSidesRecording, .notchSidesProcessing:
             return CGSize(width: max(280, notchSideWidth ?? defaultSize.width), height: defaultSize.height)
         case .notchCenterRecording, .notchCenterProcessing:
@@ -91,7 +106,13 @@ struct MeetingReminderOverlayGeometry {
                 height: notchCenterSize.height
             )
         case .centerRecording, .centerProcessing:
-            return size(forScreenWidth: screenWidth)
+            // Matches the idle reminder height so the two morph smoothly; the top
+            // strip aligns with the recording pill and the meeting row is centered
+            // in the area below it.
+            return CGSize(
+                width: size(forScreenWidth: screenWidth).width,
+                height: centerReminderCardHeight
+            )
         }
     }
 
@@ -155,6 +176,9 @@ struct MeetingReminderOverlayDisplayData: Equatable {
     let context: MeetingReminderOverlayContext
     let variant: MeetingReminderOverlayVariant
     let centerOverlayWidth: CGFloat
+    /// Height of the top strip in the center recording/processing variants,
+    /// matched to the recording pill height so the two align.
+    let topStripHeight: CGFloat
 
     var showsStartButton: Bool { variant == .defaultReminder }
 }
@@ -264,7 +288,8 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
             for: schedule,
             context: context,
             variant: variant,
-            centerOverlayWidth: MeetingReminderOverlayGeometry.centerRecordingOverlayWidth(for: geometry)
+            centerOverlayWidth: MeetingReminderOverlayGeometry.centerRecordingOverlayWidth(for: geometry),
+            topStripHeight: geometry.menuBarStripHeight
         )
 
         if let panel, let viewModel, let contentContainer {
@@ -456,7 +481,8 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
         for schedule: CalendarRecordingReminderSchedule,
         context: MeetingReminderOverlayContext,
         variant: MeetingReminderOverlayVariant,
-        centerOverlayWidth: CGFloat
+        centerOverlayWidth: CGFloat,
+        topStripHeight: CGFloat
     ) -> MeetingReminderOverlayDisplayData {
         MeetingReminderOverlayDisplayData(
             identifier: schedule.identifier,
@@ -465,7 +491,8 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
             startTimeText: Self.startTimeText(for: schedule.event.start),
             context: context,
             variant: variant,
-            centerOverlayWidth: centerOverlayWidth
+            centerOverlayWidth: centerOverlayWidth,
+            topStripHeight: topStripHeight
         )
     }
 
@@ -556,8 +583,8 @@ private struct MeetingReminderOverlayView: View {
             CenterMeetingReminderOverlayView(
                 displayData: displayData,
                 animationNamespace: animationNamespace,
-                topContentHeight: 38,
-                rowTop: 58,
+                topContentHeight: displayData.topStripHeight,
+                rowTop: MeetingReminderOverlayGeometry.centerRecordingRowTop(stripHeight: displayData.topStripHeight),
                 onDismiss: onDismiss
             )
         }

@@ -1020,7 +1020,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard let self else {
             return MeetingReminderOverlayContext(phase: .idle, layout: .centerDropdownFill)
         }
-        let phase: MeetingReminderOverlayContext.Phase = if self.isRecording {
+        let phase: MeetingReminderOverlayContext.Phase = if self.isRecording || self.isDebugOverlayActive {
+            // Treat the debug overlay as recording so the reminder shows its
+            // recording (wrapping) variant for visual testing in dev builds.
             .recording
         } else if self.isTranscribing {
             .processing
@@ -1039,6 +1041,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var currentRecordingLiveNoteID: UUID?
     private var activeRecordingStartedAt: Date?
     private var activeAudioInputID: String?
+    /// Audio files of recording segments captured before a mid-recording input
+    /// switch. Stitched with the final segment at finish to keep one note.
+    private var recordingSegmentURLs: [URL] = []
+    /// True once the active recording has switched inputs at least once. Such a
+    /// session is finalized via file-based transcription of the stitched audio.
+    private var didSwitchInputDuringRecording = false
     private var isCancelConfirmationShowing = false
     private var overlayTranscriptionID: UUID = UUID()
     private var foregroundTranscriptionJobID: UUID?
@@ -1360,6 +1368,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         overlayManager.onStopButtonPressed = { [weak self] in
             DispatchQueue.main.async {
                 self?.handleOverlayStopButtonPressed()
+            }
+        }
+        overlayManager.onSelectInput = { [weak self] inputID in
+            DispatchQueue.main.async {
+                self?.switchActiveRecordingInput(to: inputID)
             }
         }
         Task { @MainActor [weak self] in
@@ -2038,6 +2051,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         systemAudioRecorder.cleanup()
         systemDefaultAndSystemAudioRecorder.cleanup()
         activeAudioInputID = nil
+        discardRecordingSegments()
         refreshAvailableMicrophonesIfNeeded()
     }
 
@@ -2126,6 +2140,162 @@ final class AppState: ObservableObject, @unchecked Sendable {
         } else {
             audioRecorder.cancelRecording()
         }
+    }
+
+    /// Switches the audio input of an in-progress recording without ending the
+    /// session. The current recorder's audio is kept as a segment and stitched
+    /// with later segments at finish, so the result stays a single note. Live
+    /// transcription is torn down (plan A): a switched session is transcribed
+    /// from the stitched file at the end.
+    @MainActor
+    func switchActiveRecordingInput(to newInputID: String) {
+        guard isRecording else { return }
+        let currentInputID = activeAudioInputID ?? selectedMicrophoneID
+        guard !AudioInputDevice.isSameInput(newInputID, currentInputID) else { return }
+
+        // Verify access to the new input BEFORE stopping the current recorder.
+        // A failed start (e.g. System Audio without Screen Recording permission)
+        // runs handleRecordingFailure, which would discard the whole in-progress
+        // recording. Use non-prompting checks so we don't trigger the
+        // recording-start permission UI / state resets mid-session.
+        guard canAccessRecordingInput(newInputID) else {
+            errorMessage = recordingInputAccessErrorMessage(for: newInputID)
+            return
+        }
+
+        liveTranscriber = nil
+        tearDownRealtimeService()
+        setActiveRecorderPCMHandler(nil)
+        audioLevelCancellable?.cancel()
+        audioLevelCancellable = nil
+
+        // All recorders deliver stopRecording's completion on the main thread
+        // (AudioRecorder, SystemAudioRecorder, SystemDefaultAndSystemAudioRecorder),
+        // matching the existing stopAndTranscribe path, so it is safe to touch
+        // main-actor state here.
+        stopActiveAudioRecorder { [weak self] segmentURL in
+            guard let self else { return }
+            // The session may have been stopped/cancelled while the old recorder
+            // was finishing. Don't start a new recorder in that case — it would
+            // leak a recording the app thinks has ended.
+            guard self.isRecording else {
+                if let segmentURL {
+                    try? FileManager.default.removeItem(at: segmentURL)
+                }
+                return
+            }
+            if let segmentURL {
+                self.recordingSegmentURLs.append(segmentURL)
+            }
+            self.didSwitchInputDuringRecording = true
+            self.selectedMicrophoneID = newInputID
+            self.activeAudioInputID = newInputID
+            // Keep the output-mute interruption in sync with the new input: mic-only
+            // mutes output to avoid echo, but System Audio must stay unmuted or it
+            // would be captured silent.
+            if AudioInputDevice.isMicrophoneOnly(newInputID) {
+                self.applyAudioInterruptionIfNeeded()
+            } else {
+                self.restoreAudioInterruptionIfNeeded()
+            }
+            self.refreshOverlayInputOptions()
+            self.configureSelectedAudioRecorderCallbacks(
+                inputID: newInputID,
+                onReady: {},
+                onFailure: { [weak self] error in
+                    DispatchQueue.main.async {
+                        self?.handleRecordingFailure(error)
+                    }
+                }
+            )
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.startSelectedAudioRecorder(inputID: newInputID)
+                    await MainActor.run {
+                        guard self.isRecording else { return }
+                        self.audioLevelCancellable = self.activeRecorderAudioLevelPublisher(inputID: newInputID)
+                            .receive(on: DispatchQueue.main)
+                            .sink { [weak self] level in
+                                self?.overlayManager.updateAudioLevel(level)
+                            }
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.handleRecordingFailure(error)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Non-prompting permission check for switching to an input mid-recording.
+    /// Unlike ensureRecordingInputAccess(for:) this has no side effects (no
+    /// prompts, no error UI, no session-state resets).
+    private func canAccessRecordingInput(_ inputID: String) -> Bool {
+        let microphoneGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        if AudioInputDevice.isSystemDefaultAndSystemAudio(inputID) {
+            return microphoneGranted && hasScreenCapturePermission()
+        }
+        if AudioInputDevice.isSystemAudio(inputID) {
+            return hasScreenCapturePermission()
+        }
+        return microphoneGranted
+    }
+
+    private func recordingInputAccessErrorMessage(for inputID: String) -> String {
+        let tail = "Recording continues on the current input."
+        if AudioInputDevice.isSystemDefaultAndSystemAudio(inputID) {
+            return "Couldn't switch input: System Default + System Audio needs Microphone and Screen & System Audio Recording access (System Settings > Privacy & Security). \(tail)"
+        }
+        if AudioInputDevice.isSystemAudio(inputID) {
+            return "Couldn't switch input: System Audio needs Screen & System Audio Recording access (System Settings > Privacy & Security). \(tail)"
+        }
+        return "Couldn't switch input: Microphone access is required (System Settings > Privacy & Security). \(tail)"
+    }
+
+    /// Removes any captured segment temp files and resets the switch state.
+    private func discardRecordingSegments() {
+        for url in recordingSegmentURLs {
+            try? FileManager.default.removeItem(at: url)
+        }
+        recordingSegmentURLs = []
+        didSwitchInputDuringRecording = false
+    }
+
+    /// The audio file to finalize. When the session switched inputs, stitches the
+    /// captured segments and the final segment into one continuous file;
+    /// otherwise returns the final segment unchanged.
+    private func stitchedRecordingURL(finalSegmentURL: URL) -> URL {
+        guard didSwitchInputDuringRecording, !recordingSegmentURLs.isEmpty else {
+            return finalSegmentURL
+        }
+        let segments = recordingSegmentURLs + [finalSegmentURL]
+        defer { discardRecordingSegments() }
+        do {
+            return try AudioMixdownService().concatenate(segments)
+        } catch {
+            os_log(.error, log: recordingLog, "failed to stitch recording segments: %{public}@", String(describing: error))
+            return finalSegmentURL
+        }
+    }
+
+    /// Audio source choices shown in the recording overlay's input switcher.
+    /// Limited to the source modes — the meaningful mid-recording choice — rather
+    /// than the full hardware microphone list.
+    private func recordingOverlayInputOptions() -> [RecordingOverlayInputOption] {
+        [
+            RecordingOverlayInputOption(id: AudioInputDevice.defaultMicrophoneID, name: "System Default"),
+            RecordingOverlayInputOption(id: AudioInputDevice.systemAudioID, name: "System Audio"),
+            RecordingOverlayInputOption(id: AudioInputDevice.systemDefaultAndSystemAudioID, name: "System Default + System Audio")
+        ]
+    }
+
+    private func refreshOverlayInputOptions() {
+        overlayManager.updateInputOptions(
+            recordingOverlayInputOptions(),
+            selectedID: activeAudioInputID ?? selectedMicrophoneID
+        )
     }
 
     func clearPipelineHistory() {
@@ -3352,6 +3522,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         dismissTranscribingOverlay()
         tearDownRealtimeService()
         cancelActiveAudioRecorder()
+        discardRecordingSegments()
         restoreAudioInterruptionIfNeeded()
         syncCriticalDictationActivity()
         refreshAvailableMicrophonesIfNeeded()
@@ -4003,6 +4174,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         initTimer.resume()
 
         activeAudioInputID = audioInputID
+        discardRecordingSegments()
+        refreshOverlayInputOptions()
         configureSelectedAudioRecorderCallbacks(
             inputID: audioInputID,
             onReady: { [weak self] in
@@ -4811,8 +4984,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 return
             }
 
-            let savedAudioFile = Self.saveAudioFile(from: fileURL)
-            let transcriptionFileURL = savedAudioFile?.fileURL ?? fileURL
+            let recordingFileURL = self.stitchedRecordingURL(finalSegmentURL: fileURL)
+            let savedAudioFile = Self.saveAudioFile(from: recordingFileURL)
+            let transcriptionFileURL = savedAudioFile?.fileURL ?? recordingFileURL
+            // Remove the stitched temp file once it has been copied to permanent
+            // storage (only created when segments were stitched, i.e. a new path).
+            if savedAudioFile != nil, recordingFileURL.path != fileURL.path {
+                try? FileManager.default.removeItem(at: recordingFileURL)
+            }
             if let savedAudioFile {
                 let recoveryContext = sessionContext ?? self.fallbackContextAtStop()
                 let activeJob = self.activeTranscriptionJobs[jobID]
@@ -5649,6 +5828,29 @@ final class AppState: ObservableObject, @unchecked Sendable {
             guard let self, self.pendingOverlayDismissToken == dismissToken else { return }
             self.pendingOverlayDismissToken = nil
             self.overlayManager.dismiss()
+        }
+    }
+
+    @MainActor
+    func showDebugMeetingReminderOverlay() {
+        let now = Date()
+        let event = GoogleCalendarEvent(
+            id: "debug-meeting-reminder-\(UUID().uuidString)",
+            calendarID: "primary",
+            title: "Team Standup",
+            start: now.addingTimeInterval(600),
+            end: now.addingTimeInterval(1_800),
+            isAllDay: false,
+            attendees: []
+        )
+        let schedule = CalendarRecordingReminderSchedule(
+            identifier: "debug-meeting-reminder:\(UUID().uuidString)",
+            fireDate: now,
+            event: event,
+            delivery: .immediate
+        )
+        Task { [weak self] in
+            _ = await self?.meetingReminderOverlayManager.presentCalendarRecordingReminder(schedule) { _ in }
         }
     }
 

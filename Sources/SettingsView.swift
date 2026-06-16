@@ -470,6 +470,18 @@ struct DebugSettingsView: View {
                         }
                     }
                 }
+
+                SettingsCard("Meeting Reminder", icon: "calendar") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Show a sample calendar reminder overlay. Turn on Debug Overlay first to preview the recording (wrapping) variant.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Button("Show Meeting Reminder") {
+                            appState.showDebugMeetingReminderOverlay()
+                        }
+                    }
+                }
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
