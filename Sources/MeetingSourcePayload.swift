@@ -57,7 +57,7 @@ enum MeetingSourcePayload {
     private static func calendarPayload(_ item: PipelineHistoryItem, formatter: ISO8601DateFormatter) -> Any {
         guard let match = item.calendarMatch else { return NSNull() }
         let attendees: [[String: Any]] = match.attendees.map { a in
-            let isResource = (a.email?.contains(resourceDomain)) ?? false
+            let isResource = (a.email?.hasSuffix(resourceDomain)) ?? false
             return [
                 "display_name": orNull(a.displayName),
                 "email": orNull(a.email),

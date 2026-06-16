@@ -102,6 +102,8 @@ struct MeetingSourcePayloadTests {
         let attendees = [
             CalendarEventAttendee(displayName: "우섭", email: "woosub@classting.com", responseStatus: "accepted"),
             CalendarEventAttendee(displayName: "회의실 A", email: "c_x@resource.calendar.google.com", responseStatus: "accepted"),
+            // The resource domain appears in the local part / a different domain — must NOT be flagged.
+            CalendarEventAttendee(displayName: "사칭", email: "user.resource.calendar.google.com@example.com", responseStatus: "accepted"),
         ]
         let payload = MeetingSourcePayload.make(
             item: makeItem(calendarMatch: sampleCalendar(attendees: attendees)),
@@ -112,6 +114,7 @@ struct MeetingSourcePayloadTests {
         assert(list[0]["is_resource"] as? Bool == false)
         assert(list[0]["email"] as? String == "woosub@classting.com")
         assert(list[1]["is_resource"] as? Bool == true)
+        assert(list[2]["is_resource"] as? Bool == false)
     }
 
     private static func testTimestampsUseProvidedFormatter() {
