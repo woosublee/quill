@@ -18,4 +18,14 @@ enum AudioInputDevice {
     static func isMicrophoneOnly(_ id: String) -> Bool {
         !isSpecialInput(id)
     }
+
+    /// Treats an empty id as the system default microphone so the two spellings
+    /// compare equal.
+    static func normalized(_ id: String) -> String {
+        id.isEmpty ? defaultMicrophoneID : id
+    }
+
+    static func isSameInput(_ lhs: String, _ rhs: String) -> Bool {
+        normalized(lhs) == normalized(rhs)
+    }
 }

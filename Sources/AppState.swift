@@ -1041,6 +1041,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var currentRecordingLiveNoteID: UUID?
     private var activeRecordingStartedAt: Date?
     private var activeAudioInputID: String?
+    /// Audio files of recording segments captured before a mid-recording input
+    /// switch. Stitched with the final segment at finish to keep one note.
+    private var recordingSegmentURLs: [URL] = []
+    /// True once the active recording has switched inputs at least once. Such a
+    /// session is finalized via file-based transcription of the stitched audio.
+    private var didSwitchInputDuringRecording = false
     private var isCancelConfirmationShowing = false
     private var overlayTranscriptionID: UUID = UUID()
     private var foregroundTranscriptionJobID: UUID?
@@ -2040,6 +2046,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         systemAudioRecorder.cleanup()
         systemDefaultAndSystemAudioRecorder.cleanup()
         activeAudioInputID = nil
+        discardRecordingSegments()
         refreshAvailableMicrophonesIfNeeded()
     }
 
@@ -2127,6 +2134,87 @@ final class AppState: ObservableObject, @unchecked Sendable {
             systemAudioRecorder.cancelRecording()
         } else {
             audioRecorder.cancelRecording()
+        }
+    }
+
+    /// Switches the audio input of an in-progress recording without ending the
+    /// session. The current recorder's audio is kept as a segment and stitched
+    /// with later segments at finish, so the result stays a single note. Live
+    /// transcription is torn down (plan A): a switched session is transcribed
+    /// from the stitched file at the end.
+    @MainActor
+    func switchActiveRecordingInput(to newInputID: String) {
+        guard isRecording else { return }
+        let currentInputID = activeAudioInputID ?? selectedMicrophoneID
+        guard !AudioInputDevice.isSameInput(newInputID, currentInputID) else { return }
+
+        liveTranscriber = nil
+        tearDownRealtimeService()
+        setActiveRecorderPCMHandler(nil)
+        audioLevelCancellable?.cancel()
+        audioLevelCancellable = nil
+
+        stopActiveAudioRecorder { [weak self] segmentURL in
+            guard let self else { return }
+            if let segmentURL {
+                self.recordingSegmentURLs.append(segmentURL)
+            }
+            self.didSwitchInputDuringRecording = true
+            self.selectedMicrophoneID = newInputID
+            self.activeAudioInputID = newInputID
+            self.configureSelectedAudioRecorderCallbacks(
+                inputID: newInputID,
+                onReady: {},
+                onFailure: { [weak self] error in
+                    DispatchQueue.main.async {
+                        self?.handleRecordingFailure(error)
+                    }
+                }
+            )
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.startSelectedAudioRecorder(inputID: newInputID)
+                    await MainActor.run {
+                        guard self.isRecording else { return }
+                        self.audioLevelCancellable = self.activeRecorderAudioLevelPublisher(inputID: newInputID)
+                            .receive(on: DispatchQueue.main)
+                            .sink { [weak self] level in
+                                self?.overlayManager.updateAudioLevel(level)
+                            }
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.handleRecordingFailure(error)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Removes any captured segment temp files and resets the switch state.
+    private func discardRecordingSegments() {
+        for url in recordingSegmentURLs {
+            try? FileManager.default.removeItem(at: url)
+        }
+        recordingSegmentURLs = []
+        didSwitchInputDuringRecording = false
+    }
+
+    /// The audio file to finalize. When the session switched inputs, stitches the
+    /// captured segments and the final segment into one continuous file;
+    /// otherwise returns the final segment unchanged.
+    private func stitchedRecordingURL(finalSegmentURL: URL) -> URL {
+        guard didSwitchInputDuringRecording, !recordingSegmentURLs.isEmpty else {
+            return finalSegmentURL
+        }
+        let segments = recordingSegmentURLs + [finalSegmentURL]
+        defer { discardRecordingSegments() }
+        do {
+            return try AudioMixdownService().concatenate(segments)
+        } catch {
+            os_log(.error, log: recordingLog, "failed to stitch recording segments: %{public}@", String(describing: error))
+            return finalSegmentURL
         }
     }
 
@@ -3354,6 +3442,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         dismissTranscribingOverlay()
         tearDownRealtimeService()
         cancelActiveAudioRecorder()
+        discardRecordingSegments()
         restoreAudioInterruptionIfNeeded()
         syncCriticalDictationActivity()
         refreshAvailableMicrophonesIfNeeded()
@@ -4005,6 +4094,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         initTimer.resume()
 
         activeAudioInputID = audioInputID
+        discardRecordingSegments()
         configureSelectedAudioRecorderCallbacks(
             inputID: audioInputID,
             onReady: { [weak self] in
@@ -4813,8 +4903,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 return
             }
 
-            let savedAudioFile = Self.saveAudioFile(from: fileURL)
-            let transcriptionFileURL = savedAudioFile?.fileURL ?? fileURL
+            let recordingFileURL = self.stitchedRecordingURL(finalSegmentURL: fileURL)
+            let savedAudioFile = Self.saveAudioFile(from: recordingFileURL)
+            let transcriptionFileURL = savedAudioFile?.fileURL ?? recordingFileURL
             if let savedAudioFile {
                 let recoveryContext = sessionContext ?? self.fallbackContextAtStop()
                 let activeJob = self.activeTranscriptionJobs[jobID]
