@@ -4063,6 +4063,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func markRecordingStarted(_ date: Date) {
         guard isRecording, activeRecordingTriggerMode != nil else { return }
         activeRecordingStartedAt = date
+        overlayManager.setRecordingStartedAt(date)
     }
 
     @MainActor
@@ -4176,6 +4177,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         activeAudioInputID = audioInputID
         discardRecordingSegments()
         refreshOverlayInputOptions()
+        overlayManager.setRecordingStartedAt(nil)
         configureSelectedAudioRecorderCallbacks(
             inputID: audioInputID,
             onReady: { [weak self] in

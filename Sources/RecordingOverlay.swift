@@ -19,6 +19,9 @@ final class RecordingOverlayState: ObservableObject {
     @Published var toastID: UUID?
     @Published var inputOptions: [RecordingOverlayInputOption] = []
     @Published var selectedInputID: String = ""
+    /// When the active recording effectively started (first captured audio),
+    /// preserved across mid-recording input switches. Used for the hover timer.
+    @Published var recordingStartedAt: Date?
 }
 
 enum OverlayPhase {
@@ -176,6 +179,10 @@ final class RecordingOverlayManager {
     func updateInputOptions(_ options: [RecordingOverlayInputOption], selectedID: String) {
         overlayState.inputOptions = options
         overlayState.selectedInputID = selectedID
+    }
+
+    func setRecordingStartedAt(_ date: Date?) {
+        overlayState.recordingStartedAt = date
     }
 
     init() {
@@ -862,7 +869,8 @@ private struct NotchSideOverlayView: View {
                         InputSwitchMenu(
                             options: state.inputOptions,
                             selectedID: state.selectedInputID,
-                            onSelect: onSelectInput
+                            onSelect: onSelectInput,
+                            recordingStartedAt: state.recordingStartedAt
                         ) {
                             CompactWaveformView(audioLevel: state.audioLevel, showsActivityPulse: true)
                         }
@@ -949,7 +957,8 @@ struct RecordingOverlayView: View {
                                 InputSwitchMenu(
                                     options: state.inputOptions,
                                     selectedID: state.selectedInputID,
-                                    onSelect: onSelectInput
+                                    onSelect: onSelectInput,
+                                    recordingStartedAt: state.recordingStartedAt
                                 ) {
                                     WaveformView(audioLevel: state.audioLevel, showsActivityPulse: true)
                                 }
@@ -1005,22 +1014,74 @@ struct RecordingOverlayView: View {
     }
 }
 
-/// Wraps overlay content (the waveform) so clicking it opens a menu to switch
-/// the audio input mid-recording. Uses an AppKit NSMenu (via a transparent click
-/// catcher) because SwiftUI's `Menu` does not reliably open/reopen inside the
-/// borderless, non-activating overlay panel.
+/// Wraps overlay content (the waveform) so hovering it peeks the elapsed
+/// recording time (in the same footprint) and clicking it opens a menu to switch
+/// the audio input mid-recording. Uses an AppKit NSMenu + tracking area (via a
+/// transparent catcher) because SwiftUI's `Menu`/`.onHover` do not work reliably
+/// inside the borderless, non-activating overlay panel.
 struct InputSwitchMenu<Content: View>: View {
     let options: [RecordingOverlayInputOption]
     let selectedID: String
     let onSelect: (String) -> Void
+    let recordingStartedAt: Date?
     @ViewBuilder var content: () -> Content
+    @State private var isHovering = false
+
+    private var showsTime: Bool {
+        isHovering && recordingStartedAt != nil
+    }
 
     var body: some View {
-        content()
-            .overlay(
-                InputMenuClickCatcher(options: options, selectedID: selectedID, onSelect: onSelect)
+        // Both views are always laid out (only opacity toggles) so the view's
+        // size stays fixed when hovering. Otherwise the hover-tracked area would
+        // resize as content swaps, making the mouse cross its edge and flicker
+        // enter/exit (and sometimes get stuck "entered").
+        ZStack {
+            content()
+                .opacity(showsTime ? 0 : 1)
+            if let recordingStartedAt {
+                ElapsedTimeView(startedAt: recordingStartedAt)
+                    .opacity(showsTime ? 1 : 0)
+            }
+        }
+        .animation(.easeInOut(duration: 0.12), value: showsTime)
+        .overlay(
+            InputMenuClickCatcher(
+                options: options,
+                selectedID: selectedID,
+                onSelect: onSelect,
+                onHoverChange: { hovering in isHovering = hovering }
             )
-            .help("Switch audio input")
+        )
+        .help("Hover for elapsed time · click to switch audio input")
+    }
+}
+
+/// Shows the elapsed recording time, ticking each second, as M:SS (or H:MM:SS
+/// once it passes an hour).
+private struct ElapsedTimeView: View {
+    let startedAt: Date
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            Text(Self.formatted(context.date.timeIntervalSince(startedAt)))
+                .font(.system(size: 13, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .fixedSize()
+        }
+    }
+
+    static func formatted(_ interval: TimeInterval) -> String {
+        let total = max(0, Int(interval))
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%02d:%02d", minutes, seconds)
     }
 }
 
@@ -1028,26 +1089,60 @@ private struct InputMenuClickCatcher: NSViewRepresentable {
     let options: [RecordingOverlayInputOption]
     let selectedID: String
     let onSelect: (String) -> Void
+    let onHoverChange: (Bool) -> Void
 
     func makeNSView(context: Context) -> ClickCatcherView {
         let view = ClickCatcherView()
-        view.apply(options: options, selectedID: selectedID, onSelect: onSelect)
+        view.apply(options: options, selectedID: selectedID, onSelect: onSelect, onHoverChange: onHoverChange)
         return view
     }
 
     func updateNSView(_ nsView: ClickCatcherView, context: Context) {
-        nsView.apply(options: options, selectedID: selectedID, onSelect: onSelect)
+        nsView.apply(options: options, selectedID: selectedID, onSelect: onSelect, onHoverChange: onHoverChange)
     }
 
     final class ClickCatcherView: NSView {
         private var options: [RecordingOverlayInputOption] = []
         private var selectedID: String = ""
         private var onSelect: ((String) -> Void)?
+        private var onHoverChange: ((Bool) -> Void)?
+        private var hoverTrackingArea: NSTrackingArea?
 
-        func apply(options: [RecordingOverlayInputOption], selectedID: String, onSelect: @escaping (String) -> Void) {
+        func apply(
+            options: [RecordingOverlayInputOption],
+            selectedID: String,
+            onSelect: @escaping (String) -> Void,
+            onHoverChange: @escaping (Bool) -> Void
+        ) {
             self.options = options
             self.selectedID = selectedID
             self.onSelect = onSelect
+            self.onHoverChange = onHoverChange
+        }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let hoverTrackingArea {
+                removeTrackingArea(hoverTrackingArea)
+            }
+            // .activeAlways so hover fires even though the overlay panel never
+            // becomes key; .inVisibleRect keeps it sized to the view.
+            let area = NSTrackingArea(
+                rect: bounds,
+                options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+            addTrackingArea(area)
+            hoverTrackingArea = area
+        }
+
+        override func mouseEntered(with event: NSEvent) {
+            onHoverChange?(true)
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            onHoverChange?(false)
         }
 
         override func mouseDown(with event: NSEvent) {
