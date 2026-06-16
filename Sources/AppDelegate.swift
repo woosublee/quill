@@ -95,7 +95,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 UpdateManager.shared.startPeriodicChecks()
             }
 
-            if !AXIsProcessTrusted() {
+            if appState.requiresAccessibility, !AXIsProcessTrusted() {
                 appState.showAccessibilityAlert()
             }
 
@@ -316,7 +316,7 @@ private func showNoteBrowserWindow() {
             UpdateManager.shared.startPeriodicChecks()
         }
 
-        if !AXIsProcessTrusted() {
+        if appState.requiresAccessibility, !AXIsProcessTrusted() {
             Task { @MainActor in
                 appState.showAccessibilityAlert()
             }

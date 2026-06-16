@@ -3724,6 +3724,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Whether the configured recording flow will actually exercise Accessibility.
+    /// Auto-paste synthesizes a Cmd+V keystroke and command mode reads the
+    /// frontmost app's selected text — both require AX. Pure dictation that only
+    /// copies to the clipboard (auto-paste off, command mode off) does not, so
+    /// MCP / Rec-button / calendar recordings can proceed without it.
+    ///
+    /// Note: the global hotkey's event tap also needs AX, but that is a separate
+    /// concern — we intentionally don't gate on whether a shortcut is bound here.
+    var requiresAccessibility: Bool {
+        !disableAutoPaste || isCommandModeEnabled
+    }
+
     @MainActor
     private func prepareRecordingStart(
         triggerMode: RecordingTriggerMode,
@@ -3735,7 +3747,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         activeRecordingTriggerMode = triggerMode
         let isAccessibilityTrusted = AXIsProcessTrusted()
         hasAccessibility = isAccessibilityTrusted
-        guard isAccessibilityTrusted else {
+        guard isAccessibilityTrusted || !requiresAccessibility else {
             errorMessage = "Accessibility permission required. Grant access in System Settings > Privacy & Security > Accessibility."
             statusText = "No Accessibility"
             activeRecordingTriggerMode = nil

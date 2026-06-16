@@ -74,7 +74,7 @@ struct MenuBarView: View {
             }
 
             // Accessibility warning
-            if !appState.hasAccessibility {
+            if appState.requiresAccessibility, !appState.hasAccessibility {
                 Button {
                     appState.showAccessibilityAlert()
                 } label: {
