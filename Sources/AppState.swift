@@ -1020,7 +1020,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard let self else {
             return MeetingReminderOverlayContext(phase: .idle, layout: .centerDropdownFill)
         }
-        let phase: MeetingReminderOverlayContext.Phase = if self.isRecording {
+        let phase: MeetingReminderOverlayContext.Phase = if self.isRecording || self.isDebugOverlayActive {
+            // Treat the debug overlay as recording so the reminder shows its
+            // recording (wrapping) variant for visual testing in dev builds.
             .recording
         } else if self.isTranscribing {
             .processing
@@ -5649,6 +5651,29 @@ final class AppState: ObservableObject, @unchecked Sendable {
             guard let self, self.pendingOverlayDismissToken == dismissToken else { return }
             self.pendingOverlayDismissToken = nil
             self.overlayManager.dismiss()
+        }
+    }
+
+    @MainActor
+    func showDebugMeetingReminderOverlay() {
+        let now = Date()
+        let event = GoogleCalendarEvent(
+            id: "debug-meeting-reminder-\(UUID().uuidString)",
+            calendarID: "primary",
+            title: "Team Standup",
+            start: now.addingTimeInterval(600),
+            end: now.addingTimeInterval(1_800),
+            isAllDay: false,
+            attendees: []
+        )
+        let schedule = CalendarRecordingReminderSchedule(
+            identifier: "debug-meeting-reminder:\(UUID().uuidString)",
+            fireDate: now,
+            event: event,
+            delivery: .immediate
+        )
+        Task { [weak self] in
+            _ = await self?.meetingReminderOverlayManager.presentCalendarRecordingReminder(schedule) { _ in }
         }
     }
 
