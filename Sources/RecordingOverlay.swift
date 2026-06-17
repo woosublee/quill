@@ -396,7 +396,9 @@ final class RecordingOverlayManager {
     /// Bottom-most visible overlay frame (recording pill vs. the taller reminder
     /// card), used as the anchor for the toast. Smaller minY = lower on screen.
     private func noticeAnchorFrame(reminderFrame: NSRect?) -> NSRect? {
-        [overlayWindow?.frame, reminderFrame]
+        // Only anchor to actually-visible frames so the toast never attaches to
+        // a stale/hidden overlay position.
+        [visibleOverlayFrame, reminderFrame]
             .compactMap { $0 }
             .min(by: { $0.minY < $1.minY })
     }
@@ -430,8 +432,13 @@ final class RecordingOverlayManager {
             height: frame.height,
             rootView: RecordingNoticeToastView(message: truncated)
         )
+        // Reuse keeps the panel on screen; only reset alpha when it's actually
+        // hidden, otherwise replacing a still-visible notice flashes.
+        let isAlreadyVisible = panel.isVisible && panel.alphaValue > 0
         panel.setFrame(frame, display: true)
-        panel.alphaValue = 0
+        if !isAlreadyVisible {
+            panel.alphaValue = 0
+        }
         panel.orderFrontRegardless()
         noticeWindow = panel
 
@@ -452,7 +459,10 @@ final class RecordingOverlayManager {
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = 0.16
             panel.animator().alphaValue = 0
-        }, completionHandler: { [weak panel] in
+        }, completionHandler: { [weak self, weak panel] in
+            // A newer notice may have been scheduled mid-fade; only hide the
+            // panel if nothing is showing now.
+            guard let self, self.noticeToken == nil else { return }
             panel?.orderOut(nil)
         })
     }
