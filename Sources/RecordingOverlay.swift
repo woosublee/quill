@@ -163,6 +163,13 @@ final class RecordingOverlayManager {
     private let overlayState = RecordingOverlayState()
     private var lockedOverlayWidth: CGFloat?
     private var screenParametersObserver: NSObjectProtocol?
+    /// Separate panel for transient recording notices (e.g. a rejected input
+    /// switch). Anchored just below the overlay stack so it never overlaps the
+    /// live waveform or a visible reminder card.
+    private var noticeWindow: NSPanel?
+    /// Identifies the in-flight notice so its scheduled dismissal only fires if
+    /// that same notice is still showing.
+    private var noticeToken: UUID?
     private let notchSideRegionWidth: CGFloat = 92
     private let notchSidePanelHeight: CGFloat = 38
     private let notchSideHorizontalInset: CGFloat = 8
@@ -330,14 +337,16 @@ final class RecordingOverlayManager {
         }
     }
 
+    private static func truncatedToastMessage(_ message: String) -> String {
+        guard message.count > maxToastMessageLength else { return message }
+        let cutoff = message.index(message.startIndex, offsetBy: maxToastMessageLength - 1)
+        return String(message[..<cutoff]) + "…"
+    }
+
     /// Surface a transient error in the menu-bar pill. The pill resizes to fit
     /// the message, holds briefly, then dismisses.
     func showError(_ message: String) {
-        let truncated: String = {
-            guard message.count > Self.maxToastMessageLength else { return message }
-            let cutoff = message.index(message.startIndex, offsetBy: Self.maxToastMessageLength - 1)
-            return String(message[..<cutoff]) + "…"
-        }()
+        let truncated = Self.truncatedToastMessage(message)
         DispatchQueue.main.async {
             let toastID = UUID()
             self.overlayState.errorMessage = truncated
@@ -357,6 +366,95 @@ final class RecordingOverlayManager {
                 self.dismissAll()
             }
         }
+    }
+
+    /// Frame of the recording overlay panel while it's on screen, else nil.
+    /// Used to anchor the transient notice toast below the overlay stack.
+    var visibleOverlayFrame: NSRect? {
+        guard let overlayWindow, overlayWindow.isVisible, overlayWindow.alphaValue > 0 else { return nil }
+        return overlayWindow.frame
+    }
+
+    /// Surface a transient notice for a non-fatal mid-recording event (e.g. a
+    /// rejected input switch) WITHOUT ending the session: a separate toast
+    /// anchored just under the lowest visible overlay (the recording pill, or
+    /// the taller reminder card when `reminderFrame` is set) so it never covers
+    /// the live waveform or overlaps the reminder.
+    func showRecordingNotice(_ message: String, reminderFrame: NSRect?) {
+        let truncated = Self.truncatedToastMessage(message)
+        DispatchQueue.main.async {
+            guard self.overlayState.phase == .recording,
+                  let anchor = self.noticeAnchorFrame(reminderFrame: reminderFrame) else {
+                // No recording overlay on screen — fall back to the standard toast.
+                self.showError(message)
+                return
+            }
+            self.showAnchoredRecordingNotice(truncated, anchor: anchor)
+        }
+    }
+
+    /// Bottom-most visible overlay frame (recording pill vs. the taller reminder
+    /// card), used as the anchor for the toast. Smaller minY = lower on screen.
+    private func noticeAnchorFrame(reminderFrame: NSRect?) -> NSRect? {
+        [overlayWindow?.frame, reminderFrame]
+            .compactMap { $0 }
+            .min(by: { $0.minY < $1.minY })
+    }
+
+    /// Show a standalone toast panel just below `anchor`, matching its width but
+    /// never narrower than the message needs.
+    private func showAnchoredRecordingNotice(_ truncated: String, anchor: NSRect) {
+        let token = UUID()
+        noticeToken = token
+
+        let height: CGFloat = 30
+        let gap: CGFloat = 6
+        let estimatedFit = CGFloat(truncated.count) * 6.8 + 44
+        let minFit = min(420, max(220, estimatedFit))
+        var width = max(anchor.width, minFit)
+        if let screenWidth = screenGeometry?.screenFrame.width {
+            width = min(width, screenWidth - 32)
+        }
+        let frame = NSRect(
+            x: anchor.midX - width / 2,
+            y: anchor.minY - gap - height,
+            width: width,
+            height: height
+        )
+
+        let panel = noticeWindow ?? makeOverlayPanel(width: frame.width, height: frame.height)
+        panel.hasShadow = true
+        panel.ignoresMouseEvents = true
+        panel.contentView = makeTransparentContent(
+            width: frame.width,
+            height: frame.height,
+            rootView: RecordingNoticeToastView(message: truncated)
+        )
+        panel.setFrame(frame, display: true)
+        panel.alphaValue = 0
+        panel.orderFrontRegardless()
+        noticeWindow = panel
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            panel.animator().alphaValue = 1
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) { [weak self] in
+            guard let self, self.noticeToken == token else { return }
+            self.noticeToken = nil
+            self.dismissNoticeToast()
+        }
+    }
+
+    private func dismissNoticeToast() {
+        guard let panel = noticeWindow else { return }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.16
+            panel.animator().alphaValue = 0
+        }, completionHandler: { [weak panel] in
+            panel?.orderOut(nil)
+        })
     }
 
     func showUpdateAvailable(version: String) {
@@ -1205,6 +1303,32 @@ struct ErrorOverlayView: View {
                 .truncationMode(.tail)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+}
+
+/// Standalone transient toast for non-fatal mid-recording notices, shown in its
+/// own panel anchored below the overlay stack. Draws its own rounded background
+/// since the panel itself is transparent.
+struct RecordingNoticeToastView: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Color.red.opacity(0.92))
+            Text(message)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.black)
+        )
     }
 }
 
