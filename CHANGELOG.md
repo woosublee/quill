@@ -8,6 +8,20 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.11] - 2026-06-17
+
+### Added
+
+- Recording Overlay settings: choose how the overlay shows recording progress — Waveform only (new default), Show elapsed time on hover (the previous behavior), or Show elapsed time instead of the waveform. Clicking the overlay still opens the input switcher in every mode.
+
+### Improved
+
+- Accessibility is now requested only when a recording will actually use it — auto-paste or command mode. Plain dictation, MCP, Rec-button, and calendar recordings no longer demand Accessibility or block on it. When it is needed, the app shows the single native macOS prompt instead of a custom alert first.
+
+### Fixed
+
+- Switching the audio input mid-recording to a source that lacks permission (e.g. System Audio without Screen Recording) now shows a short notice on the overlay itself, instead of silently doing nothing. The detailed guidance still appears in the menu bar.
+
 ## [0.1.10] - 2026-06-17
 
 ### Added
