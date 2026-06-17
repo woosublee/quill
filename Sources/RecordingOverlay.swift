@@ -681,6 +681,10 @@ final class RecordingOverlayManager {
             panel.orderOut(nil)
             overlayWindow = nil
         }
+        // Tear down any transient notice toast alongside the overlay so it
+        // doesn't linger after the session ends.
+        noticeToken = nil
+        noticeWindow?.orderOut(nil)
     }
 }
 
