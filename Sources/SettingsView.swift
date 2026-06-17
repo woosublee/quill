@@ -2410,6 +2410,15 @@ struct ShortcutsSettingsView: View {
             Divider()
                 .padding(.vertical, 2)
 
+            Toggle("Keep dictations in clipboard history", isOn: $appState.keepDictationInClipboardHistory)
+
+            Text("When on, your clipboard manager (Paste, Raycast, Maccy, etc.) records each dictation so you can find it in your recent history. When off, \(AppName.displayName) marks dictations transient and your clipboard manager skips them.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Divider()
+                .padding(.vertical, 2)
+
             Toggle("Say \"press enter\" to submit after paste", isOn: $appState.isPressEnterVoiceCommandEnabled)
 
             Text("When the transcription ends with \"press enter\", Quill removes those words before cleanup, pastes the remaining transcript, then presses Return.")
