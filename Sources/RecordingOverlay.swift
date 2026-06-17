@@ -22,6 +22,8 @@ final class RecordingOverlayState: ObservableObject {
     /// When the active recording effectively started (first captured audio),
     /// preserved across mid-recording input switches. Used for the hover timer.
     @Published var recordingStartedAt: Date?
+    /// How the overlay presents the elapsed recording time relative to the waveform.
+    @Published var waveformDisplayMode: OverlayWaveformDisplayMode = .waveformOnly
 }
 
 enum OverlayPhase {
@@ -30,6 +32,26 @@ enum OverlayPhase {
     case transcribing
     case feedback
     case updateAvailable
+}
+
+/// Controls how the recording overlay presents elapsed time relative to the
+/// live audio waveform.
+enum OverlayWaveformDisplayMode: String, CaseIterable, Identifiable {
+    /// Show only the live waveform (default). No elapsed time.
+    case waveformOnly
+    /// Show the waveform; reveal elapsed time only while hovering it.
+    case hoverTime
+    /// Replace the waveform with a running elapsed-time counter.
+    case timeOnly
+
+    var id: String { rawValue }
+
+    static func find(rawValue: String?) -> OverlayWaveformDisplayMode {
+        guard let rawValue, let mode = OverlayWaveformDisplayMode(rawValue: rawValue) else {
+            return .waveformOnly
+        }
+        return mode
+    }
 }
 
 enum RecordingOverlayLayout: String, CaseIterable, Identifiable {
@@ -183,6 +205,12 @@ final class RecordingOverlayManager {
 
     func setRecordingStartedAt(_ date: Date?) {
         overlayState.recordingStartedAt = date
+    }
+
+    func setWaveformDisplayMode(_ mode: OverlayWaveformDisplayMode) {
+        DispatchQueue.main.async {
+            self.overlayState.waveformDisplayMode = mode
+        }
     }
 
     init() {
@@ -870,7 +898,8 @@ private struct NotchSideOverlayView: View {
                             options: state.inputOptions,
                             selectedID: state.selectedInputID,
                             onSelect: onSelectInput,
-                            recordingStartedAt: state.recordingStartedAt
+                            recordingStartedAt: state.recordingStartedAt,
+                            displayMode: state.waveformDisplayMode
                         ) {
                             CompactWaveformView(audioLevel: state.audioLevel, showsActivityPulse: true)
                         }
@@ -958,7 +987,8 @@ struct RecordingOverlayView: View {
                                     options: state.inputOptions,
                                     selectedID: state.selectedInputID,
                                     onSelect: onSelectInput,
-                                    recordingStartedAt: state.recordingStartedAt
+                                    recordingStartedAt: state.recordingStartedAt,
+                                    displayMode: state.waveformDisplayMode
                                 ) {
                                     WaveformView(audioLevel: state.audioLevel, showsActivityPulse: true)
                                 }
@@ -1024,11 +1054,29 @@ struct InputSwitchMenu<Content: View>: View {
     let selectedID: String
     let onSelect: (String) -> Void
     let recordingStartedAt: Date?
+    let displayMode: OverlayWaveformDisplayMode
     @ViewBuilder var content: () -> Content
     @State private var isHovering = false
 
+    /// Whether elapsed time is shown instead of the waveform right now.
+    /// - `.waveformOnly`: never.
+    /// - `.hoverTime`: only while hovering.
+    /// - `.timeOnly`: always (waveform hidden for the whole recording).
     private var showsTime: Bool {
-        isHovering && recordingStartedAt != nil
+        guard recordingStartedAt != nil else { return false }
+        switch displayMode {
+        case .waveformOnly: return false
+        case .hoverTime: return isHovering
+        case .timeOnly: return true
+        }
+    }
+
+    private var helpText: String {
+        switch displayMode {
+        case .timeOnly: return "Elapsed time · click to switch audio input"
+        case .hoverTime: return "Hover for elapsed time · click to switch audio input"
+        case .waveformOnly: return "Switch audio input"
+        }
     }
 
     var body: some View {
@@ -1037,8 +1085,14 @@ struct InputSwitchMenu<Content: View>: View {
         // resize as content swaps, making the mouse cross its edge and flicker
         // enter/exit (and sometimes get stuck "entered").
         ZStack {
-            content()
-                .opacity(showsTime ? 0 : 1)
+            // In .timeOnly the waveform never shows, so omit it entirely rather
+            // than keeping it at opacity 0 — otherwise its TimelineView keeps
+            // ticking (and redrawing) invisibly. The other modes keep it laid
+            // out so the hover-tracked area doesn't resize when time appears.
+            if displayMode != .timeOnly {
+                content()
+                    .opacity(showsTime ? 0 : 1)
+            }
             if let recordingStartedAt {
                 ElapsedTimeView(startedAt: recordingStartedAt)
                     .opacity(showsTime ? 1 : 0)
@@ -1053,7 +1107,7 @@ struct InputSwitchMenu<Content: View>: View {
                 onHoverChange: { hovering in isHovering = hovering }
             )
         )
-        .help("Hover for elapsed time · click to switch audio input")
+        .help(helpText)
     }
 }
 

@@ -544,6 +544,33 @@ struct AppearanceSettingsView: View {
 
                         Divider()
 
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Waveform display")
+                                .font(.system(size: 13, weight: .semibold))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                            OverlayWaveformModeOptionRow(
+                                title: "Waveform only",
+                                subtitle: "Show the live audio waveform while recording.",
+                                mode: .waveformOnly,
+                                selection: $appState.overlayWaveformDisplayMode
+                            )
+                            OverlayWaveformModeOptionRow(
+                                title: "Show elapsed time on hover",
+                                subtitle: "Show the waveform; hover it to peek the elapsed recording time.",
+                                mode: .hoverTime,
+                                selection: $appState.overlayWaveformDisplayMode
+                            )
+                            OverlayWaveformModeOptionRow(
+                                title: "Show elapsed time instead of waveform",
+                                subtitle: "Replace the waveform with a running elapsed-time counter.",
+                                mode: .timeOnly,
+                                selection: $appState.overlayWaveformDisplayMode
+                            )
+                        }
+
+                        Divider()
+
                         overlayDisplaySection
                     }
                 }
@@ -636,7 +663,56 @@ struct OverlayLayoutOptionRow: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(title)
+        // Combine so VoiceOver reads the subtitle too, not just the title.
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+    }
+}
+
+struct OverlayWaveformModeOptionRow: View {
+    let title: String
+    let subtitle: String
+    let mode: OverlayWaveformDisplayMode
+    @Binding var selection: OverlayWaveformDisplayMode
+
+    private var isSelected: Bool {
+        selection == mode
+    }
+
+    var body: some View {
+        Button {
+            selection = mode
+        } label: {
+            HStack(alignment: .center, spacing: 14) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 20))
+                    .foregroundStyle(isSelected ? Color.blue : Color.secondary)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(isSelected ? Color.blue : Color.clear, lineWidth: 2)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        // Combine so VoiceOver reads the subtitle too, not just the title.
+        .accessibilityElement(children: .combine)
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
     }
 }
