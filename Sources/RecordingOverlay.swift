@@ -1085,8 +1085,14 @@ struct InputSwitchMenu<Content: View>: View {
         // resize as content swaps, making the mouse cross its edge and flicker
         // enter/exit (and sometimes get stuck "entered").
         ZStack {
-            content()
-                .opacity(showsTime ? 0 : 1)
+            // In .timeOnly the waveform never shows, so omit it entirely rather
+            // than keeping it at opacity 0 — otherwise its TimelineView keeps
+            // ticking (and redrawing) invisibly. The other modes keep it laid
+            // out so the hover-tracked area doesn't resize when time appears.
+            if displayMode != .timeOnly {
+                content()
+                    .opacity(showsTime ? 0 : 1)
+            }
             if let recordingStartedAt {
                 ElapsedTimeView(startedAt: recordingStartedAt)
                     .opacity(showsTime ? 1 : 0)
