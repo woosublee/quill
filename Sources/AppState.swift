@@ -2801,6 +2801,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Shows the native macOS Accessibility prompt directly (the system "wants to
+    /// control this computer" dialog) without our own explanatory alert and
+    /// without force-opening System Settings — the system dialog already has an
+    /// "Open System Settings" button. Used at launch so the user sees a single
+    /// native prompt. macOS only surfaces this dialog while the app is still
+    /// undetermined; once the user has decided it no-ops, and the menu-bar
+    /// "Accessibility Required" warning remains the path back.
+    func promptForAccessibilityAccess() {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
+    }
+
     func openMicrophoneSettings() {
         openPrivacySettingsPane("Privacy_Microphone")
     }
@@ -3753,7 +3765,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             activeRecordingTriggerMode = nil
             currentSessionIntent = .dictation
             shortcutSessionController.reset()
-            showAccessibilityAlert()
+            openAccessibilitySettings()
             return false
         }
         if let startedAt {
@@ -4406,27 +4418,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    func showAccessibilityAlert() {
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in
-                self?.showAccessibilityAlert()
-            }
-            return
-        }
-
-        let alert = NSAlert()
-        alert.messageText = "Accessibility Permission Required"
-        alert.informativeText = "Quill cannot type transcriptions without Accessibility access.\n\nGo to System Settings > Privacy & Security > Accessibility and enable Quill."
-        alert.alertStyle = .critical
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Dismiss")
-        alert.icon = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)
-
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            openAccessibilitySettings()
-        }
-    }
 
     private func precomputeMacros() {
         precomputedMacros = voiceMacros.map { macro in

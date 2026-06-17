@@ -96,7 +96,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             if appState.requiresAccessibility, !AXIsProcessTrusted() {
-                appState.showAccessibilityAlert()
+                appState.promptForAccessibilityAccess()
             }
 
             startMCPServer()
@@ -318,7 +318,7 @@ private func showNoteBrowserWindow() {
 
         if appState.requiresAccessibility, !AXIsProcessTrusted() {
             Task { @MainActor in
-                appState.showAccessibilityAlert()
+                appState.promptForAccessibilityAccess()
             }
         }
     }
