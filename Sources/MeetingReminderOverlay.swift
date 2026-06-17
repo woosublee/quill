@@ -205,6 +205,13 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
     var onStart: (@MainActor (CalendarRecordingReminderSchedule) -> Void)?
     var onDismiss: (@MainActor (CalendarRecordingReminderSchedule) -> Void)?
 
+    /// Frame of the reminder panel while a reminder is actually visible, else
+    /// nil. Lets the recording overlay anchor a notice toast below the card.
+    var visibleOverlayFrame: NSRect? {
+        guard visibleReminder != nil, let panel, panel.isVisible, panel.alphaValue > 0 else { return nil }
+        return panel.frame
+    }
+
     init(
         contextProvider: @escaping () -> MeetingReminderOverlayContext,
         screenProvider: @escaping () -> NSScreen? = { NSScreen.main }

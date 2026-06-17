@@ -2172,7 +2172,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // recording. Use non-prompting checks so we don't trigger the
         // recording-start permission UI / state resets mid-session.
         guard canAccessRecordingInput(newInputID) else {
+            // Detailed guidance in the menu bar; a short notice on the overlay
+            // (which the user is actually looking at) that auto-dismisses without
+            // ending the session. Pass the reminder card's frame so the overlay
+            // can anchor a toast below it instead of overlapping.
             errorMessage = recordingInputAccessErrorMessage(for: newInputID)
+            overlayManager.showRecordingNotice(
+                recordingInputAccessNotice(for: newInputID),
+                reminderFrame: meetingReminderOverlayManager.visibleOverlayFrame
+            )
             return
         }
 
@@ -2265,6 +2273,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return "Couldn't switch input: System Audio needs Screen & System Audio Recording access (System Settings > Privacy & Security). \(tail)"
         }
         return "Couldn't switch input: Microphone access is required (System Settings > Privacy & Security). \(tail)"
+    }
+
+    /// Short, single-line variant for the recording overlay pill, which only has
+    /// room for a brief notice. Full guidance lives in the menu-bar message.
+    private func recordingInputAccessNotice(for inputID: String) -> String {
+        if AudioInputDevice.isSystemDefaultAndSystemAudio(inputID) {
+            return "Mic + Screen Recording needed to switch"
+        }
+        if AudioInputDevice.isSystemAudio(inputID) {
+            return "Screen Recording needed to switch"
+        }
+        return "Microphone access needed to switch"
     }
 
     /// Removes any captured segment temp files and resets the switch state.
