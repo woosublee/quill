@@ -73,7 +73,10 @@
               "AI transcript cleanup",
               "voice-driven text editing",
               "custom vocabulary",
-              "optional read-only Google Calendar note title suggestions"
+              "system audio capture with selectable audio source",
+              "recording overlay with waveform and elapsed time",
+              "local MCP server for Claude Code",
+              "optional read-only Google Calendar note title suggestions and recording reminders"
             ],
             "sameAs": ["https://github.com/woosublee/quill"]
           }
@@ -141,6 +144,18 @@
               <p>Add names, jargon, and project-specific terms so transcript cleanup can preserve important spellings.</p>
             </article>
             <article class="card">
+              <h3>System audio capture</h3>
+              <p>Record from System Default, System Audio, or System Default + System Audio, plus any connected microphone — and switch the source mid-recording without ending the session.</p>
+            </article>
+            <article class="card">
+              <h3>Recording overlay</h3>
+              <p>A compact overlay by the notch shows a live waveform while you record, with options to surface the elapsed time on hover or in place of the waveform.</p>
+            </article>
+            <article class="card">
+              <h3>Claude Code MCP server</h3>
+              <p>Quill exposes a local MCP server so Claude Code can start and stop recordings, add context, and read structured meeting data for note generation.</p>
+            </article>
+            <article class="card">
               <h3>Local history</h3>
               <p>Review, retry, and manage dictation results from local run history stored on your Mac.</p>
             </article>
@@ -161,7 +176,7 @@
           <div class="grid two">
             <article class="card">
               <h3>Optional Calendar access</h3>
-              <p>Quill can use read-only Google Calendar access to suggest note titles from selected calendars when an event overlaps a live recording.</p>
+              <p>Quill can use read-only Google Calendar access to suggest note titles from selected calendars when an event overlaps a live recording, and to show in-app reminders before a meeting starts.</p>
               <ul>
                 <li>No calendars are selected by default.</li>
                 <li>Quill does not create, edit, or delete calendar events.</li>
