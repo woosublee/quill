@@ -2814,6 +2814,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Shows the native macOS Accessibility prompt directly (the system "wants to
+    /// control this computer" dialog) without our own explanatory alert and
+    /// without force-opening System Settings — the system dialog already has an
+    /// "Open System Settings" button. Used at launch so the user sees a single
+    /// native prompt. macOS only surfaces this dialog while the app is still
+    /// undetermined; once the user has decided it no-ops, and the menu-bar
+    /// "Accessibility Required" warning remains the path back.
+    func promptForAccessibilityAccess() {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+        _ = AXIsProcessTrustedWithOptions(options)
+    }
+
     func openMicrophoneSettings() {
         openPrivacySettingsPane("Privacy_Microphone")
     }
@@ -3737,6 +3749,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Whether the configured recording flow will actually exercise Accessibility.
+    /// Auto-paste synthesizes a Cmd+V keystroke and command mode reads the
+    /// frontmost app's selected text — both require AX. Pure dictation that only
+    /// copies to the clipboard (auto-paste off, command mode off) does not, so
+    /// MCP / Rec-button / calendar recordings can proceed without it.
+    ///
+    /// Note: the global hotkey's event tap also needs AX, but that is a separate
+    /// concern — we intentionally don't gate on whether a shortcut is bound here.
+    var requiresAccessibility: Bool {
+        !disableAutoPaste || isCommandModeEnabled
+    }
+
     @MainActor
     private func prepareRecordingStart(
         triggerMode: RecordingTriggerMode,
@@ -3748,13 +3772,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         activeRecordingTriggerMode = triggerMode
         let isAccessibilityTrusted = AXIsProcessTrusted()
         hasAccessibility = isAccessibilityTrusted
-        guard isAccessibilityTrusted else {
+        guard isAccessibilityTrusted || !requiresAccessibility else {
             errorMessage = "Accessibility permission required. Grant access in System Settings > Privacy & Security > Accessibility."
             statusText = "No Accessibility"
             activeRecordingTriggerMode = nil
             currentSessionIntent = .dictation
             shortcutSessionController.reset()
-            showAccessibilityAlert()
+            openAccessibilitySettings()
             return false
         }
         if let startedAt {
@@ -4407,27 +4431,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    func showAccessibilityAlert() {
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { [weak self] in
-                self?.showAccessibilityAlert()
-            }
-            return
-        }
-
-        let alert = NSAlert()
-        alert.messageText = "Accessibility Permission Required"
-        alert.informativeText = "Quill cannot type transcriptions without Accessibility access.\n\nGo to System Settings > Privacy & Security > Accessibility and enable Quill."
-        alert.alertStyle = .critical
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Dismiss")
-        alert.icon = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)
-
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            openAccessibilitySettings()
-        }
-    }
 
     private func precomputeMacros() {
         precomputedMacros = voiceMacros.map { macro in

@@ -95,8 +95,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 UpdateManager.shared.startPeriodicChecks()
             }
 
-            if !AXIsProcessTrusted() {
-                appState.showAccessibilityAlert()
+            if appState.requiresAccessibility, !AXIsProcessTrusted() {
+                appState.promptForAccessibilityAccess()
             }
 
             startMCPServer()
@@ -316,9 +316,9 @@ private func showNoteBrowserWindow() {
             UpdateManager.shared.startPeriodicChecks()
         }
 
-        if !AXIsProcessTrusted() {
+        if appState.requiresAccessibility, !AXIsProcessTrusted() {
             Task { @MainActor in
-                appState.showAccessibilityAlert()
+                appState.promptForAccessibilityAccess()
             }
         }
     }
