@@ -28,6 +28,7 @@ It is built for everyday writing and work notes: replying to messages, drafting 
 ## What Quill helps with
 
 - **Capture thoughts before they disappear:** Speak rough ideas, meeting notes, follow-ups, or drafts without switching away from the app you are using.
+- **Record the right audio source:** Capture from the System Default input, System Audio, or System Default + System Audio (plus any connected microphone), and switch the source mid-recording without ending the session.
 - **Write into any Mac app:** Dictate into text fields, documents, chat apps, browsers, terminals, and other focused inputs.
 - **Turn speech into finished text:** Clean up filler words, punctuation, phrasing, names, and project-specific vocabulary before the text is pasted.
 - **Edit by voice:** Highlight existing text and say what to change, such as “make this shorter” or “turn this into bullets.”
@@ -37,7 +38,7 @@ It is built for everyday writing and work notes: replying to messages, drafting 
 
 ## How it works
 
-1. Quill records audio when you press your dictation shortcut.
+1. Quill records audio when you press your dictation shortcut and shows a compact overlay near the notch with a live waveform (and optional elapsed time).
 2. It transcribes the audio using your configured local or provider-based transcription option.
 3. It can clean up the transcript with app context, custom vocabulary, and output preferences.
 4. It pastes the final text into the focused app and keeps a local history entry for review or retry.

@@ -12,7 +12,11 @@ Platform: macOS 13 or later on Apple Silicon and Intel Macs
 
 Quill lets users dictate into the currently focused text field on macOS. It supports configurable dictation shortcuts, local or API-based transcription, AI-powered transcript cleanup, custom vocabulary, voice macros, local run history, and Edit Mode for transforming selected text with spoken instructions.
 
-Quill can optionally connect to Google Calendar to suggest note titles from events that overlap a live recording.
+Quill can capture from the system default input, system audio, or both combined, and the audio source can be switched mid-recording. A recording overlay near the notch shows a live waveform with optional elapsed-time display.
+
+Quill can optionally connect to Google Calendar to suggest note titles from events that overlap a live recording and to show in-app reminders before a meeting starts.
+
+Quill also runs a local MCP server so Claude Code can drive recordings and read meeting data (see the MCP section below).
 
 ## Google Calendar Access
 
@@ -26,6 +30,20 @@ Quill uses calendar list access so users can choose which calendars Quill may us
 For selected calendars, Quill reads event metadata around the time of a live recording so it can suggest note titles from overlapping events. Quill does not create, edit, or delete Google Calendar events.
 
 Google Calendar OAuth tokens are stored locally in macOS Keychain. Disconnecting Google Calendar in Quill Settings removes the stored Google Calendar token and clears selected calendars.
+
+## Claude Code MCP Server
+
+While Quill is running, it exposes a local MCP server at http://localhost:3457 that Claude Code can register with `claude mcp add -s user -t http quill http://localhost:3457`. The server is local to the user's Mac, is only available while Quill is running, and does not require a separate MCP API key.
+
+Available MCP tools:
+
+- start_recording — start a recording session, optionally with initial context such as meeting name, participants, topic, or a Notion URL.
+- add_context — append more context while a recording is in progress.
+- stop_recording — stop the recording and trigger transcription.
+- get_status — check whether Quill is idle, recording, or transcribing.
+- list_transcripts — list recent transcript history entries.
+- get_transcript — fetch a specific transcript by id.
+- get_meeting_source — fetch structured meeting data for a transcript id as JSON (resolved title, ISO 8601 timestamps, calendar match, attendees, audio file path, transcript, and context) for meeting-note generation.
 
 ## Privacy
 
@@ -41,7 +59,10 @@ When configured by the user, Quill may send necessary audio, transcript, selecte
 - AI-powered transcript cleanup and output language selection.
 - Edit Mode for voice-driven transformations of selected text.
 - Custom vocabulary and custom prompts.
-- Optional read-only Google Calendar note title suggestions.
+- System audio capture with a selectable audio source (system default, system audio, or both) that can be switched mid-recording.
+- Recording overlay with a live waveform and optional elapsed-time display.
+- Local MCP server for driving recordings and reading meeting data from Claude Code.
+- Optional read-only Google Calendar note title suggestions and in-app meeting reminders.
 - Local run history for reviewing and retrying dictation results.
 - Open source under the MIT license.
 
