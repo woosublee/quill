@@ -1368,12 +1368,21 @@ struct NoteAudioPlayerView: View {
     @State private var duration: TimeInterval = 0
     @State private var elapsed: TimeInterval = 0
     @State private var progressTimer: Timer?
+    @State private var volume: Double = 1
+    @State private var showVolumePopover = false
 
     @State private var barHeights: [CGFloat] = Array(repeating: 0.15, count: 80)
 
     private var progress: Double {
         guard duration > 0 else { return 0 }
         return min(elapsed / duration, 1.0)
+    }
+
+    private var volumeIcon: String {
+        if volume <= 0.001 { return "speaker.slash.fill" }
+        if volume < 0.34 { return "speaker.fill" }
+        if volume < 0.67 { return "speaker.wave.1.fill" }
+        return "speaker.wave.2.fill"
     }
 
     private var toolbarStrokeColor: Color {
@@ -1390,7 +1399,7 @@ struct NoteAudioPlayerView: View {
                         .overlay(GlassView(material: .popover).clipShape(Circle()))
                         .overlay(Circle().strokeBorder(toolbarStrokeColor, lineWidth: 0.7))
                         .frame(width: 36, height: 36)
-                    Image(systemName: isPlaying ? "stop.fill" : "play.fill")
+                    Image(systemName: isPlaying ? "pause.fill" : "play.fill")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(Color.primary)
                         .offset(x: isPlaying ? 0 : 1.5)
@@ -1415,7 +1424,16 @@ struct NoteAudioPlayerView: View {
                             .frame(width: barWidth, height: geo.size.height * barHeights[i])
                     }
                 }
-                .frame(maxHeight: .infinity, alignment: .center)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                // Tap to jump, drag to scrub. minimumDistance 0 makes a plain
+                // tap report through onChanged as well as a drag.
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            seek(toFraction: Double(value.location.x / geo.size.width))
+                        }
+                )
             }
             .frame(height: 44)
 
@@ -1425,6 +1443,30 @@ struct NoteAudioPlayerView: View {
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
                 .frame(minWidth: 80, alignment: .center)
+
+            // Volume — tap the speaker for a slider popover
+            Button { showVolumePopover.toggle() } label: {
+                Image(systemName: volumeIcon)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $showVolumePopover, arrowEdge: .bottom) {
+                HStack(spacing: 8) {
+                    Image(systemName: "speaker.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                    Slider(value: $volume, in: 0...1)
+                        .frame(width: 120)
+                    Image(systemName: "speaker.wave.3.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
@@ -1448,6 +1490,9 @@ struct NoteAudioPlayerView: View {
         .onAppear {
             loadDuration()
             loadWaveform()
+        }
+        .onChange(of: volume) { newValue in
+            player?.volume = Float(newValue)
         }
         .onDisappear { stopPlayback() }
     }
@@ -1506,22 +1551,53 @@ struct NoteAudioPlayerView: View {
 
     private func togglePlayback() {
         if isPlaying {
-            stopPlayback()
+            pausePlayback()
         } else {
-            guard FileManager.default.fileExists(atPath: audioURL.path) else { return }
-            do {
-                let p = try AVAudioPlayer(contentsOf: audioURL)
-                delegate.onFinish = { stopPlayback() }
-                p.delegate = delegate
-                p.play()
-                player = p
-                isPlaying = true
-                elapsed = 0
-                startProgressTimer()
-            } catch {}
+            play()
         }
     }
 
+    /// Lazily creates the player (if needed) and resumes from the current
+    /// position so pause keeps its place and seeking before pressing play works.
+    @discardableResult
+    private func preparedPlayer() -> AVAudioPlayer? {
+        if let player { return player }
+        guard FileManager.default.fileExists(atPath: audioURL.path) else { return nil }
+        guard let p = try? AVAudioPlayer(contentsOf: audioURL) else { return nil }
+        delegate.onFinish = { handlePlaybackFinished() }
+        p.delegate = delegate
+        p.volume = Float(volume)
+        p.prepareToPlay()
+        player = p
+        return p
+    }
+
+    private func play() {
+        guard let p = preparedPlayer() else { return }
+        p.play()
+        isPlaying = true
+        startProgressTimer()
+    }
+
+    private func pausePlayback() {
+        player?.pause()
+        isPlaying = false
+        progressTimer?.invalidate()
+        progressTimer = nil
+        elapsed = player?.currentTime ?? elapsed
+    }
+
+    /// Playback reached the end: stop the ticker and rewind to the start so the
+    /// next press of play restarts from the beginning.
+    private func handlePlaybackFinished() {
+        isPlaying = false
+        progressTimer?.invalidate()
+        progressTimer = nil
+        player?.currentTime = 0
+        elapsed = 0
+    }
+
+    /// Tears the player down entirely. Used when the view goes away.
     private func stopPlayback() {
         player?.stop()
         player = nil
@@ -1529,6 +1605,18 @@ struct NoteAudioPlayerView: View {
         progressTimer?.invalidate()
         progressTimer = nil
         elapsed = 0
+    }
+
+    /// Moves the playhead to `fraction` (0...1) of the duration. Works whether or
+    /// not playback is currently running.
+    private func seek(toFraction fraction: Double) {
+        // `fraction` comes from location.x / width; guard against a 0-width
+        // layout (NaN/Infinity) so we never set a bad AVAudioPlayer.currentTime.
+        guard fraction.isFinite, duration > 0, let p = preparedPlayer() else { return }
+        let clamped = min(max(fraction, 0), 1)
+        let target = clamped * duration
+        p.currentTime = target
+        elapsed = target
     }
 
     private func startProgressTimer() {
