@@ -1610,7 +1610,9 @@ struct NoteAudioPlayerView: View {
     /// Moves the playhead to `fraction` (0...1) of the duration. Works whether or
     /// not playback is currently running.
     private func seek(toFraction fraction: Double) {
-        guard duration > 0, let p = preparedPlayer() else { return }
+        // `fraction` comes from location.x / width; guard against a 0-width
+        // layout (NaN/Infinity) so we never set a bad AVAudioPlayer.currentTime.
+        guard fraction.isFinite, duration > 0, let p = preparedPlayer() else { return }
         let clamped = min(max(fraction, 0), 1)
         let target = clamped * duration
         p.currentTime = target
