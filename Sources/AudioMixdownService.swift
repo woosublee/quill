@@ -2,6 +2,13 @@ import AVFoundation
 import Foundation
 
 public struct AudioMixdownService {
+    /// Per-source headroom applied before summing the two streams. Summing two
+    /// full-scale signals would overflow, so each is attenuated to leave room.
+    /// Mixing the streams continuously (rather than gating sample-by-sample on
+    /// activity) avoids the per-sample amplitude jumps that produced audible
+    /// crackle when the microphone was recorded alongside system audio.
+    private static let mixHeadroom: Float = 0.8
+
     public init() {}
 
     public func mix(microphoneURL: URL, systemAudioURL: URL) throws -> URL {
@@ -14,19 +21,12 @@ public struct AudioMixdownService {
         mixedSamples.reserveCapacity(outputFrameCount)
 
         for index in 0..<outputFrameCount {
-            let hasMicrophoneSample = index < microphoneSamples.count
-            let hasSystemAudioSample = index < systemAudioSamples.count
-
-            switch (hasMicrophoneSample, hasSystemAudioSample) {
-            case (true, true):
-                mixedSamples.append(mix(microphoneSample: microphoneSamples[index], systemAudioSample: systemAudioSamples[index], systemGain: systemGain))
-            case (true, false):
-                mixedSamples.append(microphoneSamples[index])
-            case (false, true):
-                mixedSamples.append(applyGain(systemAudioSamples[index], gain: systemGain))
-            case (false, false):
-                mixedSamples.append(0)
-            }
+            // A source that has run out (the shorter recording) contributes
+            // silence, so the same continuous mix runs across the whole file
+            // without an amplitude step at the boundary.
+            let microphoneSample = index < microphoneSamples.count ? microphoneSamples[index] : 0
+            let systemAudioSample = index < systemAudioSamples.count ? systemAudioSamples[index] : 0
+            mixedSamples.append(mix(microphoneSample: microphoneSample, systemAudioSample: systemAudioSample, systemGain: systemGain))
         }
 
         let outputURL = FileManager.default.temporaryDirectory
@@ -109,24 +109,9 @@ public struct AudioMixdownService {
     }
 
     private func mix(microphoneSample: Int16, systemAudioSample: Int16, systemGain: Float) -> Int16 {
-        let adjustedSystemSample = applyGain(systemAudioSample, gain: systemGain)
-        let microphoneActive = abs(Int(microphoneSample)) > 32
-        let systemActive = abs(Int(adjustedSystemSample)) > 32
-
-        switch (microphoneActive, systemActive) {
-        case (true, true):
-            return clampedInt16((Int(microphoneSample) + Int(adjustedSystemSample)) / 2)
-        case (true, false):
-            return microphoneSample
-        case (false, true):
-            return adjustedSystemSample
-        case (false, false):
-            return 0
-        }
-    }
-
-    private func applyGain(_ sample: Int16, gain: Float) -> Int16 {
-        clampedInt16(Int((Float(sample) * gain).rounded()))
+        let microphone = Float(microphoneSample) * Self.mixHeadroom
+        let systemAudio = Float(systemAudioSample) * systemGain * Self.mixHeadroom
+        return clampedInt16(Int((microphone + systemAudio).rounded()))
     }
 
     private func clampedInt16(_ sample: Int) -> Int16 {
