@@ -5,7 +5,7 @@ import Foundation
 struct AudioMixdownServiceTests {
     static func main() {
         do {
-            try averagesOverlappingSamplesAndPreservesLongerTail()
+            try sumsOverlappingSamplesWithHeadroomAndPreservesLongerTail()
             try boostsQuietSystemAudioBeforeMixing()
             try preservesSystemAudioWhenMicrophoneIsSilent()
             try doesNotClipLoudSystemAudio()
@@ -22,7 +22,7 @@ struct AudioMixdownServiceTests {
         }
     }
 
-    private static func averagesOverlappingSamplesAndPreservesLongerTail() throws {
+    private static func sumsOverlappingSamplesWithHeadroomAndPreservesLongerTail() throws {
         let microphoneURL = try writeTinyWAV(samples: [1000, 1000, 1000, 1000])
         let systemAudioURL = try writeTinyWAV(samples: [3000, 3000])
         defer { try? FileManager.default.removeItem(at: microphoneURL) }
@@ -31,8 +31,11 @@ struct AudioMixdownServiceTests {
         let outputURL = try AudioMixdownService().mix(microphoneURL: microphoneURL, systemAudioURL: systemAudioURL)
         defer { try? FileManager.default.removeItem(at: outputURL) }
 
+        // systemGain stays at 1 (system already louder than the microphone), and
+        // each source is attenuated by the 0.8 headroom: overlap is
+        // 1000*0.8 + 3000*0.8 = 3200; the microphone-only tail is 1000*0.8 = 800.
         let samples = try readSamples(from: outputURL)
-        try expectEqual(samples, [2000, 2000, 1000, 1000], "mixed samples should average overlap and preserve tail")
+        try expectEqual(samples, [3200, 3200, 800, 800], "mixed samples should sum overlap with headroom and preserve tail")
     }
 
     private static func boostsQuietSystemAudioBeforeMixing() throws {
@@ -44,8 +47,10 @@ struct AudioMixdownServiceTests {
         let outputURL = try AudioMixdownService().mix(microphoneURL: microphoneURL, systemAudioURL: systemAudioURL)
         defer { try? FileManager.default.removeItem(at: outputURL) }
 
+        // systemGain is capped at 2 (100 -> 200), then both sources take the 0.8
+        // headroom: 1000*0.8 + 100*2*0.8 = 800 + 160 = 960.
         let samples = try readSamples(from: outputURL)
-        try expectEqual(samples, [600, 600], "quiet system audio should be boosted conservatively before averaging with microphone")
+        try expectEqual(samples, [960, 960], "quiet system audio should be boosted conservatively before summing with microphone")
     }
 
     private static func preservesSystemAudioWhenMicrophoneIsSilent() throws {
@@ -57,8 +62,10 @@ struct AudioMixdownServiceTests {
         let outputURL = try AudioMixdownService().mix(microphoneURL: microphoneURL, systemAudioURL: systemAudioURL)
         defer { try? FileManager.default.removeItem(at: outputURL) }
 
+        // A silent microphone contributes nothing; system audio passes through at
+        // the 0.8 headroom (100*0.8 = 80) with no activity-gated halving.
         let samples = try readSamples(from: outputURL)
-        try expectEqual(samples, [100, 100], "system audio should not be halved by silent microphone samples")
+        try expectEqual(samples, [80, 80], "system audio should not be halved by silent microphone samples")
     }
 
     private static func doesNotClipLoudSystemAudio() throws {
@@ -104,8 +111,11 @@ struct AudioMixdownServiceTests {
         }
         try expectEqual(file.length, 5, "output frame count should be max input frame count")
 
+        // systemGain stays at 1; every sample takes the 0.8 headroom. Overlap:
+        // 100*0.8 + 400*0.8 = 400 and 200*0.8 + 600*0.8 = 640. The system-only
+        // tail is 800*0.8, 1000*0.8, 1200*0.8.
         let samples = try readSamples(from: outputURL)
-        try expectEqual(samples, [250, 400, 800, 1000, 1200], "mixed samples should silence-pad shorter input")
+        try expectEqual(samples, [400, 640, 640, 800, 960], "mixed samples should silence-pad shorter input")
     }
 
     private static func concatenatesSegmentsInOrder() throws {
