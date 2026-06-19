@@ -1,0 +1,179 @@
+name: Self-signed Release
+
+# Builds the official auto-update release entirely in CI, signed with the
+# self-signed "Quill" certificate (the same identity used for local releases).
+# Keeping the identity identical means Sparkle's code-signing check still
+# matches for existing installs, so auto-updates are not interrupted. The
+# trade-off versus release.yml (Developer ID + notarization) is a Gatekeeper
+# warning on first launch for brand-new users — the same as today's local
+# releases. release.yml is kept for a future notarized transition.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release version
+        id: version
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          TAG="$INPUT_TAG"
+          APP_VERSION="$(make -s print-app-version)"
+          BUILD_NUMBER="$(make -s print-build-number)"
+          BUILD_TAG="$(make -s print-build-tag)"
+          VERSION="${TAG#v}"
+
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tags must use semantic versioning, for example v0.1.0." >&2
+            exit 1
+          fi
+
+          if [ "$TAG" != "$BUILD_TAG" ]; then
+            echo "Workflow tag $TAG must match BUILD_TAG $BUILD_TAG from version.mk." >&2
+            exit 1
+          fi
+
+          if [ "$VERSION" != "$APP_VERSION" ]; then
+            echo "Workflow version $VERSION must match APP_VERSION $APP_VERSION from version.mk." >&2
+            exit 1
+          fi
+
+          if ! [[ "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Build number must be a positive integer." >&2
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Release tag $TAG already exists on origin. Choose a new release tag." >&2
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Stamp app version
+        run: |
+          plutil -replace CFBundleShortVersionString -string "${{ steps.version.outputs.version }}" Info.plist
+          plutil -replace CFBundleVersion -string "${{ steps.version.outputs.build_number }}" Info.plist
+          plutil -replace QuillBuildTag -string "${{ steps.version.outputs.tag }}" Info.plist
+
+      - name: Build release notes from changelog
+        id: release_notes
+        run: |
+          .github/scripts/changelog-section.sh "${{ steps.version.outputs.version }}" > "$RUNNER_TEMP/release-notes.md"
+          {
+            echo "body<<EOF"
+            cat "$RUNNER_TEMP/release-notes.md"
+            echo
+            echo "## Download"
+            echo
+            echo "**[Quill.dmg](https://github.com/woosublee/quill/releases/download/${{ steps.version.outputs.tag }}/Quill.dmg)** — Universal build for all Macs (Apple Silicon + Intel)."
+            echo
+            echo "macOS may show a first-launch security warning because this build is signed with Quill's own certificate rather than notarized. If that happens, open System Settings > Privacy & Security and choose Open Anyway."
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Install build tools
+        run: brew install create-dmg fileicon
+
+      # Required GitHub secrets:
+      #   QUILL_CERTIFICATE_BASE64 — base64-encoded .p12 of the self-signed "Quill" certificate (with private key)
+      #   QUILL_CERTIFICATE_PASSWORD — password for the .p12
+      #   SPARKLE_PRIVATE_KEY — Sparkle EdDSA private key for appcast signing
+      - name: Import Quill signing certificate
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.QUILL_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.QUILL_CERTIFICATE_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH="$RUNNER_TEMP/quill_certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 20)"
+
+          echo "$CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import "$CERTIFICATE_PATH" \
+            -P "$CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          rm -f "$CERTIFICATE_PATH"
+
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "CODESIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "Found signing identity: $IDENTITY"
+
+      - name: Build universal
+        run: make ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY="$CODESIGN_IDENTITY" APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.tag }}"
+
+      - name: Create universal DMG
+        run: make dmg ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY="$CODESIGN_IDENTITY" APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.tag }}"
+
+      - name: Sign universal DMG
+        run: codesign --force --sign "$CODESIGN_IDENTITY" build/Quill.dmg
+
+      - name: Save universal DMG
+        run: mv build/Quill.dmg Quill.dmg
+
+      - name: Generate Sparkle appcast
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+          DMG_PATH: Quill.dmg
+          APPCAST_PATH: appcast.xml
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: scripts/generate-sparkle-appcast.sh
+
+      - name: Create tag
+        run: |
+          git tag "${{ steps.version.outputs.tag }}" "$GITHUB_SHA"
+          git push origin "refs/tags/${{ steps.version.outputs.tag }}"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Quill ${{ steps.version.outputs.version }}
+          body: ${{ steps.release_notes.outputs.body }}
+          generate_release_notes: false
+          make_latest: true
+          files: |
+            Quill.dmg
+            appcast.xml
+
+      - name: Cleanup signing artifacts
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/quill_certificate.p12"
+          KPATH="${KEYCHAIN_PATH:-$RUNNER_TEMP/signing.keychain-db}"
+          if [ -f "$KPATH" ]; then
+            security delete-keychain "$KPATH"
+          fi
