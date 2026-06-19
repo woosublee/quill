@@ -60,6 +60,33 @@ Per-feature persisted choices (replacing the scattered booleans/strings):
 - `.cloud` → existing path (`apiBaseURL` + key) in `TranscriptionService` / `PostProcessingService` / `AppContextService`.
 - `.local` → for LLM features, a `localhost` OpenAI-compatible base URL (Ollama/LM Studio in Phase 2; bundled `llama-server` in Phase 3) reusing the same `LLMAPITransport`. For transcription, the existing native path (`mlx_whisper` / Apple Speech; native whisper.cpp in Phase 1).
 
+### Feature enablement (required vs optional)
+
+The user decides *whether* to use a feature before *which model* — matching their mental order ("turn this on? → with what?").
+
+- **Transcription is required** — always shown, always has a model.
+- **Post-processing and context are optional** — each has an on/off toggle, and the model picker only appears when on.
+
+```swift
+@Published var postProcessingEnabled: Bool
+@Published var contextEnabled: Bool
+```
+
+Disabling a feature skips its pipeline stage entirely (post-processing off → raw transcript; context off → the existing non-LLM behavior). Bulk shortcuts and readiness checks apply **only to enabled features**.
+
+### Backend readiness (the precondition to actually run)
+
+Choosing a model does not mean it can run yet. Each backend has a **symmetric precondition**, and the UI handles both the same way:
+
+| Backend | Precondition | Inline readiness card (same spot) | Dropdown marker |
+|---|---|---|---|
+| `.cloud` | **API key** (Groq key in Keychain; existing `apiKey` / `validateAPIKey`) | "Cloud models need an API key — [Enter key]" | 🔒 needs key |
+| `.local` | **model installed** (download/pull; built-ins like Apple Speech are always ready) | "Not downloaded yet · ~N GB — [Download]" | ↓ download |
+
+Flow: pick a model → check `isReady(choice)` → if not ready, surface the readiness card in the row and let the user satisfy it in place. Issue #70 already permits local-only setup without a Groq key; this generalizes it to a per-choice readiness check.
+
+**Friction-free default for keyless users:** transcription defaults to **Apple Speech** (built-in: no key, no download), so a brand-new user with no API key has a working pipeline immediately and can opt into cloud (enter key) or other local models (download) per feature.
+
 ### Feature model catalog (with capability metadata)
 
 The dropdown contents come from a per-feature catalog that encodes **what each model supports**, so asymmetry is data, not special-casing:
@@ -91,6 +118,7 @@ Migration must be lossless and one-time (mirror the existing `*MigrationKey` gua
 
 (See the mockup for the live layout.)
 
+- **Per-feature row header**: required features show a "Required" tag; optional features show an on/off toggle (label "Off" + collapsed picker when disabled). The model picker only renders when the feature is on.
 - **Per-feature row**: feature label + sub-label, and a model picker button showing `<model name> <backend badge>`.
 - **Picker dropdown**: grouped `☁️ Cloud` / `🟢 On your Mac (local)` sections, listing only supported models, each with a badge; selecting one sets `ModelChoice`.
 - **Bulk shortcuts** (top of card): *All cloud* / *As local as possible*. The latter keeps vision-dependent features (context) on cloud and notes why.
@@ -98,6 +126,7 @@ Migration must be lossless and one-time (mirror the existing `*MigrationKey` gua
   - local LLM selected → BYO note ("needs a local server like Ollama; bundled in Phase 3").
   - local context selected → warning ("text only — no screen analysis; use cloud if you need screen understanding").
   - local model not yet installed → install / download affordance (reuse `ModelRowView` download flow from `TranscriptionModel`, generalized to "pull" for LLM models).
+  - cloud model chosen without an API key → key-entry card in the same spot as the download card (the readiness symmetry above).
 - **Advanced (collapsed)**: cloud base URL, local server URL, API key (today's `ProviderSettingsFields`).
 
 ## Phase evolution
@@ -109,7 +138,8 @@ Migration must be lossless and one-time (mirror the existing `*MigrationKey` gua
 
 - **No local option for a feature** → that feature's dropdown shows cloud only; bulk "local" leaves it on cloud.
 - **Local model selected but not installed** → show install affordance; block use (or fall back) until installed, consistent with current transcription behavior.
-- **Cloud selected but no API key** → existing key-required prompt path.
+- **Cloud selected but no API key** → not-ready; show the inline key-entry card and mark cloud models 🔒 in the dropdown. Bulk "All cloud" with no key applies the choice but surfaces the key card rather than silently failing.
+- **Optional feature disabled** → its pipeline stage is skipped; bulk actions and readiness checks ignore it.
 - **Fallback model** (post-processing) is itself a `ModelChoice`; it may differ in back-end from the primary.
 - **Context vision**: `requiresVision` models are cloud-only for now; local context is explicitly text-only with a non-LLM fallback already present in `AppContextService`.
 

@@ -28,12 +28,23 @@
   .quick .q-l{font-size:12px;color:var(--ink2);font-weight:600;margin-right:2px;}
   .qbtn{font-size:12px;font-weight:600;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:7px;padding:5px 11px;cursor:pointer;}
   .qbtn:hover{border-color:var(--accent);color:var(--accent);}
+  .keydemo{font-size:11.5px;color:var(--ink3);margin:-4px 0 14px;display:flex;align-items:center;gap:6px;}
+  .kbtn{font-size:11px;font-weight:700;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:20px;padding:2px 10px;cursor:pointer;}
+  .kdh{opacity:.7;}
 
   .feat{border-top:1px solid var(--line);padding:12px 0;}
   .feat:first-of-type{border-top:none;}
   .feat .top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
   .feat .label{font-size:14px;font-weight:600;}
   .feat .sub{font-size:11.5px;color:var(--ink2);margin-top:1px;}
+  .feat.off{opacity:.6;}
+  .req{font-size:10px;font-weight:700;color:var(--ink3);background:rgba(120,120,128,0.16);padding:2px 7px;border-radius:20px;}
+  .offtxt{font-size:11.5px;color:var(--ink3);}
+  .sw{width:38px;height:22px;border-radius:22px;background:rgba(120,120,128,0.32);position:relative;cursor:pointer;transition:background .2s;flex:none;}
+  .sw.on{background:var(--green);}
+  .sw i{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.3);}
+  .sw.on i{left:18px;}
+  .righthead{display:flex;align-items:center;gap:9px;}
   .picker{position:relative;}
   .pick-btn{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;background:rgba(120,120,128,0.12);border:1px solid var(--line);border-radius:7px;padding:6px 10px;font-weight:500;cursor:pointer;}
   .pick-btn::after{content:"⌄";color:var(--ink3);margin-left:1px;}
@@ -41,7 +52,7 @@
   .b-cloud{background:var(--cloud-soft);color:var(--cloud);}
   .b-local{background:var(--green-soft);color:var(--green);}
 
-  .menu{display:none;position:absolute;right:0;top:calc(100% + 5px);width:248px;background:var(--card);border:1px solid var(--line);border-radius:11px;box-shadow:0 12px 34px rgba(0,0,0,0.18);padding:6px;z-index:9;}
+  .menu{display:none;position:absolute;right:0;top:calc(100% + 5px);width:262px;background:var(--card);border:1px solid var(--line);border-radius:11px;box-shadow:0 12px 34px rgba(0,0,0,0.18);padding:6px;z-index:9;}
   .menu.open{display:block;}
   .menu .grp{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink3);font-weight:700;padding:7px 9px 3px;}
   .opt{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px;border-radius:7px;cursor:pointer;font-size:13px;}
@@ -49,12 +60,23 @@
   .opt.sel{background:var(--accent-soft);}
   .opt .mname{display:flex;flex-direction:column;}
   .opt .mnote{font-size:10.5px;color:var(--ink3);}
-  .opt.disabled{opacity:.45;cursor:not-allowed;}
   .opt .chk{color:var(--accent);font-weight:700;}
+  .dl-tag{font-size:10px;font-weight:700;color:var(--ink3);background:rgba(120,120,128,0.16);padding:1px 6px;border-radius:20px;}
 
-  .hint{font-size:11.5px;color:var(--ink2);margin-top:7px;display:none;}
-  .hint.show{display:block;}
-  .hint.warn{color:var(--warn);}
+  /* install affordance */
+  .install{margin-top:9px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:rgba(120,120,128,0.06);}
+  .install .ihead{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .install .ititle{font-size:12.5px;font-weight:600;}
+  .install .isize{font-size:11px;color:var(--ink3);margin-top:1px;}
+  .dlbtn{font-size:12px;font-weight:700;color:#fff;background:var(--accent);border:none;border-radius:7px;padding:6px 13px;cursor:pointer;white-space:nowrap;}
+  .dlbtn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent);}
+  .bar{height:6px;border-radius:6px;background:rgba(120,120,128,0.22);overflow:hidden;margin-top:9px;}
+  .bar i{display:block;height:100%;background:var(--accent);border-radius:6px;transition:width .25s;}
+  .iprog{font-size:11px;color:var(--ink2);margin-top:6px;display:flex;justify-content:space-between;}
+  .iok{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--green);font-weight:600;}
+  .byo{font-size:11.5px;color:var(--ink2);margin-top:7px;}
+  .warnnote{font-size:11.5px;color:var(--warn);margin-top:7px;}
+  .builtin{font-size:11.5px;color:var(--ink2);margin-top:7px;}
 
   .adv{font-size:12px;color:var(--ink3);cursor:pointer;padding:11px 0 2px;border-top:1px solid var(--line);margin-top:6px;}
   .advbox{display:none;margin-top:6px;}
@@ -64,32 +86,31 @@
   .notes h2{font-size:17px;margin:2px 0 10px;font-weight:700;}
   .notes p{font-size:13.5px;color:var(--ink2);margin:0 0 12px;}
   .notes p b{color:var(--ink);}
-  .layers{list-style:none;padding:0;margin:0 0 16px;}
-  .layers li{display:flex;gap:10px;font-size:13px;padding:9px 0;border-top:1px solid var(--line);}
-  .layers li:first-child{border-top:none;}
-  .layers .k{font-weight:700;color:var(--accent);flex:none;width:84px;}
+  .states{list-style:none;padding:0;margin:0 0 16px;}
+  .states li{display:flex;gap:10px;font-size:13px;padding:9px 0;border-top:1px solid var(--line);}
+  .states li:first-child{border-top:none;}
+  .states .k{font-weight:700;flex:none;width:96px;}
   .phasebox{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:14px;font-size:13px;}
   .phasebox h4{margin:0 0 8px;font-size:13px;}
-  .phasebox .later{color:var(--ink2);margin-top:8px;}
   .pill{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:20px;background:var(--accent-soft);color:var(--accent);margin-right:5px;}
   .pill.p3{background:var(--green-soft);color:var(--green);}
 </style>
 
 <div class="wrap">
-  <h1>Quill 모델 설정 — 최종 방향 (수정)</h1>
-  <p class="lede"><b>용도별 통합 선택(C)을 본질 구조로</b>, 전역 모드는 강제하지 않고 <b>"일괄 적용 단축"</b>으로. 각 기능은 자기가 실제 지원하는 백엔드만 보여주므로 <b>비대칭(예: 컨텍스트 로컬 비전 부재)을 정직하게</b> 담습니다. 드롭다운을 열어보고, 위쪽 단축 버튼도 눌러보세요.</p>
+  <h1>Quill 모델 설정 — 최종 방향</h1>
+  <p class="lede">백엔드는 각자 <b>쓸 수 있게 되는 조건</b>이 있습니다 — <b>클라우드는 API 키</b>, <b>로컬은 모델 설치</b>. 둘은 대칭이라 같은 자리의 카드로 처리합니다. 위쪽 <b>"API 키 상태"</b>를 눌러 없음↔연결됨을 바꿔보고, 키가 없을 때 클라우드 모델이 어떻게 잠기는지(🔒) 확인해보세요.</p>
 
   <div class="grid">
-    <!-- PANEL -->
     <div class="mac">
       <h3>AI 모델</h3>
-      <p class="cardsub">각 기능마다 모델을 고르면, 그게 클라우드인지 내 Mac(로컬)인지는 자동으로 따라옵니다.</p>
+      <p class="cardsub">각 기능마다 모델을 고르면, 클라우드인지 내 Mac(로컬)인지는 자동으로 따라옵니다.</p>
 
       <div class="quick">
         <span class="q-l">한 번에:</span>
         <button class="qbtn" data-bulk="cloud">☁️ 모두 클라우드</button>
         <button class="qbtn" data-bulk="local">🔒 가능한 만큼 로컬</button>
       </div>
+      <div class="keydemo">데모용 — API 키 상태: <button class="kbtn" data-keydemo>없음</button> <span class="kdh">(눌러서 있음/없음 전환)</span></div>
 
       <div data-feats></div>
 
@@ -101,23 +122,20 @@
       </div>
     </div>
 
-    <!-- NOTES -->
     <div class="notes">
-      <h2>왜 이 형태인가</h2>
-      <p>모델 선택은 본질적으로 <b>"용도별 + 각자 지원하는 백엔드"라는 비대칭 그래프</b>입니다. 전역 "클라우드/로컬" 모드는 모든 기능이 양쪽 백엔드를 다 가졌다고 가정하는데, 컨텍스트(화면 분석)처럼 <b>로컬 옵션이 없거나 제한적인 기능</b>에서 그 가정이 깨집니다. 그래서 <b>진실의 원천은 용도별 선택(C)</b>이어야 합니다.</p>
-
-      <ul class="layers">
-        <li><span class="k">진실</span><span>용도별 통합 드롭다운 — 각 기능이 <b>실제 가능한 모델만</b> 클라우드/로컬 섞어 제시. 모델을 고르면 백엔드는 자동.</span></li>
-        <li><span class="k">편의</span><span>일괄 단축 — "모두 클라우드 / 가능한 만큼 로컬". <b>강제 모드가 아니라</b> 한 번에 적용하는 버튼. 비대칭 기능은 알아서 빠지고 안내.</span></li>
-        <li><span class="k">고급</span><span>서버 주소·키 — 평소 접힘.</span></li>
+      <h2>로컬 모델 상태 흐름</h2>
+      <p>로컬 모델은 고른다고 바로 쓰이지 않습니다. <b>설치 상태에 따라 행 아래 영역이 바뀝니다</b> — 기존 전사 모델 다운로드 UI(<code>ModelRowView</code> / <code>TranscriptionModel.download</code>)를 모든 로컬 모델로 일반화한 것입니다.</p>
+      <ul class="states">
+        <li><span class="k" style="color:var(--ink3)">미설치</span><span>모델명 · 예상 용량 + <b>[다운로드]</b> 버튼. 선택은 됐지만 받기 전엔 실제 사용 보류.</span></li>
+        <li><span class="k" style="color:var(--accent)">다운로드 중</span><span>진행률 바 + %. (취소 가능) 다운로드 동안에도 다른 기능은 계속 설정 가능.</span></li>
+        <li><span class="k" style="color:var(--green)">설치됨</span><span>바로 사용. 로컬 LLM은 BYO 안내(Phase 2) 또는 무설치(Phase 3).</span></li>
+        <li><span class="k" style="color:var(--ink2)">내장</span><span>Apple Speech 등은 다운로드 불필요.</span></li>
+        <li><span class="k" style="color:var(--warn)">제약</span><span>로컬 컨텍스트는 "텍스트만 · 화면 분석 불가" 경고.</span></li>
       </ul>
-
-      <p style="font-size:12.5px;color:var(--ink3);">처음 의도였던 <b>"모델을 통합해 고르고 API/로컬은 속성"</b> 과도 정확히 같은 형태입니다.</p>
-
       <div class="phasebox">
-        <h4>단계에 따른 진화</h4>
-        <div><span class="pill">지금~Phase 2</span> 로컬 선택 시 Ollama 등 로컬 서버 안내(BYO). 컨텍스트 로컬은 "텍스트만".</div>
-        <div class="later"><span class="pill p3">Phase 3</span> 무설치 번들이 되면 "가능한 만큼 로컬" 단축이 진짜 원클릭이 됨 — 비로소 일반 사용자용 가치 프리셋으로 끌어올릴 수 있음.</div>
+        <h4>구현 메모</h4>
+        <div style="color:var(--ink2)"><span class="pill">Phase 2</span> 로컬 LLM은 Ollama 등 외부 서버 + 모델 pull. 다운로드 상태를 이 카드로 통일.</div>
+        <div style="color:var(--ink2);margin-top:8px"><span class="pill p3">Phase 3</span> 앱이 모델을 직접 받음(Whisper처럼). 같은 카드 UI 그대로 재사용.</div>
       </div>
     </div>
   </div>
@@ -125,94 +143,168 @@
 
 <script>
   const CATALOG = {
-    transcribe: { label:'전사', sub:'말을 글자로',
+    transcribe:{label:'전사', sub:'말을 글자로',
       cloud:[{id:'Whisper Large v3'}],
-      local:[{id:'Whisper Turbo'},{id:'Apple Speech',note:'내장'}] },
-    post: { label:'후처리', sub:'맞춤법·문장 정리',
+      local:[{id:'Whisper Turbo', sizeGB:1.5},{id:'Apple Speech', builtin:true, note:'내장'}]},
+    post:{label:'후처리', sub:'맞춤법·문장 정리',
       cloud:[{id:'GPT-OSS 20B'},{id:'Llama 4 Scout'}],
-      local:[{id:'Qwen 2.5 7B'},{id:'Gemma 3 4B'}] },
-    context: { label:'컨텍스트', sub:'화면 맥락 이해',
-      cloud:[{id:'Llama 4 Scout',note:'화면+텍스트'}],
-      local:[{id:'Gemma 3 4B',note:'텍스트만 · 화면 분석 불가'}] },
+      local:[{id:'Qwen 2.5 7B', sizeGB:4.7},{id:'Gemma 3 4B', sizeGB:3.3}]},
+    context:{label:'컨텍스트', sub:'화면 맥락 이해',
+      cloud:[{id:'Llama 4 Scout', note:'화면+텍스트'}],
+      local:[{id:'Gemma 3 4B', sizeGB:3.3, note:'텍스트만 · 화면 분석 불가'}]},
   };
-  // initial selection
+  // start with transcription on a NOT-yet-installed local model, to show the install flow up front
   const state = {
     transcribe:{backend:'local', id:'Whisper Turbo'},
     post:{backend:'cloud', id:'GPT-OSS 20B'},
     context:{backend:'cloud', id:'Llama 4 Scout'},
   };
-  let openMenu = null;
+  const REQUIRED = { transcribe:true, post:false, context:false };  // transcription is mandatory
+  const enabled = { post:true, context:false };                     // optional features on/off
+  let hasApiKey = false;            // cloud precondition: no Groq key yet
+  const installed = {};            // id -> true once installed (builtin handled separately)
+  const downloading = {};          // id -> {p}
+  const timers = {};
 
+  function meta(feature, id){
+    const f=CATALOG[feature];
+    return [...f.cloud,...f.local].find(m=>m.id===id) || {id};
+  }
   function badge(be){ return be==='local'
     ? '<span class="badge b-local">🟢 로컬</span>'
     : '<span class="badge b-cloud">☁️ 클라우드</span>'; }
+
+  function startDownload(feature,id){
+    downloading[id]={p:0};
+    render();
+    timers[id]=setInterval(()=>{
+      downloading[id].p += Math.random()*16+8;
+      if(downloading[id].p>=100){ clearInterval(timers[id]); delete timers[id]; delete downloading[id]; installed[id]=true; }
+      render();
+    }, 260);
+  }
+  function cancelDownload(id){ clearInterval(timers[id]); delete timers[id]; delete downloading[id]; render(); }
+
+  function localStateBlock(feature){
+    const s=state[feature]; const m=meta(feature,s.id);
+    const ctxWarn = (feature==='context') ? `<div class="warnnote">⚠︎ 로컬 컨텍스트는 화면 분석이 안 돼요(텍스트만). 화면 이해가 필요하면 클라우드를 권장합니다.</div>` : '';
+    if(m.builtin) return `<div class="builtin">✓ 내장 모델 — 추가 설치가 필요 없어요.</div>${ctxWarn}`;
+    if(downloading[s.id]){
+      const p=Math.min(100,Math.round(downloading[s.id].p));
+      return `<div class="install"><div class="ihead"><div><div class="ititle">${m.id} 내려받는 중…</div></div>
+        <button class="dlbtn ghost" data-cancel="${s.id}">취소</button></div>
+        <div class="bar"><i style="width:${p}%"></i></div>
+        <div class="iprog"><span>${p}%</span><span>${m.sizeGB} GB</span></div></div>${ctxWarn}`;
+    }
+    if(installed[s.id]){
+      return `<div class="install"><div class="iok">✓ 설치됨 — 이 모델을 바로 쓸 수 있어요.</div>
+        <div class="byo">로컬 LLM은 지금 단계(Phase 2)에선 Ollama 등 로컬 서버가 필요해요 · Phase 3에서 무설치.</div></div>${ctxWarn}`;
+    }
+    // not installed
+    return `<div class="install"><div class="ihead">
+      <div><div class="ititle">${m.id} — 아직 받지 않았어요</div><div class="isize">약 ${m.sizeGB} GB 다운로드 필요</div></div>
+      <button class="dlbtn" data-dl="${feature}|${s.id}">다운로드</button></div></div>${ctxWarn}`;
+  }
+
+  function cloudKeyBlock(){
+    // cloud precondition: API key. Mirrors the local install card.
+    return `<div class="install"><div class="ihead">
+      <div><div class="ititle">☁️ 클라우드 모델은 API 키가 필요해요</div><div class="isize">Groq 무료 키 · 한 번만 입력하면 모든 클라우드 모델에 적용</div></div>
+      <button class="dlbtn" data-key>키 입력</button></div></div>`;
+  }
 
   function render(){
     const host=document.querySelector('[data-feats]');
     host.innerHTML = Object.keys(CATALOG).map(k=>{
       const f=CATALOG[k], s=state[k];
-      const opts = (grp,be)=> grp.map(m=>{
-        const sel = (s.id===m.id);
+      const opt=(grp,be)=>grp.map(m=>{
+        const sel=(s.id===m.id);
+        const needDl = (be==='local' && !m.builtin && !installed[m.id]);
+        const needKey = (be==='cloud' && !hasApiKey);
+        const right = sel ? '<span class="chk">✓</span>'
+          : (needKey ? '<span class="dl-tag">🔒 키 필요</span>'
+          : (needDl ? '<span class="dl-tag">↓ 받기</span>' : badge(be)));
         return `<div class="opt ${sel?'sel':''}" data-pick="${k}|${be}|${m.id}">
           <span class="mname">${m.id}${m.note?`<span class="mnote">${m.note}</span>`:''}</span>
-          <span>${sel?'<span class="chk">✓</span>':badge(be)}</span></div>`;
+          <span>${right}</span></div>`;
       }).join('');
-      // local hints
-      let hint='';
-      if(k==='context' && s.backend==='local')
-        hint=`<div class="hint warn show">⚠︎ 로컬 컨텍스트는 화면 분석이 안 돼요(텍스트만). 화면 이해가 필요하면 클라우드를 권장합니다.</div>`;
-      else if(s.backend==='local')
-        hint=`<div class="hint show">로컬 모델 — 지금 단계에선 Ollama 등 로컬 서버 필요(Phase 3에서 무설치).</div>`;
-      return `<div class="feat">
-        <div class="top">
-          <div><div class="label">${f.label}</div><div class="sub">${f.sub}</div></div>
-          <div class="picker">
+      const isReq = REQUIRED[k];
+      const on = isReq || enabled[k];
+      const pickerHTML = `<div class="picker">
             <span class="pick-btn" data-toggle="${k}">${s.id} &nbsp;${badge(s.backend)}</span>
             <div class="menu" data-menu="${k}">
-              <div class="grp">☁️ 클라우드</div>${opts(f.cloud,'cloud')}
-              <div class="grp">🟢 내 Mac (로컬)</div>${opts(f.local,'local')}
+              <div class="grp">☁️ 클라우드</div>${opt(f.cloud,'cloud')}
+              <div class="grp">🟢 내 Mac (로컬)</div>${opt(f.local,'local')}
             </div>
-          </div>
-        </div>
-        ${hint}
+          </div>`;
+      // right side of header: required → "필수" + picker; optional → toggle (+ picker when on)
+      const rightHead = isReq
+        ? `<span class="req">필수</span>${pickerHTML}`
+        : (on
+            ? `<span class="sw on" data-enable="${k}"><i></i></span>${pickerHTML}`
+            : `<span class="offtxt">사용 안 함</span><span class="sw" data-enable="${k}"><i></i></span>`);
+      let block='';
+      if(on){
+        if(s.backend==='local') block=localStateBlock(k);
+        else if(s.backend==='cloud' && !hasApiKey) block=cloudKeyBlock();
+      }
+      return `<div class="feat ${on?'':'off'}">
+        <div class="top">
+          <div><div class="label">${f.label}</div><div class="sub">${f.sub}</div></div>
+          <div class="righthead">${rightHead}</div>
+        </div>${block}
       </div>`;
     }).join('');
 
     host.querySelectorAll('[data-toggle]').forEach(b=>b.addEventListener('click',e=>{
       e.stopPropagation();
-      const k=b.dataset.toggle;
-      const m=host.querySelector(`[data-menu="${k}"]`);
-      const wasOpen=m.classList.contains('open');
-      closeMenus();
-      if(!wasOpen){ m.classList.add('open'); openMenu=m; }
+      const k=b.dataset.toggle, m=host.querySelector(`[data-menu="${k}"]`);
+      const was=m.classList.contains('open'); closeMenus();
+      if(!was){ m.classList.add('open'); }
     }));
     host.querySelectorAll('[data-pick]').forEach(o=>o.addEventListener('click',e=>{
       e.stopPropagation();
-      const [k,be,id]=o.dataset.pick.split('|');
-      state[k]={backend:be,id}; closeMenus(); render();
+      const [k,be,id]=o.dataset.pick.split('|'); state[k]={backend:be,id}; closeMenus(); render();
+    }));
+    host.querySelectorAll('[data-dl]').forEach(b=>b.addEventListener('click',e=>{
+      e.stopPropagation(); const [f,id]=b.dataset.dl.split('|'); startDownload(f,id);
+    }));
+    host.querySelectorAll('[data-cancel]').forEach(b=>b.addEventListener('click',e=>{
+      e.stopPropagation(); cancelDownload(b.dataset.cancel);
+    }));
+    host.querySelectorAll('[data-enable]').forEach(b=>b.addEventListener('click',e=>{
+      e.stopPropagation(); const k=b.dataset.enable; enabled[k]=!enabled[k]; render();
+    }));
+    host.querySelectorAll('[data-key]').forEach(b=>b.addEventListener('click',e=>{
+      e.stopPropagation(); hasApiKey=true; syncKeyDemo(); render();
     }));
   }
-  function closeMenus(){ document.querySelectorAll('.menu.open').forEach(m=>m.classList.remove('open')); openMenu=null; }
+  function syncKeyDemo(){
+    const el=document.querySelector('[data-keydemo]');
+    if(el) el.textContent = hasApiKey ? '연결됨 ✓' : '없음';
+  }
+  function closeMenus(){ document.querySelectorAll('.menu.open').forEach(m=>m.classList.remove('open')); }
   document.addEventListener('click',closeMenus);
 
-  // bulk shortcuts — local picks the FIRST local option if any; context stays cloud (vision)
   document.querySelectorAll('[data-bulk]').forEach(b=>b.addEventListener('click',()=>{
     const want=b.dataset.bulk;
     Object.keys(CATALOG).forEach(k=>{
+      if(!(REQUIRED[k] || enabled[k])) return;   // skip features the user turned off
       const f=CATALOG[k];
-      if(want==='cloud'){ state[k]={backend:'cloud',id:f.cloud[0].id}; }
-      else { // 가능한 만큼 로컬 — 단, 컨텍스트는 화면분석 위해 클라우드 유지
-        if(k==='context'){ state[k]={backend:'cloud',id:f.cloud[0].id}; }
-        else if(f.local.length){ state[k]={backend:'local',id:f.local[0].id}; }
-        else { state[k]={backend:'cloud',id:f.cloud[0].id}; }
-      }
+      if(want==='cloud') state[k]={backend:'cloud',id:f.cloud[0].id};
+      else if(k==='context') state[k]={backend:'cloud',id:f.cloud[0].id};
+      else if(f.local.length) state[k]={backend:'local',id:f.local[0].id};
+      else state[k]={backend:'cloud',id:f.cloud[0].id};
     });
     render();
   }));
-
   document.querySelector('[data-adv]').addEventListener('click',()=>{
     document.querySelector('[data-advbox]').classList.toggle('open');
   });
+  document.querySelector('[data-keydemo]').addEventListener('click',()=>{
+    hasApiKey=!hasApiKey; syncKeyDemo(); render();
+  });
 
+  syncKeyDemo();
   render();
 </script>
