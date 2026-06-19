@@ -31,7 +31,7 @@
     <key>SUAutomaticallyUpdate</key>
     <false/>
     <key>SUUpdateCheckInterval</key>
-    <integer>604800</integer>
+    <integer>86400</integer>
     <key>GoogleCalendarOAuthClientID</key>
     <string></string>
     <key>GoogleCalendarOAuthClientSecret</key>
