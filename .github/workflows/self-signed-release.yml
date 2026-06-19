@@ -123,11 +123,16 @@ jobs:
             -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$KEYCHAIN_PATH"
 
-          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | head -1 | sed 's/.*"\(.*\)".*/\1/')
-          echo "CODESIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          # The Quill certificate is self-signed, so without trust settings it is
+          # not reported by `find-identity -v` (valid only) in this throwaway
+          # keychain — that returned nothing and poisoned CODESIGN_IDENTITY.
+          # codesign can still sign by name, so pin the identity to the cert's CN.
+          echo "Codesigning identities present in keychain:"
+          security find-identity -p codesigning "$KEYCHAIN_PATH" || true
+          echo "CODESIGN_IDENTITY=Quill" >> "$GITHUB_ENV"
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
-          echo "Found signing identity: $IDENTITY"
 
       - name: Build universal
         run: make ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY="$CODESIGN_IDENTITY" APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.tag }}"
