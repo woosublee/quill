@@ -8,6 +8,12 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.13] - 2026-06-19
+
+### Fixed
+
+- Google Calendar sign-in is now available again in released builds. The 0.1.12 build shipped without its bundled Google OAuth credentials, so calendar sign-in reported "not configured"; release builds now embed the credentials again.
+
 ## [0.1.12] - 2026-06-19
 
 ### Added

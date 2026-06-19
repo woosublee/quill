@@ -109,10 +109,16 @@ jobs:
 
       # --- Build universal dev app ---
       - name: Build universal
-        run: make ARCH=universal CODESIGN_IDENTITY="$CODESIGN_IDENTITY" APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.build_tag }}"
+        env:
+          GOOGLE_CALENDAR_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_CALENDAR_OAUTH_CLIENT_ID }}
+          GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET }}
+        run: make ARCH=universal CODESIGN_IDENTITY="$CODESIGN_IDENTITY" APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.build_tag }}" GOOGLE_CALENDAR_OAUTH_CLIENT_ID="$GOOGLE_CALENDAR_OAUTH_CLIENT_ID" GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET="$GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET"
 
       - name: Create universal DMG
-        run: make dmg ARCH=universal CODESIGN_IDENTITY="$CODESIGN_IDENTITY" APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.build_tag }}"
+        env:
+          GOOGLE_CALENDAR_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_CALENDAR_OAUTH_CLIENT_ID }}
+          GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET }}
+        run: make dmg ARCH=universal CODESIGN_IDENTITY="$CODESIGN_IDENTITY" APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.build_tag }}" GOOGLE_CALENDAR_OAUTH_CLIENT_ID="$GOOGLE_CALENDAR_OAUTH_CLIENT_ID" GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET="$GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET"
 
       - name: Sign universal DMG
         run: codesign --force --sign "$CODESIGN_IDENTITY" "build/Quill.dmg"
