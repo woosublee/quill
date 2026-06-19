@@ -106,6 +106,30 @@ struct CatalogModel {
 
 Capability flags (e.g. `requiresVision`) let the UI mark a local context model as "text-only" and let bulk actions skip features that have no viable local option.
 
+### Supported models (per feature × backend)
+
+What each feature can use today (from the code) and what local adds in Phases 2–3. Cloud models come from Groq via the OpenAI-compatible API; the exact Groq catalog evolves, so treat code constants as the source of truth.
+
+**Transcription**
+- *Cloud* (`ModelConfiguration.transcriptionModels`): `whisper-large-v3` **(default)**, `whisper-large-v3-turbo`.
+- *Local* (`TranscriptionModel.all`; on-device via `mlx_whisper` today, native whisper.cpp/ggml in Phase 1):
+  - **Apple Speech** — built-in, no download
+  - **Whisper Large v3 Turbo** (~810 MB) — recommended
+  - **Whisper Large v3** (~3.1 GB) — highest accuracy
+  - **Whisper Medium** (~1.6 GB)
+  - **Whisper Small** (~520 MB)
+
+**Post-processing**
+- *Cloud* (instruction-tuned chat models from `ModelConfiguration.llmModels`): default `openai/gpt-oss-20b`, fallback `meta-llama/llama-4-scout-17b-16e-instruct`; also `llama-3.3-70b-versatile`, `llama-3.1-8b-instant`, `openai/gpt-oss-120b`, `qwen/qwen3-32b`.
+  - *Note:* `llmModels` currently also lists special-purpose models (orpheus = audio, `*prompt-guard*` = moderation, `allam-2-7b` = Arabic, `groq/compound*`) that are **not** suitable for general cleanup. The unified picker should filter post-processing/context to instruction-tuned chat models.
+- *Local* (Phase 2/3, OpenAI-compatible server): candidates **Qwen 2.5 / Qwen3**, **Gemma 3 4B**. Small models are enough for filler removal / punctuation / name fixes. License gate: Gemma Terms vs Qwen Apache-2.0 (see Epic #145 notes).
+
+**Context** (infers on-screen activity; sends a screenshot)
+- *Cloud*: default `meta-llama/llama-4-scout-17b-16e-instruct` — **must be vision-capable** (multimodal) for screenshot analysis. Picker for context should expose only vision-capable cloud models.
+- *Local* (Phase 2/3): **text-only** candidates (e.g. Gemma 3 4B, Qwen) — no viable local vision yet, so local context skips screenshot analysis and leans on the existing non-LLM fallback in `AppContextService`.
+
+Defaults summary: transcription → Apple Speech for keyless users / `whisper-large-v3` when cloud; post-processing → `openai/gpt-oss-20b` (fallback `llama-4-scout`); context → `llama-4-scout`.
+
 ### Storage keys + migration
 
 New keys (one `ModelChoice` per feature). Migrate from the legacy layout:
@@ -153,6 +177,7 @@ Migration must be lossless and one-time (mirror the existing `*MigrationKey` gua
 
 ## Open questions
 
-- Default model ids per feature for cloud and local (pick per quality/licensing test — see epic notes on Gemma vs Qwen).
+- Cloud defaults are set (see Supported models); the **local LLM default** (Qwen vs Gemma 3) is still open, pending a Korean meeting-note quality + licensing test.
+- Which `llmModels` entries the picker filters out for post-processing/context (the non-chat / special-purpose ones).
 - Whether the fallback model is exposed in the main UI or stays advanced-only.
 - Exact install UX for local LLMs in Phase 2 (Ollama detection / guided setup) vs Phase 3 (bundled download).
