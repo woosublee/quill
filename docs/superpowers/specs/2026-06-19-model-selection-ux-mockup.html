@@ -1,0 +1,218 @@
+<title>Quill 모델 설정 — 최종 방향</title>
+<style>
+  :root{
+    --bg:#ececec;--card:#fff;--ink:#1d1d1f;--ink2:#6e6e73;--ink3:#8e8e93;
+    --line:rgba(0,0,0,0.10);--accent:#007aff;--accent-soft:rgba(0,122,255,0.10);
+    --green:#34c759;--green-soft:rgba(52,199,89,0.14);--cloud:#5856d6;--cloud-soft:rgba(88,86,214,0.12);
+    --warn:#ff9500;--warn-soft:rgba(255,149,0,0.14);
+    --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",system-ui,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --bg:#1c1c1e;--card:#2c2c2e;--ink:#f5f5f7;--ink2:#aeaeb2;--ink3:#8e8e93;--line:rgba(255,255,255,0.12);
+    --accent:#0a84ff;--accent-soft:rgba(10,132,255,0.22);--green:#30d158;--green-soft:rgba(48,209,88,0.20);
+    --cloud:#5e5ce6;--cloud-soft:rgba(94,92,230,0.22);--warn:#ff9f0a;--warn-soft:rgba(255,159,10,0.20);
+  }}
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);-webkit-font-smoothing:antialiased;line-height:1.5;}
+  .wrap{max-width:1060px;margin:0 auto;padding:32px 20px 80px;}
+  h1{font-size:25px;font-weight:700;margin:0 0 6px;letter-spacing:-0.02em;}
+  .lede{color:var(--ink2);margin:0 0 24px;font-size:15px;max-width:760px;}
+  .grid{display:grid;grid-template-columns:1fr;gap:24px;}
+  @media(min-width:820px){.grid{grid-template-columns:440px 1fr;align-items:start;}}
+
+  .mac{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:0 8px 26px rgba(0,0,0,0.07);}
+  .mac h3{font-size:12px;text-transform:uppercase;letter-spacing:0.04em;color:var(--ink3);margin:0 0 4px;font-weight:600;}
+  .mac .cardsub{font-size:12.5px;color:var(--ink3);margin:0 0 14px;}
+
+  .quick{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:rgba(120,120,128,0.08);border-radius:9px;padding:9px 11px;margin-bottom:14px;}
+  .quick .q-l{font-size:12px;color:var(--ink2);font-weight:600;margin-right:2px;}
+  .qbtn{font-size:12px;font-weight:600;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:7px;padding:5px 11px;cursor:pointer;}
+  .qbtn:hover{border-color:var(--accent);color:var(--accent);}
+
+  .feat{border-top:1px solid var(--line);padding:12px 0;}
+  .feat:first-of-type{border-top:none;}
+  .feat .top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .feat .label{font-size:14px;font-weight:600;}
+  .feat .sub{font-size:11.5px;color:var(--ink2);margin-top:1px;}
+  .picker{position:relative;}
+  .pick-btn{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;background:rgba(120,120,128,0.12);border:1px solid var(--line);border-radius:7px;padding:6px 10px;font-weight:500;cursor:pointer;}
+  .pick-btn::after{content:"⌄";color:var(--ink3);margin-left:1px;}
+  .badge{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap;}
+  .b-cloud{background:var(--cloud-soft);color:var(--cloud);}
+  .b-local{background:var(--green-soft);color:var(--green);}
+
+  .menu{display:none;position:absolute;right:0;top:calc(100% + 5px);width:248px;background:var(--card);border:1px solid var(--line);border-radius:11px;box-shadow:0 12px 34px rgba(0,0,0,0.18);padding:6px;z-index:9;}
+  .menu.open{display:block;}
+  .menu .grp{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink3);font-weight:700;padding:7px 9px 3px;}
+  .opt{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 9px;border-radius:7px;cursor:pointer;font-size:13px;}
+  .opt:hover{background:rgba(120,120,128,0.12);}
+  .opt.sel{background:var(--accent-soft);}
+  .opt .mname{display:flex;flex-direction:column;}
+  .opt .mnote{font-size:10.5px;color:var(--ink3);}
+  .opt.disabled{opacity:.45;cursor:not-allowed;}
+  .opt .chk{color:var(--accent);font-weight:700;}
+
+  .hint{font-size:11.5px;color:var(--ink2);margin-top:7px;display:none;}
+  .hint.show{display:block;}
+  .hint.warn{color:var(--warn);}
+
+  .adv{font-size:12px;color:var(--ink3);cursor:pointer;padding:11px 0 2px;border-top:1px solid var(--line);margin-top:6px;}
+  .advbox{display:none;margin-top:6px;}
+  .advbox.open{display:block;}
+  .field{font-size:11.5px;color:var(--ink3);font-family:ui-monospace,monospace;background:rgba(120,120,128,0.1);border-radius:6px;padding:6px 9px;margin-top:5px;}
+
+  .notes h2{font-size:17px;margin:2px 0 10px;font-weight:700;}
+  .notes p{font-size:13.5px;color:var(--ink2);margin:0 0 12px;}
+  .notes p b{color:var(--ink);}
+  .layers{list-style:none;padding:0;margin:0 0 16px;}
+  .layers li{display:flex;gap:10px;font-size:13px;padding:9px 0;border-top:1px solid var(--line);}
+  .layers li:first-child{border-top:none;}
+  .layers .k{font-weight:700;color:var(--accent);flex:none;width:84px;}
+  .phasebox{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:14px;font-size:13px;}
+  .phasebox h4{margin:0 0 8px;font-size:13px;}
+  .phasebox .later{color:var(--ink2);margin-top:8px;}
+  .pill{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:20px;background:var(--accent-soft);color:var(--accent);margin-right:5px;}
+  .pill.p3{background:var(--green-soft);color:var(--green);}
+</style>
+
+<div class="wrap">
+  <h1>Quill 모델 설정 — 최종 방향 (수정)</h1>
+  <p class="lede"><b>용도별 통합 선택(C)을 본질 구조로</b>, 전역 모드는 강제하지 않고 <b>"일괄 적용 단축"</b>으로. 각 기능은 자기가 실제 지원하는 백엔드만 보여주므로 <b>비대칭(예: 컨텍스트 로컬 비전 부재)을 정직하게</b> 담습니다. 드롭다운을 열어보고, 위쪽 단축 버튼도 눌러보세요.</p>
+
+  <div class="grid">
+    <!-- PANEL -->
+    <div class="mac">
+      <h3>AI 모델</h3>
+      <p class="cardsub">각 기능마다 모델을 고르면, 그게 클라우드인지 내 Mac(로컬)인지는 자동으로 따라옵니다.</p>
+
+      <div class="quick">
+        <span class="q-l">한 번에:</span>
+        <button class="qbtn" data-bulk="cloud">☁️ 모두 클라우드</button>
+        <button class="qbtn" data-bulk="local">🔒 가능한 만큼 로컬</button>
+      </div>
+
+      <div data-feats></div>
+
+      <div class="adv" data-adv>⚙︎ 고급 — 서버 주소·API 키 직접 지정</div>
+      <div class="advbox" data-advbox>
+        <div class="field">클라우드 Base URL — https://api.groq.com/openai/v1</div>
+        <div class="field">로컬 서버 URL — http://localhost:11434/v1</div>
+        <div class="field">API Key — ••••••••••••••••</div>
+      </div>
+    </div>
+
+    <!-- NOTES -->
+    <div class="notes">
+      <h2>왜 이 형태인가</h2>
+      <p>모델 선택은 본질적으로 <b>"용도별 + 각자 지원하는 백엔드"라는 비대칭 그래프</b>입니다. 전역 "클라우드/로컬" 모드는 모든 기능이 양쪽 백엔드를 다 가졌다고 가정하는데, 컨텍스트(화면 분석)처럼 <b>로컬 옵션이 없거나 제한적인 기능</b>에서 그 가정이 깨집니다. 그래서 <b>진실의 원천은 용도별 선택(C)</b>이어야 합니다.</p>
+
+      <ul class="layers">
+        <li><span class="k">진실</span><span>용도별 통합 드롭다운 — 각 기능이 <b>실제 가능한 모델만</b> 클라우드/로컬 섞어 제시. 모델을 고르면 백엔드는 자동.</span></li>
+        <li><span class="k">편의</span><span>일괄 단축 — "모두 클라우드 / 가능한 만큼 로컬". <b>강제 모드가 아니라</b> 한 번에 적용하는 버튼. 비대칭 기능은 알아서 빠지고 안내.</span></li>
+        <li><span class="k">고급</span><span>서버 주소·키 — 평소 접힘.</span></li>
+      </ul>
+
+      <p style="font-size:12.5px;color:var(--ink3);">처음 의도였던 <b>"모델을 통합해 고르고 API/로컬은 속성"</b> 과도 정확히 같은 형태입니다.</p>
+
+      <div class="phasebox">
+        <h4>단계에 따른 진화</h4>
+        <div><span class="pill">지금~Phase 2</span> 로컬 선택 시 Ollama 등 로컬 서버 안내(BYO). 컨텍스트 로컬은 "텍스트만".</div>
+        <div class="later"><span class="pill p3">Phase 3</span> 무설치 번들이 되면 "가능한 만큼 로컬" 단축이 진짜 원클릭이 됨 — 비로소 일반 사용자용 가치 프리셋으로 끌어올릴 수 있음.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const CATALOG = {
+    transcribe: { label:'전사', sub:'말을 글자로',
+      cloud:[{id:'Whisper Large v3'}],
+      local:[{id:'Whisper Turbo'},{id:'Apple Speech',note:'내장'}] },
+    post: { label:'후처리', sub:'맞춤법·문장 정리',
+      cloud:[{id:'GPT-OSS 20B'},{id:'Llama 4 Scout'}],
+      local:[{id:'Qwen 2.5 7B'},{id:'Gemma 3 4B'}] },
+    context: { label:'컨텍스트', sub:'화면 맥락 이해',
+      cloud:[{id:'Llama 4 Scout',note:'화면+텍스트'}],
+      local:[{id:'Gemma 3 4B',note:'텍스트만 · 화면 분석 불가'}] },
+  };
+  // initial selection
+  const state = {
+    transcribe:{backend:'local', id:'Whisper Turbo'},
+    post:{backend:'cloud', id:'GPT-OSS 20B'},
+    context:{backend:'cloud', id:'Llama 4 Scout'},
+  };
+  let openMenu = null;
+
+  function badge(be){ return be==='local'
+    ? '<span class="badge b-local">🟢 로컬</span>'
+    : '<span class="badge b-cloud">☁️ 클라우드</span>'; }
+
+  function render(){
+    const host=document.querySelector('[data-feats]');
+    host.innerHTML = Object.keys(CATALOG).map(k=>{
+      const f=CATALOG[k], s=state[k];
+      const opts = (grp,be)=> grp.map(m=>{
+        const sel = (s.id===m.id);
+        return `<div class="opt ${sel?'sel':''}" data-pick="${k}|${be}|${m.id}">
+          <span class="mname">${m.id}${m.note?`<span class="mnote">${m.note}</span>`:''}</span>
+          <span>${sel?'<span class="chk">✓</span>':badge(be)}</span></div>`;
+      }).join('');
+      // local hints
+      let hint='';
+      if(k==='context' && s.backend==='local')
+        hint=`<div class="hint warn show">⚠︎ 로컬 컨텍스트는 화면 분석이 안 돼요(텍스트만). 화면 이해가 필요하면 클라우드를 권장합니다.</div>`;
+      else if(s.backend==='local')
+        hint=`<div class="hint show">로컬 모델 — 지금 단계에선 Ollama 등 로컬 서버 필요(Phase 3에서 무설치).</div>`;
+      return `<div class="feat">
+        <div class="top">
+          <div><div class="label">${f.label}</div><div class="sub">${f.sub}</div></div>
+          <div class="picker">
+            <span class="pick-btn" data-toggle="${k}">${s.id} &nbsp;${badge(s.backend)}</span>
+            <div class="menu" data-menu="${k}">
+              <div class="grp">☁️ 클라우드</div>${opts(f.cloud,'cloud')}
+              <div class="grp">🟢 내 Mac (로컬)</div>${opts(f.local,'local')}
+            </div>
+          </div>
+        </div>
+        ${hint}
+      </div>`;
+    }).join('');
+
+    host.querySelectorAll('[data-toggle]').forEach(b=>b.addEventListener('click',e=>{
+      e.stopPropagation();
+      const k=b.dataset.toggle;
+      const m=host.querySelector(`[data-menu="${k}"]`);
+      const wasOpen=m.classList.contains('open');
+      closeMenus();
+      if(!wasOpen){ m.classList.add('open'); openMenu=m; }
+    }));
+    host.querySelectorAll('[data-pick]').forEach(o=>o.addEventListener('click',e=>{
+      e.stopPropagation();
+      const [k,be,id]=o.dataset.pick.split('|');
+      state[k]={backend:be,id}; closeMenus(); render();
+    }));
+  }
+  function closeMenus(){ document.querySelectorAll('.menu.open').forEach(m=>m.classList.remove('open')); openMenu=null; }
+  document.addEventListener('click',closeMenus);
+
+  // bulk shortcuts — local picks the FIRST local option if any; context stays cloud (vision)
+  document.querySelectorAll('[data-bulk]').forEach(b=>b.addEventListener('click',()=>{
+    const want=b.dataset.bulk;
+    Object.keys(CATALOG).forEach(k=>{
+      const f=CATALOG[k];
+      if(want==='cloud'){ state[k]={backend:'cloud',id:f.cloud[0].id}; }
+      else { // 가능한 만큼 로컬 — 단, 컨텍스트는 화면분석 위해 클라우드 유지
+        if(k==='context'){ state[k]={backend:'cloud',id:f.cloud[0].id}; }
+        else if(f.local.length){ state[k]={backend:'local',id:f.local[0].id}; }
+        else { state[k]={backend:'cloud',id:f.cloud[0].id}; }
+      }
+    });
+    render();
+  }));
+
+  document.querySelector('[data-adv]').addEventListener('click',()=>{
+    document.querySelector('[data-advbox]').classList.toggle('open');
+  });
+
+  render();
+</script>
