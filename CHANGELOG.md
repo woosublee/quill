@@ -8,6 +8,17 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.12] - 2026-06-19
+
+### Added
+
+- The note audio player now supports pause and resume, seeking by clicking or dragging anywhere on the waveform, and a volume control in the player.
+
+### Improved
+
+- Recording the microphone together with system audio no longer adds crackle. The two sources are now mixed continuously instead of switching gain per sample.
+- Quill now checks for updates daily instead of weekly, so released fixes reach you sooner.
+
 ## [0.1.11] - 2026-06-17
 
 ### Added
