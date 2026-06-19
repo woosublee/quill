@@ -108,27 +108,52 @@ Capability flags (e.g. `requiresVision`) let the UI mark a local context model a
 
 ### Supported models (per feature × backend)
 
-What each feature can use today (from the code) and what local adds in Phases 2–3. Cloud models come from Groq via the OpenAI-compatible API; the exact Groq catalog evolves, so treat code constants as the source of truth.
+The picker offers these per feature. Cloud models are served by Groq over the OpenAI-compatible API (the Groq catalog evolves — treat code constants as the source of truth); local sizes are rough 4-bit estimates.
 
-**Transcription**
-- *Cloud* (`ModelConfiguration.transcriptionModels`): `whisper-large-v3` **(default)**, `whisper-large-v3-turbo`.
-- *Local* (`TranscriptionModel.all`; on-device via `mlx_whisper` today, native whisper.cpp/ggml in Phase 1):
-  - **Apple Speech** — built-in, no download
-  - **Whisper Large v3 Turbo** (~810 MB) — recommended
-  - **Whisper Large v3** (~3.1 GB) — highest accuracy
-  - **Whisper Medium** (~1.6 GB)
-  - **Whisper Small** (~520 MB)
+Two governing rules across all three tables:
+1. **Bundled / auto-downloaded defaults are Apache/MIT only** (Qwen family) — that license then applies cleanly to Quill's distribution.
+2. **⚠️-marked models (Gemma, Llama, EXAONE) are exposed as choices the user pulls themselves** (e.g. via Ollama). Quill only points at them, so the license obligation stays with the user — which is why the choice list can be broad.
 
-**Post-processing**
-- *Cloud* (instruction-tuned chat models from `ModelConfiguration.llmModels`): default `openai/gpt-oss-20b`, fallback `meta-llama/llama-4-scout-17b-16e-instruct`; also `llama-3.3-70b-versatile`, `llama-3.1-8b-instant`, `openai/gpt-oss-120b`, `qwen/qwen3-32b`.
-  - *Note:* `llmModels` currently also lists special-purpose models (orpheus = audio, `*prompt-guard*` = moderation, `allam-2-7b` = Arabic, `groq/compound*`) that are **not** suitable for general cleanup. The unified picker should filter post-processing/context to instruction-tuned chat models.
-- *Local* (Phase 2/3, OpenAI-compatible server): candidates **Qwen 2.5 / Qwen3**, **Gemma 3 4B**. Small models are enough for filler removal / punctuation / name fixes. License gate: Gemma Terms vs Qwen Apache-2.0 (see Epic #145 notes).
+#### Transcription
 
-**Context** (infers on-screen activity; sends a screenshot)
-- *Cloud*: default `meta-llama/llama-4-scout-17b-16e-instruct` — **must be vision-capable** (multimodal) for screenshot analysis. Picker for context should expose only vision-capable cloud models.
-- *Local* (Phase 2/3): **text-only** candidates (e.g. Gemma 3 4B, Qwen) — no viable local vision yet, so local context skips screenshot analysis and leans on the existing non-LLM fallback in `AppContextService`.
+| Model | Backend | Size | License | Default | Notes |
+|---|---|---|---|---|---|
+| Apple Speech | local | built-in | OS | ✅ keyless users | no download, no key |
+| Qwen3-ASR 1.7B | local | ~1 GB | Apache-2.0 | ⭐ local primary | MLX on-device; lower WER & ~11× RT vs Whisper |
+| Whisper Large v3 Turbo | local | ~810 MB | MIT | | Korean-verified alternative |
+| `whisper-large-v3` | cloud | — | (Groq) | ✅ cloud | |
+| `whisper-large-v3-turbo` | cloud | — | (Groq) | | faster cloud option |
 
-Defaults summary: transcription → Apple Speech for keyless users / `whisper-large-v3` when cloud; post-processing → `openai/gpt-oss-20b` (fallback `llama-4-scout`); context → `llama-4-scout`.
+(Whisper Medium/Small dropped — Turbo is faster *and* more accurate. Native whisper.cpp/ggml replaces the `mlx_whisper` path in Phase 1.)
+
+#### Post-processing
+
+| Model | Backend | Size | License | Default | Notes |
+|---|---|---|---|---|---|
+| `openai/gpt-oss-20b` | cloud | — | (Groq) | ✅ primary | |
+| `meta-llama/llama-4-scout-17b-16e-instruct` | cloud | — | (Groq) | ✅ fallback | |
+| `llama-3.3-70b-versatile` / `llama-3.1-8b-instant` / `openai/gpt-oss-120b` / `qwen/qwen3-32b` | cloud | — | (Groq) | | extra choices |
+| Qwen3 (4B / 8B / 14B) | local | 2.5–9 GB | Apache-2.0 | ⭐ local bundle | commercially safe; strong KO/multilingual |
+| Mistral Small | local | ~14 GB | Apache-2.0 | | choice |
+| DeepSeek / GLM | local | varies | MIT | | choice |
+| Gemma 3 (4B / 12B) | local | 3–8 GB | ⚠️ Gemma Terms | | choice (user pull) |
+| Llama 3.x (8B) | local | ~5 GB | ⚠️ Meta | | choice (user pull) |
+| EXAONE | local | — | ⚠️ verify | | Korean-specialized candidate, pending license check |
+
+*Filter the picker to instruction-tuned chat models.* The raw `llmModels` list also contains special-purpose entries (orpheus = audio, `*prompt-guard*` = moderation, `allam-2-7b` = Arabic, `groq/compound*`) that should be excluded from post-processing/context.
+
+#### Context (infers on-screen activity; sends a screenshot → **vision required**)
+
+| Model | Backend | Vision | License | Default | Notes |
+|---|---|---|---|---|---|
+| `meta-llama/llama-4-scout-17b-16e-instruct` | cloud | ✅ | (Groq) | ✅ default | screen + text |
+| other vision-capable Groq models | cloud | ✅ | (Groq) | | choice |
+| Qwen3 (text-only) | local | ❌ | Apache-2.0 | ⭐ local bundle | no screen analysis — text only |
+| Gemma 3 etc. (text-only) | local | ❌ | ⚠️ per model | | shares the post-processing catalog |
+
+Local context has no viable vision yet, so it drops screenshot analysis and leans on the existing non-LLM fallback in `AppContextService`; **use cloud when screen understanding matters**.
+
+Defaults summary: transcription → Apple Speech (keyless) / `whisper-large-v3` (cloud), local primary Qwen3-ASR; post-processing → `openai/gpt-oss-20b` (fallback `llama-4-scout`), local bundle Qwen3; context → `llama-4-scout` (cloud), local bundle Qwen3 text-only.
 
 ### Storage keys + migration
 
@@ -177,7 +202,8 @@ Migration must be lossless and one-time (mirror the existing `*MigrationKey` gua
 
 ## Open questions
 
-- Cloud defaults are set (see Supported models); the **local LLM default** (Qwen vs Gemma 3) is still open, pending a Korean meeting-note quality + licensing test.
+- Local LLM family is decided (Qwen3, Apache-2.0); the open part is **which size** to bundle by default (4B vs 8B/14B), pending a Korean meeting-note quality test. Likewise verify Qwen3-ASR Korean WER before promoting it over Whisper Turbo as the local transcription default.
+- EXAONE license check (commercial use) before listing it as a Korean-specialized choice.
 - Which `llmModels` entries the picker filters out for post-processing/context (the non-chat / special-purpose ones).
 - Whether the fallback model is exposed in the main UI or stays advanced-only.
 - Exact install UX for local LLMs in Phase 2 (Ollama detection / guided setup) vs Phase 3 (bundled download).
