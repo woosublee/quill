@@ -42,6 +42,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NetworkMonitor.shared.start()
+
         AppNotificationManager.shared.install()
         AppNotificationManager.shared.setCalendarReminderHandler { [weak self] action in
             self?.appState.startRecordingFromCalendarReminder(action)
@@ -59,6 +61,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async {
             self.patchSettingsMenuItem()
         }
+
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleShowSetup),
