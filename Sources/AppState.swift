@@ -5048,9 +5048,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             self.finishTranscriptionJob(jobID, overlayID: myOverlayID)
                             return
                         }
-                        self.errorMessage = self.formattedTranscriptionError(error)
+                        let userFacingErrorMessage = self.formattedTranscriptionError(error)
+                        self.errorMessage = userFacingErrorMessage
                         self.statusText = "Error"
-                        self.overlayManager.dismiss()
+                        self.overlayManager.showError(userFacingErrorMessage)
                         self.lastPostProcessedTranscript = ""
                         self.lastRawTranscript = ""
                         self.lastContextSummary = ""
@@ -5204,9 +5205,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             self.finishTranscriptionJob(jobID, overlayID: myOverlayID)
                             return
                         }
-                        self.errorMessage = self.formattedTranscriptionError(error)
+                        let userFacingErrorMessage = self.formattedTranscriptionError(error)
+                        self.errorMessage = userFacingErrorMessage
                         self.statusText = "Error"
-                        self.overlayManager.dismiss()
+                        self.overlayManager.showError(userFacingErrorMessage)
                         self.lastPostProcessedTranscript = ""
                         self.lastRawTranscript = ""
                         self.lastContextSummary = ""
