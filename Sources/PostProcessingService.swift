@@ -131,6 +131,7 @@ Behavior:
     private let baseURL: String
     private let preferredModel: String
     private let preferredFallbackModel: String
+    private let instructionExecutionGuardEnabled: Bool
     private let defaultModel = AppState.defaultPostProcessingModel
     private let defaultFallbackModel = AppState.defaultPostProcessingFallbackModel
     private let defaultModelReasoningEffort = "low"
@@ -144,12 +145,14 @@ Behavior:
         apiKey: String,
         baseURL: String = AppState.defaultAPIBaseURL,
         preferredModel: String = "",
-        preferredFallbackModel: String = ""
+        preferredFallbackModel: String = "",
+        instructionExecutionGuardEnabled: Bool = true
     ) {
         self.apiKey = apiKey
         self.baseURL = baseURL
         self.preferredModel = preferredModel.trimmingCharacters(in: .whitespacesAndNewlines)
         self.preferredFallbackModel = preferredFallbackModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.instructionExecutionGuardEnabled = instructionExecutionGuardEnabled
     }
 
     func postProcess(
@@ -487,7 +490,7 @@ Model: \(model)
         }
 
         let sanitizedTranscript = sanitizePostProcessedTranscript(content)
-        if appearsToHaveExecutedInstruction(
+        if instructionExecutionGuardEnabled && appearsToHaveExecutedInstruction(
             rawTranscript: transcript,
             cleanedTranscript: sanitizedTranscript,
             outputLanguage: outputLanguage
