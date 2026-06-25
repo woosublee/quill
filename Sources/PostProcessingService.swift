@@ -657,6 +657,12 @@ Model: \(model)
         value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private static let instructionMarkers: Set<String> = [
+        "ask", "answer", "compose", "create", "draft", "email", "generate", "make",
+        "message", "prompt", "reply", "respond", "response", "summarize", "tell",
+        "translate", "write", "claude", "chatgpt", "ai", "llm"
+    ]
+
     private func appearsToHaveExecutedInstruction(
         rawTranscript: String,
         cleanedTranscript: String,
@@ -668,12 +674,7 @@ Model: \(model)
         let cleanedTokens = significantTokens(in: cleanedTranscript)
         guard !rawTokens.isEmpty, !cleanedTokens.isEmpty else { return false }
 
-        let instructionMarkers: Set<String> = [
-            "ask", "answer", "compose", "create", "draft", "email", "generate", "make",
-            "message", "prompt", "reply", "respond", "response", "summarize", "tell",
-            "translate", "write", "claude", "chatgpt", "ai", "llm"
-        ]
-        let rawMarkers = rawTokens.intersection(instructionMarkers)
+        let rawMarkers = rawTokens.intersection(Self.instructionMarkers)
         guard !rawMarkers.isEmpty else { return false }
 
         let preservedMarkers = rawMarkers.intersection(cleanedTokens)
@@ -693,23 +694,23 @@ Model: \(model)
             || (preservedMarkers.isEmpty && overlapRatio < 0.35)
     }
 
-    private func significantTokens(in text: String) -> Set<String> {
-        let stopWords: Set<String> = [
-            "a", "an", "and", "are", "as", "at", "be", "but", "by", "can", "could",
-            "for", "from", "had", "has", "have", "he", "her", "him", "his", "i", "if",
-            "in", "into", "is", "it", "its", "just", "me", "my", "of", "on", "or", "our",
-            "please", "she", "so", "that", "the", "their", "them", "then", "there", "this",
-            "to", "um", "uh", "was", "we", "were", "what", "when", "where", "who", "with",
-            "would", "you", "your"
-        ]
+    private static let stopWords: Set<String> = [
+        "a", "an", "and", "are", "as", "at", "be", "but", "by", "can", "could",
+        "for", "from", "had", "has", "have", "he", "her", "him", "his", "i", "if",
+        "in", "into", "is", "it", "its", "just", "me", "my", "of", "on", "or", "our",
+        "please", "she", "so", "that", "the", "their", "them", "then", "there", "this",
+        "to", "um", "uh", "was", "we", "were", "what", "when", "where", "who", "with",
+        "would", "you", "your"
+    ]
 
+    private func significantTokens(in text: String) -> Set<String> {
         let normalized = text.lowercased()
         let parts = normalized.split { character in
             !character.isLetter && !character.isNumber
         }
 
         return Set(parts.map(String.init).filter { token in
-            token.count > 1 && !stopWords.contains(token)
+            token.count > 1 && !Self.stopWords.contains(token)
         })
     }
 

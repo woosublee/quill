@@ -29,9 +29,11 @@ extension AppState {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             
-        let currentWordsSet = Set(currentWordsList.map { $0.lowercased() })
-        
-        let newUniqueWords = wordsToAdd.filter { !currentWordsSet.contains($0.lowercased()) }
+        // Seed with existing words, then insert as we go so duplicates *within*
+        // this paste (e.g. "foo, foo") are collapsed to a single entry too.
+        var seenWords = Set(currentWordsList.map { $0.lowercased() })
+
+        let newUniqueWords = wordsToAdd.filter { seenWords.insert($0.lowercased()).inserted }
         
         guard !newUniqueWords.isEmpty else { return nil }
         
