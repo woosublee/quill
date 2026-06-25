@@ -8,6 +8,22 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.14] - 2026-06-25
+
+### Added
+
+- Paste custom words into your vocabulary straight from the menu bar, with a brief checkmark confirmation.
+- New setting to keep dictations in your clipboard history (off by default), so clipboard managers like Paste, Raycast, or Maccy can record them when you want.
+- Instruction Guard: when post-processing looks like it answered your dictated text instead of cleaning it up, Quill retries or falls back to the literal transcript. It can be toggled off in settings.
+
+### Improved
+
+- Transcription errors now tell a real network outage ("No internet — check connection") apart from a slow-provider timeout, instead of showing a confusing system message.
+
+### Fixed
+
+- Fixed a recording overlay window leak that kept the app busy in the background (CPU and memory) after dictations.
+
 ## [0.1.13] - 2026-06-19
 
 ### Fixed
