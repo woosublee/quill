@@ -1888,7 +1888,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         persistShortcut(binding, key: key)
     }
 
-    struct SavedAudioFile {
+    struct SavedAudioFile: Sendable {
         let fileName: String
         let fileURL: URL
     }
@@ -1976,6 +1976,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         } catch {
             return nil
         }
+    }
+
+    static func saveSecurityScopedAudioFileOffMain(from fileURL: URL) async -> SavedAudioFile? {
+        await Task.detached(priority: .userInitiated) {
+            let accessGranted = fileURL.startAccessingSecurityScopedResource()
+            defer {
+                if accessGranted {
+                    fileURL.stopAccessingSecurityScopedResource()
+                }
+            }
+            return Self.saveAudioFile(from: fileURL)
+        }.value
     }
 
     private static func deleteAudioFile(_ fileName: String) {
@@ -2450,72 +2462,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let jobID = UUID()
         let noteID = UUID()
         let startedAt = Date()
-        let accessGranted = fileURL.startAccessingSecurityScopedResource()
-        defer {
-            if accessGranted {
-                fileURL.stopAccessingSecurityScopedResource()
-            }
-        }
-        guard let savedAudioFile = Self.saveAudioFile(from: fileURL) else {
-            errorMessage = "Unable to save the audio file. Check disk space or file permissions and try again."
-            return
-        }
         let importContextSummary = AudioImportOptions.importContextSummary(for: fileURL.lastPathComponent)
-        let placeholder = PipelineHistoryItem(
-            id: noteID,
-            timestamp: startedAt,
-            recordingStartedAt: nil,
-            recordingEndedAt: nil,
-            calendarMatch: nil,
-            rawTranscript: "",
-            postProcessedTranscript: "",
-            postProcessingPrompt: nil,
-            systemPrompt: Self.resolvedSystemPrompt(customSystemPrompt),
-            contextSummary: importContextSummary,
-            contextPrompt: nil,
-            contextScreenshotDataURL: nil,
-            contextScreenshotStatus: "No screenshot",
-            postProcessingStatus: "importing",
-            debugStatus: "Importing audio",
-            customVocabulary: customVocabulary,
-            customSystemPrompt: customSystemPrompt,
-            audioFileName: savedAudioFile.fileName,
-            usedLocalTranscription: configuration.useLocalTranscription,
-            usedContextCapture: false,
-            usedPostProcessing: !disablePostProcessing,
-            transcriptionLanguageCode: transcriptionLanguage.code,
-            localTranscriptionModelID: configuration.localTranscriptionModel.id,
-            contextAppName: nil,
-            contextBundleIdentifier: nil,
-            contextWindowTitle: nil
-        )
-
-        do {
-            let removedStoredFiles = try appendPipelineHistoryItem(placeholder)
-            for removedAssets in removedStoredFiles {
-                Self.deleteStoredFiles(removedAssets)
-            }
-        } catch {
-            Self.deleteAudioFile(savedAudioFile.fileName)
-            errorMessage = "Unable to save imported audio note: \(error.localizedDescription)"
-            return
-        }
-
-        registerTranscriptionJob(
-            id: jobID,
-            startedAt: startedAt,
-            sessionIntent: .dictation,
-            sessionContext: nil,
-            contextTask: nil,
-            recordingStartedAt: nil,
-            recordingEndedAt: nil,
-            isImportedAudio: true
-        )
-        updateTranscriptionJob(jobID) {
-            $0.liveNoteID = noteID
-            $0.audioFileName = savedAudioFile.fileName
-        }
-
         let postProcessingService = PostProcessingService(
             apiKey: apiKey,
             baseURL: apiBaseURL,
@@ -2534,95 +2481,161 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let capturedPostProcessingEnabled = !disablePostProcessing
         let capturedPressEnterCommandEnabled = isPressEnterVoiceCommandEnabled
 
-        let task = Task { [weak self] in
-            guard let self else { return }
-            let importedContext = AppContext(
-                appName: nil,
-                bundleIdentifier: nil,
-                windowTitle: nil,
-                selectedText: nil,
-                currentActivity: importContextSummary,
-                contextSystemPrompt: nil,
+        Task { [weak self] in
+            guard let savedAudioFile = await Self.saveSecurityScopedAudioFileOffMain(from: fileURL) else {
+                self?.errorMessage = "Unable to save the audio file. Check disk space or file permissions and try again."
+                return
+            }
+            guard let self else {
+                Self.deleteAudioFile(savedAudioFile.fileName)
+                return
+            }
+
+            let placeholder = PipelineHistoryItem(
+                id: noteID,
+                timestamp: startedAt,
+                recordingStartedAt: nil,
+                recordingEndedAt: nil,
+                calendarMatch: nil,
+                rawTranscript: "",
+                postProcessedTranscript: "",
+                postProcessingPrompt: nil,
+                systemPrompt: Self.resolvedSystemPrompt(capturedCustomSystemPrompt),
+                contextSummary: importContextSummary,
                 contextPrompt: nil,
-                screenshotDataURL: nil,
-                screenshotMimeType: nil,
-                screenshotError: "No screenshot"
+                contextScreenshotDataURL: nil,
+                contextScreenshotStatus: "No screenshot",
+                postProcessingStatus: "importing",
+                debugStatus: "Importing audio",
+                customVocabulary: capturedCustomVocabulary,
+                customSystemPrompt: capturedCustomSystemPrompt,
+                audioFileName: savedAudioFile.fileName,
+                usedLocalTranscription: configuration.useLocalTranscription,
+                usedContextCapture: false,
+                usedPostProcessing: capturedPostProcessingEnabled,
+                transcriptionLanguageCode: capturedTranscriptionLanguage.code,
+                localTranscriptionModelID: configuration.localTranscriptionModel.id,
+                contextAppName: nil,
+                contextBundleIdentifier: nil,
+                contextWindowTitle: nil
             )
+
             do {
-                let transcriptionService = try TranscriptionService(
-                    apiKey: capturedApiKey,
-                    baseURL: capturedApiBaseURL,
-                    useLocalTranscription: configuration.useLocalTranscription,
-                    localWhisperPath: capturedLocalWhisperPath.isEmpty ? nil : capturedLocalWhisperPath,
-                    transcriptionLanguage: capturedTranscriptionLanguage,
-                    localTranscriptionModel: configuration.localTranscriptionModel,
-                    transcriptionModel: capturedTranscriptionModel
-                )
-                let rawTranscript = try await transcriptionService.transcribe(fileURL: savedAudioFile.fileURL)
-                let parsedTranscript = Self.parseTranscriptCommands(
-                    from: rawTranscript,
-                    pressEnterCommandEnabled: capturedPressEnterCommandEnabled
-                )
-                let result = await self.processTranscript(
-                    parsedTranscript.transcript,
-                    intent: .dictation,
-                    context: importedContext,
-                    postProcessingService: postProcessingService,
-                    customVocabulary: capturedCustomVocabulary,
-                    customSystemPrompt: capturedCustomSystemPrompt,
-                    outputLanguage: capturedOutputLanguage,
-                    postProcessingEnabled: capturedPostProcessingEnabled
-                )
-                let processingStatus = Self.statusMessage(
-                    for: result.outcome,
-                    parsedTranscript: parsedTranscript
-                )
-                await MainActor.run {
-                    self.recordPipelineHistoryEntry(
-                        jobID: jobID,
-                        rawTranscript: parsedTranscript.transcript,
-                        postProcessedTranscript: result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines),
-                        postProcessingPrompt: result.prompt,
-                        systemPrompt: Self.resolvedSystemPrompt(capturedCustomSystemPrompt),
-                        context: importedContext,
-                        processingStatus: processingStatus,
-                        intent: .dictation,
-                        audioFileName: savedAudioFile.fileName,
-                        useLocalTranscriptionOverride: configuration.useLocalTranscription,
-                        localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id,
-                        usedContextCaptureOverride: false,
-                        usedPostProcessingOverride: capturedPostProcessingEnabled,
-                        transcriptionLanguageCodeOverride: capturedTranscriptionLanguage.code,
-                        customVocabularyOverride: capturedCustomVocabulary,
-                        customSystemPromptOverride: capturedCustomSystemPrompt
-                    )
-                    self.finishTranscriptionJob(jobID)
+                let removedStoredFiles = try self.appendPipelineHistoryItem(placeholder)
+                for removedAssets in removedStoredFiles {
+                    Self.deleteStoredFiles(removedAssets)
                 }
             } catch {
-                await MainActor.run {
-                    self.recordPipelineHistoryEntry(
-                        jobID: jobID,
-                        rawTranscript: "",
-                        postProcessedTranscript: "",
-                        postProcessingPrompt: "",
-                        systemPrompt: Self.resolvedSystemPrompt(capturedCustomSystemPrompt),
-                        context: importedContext,
-                        processingStatus: "Error: \(error.localizedDescription)",
-                        intent: .dictation,
-                        audioFileName: savedAudioFile.fileName,
-                        useLocalTranscriptionOverride: configuration.useLocalTranscription,
-                        localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id,
-                        usedContextCaptureOverride: false,
-                        usedPostProcessingOverride: capturedPostProcessingEnabled,
-                        transcriptionLanguageCodeOverride: capturedTranscriptionLanguage.code,
-                        customVocabularyOverride: capturedCustomVocabulary,
-                        customSystemPromptOverride: capturedCustomSystemPrompt
+                Self.deleteAudioFile(savedAudioFile.fileName)
+                self.errorMessage = "Unable to save imported audio note: \(error.localizedDescription)"
+                return
+            }
+
+            self.registerTranscriptionJob(
+                id: jobID,
+                startedAt: startedAt,
+                sessionIntent: .dictation,
+                sessionContext: nil,
+                contextTask: nil,
+                recordingStartedAt: nil,
+                recordingEndedAt: nil,
+                isImportedAudio: true
+            )
+            self.updateTranscriptionJob(jobID) {
+                $0.liveNoteID = noteID
+                $0.audioFileName = savedAudioFile.fileName
+            }
+
+            let task = Task { [weak self] in
+                guard let self else { return }
+                let importedContext = AppContext(
+                    appName: nil,
+                    bundleIdentifier: nil,
+                    windowTitle: nil,
+                    selectedText: nil,
+                    currentActivity: importContextSummary,
+                    contextSystemPrompt: nil,
+                    contextPrompt: nil,
+                    screenshotDataURL: nil,
+                    screenshotMimeType: nil,
+                    screenshotError: "No screenshot"
+                )
+                do {
+                    let transcriptionService = try TranscriptionService(
+                        apiKey: capturedApiKey,
+                        baseURL: capturedApiBaseURL,
+                        useLocalTranscription: configuration.useLocalTranscription,
+                        localWhisperPath: capturedLocalWhisperPath.isEmpty ? nil : capturedLocalWhisperPath,
+                        transcriptionLanguage: capturedTranscriptionLanguage,
+                        localTranscriptionModel: configuration.localTranscriptionModel,
+                        transcriptionModel: capturedTranscriptionModel
                     )
-                    self.finishTranscriptionJob(jobID)
+                    let rawTranscript = try await transcriptionService.transcribe(fileURL: savedAudioFile.fileURL)
+                    let parsedTranscript = Self.parseTranscriptCommands(
+                        from: rawTranscript,
+                        pressEnterCommandEnabled: capturedPressEnterCommandEnabled
+                    )
+                    let result = await self.processTranscript(
+                        parsedTranscript.transcript,
+                        intent: .dictation,
+                        context: importedContext,
+                        postProcessingService: postProcessingService,
+                        customVocabulary: capturedCustomVocabulary,
+                        customSystemPrompt: capturedCustomSystemPrompt,
+                        outputLanguage: capturedOutputLanguage,
+                        postProcessingEnabled: capturedPostProcessingEnabled
+                    )
+                    let processingStatus = Self.statusMessage(
+                        for: result.outcome,
+                        parsedTranscript: parsedTranscript
+                    )
+                    await MainActor.run {
+                        self.recordPipelineHistoryEntry(
+                            jobID: jobID,
+                            rawTranscript: parsedTranscript.transcript,
+                            postProcessedTranscript: result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines),
+                            postProcessingPrompt: result.prompt,
+                            systemPrompt: Self.resolvedSystemPrompt(capturedCustomSystemPrompt),
+                            context: importedContext,
+                            processingStatus: processingStatus,
+                            intent: .dictation,
+                            audioFileName: savedAudioFile.fileName,
+                            useLocalTranscriptionOverride: configuration.useLocalTranscription,
+                            localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id,
+                            usedContextCaptureOverride: false,
+                            usedPostProcessingOverride: capturedPostProcessingEnabled,
+                            transcriptionLanguageCodeOverride: capturedTranscriptionLanguage.code,
+                            customVocabularyOverride: capturedCustomVocabulary,
+                            customSystemPromptOverride: capturedCustomSystemPrompt
+                        )
+                        self.finishTranscriptionJob(jobID)
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.recordPipelineHistoryEntry(
+                            jobID: jobID,
+                            rawTranscript: "",
+                            postProcessedTranscript: "",
+                            postProcessingPrompt: "",
+                            systemPrompt: Self.resolvedSystemPrompt(capturedCustomSystemPrompt),
+                            context: importedContext,
+                            processingStatus: "Error: \(error.localizedDescription)",
+                            intent: .dictation,
+                            audioFileName: savedAudioFile.fileName,
+                            useLocalTranscriptionOverride: configuration.useLocalTranscription,
+                            localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id,
+                            usedContextCaptureOverride: false,
+                            usedPostProcessingOverride: capturedPostProcessingEnabled,
+                            transcriptionLanguageCodeOverride: capturedTranscriptionLanguage.code,
+                            customVocabularyOverride: capturedCustomVocabulary,
+                            customSystemPromptOverride: capturedCustomSystemPrompt
+                        )
+                        self.finishTranscriptionJob(jobID)
+                    }
                 }
             }
+            self.updateTranscriptionJob(jobID) { $0.task = task }
         }
-        updateTranscriptionJob(jobID) { $0.task = task }
     }
 
     @MainActor
