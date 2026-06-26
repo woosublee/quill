@@ -2571,6 +2571,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         transcriptionModel: capturedTranscriptionModel
                     )
                     let rawTranscript = try await transcriptionService.transcribe(fileURL: savedAudioFile.fileURL)
+                    try Task.checkCancellation()
                     let parsedTranscript = Self.parseTranscriptCommands(
                         from: rawTranscript,
                         pressEnterCommandEnabled: capturedPressEnterCommandEnabled
@@ -2585,53 +2586,56 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         outputLanguage: capturedOutputLanguage,
                         postProcessingEnabled: capturedPostProcessingEnabled
                     )
+                    try Task.checkCancellation()
                     let processingStatus = Self.statusMessage(
                         for: result.outcome,
                         parsedTranscript: parsedTranscript
                     )
-                    await MainActor.run {
-                        self.recordPipelineHistoryEntry(
-                            jobID: jobID,
-                            rawTranscript: parsedTranscript.transcript,
-                            postProcessedTranscript: result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines),
-                            postProcessingPrompt: result.prompt,
-                            systemPrompt: Self.resolvedSystemPrompt(capturedCustomSystemPrompt),
-                            context: importedContext,
-                            processingStatus: processingStatus,
-                            intent: .dictation,
-                            audioFileName: savedAudioFile.fileName,
-                            useLocalTranscriptionOverride: configuration.useLocalTranscription,
-                            localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id,
-                            usedContextCaptureOverride: false,
-                            usedPostProcessingOverride: capturedPostProcessingEnabled,
-                            transcriptionLanguageCodeOverride: capturedTranscriptionLanguage.code,
-                            customVocabularyOverride: capturedCustomVocabulary,
-                            customSystemPromptOverride: capturedCustomSystemPrompt
-                        )
-                        self.finishTranscriptionJob(jobID)
-                    }
+                    self.recordPipelineHistoryEntry(
+                        jobID: jobID,
+                        rawTranscript: parsedTranscript.transcript,
+                        postProcessedTranscript: result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines),
+                        postProcessingPrompt: result.prompt,
+                        systemPrompt: Self.resolvedSystemPrompt(capturedCustomSystemPrompt),
+                        context: importedContext,
+                        processingStatus: processingStatus,
+                        intent: .dictation,
+                        audioFileName: savedAudioFile.fileName,
+                        useLocalTranscriptionOverride: configuration.useLocalTranscription,
+                        localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id,
+                        usedContextCaptureOverride: false,
+                        usedPostProcessingOverride: capturedPostProcessingEnabled,
+                        transcriptionLanguageCodeOverride: capturedTranscriptionLanguage.code,
+                        customVocabularyOverride: capturedCustomVocabulary,
+                        customSystemPromptOverride: capturedCustomSystemPrompt
+                    )
+                    self.finishTranscriptionJob(jobID)
+                } catch is CancellationError {
+                    self.finishTranscriptionJob(jobID)
                 } catch {
-                    await MainActor.run {
-                        self.recordPipelineHistoryEntry(
-                            jobID: jobID,
-                            rawTranscript: "",
-                            postProcessedTranscript: "",
-                            postProcessingPrompt: "",
-                            systemPrompt: Self.resolvedSystemPrompt(capturedCustomSystemPrompt),
-                            context: importedContext,
-                            processingStatus: "Error: \(error.localizedDescription)",
-                            intent: .dictation,
-                            audioFileName: savedAudioFile.fileName,
-                            useLocalTranscriptionOverride: configuration.useLocalTranscription,
-                            localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id,
-                            usedContextCaptureOverride: false,
-                            usedPostProcessingOverride: capturedPostProcessingEnabled,
-                            transcriptionLanguageCodeOverride: capturedTranscriptionLanguage.code,
-                            customVocabularyOverride: capturedCustomVocabulary,
-                            customSystemPromptOverride: capturedCustomSystemPrompt
-                        )
+                    guard !Task.isCancelled else {
                         self.finishTranscriptionJob(jobID)
+                        return
                     }
+                    self.recordPipelineHistoryEntry(
+                        jobID: jobID,
+                        rawTranscript: "",
+                        postProcessedTranscript: "",
+                        postProcessingPrompt: "",
+                        systemPrompt: Self.resolvedSystemPrompt(capturedCustomSystemPrompt),
+                        context: importedContext,
+                        processingStatus: "Error: \(error.localizedDescription)",
+                        intent: .dictation,
+                        audioFileName: savedAudioFile.fileName,
+                        useLocalTranscriptionOverride: configuration.useLocalTranscription,
+                        localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id,
+                        usedContextCaptureOverride: false,
+                        usedPostProcessingOverride: capturedPostProcessingEnabled,
+                        transcriptionLanguageCodeOverride: capturedTranscriptionLanguage.code,
+                        customVocabularyOverride: capturedCustomVocabulary,
+                        customSystemPromptOverride: capturedCustomSystemPrompt
+                    )
+                    self.finishTranscriptionJob(jobID)
                 }
             }
             self.updateTranscriptionJob(jobID) { $0.task = task }

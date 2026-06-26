@@ -29,7 +29,7 @@ struct AudioImportFileCopyTests {
 
     private static func testOffMainCopyReturnsNilForMissingFile() async {
         let missingURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("quill-missing-audio-import-")
+            .appendingPathComponent("quill-missing-audio-import-\(ProcessInfo.processInfo.globallyUniqueString)")
             .appendingPathExtension("mp3")
 
         let saved = await AppState.saveSecurityScopedAudioFileOffMain(from: missingURL)
