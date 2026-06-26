@@ -141,7 +141,7 @@ struct BuildMetadataTests {
         assertContains(infoPlist, "<key>SUEnableAutomaticChecks</key>")
         assertContains(infoPlist, "<key>SUAutomaticallyUpdate</key>")
         assertContains(infoPlist, "<key>SUUpdateCheckInterval</key>")
-        assertContains(infoPlist, "<integer>604800</integer>")
+        assertContains(infoPlist, "<integer>86400</integer>")
 
         assertContains(makefile, "SPARKLE_VERSION ?= 2.9.2")
         assertContains(makefile, "swift build --product SparkleResolver")
