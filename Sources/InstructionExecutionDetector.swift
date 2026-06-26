@@ -16,21 +16,17 @@ enum InstructionExecutionDetector {
         "would", "you", "your"
     ]
 
-    private static let assistantPreamblePattern = #"(?i)^\s*(sure|certainly|absolutely|here(?:'s| is)|i(?:'d| would) be happy to|i can)\b"#
+    private static let assistantPreamblePattern = #"(?i)^\s*(?:(?:sure|certainly|absolutely)\b|here(?:'s| is)\b|i(?:'d| would) be happy to\b|i can\b|(?:claro|por supuesto|con gusto|aquí tienes|aqui tienes)\b|(?:물론입니다|물론이죠|알겠습니다|아래는|다음은|도와드리겠습니다|작성해 드리겠습니다))"#
+    private static let leadingPunctuationPattern = #"^[\s,.:;!?\"'“”‘’()\[\]{}—–-]+"#
+    private static let leadingFillerPattern = #"(?i)^\s*(?:(?:(?:um+|uh+|erm|er|ah+|eh+|yeah|yep|well|okay|ok|so)\b|음+|어+|저기)[\s,.:;!?—–-]*)+"#
 
     static func appearsToHaveExecutedInstruction(
         rawTranscript: String,
         cleanedTranscript: String,
         outputLanguage: String
     ) -> Bool {
-        let cleanedHasAssistantPreamble = cleanedTranscript.range(
-            of: assistantPreamblePattern,
-            options: .regularExpression
-        ) != nil
-        let rawHasSamePreamble = rawTranscript.range(
-            of: assistantPreamblePattern,
-            options: .regularExpression
-        ) != nil
+        let cleanedHasAssistantPreamble = hasAssistantPreamble(in: cleanedTranscript)
+        let rawHasSamePreamble = hasAssistantPreamble(in: rawTranscript)
 
         if cleanedHasAssistantPreamble && !rawHasSamePreamble {
             return true
@@ -52,6 +48,14 @@ enum InstructionExecutionDetector {
         let overlapRatio = Double(overlap.count) / Double(max(rawTokens.count, 1))
 
         return preservedMarkers.isEmpty && overlapRatio < 0.35
+    }
+
+    private static func hasAssistantPreamble(in text: String) -> Bool {
+        let normalized = text
+            .replacingOccurrences(of: leadingPunctuationPattern, with: "", options: .regularExpression)
+            .replacingOccurrences(of: leadingFillerPattern, with: "", options: .regularExpression)
+
+        return normalized.range(of: assistantPreamblePattern, options: .regularExpression) != nil
     }
 
     private static func significantTokens(in text: String) -> Set<String> {

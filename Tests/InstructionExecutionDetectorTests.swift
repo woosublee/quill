@@ -4,8 +4,11 @@ import Foundation
 struct InstructionExecutionDetectorTests {
     static func main() {
         testAssistantPreambleIsDetectedWithOutputLanguage()
+        testKoreanAssistantPreambleIsDetectedWithOutputLanguage()
+        testSpanishAssistantPreambleIsDetectedWithOutputLanguage()
         testTokenOverlapHeuristicIsSkippedWithOutputLanguage()
         testRawAssistantPreambleDoesNotTriggerDetection()
+        testRawAssistantPreambleWithLeadingFillerDoesNotTriggerDetection()
         testTokenOverlapHeuristicStillRunsWithoutOutputLanguage()
         print("InstructionExecutionDetectorTests passed")
     }
@@ -18,6 +21,26 @@ struct InstructionExecutionDetectorTests {
         )
 
         assert(detected, "Expected assistant preamble detection to stay active with an output language")
+    }
+
+    private static func testKoreanAssistantPreambleIsDetectedWithOutputLanguage() {
+        let detected = InstructionExecutionDetector.appearsToHaveExecutedInstruction(
+            rawTranscript: "write a reply to Sarah saying sorry for the delay",
+            cleanedTranscript: "물론입니다. Sarah에게 보낼 답장은 다음과 같습니다: 지연되어 죄송합니다.",
+            outputLanguage: "Korean"
+        )
+
+        assert(detected, "Expected Korean assistant preamble detection to stay active with an output language")
+    }
+
+    private static func testSpanishAssistantPreambleIsDetectedWithOutputLanguage() {
+        let detected = InstructionExecutionDetector.appearsToHaveExecutedInstruction(
+            rawTranscript: "write a reply to Sarah saying sorry for the delay",
+            cleanedTranscript: "Claro, aquí tienes una respuesta para Sarah: Perdón por la demora.",
+            outputLanguage: "Spanish"
+        )
+
+        assert(detected, "Expected Spanish assistant preamble detection to stay active with an output language")
     }
 
     private static func testTokenOverlapHeuristicIsSkippedWithOutputLanguage() {
@@ -38,6 +61,16 @@ struct InstructionExecutionDetectorTests {
         )
 
         assert(!detected, "Expected spoken assistant preamble to avoid false positives")
+    }
+
+    private static func testRawAssistantPreambleWithLeadingFillerDoesNotTriggerDetection() {
+        let detected = InstructionExecutionDetector.appearsToHaveExecutedInstruction(
+            rawTranscript: "uh, sure, here's what I want to say",
+            cleanedTranscript: "Sure, here's what I want to say.",
+            outputLanguage: "Korean"
+        )
+
+        assert(!detected, "Expected spoken assistant preamble with leading filler to avoid false positives")
     }
 
     private static func testTokenOverlapHeuristicStillRunsWithoutOutputLanguage() {
