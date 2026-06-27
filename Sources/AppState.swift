@@ -102,6 +102,91 @@ struct AudioImportTranscriptionConfiguration {
     let localTranscriptionModel: TranscriptionModel
 }
 
+private struct AudioImportTaskConfiguration {
+    let mode: NoteBrowserTranscriptionMode
+    let useLocalTranscription: Bool
+    let localTranscriptionModel: TranscriptionModel
+    let transcriptionAPIKey: String
+    let transcriptionAPIBaseURL: String
+    let localWhisperPath: String
+    let transcriptionLanguage: TranscriptionLanguage
+    let transcriptionModel: String
+    let customVocabulary: String
+    let customSystemPrompt: String
+    let outputLanguage: String
+    let postProcessingEnabled: Bool
+    let pressEnterCommandEnabled: Bool
+    let postProcessingAPIKey: String
+    let postProcessingBaseURL: String
+    let postProcessingModel: String
+    let postProcessingFallbackModel: String
+    let instructionExecutionGuardEnabled: Bool
+
+    init(
+        transcriptionConfiguration: AudioImportTranscriptionConfiguration,
+        transcriptionAPIKey: String,
+        transcriptionAPIBaseURL: String,
+        localWhisperPath: String,
+        transcriptionLanguage: TranscriptionLanguage,
+        transcriptionModel: String,
+        customVocabulary: String,
+        customSystemPrompt: String,
+        outputLanguage: String,
+        postProcessingEnabled: Bool,
+        pressEnterCommandEnabled: Bool,
+        postProcessingAPIKey: String,
+        postProcessingBaseURL: String,
+        postProcessingModel: String,
+        postProcessingFallbackModel: String,
+        instructionExecutionGuardEnabled: Bool
+    ) {
+        self.mode = transcriptionConfiguration.mode
+        self.useLocalTranscription = transcriptionConfiguration.useLocalTranscription
+        self.localTranscriptionModel = transcriptionConfiguration.localTranscriptionModel
+        self.transcriptionAPIKey = transcriptionAPIKey
+        self.transcriptionAPIBaseURL = transcriptionAPIBaseURL
+        self.localWhisperPath = localWhisperPath
+        self.transcriptionLanguage = transcriptionLanguage
+        self.transcriptionModel = transcriptionModel
+        self.customVocabulary = customVocabulary
+        self.customSystemPrompt = customSystemPrompt
+        self.outputLanguage = outputLanguage
+        self.postProcessingEnabled = postProcessingEnabled
+        self.pressEnterCommandEnabled = pressEnterCommandEnabled
+        self.postProcessingAPIKey = postProcessingAPIKey
+        self.postProcessingBaseURL = postProcessingBaseURL
+        self.postProcessingModel = postProcessingModel
+        self.postProcessingFallbackModel = postProcessingFallbackModel
+        self.instructionExecutionGuardEnabled = instructionExecutionGuardEnabled
+    }
+
+    var systemPrompt: String {
+        AppState.resolvedSystemPrompt(customSystemPrompt)
+    }
+
+    func makePostProcessingService() -> PostProcessingService {
+        PostProcessingService(
+            apiKey: postProcessingAPIKey,
+            baseURL: postProcessingBaseURL,
+            preferredModel: postProcessingModel,
+            preferredFallbackModel: postProcessingFallbackModel,
+            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
+        )
+    }
+
+    func makeTranscriptionService() throws -> TranscriptionService {
+        try TranscriptionService(
+            apiKey: transcriptionAPIKey,
+            baseURL: transcriptionAPIBaseURL,
+            useLocalTranscription: useLocalTranscription,
+            localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath,
+            transcriptionLanguage: transcriptionLanguage,
+            localTranscriptionModel: localTranscriptionModel,
+            transcriptionModel: transcriptionModel
+        )
+    }
+}
+
 private struct RetrySnapshot {
     let item: PipelineHistoryItem
     let audioURL: URL
@@ -2458,28 +2543,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func importAudioFile(_ fileURL: URL, mode: NoteBrowserTranscriptionMode) {
-        let configuration = audioImportConfiguration(for: mode)
+        let configuration = AudioImportTaskConfiguration(
+            transcriptionConfiguration: audioImportConfiguration(for: mode),
+            transcriptionAPIKey: resolvedTranscriptionAPIKey,
+            transcriptionAPIBaseURL: resolvedTranscriptionBaseURL,
+            localWhisperPath: localWhisperPath,
+            transcriptionLanguage: transcriptionLanguage,
+            transcriptionModel: transcriptionModel,
+            customVocabulary: customVocabulary,
+            customSystemPrompt: customSystemPrompt,
+            outputLanguage: outputLanguage,
+            postProcessingEnabled: !disablePostProcessing,
+            pressEnterCommandEnabled: isPressEnterVoiceCommandEnabled,
+            postProcessingAPIKey: apiKey,
+            postProcessingBaseURL: apiBaseURL,
+            postProcessingModel: postProcessingModel,
+            postProcessingFallbackModel: postProcessingFallbackModel,
+            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
+        )
         let jobID = UUID()
         let noteID = UUID()
         let startedAt = Date()
         let importContextSummary = AudioImportOptions.importContextSummary(for: fileURL.lastPathComponent)
-        let postProcessingService = PostProcessingService(
-            apiKey: apiKey,
-            baseURL: apiBaseURL,
-            preferredModel: postProcessingModel,
-            preferredFallbackModel: postProcessingFallbackModel,
-            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
-        )
-        let capturedApiKey = resolvedTranscriptionAPIKey
-        let capturedApiBaseURL = resolvedTranscriptionBaseURL
-        let capturedLocalWhisperPath = localWhisperPath
-        let capturedTranscriptionLanguage = transcriptionLanguage
-        let capturedTranscriptionModel = transcriptionModel
-        let capturedCustomVocabulary = customVocabulary
-        let capturedCustomSystemPrompt = customSystemPrompt
-        let capturedOutputLanguage = outputLanguage
-        let capturedPostProcessingEnabled = !disablePostProcessing
-        let capturedPressEnterCommandEnabled = isPressEnterVoiceCommandEnabled
 
         Task { [weak self] in
             guard let savedAudioFile = await Self.saveSecurityScopedAudioFileOffMain(from: fileURL) else {
@@ -2500,20 +2585,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 rawTranscript: "",
                 postProcessedTranscript: "",
                 postProcessingPrompt: nil,
-                systemPrompt: Self.resolvedSystemPrompt(capturedCustomSystemPrompt),
+                systemPrompt: configuration.systemPrompt,
                 contextSummary: importContextSummary,
                 contextPrompt: nil,
                 contextScreenshotDataURL: nil,
                 contextScreenshotStatus: "No screenshot",
                 postProcessingStatus: "importing",
                 debugStatus: "Importing audio",
-                customVocabulary: capturedCustomVocabulary,
-                customSystemPrompt: capturedCustomSystemPrompt,
+                customVocabulary: configuration.customVocabulary,
+                customSystemPrompt: configuration.customSystemPrompt,
                 audioFileName: savedAudioFile.fileName,
                 usedLocalTranscription: configuration.useLocalTranscription,
                 usedContextCapture: false,
-                usedPostProcessing: capturedPostProcessingEnabled,
-                transcriptionLanguageCode: capturedTranscriptionLanguage.code,
+                usedPostProcessing: configuration.postProcessingEnabled,
+                transcriptionLanguageCode: configuration.transcriptionLanguage.code,
                 localTranscriptionModelID: configuration.localTranscriptionModel.id,
                 contextAppName: nil,
                 contextBundleIdentifier: nil,
@@ -2561,30 +2646,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     screenshotError: "No screenshot"
                 )
                 do {
-                    let transcriptionService = try TranscriptionService(
-                        apiKey: capturedApiKey,
-                        baseURL: capturedApiBaseURL,
-                        useLocalTranscription: configuration.useLocalTranscription,
-                        localWhisperPath: capturedLocalWhisperPath.isEmpty ? nil : capturedLocalWhisperPath,
-                        transcriptionLanguage: capturedTranscriptionLanguage,
-                        localTranscriptionModel: configuration.localTranscriptionModel,
-                        transcriptionModel: capturedTranscriptionModel
-                    )
+                    let transcriptionService = try configuration.makeTranscriptionService()
                     let rawTranscript = try await transcriptionService.transcribe(fileURL: savedAudioFile.fileURL)
                     try Task.checkCancellation()
                     let parsedTranscript = Self.parseTranscriptCommands(
                         from: rawTranscript,
-                        pressEnterCommandEnabled: capturedPressEnterCommandEnabled
+                        pressEnterCommandEnabled: configuration.pressEnterCommandEnabled
                     )
                     let result = await self.processTranscript(
                         parsedTranscript.transcript,
                         intent: .dictation,
                         context: importedContext,
-                        postProcessingService: postProcessingService,
-                        customVocabulary: capturedCustomVocabulary,
-                        customSystemPrompt: capturedCustomSystemPrompt,
-                        outputLanguage: capturedOutputLanguage,
-                        postProcessingEnabled: capturedPostProcessingEnabled
+                        postProcessingService: configuration.makePostProcessingService(),
+                        customVocabulary: configuration.customVocabulary,
+                        customSystemPrompt: configuration.customSystemPrompt,
+                        outputLanguage: configuration.outputLanguage,
+                        postProcessingEnabled: configuration.postProcessingEnabled
                     )
                     try Task.checkCancellation()
                     let processingStatus = Self.statusMessage(
@@ -2596,7 +2673,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         rawTranscript: parsedTranscript.transcript,
                         postProcessedTranscript: result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines),
                         postProcessingPrompt: result.prompt,
-                        systemPrompt: Self.resolvedSystemPrompt(capturedCustomSystemPrompt),
+                        systemPrompt: configuration.systemPrompt,
                         context: importedContext,
                         processingStatus: processingStatus,
                         intent: .dictation,
@@ -2604,10 +2681,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         useLocalTranscriptionOverride: configuration.useLocalTranscription,
                         localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id,
                         usedContextCaptureOverride: false,
-                        usedPostProcessingOverride: capturedPostProcessingEnabled,
-                        transcriptionLanguageCodeOverride: capturedTranscriptionLanguage.code,
-                        customVocabularyOverride: capturedCustomVocabulary,
-                        customSystemPromptOverride: capturedCustomSystemPrompt
+                        usedPostProcessingOverride: configuration.postProcessingEnabled,
+                        transcriptionLanguageCodeOverride: configuration.transcriptionLanguage.code,
+                        customVocabularyOverride: configuration.customVocabulary,
+                        customSystemPromptOverride: configuration.customSystemPrompt
                     )
                     self.finishTranscriptionJob(jobID)
                 } catch is CancellationError {
@@ -2622,7 +2699,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         rawTranscript: "",
                         postProcessedTranscript: "",
                         postProcessingPrompt: "",
-                        systemPrompt: Self.resolvedSystemPrompt(capturedCustomSystemPrompt),
+                        systemPrompt: configuration.systemPrompt,
                         context: importedContext,
                         processingStatus: "Error: \(error.localizedDescription)",
                         intent: .dictation,
@@ -2630,10 +2707,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         useLocalTranscriptionOverride: configuration.useLocalTranscription,
                         localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id,
                         usedContextCaptureOverride: false,
-                        usedPostProcessingOverride: capturedPostProcessingEnabled,
-                        transcriptionLanguageCodeOverride: capturedTranscriptionLanguage.code,
-                        customVocabularyOverride: capturedCustomVocabulary,
-                        customSystemPromptOverride: capturedCustomSystemPrompt
+                        usedPostProcessingOverride: configuration.postProcessingEnabled,
+                        transcriptionLanguageCodeOverride: configuration.transcriptionLanguage.code,
+                        customVocabularyOverride: configuration.customVocabulary,
+                        customSystemPromptOverride: configuration.customSystemPrompt
                     )
                     self.finishTranscriptionJob(jobID)
                 }

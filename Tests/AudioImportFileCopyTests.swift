@@ -6,6 +6,7 @@ struct AudioImportFileCopyTests {
         try await testOffMainCopyPreservesExtensionAndContents()
         await testOffMainCopyReturnsNilForMissingFile()
         try testImportAudioFileUsesOffMainSecurityScopedCopy()
+        try testImportAudioFileGroupsCapturedSettings()
         print("AudioImportFileCopyTests passed")
     }
 
@@ -47,6 +48,22 @@ struct AudioImportFileCopyTests {
         assertContains(source, "guard let savedAudioFile = await Self.saveSecurityScopedAudioFileOffMain(from: fileURL)")
         assertDoesNotContain(importAudioFileBody(in: source), "Self.saveAudioFile(from: fileURL)")
         assertDoesNotContain(importAudioFileBody(in: source), "startAccessingSecurityScopedResource()")
+    }
+
+    private static func testImportAudioFileGroupsCapturedSettings() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let importBody = importAudioFileBody(in: source)
+
+        assertContains(source, "private struct AudioImportTaskConfiguration")
+        assertContains(source, "func makePostProcessingService() -> PostProcessingService")
+        assertContains(source, "func makeTranscriptionService() throws -> TranscriptionService")
+        assertContains(importBody, "let configuration = AudioImportTaskConfiguration(")
+        assertContains(importBody, "let transcriptionService = try configuration.makeTranscriptionService()")
+        assertContains(importBody, "postProcessingService: configuration.makePostProcessingService()")
+        assertDoesNotContain(importBody, "let capturedApiKey")
+        assertDoesNotContain(importBody, "let capturedCustomVocabulary")
+        assertDoesNotContain(importBody, "let capturedPostProcessingEnabled")
+        assertDoesNotContain(importBody, "capturedCustomSystemPrompt")
     }
 
     private static func importAudioFileBody(in source: String) -> String {
