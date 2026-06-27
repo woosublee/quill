@@ -8,6 +8,14 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.15] - 2026-06-27
+
+### Improved
+
+- Imported audio transcription now uses one consistent configuration snapshot for local/API transcription, language, vocabulary, and post-processing settings, reducing mismatches between the import dialog and background jobs.
+- Imported audio files are copied off the main thread before transcription starts, keeping the app more responsive when selecting larger files.
+- Instruction Guard now remains active when Quill translates dictated output, so translation runs still avoid answering or executing dictated instructions.
+
 ## [0.1.14] - 2026-06-25
 
 ### Added
