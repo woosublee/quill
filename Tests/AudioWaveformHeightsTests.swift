@@ -7,6 +7,8 @@ struct AudioWaveformHeightsTests {
             try mildlyBoostsQuietWaveform()
             try preservesAlreadyVisibleWaveformScale()
             try returnsNoHeightsForEmptySamples()
+            try fitsBarsInsideAvailableWidth()
+            try clampsNegativePreferredGap()
             print("AudioWaveformHeightsTests passed")
         } catch {
             fputs("AudioWaveformHeightsTests failed: \(error)\n", stderr)
@@ -30,6 +32,35 @@ struct AudioWaveformHeightsTests {
         let heights = AudioWaveformHeights.heights(from: [], barCount: 4)
 
         try expectEqual(heights, [], "empty samples should not produce waveform bars")
+    }
+
+    private static func fitsBarsInsideAvailableWidth() throws {
+        let layout = AudioWaveformHeights.layout(width: 210, barCount: 80, preferredGap: 2)
+        let totalWidth = CGFloat(layout.barCount) * layout.barWidth
+            + CGFloat(layout.barCount - 1) * layout.gap
+
+        try expect(layout.barCount == 80, "wide-enough waveform should preserve all bars")
+        try expect(totalWidth <= 210.0001, "wide-enough waveform should fit inside available width")
+
+        let narrowLayout = AudioWaveformHeights.layout(width: 96, barCount: 80, preferredGap: 2)
+        let narrowTotalWidth = CGFloat(narrowLayout.barCount) * narrowLayout.barWidth
+            + CGFloat(narrowLayout.barCount - 1) * narrowLayout.gap
+
+        try expect(narrowLayout.barCount == 80, "narrow waveform should preserve all bars")
+        try expect(narrowTotalWidth <= 96.0001, "narrow waveform should fit inside available width")
+    }
+
+    private static func clampsNegativePreferredGap() throws {
+        let layout = AudioWaveformHeights.layout(width: 96, barCount: 80, preferredGap: -2)
+        let totalWidth = CGFloat(layout.barCount) * layout.barWidth
+            + CGFloat(layout.barCount - 1) * layout.gap
+
+        try expect(layout.gap >= 0, "negative preferred gap should be clamped to non-negative spacing")
+        try expect(totalWidth <= 96.0001, "negative preferred gap layout should still fit inside available width")
+    }
+
+    private static func expect(_ condition: Bool, _ label: String) throws {
+        guard condition else { throw TestFailure(label) }
     }
 
     private static func expectEqual(_ actual: [Float], _ expected: [Float], _ label: String) throws {

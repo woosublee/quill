@@ -504,58 +504,71 @@ struct NoteBrowserView: View {
         VStack(spacing: 0) {
             // Title row
             HStack(spacing: 8) {
-                Text("Recordings")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.primary)
-                if !appState.pipelineHistory.isEmpty {
-                    Text("\(appState.pipelineHistory.count)")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.primary.opacity(0.08), in: Capsule())
-                }
-                Spacer()
-                Button {
-                    showAudioImportPicker()
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .bold))
-                        .frame(width: 24, height: 24)
-                        .background(Color.primary.opacity(0.06), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .help("Import audio file")
-                .disabled(appState.isRecording)
-                .overrideCursor(.arrow)
-
-                // Record button
-                Button {
-                    appState.toggleRecording()
-                } label: {
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(.white)
-                            .frame(width: 6, height: 6)
-                            // Pulse opacity only (via recordingPulse) so the dot blinks
-                            // in place and isn't dragged by the Rec/Stop layout change.
-                            .opacity(appState.isRecording ? (recordingPulse ? 0.35 : 1.0) : 1.0)
-                        Text(appState.isRecording ? "Stop" : "Rec")
-                            .font(.system(size: 11, weight: .semibold))
+                HStack(spacing: 6) {
+                    Text("Recordings")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                    if !appState.pipelineHistory.isEmpty {
+                        Text("\(appState.pipelineHistory.count)")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.primary.opacity(0.08), in: Capsule())
                     }
-                    .onChange(of: appState.isRecording) { isRecording in
-                        updateRecordingPulse(isRecording)
-                    }
-                    .onAppear { updateRecordingPulse(appState.isRecording) }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(appState.isRecording ? Color.orange : Color.red, in: Capsule())
-                    .foregroundStyle(.white)
                 }
-                .buttonStyle(.plain)
-                .overrideCursor(.arrow)
+                .layoutPriority(1)
 
-                inputPickerMenu
+                Spacer(minLength: 8)
+
+                HStack(spacing: 8) {
+                    Button {
+                        showAudioImportPicker()
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 12, weight: .bold))
+                            .frame(width: 24, height: 24)
+                            .background(Color.primary.opacity(0.06), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Import audio file")
+                    .disabled(appState.isRecording)
+                    .overrideCursor(.arrow)
+
+                    // Record button
+                    Button {
+                        appState.toggleRecording()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Circle()
+                                .fill(.white)
+                                .frame(width: 6, height: 6)
+                                // Pulse opacity only (via recordingPulse) so the dot blinks
+                                // in place and isn't dragged by the Rec/Stop layout change.
+                                .opacity(appState.isRecording ? (recordingPulse ? 0.35 : 1.0) : 1.0)
+                            Text(appState.isRecording ? "Stop" : "Rec")
+                                .font(.system(size: 11, weight: .semibold))
+                                .lineLimit(1)
+                        }
+                        .onChange(of: appState.isRecording) { isRecording in
+                            updateRecordingPulse(isRecording)
+                        }
+                        .onAppear { updateRecordingPulse(appState.isRecording) }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(appState.isRecording ? Color.orange : Color.red, in: Capsule())
+                        .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+                    .overrideCursor(.arrow)
+
+                    inputPickerMenu
+                }
+                .fixedSize(horizontal: true, vertical: false)
             }
             .padding(.horizontal, 14)
             .padding(.top, 14)
@@ -1283,10 +1296,13 @@ private struct NoteDetailView: View {
         .padding(.horizontal, 8)
         .frame(height: 48)
         .background {
-            GlassView(material: .underWindowBackground)
-                .clipShape(Capsule())
-                .overlay(Capsule().strokeBorder(toolbarStrokeColor, lineWidth: 0.6))
+            if #available(macOS 26.0, *) {
+                Color.clear.glassEffect(.regular, in: Capsule())
+            } else {
+                Capsule().fill(.ultraThinMaterial)
+            }
         }
+        .overlay(Capsule().strokeBorder(toolbarStrokeColor, lineWidth: 0.6))
         .compositingGroup()
         .shadow(color: .black.opacity(0.085), radius: 14, x: 0, y: 4)
         .shadow(color: .white.opacity(0.05), radius: 4, x: 0, y: -1)
@@ -1409,19 +1425,20 @@ struct NoteAudioPlayerView: View {
 
             // Waveform — border-radius:1px, opacity:0.45 unplayed, accent played
             GeometryReader { geo in
-                let barCount = barHeights.count
-                let gap: CGFloat = 2
-                let totalGap = gap * CGFloat(barCount - 1)
-                let barWidth = max(1, (geo.size.width - totalGap) / CGFloat(barCount))
-                let playedCount = Int(Double(barCount) * progress)
+                let layout = AudioWaveformHeights.layout(
+                    width: geo.size.width,
+                    barCount: barHeights.count,
+                    preferredGap: 2
+                )
+                let playedCount = Int(Double(layout.barCount) * progress)
 
-                HStack(alignment: .center, spacing: gap) {
-                    ForEach(0..<barCount, id: \.self) { i in
+                HStack(alignment: .center, spacing: layout.gap) {
+                    ForEach(0..<layout.barCount, id: \.self) { i in
                         RoundedRectangle(cornerRadius: 1)
                             .fill(i < playedCount
                                   ? Color.accentColor
                                   : Color.primary.opacity(0.45))
-                            .frame(width: barWidth, height: geo.size.height * barHeights[i])
+                            .frame(width: layout.barWidth, height: geo.size.height * barHeights[i])
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -1437,12 +1454,13 @@ struct NoteAudioPlayerView: View {
             }
             .frame(height: 44)
 
-            // Time — monospaced, tabular, var(--ink-2) ≈ secondary, min-width 80
+            // Time — monospaced, tabular, intrinsic width so the waveform flexes with label length.
             Text("\(formatDuration(elapsed)) / \(formatDuration(duration))")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
-                .frame(minWidth: 80, alignment: .center)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
 
             // Volume — tap the speaker for a slider popover
             Button { showVolumePopover.toggle() } label: {
