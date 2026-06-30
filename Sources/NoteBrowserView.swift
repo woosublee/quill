@@ -504,58 +504,71 @@ struct NoteBrowserView: View {
         VStack(spacing: 0) {
             // Title row
             HStack(spacing: 8) {
-                Text("Recordings")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.primary)
-                if !appState.pipelineHistory.isEmpty {
-                    Text("\(appState.pipelineHistory.count)")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.primary.opacity(0.08), in: Capsule())
-                }
-                Spacer()
-                Button {
-                    showAudioImportPicker()
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .bold))
-                        .frame(width: 24, height: 24)
-                        .background(Color.primary.opacity(0.06), in: Circle())
-                }
-                .buttonStyle(.plain)
-                .help("Import audio file")
-                .disabled(appState.isRecording)
-                .overrideCursor(.arrow)
-
-                // Record button
-                Button {
-                    appState.toggleRecording()
-                } label: {
-                    HStack(spacing: 5) {
-                        Circle()
-                            .fill(.white)
-                            .frame(width: 6, height: 6)
-                            // Pulse opacity only (via recordingPulse) so the dot blinks
-                            // in place and isn't dragged by the Rec/Stop layout change.
-                            .opacity(appState.isRecording ? (recordingPulse ? 0.35 : 1.0) : 1.0)
-                        Text(appState.isRecording ? "Stop" : "Rec")
-                            .font(.system(size: 11, weight: .semibold))
+                HStack(spacing: 6) {
+                    Text("Recordings")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                    if !appState.pipelineHistory.isEmpty {
+                        Text("\(appState.pipelineHistory.count)")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.primary.opacity(0.08), in: Capsule())
                     }
-                    .onChange(of: appState.isRecording) { isRecording in
-                        updateRecordingPulse(isRecording)
-                    }
-                    .onAppear { updateRecordingPulse(appState.isRecording) }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(appState.isRecording ? Color.orange : Color.red, in: Capsule())
-                    .foregroundStyle(.white)
                 }
-                .buttonStyle(.plain)
-                .overrideCursor(.arrow)
+                .layoutPriority(1)
 
-                inputPickerMenu
+                Spacer(minLength: 8)
+
+                HStack(spacing: 8) {
+                    Button {
+                        showAudioImportPicker()
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 12, weight: .bold))
+                            .frame(width: 24, height: 24)
+                            .background(Color.primary.opacity(0.06), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Import audio file")
+                    .disabled(appState.isRecording)
+                    .overrideCursor(.arrow)
+
+                    // Record button
+                    Button {
+                        appState.toggleRecording()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Circle()
+                                .fill(.white)
+                                .frame(width: 6, height: 6)
+                                // Pulse opacity only (via recordingPulse) so the dot blinks
+                                // in place and isn't dragged by the Rec/Stop layout change.
+                                .opacity(appState.isRecording ? (recordingPulse ? 0.35 : 1.0) : 1.0)
+                            Text(appState.isRecording ? "Stop" : "Rec")
+                                .font(.system(size: 11, weight: .semibold))
+                                .lineLimit(1)
+                        }
+                        .onChange(of: appState.isRecording) { isRecording in
+                            updateRecordingPulse(isRecording)
+                        }
+                        .onAppear { updateRecordingPulse(appState.isRecording) }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(appState.isRecording ? Color.orange : Color.red, in: Capsule())
+                        .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+                    .overrideCursor(.arrow)
+
+                    inputPickerMenu
+                }
+                .fixedSize(horizontal: true, vertical: false)
             }
             .padding(.horizontal, 14)
             .padding(.top, 14)
