@@ -1,6 +1,28 @@
 import Foundation
 
 enum AudioWaveformHeights {
+    struct Layout {
+        let barCount: Int
+        let barWidth: CGFloat
+        let gap: CGFloat
+    }
+
+    static func layout(width: CGFloat, barCount: Int = 80, preferredGap: CGFloat = 2) -> Layout {
+        guard width > 0, barCount > 0 else {
+            return Layout(barCount: 0, barWidth: 0, gap: 0)
+        }
+
+        let minimumBarWidth: CGFloat = 1
+        let maxGap = barCount > 1
+            ? max(0, (width - CGFloat(barCount) * minimumBarWidth) / CGFloat(barCount - 1))
+            : 0
+        let gap = min(preferredGap, maxGap)
+        let totalGap = gap * CGFloat(max(0, barCount - 1))
+        let barWidth = max(0, (width - totalGap) / CGFloat(barCount))
+
+        return Layout(barCount: barCount, barWidth: barWidth, gap: gap)
+    }
+
     static func heights(from samples: [Float], barCount: Int = 80) -> [Float] {
         guard !samples.isEmpty, barCount > 0 else { return [] }
 

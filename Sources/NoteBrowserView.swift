@@ -1409,19 +1409,20 @@ struct NoteAudioPlayerView: View {
 
             // Waveform — border-radius:1px, opacity:0.45 unplayed, accent played
             GeometryReader { geo in
-                let barCount = barHeights.count
-                let gap: CGFloat = 2
-                let totalGap = gap * CGFloat(barCount - 1)
-                let barWidth = max(1, (geo.size.width - totalGap) / CGFloat(barCount))
-                let playedCount = Int(Double(barCount) * progress)
+                let layout = AudioWaveformHeights.layout(
+                    width: geo.size.width,
+                    barCount: barHeights.count,
+                    preferredGap: 2
+                )
+                let playedCount = Int(Double(layout.barCount) * progress)
 
-                HStack(alignment: .center, spacing: gap) {
-                    ForEach(0..<barCount, id: \.self) { i in
+                HStack(alignment: .center, spacing: layout.gap) {
+                    ForEach(0..<layout.barCount, id: \.self) { i in
                         RoundedRectangle(cornerRadius: 1)
                             .fill(i < playedCount
                                   ? Color.accentColor
                                   : Color.primary.opacity(0.45))
-                            .frame(width: barWidth, height: geo.size.height * barHeights[i])
+                            .frame(width: layout.barWidth, height: geo.size.height * barHeights[i])
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
@@ -1437,12 +1438,13 @@ struct NoteAudioPlayerView: View {
             }
             .frame(height: 44)
 
-            // Time — monospaced, tabular, var(--ink-2) ≈ secondary, min-width 80
+            // Time — monospaced, tabular, intrinsic width so the waveform flexes with label length.
             Text("\(formatDuration(elapsed)) / \(formatDuration(duration))")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
-                .frame(minWidth: 80, alignment: .center)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
 
             // Volume — tap the speaker for a slider popover
             Button { showVolumePopover.toggle() } label: {
