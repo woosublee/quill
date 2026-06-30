@@ -16,7 +16,8 @@ enum AudioWaveformHeights {
         let maxGap = barCount > 1
             ? max(0, (width - CGFloat(barCount) * minimumBarWidth) / CGFloat(barCount - 1))
             : 0
-        let gap = min(preferredGap, maxGap)
+        let safePreferredGap = max(0, preferredGap)
+        let gap = min(safePreferredGap, maxGap)
         let totalGap = gap * CGFloat(max(0, barCount - 1))
         let barWidth = max(0, (width - totalGap) / CGFloat(barCount))
 
