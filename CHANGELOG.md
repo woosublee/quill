@@ -8,6 +8,15 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.16] - 2026-06-30
+
+### Improved
+
+- Note Browser audio player labels now keep their full intrinsic width, so long durations no longer overlap the waveform.
+- Waveform bars now clamp spacing to stay inside the available player width, including narrow layouts.
+- The Recordings sidebar header stays on one line while recording or when the count grows.
+- The Note Browser detail toolbar restores the Liquid Glass pill on macOS 26 and keeps an ultra-thin material fallback on older macOS versions.
+
 ## [0.1.15] - 2026-06-27
 
 ### Improved
