@@ -1622,32 +1622,43 @@ struct ModelsSettingsView: View {
                 Text("Local Options")
                     .font(.caption.weight(.semibold))
 
-                ForEach(TranscriptionModel.all) { model in
-                    ModelRowView(
-                        model: model,
-                        isSelected: appState.localTranscriptionModel == model,
-                        whisperBin: appState.localWhisperPath.isEmpty
-                            ? "\(FileManager.default.homeDirectoryForCurrentUser.path)/.local/bin/mlx_whisper"
-                            : appState.localWhisperPath,
-                        onSelect: { appState.localTranscriptionModel = model },
-                        onDeleted: {
-                            if appState.localTranscriptionModel == model {
-                                appState.localTranscriptionModel = .default
-                            }
-                        }
-                    )
+                ModelRowView(
+                    model: TranscriptionModel.find(id: "apple-speech"),
+                    isSelected: appState.localTranscriptionModel.isAppleSpeech,
+                    whisperBin: "",
+                    onSelect: { appState.localTranscriptionModel = .find(id: "apple-speech") },
+                    onDeleted: {}
+                )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Local Whisper")
+                        .font(.caption.weight(.semibold))
+                    Text("Private transcription on your Mac. Quill installs the native model it needs.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    NativeWhisperModelRowView()
+                    Button("Use Local Whisper") {
+                        appState.useLocalTranscription = true
+                        appState.localTranscriptionModel = .find(id: "mlx-community/whisper-large-v3-turbo")
+                        appState.useLegacyMlxWhisper = false
+                    }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
                 }
             }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("mlx_whisper Path (optional)")
-                    .font(.caption.weight(.semibold))
-                Text("Leave empty to use the default path (~/.local/bin/mlx_whisper).")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                TextField("~/.local/bin/mlx_whisper", text: $appState.localWhisperPath)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.body, design: .monospaced))
+            DisclosureGroup("Advanced Legacy mlx-whisper") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Use legacy mlx-whisper", isOn: $appState.useLegacyMlxWhisper)
+                    Text("Only enable this if you already manage mlx-whisper yourself.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextField("~/.local/bin/mlx_whisper", text: $appState.localWhisperPath)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
+                        .disabled(!appState.useLegacyMlxWhisper)
+                }
+                .padding(.top, 4)
             }
         }
     }
@@ -3590,6 +3601,131 @@ struct DonutProgressView: View {
                 .rotationEffect(.degrees(-90))
         }
         .frame(width: 18, height: 18)
+    }
+}
+
+struct NativeWhisperModelRowView: View {
+    let model: NativeWhisperModel
+    let store: NativeWhisperModelStore
+
+    @State private var installStatus: NativeWhisperInstallStatus = .notInstalled
+    @State private var isInstalling = false
+    @State private var progress = NativeWhisperDownloadProgress(downloadedBytes: 0, totalBytes: nil)
+    @State private var installTask: NativeWhisperInstallTask?
+    @State private var errorMessage: String?
+
+    init(
+        model: NativeWhisperModel = NativeWhisperModelCatalog.recommended,
+        store: NativeWhisperModelStore = NativeWhisperModelStore()
+    ) {
+        self.model = model
+        self.store = store
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.displayName)
+                        .font(.caption.weight(.semibold))
+                    Text("Fast local transcription. About \(ByteCountFormatter.string(fromByteCount: model.approximateBytes, countStyle: .file)).")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                actionView
+            }
+
+            if let errorMessage {
+                Label(errorMessage, systemImage: "xmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(8)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(6)
+        .onAppear { refreshInstallState() }
+    }
+
+    @ViewBuilder
+    private var actionView: some View {
+        if isInstalling {
+            HStack(spacing: 8) {
+                Text(progress.displayText)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Button("Cancel") { cancelInstall() }
+                    .font(.caption)
+                    .controlSize(.small)
+            }
+        } else if installStatus == .ready {
+            HStack(spacing: 8) {
+                Label("Ready", systemImage: "checkmark.circle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.green)
+                Button("Delete Model") { deleteModel() }
+                    .font(.caption)
+                    .controlSize(.small)
+            }
+        } else {
+            Button("Install Local Whisper") { installModel() }
+                .font(.caption)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        }
+    }
+
+    private func refreshInstallState() {
+        installStatus = store.installStatus(for: model)
+    }
+
+    private func installModel() {
+        errorMessage = nil
+        isInstalling = true
+        progress = NativeWhisperDownloadProgress(downloadedBytes: 0, totalBytes: model.approximateBytes)
+        let installer = NativeWhisperInstaller(store: store)
+        installTask = installer.install(
+            model: model,
+            progress: { progress in
+                DispatchQueue.main.async {
+                    self.progress = progress
+                }
+            },
+            completion: { result in
+                DispatchQueue.main.async {
+                    installTask = nil
+                    isInstalling = false
+                    refreshInstallState()
+                    if case .failure(let error) = result {
+                        errorMessage = error.localizedDescription
+                    }
+                }
+            }
+        )
+    }
+
+    private func cancelInstall() {
+        installTask?.cancel()
+        installTask = nil
+        isInstalling = false
+        progress = NativeWhisperDownloadProgress(
+            downloadedBytes: progress.downloadedBytes,
+            totalBytes: progress.totalBytes,
+            isCancelled: true
+        )
+        refreshInstallState()
+    }
+
+    private func deleteModel() {
+        do {
+            try store.deleteModel(model)
+            errorMessage = nil
+            refreshInstallState()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 
