@@ -362,6 +362,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let voiceMacrosStorageKey = "voice_macros"
     private let useLocalTranscriptionStorageKey = "use_local_transcription"
     private let localWhisperPathStorageKey = "local_whisper_path"
+    private let useLegacyMlxWhisperStorageKey = "use_legacy_mlx_whisper"
     private let disableContextCaptureStorageKey = "disable_context_capture"
     private let disableAutoPasteStorageKey = "disable_auto_paste"
     private let disablePostProcessingStorageKey = "disable_post_processing"
@@ -727,6 +728,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var localWhisperPath: String {
         didSet {
             UserDefaults.standard.set(localWhisperPath, forKey: localWhisperPathStorageKey)
+        }
+    }
+
+    @Published var useLegacyMlxWhisper: Bool {
+        didSet {
+            UserDefaults.standard.set(useLegacyMlxWhisper, forKey: useLegacyMlxWhisperStorageKey)
         }
     }
 
@@ -1323,6 +1330,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             : UserDefaults.standard.bool(forKey: pressEnterVoiceCommandStorageKey)
         let useLocalTranscription = UserDefaults.standard.bool(forKey: useLocalTranscriptionStorageKey)
         let localWhisperPath = UserDefaults.standard.string(forKey: localWhisperPathStorageKey) ?? ""
+        let useLegacyMlxWhisper = UserDefaults.standard.bool(forKey: useLegacyMlxWhisperStorageKey)
         let disableContextCapture = UserDefaults.standard.bool(forKey: disableContextCaptureStorageKey)
         let disableAutoPaste = UserDefaults.standard.bool(forKey: disableAutoPasteStorageKey)
         let disablePostProcessing = UserDefaults.standard.bool(forKey: disablePostProcessingStorageKey)
@@ -1437,6 +1445,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.alertSoundsEnabled = alertSoundsEnabled
         self.useLocalTranscription = useLocalTranscription
         self.localWhisperPath = localWhisperPath
+        self.useLegacyMlxWhisper = useLegacyMlxWhisper
         self.disableContextCapture = disableContextCapture
         self.disableAutoPaste = disableAutoPaste
         self.disablePostProcessing = disablePostProcessing
@@ -1953,6 +1962,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             baseURL: resolvedTranscriptionBaseURL,
             useLocalTranscription: useLocalTranscription,
             localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath,
+            useLegacyMlxWhisper: useLegacyMlxWhisper,
             transcriptionLanguage: transcriptionLanguage,
             localTranscriptionModel: localTranscriptionModel,
             transcriptionModel: transcriptionModel

@@ -6,6 +6,8 @@ struct AppStateTranscriptionConfigurationTests {
     static func main() async throws {
         try testMakeTranscriptionServiceUsesLocalConfiguration()
         try testMakeTranscriptionServiceMapsEmptyLocalWhisperPathToNil()
+        try testMakeTranscriptionServiceDefaultsLegacyMlxWhisperOff()
+        try testMakeTranscriptionServicePassesLegacyMlxWhisperToggle()
         testPermissionStatusUpdateSkipsUnchangedValues()
         testRecordingOverlayLayoutPersistsWithoutCompactOverlayBoolean()
         testRecordingCancelShortcutDefaultsToEscape()
@@ -82,6 +84,30 @@ struct AppStateTranscriptionConfigurationTests {
         let configuration = mirroredTranscriptionConfiguration(service)
 
         assert(configuration.localWhisperPath == nil)
+    }
+
+    private static func testMakeTranscriptionServiceDefaultsLegacyMlxWhisperOff() throws {
+        resetDefaults()
+        let appState = AppState()
+        appState.useLocalTranscription = true
+        appState.localTranscriptionModel = .find(id: "mlx-community/whisper-large-v3-turbo")
+
+        let service = try appState.makeTranscriptionService()
+        let configuration = mirroredTranscriptionConfiguration(service)
+
+        assert(configuration.useLegacyMlxWhisper == false)
+    }
+
+    private static func testMakeTranscriptionServicePassesLegacyMlxWhisperToggle() throws {
+        resetDefaults()
+        let appState = AppState()
+        appState.useLocalTranscription = true
+        appState.useLegacyMlxWhisper = true
+
+        let service = try appState.makeTranscriptionService()
+        let configuration = mirroredTranscriptionConfiguration(service)
+
+        assert(configuration.useLegacyMlxWhisper == true)
     }
 
     private static func testPermissionStatusUpdateSkipsUnchangedValues() {
@@ -890,6 +916,7 @@ struct AppStateTranscriptionConfigurationTests {
             defaults.removeObject(forKey: key)
         }
         defaults.removeObject(forKey: "use_local_transcription")
+        defaults.removeObject(forKey: "use_legacy_mlx_whisper")
         defaults.removeObject(forKey: "local_transcription_model")
         defaults.removeObject(forKey: "transcription_language")
         defaults.removeObject(forKey: "selected_microphone_id")
@@ -918,13 +945,15 @@ struct AppStateTranscriptionConfigurationTests {
         useLocalTranscription: Bool,
         localTranscriptionModelID: String,
         transcriptionLanguageCode: String,
-        localWhisperPath: String?
+        localWhisperPath: String?,
+        useLegacyMlxWhisper: Bool
     ) {
         let mirror = Mirror(reflecting: service)
         let useLocalTranscription = mirror.descendant("useLocalTranscription") as? Bool ?? false
         let localTranscriptionModel = mirror.descendant("localTranscriptionModel") as? TranscriptionModel ?? .default
         let transcriptionLanguage = mirror.descendant("transcriptionLanguage") as? TranscriptionLanguage ?? .auto
         let localWhisperPath = mirror.descendant("localWhisperPath") as? String
-        return (useLocalTranscription, localTranscriptionModel.id, transcriptionLanguage.code, localWhisperPath)
+        let useLegacyMlxWhisper = mirror.descendant("useLegacyMlxWhisper") as? Bool ?? false
+        return (useLocalTranscription, localTranscriptionModel.id, transcriptionLanguage.code, localWhisperPath, useLegacyMlxWhisper)
     }
 }
