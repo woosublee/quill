@@ -109,6 +109,7 @@ private struct AudioImportTaskConfiguration {
     let transcriptionAPIKey: String
     let transcriptionAPIBaseURL: String
     let localWhisperPath: String
+    let useLegacyMlxWhisper: Bool
     let transcriptionLanguage: TranscriptionLanguage
     let transcriptionModel: String
     let customVocabulary: String
@@ -127,6 +128,7 @@ private struct AudioImportTaskConfiguration {
         transcriptionAPIKey: String,
         transcriptionAPIBaseURL: String,
         localWhisperPath: String,
+        useLegacyMlxWhisper: Bool,
         transcriptionLanguage: TranscriptionLanguage,
         transcriptionModel: String,
         customVocabulary: String,
@@ -146,6 +148,7 @@ private struct AudioImportTaskConfiguration {
         self.transcriptionAPIKey = transcriptionAPIKey
         self.transcriptionAPIBaseURL = transcriptionAPIBaseURL
         self.localWhisperPath = localWhisperPath
+        self.useLegacyMlxWhisper = useLegacyMlxWhisper
         self.transcriptionLanguage = transcriptionLanguage
         self.transcriptionModel = transcriptionModel
         self.customVocabulary = customVocabulary
@@ -180,6 +183,7 @@ private struct AudioImportTaskConfiguration {
             baseURL: transcriptionAPIBaseURL,
             useLocalTranscription: useLocalTranscription,
             localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath,
+            useLegacyMlxWhisper: useLegacyMlxWhisper,
             transcriptionLanguage: transcriptionLanguage,
             localTranscriptionModel: localTranscriptionModel,
             transcriptionModel: transcriptionModel
@@ -200,6 +204,7 @@ private struct RetrySnapshot {
     let outputLanguage: String
     let postProcessingEnabled: Bool
     let localWhisperPath: String?
+    let useLegacyMlxWhisper: Bool
 }
 
 private struct TranscriptCommandParsingResult {
@@ -2558,6 +2563,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             transcriptionAPIKey: resolvedTranscriptionAPIKey,
             transcriptionAPIBaseURL: resolvedTranscriptionBaseURL,
             localWhisperPath: localWhisperPath,
+            useLegacyMlxWhisper: useLegacyMlxWhisper,
             transcriptionLanguage: transcriptionLanguage,
             transcriptionModel: transcriptionModel,
             customVocabulary: customVocabulary,
@@ -2762,6 +2768,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     baseURL: resolvedTranscriptionBaseURL,
                     useLocalTranscription: snapshot.useLocalTranscription,
                     localWhisperPath: snapshot.localWhisperPath,
+                    useLegacyMlxWhisper: snapshot.useLegacyMlxWhisper,
                     transcriptionLanguage: snapshot.transcriptionLanguage,
                     localTranscriptionModel: snapshot.localTranscriptionModel,
                     transcriptionModel: transcriptionModel
@@ -2875,7 +2882,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             customSystemPrompt: item.customSystemPrompt,
             outputLanguage: outputLanguage,
             postProcessingEnabled: item.usedPostProcessing,
-            localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath
+            localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath,
+            useLegacyMlxWhisper: useLegacyMlxWhisper
         )
     }
 
@@ -5065,6 +5073,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let capturedApiBaseURL = resolvedTranscriptionBaseURL
         let capturedUseLocalTranscription = useLocalTranscription
         let capturedLocalWhisperPath = localWhisperPath
+        let capturedUseLegacyMlxWhisper = useLegacyMlxWhisper
         let capturedTranscriptionLanguage = transcriptionLanguage
         let capturedLocalTranscriptionModel = localTranscriptionModel
         let capturedTranscriptionModel = transcriptionModel
@@ -5254,6 +5263,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             baseURL: capturedApiBaseURL,
                             useLocalTranscription: capturedUseLocalTranscription,
                             localWhisperPath: capturedLocalWhisperPath.isEmpty ? nil : capturedLocalWhisperPath,
+                            useLegacyMlxWhisper: capturedUseLegacyMlxWhisper,
                             transcriptionLanguage: capturedTranscriptionLanguage,
                             localTranscriptionModel: capturedLocalTranscriptionModel,
                             transcriptionModel: capturedTranscriptionModel

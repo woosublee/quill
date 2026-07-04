@@ -28,6 +28,7 @@ struct AppStateTranscriptionConfigurationTests {
         testStoppedTranscriptionCompletionSummaryShowsFallbackIndicatorForNonEmptyRawFallback()
         testStoppedTranscriptionCompletionSummaryHidesFallbackIndicatorForEmptyRawFallback()
         testStoppedTranscriptionSettingsSnapshotCapturesHistoryMetadata()
+        try testAppStateCreatedTranscriptionServicesPassLegacyMlxWhisperToggle()
         try testNoteBrowserTranscriptionMenuUsesFlatNativeCheckedItems()
         await testAPITranscriptionModesRequireResolvedAPIKey()
         await testTranscriptionAPIKeyEnablesAPIModesWithoutGlobalAPIKey()
@@ -426,6 +427,35 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(summary.finalTranscript.isEmpty)
         precondition(summary.shouldPressEnterAfterPaste)
         precondition(!summary.shouldPersistRawDictationFallback)
+    }
+
+    private static func testAppStateCreatedTranscriptionServicesPassLegacyMlxWhisperToggle() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let importBody = sourceBlock(
+            in: source,
+            from: "func importAudioFile(_ fileURL: URL, mode: NoteBrowserTranscriptionMode)",
+            to: "\n    @MainActor\n    func retryTranscription"
+        )
+        let retryBody = sourceBlock(
+            in: source,
+            from: "func retryTranscription(item: PipelineHistoryItem)",
+            to: "\n    @MainActor\n    private func copyRetryTranscriptToPasteboardIfNeeded"
+        )
+        let stoppedRecordingBody = sourceBlock(
+            in: source,
+            from: "let capturedUseLocalTranscription = useLocalTranscription",
+            to: "\n    @MainActor\n    private func updateTranscribingOverlay"
+        )
+
+        precondition(source.contains("let useLegacyMlxWhisper: Bool"))
+        precondition(source.contains("useLegacyMlxWhisper: useLegacyMlxWhisper,"))
+        precondition(importBody.contains("useLegacyMlxWhisper: useLegacyMlxWhisper,"))
+        precondition(importBody.contains("let transcriptionService = try configuration.makeTranscriptionService()"))
+        precondition(source.contains("let useLegacyMlxWhisper: Bool"))
+        precondition(retryBody.contains("useLegacyMlxWhisper: snapshot.useLegacyMlxWhisper,"))
+        precondition(retryBody.contains("useLegacyMlxWhisper: useLegacyMlxWhisper"))
+        precondition(stoppedRecordingBody.contains("let capturedUseLegacyMlxWhisper = useLegacyMlxWhisper"))
+        precondition(stoppedRecordingBody.contains("useLegacyMlxWhisper: capturedUseLegacyMlxWhisper,"))
     }
 
     private static func testNoteBrowserTranscriptionMenuUsesFlatNativeCheckedItems() throws {
@@ -939,6 +969,14 @@ struct AppStateTranscriptionConfigurationTests {
         defaults.removeObject(forKey: "calendar_recording_reminder_lead_minutes_list")
         defaults.removeObject(forKey: "calendar_recording_reminder_refresh_interval_minutes")
         defaults.removeObject(forKey: GoogleCalendarConnectionMetadata.storageKey)
+    }
+
+    private static func sourceBlock(in source: String, from startMarker: String, to endMarker: String) -> String {
+        guard let start = source.range(of: startMarker),
+              let end = source.range(of: endMarker, range: start.upperBound..<source.endIndex) else {
+            preconditionFailure("Expected source block from \(startMarker) to \(endMarker)")
+        }
+        return String(source[start.lowerBound..<end.lowerBound])
     }
 
     private static func mirroredTranscriptionConfiguration(_ service: TranscriptionService) -> (
