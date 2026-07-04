@@ -6,6 +6,9 @@ struct NativeWhisperInstallerTests {
         try testSuccessfulInstallMovesPartialFileToFinalPath()
         try testFailedDownloadKeepsFailureMessageAndRemovesPartial()
         try testCancelPreventsReadyInstall()
+        try testProgressCanBeReportedBeforeDownloadCompletes()
+        try testCancelInvokesDownloaderCancellationHandler()
+        try testMoveFailurePreservesExistingFinalModel()
         print("NativeWhisperInstallerTests passed")
     }
 
@@ -16,8 +19,8 @@ struct NativeWhisperInstallerTests {
         let model = NativeWhisperModelCatalog.recommended
         var progressValues: [NativeWhisperDownloadProgress] = []
         let completion = CompletionWaiter<Void, NativeWhisperInstallerError>()
-        let installer = NativeWhisperInstaller(store: store) { _, destination, progress, shouldCancel in
-            assert(!shouldCancel())
+        let installer = NativeWhisperInstaller(store: store) { _, destination, progress, task in
+            assert(!task.isCancelled)
             try Data(repeating: 3, count: 12).write(to: destination)
             progress(NativeWhisperDownloadProgress(downloadedBytes: 12, totalBytes: 12))
         }
@@ -58,11 +61,11 @@ struct NativeWhisperInstallerTests {
         let completion = CompletionWaiter<Void, NativeWhisperInstallerError>()
         let started = DispatchSemaphore(value: 0)
         let allowCancelCheck = DispatchSemaphore(value: 0)
-        let installer = NativeWhisperInstaller(store: store) { _, destination, _, shouldCancel in
+        let installer = NativeWhisperInstaller(store: store) { _, destination, _, task in
             started.signal()
             _ = allowCancelCheck.wait(timeout: .now() + 2)
             try Data([1, 2, 3]).write(to: destination)
-            if shouldCancel() { throw NativeWhisperInstallerError.cancelled }
+            if task.isCancelled { throw NativeWhisperInstallerError.cancelled }
         }
         let task = installer.install(model: model, progress: { _ in }) { completion.complete($0) }
         _ = started.wait(timeout: .now() + 2)
@@ -74,6 +77,96 @@ struct NativeWhisperInstallerTests {
         assert(task.isCancelled)
         assertResultFailed(result, .cancelled)
         assert(store.installStatus(for: model) != .ready)
+    }
+
+    private static func testProgressCanBeReportedBeforeDownloadCompletes() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = NativeWhisperModelStore(rootDirectory: root)
+        let model = NativeWhisperModelCatalog.recommended
+        var progressValues: [NativeWhisperDownloadProgress] = []
+        let completion = CompletionWaiter<Void, NativeWhisperInstallerError>()
+        let firstChunkWritten = DispatchSemaphore(value: 0)
+        let finishDownload = DispatchSemaphore(value: 0)
+        let installer = NativeWhisperInstaller(store: store) { _, destination, progress, _ in
+            try Data([1, 2, 3]).write(to: destination)
+            progress(NativeWhisperDownloadProgress(downloadedBytes: 3, totalBytes: 6))
+            firstChunkWritten.signal()
+            _ = finishDownload.wait(timeout: .now() + 2)
+            try Data([1, 2, 3, 4, 5, 6]).write(to: destination)
+            progress(NativeWhisperDownloadProgress(downloadedBytes: 6, totalBytes: 6))
+        }
+
+        _ = installer.install(model: model, progress: { progressValues.append($0) }) { completion.complete($0) }
+        guard firstChunkWritten.wait(timeout: .now() + 2) == .success else {
+            throw TestFailure(message: "Timed out waiting for early progress")
+        }
+
+        assert(progressValues == [NativeWhisperDownloadProgress(downloadedBytes: 3, totalBytes: 6)])
+        finishDownload.signal()
+        assertResultSucceeded(try completion.wait())
+        assert(progressValues.last == NativeWhisperDownloadProgress(downloadedBytes: 6, totalBytes: 6))
+    }
+
+    private static func testCancelInvokesDownloaderCancellationHandler() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = NativeWhisperModelStore(rootDirectory: root)
+        let model = NativeWhisperModelCatalog.recommended
+        let completion = CompletionWaiter<Void, NativeWhisperInstallerError>()
+        let handlerInstalled = DispatchSemaphore(value: 0)
+        let cancellationForwarded = DispatchSemaphore(value: 0)
+        let installer = NativeWhisperInstaller(store: store) { _, destination, _, task in
+            try Data([1, 2, 3]).write(to: destination)
+            task.setCancellationHandler {
+                cancellationForwarded.signal()
+            }
+            handlerInstalled.signal()
+            guard cancellationForwarded.wait(timeout: .now() + 2) == .success else {
+                throw NativeWhisperInstallerError.downloadFailed("cancel handler was not called")
+            }
+            throw NativeWhisperInstallerError.cancelled
+        }
+
+        let task = installer.install(model: model, progress: { _ in }) { completion.complete($0) }
+        guard handlerInstalled.wait(timeout: .now() + 2) == .success else {
+            throw TestFailure(message: "Timed out waiting for cancellation handler installation")
+        }
+        task.cancel()
+
+        assertResultFailed(try completion.wait(), .cancelled)
+        assert(!FileManager.default.fileExists(atPath: store.partialModelURL(for: model).path))
+    }
+
+    private static func testMoveFailurePreservesExistingFinalModel() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = NativeWhisperModelStore(rootDirectory: root)
+        let model = NativeWhisperModelCatalog.recommended
+        let completion = CompletionWaiter<Void, NativeWhisperInstallerError>()
+        try store.ensureModelsDirectoryExists()
+        let final = store.modelURL(for: model)
+        try Data([8, 8, 8]).write(to: final)
+        let partialDirectory = store.partialModelURL(for: model)
+        let installer = NativeWhisperInstaller(store: store) { _, destination, _, _ in
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try Data([1]).write(to: destination.appendingPathComponent("invalid-replacement"))
+        }
+
+        _ = installer.install(model: model, progress: { _ in }) { completion.complete($0) }
+        let result = try completion.wait()
+
+        switch result {
+        case .success:
+            assertionFailure("Expected move failure, got success")
+        case .failure(.moveFailed):
+            break
+        case .failure(let error):
+            assertionFailure("Expected move failure, got \(error)")
+        }
+        let preservedData = try Data(contentsOf: final)
+        assert(preservedData == Data([8, 8, 8]))
+        assert(!FileManager.default.fileExists(atPath: partialDirectory.path))
     }
 
     private static func assertResultSucceeded(_ result: Result<Void, NativeWhisperInstallerError>) {
@@ -125,6 +218,12 @@ private struct TestFailure: Error, CustomStringConvertible {
     let message: String
     let file: StaticString
     let line: UInt
+
+    init(message: String, file: StaticString = #filePath, line: UInt = #line) {
+        self.message = message
+        self.file = file
+        self.line = line
+    }
 
     var description: String { "\(file):\(line): \(message)" }
 }

@@ -26,6 +26,7 @@ enum NativeWhisperInstallerError: LocalizedError, Equatable {
 final class NativeWhisperInstallTask {
     private let lock = NSLock()
     private var cancelled = false
+    private var cancellationHandler: (() -> Void)?
 
     var isCancelled: Bool {
         lock.lock()
@@ -34,9 +35,23 @@ final class NativeWhisperInstallTask {
     }
 
     func cancel() {
+        let handler: (() -> Void)?
         lock.lock()
         cancelled = true
+        handler = cancellationHandler
         lock.unlock()
+        handler?()
+    }
+
+    func setCancellationHandler(_ handler: (() -> Void)?) {
+        let shouldCancelImmediately: Bool
+        lock.lock()
+        cancellationHandler = handler
+        shouldCancelImmediately = cancelled && handler != nil
+        lock.unlock()
+        if shouldCancelImmediately {
+            handler?()
+        }
     }
 }
 
@@ -45,7 +60,7 @@ struct NativeWhisperInstaller {
         _ source: URL,
         _ destination: URL,
         _ progress: @escaping (NativeWhisperDownloadProgress) -> Void,
-        _ shouldCancel: @escaping () -> Bool
+        _ task: NativeWhisperInstallTask
     ) throws -> Void
 
     let store: NativeWhisperModelStore
@@ -86,7 +101,8 @@ struct NativeWhisperInstaller {
             try store.ensureModelsDirectoryExists()
             let final = store.modelURL(for: model)
             try? store.fileManager.removeItem(at: partial)
-            try download(model.downloadURL, partial, progress, { task.isCancelled })
+            try download(model.downloadURL, partial, progress, task)
+            task.setCancellationHandler(nil)
             guard !task.isCancelled else {
                 try? store.fileManager.removeItem(at: partial)
                 return .failure(.cancelled)
@@ -94,9 +110,16 @@ struct NativeWhisperInstaller {
             guard store.fileManager.fileExists(atPath: partial.path) else {
                 return .failure(.downloadFailed("Download produced no file."))
             }
-            try? store.fileManager.removeItem(at: final)
+            guard isRegularFile(at: partial) else {
+                try? store.fileManager.removeItem(at: partial)
+                return .failure(.moveFailed("Downloaded model is not a file."))
+            }
             do {
-                try store.fileManager.moveItem(at: partial, to: final)
+                if store.fileManager.fileExists(atPath: final.path) {
+                    _ = try store.fileManager.replaceItemAt(final, withItemAt: partial)
+                } else {
+                    try store.fileManager.moveItem(at: partial, to: final)
+                }
             } catch {
                 try? store.fileManager.removeItem(at: partial)
                 return .failure(.moveFailed(error.localizedDescription))
@@ -111,43 +134,118 @@ struct NativeWhisperInstaller {
         }
     }
 
+    private func isRegularFile(at url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
+    }
+
     private static func urlSessionDownload(
         source: URL,
         destination: URL,
         progress: @escaping (NativeWhisperDownloadProgress) -> Void,
-        shouldCancel: @escaping () -> Bool
+        task installTask: NativeWhisperInstallTask
     ) throws {
-        let semaphore = DispatchSemaphore(value: 0)
-        var result: Result<Void, Error> = .failure(NativeWhisperInstallerError.downloadFailed("Download did not start."))
-        let task = URLSession.shared.downloadTask(with: source) { temporaryURL, response, error in
-            defer { semaphore.signal() }
-            if let error {
-                result = .failure(NativeWhisperInstallerError.downloadFailed(error.localizedDescription))
-                return
-            }
-            guard let temporaryURL else {
-                result = .failure(NativeWhisperInstallerError.downloadFailed("No downloaded file was produced."))
-                return
-            }
-            do {
-                let total = response?.expectedContentLength ?? -1
-                let data = try Data(contentsOf: temporaryURL)
-                if shouldCancel() {
-                    result = .failure(NativeWhisperInstallerError.cancelled)
-                    return
-                }
-                try data.write(to: destination, options: .atomic)
-                progress(NativeWhisperDownloadProgress(
-                    downloadedBytes: Int64(data.count),
-                    totalBytes: total > 0 ? total : Int64(data.count)
-                ))
-                result = .success(())
-            } catch {
-                result = .failure(NativeWhisperInstallerError.downloadFailed(error.localizedDescription))
-            }
+        let downloader = URLSessionStreamingDownloader(
+            destination: destination,
+            progress: progress,
+            installTask: installTask
+        )
+        try downloader.download(from: source)
+    }
+}
+
+private final class URLSessionStreamingDownloader: NSObject, URLSessionDataDelegate {
+    private let destination: URL
+    private let progress: (NativeWhisperDownloadProgress) -> Void
+    private let installTask: NativeWhisperInstallTask
+    private let semaphore = DispatchSemaphore(value: 0)
+    private var fileHandle: FileHandle?
+    private var session: URLSession?
+    private var downloadedBytes: Int64 = 0
+    private var totalBytes: Int64?
+    private var result: Result<Void, Error> = .failure(NativeWhisperInstallerError.downloadFailed("Download did not start."))
+
+    init(
+        destination: URL,
+        progress: @escaping (NativeWhisperDownloadProgress) -> Void,
+        installTask: NativeWhisperInstallTask
+    ) {
+        self.destination = destination
+        self.progress = progress
+        self.installTask = installTask
+    }
+
+    func download(from source: URL) throws {
+        try Data().write(to: destination)
+        fileHandle = try FileHandle(forWritingTo: destination)
+
+        let configuration = URLSessionConfiguration.default
+        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        self.session = session
+        let urlSessionTask = session.dataTask(with: source)
+        installTask.setCancellationHandler { [weak urlSessionTask] in
+            urlSessionTask?.cancel()
         }
-        task.resume()
+
+        if installTask.isCancelled {
+            urlSessionTask.cancel()
+        } else {
+            urlSessionTask.resume()
+        }
+
         semaphore.wait()
+        installTask.setCancellationHandler(nil)
+        try fileHandle?.close()
+        fileHandle = nil
+        session.invalidateAndCancel()
         try result.get()
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive response: URLResponse,
+        completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
+    ) {
+        let expected = response.expectedContentLength
+        totalBytes = expected > 0 ? expected : nil
+        progress(NativeWhisperDownloadProgress(downloadedBytes: downloadedBytes, totalBytes: totalBytes))
+        completionHandler(.allow)
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        if installTask.isCancelled {
+            dataTask.cancel()
+            return
+        }
+
+        do {
+            try fileHandle?.write(contentsOf: data)
+            downloadedBytes += Int64(data.count)
+            progress(NativeWhisperDownloadProgress(downloadedBytes: downloadedBytes, totalBytes: totalBytes))
+        } catch {
+            result = .failure(NativeWhisperInstallerError.downloadFailed(error.localizedDescription))
+            dataTask.cancel()
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        defer { semaphore.signal() }
+
+        if installTask.isCancelled {
+            result = .failure(NativeWhisperInstallerError.cancelled)
+            progress(NativeWhisperDownloadProgress(
+                downloadedBytes: downloadedBytes,
+                totalBytes: totalBytes,
+                isCancelled: true
+            ))
+            return
+        }
+
+        if let error {
+            result = .failure(NativeWhisperInstallerError.downloadFailed(error.localizedDescription))
+            return
+        }
+
+        result = .success(())
     }
 }
