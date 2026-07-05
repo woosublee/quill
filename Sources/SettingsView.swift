@@ -3644,6 +3644,7 @@ struct NativeWhisperModelRowView: View {
 
     @State private var showDeleteConfirmation = false
     @State private var isHoveringDownloadProgress = false
+    @FocusState private var isCancelDownloadFocused: Bool
 
     init(
         model: NativeWhisperModel = NativeWhisperModelCatalog.recommended,
@@ -3758,11 +3759,11 @@ struct NativeWhisperModelRowView: View {
             ZStack {
                 if let fractionCompleted = appState.nativeWhisperInstallProgress.fractionCompleted {
                     DonutProgressView(fractionCompleted: fractionCompleted)
-                        .opacity(isHoveringDownloadProgress ? 0.25 : 1)
+                        .opacity((isHoveringDownloadProgress || isCancelDownloadFocused) ? 0.25 : 1)
                 } else {
                     ProgressView()
                         .controlSize(.small)
-                        .opacity(isHoveringDownloadProgress ? 0.25 : 1)
+                        .opacity((isHoveringDownloadProgress || isCancelDownloadFocused) ? 0.25 : 1)
                 }
                 Button {
                     appState.cancelNativeWhisperInstall()
@@ -3772,7 +3773,8 @@ struct NativeWhisperModelRowView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .opacity(isHoveringDownloadProgress ? 1 : 0.001)
+                .focused($isCancelDownloadFocused)
+                .opacity((isHoveringDownloadProgress || isCancelDownloadFocused) ? 1 : 0.001)
                 .accessibilityLabel("Cancel Local Whisper download")
             }
             .frame(width: 24, height: 24)
