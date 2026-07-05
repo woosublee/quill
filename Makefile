@@ -28,6 +28,7 @@ WHISPER_CPP_REPO ?= https://github.com/ggml-org/whisper.cpp.git
 WHISPER_CPP_DIR = .build/checkouts/whisper.cpp
 WHISPER_HELPER = $(WHISPER_CPP_DIR)/build/bin/whisper-cli
 WHISPER_STAMP = $(BUILD_DIR)/.whisper-helper
+WHISPER_BUILD_SETTINGS = $(BUILD_DIR)/.whisper-build-settings
 empty :=
 space := $(empty) $(empty)
 APP_EXECUTABLE = $(MACOS_DIR)/$(APP_NAME)
@@ -68,8 +69,13 @@ $(SPARKLE_STAMP): Package.swift BuildSupport/SparkleResolver/main.swift
 		fi; \
 		printf '%s\n' "$$framework" > "$@"
 
-$(WHISPER_STAMP): BuildSupport/WhisperRuntime/build-whisper.cpp.sh
-	@BuildSupport/WhisperRuntime/build-whisper.cpp.sh "$(WHISPER_CPP_REPO)" "$(WHISPER_CPP_VERSION)" "$(WHISPER_CPP_DIR)"
+$(WHISPER_BUILD_SETTINGS): FORCE
+	@mkdir -p "$(BUILD_DIR)"
+	@printf '%s\n%s\n%s\n' "$(WHISPER_CPP_REPO)" "$(WHISPER_CPP_VERSION)" "$(ARCH)" > "$@.tmp"
+	@if [ ! -f "$@" ] || ! cmp -s "$@.tmp" "$@"; then mv "$@.tmp" "$@"; else rm "$@.tmp"; fi
+
+$(WHISPER_STAMP): BuildSupport/WhisperRuntime/build-whisper.cpp.sh $(WHISPER_BUILD_SETTINGS)
+	@BuildSupport/WhisperRuntime/build-whisper.cpp.sh "$(WHISPER_CPP_REPO)" "$(WHISPER_CPP_VERSION)" "$(WHISPER_CPP_DIR)" "$(ARCH)"
 	@mkdir -p "$(BUILD_DIR)"
 	@printf '%s\n' "$(WHISPER_HELPER)" > "$@"
 

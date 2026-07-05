@@ -816,11 +816,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     var hasInstalledLocalWhisperModel: Bool {
+        if useLegacyMlxWhisper {
+            return hasLegacyLocalWhisperModel
+        }
+        return NativeWhisperModelStore().installStatus(for: .recommended) == .ready
+    }
+
+    var hasLegacyLocalWhisperModel: Bool {
         TranscriptionModel.all.contains { !$0.isAppleSpeech && $0.isInstalled }
     }
 
     @MainActor
-    func audioImportConfiguration(for mode: NoteBrowserTranscriptionMode) -> AudioImportTranscriptionConfiguration {
+    func audioImportConfiguration(
+        for mode: NoteBrowserTranscriptionMode,
+        allowsNativeWhisper: Bool = false
+    ) -> AudioImportTranscriptionConfiguration {
         switch mode {
         case .apiStandard, .apiRealtime:
             return AudioImportTranscriptionConfiguration(
@@ -829,6 +839,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 localTranscriptionModel: localTranscriptionModel
             )
         case .localWhisper, .localAppleLive:
+            guard allowsNativeWhisper || useLegacyMlxWhisper else {
+                return AudioImportTranscriptionConfiguration(
+                    mode: .apiStandard,
+                    useLocalTranscription: false,
+                    localTranscriptionModel: localTranscriptionModel
+                )
+            }
             let model = localTranscriptionModel.isAppleSpeech
                 ? TranscriptionModel.all.first(where: { !$0.isAppleSpeech }) ?? localTranscriptionModel
                 : localTranscriptionModel
@@ -2857,7 +2874,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard let retryMode = options.defaultMode else {
             throw TranscriptionError.submissionFailed("No transcription method is available. Configure an API key or install a Local Whisper model, then try again.")
         }
-        let configuration = audioImportConfiguration(for: retryMode)
+        let configuration = audioImportConfiguration(for: retryMode, allowsNativeWhisper: true)
 
         return RetrySnapshot(
             item: item,

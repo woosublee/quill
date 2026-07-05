@@ -1510,6 +1510,7 @@ struct ModelsSettingsView: View {
     @State private var keyValidationSuccess = false
     @State private var customVocabularyInput: String = ""
     @State private var advancedProviderSettingsExpanded = false
+    @State private var nativeWhisperInstallStatus: NativeWhisperInstallStatus = NativeWhisperModelStore().installStatus(for: .recommended)
 
     @State private var customSystemPromptInput: String = ""
     @State private var customContextPromptInput: String = ""
@@ -1636,7 +1637,7 @@ struct ModelsSettingsView: View {
                     Text("Private transcription on your Mac. Quill installs the native model it needs.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    NativeWhisperModelRowView()
+                    NativeWhisperModelRowView(onStatusChanged: { nativeWhisperInstallStatus = $0 })
                     Button("Use Local Whisper") {
                         appState.useLocalTranscription = true
                         appState.localTranscriptionModel = .find(id: "mlx-community/whisper-large-v3-turbo")
@@ -1644,6 +1645,8 @@ struct ModelsSettingsView: View {
                     }
                     .font(.caption)
                     .buttonStyle(.bordered)
+                    .disabled(nativeWhisperInstallStatus != .ready)
+                    .help(nativeWhisperInstallStatus == .ready ? "Use the built-in native Local Whisper runtime." : "Install Local Whisper before selecting it.")
                 }
             }
 
@@ -3607,6 +3610,7 @@ struct DonutProgressView: View {
 struct NativeWhisperModelRowView: View {
     let model: NativeWhisperModel
     let store: NativeWhisperModelStore
+    let onStatusChanged: (NativeWhisperInstallStatus) -> Void
 
     @State private var installStatus: NativeWhisperInstallStatus = .notInstalled
     @State private var isInstalling = false
@@ -3616,10 +3620,12 @@ struct NativeWhisperModelRowView: View {
 
     init(
         model: NativeWhisperModel = NativeWhisperModelCatalog.recommended,
-        store: NativeWhisperModelStore = NativeWhisperModelStore()
+        store: NativeWhisperModelStore = NativeWhisperModelStore(),
+        onStatusChanged: @escaping (NativeWhisperInstallStatus) -> Void = { _ in }
     ) {
         self.model = model
         self.store = store
+        self.onStatusChanged = onStatusChanged
     }
 
     var body: some View {
@@ -3679,6 +3685,7 @@ struct NativeWhisperModelRowView: View {
 
     private func refreshInstallState() {
         installStatus = store.installStatus(for: model)
+        onStatusChanged(installStatus)
     }
 
     private func installModel() {

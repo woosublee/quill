@@ -689,7 +689,7 @@ struct NoteBrowserView: View {
                 fileURL: url,
                 currentMode: appState.currentNoteBrowserTranscriptionMode,
                 hasAPIKey: appState.hasTranscriptionAPIKey,
-                hasLocalWhisperModel: appState.hasInstalledLocalWhisperModel
+                hasLocalWhisperModel: appState.useLegacyMlxWhisper && appState.hasLegacyLocalWhisperModel
             )
         }
     }

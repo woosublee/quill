@@ -50,7 +50,7 @@ struct NativeWhisperRuntime {
     }
 
     func transcribe(audioURL: URL, modelURL: URL, languageCode: String?) async throws -> String {
-        try await Task.detached(priority: .userInitiated) {
+        let worker = Task.detached(priority: .userInitiated) {
             guard fileManager.isExecutableFile(atPath: runnerURL.path) else {
                 throw NativeWhisperRuntimeError.runnerNotFound(runnerURL.path)
             }
@@ -91,6 +91,7 @@ struct NativeWhisperRuntime {
             process.standardOutput = stdout
             process.standardError = stderr
 
+            let processLock = NSLock()
             try process.run()
             let stdoutReader = Task.detached {
                 String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
@@ -98,7 +99,15 @@ struct NativeWhisperRuntime {
             let stderrReader = Task.detached {
                 String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             }
-            process.waitUntilExit()
+            await withTaskCancellationHandler {
+                process.waitUntilExit()
+            } onCancel: {
+                processLock.lock()
+                if process.isRunning {
+                    process.terminate()
+                }
+                processLock.unlock()
+            }
             try Task.checkCancellation()
 
             let stdoutText = await stdoutReader.value
@@ -116,7 +125,12 @@ struct NativeWhisperRuntime {
                 return stdoutTranscript
             }
             throw NativeWhisperRuntimeError.noTranscript(output: combinedOutput)
-        }.value
+        }
+        return try await withTaskCancellationHandler {
+            try await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
     }
 
     private func fileSize(at url: URL) -> Int64 {

@@ -7,6 +7,7 @@ struct NativeWhisperModelTests {
         try testStoreUsesQuillOwnedDirectory()
         try testMissingModelReportsNotInstalled()
         try testCompleteModelReportsReadyWithoutChecksum()
+        try testSmallCompleteModelReportsCorrupt()
         try testPartialModelReportsPartial()
         try testDeleteRemovesOnlySelectedNativeModel()
         try testDeleteMissingModelSucceeds()
@@ -47,11 +48,26 @@ struct NativeWhisperModelTests {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let store = NativeWhisperModelStore(rootDirectory: root)
-        let model = NativeWhisperModelCatalog.recommended
+        let model = testModel(approximateBytes: 16)
         try FileManager.default.createDirectory(at: store.modelsDirectory, withIntermediateDirectories: true)
         FileManager.default.createFile(atPath: store.modelURL(for: model).path, contents: Data(repeating: 7, count: 16))
 
         assert(store.installStatus(for: model) == .ready)
+    }
+
+    private static func testSmallCompleteModelReportsCorrupt() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = NativeWhisperModelStore(rootDirectory: root)
+        let model = NativeWhisperModelCatalog.recommended
+        try FileManager.default.createDirectory(at: store.modelsDirectory, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: store.modelURL(for: model).path, contents: Data(repeating: 7, count: 16))
+
+        if case .corrupt(let message) = store.installStatus(for: model) {
+            assert(message.contains("too small"))
+        } else {
+            assertionFailure("Expected tiny recommended model file to be corrupt")
+        }
     }
 
     private static func testPartialModelReportsPartial() throws {
@@ -103,6 +119,18 @@ struct NativeWhisperModelTests {
         assert(NativeWhisperDownloadProgress(downloadedBytes: 0, totalBytes: 100).displayText == "Starting...")
         assert(NativeWhisperDownloadProgress(downloadedBytes: 50, totalBytes: 100).displayText == "50% · 50 bytes")
         assert(NativeWhisperDownloadProgress(downloadedBytes: 100, totalBytes: 100, isCancelled: true).displayText == "Canceled")
+    }
+
+    private static func testModel(approximateBytes: Int64) -> NativeWhisperModel {
+        NativeWhisperModel(
+            id: "test-model-\(approximateBytes)",
+            displayName: "Test Model",
+            description: "Small test model",
+            downloadURL: URL(string: "https://example.com/test-model.bin")!,
+            expectedFileName: "test-model-\(approximateBytes).bin",
+            approximateBytes: approximateBytes,
+            checksumSHA256: nil
+        )
     }
 
     private static func temporaryRoot() -> URL {

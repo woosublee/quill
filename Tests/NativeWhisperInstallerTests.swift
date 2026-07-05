@@ -8,7 +8,7 @@ struct NativeWhisperInstallerTests {
         try testCancelPreventsReadyInstall()
         try testProgressCanBeReportedBeforeDownloadCompletes()
         try testCancelInvokesDownloaderCancellationHandler()
-        try testMoveFailurePreservesExistingFinalModel()
+        try testInvalidDownloadedModelPreservesExistingFinalModel()
         print("NativeWhisperInstallerTests passed")
     }
 
@@ -16,7 +16,7 @@ struct NativeWhisperInstallerTests {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let store = NativeWhisperModelStore(rootDirectory: root)
-        let model = NativeWhisperModelCatalog.recommended
+        let model = testModel(approximateBytes: 12)
         var progressValues: [NativeWhisperDownloadProgress] = []
         let completion = CompletionWaiter<Void, NativeWhisperInstallerError>()
         let installer = NativeWhisperInstaller(store: store) { _, destination, progress, task in
@@ -83,7 +83,7 @@ struct NativeWhisperInstallerTests {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let store = NativeWhisperModelStore(rootDirectory: root)
-        let model = NativeWhisperModelCatalog.recommended
+        let model = testModel(approximateBytes: 6)
         var progressValues: [NativeWhisperDownloadProgress] = []
         let completion = CompletionWaiter<Void, NativeWhisperInstallerError>()
         let firstChunkWritten = DispatchSemaphore(value: 0)
@@ -138,7 +138,7 @@ struct NativeWhisperInstallerTests {
         assert(!FileManager.default.fileExists(atPath: store.partialModelURL(for: model).path))
     }
 
-    private static func testMoveFailurePreservesExistingFinalModel() throws {
+    private static func testInvalidDownloadedModelPreservesExistingFinalModel() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let store = NativeWhisperModelStore(rootDirectory: root)
@@ -158,15 +158,27 @@ struct NativeWhisperInstallerTests {
 
         switch result {
         case .success:
-            assertionFailure("Expected move failure, got success")
-        case .failure(.moveFailed):
+            assertionFailure("Expected verification failure, got success")
+        case .failure(.verificationFailed):
             break
         case .failure(let error):
-            assertionFailure("Expected move failure, got \(error)")
+            assertionFailure("Expected verification failure, got \(error)")
         }
         let preservedData = try Data(contentsOf: final)
         assert(preservedData == Data([8, 8, 8]))
         assert(!FileManager.default.fileExists(atPath: partialDirectory.path))
+    }
+
+    private static func testModel(approximateBytes: Int64) -> NativeWhisperModel {
+        NativeWhisperModel(
+            id: "test-model-\(approximateBytes)",
+            displayName: "Test Model",
+            description: "Small test model",
+            downloadURL: URL(string: "https://example.com/test-model.bin")!,
+            expectedFileName: "test-model-\(approximateBytes).bin",
+            approximateBytes: approximateBytes,
+            checksumSHA256: nil
+        )
     }
 
     private static func assertResultSucceeded(_ result: Result<Void, NativeWhisperInstallerError>) {

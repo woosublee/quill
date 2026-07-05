@@ -9,6 +9,7 @@ struct NativeWhisperRuntimeTests {
         try await testRuntimeRejectsMissingModel()
         try await testRuntimeRejectsMissingAudio()
         try await testRuntimeReportsNonZeroExitWithTailDetails()
+        try await testRuntimeTerminatesHelperOnCancellation()
         print("NativeWhisperRuntimeTests passed")
     }
 
@@ -124,6 +125,36 @@ struct NativeWhisperRuntimeTests {
         }
     }
 
+    private static func testRuntimeTerminatesHelperOnCancellation() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pidFile = root.appendingPathComponent("helper.pid")
+        let helper = try writeHelper(root: root, body: """
+        #!/bin/sh
+        echo $$ > "\(pidFile.path)"
+        while true; do sleep 1; done
+        """)
+        let model = try writeFile(root.appendingPathComponent("model.bin"), data: Data([1]))
+        let audio = try writeFile(root.appendingPathComponent("audio.wav"), data: Data([2]))
+        let runtime = NativeWhisperRuntime(runnerURL: helper)
+        let task = Task {
+            try await runtime.transcribe(audioURL: audio, modelURL: model, languageCode: nil)
+        }
+        assert(waitForFile(pidFile, timeout: 5), "Expected helper to write its pid")
+        let pid = try String(contentsOf: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        task.cancel()
+        do {
+            _ = try await task.value
+            assertionFailure("Expected cancellation")
+        } catch is CancellationError {
+        } catch {
+            assertionFailure("Expected cancellation, got \(error)")
+        }
+
+        assert(waitForProcessExit(pid: pid, timeout: 5), "Expected helper process to exit on cancellation")
+    }
+
     private static func temporaryRoot() throws -> URL {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("quill-native-whisper-runtime-tests-")
@@ -143,5 +174,33 @@ struct NativeWhisperRuntimeTests {
         try body.write(to: helper, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
         return helper
+    }
+
+    private static func waitForFile(_ url: URL, timeout seconds: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if FileManager.default.fileExists(atPath: url.path) {
+                return true
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+
+    private static func waitForProcessExit(pid: String, timeout seconds: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/kill")
+            process.arguments = ["-0", pid]
+            process.standardError = Pipe()
+            try? process.run()
+            process.waitUntilExit()
+            if process.terminationStatus != 0 {
+                return true
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        return false
     }
 }

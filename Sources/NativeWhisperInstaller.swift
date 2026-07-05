@@ -110,9 +110,9 @@ struct NativeWhisperInstaller {
             guard store.fileManager.fileExists(atPath: partial.path) else {
                 return .failure(.downloadFailed("Download produced no file."))
             }
-            guard isRegularFile(at: partial) else {
+            if let validationError = store.validationError(for: model, at: partial) {
                 try? store.fileManager.removeItem(at: partial)
-                return .failure(.moveFailed("Downloaded model is not a file."))
+                return .failure(.verificationFailed(validationError))
             }
             do {
                 if store.fileManager.fileExists(atPath: final.path) {
@@ -132,10 +132,6 @@ struct NativeWhisperInstaller {
             try? store.fileManager.removeItem(at: partial)
             return .failure(.downloadFailed(error.localizedDescription))
         }
-    }
-
-    private func isRegularFile(at url: URL) -> Bool {
-        (try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
     }
 
     private static func urlSessionDownload(
@@ -162,7 +158,8 @@ private final class URLSessionStreamingDownloader: NSObject, URLSessionDataDeleg
     private var session: URLSession?
     private var downloadedBytes: Int64 = 0
     private var totalBytes: Int64?
-    private var result: Result<Void, Error> = .failure(NativeWhisperInstallerError.downloadFailed("Download did not start."))
+    private var result: Result<Void, Error> = .success(())
+    private var preserveCompletionFailure = false
 
     init(
         destination: URL,
@@ -206,6 +203,13 @@ private final class URLSessionStreamingDownloader: NSObject, URLSessionDataDeleg
         didReceive response: URLResponse,
         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void
     ) {
+        if let httpResponse = response as? HTTPURLResponse,
+           !(200...299).contains(httpResponse.statusCode) {
+            result = .failure(NativeWhisperInstallerError.downloadFailed("HTTP \(httpResponse.statusCode)"))
+            preserveCompletionFailure = true
+            completionHandler(.cancel)
+            return
+        }
         let expected = response.expectedContentLength
         totalBytes = expected > 0 ? expected : nil
         progress(NativeWhisperDownloadProgress(downloadedBytes: downloadedBytes, totalBytes: totalBytes))
@@ -242,7 +246,9 @@ private final class URLSessionStreamingDownloader: NSObject, URLSessionDataDeleg
         }
 
         if let error {
-            result = .failure(NativeWhisperInstallerError.downloadFailed(error.localizedDescription))
+            if !preserveCompletionFailure {
+                result = .failure(NativeWhisperInstallerError.downloadFailed(error.localizedDescription))
+            }
             return
         }
 

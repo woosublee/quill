@@ -99,8 +99,8 @@ struct NativeWhisperModelStore {
     func installStatus(for model: NativeWhisperModel) -> NativeWhisperInstallStatus {
         let finalURL = modelURL(for: model)
         if fileManager.fileExists(atPath: finalURL.path) {
-            if let checksum = model.checksumSHA256, !checksum.isEmpty {
-                return .corrupt("Checksum verification is not implemented for this model yet.")
+            if let error = validationError(for: model, at: finalURL) {
+                return .corrupt(error)
             }
             return .ready
         }
@@ -123,6 +123,31 @@ struct NativeWhisperModelStore {
         for url in paths where fileManager.fileExists(atPath: url.path) {
             try fileManager.removeItem(at: url)
         }
+    }
+
+    func validationError(for model: NativeWhisperModel, at url: URL) -> String? {
+        guard fileManager.fileExists(atPath: url.path) else {
+            return "Model file is missing."
+        }
+        guard ((try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true) else {
+            return "Model path is not a regular file."
+        }
+        let bytes = fileSize(at: url)
+        let minimumBytes = minimumReadyBytes(for: model)
+        guard bytes >= minimumBytes else {
+            let actual = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+            let minimum = ByteCountFormatter.string(fromByteCount: minimumBytes, countStyle: .file)
+            return "Model file is too small (\(actual)); expected at least \(minimum)."
+        }
+        if let checksum = model.checksumSHA256, !checksum.isEmpty {
+            return "Checksum verification is not implemented for this model yet."
+        }
+        return nil
+    }
+
+    private func minimumReadyBytes(for model: NativeWhisperModel) -> Int64 {
+        guard model.approximateBytes > 0 else { return 1 }
+        return min(max(1, model.approximateBytes / 10), 100_000_000)
     }
 
     private func fileSize(at url: URL) -> Int64 {

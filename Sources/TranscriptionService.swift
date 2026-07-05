@@ -158,7 +158,8 @@ class TranscriptionService {
                 languageCode: transcriptionLanguage.whisperArgument
             )
         } catch let error as NativeWhisperRuntimeError {
-            throw TranscriptionError.submissionFailed(error.localizedDescription)
+            let userMessage = error.localizedDescription
+            throw TranscriptionError.submissionFailed("\(userMessage)\n\nDetails: \(error.technicalDetails)")
         }
     }
 
