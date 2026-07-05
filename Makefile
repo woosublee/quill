@@ -23,6 +23,12 @@ BUILD_SETTINGS = $(BUILD_DIR)/.build-settings
 SPARKLE_STAMP = $(BUILD_DIR)/.sparkle-framework
 SPARKLE_VERSION ?= 2.9.2
 SPARKLE_FRAMEWORK_FIND = find .build/artifacts -path '*/Sparkle.framework' -type d -print -quit
+WHISPER_CPP_VERSION ?= v1.9.1
+WHISPER_CPP_REPO ?= https://github.com/ggml-org/whisper.cpp.git
+WHISPER_CPP_DIR = .build/checkouts/whisper.cpp
+WHISPER_HELPER = $(WHISPER_CPP_DIR)/build/bin/whisper-cli
+WHISPER_STAMP = $(BUILD_DIR)/.whisper-helper
+WHISPER_BUILD_SETTINGS = $(BUILD_DIR)/.whisper-build-settings
 empty :=
 space := $(empty) $(empty)
 APP_EXECUTABLE = $(MACOS_DIR)/$(APP_NAME)
@@ -63,7 +69,17 @@ $(SPARKLE_STAMP): Package.swift BuildSupport/SparkleResolver/main.swift
 		fi; \
 		printf '%s\n' "$$framework" > "$@"
 
-$(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS) $(BUILD_SETTINGS) $(SPARKLE_STAMP)
+$(WHISPER_BUILD_SETTINGS): FORCE
+	@mkdir -p "$(BUILD_DIR)"
+	@printf '%s\n%s\n%s\n' "$(WHISPER_CPP_REPO)" "$(WHISPER_CPP_VERSION)" "$(ARCH)" > "$@.tmp"
+	@if [ ! -f "$@" ] || ! cmp -s "$@.tmp" "$@"; then mv "$@.tmp" "$@"; else rm "$@.tmp"; fi
+
+$(WHISPER_STAMP): BuildSupport/WhisperRuntime/build-whisper.cpp.sh $(WHISPER_BUILD_SETTINGS)
+	@BuildSupport/WhisperRuntime/build-whisper.cpp.sh "$(WHISPER_CPP_REPO)" "$(WHISPER_CPP_VERSION)" "$(WHISPER_CPP_DIR)" "$(ARCH)"
+	@mkdir -p "$(BUILD_DIR)"
+	@printf '%s\n' "$(WHISPER_HELPER)" > "$@"
+
+$(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS) $(BUILD_SETTINGS) $(SPARKLE_STAMP) $(WHISPER_STAMP)
 	@mkdir -p "$(MACOS_DIR)" "$(RESOURCES)" "$(FRAMEWORKS)"
 	@framework="$$(cat "$(SPARKLE_STAMP)" 2>/dev/null)"; \
 		if [ -z "$$framework" ] || [ ! -d "$$framework" ]; then \
@@ -120,6 +136,14 @@ endif
 	@plutil -replace GoogleCalendarOAuthClientID -string "$(GOOGLE_CALENDAR_OAUTH_CLIENT_ID)" "$(CONTENTS)/Info.plist"
 	@plutil -replace GoogleCalendarOAuthClientSecret -string "$(GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET)" "$(CONTENTS)/Info.plist"
 	@cp $(ICON_ICNS) "$(RESOURCES)/AppIcon.icns"
+	@mkdir -p "$(RESOURCES)/whisper"
+	@whisper_helper="$$(cat "$(WHISPER_STAMP)")"; \
+		if [ -z "$$whisper_helper" ] || [ ! -x "$$whisper_helper" ]; then \
+			echo "Missing whisper.cpp helper at $$whisper_helper" >&2; \
+			exit 1; \
+		fi; \
+		cp "$$whisper_helper" "$(RESOURCES)/whisper/whisper-cli"; \
+		chmod 755 "$(RESOURCES)/whisper/whisper-cli"
 	@xattr -cr "$(APP_BUNDLE)"
 	@rm -rf "$(BUILD_DIR)/codesign-staging"
 	@mkdir -p "$(BUILD_DIR)/codesign-staging"
@@ -136,6 +160,13 @@ endif
 			codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" "$$staged_framework/Versions/Current/Autoupdate"; \
 		fi; \
 		codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" "$$staged_framework"
+	@helper="$(BUILD_DIR)/codesign-staging/$(APP_NAME).app/Contents/Resources/whisper/whisper-cli"; \
+		if [ -x "$$helper" ]; then \
+			codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" "$$helper"; \
+		else \
+			echo "Missing bundled whisper helper in staging app." >&2; \
+			exit 1; \
+		fi
 	@codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" --entitlements Quill.entitlements "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app"
 	@rm -rf "$(APP_BUNDLE)"
 	@ditto --norsrc --noextattr "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app" "$(APP_BUNDLE)"
@@ -282,6 +313,12 @@ test: $(SPARKLE_STAMP)
 	@/tmp/SetupFlowTests
 	@swiftc -parse-as-library Sources/TranscriptionModel.swift Tests/TranscriptionModelCacheTests.swift -o /tmp/TranscriptionModelCacheTests
 	@/tmp/TranscriptionModelCacheTests
+	@swiftc -parse-as-library Sources/NativeWhisperModel.swift Tests/NativeWhisperModelTests.swift -o /tmp/NativeWhisperModelTests
+	@/tmp/NativeWhisperModelTests
+	@swiftc -parse-as-library Sources/NativeWhisperModel.swift Sources/NativeWhisperRuntime.swift Tests/NativeWhisperRuntimeTests.swift -o /tmp/NativeWhisperRuntimeTests
+	@/tmp/NativeWhisperRuntimeTests
+	@swiftc -parse-as-library Sources/NativeWhisperModel.swift Sources/NativeWhisperInstaller.swift Tests/NativeWhisperInstallerTests.swift -o /tmp/NativeWhisperInstallerTests
+	@/tmp/NativeWhisperInstallerTests
 	@swiftc -parse-as-library Sources/OverlayScreenGeometry.swift Tests/OverlayScreenGeometryTests.swift -o /tmp/OverlayScreenGeometryTests
 	@/tmp/OverlayScreenGeometryTests
 	@swiftc -parse-as-library Sources/OverlayScreenGeometry.swift Sources/FixedIntrinsicHostingView.swift Sources/ShortcutCore/ShortcutModels.swift Sources/AudioInputDevice.swift Sources/RecordingOverlay.swift Tests/RecordingOverlayGeometryTests.swift -o /tmp/RecordingOverlayGeometryTests

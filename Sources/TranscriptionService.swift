@@ -10,6 +10,7 @@ class TranscriptionService {
     private let baseURL: URL
     private let useLocalTranscription: Bool
     private let localWhisperPath: String?
+    private let useLegacyMlxWhisper: Bool
     private let transcriptionLanguage: TranscriptionLanguage
     private let localTranscriptionModel: TranscriptionModel
     private let transcriptionModel: String
@@ -26,6 +27,7 @@ class TranscriptionService {
         baseURL: String = "https://api.groq.com/openai/v1",
         useLocalTranscription: Bool = false,
         localWhisperPath: String? = nil,
+        useLegacyMlxWhisper: Bool = false,
         transcriptionLanguage: TranscriptionLanguage = .auto,
         localTranscriptionModel: TranscriptionModel = .default,
         transcriptionModel: String = AppState.defaultTranscriptionModel,
@@ -35,6 +37,7 @@ class TranscriptionService {
         self.baseURL = try Self.normalizedBaseURL(from: baseURL)
         self.useLocalTranscription = useLocalTranscription
         self.localWhisperPath = localWhisperPath
+        self.useLegacyMlxWhisper = useLegacyMlxWhisper
         self.transcriptionLanguage = transcriptionLanguage
         self.localTranscriptionModel = localTranscriptionModel
         let trimmedModel = transcriptionModel.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -131,12 +134,34 @@ class TranscriptionService {
         }
     }
 
-    // Run local transcription: Apple Speech or mlx_whisper
+    // Run local transcription: Apple Speech, native Whisper, or legacy mlx_whisper
     private func transcribeAudioLocally(fileURL: URL) async throws -> String {
         if localTranscriptionModel.isAppleSpeech {
             return try await transcribeWithAppleSpeech(fileURL: fileURL)
         }
-        return try await transcribeWithMlxWhisper(fileURL: fileURL)
+        if useLegacyMlxWhisper {
+            return try await transcribeWithMlxWhisper(fileURL: fileURL)
+        }
+        return try await transcribeWithNativeWhisper(fileURL: fileURL)
+    }
+
+    private func transcribeWithNativeWhisper(fileURL: URL) async throws -> String {
+        let model = NativeWhisperModelCatalog.recommended
+        let store = NativeWhisperModelStore()
+        guard store.installStatus(for: model) == .ready else {
+            throw TranscriptionError.submissionFailed("Local Whisper is not installed yet. Install the recommended model to use local transcription.")
+        }
+        do {
+            let transcript = try await NativeWhisperRuntime().transcribe(
+                audioURL: fileURL,
+                modelURL: store.modelURL(for: model),
+                languageCode: transcriptionLanguage.whisperArgument
+            )
+            return normalizedTranscriptText(transcript)
+        } catch let error as NativeWhisperRuntimeError {
+            let userMessage = error.localizedDescription
+            throw TranscriptionError.submissionFailed("\(userMessage)\n\nDetails: \(error.technicalDetails)")
+        }
     }
 
     private func transcribeWithAppleSpeech(fileURL: URL) async throws -> String {

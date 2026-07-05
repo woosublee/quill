@@ -409,6 +409,9 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .onDisappear {
+            appState.cancelNativeWhisperInstallForSettingsClose()
+        }
     }
 }
 
@@ -1505,6 +1508,7 @@ struct ModelsSettingsView: View {
     @State private var apiBaseURLInput: String = ""
     @State private var transcriptionAPIURLInput: String = ""
     @State private var transcriptionAPIKeyInput: String = ""
+    @State private var showingLocalTranscriptionSettings = true
     @State private var isValidatingKey = false
     @State private var keyValidationError: String?
     @State private var keyValidationSuccess = false
@@ -1566,6 +1570,7 @@ struct ModelsSettingsView: View {
             apiBaseURLInput = appState.apiBaseURL
             transcriptionAPIURLInput = appState.transcriptionAPIURL
             transcriptionAPIKeyInput = appState.transcriptionAPIKey
+            showingLocalTranscriptionSettings = appState.useLocalTranscription
             customVocabularyInput = appState.customVocabulary
             customSystemPromptInput = appState.customSystemPrompt.isEmpty
                 ? PostProcessingService.defaultSystemPrompt
@@ -1588,14 +1593,21 @@ struct ModelsSettingsView: View {
                 Text("Transcription Mode")
                     .font(.caption.weight(.semibold))
 
-                Picker("Transcription Mode", selection: $appState.useLocalTranscription) {
+                Picker("Transcription Mode", selection: $showingLocalTranscriptionSettings) {
                     Text("Local").tag(true)
                     Text("API Provider").tag(false)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
+                .onChange(of: showingLocalTranscriptionSettings) { showsLocal in
+                    if showsLocal {
+                        appState.useLocalTranscription = true
+                    } else if appState.hasTranscriptionAPIKey {
+                        appState.setNoteBrowserTranscriptionMode(.apiStandard)
+                    }
+                }
 
-                Text(appState.useLocalTranscription
+                Text(showingLocalTranscriptionSettings
                     ? "Run speech recognition on this Mac and configure only local transcription options."
                     : "Use your configured OpenAI-compatible provider and configure only provider-specific options.")
                     .font(.caption)
@@ -1604,7 +1616,7 @@ struct ModelsSettingsView: View {
 
             Divider()
 
-            if appState.useLocalTranscription {
+            if showingLocalTranscriptionSettings {
                 localTranscriptionSettings
             } else {
                 apiProviderTranscriptionSettings
@@ -1622,32 +1634,59 @@ struct ModelsSettingsView: View {
                 Text("Local Options")
                     .font(.caption.weight(.semibold))
 
-                ForEach(TranscriptionModel.all) { model in
-                    ModelRowView(
-                        model: model,
-                        isSelected: appState.localTranscriptionModel == model,
-                        whisperBin: appState.localWhisperPath.isEmpty
-                            ? "\(FileManager.default.homeDirectoryForCurrentUser.path)/.local/bin/mlx_whisper"
-                            : appState.localWhisperPath,
-                        onSelect: { appState.localTranscriptionModel = model },
-                        onDeleted: {
-                            if appState.localTranscriptionModel == model {
-                                appState.localTranscriptionModel = .default
-                            }
-                        }
-                    )
-                }
+                ModelRowView(
+                    model: TranscriptionModel.find(id: "apple-speech"),
+                    isSelected: appState.localTranscriptionModel.isAppleSpeech,
+                    whisperBin: "",
+                    onSelect: { appState.localTranscriptionModel = .find(id: "apple-speech") },
+                    onDeleted: {}
+                )
+
+                NativeWhisperModelRowView(
+                    isSelected: !appState.localTranscriptionModel.isAppleSpeech && !appState.useLegacyMlxWhisper,
+                    onSelect: {
+                        appState.useLocalTranscription = true
+                        appState.localTranscriptionModel = .find(id: "mlx-community/whisper-large-v3-turbo")
+                        appState.useLegacyMlxWhisper = false
+                    }
+                )
+                Text("If you close Settings while the model is downloading, Quill cancels the download and removes the partial file.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("mlx_whisper Path (optional)")
-                    .font(.caption.weight(.semibold))
-                Text("Leave empty to use the default path (~/.local/bin/mlx_whisper).")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                TextField("~/.local/bin/mlx_whisper", text: $appState.localWhisperPath)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.body, design: .monospaced))
+            DisclosureGroup("Advanced Legacy mlx-whisper") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Use legacy mlx-whisper", isOn: $appState.useLegacyMlxWhisper)
+                    Text("Only enable this if you already manage mlx-whisper yourself.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ForEach(TranscriptionModel.all.filter { !$0.isAppleSpeech }) { model in
+                        ModelRowView(
+                            model: model,
+                            isSelected: appState.useLegacyMlxWhisper && appState.localTranscriptionModel.id == model.id,
+                            whisperBin: appState.localWhisperPath.isEmpty
+                                ? "\(FileManager.default.homeDirectoryForCurrentUser.path)/.local/bin/mlx_whisper"
+                                : appState.localWhisperPath,
+                            onSelect: {
+                                appState.useLocalTranscription = true
+                                appState.useLegacyMlxWhisper = true
+                                appState.localTranscriptionModel = model
+                            },
+                            onDeleted: {
+                                appState.localTranscriptionModel = .find(id: "mlx-community/whisper-large-v3-turbo")
+                            }
+                        )
+                        .disabled(!appState.useLegacyMlxWhisper)
+                        .opacity(appState.useLegacyMlxWhisper ? 1 : 0.55)
+                    }
+
+                    TextField("~/.local/bin/mlx_whisper", text: $appState.localWhisperPath)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
+                        .disabled(!appState.useLegacyMlxWhisper)
+                }
+                .padding(.top, 4)
             }
         }
     }
@@ -1826,6 +1865,9 @@ struct ModelsSettingsView: View {
                 isValidatingKey = false
                 if valid {
                     appState.apiKey = key
+                    if !showingLocalTranscriptionSettings {
+                        appState.setNoteBrowserTranscriptionMode(.apiStandard)
+                    }
                     keyValidationSuccess = true
                 } else {
                     keyValidationError = "Validation failed. Please check your API key and provider settings, then try again."
@@ -3590,6 +3632,177 @@ struct DonutProgressView: View {
                 .rotationEffect(.degrees(-90))
         }
         .frame(width: 18, height: 18)
+    }
+}
+
+struct NativeWhisperModelRowView: View {
+    @EnvironmentObject var appState: AppState
+
+    let model: NativeWhisperModel
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    @State private var showDeleteConfirmation = false
+    @State private var isHoveringDownloadProgress = false
+    @FocusState private var isCancelDownloadFocused: Bool
+
+    init(
+        model: NativeWhisperModel = NativeWhisperModelCatalog.recommended,
+        isSelected: Bool,
+        onSelect: @escaping () -> Void
+    ) {
+        self.model = model
+        self.isSelected = isSelected
+        self.onSelect = onSelect
+    }
+
+    private var isInstalled: Bool {
+        appState.nativeWhisperInstallStatus == .ready
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Button {
+                    onSelect()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                            .foregroundStyle(isInstalled ? Color.accentColor : .secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(model.displayName)
+                                .font(.caption.weight(isSelected ? .semibold : .regular))
+                            Text("Fast local transcription. About \(ByteCountFormatter.string(fromByteCount: model.approximateBytes, countStyle: .file)).")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!isInstalled || appState.isInstallingNativeWhisper)
+
+                actionView
+            }
+
+            if let errorMessage = appState.nativeWhisperInstallError {
+                Label(errorMessage, systemImage: "xmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(8)
+        .background(isSelected ? Color.accentColor.opacity(0.08) : Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(6)
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isSelected ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
+        )
+        .confirmationDialog(
+            "Delete \(model.displayName)?",
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Model", role: .destructive) {
+                deleteModel()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the downloaded Local Whisper model. You can download it again later.")
+        }
+        .onAppear {
+            appState.refreshNativeWhisperInstallStatus()
+        }
+    }
+
+    @ViewBuilder
+    private var actionView: some View {
+        if appState.isInstallingNativeWhisper {
+            downloadProgressView
+        } else if appState.nativeWhisperInstallProgress.isCancelled {
+            canceledDownloadView
+        } else if isInstalled {
+            HStack(spacing: 8) {
+                Label("Installed", systemImage: "checkmark.circle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.green)
+                Button {
+                    showDeleteConfirmation = true
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .font(.caption)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        } else {
+            Button("Download") {
+                appState.installNativeWhisperModel()
+            }
+            .font(.caption)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+    }
+
+    private var downloadProgressView: some View {
+        HStack(spacing: 8) {
+            Text(appState.nativeWhisperInstallProgress.displayText)
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minWidth: 104, alignment: .trailing)
+
+            ZStack {
+                if let fractionCompleted = appState.nativeWhisperInstallProgress.fractionCompleted {
+                    DonutProgressView(fractionCompleted: fractionCompleted)
+                        .opacity((isHoveringDownloadProgress || isCancelDownloadFocused) ? 0.25 : 1)
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                        .opacity((isHoveringDownloadProgress || isCancelDownloadFocused) ? 0.25 : 1)
+                }
+                Button {
+                    appState.cancelNativeWhisperInstall()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .focused($isCancelDownloadFocused)
+                .opacity((isHoveringDownloadProgress || isCancelDownloadFocused) ? 1 : 0.001)
+                .accessibilityLabel("Cancel Local Whisper download")
+            }
+            .frame(width: 24, height: 24)
+            .contentShape(Circle())
+            .onHover { hovering in
+                isHoveringDownloadProgress = hovering
+            }
+        }
+    }
+
+    private var canceledDownloadView: some View {
+        HStack(spacing: 8) {
+            Text(appState.nativeWhisperInstallProgress.displayText)
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(minWidth: 72, alignment: .trailing)
+            Button("Download") {
+                appState.installNativeWhisperModel()
+            }
+            .font(.caption)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+    }
+
+    private func deleteModel() {
+        appState.deleteNativeWhisperModel()
     }
 }
 

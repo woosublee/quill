@@ -109,6 +109,7 @@ private struct AudioImportTaskConfiguration {
     let transcriptionAPIKey: String
     let transcriptionAPIBaseURL: String
     let localWhisperPath: String
+    let useLegacyMlxWhisper: Bool
     let transcriptionLanguage: TranscriptionLanguage
     let transcriptionModel: String
     let customVocabulary: String
@@ -127,6 +128,7 @@ private struct AudioImportTaskConfiguration {
         transcriptionAPIKey: String,
         transcriptionAPIBaseURL: String,
         localWhisperPath: String,
+        useLegacyMlxWhisper: Bool,
         transcriptionLanguage: TranscriptionLanguage,
         transcriptionModel: String,
         customVocabulary: String,
@@ -146,6 +148,7 @@ private struct AudioImportTaskConfiguration {
         self.transcriptionAPIKey = transcriptionAPIKey
         self.transcriptionAPIBaseURL = transcriptionAPIBaseURL
         self.localWhisperPath = localWhisperPath
+        self.useLegacyMlxWhisper = useLegacyMlxWhisper
         self.transcriptionLanguage = transcriptionLanguage
         self.transcriptionModel = transcriptionModel
         self.customVocabulary = customVocabulary
@@ -180,6 +183,7 @@ private struct AudioImportTaskConfiguration {
             baseURL: transcriptionAPIBaseURL,
             useLocalTranscription: useLocalTranscription,
             localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath,
+            useLegacyMlxWhisper: useLegacyMlxWhisper,
             transcriptionLanguage: transcriptionLanguage,
             localTranscriptionModel: localTranscriptionModel,
             transcriptionModel: transcriptionModel
@@ -200,6 +204,7 @@ private struct RetrySnapshot {
     let outputLanguage: String
     let postProcessingEnabled: Bool
     let localWhisperPath: String?
+    let useLegacyMlxWhisper: Bool
 }
 
 private struct TranscriptCommandParsingResult {
@@ -362,6 +367,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let voiceMacrosStorageKey = "voice_macros"
     private let useLocalTranscriptionStorageKey = "use_local_transcription"
     private let localWhisperPathStorageKey = "local_whisper_path"
+    private let useLegacyMlxWhisperStorageKey = "use_legacy_mlx_whisper"
     private let disableContextCaptureStorageKey = "disable_context_capture"
     private let disableAutoPasteStorageKey = "disable_auto_paste"
     private let disablePostProcessingStorageKey = "disable_post_processing"
@@ -730,6 +736,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @Published var useLegacyMlxWhisper: Bool {
+        didSet {
+            UserDefaults.standard.set(useLegacyMlxWhisper, forKey: useLegacyMlxWhisperStorageKey)
+            normalizeNoteBrowserTranscriptionModeForProviderConfiguration()
+        }
+    }
+
     @Published var disableContextCapture: Bool {
         didSet {
             UserDefaults.standard.set(disableContextCapture, forKey: disableContextCaptureStorageKey)
@@ -772,6 +785,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @Published private(set) var nativeWhisperInstallStatus: NativeWhisperInstallStatus = NativeWhisperModelStore().installStatus(for: .recommended)
+    @Published private(set) var nativeWhisperInstallProgress = NativeWhisperDownloadProgress(downloadedBytes: 0, totalBytes: NativeWhisperModelCatalog.recommended.approximateBytes)
+    @Published private(set) var isInstallingNativeWhisper = false
+    @Published private(set) var nativeWhisperInstallError: String?
+    private var nativeWhisperInstallTask: NativeWhisperInstallTask?
+    private var nativeWhisperInstallCancellationMessage: String?
+
     var noteBrowserTranscriptionModeLabel: String {
         label(for: currentNoteBrowserTranscriptionMode)
     }
@@ -804,11 +824,102 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     var hasInstalledLocalWhisperModel: Bool {
+        if useLegacyMlxWhisper {
+            return hasLegacyLocalWhisperModel
+        }
+        return nativeWhisperInstallStatus == .ready
+    }
+
+    var hasLegacyLocalWhisperModel: Bool {
         TranscriptionModel.all.contains { !$0.isAppleSpeech && $0.isInstalled }
     }
 
     @MainActor
-    func audioImportConfiguration(for mode: NoteBrowserTranscriptionMode) -> AudioImportTranscriptionConfiguration {
+    func refreshNativeWhisperInstallStatus() {
+        nativeWhisperInstallStatus = NativeWhisperModelStore().installStatus(for: .recommended)
+        normalizeNoteBrowserTranscriptionModeForProviderConfiguration()
+    }
+
+    @MainActor
+    func installNativeWhisperModel() {
+        guard !isInstallingNativeWhisper else { return }
+        let model = NativeWhisperModelCatalog.recommended
+        nativeWhisperInstallError = nil
+        nativeWhisperInstallCancellationMessage = nil
+        isInstallingNativeWhisper = true
+        nativeWhisperInstallProgress = NativeWhisperDownloadProgress(downloadedBytes: 0, totalBytes: model.approximateBytes)
+        let installer = NativeWhisperInstaller()
+        nativeWhisperInstallTask = installer.install(
+            model: model,
+            progress: { [weak self] progress in
+                DispatchQueue.main.async {
+                    self?.nativeWhisperInstallProgress = progress
+                }
+            },
+            completion: { [weak self] result in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.nativeWhisperInstallTask = nil
+                    self.isInstallingNativeWhisper = false
+                    self.refreshNativeWhisperInstallStatus()
+                    if case .failure(let error) = result {
+                        switch error {
+                        case .cancelled:
+                            self.nativeWhisperInstallError = self.nativeWhisperInstallCancellationMessage
+                            self.nativeWhisperInstallCancellationMessage = nil
+                        default:
+                            self.nativeWhisperInstallError = error.localizedDescription
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    @MainActor
+    func cancelNativeWhisperInstall() {
+        nativeWhisperInstallCancellationMessage = nil
+        nativeWhisperInstallTask?.cancel()
+        let model = NativeWhisperModelCatalog.recommended
+        try? NativeWhisperModelStore().deletePartialModel(model)
+        nativeWhisperInstallProgress = NativeWhisperDownloadProgress(
+            downloadedBytes: nativeWhisperInstallProgress.downloadedBytes,
+            totalBytes: nativeWhisperInstallProgress.totalBytes,
+            isCancelled: true
+        )
+        refreshNativeWhisperInstallStatus()
+    }
+
+    @MainActor
+    func cancelNativeWhisperInstallForSettingsClose() {
+        guard isInstallingNativeWhisper else { return }
+        nativeWhisperInstallCancellationMessage = "Local Whisper download was canceled because Settings was closed. Start the install again when you're ready."
+        nativeWhisperInstallTask?.cancel()
+        try? NativeWhisperModelStore().deletePartialModel(.recommended)
+        nativeWhisperInstallProgress = NativeWhisperDownloadProgress(
+            downloadedBytes: nativeWhisperInstallProgress.downloadedBytes,
+            totalBytes: nativeWhisperInstallProgress.totalBytes,
+            isCancelled: true
+        )
+        refreshNativeWhisperInstallStatus()
+    }
+
+    @MainActor
+    func deleteNativeWhisperModel() {
+        do {
+            try NativeWhisperModelStore().deleteModel(.recommended)
+            nativeWhisperInstallError = nil
+        } catch {
+            nativeWhisperInstallError = error.localizedDescription
+        }
+        refreshNativeWhisperInstallStatus()
+    }
+
+    @MainActor
+    func audioImportConfiguration(
+        for mode: NoteBrowserTranscriptionMode,
+        allowsNativeWhisper: Bool = false
+    ) -> AudioImportTranscriptionConfiguration {
         switch mode {
         case .apiStandard, .apiRealtime:
             return AudioImportTranscriptionConfiguration(
@@ -817,6 +928,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 localTranscriptionModel: localTranscriptionModel
             )
         case .localWhisper, .localAppleLive:
+            guard allowsNativeWhisper || useLegacyMlxWhisper else {
+                return AudioImportTranscriptionConfiguration(
+                    mode: .apiStandard,
+                    useLocalTranscription: false,
+                    localTranscriptionModel: localTranscriptionModel
+                )
+            }
             let model = localTranscriptionModel.isAppleSpeech
                 ? TranscriptionModel.all.first(where: { !$0.isAppleSpeech }) ?? localTranscriptionModel
                 : localTranscriptionModel
@@ -835,7 +953,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .apiRealtime:
             return hasTranscriptionAPIKey && !AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID)
         case .localWhisper:
-            return true
+            return hasInstalledLocalWhisperModel
         case .localAppleLive:
             return !AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID)
         }
@@ -863,14 +981,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private func normalizedNoteBrowserTranscriptionMode(_ mode: NoteBrowserTranscriptionMode) -> NoteBrowserTranscriptionMode {
         guard !isNoteBrowserTranscriptionModeAvailable(mode) else { return mode }
+        let fallbackOrder: [NoteBrowserTranscriptionMode]
         switch mode {
         case .apiRealtime:
-            return isNoteBrowserTranscriptionModeAvailable(.apiStandard) ? .apiStandard : .localWhisper
-        case .apiStandard, .localAppleLive:
-            return .localWhisper
+            fallbackOrder = [.apiStandard, .localWhisper, .localAppleLive]
+        case .apiStandard:
+            fallbackOrder = [.localWhisper, .localAppleLive, .apiRealtime]
+        case .localAppleLive:
+            fallbackOrder = [.localWhisper, .apiStandard, .apiRealtime]
         case .localWhisper:
-            return mode
+            fallbackOrder = [.apiStandard, .localAppleLive, .apiRealtime]
         }
+        return fallbackOrder.first(where: isNoteBrowserTranscriptionModeAvailable) ?? mode
     }
 
     private func applyNoteBrowserTranscriptionMode(_ mode: NoteBrowserTranscriptionMode) {
@@ -882,6 +1004,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             useLocalTranscription = false
             realtimeStreamingEnabled = true
         case .localWhisper:
+            guard isNoteBrowserTranscriptionModeAvailable(.localWhisper) else { return }
             useLocalTranscription = true
             realtimeStreamingEnabled = false
             if localTranscriptionModel.isAppleSpeech,
@@ -1323,6 +1446,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             : UserDefaults.standard.bool(forKey: pressEnterVoiceCommandStorageKey)
         let useLocalTranscription = UserDefaults.standard.bool(forKey: useLocalTranscriptionStorageKey)
         let localWhisperPath = UserDefaults.standard.string(forKey: localWhisperPathStorageKey) ?? ""
+        let useLegacyMlxWhisper = UserDefaults.standard.bool(forKey: useLegacyMlxWhisperStorageKey)
         let disableContextCapture = UserDefaults.standard.bool(forKey: disableContextCaptureStorageKey)
         let disableAutoPaste = UserDefaults.standard.bool(forKey: disableAutoPasteStorageKey)
         let disablePostProcessing = UserDefaults.standard.bool(forKey: disablePostProcessingStorageKey)
@@ -1437,6 +1561,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.alertSoundsEnabled = alertSoundsEnabled
         self.useLocalTranscription = useLocalTranscription
         self.localWhisperPath = localWhisperPath
+        self.useLegacyMlxWhisper = useLegacyMlxWhisper
         self.disableContextCapture = disableContextCapture
         self.disableAutoPaste = disableAutoPaste
         self.disablePostProcessing = disablePostProcessing
@@ -1953,6 +2078,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             baseURL: resolvedTranscriptionBaseURL,
             useLocalTranscription: useLocalTranscription,
             localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath,
+            useLegacyMlxWhisper: useLegacyMlxWhisper,
             transcriptionLanguage: transcriptionLanguage,
             localTranscriptionModel: localTranscriptionModel,
             transcriptionModel: transcriptionModel
@@ -2548,6 +2674,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             transcriptionAPIKey: resolvedTranscriptionAPIKey,
             transcriptionAPIBaseURL: resolvedTranscriptionBaseURL,
             localWhisperPath: localWhisperPath,
+            useLegacyMlxWhisper: useLegacyMlxWhisper,
             transcriptionLanguage: transcriptionLanguage,
             transcriptionModel: transcriptionModel,
             customVocabulary: customVocabulary,
@@ -2752,6 +2879,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     baseURL: resolvedTranscriptionBaseURL,
                     useLocalTranscription: snapshot.useLocalTranscription,
                     localWhisperPath: snapshot.localWhisperPath,
+                    useLegacyMlxWhisper: snapshot.useLegacyMlxWhisper,
                     transcriptionLanguage: snapshot.transcriptionLanguage,
                     localTranscriptionModel: snapshot.localTranscriptionModel,
                     transcriptionModel: transcriptionModel
@@ -2840,7 +2968,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard let retryMode = options.defaultMode else {
             throw TranscriptionError.submissionFailed("No transcription method is available. Configure an API key or install a Local Whisper model, then try again.")
         }
-        let configuration = audioImportConfiguration(for: retryMode)
+        let configuration = audioImportConfiguration(for: retryMode, allowsNativeWhisper: true)
 
         return RetrySnapshot(
             item: item,
@@ -2865,7 +2993,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             customSystemPrompt: item.customSystemPrompt,
             outputLanguage: outputLanguage,
             postProcessingEnabled: item.usedPostProcessing,
-            localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath
+            localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath,
+            useLegacyMlxWhisper: useLegacyMlxWhisper
         )
     }
 
@@ -5055,6 +5184,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let capturedApiBaseURL = resolvedTranscriptionBaseURL
         let capturedUseLocalTranscription = useLocalTranscription
         let capturedLocalWhisperPath = localWhisperPath
+        let capturedUseLegacyMlxWhisper = useLegacyMlxWhisper
         let capturedTranscriptionLanguage = transcriptionLanguage
         let capturedLocalTranscriptionModel = localTranscriptionModel
         let capturedTranscriptionModel = transcriptionModel
@@ -5244,6 +5374,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             baseURL: capturedApiBaseURL,
                             useLocalTranscription: capturedUseLocalTranscription,
                             localWhisperPath: capturedLocalWhisperPath.isEmpty ? nil : capturedLocalWhisperPath,
+                            useLegacyMlxWhisper: capturedUseLegacyMlxWhisper,
                             transcriptionLanguage: capturedTranscriptionLanguage,
                             localTranscriptionModel: capturedLocalTranscriptionModel,
                             transcriptionModel: capturedTranscriptionModel
