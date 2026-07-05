@@ -1296,11 +1296,15 @@ private struct NoteDetailView: View {
         .padding(.horizontal, 8)
         .frame(height: 48)
         .background {
+            #if compiler(>=6.2)
             if #available(macOS 26.0, *) {
                 Color.clear.glassEffect(.regular, in: Capsule())
             } else {
                 Capsule().fill(.ultraThinMaterial)
             }
+            #else
+            Capsule().fill(.ultraThinMaterial)
+            #endif
         }
         .overlay(Capsule().strokeBorder(toolbarStrokeColor, lineWidth: 0.6))
         .compositingGroup()

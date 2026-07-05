@@ -8,6 +8,10 @@ struct ReleaseSDKCompatibilityTests {
             !noteBrowserSource.contains("NSGlassEffectView"),
             "Release builds must not directly reference SDK symbols that are unavailable on GitHub's runner SDK"
         )
+        precondition(
+            !noteBrowserSource.contains("glassEffect(") || noteBrowserSource.contains("#if compiler(>=6.2)"),
+            "SwiftUI glassEffect must be guarded so GitHub's Xcode 16.4 runner can compile releases"
+        )
 
         precondition(
             FileManager.default.fileExists(atPath: "Sources/SystemAudioRecorder.swift"),
