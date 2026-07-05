@@ -8,6 +8,17 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.17] - 2026-07-06
+
+### Added
+
+- Local Whisper beta now ships with a bundled native whisper.cpp runtime and managed recommended model download, so Quill recordings can use local transcription without developer-installed Python, pipx, mlx-whisper, Hugging Face CLI, or ffmpeg.
+
+### Improved
+
+- The Local/API transcription settings tabs no longer switch Note Browser into an unavailable API mode when no API key is configured.
+- Native Local Whisper model installs now verify file size and checksum, clean up partial downloads more safely, and keep download cancellation accessible from the keyboard.
+
 ## [0.1.16] - 2026-06-30
 
 ### Improved
