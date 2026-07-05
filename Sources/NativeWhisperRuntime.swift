@@ -74,6 +74,7 @@ struct NativeWhisperRuntime {
                 "-m", modelURL.path,
                 "-f", audioURL.path,
                 "-nt",
+                "-mc", "0",
                 "-oj",
                 "-of", outputBase.path
             ]

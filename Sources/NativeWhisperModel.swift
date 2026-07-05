@@ -125,6 +125,13 @@ struct NativeWhisperModelStore {
         }
     }
 
+    func deletePartialModel(_ model: NativeWhisperModel) throws {
+        let partialURL = partialModelURL(for: model)
+        if fileManager.fileExists(atPath: partialURL.path) {
+            try fileManager.removeItem(at: partialURL)
+        }
+    }
+
     func validationError(for model: NativeWhisperModel, at url: URL) -> String? {
         guard fileManager.fileExists(atPath: url.path) else {
             return "Model file is missing."

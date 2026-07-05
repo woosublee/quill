@@ -5,6 +5,7 @@ struct NativeWhisperRuntimeTests {
     static func main() async throws {
         try await testRuntimeReturnsStdoutTranscript()
         try await testRuntimeReadsOutputJSONTextField()
+        try await testRuntimeDisablesTextContext()
         try await testRuntimeRejectsMissingRunner()
         try await testRuntimeRejectsMissingModel()
         try await testRuntimeRejectsMissingAudio()
@@ -51,6 +52,27 @@ struct NativeWhisperRuntimeTests {
         let transcript = try await runtime.transcribe(audioURL: audio, modelURL: model, languageCode: "ko")
 
         assert(transcript == "json transcript")
+    }
+
+    private static func testRuntimeDisablesTextContext() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let argsFile = root.appendingPathComponent("args.txt")
+        let helper = try writeHelper(root: root, body: """
+        #!/bin/sh
+        printf '%s\n' "$@" > "\(argsFile.path)"
+        echo "ok"
+        """)
+        let model = try writeFile(root.appendingPathComponent("model.bin"), data: Data([1]))
+        let audio = try writeFile(root.appendingPathComponent("audio.wav"), data: Data([2]))
+        let runtime = NativeWhisperRuntime(runnerURL: helper)
+
+        _ = try await runtime.transcribe(audioURL: audio, modelURL: model, languageCode: nil)
+
+        let args = try String(contentsOf: argsFile, encoding: .utf8).split(separator: "\n").map(String.init)
+        let maxContextIndex = args.firstIndex(of: "-mc")
+        assert(maxContextIndex != nil, "Expected native whisper runtime to set max context")
+        assert(args.dropFirst(maxContextIndex! + 1).first == "0", "Expected native whisper runtime to disable previous text conditioning")
     }
 
     private static func testRuntimeRejectsMissingRunner() async throws {

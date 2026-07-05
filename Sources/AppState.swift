@@ -739,6 +739,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var useLegacyMlxWhisper: Bool {
         didSet {
             UserDefaults.standard.set(useLegacyMlxWhisper, forKey: useLegacyMlxWhisperStorageKey)
+            normalizeNoteBrowserTranscriptionModeForProviderConfiguration()
         }
     }
 
@@ -784,6 +785,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @Published private(set) var nativeWhisperInstallStatus: NativeWhisperInstallStatus = NativeWhisperModelStore().installStatus(for: .recommended)
+    @Published private(set) var nativeWhisperInstallProgress = NativeWhisperDownloadProgress(downloadedBytes: 0, totalBytes: NativeWhisperModelCatalog.recommended.approximateBytes)
+    @Published private(set) var isInstallingNativeWhisper = false
+    @Published private(set) var nativeWhisperInstallError: String?
+    private var nativeWhisperInstallTask: NativeWhisperInstallTask?
+    private var nativeWhisperInstallCancellationMessage: String?
+
     var noteBrowserTranscriptionModeLabel: String {
         label(for: currentNoteBrowserTranscriptionMode)
     }
@@ -819,11 +827,92 @@ final class AppState: ObservableObject, @unchecked Sendable {
         if useLegacyMlxWhisper {
             return hasLegacyLocalWhisperModel
         }
-        return NativeWhisperModelStore().installStatus(for: .recommended) == .ready
+        return nativeWhisperInstallStatus == .ready
     }
 
     var hasLegacyLocalWhisperModel: Bool {
         TranscriptionModel.all.contains { !$0.isAppleSpeech && $0.isInstalled }
+    }
+
+    @MainActor
+    func refreshNativeWhisperInstallStatus() {
+        nativeWhisperInstallStatus = NativeWhisperModelStore().installStatus(for: .recommended)
+        normalizeNoteBrowserTranscriptionModeForProviderConfiguration()
+    }
+
+    @MainActor
+    func installNativeWhisperModel() {
+        guard !isInstallingNativeWhisper else { return }
+        let model = NativeWhisperModelCatalog.recommended
+        nativeWhisperInstallError = nil
+        nativeWhisperInstallCancellationMessage = nil
+        isInstallingNativeWhisper = true
+        nativeWhisperInstallProgress = NativeWhisperDownloadProgress(downloadedBytes: 0, totalBytes: model.approximateBytes)
+        let installer = NativeWhisperInstaller()
+        nativeWhisperInstallTask = installer.install(
+            model: model,
+            progress: { [weak self] progress in
+                DispatchQueue.main.async {
+                    self?.nativeWhisperInstallProgress = progress
+                }
+            },
+            completion: { [weak self] result in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.nativeWhisperInstallTask = nil
+                    self.isInstallingNativeWhisper = false
+                    self.refreshNativeWhisperInstallStatus()
+                    if case .failure(let error) = result {
+                        switch error {
+                        case .cancelled:
+                            self.nativeWhisperInstallError = self.nativeWhisperInstallCancellationMessage
+                            self.nativeWhisperInstallCancellationMessage = nil
+                        default:
+                            self.nativeWhisperInstallError = error.localizedDescription
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    @MainActor
+    func cancelNativeWhisperInstall() {
+        nativeWhisperInstallCancellationMessage = nil
+        nativeWhisperInstallTask?.cancel()
+        let model = NativeWhisperModelCatalog.recommended
+        try? NativeWhisperModelStore().deletePartialModel(model)
+        nativeWhisperInstallProgress = NativeWhisperDownloadProgress(
+            downloadedBytes: nativeWhisperInstallProgress.downloadedBytes,
+            totalBytes: nativeWhisperInstallProgress.totalBytes,
+            isCancelled: true
+        )
+        refreshNativeWhisperInstallStatus()
+    }
+
+    @MainActor
+    func cancelNativeWhisperInstallForSettingsClose() {
+        guard isInstallingNativeWhisper else { return }
+        nativeWhisperInstallCancellationMessage = "Local Whisper download was canceled because Settings was closed. Start the install again when you're ready."
+        nativeWhisperInstallTask?.cancel()
+        try? NativeWhisperModelStore().deletePartialModel(.recommended)
+        nativeWhisperInstallProgress = NativeWhisperDownloadProgress(
+            downloadedBytes: nativeWhisperInstallProgress.downloadedBytes,
+            totalBytes: nativeWhisperInstallProgress.totalBytes,
+            isCancelled: true
+        )
+        refreshNativeWhisperInstallStatus()
+    }
+
+    @MainActor
+    func deleteNativeWhisperModel() {
+        do {
+            try NativeWhisperModelStore().deleteModel(.recommended)
+            nativeWhisperInstallError = nil
+        } catch {
+            nativeWhisperInstallError = error.localizedDescription
+        }
+        refreshNativeWhisperInstallStatus()
     }
 
     @MainActor
@@ -864,7 +953,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .apiRealtime:
             return hasTranscriptionAPIKey && !AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID)
         case .localWhisper:
-            return true
+            return hasInstalledLocalWhisperModel
         case .localAppleLive:
             return !AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID)
         }
@@ -892,14 +981,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private func normalizedNoteBrowserTranscriptionMode(_ mode: NoteBrowserTranscriptionMode) -> NoteBrowserTranscriptionMode {
         guard !isNoteBrowserTranscriptionModeAvailable(mode) else { return mode }
+        let fallbackOrder: [NoteBrowserTranscriptionMode]
         switch mode {
         case .apiRealtime:
-            return isNoteBrowserTranscriptionModeAvailable(.apiStandard) ? .apiStandard : .localWhisper
-        case .apiStandard, .localAppleLive:
-            return .localWhisper
+            fallbackOrder = [.apiStandard, .localWhisper, .localAppleLive]
+        case .apiStandard:
+            fallbackOrder = [.localWhisper, .localAppleLive, .apiRealtime]
+        case .localAppleLive:
+            fallbackOrder = [.localWhisper, .apiStandard, .apiRealtime]
         case .localWhisper:
-            return mode
+            fallbackOrder = [.apiStandard, .localAppleLive, .apiRealtime]
         }
+        return fallbackOrder.first(where: isNoteBrowserTranscriptionModeAvailable) ?? mode
     }
 
     private func applyNoteBrowserTranscriptionMode(_ mode: NoteBrowserTranscriptionMode) {
@@ -911,6 +1004,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             useLocalTranscription = false
             realtimeStreamingEnabled = true
         case .localWhisper:
+            guard isNoteBrowserTranscriptionModeAvailable(.localWhisper) else { return }
             useLocalTranscription = true
             realtimeStreamingEnabled = false
             if localTranscriptionModel.isAppleSpeech,
