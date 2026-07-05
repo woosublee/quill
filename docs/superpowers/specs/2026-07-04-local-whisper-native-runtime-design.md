@@ -120,7 +120,7 @@ struct NativeWhisperModel: Identifiable, Equatable, Codable {
     let downloadURL: URL
     let expectedFileName: String
     let approximateBytes: Int64
-    let checksumSHA256: String?
+    let checksumSHA256: String
 }
 ```
 
@@ -153,7 +153,7 @@ Responsibilities:
 - return the expected final model path;
 - return a temporary partial-download path;
 - detect installed, missing, partial, and corrupt states;
-- verify expected size and checksum when available;
+- verify expected size and required checksum;
 - safely delete a model;
 - avoid touching non-Quill-owned Hugging Face caches.
 
@@ -251,7 +251,7 @@ Do not silently fall back from native Whisper to legacy `mlx_whisper` unless the
 
 The first native path supports Quill-recorded audio only.
 
-The runner should receive an audio file produced by Quill's recording pipeline. If the recording format is not already compatible with the selected whisper.cpp runner, add a small Quill-controlled conversion step for recordings only, preferably using AVFoundation or by adjusting the recording output format.
+The runner should receive an audio file produced by Quill's recording pipeline. Require the recording pipeline to emit a whisper.cpp-compatible WAV/PCM format for phase 1. Defer any conversion work to a separate follow-up.
 
 External imports remain on the existing supported path until a later phase decides how to handle decoding/conversion.
 

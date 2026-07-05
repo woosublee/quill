@@ -152,11 +152,12 @@ class TranscriptionService {
             throw TranscriptionError.submissionFailed("Local Whisper is not installed yet. Install the recommended model to use local transcription.")
         }
         do {
-            return try await NativeWhisperRuntime().transcribe(
+            let transcript = try await NativeWhisperRuntime().transcribe(
                 audioURL: fileURL,
                 modelURL: store.modelURL(for: model),
                 languageCode: transcriptionLanguage.whisperArgument
             )
+            return normalizedTranscriptText(transcript)
         } catch let error as NativeWhisperRuntimeError {
             let userMessage = error.localizedDescription
             throw TranscriptionError.submissionFailed("\(userMessage)\n\nDetails: \(error.technicalDetails)")

@@ -92,8 +92,16 @@ struct NativeWhisperRuntime {
             process.standardOutput = stdout
             process.standardError = stderr
 
-            let processLock = NSLock()
-            try process.run()
+            let processState = ProcessCancellationState(process: process)
+            let exitObserver = ProcessExitObserver()
+            process.terminationHandler = { _ in
+                exitObserver.processDidExit()
+            }
+            try await withTaskCancellationHandler {
+                try processState.run()
+            } onCancel: {
+                processState.terminateIfRunning()
+            }
             let stdoutReader = Task.detached {
                 String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             }
@@ -101,13 +109,9 @@ struct NativeWhisperRuntime {
                 String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             }
             await withTaskCancellationHandler {
-                process.waitUntilExit()
+                await exitObserver.wait()
             } onCancel: {
-                processLock.lock()
-                if process.isRunning {
-                    process.terminate()
-                }
-                processLock.unlock()
+                processState.terminateIfRunning()
             }
             try Task.checkCancellation()
 
@@ -138,6 +142,61 @@ struct NativeWhisperRuntime {
         Int64((try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
     }
 
+    private final class ProcessCancellationState: @unchecked Sendable {
+        private let lock = NSLock()
+        private let process: Process
+
+        init(process: Process) {
+            self.process = process
+        }
+
+        func run() throws {
+            lock.lock()
+            defer { lock.unlock() }
+            try Task.checkCancellation()
+            try process.run()
+        }
+
+        func terminateIfRunning() {
+            lock.lock()
+            defer { lock.unlock() }
+            if process.isRunning {
+                process.terminate()
+            }
+        }
+    }
+
+    private final class ProcessExitObserver {
+        private let lock = NSLock()
+        private var didExit = false
+        private var continuation: CheckedContinuation<Void, Never>?
+
+        func wait() async {
+            await withCheckedContinuation { continuation in
+                let continuationToResume: CheckedContinuation<Void, Never>?
+                lock.lock()
+                if didExit {
+                    continuationToResume = continuation
+                } else {
+                    self.continuation = continuation
+                    continuationToResume = nil
+                }
+                lock.unlock()
+                continuationToResume?.resume()
+            }
+        }
+
+        func processDidExit() {
+            let continuationToResume: CheckedContinuation<Void, Never>?
+            lock.lock()
+            didExit = true
+            continuationToResume = continuation
+            continuation = nil
+            lock.unlock()
+            continuationToResume?.resume()
+        }
+    }
+
     private static func transcriptFromJSON(at url: URL) -> String? {
         guard let data = try? Data(contentsOf: url),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -157,7 +216,7 @@ struct NativeWhisperRuntime {
         text
             .split(separator: "\n")
             .map { line in
-                line.replacingOccurrences(of: #"^\[[^\]]+\]\s*"#, with: "", options: .regularExpression)
+                String(line).replacingOccurrences(of: #"^\[[^\]]+\]\s*"#, with: "", options: .regularExpression)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
             }
             .filter { !$0.isEmpty }

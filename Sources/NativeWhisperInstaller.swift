@@ -8,6 +8,7 @@ enum NativeWhisperInstallerError: LocalizedError, Equatable {
     case downloadFailed(String)
     case verificationFailed(String)
     case moveFailed(String)
+    case alreadyInProgress
 
     var errorDescription: String? {
         switch self {
@@ -19,6 +20,8 @@ enum NativeWhisperInstallerError: LocalizedError, Equatable {
             return "Could not verify the Local Whisper model. Try downloading it again."
         case .moveFailed:
             return "Could not finish installing Local Whisper."
+        case .alreadyInProgress:
+            return "Local Whisper is already being installed."
         }
     }
 }
@@ -66,6 +69,8 @@ struct NativeWhisperInstaller {
     let store: NativeWhisperModelStore
     let download: DownloadFunction
     private let queue: DispatchQueue
+    private static let inFlightLock = NSLock()
+    private static var inFlightInstallKeys: Set<String> = []
 
     init(
         store: NativeWhisperModelStore = NativeWhisperModelStore(),
@@ -84,11 +89,31 @@ struct NativeWhisperInstaller {
         completion: @escaping (Result<Void, NativeWhisperInstallerError>) -> Void
     ) -> NativeWhisperInstallTask {
         let task = NativeWhisperInstallTask()
+        let installKey = store.modelURL(for: model).path
+        guard Self.beginInstall(key: installKey) else {
+            completion(.failure(.alreadyInProgress))
+            return task
+        }
         queue.async {
             let result = performInstall(model: model, progress: progress, task: task)
+            Self.endInstall(key: installKey)
             completion(result)
         }
         return task
+    }
+
+    private static func beginInstall(key: String) -> Bool {
+        inFlightLock.lock()
+        defer { inFlightLock.unlock() }
+        guard !inFlightInstallKeys.contains(key) else { return false }
+        inFlightInstallKeys.insert(key)
+        return true
+    }
+
+    private static func endInstall(key: String) {
+        inFlightLock.lock()
+        inFlightInstallKeys.remove(key)
+        inFlightLock.unlock()
     }
 
     private func performInstall(
@@ -116,7 +141,7 @@ struct NativeWhisperInstaller {
             }
             do {
                 if store.fileManager.fileExists(atPath: final.path) {
-                    _ = try store.fileManager.replaceItemAt(final, withItemAt: partial)
+                    _ = try store.fileManager.replaceItemAt(final, withItemAt: partial, backupItemName: nil, options: [])
                 } else {
                     try store.fileManager.moveItem(at: partial, to: final)
                 }
@@ -173,7 +198,16 @@ private final class URLSessionStreamingDownloader: NSObject, URLSessionDataDeleg
 
     func download(from source: URL) throws {
         try Data().write(to: destination)
-        fileHandle = try FileHandle(forWritingTo: destination)
+        do {
+            fileHandle = try FileHandle(forWritingTo: destination)
+        } catch {
+            try? FileManager.default.removeItem(at: destination)
+            throw error
+        }
+        defer {
+            try? fileHandle?.close()
+            fileHandle = nil
+        }
 
         let configuration = URLSessionConfiguration.default
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
@@ -191,8 +225,6 @@ private final class URLSessionStreamingDownloader: NSObject, URLSessionDataDeleg
 
         semaphore.wait()
         installTask.setCancellationHandler(nil)
-        try fileHandle?.close()
-        fileHandle = nil
         session.invalidateAndCancel()
         try result.get()
     }
@@ -228,6 +260,7 @@ private final class URLSessionStreamingDownloader: NSObject, URLSessionDataDeleg
             progress(NativeWhisperDownloadProgress(downloadedBytes: downloadedBytes, totalBytes: totalBytes))
         } catch {
             result = .failure(NativeWhisperInstallerError.downloadFailed(error.localizedDescription))
+            preserveCompletionFailure = true
             dataTask.cancel()
         }
     }

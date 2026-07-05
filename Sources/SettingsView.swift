@@ -3764,16 +3764,16 @@ struct NativeWhisperModelRowView: View {
                         .controlSize(.small)
                         .opacity(isHoveringDownloadProgress ? 0.25 : 1)
                 }
-                if isHoveringDownloadProgress {
-                    Button {
-                        appState.cancelNativeWhisperInstall()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 8, weight: .bold))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+                Button {
+                    appState.cancelNativeWhisperInstall()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .opacity(isHoveringDownloadProgress ? 1 : 0.001)
+                .accessibilityLabel("Cancel Local Whisper download")
             }
             .frame(width: 24, height: 24)
             .contentShape(Circle())

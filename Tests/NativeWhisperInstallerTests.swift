@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 @main
@@ -8,6 +9,7 @@ struct NativeWhisperInstallerTests {
         try testCancelPreventsReadyInstall()
         try testProgressCanBeReportedBeforeDownloadCompletes()
         try testCancelInvokesDownloaderCancellationHandler()
+        try testConcurrentInstallForSameModelIsRejected()
         try testInvalidDownloadedModelPreservesExistingFinalModel()
         print("NativeWhisperInstallerTests passed")
     }
@@ -16,12 +18,13 @@ struct NativeWhisperInstallerTests {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let store = NativeWhisperModelStore(rootDirectory: root)
-        let model = testModel(approximateBytes: 12)
+        let data = Data(repeating: 3, count: 12)
+        let model = testModel(approximateBytes: 12, checksumSHA256: sha256HexDigest(for: data))
         var progressValues: [NativeWhisperDownloadProgress] = []
         let completion = CompletionWaiter<Void, NativeWhisperInstallerError>()
         let installer = NativeWhisperInstaller(store: store) { _, destination, progress, task in
             assert(!task.isCancelled)
-            try Data(repeating: 3, count: 12).write(to: destination)
+            try data.write(to: destination)
             progress(NativeWhisperDownloadProgress(downloadedBytes: 12, totalBytes: 12))
         }
 
@@ -83,7 +86,8 @@ struct NativeWhisperInstallerTests {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let store = NativeWhisperModelStore(rootDirectory: root)
-        let model = testModel(approximateBytes: 6)
+        let finalData = Data([1, 2, 3, 4, 5, 6])
+        let model = testModel(approximateBytes: 6, checksumSHA256: sha256HexDigest(for: finalData))
         var progressValues: [NativeWhisperDownloadProgress] = []
         let completion = CompletionWaiter<Void, NativeWhisperInstallerError>()
         let firstChunkWritten = DispatchSemaphore(value: 0)
@@ -93,7 +97,7 @@ struct NativeWhisperInstallerTests {
             progress(NativeWhisperDownloadProgress(downloadedBytes: 3, totalBytes: 6))
             firstChunkWritten.signal()
             _ = finishDownload.wait(timeout: .now() + 2)
-            try Data([1, 2, 3, 4, 5, 6]).write(to: destination)
+            try finalData.write(to: destination)
             progress(NativeWhisperDownloadProgress(downloadedBytes: 6, totalBytes: 6))
         }
 
@@ -138,6 +142,36 @@ struct NativeWhisperInstallerTests {
         assert(!FileManager.default.fileExists(atPath: store.partialModelURL(for: model).path))
     }
 
+    private static func testConcurrentInstallForSameModelIsRejected() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = NativeWhisperModelStore(rootDirectory: root)
+        let data = Data(repeating: 4, count: 12)
+        let model = testModel(approximateBytes: 12, checksumSHA256: sha256HexDigest(for: data))
+        let firstStarted = DispatchSemaphore(value: 0)
+        let finishFirst = DispatchSemaphore(value: 0)
+        let firstCompletion = CompletionWaiter<Void, NativeWhisperInstallerError>()
+        let secondCompletion = CompletionWaiter<Void, NativeWhisperInstallerError>()
+        let firstInstaller = NativeWhisperInstaller(store: store) { _, destination, _, _ in
+            firstStarted.signal()
+            _ = finishFirst.wait(timeout: .now() + 2)
+            try data.write(to: destination)
+        }
+        let secondInstaller = NativeWhisperInstaller(store: store) { _, _, _, _ in
+            throw NativeWhisperInstallerError.downloadFailed("second install should not start")
+        }
+
+        _ = firstInstaller.install(model: model, progress: { _ in }) { firstCompletion.complete($0) }
+        guard firstStarted.wait(timeout: .now() + 2) == .success else {
+            throw TestFailure(message: "Timed out waiting for first install")
+        }
+        _ = secondInstaller.install(model: model, progress: { _ in }) { secondCompletion.complete($0) }
+
+        assertResultFailed(try secondCompletion.wait(), .alreadyInProgress)
+        finishFirst.signal()
+        assertResultSucceeded(try firstCompletion.wait())
+    }
+
     private static func testInvalidDownloadedModelPreservesExistingFinalModel() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -169,7 +203,7 @@ struct NativeWhisperInstallerTests {
         assert(!FileManager.default.fileExists(atPath: partialDirectory.path))
     }
 
-    private static func testModel(approximateBytes: Int64) -> NativeWhisperModel {
+    private static func testModel(approximateBytes: Int64, checksumSHA256: String) -> NativeWhisperModel {
         NativeWhisperModel(
             id: "test-model-\(approximateBytes)",
             displayName: "Test Model",
@@ -177,8 +211,12 @@ struct NativeWhisperInstallerTests {
             downloadURL: URL(string: "https://example.com/test-model.bin")!,
             expectedFileName: "test-model-\(approximateBytes).bin",
             approximateBytes: approximateBytes,
-            checksumSHA256: nil
+            checksumSHA256: checksumSHA256
         )
+    }
+
+    private static func sha256HexDigest(for data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     private static func assertResultSucceeded(_ result: Result<Void, NativeWhisperInstallerError>) {
