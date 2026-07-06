@@ -7,6 +7,7 @@ struct AudioImportConversionServiceTests {
         try await testCompatibleWAVReturnsOriginalURL()
         try await testReadableNonNativeWAVConvertsToNativeWhisperShape()
         try await testInvalidAudioThrowsReadableLocalConversionError()
+        try await testCancellationCancelsWorkerConversionTask()
         print("AudioImportConversionServiceTests passed")
     }
 
@@ -69,6 +70,41 @@ struct AudioImportConversionServiceTests {
         } catch {
             throw TestFailure("expected unreadableAudio, got \(error)")
         }
+    }
+
+    private static func testCancellationCancelsWorkerConversionTask() async throws {
+        let sourceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("quill-cancellable-import-\(ProcessInfo.processInfo.globallyUniqueString)")
+            .appendingPathExtension("mp3")
+        try Data("placeholder audio that forces injected conversion".utf8).write(to: sourceURL)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+
+        let workerStarted = ThreadSignal()
+        let workerCancelled = ThreadSignal()
+        let service = AudioImportConversionService { _ in
+            workerStarted.signal()
+            while !Task.isCancelled {
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+            workerCancelled.signal()
+            throw CancellationError()
+        }
+
+        let task = Task {
+            try await service.prepareForNativeWhisper(sourceURL)
+        }
+        try await workerStarted.wait()
+        task.cancel()
+
+        do {
+            _ = try await task.value
+            throw TestFailure("cancelled preparation should throw CancellationError")
+        } catch is CancellationError {
+        } catch {
+            throw TestFailure("expected CancellationError, got \(error)")
+        }
+
+        try await workerCancelled.wait()
     }
 
     private static func writeTinyNativeWAV(samples: [Int16]) throws -> URL {
@@ -142,11 +178,41 @@ struct AudioImportConversionServiceTests {
         }
     }
 
-    private struct TestFailure: Error, CustomStringConvertible {
+    fileprivate struct TestFailure: Error, CustomStringConvertible {
         let description: String
 
         init(_ description: String) {
             self.description = description
+        }
+    }
+}
+
+private final class ThreadSignal: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var signaled = false
+
+    func signal() {
+        condition.lock()
+        signaled = true
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    func wait() async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            Thread {
+                let deadline = Date().addingTimeInterval(1)
+                self.condition.lock()
+                defer { self.condition.unlock() }
+
+                while !self.signaled {
+                    if !self.condition.wait(until: deadline) {
+                        continuation.resume(throwing: AudioImportConversionServiceTests.TestFailure("timed out waiting for worker conversion task cancellation"))
+                        return
+                    }
+                }
+                continuation.resume()
+            }.start()
         }
     }
 }

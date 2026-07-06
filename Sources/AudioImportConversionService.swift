@@ -37,16 +37,32 @@ struct AudioImportConversionService {
     private static let targetSampleRate: Double = 16_000
     private static let targetChannelCount: AVAudioChannelCount = 1
 
+    private let convert: (@Sendable (URL) throws -> PreparedNativeWhisperAudio)?
+
+    init(convert: (@Sendable (URL) throws -> PreparedNativeWhisperAudio)? = nil) {
+        self.convert = convert
+    }
+
     func prepareForNativeWhisper(_ sourceURL: URL) async throws -> PreparedNativeWhisperAudio {
         try Task.checkCancellation()
         if Self.isNativeWhisperCompatibleWAV(sourceURL) {
             return PreparedNativeWhisperAudio(fileURL: sourceURL)
         }
 
-        return try await Task.detached(priority: .userInitiated) {
+        let convert = self.convert
+        let conversionTask = Task.detached(priority: .userInitiated) {
             try Task.checkCancellation()
+            if let convert {
+                return try convert(sourceURL)
+            }
             return try Self.convertToNativeWhisperWAV(sourceURL)
-        }.value
+        }
+
+        return try await withTaskCancellationHandler {
+            try await conversionTask.value
+        } onCancel: {
+            conversionTask.cancel()
+        }
     }
 
     private static func isNativeWhisperCompatibleWAV(_ url: URL) -> Bool {
