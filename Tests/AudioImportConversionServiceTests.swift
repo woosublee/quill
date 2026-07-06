@@ -16,9 +16,9 @@ struct AudioImportConversionServiceTests {
         defer { try? FileManager.default.removeItem(at: sourceURL) }
 
         let prepared = try await AudioImportConversionService().prepareForNativeWhisper(sourceURL)
-        defer { prepared.cleanup() }
 
         try expectEqual(prepared.fileURL.standardizedFileURL, sourceURL.standardizedFileURL, "compatible WAV should be reused")
+        prepared.cleanup()
         guard FileManager.default.fileExists(atPath: sourceURL.path) else {
             throw TestFailure("cleanup must not remove the original compatible WAV")
         }

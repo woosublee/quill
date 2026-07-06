@@ -72,7 +72,6 @@ struct AudioImportConversionService {
         return abs(format.sampleRate - targetSampleRate) < 0.5
             && format.channelCount == targetChannelCount
             && format.commonFormat == .pcmFormatInt16
-            && format.isInterleaved
     }
 
     private static func convertToNativeWhisperWAV(_ sourceURL: URL) throws -> PreparedNativeWhisperAudio {

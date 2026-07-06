@@ -1851,7 +1851,6 @@ struct ModelsSettingsView: View {
 
     private func validateAndSaveKey() {
         let key = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        apiKeyInput = key
         keyValidationError = nil
         keyValidationSuccess = false
         if key.isEmpty {
