@@ -348,9 +348,7 @@ private struct AudioImportSheet: View {
                                         .font(.system(size: 10))
                                         .foregroundStyle(.tertiary)
                                 } else if mode == .localWhisper && !isSupported {
-                                    Text(appState.useLegacyMlxWhisper
-                                        ? "Install a legacy mlx-whisper model to import locally"
-                                        : "Install the native Local Whisper model to import locally")
+                                    Text(importRequest.options.localWhisperUnavailableReason)
                                         .font(.system(size: 10))
                                         .foregroundStyle(.tertiary)
                                 }

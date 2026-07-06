@@ -11,6 +11,9 @@ struct AudioImportOptions {
     static let broadlySupportedExtensions: Set<String> = [
         "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"
     ]
+    static let nativeLocalWhisperExtensions: Set<String> = [
+        "mp3", "mp4", "mpeg", "mpga", "m4a", "wav"
+    ]
     static let apiUploadLimitBytes: Int64 = 25_000_000
 
     static func storageExtension(for fileName: String) -> String {
@@ -52,6 +55,18 @@ struct AudioImportOptions {
         return "API transcription is unavailable"
     }
 
+    var localWhisperUnavailableReason: String {
+        let normalizedExtension = fileExtension.lowercased()
+        if Self.broadlySupportedExtensions.contains(normalizedExtension),
+           !Self.nativeLocalWhisperExtensions.contains(normalizedExtension) {
+            return "Local Whisper supports MP3, MP4, M4A, MPEG, MPGA, and WAV imports"
+        }
+        if !hasLocalWhisperModel {
+            return "Install the native Local Whisper model to import locally"
+        }
+        return "Local Whisper is unavailable for this file"
+    }
+
     var supportedModes: [NoteBrowserTranscriptionMode] {
         let normalizedExtension = fileExtension.lowercased()
         guard Self.broadlySupportedExtensions.contains(normalizedExtension) else { return [] }
@@ -60,7 +75,7 @@ struct AudioImportOptions {
         if hasAPIKey, fileSizeBytes.map({ $0 <= Self.apiUploadLimitBytes }) ?? true {
             modes.append(.apiStandard)
         }
-        if hasLocalWhisperModel {
+        if hasLocalWhisperModel, Self.nativeLocalWhisperExtensions.contains(normalizedExtension) {
             modes.append(.localWhisper)
         }
         return modes
