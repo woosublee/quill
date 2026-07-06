@@ -29,6 +29,7 @@ struct AppStateTranscriptionConfigurationTests {
         testStoppedTranscriptionCompletionSummaryHidesFallbackIndicatorForEmptyRawFallback()
         testStoppedTranscriptionSettingsSnapshotCapturesHistoryMetadata()
         try testAppStateCreatedTranscriptionServicesPassLegacyMlxWhisperToggle()
+        try testNativeWhisperPreparesAudioBeforeRuntime()
         try testNoteBrowserTranscriptionMenuUsesFlatNativeCheckedItems()
         await testAPITranscriptionModesRequireResolvedAPIKey()
         try testSettingsAPIProviderTabDoesNotForceUnavailableAPIMode()
@@ -456,6 +457,20 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(retryBody.contains("useLegacyMlxWhisper: snapshot.useLegacyMlxWhisper,"))
         precondition(stoppedRecordingBody.contains("let capturedUseLegacyMlxWhisper = useLegacyMlxWhisper"))
         precondition(stoppedRecordingBody.contains("useLegacyMlxWhisper: capturedUseLegacyMlxWhisper,"))
+    }
+
+    private static func testNativeWhisperPreparesAudioBeforeRuntime() throws {
+        let source = try String(contentsOfFile: "Sources/TranscriptionService.swift", encoding: .utf8)
+        let nativeBody = sourceBlock(
+            in: source,
+            from: "private func transcribeWithNativeWhisper(fileURL: URL)",
+            to: "    // Run mlx_whisper locally"
+        )
+
+        precondition(nativeBody.contains("let preparedAudio = try await AudioImportConversionService().prepareForNativeWhisper(fileURL)"))
+        precondition(nativeBody.contains("defer { preparedAudio.cleanup() }"))
+        precondition(nativeBody.contains("audioURL: preparedAudio.fileURL"))
+        precondition(!nativeBody.contains("audioURL: fileURL"))
     }
 
     private static func testNoteBrowserTranscriptionMenuUsesFlatNativeCheckedItems() throws {
