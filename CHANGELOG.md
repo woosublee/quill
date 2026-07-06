@@ -8,6 +8,15 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.18] - 2026-07-06
+
+### Improved
+
+- Native Local Whisper now supports compatible audio imports by preparing selected files for the bundled whisper.cpp runtime.
+- Audio import keeps API-compatible formats selectable while only offering Local Whisper for formats the native runtime can handle.
+- Local Whisper imports now fail faster when the bundled runner or model is unavailable, before converting audio.
+- The global API key field in Settings can now be cleared after a key has been saved.
+
 ## [0.1.17] - 2026-07-06
 
 ### Added
