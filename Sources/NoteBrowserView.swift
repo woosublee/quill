@@ -348,7 +348,7 @@ private struct AudioImportSheet: View {
                                         .font(.system(size: 10))
                                         .foregroundStyle(.tertiary)
                                 } else if mode == .localWhisper && !isSupported {
-                                    Text("Imported audio uses API unless legacy mlx-whisper is enabled")
+                                    Text(importRequest.options.localWhisperUnavailableReason)
                                         .font(.system(size: 10))
                                         .foregroundStyle(.tertiary)
                                 }
@@ -689,7 +689,7 @@ struct NoteBrowserView: View {
                 fileURL: url,
                 currentMode: appState.currentNoteBrowserTranscriptionMode,
                 hasAPIKey: appState.hasTranscriptionAPIKey,
-                hasLocalWhisperModel: appState.useLegacyMlxWhisper && appState.hasLegacyLocalWhisperModel
+                hasLocalWhisperModel: appState.hasInstalledLocalWhisperModel
             )
         }
     }

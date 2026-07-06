@@ -9,6 +9,7 @@ struct NativeWhisperRuntimeTests {
         try await testRuntimeRejectsMissingRunner()
         try await testRuntimeRejectsMissingModel()
         try await testRuntimeRejectsMissingAudio()
+        try testRuntimePreflightsRunnerAndModel()
         try await testRuntimeReportsNonZeroExitWithTailDetails()
         try await testRuntimeTerminatesHelperOnCancellation()
         print("NativeWhisperRuntimeTests passed")
@@ -117,6 +118,31 @@ struct NativeWhisperRuntimeTests {
             assertionFailure("Expected missing audio error")
         } catch let error as NativeWhisperRuntimeError {
             assert(error == .audioNotReadable(root.appendingPathComponent("missing.wav").path))
+        }
+    }
+
+    private static func testRuntimePreflightsRunnerAndModel() throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let helper = try writeHelper(root: root, body: "#!/bin/sh\necho should-not-run\n")
+        let model = try writeFile(root.appendingPathComponent("model.bin"), data: Data([1]))
+        let runtime = NativeWhisperRuntime(runnerURL: helper)
+
+        try runtime.validateRunnerAndModel(modelURL: model)
+
+        do {
+            try NativeWhisperRuntime(runnerURL: root.appendingPathComponent("missing-helper"))
+                .validateRunnerAndModel(modelURL: model)
+            assertionFailure("Expected missing runner error")
+        } catch let error as NativeWhisperRuntimeError {
+            assert(error == .runnerNotFound(root.appendingPathComponent("missing-helper").path))
+        }
+
+        do {
+            try runtime.validateRunnerAndModel(modelURL: root.appendingPathComponent("missing.bin"))
+            assertionFailure("Expected missing model error")
+        } catch let error as NativeWhisperRuntimeError {
+            assert(error == .modelNotFound(root.appendingPathComponent("missing.bin").path))
         }
     }
 

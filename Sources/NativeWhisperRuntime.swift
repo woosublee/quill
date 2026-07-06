@@ -49,17 +49,19 @@ struct NativeWhisperRuntime {
         bundle.url(forResource: "whisper-cli", withExtension: nil, subdirectory: "whisper")
     }
 
+    func validateRunnerAndModel(modelURL: URL) throws {
+        guard fileManager.isExecutableFile(atPath: runnerURL.path) else {
+            throw NativeWhisperRuntimeError.runnerNotFound(runnerURL.path)
+        }
+        guard fileManager.fileExists(atPath: modelURL.path), fileManager.isReadableFile(atPath: modelURL.path) else {
+            throw NativeWhisperRuntimeError.modelNotFound(modelURL.path)
+        }
+    }
+
     func transcribe(audioURL: URL, modelURL: URL, languageCode: String?) async throws -> String {
         let worker = Task.detached(priority: .userInitiated) {
-            guard fileManager.isExecutableFile(atPath: runnerURL.path) else {
-                throw NativeWhisperRuntimeError.runnerNotFound(runnerURL.path)
-            }
-            guard fileManager.fileExists(atPath: modelURL.path) else {
-                throw NativeWhisperRuntimeError.modelNotFound(modelURL.path)
-            }
-            guard fileManager.isReadableFile(atPath: audioURL.path), fileSize(at: audioURL) > 0 else {
-                throw NativeWhisperRuntimeError.audioNotReadable(audioURL.path)
-            }
+            try validateRunnerAndModel(modelURL: modelURL)
+            try validateAudio(at: audioURL)
 
             let outputBase = fileManager.temporaryDirectory
                 .appendingPathComponent("quill-native-whisper-\(UUID().uuidString)")
@@ -135,6 +137,12 @@ struct NativeWhisperRuntime {
             try await worker.value
         } onCancel: {
             worker.cancel()
+        }
+    }
+
+    private func validateAudio(at url: URL) throws {
+        guard fileManager.isReadableFile(atPath: url.path), fileSize(at: url) > 0 else {
+            throw NativeWhisperRuntimeError.audioNotReadable(url.path)
         }
     }
 

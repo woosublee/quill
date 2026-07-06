@@ -29,9 +29,14 @@ struct AppStateTranscriptionConfigurationTests {
         testStoppedTranscriptionCompletionSummaryHidesFallbackIndicatorForEmptyRawFallback()
         testStoppedTranscriptionSettingsSnapshotCapturesHistoryMetadata()
         try testAppStateCreatedTranscriptionServicesPassLegacyMlxWhisperToggle()
+        try testNativeWhisperPreparesAudioBeforeRuntime()
         try testNoteBrowserTranscriptionMenuUsesFlatNativeCheckedItems()
+        try testAudioImportConfigurationUsesLocalWhisperWithoutNativeFlag()
+        try testInitialAudioImportUsesLocalWhisperConfiguration()
+        try testAudioImportSheetUsesAudioImportOptionsLocalWhisperReason()
         await testAPITranscriptionModesRequireResolvedAPIKey()
         try testSettingsAPIProviderTabDoesNotForceUnavailableAPIMode()
+        try testSettingsGlobalAPIKeyCanBeCleared()
         await testTranscriptionAPIKeyEnablesAPIModesWithoutGlobalAPIKey()
         await testEmptyTranscriptionAPIKeyFallsBackToGlobalAPIKey()
         await testRemovingAPIKeyNormalizesSelectedAPIMode()
@@ -458,6 +463,27 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(stoppedRecordingBody.contains("useLegacyMlxWhisper: capturedUseLegacyMlxWhisper,"))
     }
 
+    private static func testNativeWhisperPreparesAudioBeforeRuntime() throws {
+        let source = try String(contentsOfFile: "Sources/TranscriptionService.swift", encoding: .utf8)
+        let nativeBody = sourceBlock(
+            in: source,
+            from: "private func transcribeWithNativeWhisper(fileURL: URL)",
+            to: "    // Run mlx_whisper locally"
+        )
+        guard let preflightRange = nativeBody.range(of: "try runtime.validateRunnerAndModel(modelURL: modelURL)"),
+              let conversionRange = nativeBody.range(of: "let preparedAudio = try await AudioImportConversionService().prepareForNativeWhisper(fileURL)") else {
+            preconditionFailure("Expected native Whisper preflight before audio conversion")
+        }
+
+        precondition(preflightRange.lowerBound < conversionRange.lowerBound)
+        precondition(nativeBody.contains("let runtime = NativeWhisperRuntime()"))
+        precondition(nativeBody.contains("let modelURL = store.modelURL(for: model)"))
+        precondition(nativeBody.contains("defer { preparedAudio.cleanup() }"))
+        precondition(nativeBody.contains("audioURL: preparedAudio.fileURL"))
+        precondition(nativeBody.contains("modelURL: modelURL"))
+        precondition(!nativeBody.contains("audioURL: fileURL"))
+    }
+
     private static func testNoteBrowserTranscriptionMenuUsesFlatNativeCheckedItems() throws {
         let source = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
         guard let itemStart = source.range(of: "private func transcriptionModeMenuItem")?.lowerBound,
@@ -476,6 +502,61 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(menuItemSource.contains(".disabled(!appState.isNoteBrowserTranscriptionModeAvailable(mode))"))
         precondition(!menuItemSource.contains("Picker(\"Transcription\", selection:"))
         precondition(!menuItemSource.contains("Image(systemName: \"checkmark\")"))
+    }
+
+    private static func testAudioImportConfigurationUsesLocalWhisperWithoutNativeFlag() throws {
+        let appStateSource = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let configurationBody = sourceBlock(
+            in: appStateSource,
+            from: "func audioImportConfiguration(",
+            to: "\n\n    func isNoteBrowserTranscriptionModeAvailable"
+        )
+
+        let localWhisperBranch = sourceBlock(
+            in: configurationBody,
+            from: "case .localWhisper, .localAppleLive:",
+            to: "        }\n    }"
+        )
+
+        precondition(!appStateSource.contains("allowsNativeWhisper"))
+        precondition(!localWhisperBranch.contains("useLegacyMlxWhisper else"))
+        precondition(!localWhisperBranch.contains("mode: .apiStandard"))
+        precondition(localWhisperBranch.contains("mode: .localWhisper"))
+        precondition(localWhisperBranch.contains("useLocalTranscription: true"))
+    }
+
+    private static func testInitialAudioImportUsesLocalWhisperConfiguration() throws {
+        let appStateSource = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let importBody = sourceBlock(
+            in: appStateSource,
+            from: "func importAudioFile(_ fileURL: URL, mode: NoteBrowserTranscriptionMode)",
+            to: "\n    @MainActor\n    func retryTranscription"
+        )
+        precondition(importBody.contains("transcriptionConfiguration: audioImportConfiguration(for: mode)"))
+        precondition(!importBody.contains("allowsNativeWhisper"))
+
+        let noteBrowserSource = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+        let pickerBody = sourceBlock(
+            in: noteBrowserSource,
+            from: "private func showAudioImportPicker()",
+            to: "\n    private var emptyListState"
+        )
+        precondition(pickerBody.contains("hasLocalWhisperModel: appState.hasInstalledLocalWhisperModel"))
+        precondition(!pickerBody.contains("appState.useLegacyMlxWhisper && appState.hasLegacyLocalWhisperModel"))
+    }
+
+    private static func testAudioImportSheetUsesAudioImportOptionsLocalWhisperReason() throws {
+        let source = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+        let sheetBody = sourceBlock(
+            in: source,
+            from: "private struct AudioImportSheet",
+            to: "private func transcriptionModeMenuItem"
+        )
+
+        precondition(sheetBody.contains("Text(importRequest.options.localWhisperUnavailableReason)"))
+        precondition(!sheetBody.contains("appState.useLegacyMlxWhisper"))
+        precondition(!sheetBody.contains("Install a legacy mlx-whisper model to import locally"))
+        precondition(!sheetBody.contains("Imported audio uses API unless legacy mlx-whisper is enabled"))
     }
 
     private static func testAPITranscriptionModesRequireResolvedAPIKey() async {
@@ -518,6 +599,31 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(!transcriptionSection.contains("selection: $appState.useLocalTranscription"))
         precondition(saveKeyBody.contains("if !showingLocalTranscriptionSettings"))
         precondition(saveKeyBody.contains("appState.setNoteBrowserTranscriptionMode(.apiStandard)"))
+    }
+
+    private static func testSettingsGlobalAPIKeyCanBeCleared() throws {
+        let source = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
+        let providerSection = sourceBlock(
+            in: source,
+            from: "private var apiProviderTranscriptionSettings: some View",
+            to: "\n    private var languageSettings"
+        )
+        let saveKeyBody = sourceBlock(
+            in: source,
+            from: "private func validateAndSaveKey()",
+            to: "\n    // MARK: System Prompt"
+        )
+        guard let emptyKeyRange = saveKeyBody.range(of: "if key.isEmpty"),
+              let validationRange = saveKeyBody.range(of: "TranscriptionService.validateAPIKey") else {
+            preconditionFailure("Expected global API key clear branch before validation")
+        }
+
+        precondition(emptyKeyRange.lowerBound < validationRange.lowerBound)
+        precondition(saveKeyBody.contains("appState.apiKey = \"\""))
+        precondition(saveKeyBody.contains("keyValidationSuccess = true"))
+        precondition(providerSection.contains(".disabled(isValidatingKey)"))
+        precondition(!providerSection.contains(".disabled(apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isValidatingKey)"))
+        precondition(providerSection.contains("API key cleared"))
     }
 
     private static func testTranscriptionAPIKeyEnablesAPIModesWithoutGlobalAPIKey() async {

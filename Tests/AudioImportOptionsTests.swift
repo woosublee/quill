@@ -13,6 +13,7 @@ struct AudioImportOptionsTests {
         testImportedAudioContextSummaryIsEmpty()
         testAPIStandardDisabledAboveTwentyFiveMegabytes()
         testLocalWhisperStillEnabledAboveTwentyFiveMegabytes()
+        testNativeLocalWhisperDoesNotSupportWebMImport()
         print("AudioImportOptionsTests passed")
     }
 
@@ -27,7 +28,7 @@ struct AudioImportOptionsTests {
         assert(options.defaultMode == .apiStandard)
         assert(options.supportedModes.contains(.apiStandard))
         assert(!options.supportedModes.contains(.apiRealtime))
-        assert(options.supportedModes.contains(.localWhisper))
+        assert(!options.supportedModes.contains(.localWhisper))
         assert(!options.supportedModes.contains(.localAppleLive))
     }
 
@@ -115,5 +116,19 @@ struct AudioImportOptionsTests {
         )
 
         assert(options.supportedModes.contains(.localWhisper))
+    }
+
+    private static func testNativeLocalWhisperDoesNotSupportWebMImport() {
+        let options = AudioImportOptions(
+            fileExtension: "webm",
+            currentMode: .localWhisper,
+            hasAPIKey: false,
+            hasLocalWhisperModel: true
+        )
+
+        assert(!options.supportedModes.contains(.apiStandard))
+        assert(!options.supportedModes.contains(.localWhisper))
+        assert(options.defaultMode == nil)
+        assert(options.localWhisperUnavailableReason == "Local Whisper supports MP3, MP4, M4A, MPEG, MPGA, and WAV imports")
     }
 }

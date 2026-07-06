@@ -299,6 +299,8 @@ test: $(SPARKLE_STAMP)
 	@/tmp/SystemDefaultAndSystemAudioRecorderSourceTests
 	@swiftc -parse-as-library "$(CURDIR)/Sources/AudioMixdownService.swift" "$(CURDIR)/Tests/AudioMixdownServiceTests.swift" -o /tmp/AudioMixdownServiceTests
 	@/tmp/AudioMixdownServiceTests
+	@swiftc -parse-as-library "$(CURDIR)/Sources/AudioImportConversionService.swift" "$(CURDIR)/Tests/AudioImportConversionServiceTests.swift" -o /tmp/AudioImportConversionServiceTests
+	@/tmp/AudioImportConversionServiceTests
 	@swiftc -parse-as-library Sources/AudioWaveformHeights.swift Tests/AudioWaveformHeightsTests.swift -o /tmp/AudioWaveformHeightsTests
 	@/tmp/AudioWaveformHeightsTests
 	@swiftc -parse-as-library Tests/SystemAudioAppStateRoutingTests.swift -o /tmp/SystemAudioAppStateRoutingTests
