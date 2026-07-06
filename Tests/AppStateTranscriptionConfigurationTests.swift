@@ -36,6 +36,7 @@ struct AppStateTranscriptionConfigurationTests {
         try testAudioImportSheetUsesAudioImportOptionsLocalWhisperReason()
         await testAPITranscriptionModesRequireResolvedAPIKey()
         try testSettingsAPIProviderTabDoesNotForceUnavailableAPIMode()
+        try testSettingsGlobalAPIKeyCanBeCleared()
         await testTranscriptionAPIKeyEnablesAPIModesWithoutGlobalAPIKey()
         await testEmptyTranscriptionAPIKeyFallsBackToGlobalAPIKey()
         await testRemovingAPIKeyNormalizesSelectedAPIMode()
@@ -598,6 +599,31 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(!transcriptionSection.contains("selection: $appState.useLocalTranscription"))
         precondition(saveKeyBody.contains("if !showingLocalTranscriptionSettings"))
         precondition(saveKeyBody.contains("appState.setNoteBrowserTranscriptionMode(.apiStandard)"))
+    }
+
+    private static func testSettingsGlobalAPIKeyCanBeCleared() throws {
+        let source = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
+        let providerSection = sourceBlock(
+            in: source,
+            from: "private var apiProviderTranscriptionSettings: some View",
+            to: "\n    private var languageSettings"
+        )
+        let saveKeyBody = sourceBlock(
+            in: source,
+            from: "private func validateAndSaveKey()",
+            to: "\n    // MARK: System Prompt"
+        )
+        guard let emptyKeyRange = saveKeyBody.range(of: "if key.isEmpty"),
+              let validationRange = saveKeyBody.range(of: "TranscriptionService.validateAPIKey") else {
+            preconditionFailure("Expected global API key clear branch before validation")
+        }
+
+        precondition(emptyKeyRange.lowerBound < validationRange.lowerBound)
+        precondition(saveKeyBody.contains("appState.apiKey = \"\""))
+        precondition(saveKeyBody.contains("keyValidationSuccess = true"))
+        precondition(providerSection.contains(".disabled(isValidatingKey)"))
+        precondition(!providerSection.contains(".disabled(apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isValidatingKey)"))
+        precondition(providerSection.contains("API key cleared"))
     }
 
     private static func testTranscriptionAPIKeyEnablesAPIModesWithoutGlobalAPIKey() async {

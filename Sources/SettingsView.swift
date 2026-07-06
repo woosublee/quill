@@ -1713,7 +1713,7 @@ struct ModelsSettingsView: View {
                 Button(isValidatingKey ? "Validating..." : "Save") {
                     validateAndSaveKey()
                 }
-                .disabled(apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isValidatingKey)
+                .disabled(isValidatingKey)
             }
 
             if let error = keyValidationError {
@@ -1721,7 +1721,7 @@ struct ModelsSettingsView: View {
                     .foregroundStyle(.red)
                     .font(.caption)
             } else if keyValidationSuccess {
-                Label("API key saved", systemImage: "checkmark.circle.fill")
+                Label(appState.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "API key cleared" : "API key saved", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
                     .font(.caption)
             }
@@ -1851,10 +1851,18 @@ struct ModelsSettingsView: View {
 
     private func validateAndSaveKey() {
         let key = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        let baseURL = apiBaseURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        isValidatingKey = true
+        apiKeyInput = key
         keyValidationError = nil
         keyValidationSuccess = false
+        if key.isEmpty {
+            appState.apiKey = ""
+            keyValidationSuccess = true
+            isValidatingKey = false
+            return
+        }
+
+        let baseURL = apiBaseURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        isValidatingKey = true
 
         Task {
             let valid = await TranscriptionService.validateAPIKey(
