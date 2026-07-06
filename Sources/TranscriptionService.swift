@@ -151,12 +151,15 @@ class TranscriptionService {
         guard store.installStatus(for: model) == .ready else {
             throw TranscriptionError.submissionFailed("Local Whisper is not installed yet. Install the recommended model to use local transcription.")
         }
-        let preparedAudio = try await AudioImportConversionService().prepareForNativeWhisper(fileURL)
-        defer { preparedAudio.cleanup() }
+        let runtime = NativeWhisperRuntime()
+        let modelURL = store.modelURL(for: model)
         do {
-            let transcript = try await NativeWhisperRuntime().transcribe(
+            try runtime.validateRunnerAndModel(modelURL: modelURL)
+            let preparedAudio = try await AudioImportConversionService().prepareForNativeWhisper(fileURL)
+            defer { preparedAudio.cleanup() }
+            let transcript = try await runtime.transcribe(
                 audioURL: preparedAudio.fileURL,
-                modelURL: store.modelURL(for: model),
+                modelURL: modelURL,
                 languageCode: transcriptionLanguage.whisperArgument
             )
             return normalizedTranscriptText(transcript)

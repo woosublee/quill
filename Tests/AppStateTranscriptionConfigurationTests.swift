@@ -31,7 +31,8 @@ struct AppStateTranscriptionConfigurationTests {
         try testAppStateCreatedTranscriptionServicesPassLegacyMlxWhisperToggle()
         try testNativeWhisperPreparesAudioBeforeRuntime()
         try testNoteBrowserTranscriptionMenuUsesFlatNativeCheckedItems()
-        try testInitialAudioImportAllowsNativeLocalWhisper()
+        try testAudioImportConfigurationUsesLocalWhisperWithoutNativeFlag()
+        try testInitialAudioImportUsesLocalWhisperConfiguration()
         try testAudioImportSheetUsesAudioImportOptionsLocalWhisperReason()
         await testAPITranscriptionModesRequireResolvedAPIKey()
         try testSettingsAPIProviderTabDoesNotForceUnavailableAPIMode()
@@ -468,10 +469,17 @@ struct AppStateTranscriptionConfigurationTests {
             from: "private func transcribeWithNativeWhisper(fileURL: URL)",
             to: "    // Run mlx_whisper locally"
         )
+        guard let preflightRange = nativeBody.range(of: "try runtime.validateRunnerAndModel(modelURL: modelURL)"),
+              let conversionRange = nativeBody.range(of: "let preparedAudio = try await AudioImportConversionService().prepareForNativeWhisper(fileURL)") else {
+            preconditionFailure("Expected native Whisper preflight before audio conversion")
+        }
 
-        precondition(nativeBody.contains("let preparedAudio = try await AudioImportConversionService().prepareForNativeWhisper(fileURL)"))
+        precondition(preflightRange.lowerBound < conversionRange.lowerBound)
+        precondition(nativeBody.contains("let runtime = NativeWhisperRuntime()"))
+        precondition(nativeBody.contains("let modelURL = store.modelURL(for: model)"))
         precondition(nativeBody.contains("defer { preparedAudio.cleanup() }"))
         precondition(nativeBody.contains("audioURL: preparedAudio.fileURL"))
+        precondition(nativeBody.contains("modelURL: modelURL"))
         precondition(!nativeBody.contains("audioURL: fileURL"))
     }
 
@@ -495,14 +503,36 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(!menuItemSource.contains("Image(systemName: \"checkmark\")"))
     }
 
-    private static func testInitialAudioImportAllowsNativeLocalWhisper() throws {
+    private static func testAudioImportConfigurationUsesLocalWhisperWithoutNativeFlag() throws {
+        let appStateSource = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let configurationBody = sourceBlock(
+            in: appStateSource,
+            from: "func audioImportConfiguration(",
+            to: "\n\n    func isNoteBrowserTranscriptionModeAvailable"
+        )
+
+        let localWhisperBranch = sourceBlock(
+            in: configurationBody,
+            from: "case .localWhisper, .localAppleLive:",
+            to: "        }\n    }"
+        )
+
+        precondition(!appStateSource.contains("allowsNativeWhisper"))
+        precondition(!localWhisperBranch.contains("useLegacyMlxWhisper else"))
+        precondition(!localWhisperBranch.contains("mode: .apiStandard"))
+        precondition(localWhisperBranch.contains("mode: .localWhisper"))
+        precondition(localWhisperBranch.contains("useLocalTranscription: true"))
+    }
+
+    private static func testInitialAudioImportUsesLocalWhisperConfiguration() throws {
         let appStateSource = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
         let importBody = sourceBlock(
             in: appStateSource,
             from: "func importAudioFile(_ fileURL: URL, mode: NoteBrowserTranscriptionMode)",
             to: "\n    @MainActor\n    func retryTranscription"
         )
-        precondition(importBody.contains("transcriptionConfiguration: audioImportConfiguration(for: mode, allowsNativeWhisper: true)"))
+        precondition(importBody.contains("transcriptionConfiguration: audioImportConfiguration(for: mode)"))
+        precondition(!importBody.contains("allowsNativeWhisper"))
 
         let noteBrowserSource = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
         let pickerBody = sourceBlock(
