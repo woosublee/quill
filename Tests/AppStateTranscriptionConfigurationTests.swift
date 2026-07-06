@@ -32,6 +32,7 @@ struct AppStateTranscriptionConfigurationTests {
         try testNativeWhisperPreparesAudioBeforeRuntime()
         try testNoteBrowserTranscriptionMenuUsesFlatNativeCheckedItems()
         try testInitialAudioImportAllowsNativeLocalWhisper()
+        try testAudioImportSheetExplainsNativeAndLegacyLocalWhisper()
         await testAPITranscriptionModesRequireResolvedAPIKey()
         try testSettingsAPIProviderTabDoesNotForceUnavailableAPIMode()
         await testTranscriptionAPIKeyEnablesAPIModesWithoutGlobalAPIKey()
@@ -511,6 +512,20 @@ struct AppStateTranscriptionConfigurationTests {
         )
         precondition(pickerBody.contains("hasLocalWhisperModel: appState.hasInstalledLocalWhisperModel"))
         precondition(!pickerBody.contains("appState.useLegacyMlxWhisper && appState.hasLegacyLocalWhisperModel"))
+    }
+
+    private static func testAudioImportSheetExplainsNativeAndLegacyLocalWhisper() throws {
+        let source = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+        let sheetBody = sourceBlock(
+            in: source,
+            from: "private struct AudioImportSheet",
+            to: "private func transcriptionModeMenuItem"
+        )
+
+        precondition(sheetBody.contains("appState.useLegacyMlxWhisper"))
+        precondition(sheetBody.contains("Install a legacy mlx-whisper model to import locally"))
+        precondition(sheetBody.contains("Install the native Local Whisper model to import locally"))
+        precondition(!sheetBody.contains("Imported audio uses API unless legacy mlx-whisper is enabled"))
     }
 
     private static func testAPITranscriptionModesRequireResolvedAPIKey() async {
