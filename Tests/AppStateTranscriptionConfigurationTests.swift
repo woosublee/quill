@@ -31,6 +31,7 @@ struct AppStateTranscriptionConfigurationTests {
         try testAppStateCreatedTranscriptionServicesPassLegacyMlxWhisperToggle()
         try testNativeWhisperPreparesAudioBeforeRuntime()
         try testNoteBrowserTranscriptionMenuUsesFlatNativeCheckedItems()
+        try testInitialAudioImportAllowsNativeLocalWhisper()
         await testAPITranscriptionModesRequireResolvedAPIKey()
         try testSettingsAPIProviderTabDoesNotForceUnavailableAPIMode()
         await testTranscriptionAPIKeyEnablesAPIModesWithoutGlobalAPIKey()
@@ -491,6 +492,25 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(menuItemSource.contains(".disabled(!appState.isNoteBrowserTranscriptionModeAvailable(mode))"))
         precondition(!menuItemSource.contains("Picker(\"Transcription\", selection:"))
         precondition(!menuItemSource.contains("Image(systemName: \"checkmark\")"))
+    }
+
+    private static func testInitialAudioImportAllowsNativeLocalWhisper() throws {
+        let appStateSource = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let importBody = sourceBlock(
+            in: appStateSource,
+            from: "func importAudioFile(_ fileURL: URL, mode: NoteBrowserTranscriptionMode)",
+            to: "\n    @MainActor\n    func retryTranscription"
+        )
+        precondition(importBody.contains("transcriptionConfiguration: audioImportConfiguration(for: mode, allowsNativeWhisper: true)"))
+
+        let noteBrowserSource = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+        let pickerBody = sourceBlock(
+            in: noteBrowserSource,
+            from: "private func showAudioImportPicker()",
+            to: "\n    private var emptyListState"
+        )
+        precondition(pickerBody.contains("hasLocalWhisperModel: appState.hasInstalledLocalWhisperModel"))
+        precondition(!pickerBody.contains("appState.useLegacyMlxWhisper && appState.hasLegacyLocalWhisperModel"))
     }
 
     private static func testAPITranscriptionModesRequireResolvedAPIKey() async {

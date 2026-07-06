@@ -2670,7 +2670,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func importAudioFile(_ fileURL: URL, mode: NoteBrowserTranscriptionMode) {
         let configuration = AudioImportTaskConfiguration(
-            transcriptionConfiguration: audioImportConfiguration(for: mode),
+            transcriptionConfiguration: audioImportConfiguration(for: mode, allowsNativeWhisper: true),
             transcriptionAPIKey: resolvedTranscriptionAPIKey,
             transcriptionAPIBaseURL: resolvedTranscriptionBaseURL,
             localWhisperPath: localWhisperPath,
