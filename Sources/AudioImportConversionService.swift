@@ -108,13 +108,14 @@ struct AudioImportConversionService {
                 interleaved: targetFormat.isInterleaved
             )
 
+            guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: 16_384) else {
+                throw AudioImportConversionError.converterUnavailable
+            }
+
             var didFinish = false
             while !didFinish {
                 try Task.checkCancellation()
-
-                guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: 4_096) else {
-                    throw AudioImportConversionError.converterUnavailable
-                }
+                outputBuffer.frameLength = 0
 
                 var readError: Error?
                 var conversionError: NSError?
@@ -130,6 +131,7 @@ struct AudioImportConversionService {
                         pcmFormat: inputFormat,
                         frameCapacity: max(requestedFrames, AVAudioFrameCount(1))
                     ) else {
+                        readError = AudioImportConversionError.converterUnavailable
                         outStatus.pointee = .noDataNow
                         return nil
                     }
