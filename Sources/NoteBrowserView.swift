@@ -785,6 +785,190 @@ struct NoteBrowserView: View {
     }
 }
 
+// MARK: - Horizontally Scrollable Title Field
+
+private struct HorizontallyScrollableTitleField: NSViewRepresentable {
+    let placeholder: String
+    @Binding var text: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeNSView(context: Context) -> TitleHorizontalScrollView {
+        let scrollView = TitleHorizontalScrollView()
+        scrollView.drawsBackground = false
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.verticalScrollElasticity = .none
+        scrollView.horizontalScrollElasticity = .automatic
+
+        let textView = TitleSingleLineTextView()
+        textView.delegate = context.coordinator
+        textView.placeholder = placeholder
+        textView.string = text
+        textView.font = .systemFont(ofSize: 28, weight: .bold)
+        textView.textColor = .labelColor
+        textView.drawsBackground = false
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.allowsUndo = true
+        textView.textContainerInset = .zero
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.maximumNumberOfLines = 1
+        textView.textContainer?.lineBreakMode = .byClipping
+        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.heightTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: 38)
+        textView.isHorizontallyResizable = true
+        textView.isVerticallyResizable = false
+        textView.minSize = NSSize(width: 0, height: 38)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: 38)
+        textView.updateDocumentWidth(minimumWidth: 0)
+
+        scrollView.documentView = textView
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: TitleHorizontalScrollView, context: Context) {
+        context.coordinator.parent = self
+        guard let textView = scrollView.documentView as? TitleSingleLineTextView else { return }
+        textView.placeholder = placeholder
+        textView.font = .systemFont(ofSize: 28, weight: .bold)
+        textView.textColor = .labelColor
+        if textView.string != text {
+            let selectedRanges = textView.selectedRanges
+            textView.string = text
+            let stringLength = (textView.string as NSString).length
+            let clampedRanges = selectedRanges.map { value -> NSValue in
+                let range = value.rangeValue
+                let location = min(range.location, stringLength)
+                let length = min(range.length, stringLength - location)
+                return NSValue(range: NSRange(location: location, length: length))
+            }
+            textView.selectedRanges = clampedRanges
+        }
+        textView.updateDocumentWidth(minimumWidth: scrollView.contentView.bounds.width)
+        textView.needsDisplay = true
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: HorizontallyScrollableTitleField
+
+        init(_ parent: HorizontallyScrollableTitleField) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? TitleSingleLineTextView else { return }
+            textView.updateDocumentWidth(minimumWidth: textView.enclosingScrollView?.contentView.bounds.width ?? 0)
+            parent.text = textView.string
+        }
+    }
+}
+
+private final class TitleHorizontalScrollView: NSScrollView {
+    override func layout() {
+        super.layout()
+        (documentView as? TitleSingleLineTextView)?.updateDocumentWidth(minimumWidth: contentView.bounds.width)
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        if abs(event.scrollingDeltaX) > 0.1 {
+            guard canScrollHorizontally(by: event.scrollingDeltaX) else {
+                super.scrollWheel(with: event)
+                return
+            }
+            scrollHorizontally(by: event.scrollingDeltaX)
+            return
+        }
+
+        if abs(event.scrollingDeltaY) > 0.1,
+           canScrollHorizontally(by: event.scrollingDeltaY) {
+            scrollHorizontally(by: event.scrollingDeltaY)
+            return
+        }
+
+        super.scrollWheel(with: event)
+    }
+
+    private func canScrollHorizontally(by delta: CGFloat) -> Bool {
+        let maximumX = max(0, (documentView?.bounds.width ?? 0) - contentView.bounds.width)
+        guard maximumX > 0 else { return false }
+        let currentX = contentView.bounds.origin.x
+        return delta > 0 ? currentX < maximumX : currentX > 0
+    }
+
+    func clampHorizontalScrollOffset() {
+        let maximumX = max(0, (documentView?.bounds.width ?? 0) - contentView.bounds.width)
+        let nextX = min(max(contentView.bounds.origin.x, 0), maximumX)
+        contentView.scroll(to: NSPoint(x: nextX, y: 0))
+        reflectScrolledClipView(contentView)
+    }
+
+    private func scrollHorizontally(by delta: CGFloat) {
+        let maximumX = max(0, (documentView?.bounds.width ?? 0) - contentView.bounds.width)
+        let nextX = min(max(contentView.bounds.origin.x + delta, 0), maximumX)
+        contentView.scroll(to: NSPoint(x: nextX, y: 0))
+        reflectScrolledClipView(contentView)
+    }
+}
+
+private final class TitleSingleLineTextView: NSTextView {
+    var placeholder: String = ""
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: 38)
+    }
+
+    override func insertNewline(_ sender: Any?) {
+        window?.makeFirstResponder(nil)
+    }
+
+    override func insertText(_ insertString: Any, replacementRange: NSRange) {
+        if let string = insertString as? String {
+            super.insertText(Self.singleLine(string), replacementRange: replacementRange)
+        } else if let attributedString = insertString as? NSAttributedString {
+            super.insertText(NSAttributedString(string: Self.singleLine(attributedString.string)), replacementRange: replacementRange)
+        } else {
+            super.insertText(insertString, replacementRange: replacementRange)
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard string.isEmpty, !placeholder.isEmpty else { return }
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font ?? NSFont.systemFont(ofSize: 28, weight: .bold),
+            .foregroundColor: NSColor.placeholderTextColor
+        ]
+        placeholder.draw(at: .zero, withAttributes: attributes)
+    }
+
+    func updateDocumentWidth(minimumWidth: CGFloat) {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font ?? NSFont.systemFont(ofSize: 28, weight: .bold)
+        ]
+        let measuredText = string.isEmpty ? placeholder : string
+        let measuredWidth = ceil((measuredText as NSString).size(withAttributes: attributes).width) + 8
+        let width = max(minimumWidth, measuredWidth)
+        setFrameSize(NSSize(width: width, height: 38))
+        textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: 38)
+        (enclosingScrollView as? TitleHorizontalScrollView)?.clampHorizontalScrollOffset()
+    }
+
+    private static func singleLine(_ string: String) -> String {
+        string
+            .replacingOccurrences(of: "\r\n", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+    }
+}
+
 // MARK: - Note List Row
 
 private struct NoteListRow: View {
@@ -981,14 +1165,11 @@ private struct NoteDetailView: View {
             metadataLine
 
             // Title — auto-save on change
-            TextField(
-                item.timestamp.formatted(date: .long, time: .shortened),
+            HorizontallyScrollableTitleField(
+                placeholder: item.timestamp.formatted(date: .long, time: .shortened),
                 text: $titleDraft
             )
-            .font(.system(size: 28, weight: .bold))
-            .textFieldStyle(.plain)
-            .foregroundStyle(.primary)
-            .frame(minHeight: 38, alignment: .leading)
+            .frame(minHeight: 38, maxHeight: 38, alignment: .leading)
             .onChange(of: titleDraft) { newValue in
                 titleDebounceTimer?.invalidate()
                 let timer = Timer(timeInterval: 0.5, repeats: false) { _ in
