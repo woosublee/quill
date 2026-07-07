@@ -8,6 +8,13 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.19] - 2026-07-07
+
+### Improved
+
+- Long Note Browser detail titles now stay on one line while allowing horizontal scrolling to reveal hidden text.
+- The legacy mlx-whisper settings toggle now keeps legacy model choices visible without forcing the legacy engine, so switching to another local model no longer hides those choices.
+
 ## [0.1.18] - 2026-07-06
 
 ### Improved
