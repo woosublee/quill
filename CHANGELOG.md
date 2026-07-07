@@ -8,6 +8,12 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.21] - 2026-07-07
+
+### Improved
+
+- The Note Browser transcription selector now shows compact backend names in the sidebar while preserving the full backend/model description for assistive technology.
+
 ## [0.1.20] - 2026-07-07
 
 ### Improved
