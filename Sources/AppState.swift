@@ -438,7 +438,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         didSet {
             persistAPIKey(apiKey)
             rebuildContextService()
-            normalizeNoteBrowserTranscriptionModeForProviderConfiguration()
+            scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration()
         }
     }
 
@@ -458,7 +458,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var transcriptionAPIKey: String {
         didSet {
             persistOptionalAPIValue(transcriptionAPIKey, account: transcriptionAPIKeyStorageKey)
-            normalizeNoteBrowserTranscriptionModeForProviderConfiguration()
+            scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration()
         }
     }
 
@@ -741,7 +741,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var useLegacyMlxWhisper: Bool {
         didSet {
             UserDefaults.standard.set(useLegacyMlxWhisper, forKey: useLegacyMlxWhisperStorageKey)
-            normalizeNoteBrowserTranscriptionModeForProviderConfiguration()
+            scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration()
         }
     }
 
@@ -800,14 +800,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var nativeWhisperInstallTask: NativeWhisperInstallTask?
     private var nativeWhisperInstallCancellationMessage: String?
 
+    @MainActor
     var noteBrowserTranscriptionModeLabel: String {
         noteBrowserTranscriptionChoiceLabel
     }
 
+    @MainActor
     var noteBrowserTranscriptionChoiceLabel: String {
         noteBrowserTranscriptionDisplay(for: currentNoteBrowserTranscriptionChoice).currentLabel
     }
 
+    @MainActor
     var currentNoteBrowserTranscriptionChoice: TranscriptionBackendChoice {
         if useLocalTranscription {
             if localTranscriptionModel.isAppleSpeech {
@@ -821,10 +824,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return realtimeStreamingEnabled ? apiRealtimeChoice : apiStandardChoice
     }
 
+    @MainActor
     var currentNoteBrowserTranscriptionMode: NoteBrowserTranscriptionMode {
         currentNoteBrowserTranscriptionChoice.mode
     }
 
+    @MainActor
     var noteBrowserTranscriptionChoiceDisplays: [TranscriptionChoiceDisplay] {
         [
             noteBrowserTranscriptionDisplay(for: apiStandardChoice),
@@ -836,10 +841,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     func label(for mode: NoteBrowserTranscriptionMode) -> String {
         noteBrowserTranscriptionDisplay(for: preferredNoteBrowserTranscriptionChoice(for: mode)).currentLabel
     }
 
+    @MainActor
     func noteBrowserTranscriptionDisplay(for choice: TranscriptionBackendChoice) -> TranscriptionChoiceDisplay {
         switch choice {
         case .apiStandard(let modelID):
@@ -986,7 +993,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func refreshNativeWhisperInstallStatus() {
         nativeWhisperInstallStatus = NativeWhisperModelStore().installStatus(for: .recommended)
-        normalizeNoteBrowserTranscriptionModeForProviderConfiguration()
+        scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration()
     }
 
     @MainActor
@@ -1108,6 +1115,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     func isNoteBrowserTranscriptionModeAvailable(_ mode: NoteBrowserTranscriptionMode) -> Bool {
         switch mode {
         case .apiStandard:
@@ -1121,6 +1129,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     func isNoteBrowserTranscriptionChoiceAvailable(_ choice: TranscriptionBackendChoice) -> Bool {
         noteBrowserTranscriptionDisplay(for: choice).isAvailable
     }
@@ -1135,15 +1144,33 @@ final class AppState: ObservableObject, @unchecked Sendable {
         applyNoteBrowserTranscriptionChoice(normalizedNoteBrowserTranscriptionChoice(choice))
     }
 
-    private func normalizeNoteBrowserTranscriptionModeForSelectedInput() {
-        normalizeNoteBrowserTranscriptionMode()
+    private func scheduleNoteBrowserTranscriptionModeNormalizationForSelectedInput() {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                normalizeNoteBrowserTranscriptionMode()
+            }
+        } else {
+            Task { @MainActor [weak self] in
+                self?.normalizeNoteBrowserTranscriptionMode()
+            }
+        }
     }
 
-    private func normalizeNoteBrowserTranscriptionModeForProviderConfiguration() {
-        guard !isRecording, !isTranscribing else { return }
-        normalizeNoteBrowserTranscriptionMode()
+    private func scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration() {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                guard !isRecording, !isTranscribing else { return }
+                normalizeNoteBrowserTranscriptionMode()
+            }
+        } else {
+            Task { @MainActor [weak self] in
+                guard let self, !self.isRecording, !self.isTranscribing else { return }
+                self.normalizeNoteBrowserTranscriptionMode()
+            }
+        }
     }
 
+    @MainActor
     private func normalizeNoteBrowserTranscriptionMode() {
         let currentChoice = currentNoteBrowserTranscriptionChoice
         let normalizedChoice = normalizedNoteBrowserTranscriptionChoice(currentChoice)
@@ -1151,15 +1178,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         applyNoteBrowserTranscriptionChoice(normalizedChoice)
     }
 
+    @MainActor
     private func normalizedNoteBrowserTranscriptionMode(_ mode: NoteBrowserTranscriptionMode) -> NoteBrowserTranscriptionMode {
         normalizedNoteBrowserTranscriptionChoice(preferredNoteBrowserTranscriptionChoice(for: mode)).mode
     }
 
+    @MainActor
     private func normalizedNoteBrowserTranscriptionChoice(_ choice: TranscriptionBackendChoice) -> TranscriptionBackendChoice {
         guard !isNoteBrowserTranscriptionChoiceAvailable(choice) else { return choice }
         return noteBrowserFallbackChoices(for: choice).first(where: isNoteBrowserTranscriptionChoiceAvailable) ?? choice
     }
 
+    @MainActor
     private func preferredNoteBrowserTranscriptionChoice(for mode: NoteBrowserTranscriptionMode) -> TranscriptionBackendChoice {
         switch mode {
         case .apiStandard:
@@ -1176,6 +1206,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func preferredAudioImportChoice(for mode: NoteBrowserTranscriptionMode) -> TranscriptionBackendChoice {
         switch mode {
         case .apiStandard, .apiRealtime:
@@ -1194,6 +1225,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func noteBrowserFallbackChoices(for choice: TranscriptionBackendChoice) -> [TranscriptionBackendChoice] {
         let legacyChoices = installedLegacyLocalWhisperModels.map { TranscriptionBackendChoice.legacyMlxWhisper(model: $0) }
         switch choice {
@@ -1211,10 +1243,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func applyNoteBrowserTranscriptionMode(_ mode: NoteBrowserTranscriptionMode) {
         applyNoteBrowserTranscriptionChoice(preferredNoteBrowserTranscriptionChoice(for: mode))
     }
 
+    @MainActor
     private func applyNoteBrowserTranscriptionChoice(_ choice: TranscriptionBackendChoice) {
         switch choice {
         case .apiStandard(let modelID):
@@ -1462,7 +1496,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var selectedMicrophoneID: String {
         didSet {
             UserDefaults.standard.set(selectedMicrophoneID, forKey: selectedMicrophoneStorageKey)
-            normalizeNoteBrowserTranscriptionModeForSelectedInput()
+            scheduleNoteBrowserTranscriptionModeNormalizationForSelectedInput()
         }
     }
     @Published var availableMicrophones: [AudioDevice] = []
@@ -1811,7 +1845,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.hasScreenRecordingPermission = initialScreenCapturePermission
         self.launchAtLogin = SMAppService.mainApp.status == .enabled
         self.selectedMicrophoneID = selectedMicrophoneID
-        normalizeNoteBrowserTranscriptionModeForSelectedInput()
+        scheduleNoteBrowserTranscriptionModeNormalizationForSelectedInput()
         self.precomputeMacros()
 
         speechRecognitionAuthorizationStatus = Self.currentSpeechRecognitionAuthorizationStatus()

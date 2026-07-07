@@ -543,10 +543,10 @@ struct AppStateTranscriptionConfigurationTests {
     private static func testNoteBrowserTranscriptionMenuUsesFlatNativeCheckedItems() throws {
         let source = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
         guard let itemStart = source.range(of: "private func transcriptionChoiceMenuItem")?.lowerBound,
-              let bodyStart = source.range(of: "var body: some View", range: itemStart..<source.endIndex)?.lowerBound else {
+              let itemEnd = source.range(of: "\n    private func transcriptionChoiceDisplays", range: itemStart..<source.endIndex)?.lowerBound else {
             preconditionFailure("Expected transcription choice menu item block")
         }
-        let menuItemSource = String(source[itemStart..<bodyStart])
+        let menuItemSource = String(source[itemStart..<itemEnd])
 
         precondition(source.contains("ForEach(transcriptionChoiceDisplays(in: \"API\"))"))
         precondition(source.contains("ForEach(transcriptionChoiceDisplays(in: \"Local\"))"))

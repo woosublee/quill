@@ -22,7 +22,7 @@ struct SystemAudioAppStateRoutingTests {
         precondition(source.contains("let supportsLiveTranscription = !AudioInputDevice.isSystemDefaultAndSystemAudio(audioInputID)"))
         precondition(source.contains("if supportsLiveTranscription {\n            startRealtimeStreamingIfEnabled()\n        }"))
         precondition(source.contains("func isNoteBrowserTranscriptionModeAvailable(_ mode: NoteBrowserTranscriptionMode) -> Bool"))
-        precondition(source.contains("normalizeNoteBrowserTranscriptionModeForSelectedInput()"))
+        precondition(source.contains("scheduleNoteBrowserTranscriptionModeNormalizationForSelectedInput()"))
         precondition(noteBrowserSource.contains("ForEach(transcriptionChoiceDisplays(in: \"API\"))"))
         precondition(noteBrowserSource.contains("ForEach(transcriptionChoiceDisplays(in: \"Local\"))"))
         precondition(noteBrowserSource.contains("ForEach(transcriptionChoiceDisplays(in: \"Legacy mlx-whisper\"))"))
