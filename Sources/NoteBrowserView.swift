@@ -872,49 +872,58 @@ private struct HorizontallyScrollableTitleField: NSViewRepresentable {
 }
 
 private final class TitleHorizontalScrollView: NSScrollView {
-    override func layout() {
-        super.layout()
+    private var maximumScrollX: CGFloat {
+        max(0, (documentView?.bounds.width ?? 0) - contentView.bounds.width)
+    }
+
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        super.resizeSubviews(withOldSize: oldSize)
         (documentView as? TitleSingleLineTextView)?.updateDocumentWidth(minimumWidth: contentView.bounds.width)
     }
 
     override func scrollWheel(with event: NSEvent) {
-        if abs(event.scrollingDeltaX) > 0.1 {
-            guard canScrollHorizontally(by: event.scrollingDeltaX) else {
-                super.scrollWheel(with: event)
-                return
-            }
-            scrollHorizontally(by: event.scrollingDeltaX)
+        if abs(event.scrollingDeltaX) > 0.01 {
+            super.scrollWheel(with: event)
             return
         }
 
-        if abs(event.scrollingDeltaY) > 0.1,
-           canScrollHorizontally(by: event.scrollingDeltaY) {
-            scrollHorizontally(by: event.scrollingDeltaY)
+        guard abs(event.scrollingDeltaY) > 0.1 else {
+            super.scrollWheel(with: event)
             return
         }
 
-        super.scrollWheel(with: event)
+        let delta = -normalizedScrollDelta(event.scrollingDeltaY, precise: event.hasPreciseScrollingDeltas)
+        guard canScrollHorizontally(by: delta) else {
+            super.scrollWheel(with: event)
+            return
+        }
+
+        scrollHorizontally(by: delta)
     }
 
     private func canScrollHorizontally(by delta: CGFloat) -> Bool {
-        let maximumX = max(0, (documentView?.bounds.width ?? 0) - contentView.bounds.width)
+        let maximumX = maximumScrollX
         guard maximumX > 0 else { return false }
         let currentX = contentView.bounds.origin.x
         return delta > 0 ? currentX < maximumX : currentX > 0
     }
 
     func clampHorizontalScrollOffset() {
-        let maximumX = max(0, (documentView?.bounds.width ?? 0) - contentView.bounds.width)
+        let maximumX = maximumScrollX
         let nextX = min(max(contentView.bounds.origin.x, 0), maximumX)
         contentView.scroll(to: NSPoint(x: nextX, y: 0))
         reflectScrolledClipView(contentView)
     }
 
     private func scrollHorizontally(by delta: CGFloat) {
-        let maximumX = max(0, (documentView?.bounds.width ?? 0) - contentView.bounds.width)
+        let maximumX = maximumScrollX
         let nextX = min(max(contentView.bounds.origin.x + delta, 0), maximumX)
         contentView.scroll(to: NSPoint(x: nextX, y: 0))
         reflectScrolledClipView(contentView)
+    }
+
+    private func normalizedScrollDelta(_ delta: CGFloat, precise: Bool) -> CGFloat {
+        precise ? delta : delta * 38
     }
 }
 

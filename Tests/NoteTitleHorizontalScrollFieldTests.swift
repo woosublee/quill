@@ -6,7 +6,8 @@ struct NoteTitleHorizontalScrollFieldTests {
         try testDetailTitleUsesHorizontallyScrollableField()
         try testHorizontallyScrollableTitleFieldDefinesSingleLineAppKitWrapper()
         try testTitleFieldClampsSelectionAfterProgrammaticTextShrink()
-        try testTitleFieldHandlesHorizontalWheelDeltaBeforeVerticalFallback()
+        try testTitleFieldDelegatesHorizontalWheelAndMapsVerticalWheel()
+        try testTitleFieldUsesSafeResizeAndSharedScrollBounds()
         try testTitleFieldClampsClipOriginAfterDocumentWidthChanges()
         print("NoteTitleHorizontalScrollFieldTests passed")
     }
@@ -44,7 +45,7 @@ struct NoteTitleHorizontalScrollFieldTests {
         precondition(component.contains("textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude"))
         precondition(component.contains("parent.text = textView.string"))
         precondition(component.contains("override func scrollWheel(with event: NSEvent)"))
-        precondition(component.contains("scrollHorizontally(by: event.scrollingDeltaY)"))
+        precondition(component.contains("scrollHorizontally(by: delta)"))
         precondition(!component.contains("appState.updateHistoryItemTitle"))
     }
 
@@ -60,7 +61,7 @@ struct NoteTitleHorizontalScrollFieldTests {
         precondition(updateNSView.contains("textView.selectedRanges = clampedRanges"))
     }
 
-    private static func testTitleFieldHandlesHorizontalWheelDeltaBeforeVerticalFallback() throws {
+    private static func testTitleFieldDelegatesHorizontalWheelAndMapsVerticalWheel() throws {
         let source = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
         let scrollView = sourceBlock(
             in: source,
@@ -68,8 +69,27 @@ struct NoteTitleHorizontalScrollFieldTests {
             to: "\nprivate final class TitleSingleLineTextView: NSTextView"
         )
 
-        precondition(scrollView.contains("scrollHorizontally(by: event.scrollingDeltaX)"))
-        precondition(scrollView.contains("scrollHorizontally(by: event.scrollingDeltaY)"))
+        precondition(scrollView.contains("if abs(event.scrollingDeltaX) > 0.01"))
+        precondition(scrollView.contains("super.scrollWheel(with: event)"))
+        precondition(scrollView.contains("let delta = -normalizedScrollDelta(event.scrollingDeltaY, precise: event.hasPreciseScrollingDeltas)"))
+        precondition(scrollView.contains("scrollHorizontally(by: delta)"))
+        precondition(!scrollView.contains("scrollHorizontally(by: event.scrollingDeltaX)"))
+        precondition(!scrollView.contains("scrollHorizontally(by: event.scrollingDeltaY)"))
+    }
+
+    private static func testTitleFieldUsesSafeResizeAndSharedScrollBounds() throws {
+        let source = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+        let scrollView = sourceBlock(
+            in: source,
+            from: "private final class TitleHorizontalScrollView: NSScrollView",
+            to: "\nprivate final class TitleSingleLineTextView: NSTextView"
+        )
+
+        precondition(scrollView.contains("override func resizeSubviews(withOldSize oldSize: NSSize)"))
+        precondition(!scrollView.contains("override func layout()"))
+        precondition(scrollView.contains("private var maximumScrollX: CGFloat"))
+        precondition(scrollView.contains("let maximumX = maximumScrollX"))
+        precondition(scrollView.contains("private func normalizedScrollDelta(_ delta: CGFloat, precise: Bool) -> CGFloat"))
     }
 
     private static func testTitleFieldClampsClipOriginAfterDocumentWidthChanges() throws {
