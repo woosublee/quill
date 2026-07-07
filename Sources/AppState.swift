@@ -807,6 +807,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     var noteBrowserTranscriptionChoiceLabel: String {
+        noteBrowserTranscriptionDisplay(for: currentNoteBrowserTranscriptionChoice).title
+    }
+
+    @MainActor
+    var noteBrowserTranscriptionChoiceDetailLabel: String {
         noteBrowserTranscriptionDisplay(for: currentNoteBrowserTranscriptionChoice).currentLabel
     }
 

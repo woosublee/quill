@@ -628,20 +628,30 @@ struct AppStateTranscriptionConfigurationTests {
             appState.realtimeStreamingModel = ""
 
             let apiDisplay = appState.noteBrowserTranscriptionDisplay(for: .apiStandard(modelID: appState.transcriptionModel))
+            precondition(apiDisplay.title == "Standard")
             precondition(apiDisplay.currentLabel == "API · Standard · whisper-large-v3-turbo")
 
             let realtimeDisplay = appState.noteBrowserTranscriptionDisplay(for: .apiRealtime(modelID: nil))
+            precondition(realtimeDisplay.title == "Realtime")
             precondition(realtimeDisplay.currentLabel == "API · Realtime · Provider default")
 
             let nativeDisplay = appState.noteBrowserTranscriptionDisplay(for: .nativeWhisper(modelID: NativeWhisperModelCatalog.recommended.id))
+            precondition(nativeDisplay.title == "Native Whisper")
             precondition(nativeDisplay.currentLabel == "Local · Native Whisper · Whisper Large v3 Turbo")
 
             let legacyModel = TranscriptionModel.find(id: "mlx-community/whisper-medium-mlx")
             let legacyDisplay = appState.noteBrowserTranscriptionDisplay(for: .legacyMlxWhisper(model: legacyModel))
+            precondition(legacyDisplay.title == "Legacy mlx-whisper")
             precondition(legacyDisplay.currentLabel == "Local · Legacy · Whisper Medium")
 
             let appleDisplay = appState.noteBrowserTranscriptionDisplay(for: .appleLive)
+            precondition(appleDisplay.title == "Apple Live")
             precondition(appleDisplay.currentLabel == "Local · Apple Live · Apple Speech")
+
+            appState.useLocalTranscription = false
+            appState.realtimeStreamingEnabled = false
+            precondition(appState.noteBrowserTranscriptionChoiceLabel == "Standard")
+            precondition(appState.noteBrowserTranscriptionChoiceDetailLabel == "API · Standard · whisper-large-v3-turbo")
         }
     }
 

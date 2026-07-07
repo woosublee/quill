@@ -623,10 +623,9 @@ struct NoteBrowserView: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
                         .background(Color.primary.opacity(0.06), in: Capsule())
-                        .frame(maxWidth: 170, alignment: .trailing)
                 }
                 .menuStyle(.borderlessButton)
-                .help(appState.noteBrowserTranscriptionChoiceLabel)
+                .accessibilityLabel("Transcription method: \(appState.noteBrowserTranscriptionChoiceDetailLabel)")
                 .disabled(appState.isRecording || appState.isTranscribing)
             }
             .padding(.horizontal, 12)
