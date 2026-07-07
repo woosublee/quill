@@ -8,6 +8,10 @@ struct AppStateTranscriptionConfigurationTests {
         try testMakeTranscriptionServiceMapsEmptyLocalWhisperPathToNil()
         try testMakeTranscriptionServiceDefaultsLegacyMlxWhisperOff()
         try testMakeTranscriptionServicePassesLegacyMlxWhisperToggle()
+        testLegacyMlxWhisperOptionsDefaultToOff()
+        testLegacyMlxWhisperOptionsPersistIndependentlyFromEngine()
+        testLegacyMlxWhisperOptionsFallBackToLegacyEnginePreference()
+        testLegacyMlxWhisperOptionsStayVisibleWhenEngineIsTurnedOff()
         testPermissionStatusUpdateSkipsUnchangedValues()
         testRecordingOverlayLayoutPersistsWithoutCompactOverlayBoolean()
         testRecordingCancelShortcutDefaultsToEscape()
@@ -36,6 +40,7 @@ struct AppStateTranscriptionConfigurationTests {
         try testAudioImportSheetUsesAudioImportOptionsLocalWhisperReason()
         await testAPITranscriptionModesRequireResolvedAPIKey()
         try testSettingsAPIProviderTabDoesNotForceUnavailableAPIMode()
+        try testSettingsLegacyMlxWhisperToggleControlsOptionsVisibilityOnly()
         try testSettingsGlobalAPIKeyCanBeCleared()
         await testTranscriptionAPIKeyEnablesAPIModesWithoutGlobalAPIKey()
         await testEmptyTranscriptionAPIKeyFallsBackToGlobalAPIKey()
@@ -115,6 +120,54 @@ struct AppStateTranscriptionConfigurationTests {
         let configuration = mirroredTranscriptionConfiguration(service)
 
         assert(configuration.useLegacyMlxWhisper == true)
+    }
+
+    private static func testLegacyMlxWhisperOptionsDefaultToOff() {
+        resetDefaults()
+        let appState = AppState()
+
+        assert(appState.showLegacyMlxWhisperOptions == false)
+        assert(appState.useLegacyMlxWhisper == false)
+    }
+
+    private static func testLegacyMlxWhisperOptionsPersistIndependentlyFromEngine() {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set(true, forKey: "show_legacy_mlx_whisper_options")
+        defaults.set(false, forKey: "use_legacy_mlx_whisper")
+
+        let appState = AppState()
+
+        assert(appState.showLegacyMlxWhisperOptions == true)
+        assert(appState.useLegacyMlxWhisper == false)
+
+        appState.showLegacyMlxWhisperOptions = false
+
+        assert(defaults.bool(forKey: "show_legacy_mlx_whisper_options") == false)
+    }
+
+    private static func testLegacyMlxWhisperOptionsFallBackToLegacyEnginePreference() {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set(true, forKey: "use_legacy_mlx_whisper")
+
+        let appState = AppState()
+
+        assert(appState.useLegacyMlxWhisper == true)
+        assert(appState.showLegacyMlxWhisperOptions == true)
+        assert(defaults.bool(forKey: "show_legacy_mlx_whisper_options") == true)
+    }
+
+    private static func testLegacyMlxWhisperOptionsStayVisibleWhenEngineIsTurnedOff() {
+        resetDefaults()
+        let appState = AppState()
+        appState.showLegacyMlxWhisperOptions = true
+        appState.useLegacyMlxWhisper = true
+
+        appState.useLegacyMlxWhisper = false
+
+        assert(appState.showLegacyMlxWhisperOptions == true)
+        assert(appState.useLegacyMlxWhisper == false)
     }
 
     private static func testPermissionStatusUpdateSkipsUnchangedValues() {
@@ -601,6 +654,41 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(saveKeyBody.contains("appState.setNoteBrowserTranscriptionMode(.apiStandard)"))
     }
 
+    private static func testSettingsLegacyMlxWhisperToggleControlsOptionsVisibilityOnly() throws {
+        let source = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
+        let localSettings = sourceBlock(
+            in: source,
+            from: "private var localTranscriptionSettings: some View",
+            to: "\n    private var apiProviderTranscriptionSettings"
+        )
+        let appleSpeechRow = sourceBlock(
+            in: localSettings,
+            from: "ModelRowView(\n                    model: TranscriptionModel.find(id: \"apple-speech\")",
+            to: "\n\n                NativeWhisperModelRowView"
+        )
+        let nativeWhisperRow = sourceBlock(
+            in: localSettings,
+            from: "NativeWhisperModelRowView(",
+            to: "\n                Text(\"If you close Settings while the model is downloading"
+        )
+        let legacyRows = sourceBlock(
+            in: localSettings,
+            from: "ForEach(TranscriptionModel.all.filter { !$0.isAppleSpeech })",
+            to: "\n\n                    TextField(\"~/.local/bin/mlx_whisper\""
+        )
+
+        precondition(localSettings.contains("Toggle(\"Use legacy mlx-whisper\", isOn: $appState.showLegacyMlxWhisperOptions)"))
+        precondition(!localSettings.contains("Toggle(\"Use legacy mlx-whisper\", isOn: $appState.useLegacyMlxWhisper)"))
+        precondition(appleSpeechRow.contains("appState.useLegacyMlxWhisper = false"))
+        precondition(!appleSpeechRow.contains("showLegacyMlxWhisperOptions"))
+        precondition(nativeWhisperRow.contains("appState.useLegacyMlxWhisper = false"))
+        precondition(!nativeWhisperRow.contains("showLegacyMlxWhisperOptions"))
+        precondition(legacyRows.contains("appState.useLegacyMlxWhisper = true"))
+        precondition(legacyRows.contains("appState.showLegacyMlxWhisperOptions = true"))
+        precondition(localSettings.contains(".disabled(!appState.showLegacyMlxWhisperOptions)"))
+        precondition(localSettings.contains(".opacity(appState.showLegacyMlxWhisperOptions ? 1 : 0.55)"))
+    }
+
     private static func testSettingsGlobalAPIKeyCanBeCleared() throws {
         let source = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
         let providerSection = sourceBlock(
@@ -1077,6 +1165,7 @@ struct AppStateTranscriptionConfigurationTests {
         }
         defaults.removeObject(forKey: "use_local_transcription")
         defaults.removeObject(forKey: "use_legacy_mlx_whisper")
+        defaults.removeObject(forKey: "show_legacy_mlx_whisper_options")
         defaults.removeObject(forKey: "local_transcription_model")
         defaults.removeObject(forKey: "transcription_language")
         defaults.removeObject(forKey: "selected_microphone_id")

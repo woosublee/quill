@@ -1638,7 +1638,10 @@ struct ModelsSettingsView: View {
                     model: TranscriptionModel.find(id: "apple-speech"),
                     isSelected: appState.localTranscriptionModel.isAppleSpeech,
                     whisperBin: "",
-                    onSelect: { appState.localTranscriptionModel = .find(id: "apple-speech") },
+                    onSelect: {
+                        appState.localTranscriptionModel = .find(id: "apple-speech")
+                        appState.useLegacyMlxWhisper = false
+                    },
                     onDeleted: {}
                 )
 
@@ -1657,7 +1660,7 @@ struct ModelsSettingsView: View {
 
             DisclosureGroup("Advanced Legacy mlx-whisper") {
                 VStack(alignment: .leading, spacing: 8) {
-                    Toggle("Use legacy mlx-whisper", isOn: $appState.useLegacyMlxWhisper)
+                    Toggle("Use legacy mlx-whisper", isOn: $appState.showLegacyMlxWhisperOptions)
                     Text("Only enable this if you already manage mlx-whisper yourself.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -1671,20 +1674,22 @@ struct ModelsSettingsView: View {
                             onSelect: {
                                 appState.useLocalTranscription = true
                                 appState.useLegacyMlxWhisper = true
+                                appState.showLegacyMlxWhisperOptions = true
                                 appState.localTranscriptionModel = model
                             },
                             onDeleted: {
                                 appState.localTranscriptionModel = .find(id: "mlx-community/whisper-large-v3-turbo")
+                                appState.useLegacyMlxWhisper = false
                             }
                         )
-                        .disabled(!appState.useLegacyMlxWhisper)
-                        .opacity(appState.useLegacyMlxWhisper ? 1 : 0.55)
+                        .disabled(!appState.showLegacyMlxWhisperOptions)
+                        .opacity(appState.showLegacyMlxWhisperOptions ? 1 : 0.55)
                     }
 
                     TextField("~/.local/bin/mlx_whisper", text: $appState.localWhisperPath)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(.body, design: .monospaced))
-                        .disabled(!appState.useLegacyMlxWhisper)
+                        .disabled(!appState.showLegacyMlxWhisperOptions)
                 }
                 .padding(.top, 4)
             }

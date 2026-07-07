@@ -368,6 +368,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let useLocalTranscriptionStorageKey = "use_local_transcription"
     private let localWhisperPathStorageKey = "local_whisper_path"
     private let useLegacyMlxWhisperStorageKey = "use_legacy_mlx_whisper"
+    private let showLegacyMlxWhisperOptionsStorageKey = "show_legacy_mlx_whisper_options"
     private let disableContextCaptureStorageKey = "disable_context_capture"
     private let disableAutoPasteStorageKey = "disable_auto_paste"
     private let disablePostProcessingStorageKey = "disable_post_processing"
@@ -740,6 +741,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         didSet {
             UserDefaults.standard.set(useLegacyMlxWhisper, forKey: useLegacyMlxWhisperStorageKey)
             normalizeNoteBrowserTranscriptionModeForProviderConfiguration()
+        }
+    }
+
+    @Published var showLegacyMlxWhisperOptions: Bool {
+        didSet {
+            UserDefaults.standard.set(showLegacyMlxWhisperOptions, forKey: showLegacyMlxWhisperOptionsStorageKey)
         }
     }
 
@@ -1439,6 +1446,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let useLocalTranscription = UserDefaults.standard.bool(forKey: useLocalTranscriptionStorageKey)
         let localWhisperPath = UserDefaults.standard.string(forKey: localWhisperPathStorageKey) ?? ""
         let useLegacyMlxWhisper = UserDefaults.standard.bool(forKey: useLegacyMlxWhisperStorageKey)
+        let hasStoredLegacyMlxWhisperOptionsVisibility = UserDefaults.standard.object(forKey: showLegacyMlxWhisperOptionsStorageKey) != nil
+        let showLegacyMlxWhisperOptions = hasStoredLegacyMlxWhisperOptionsVisibility
+            ? UserDefaults.standard.bool(forKey: showLegacyMlxWhisperOptionsStorageKey)
+            : useLegacyMlxWhisper
+        if !hasStoredLegacyMlxWhisperOptionsVisibility {
+            UserDefaults.standard.set(showLegacyMlxWhisperOptions, forKey: showLegacyMlxWhisperOptionsStorageKey)
+        }
         let disableContextCapture = UserDefaults.standard.bool(forKey: disableContextCaptureStorageKey)
         let disableAutoPaste = UserDefaults.standard.bool(forKey: disableAutoPasteStorageKey)
         let disablePostProcessing = UserDefaults.standard.bool(forKey: disablePostProcessingStorageKey)
@@ -1554,6 +1568,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.useLocalTranscription = useLocalTranscription
         self.localWhisperPath = localWhisperPath
         self.useLegacyMlxWhisper = useLegacyMlxWhisper
+        self.showLegacyMlxWhisperOptions = showLegacyMlxWhisperOptions
         self.disableContextCapture = disableContextCapture
         self.disableAutoPaste = disableAutoPaste
         self.disablePostProcessing = disablePostProcessing
