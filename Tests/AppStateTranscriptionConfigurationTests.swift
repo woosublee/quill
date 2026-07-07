@@ -35,9 +35,11 @@ struct AppStateTranscriptionConfigurationTests {
         try testAppStateCreatedTranscriptionServicesPassLegacyMlxWhisperToggle()
         try testNativeWhisperPreparesAudioBeforeRuntime()
         try testNoteBrowserTranscriptionMenuUsesFlatNativeCheckedItems()
-        try testAudioImportConfigurationUsesLocalWhisperWithoutNativeFlag()
-        try testInitialAudioImportUsesLocalWhisperConfiguration()
-        try testAudioImportSheetUsesAudioImportOptionsLocalWhisperReason()
+        await testAudioImportConfigurationUsesChoiceDerivedBackend()
+        try testInitialAudioImportUsesChoiceConfiguration()
+        try testAudioImportSheetUsesChoiceDisplayRows()
+        await testNoteBrowserTranscriptionChoiceDisplayIncludesResolvedModels()
+        try testNoteBrowserTranscriptionChoiceSetterUpdatesLocalBackend()
         await testAPITranscriptionModesRequireResolvedAPIKey()
         try testSettingsAPIProviderTabDoesNotForceUnavailableAPIMode()
         try testSettingsLegacyMlxWhisperToggleControlsOptionsVisibilityOnly()
@@ -508,9 +510,10 @@ struct AppStateTranscriptionConfigurationTests {
 
         precondition(source.contains("let useLegacyMlxWhisper: Bool"))
         precondition(source.contains("useLegacyMlxWhisper: useLegacyMlxWhisper,"))
-        precondition(importBody.contains("useLegacyMlxWhisper: useLegacyMlxWhisper,"))
+        precondition(importBody.contains("func importAudioFile(_ fileURL: URL, choice: TranscriptionBackendChoice)"))
+        precondition(importBody.contains("transcriptionConfiguration: audioImportConfiguration(for: choice)"))
         precondition(importBody.contains("let transcriptionService = try configuration.makeTranscriptionService()"))
-        precondition(source.contains("let useLegacyMlxWhisper: Bool"))
+        precondition(source.contains("self.useLegacyMlxWhisper = transcriptionConfiguration.useLegacyMlxWhisper"))
         precondition(retryBody.contains("useLegacyMlxWhisper: snapshot.useLegacyMlxWhisper,"))
         precondition(stoppedRecordingBody.contains("let capturedUseLegacyMlxWhisper = useLegacyMlxWhisper"))
         precondition(stoppedRecordingBody.contains("useLegacyMlxWhisper: capturedUseLegacyMlxWhisper,"))
@@ -539,53 +542,53 @@ struct AppStateTranscriptionConfigurationTests {
 
     private static func testNoteBrowserTranscriptionMenuUsesFlatNativeCheckedItems() throws {
         let source = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
-        guard let itemStart = source.range(of: "private func transcriptionModeMenuItem")?.lowerBound,
+        guard let itemStart = source.range(of: "private func transcriptionChoiceMenuItem")?.lowerBound,
               let bodyStart = source.range(of: "var body: some View", range: itemStart..<source.endIndex)?.lowerBound else {
-            preconditionFailure("Expected transcription menu item block")
+            preconditionFailure("Expected transcription choice menu item block")
         }
         let menuItemSource = String(source[itemStart..<bodyStart])
 
-        precondition(source.contains("transcriptionModeMenuItem(\"Standard\", mode: .apiStandard)"))
-        precondition(source.contains("transcriptionModeMenuItem(\"Realtime\", mode: .apiRealtime)"))
-        precondition(source.contains("transcriptionModeMenuItem(\"Whisper\", mode: .localWhisper)"))
-        precondition(source.contains("transcriptionModeMenuItem(\"Apple Live\", mode: .localAppleLive)"))
+        precondition(source.contains("ForEach(transcriptionChoiceDisplays(in: \"API\"))"))
+        precondition(source.contains("ForEach(transcriptionChoiceDisplays(in: \"Local\"))"))
+        precondition(source.contains("ForEach(transcriptionChoiceDisplays(in: \"Legacy mlx-whisper\"))"))
         precondition(menuItemSource.contains("Toggle(isOn: Binding<Bool>("))
-        precondition(menuItemSource.contains("get: { appState.currentNoteBrowserTranscriptionMode == mode }"))
-        precondition(menuItemSource.contains("if isSelected { appState.setNoteBrowserTranscriptionMode(mode) }"))
-        precondition(menuItemSource.contains(".disabled(!appState.isNoteBrowserTranscriptionModeAvailable(mode))"))
+        precondition(menuItemSource.contains("get: { appState.currentNoteBrowserTranscriptionChoice == display.choice }"))
+        precondition(menuItemSource.contains("if isSelected { appState.setNoteBrowserTranscriptionChoice(display.choice) }"))
+        precondition(menuItemSource.contains(".disabled(!display.isAvailable)"))
         precondition(!menuItemSource.contains("Picker(\"Transcription\", selection:"))
         precondition(!menuItemSource.contains("Image(systemName: \"checkmark\")"))
     }
 
-    private static func testAudioImportConfigurationUsesLocalWhisperWithoutNativeFlag() throws {
-        let appStateSource = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
-        let configurationBody = sourceBlock(
-            in: appStateSource,
-            from: "func audioImportConfiguration(",
-            to: "\n\n    func isNoteBrowserTranscriptionModeAvailable"
-        )
+    private static func testAudioImportConfigurationUsesChoiceDerivedBackend() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = AppState()
+            let legacyModel = TranscriptionModel.find(id: "mlx-community/whisper-medium-mlx")
 
-        let localWhisperBranch = sourceBlock(
-            in: configurationBody,
-            from: "case .localWhisper, .localAppleLive:",
-            to: "        }\n    }"
-        )
+            let nativeConfiguration = appState.audioImportConfiguration(for: .nativeWhisper(modelID: NativeWhisperModelCatalog.recommended.id))
+            precondition(nativeConfiguration.mode == .localWhisper)
+            precondition(nativeConfiguration.useLocalTranscription)
+            precondition(!nativeConfiguration.useLegacyMlxWhisper)
+            precondition(nativeConfiguration.localTranscriptionModel.id == "mlx-community/whisper-large-v3-turbo")
 
-        precondition(!appStateSource.contains("allowsNativeWhisper"))
-        precondition(!localWhisperBranch.contains("useLegacyMlxWhisper else"))
-        precondition(!localWhisperBranch.contains("mode: .apiStandard"))
-        precondition(localWhisperBranch.contains("mode: .localWhisper"))
-        precondition(localWhisperBranch.contains("useLocalTranscription: true"))
+            let legacyConfiguration = appState.audioImportConfiguration(for: .legacyMlxWhisper(model: legacyModel))
+            precondition(legacyConfiguration.mode == .localWhisper)
+            precondition(legacyConfiguration.useLocalTranscription)
+            precondition(legacyConfiguration.useLegacyMlxWhisper)
+            precondition(legacyConfiguration.localTranscriptionModel.id == legacyModel.id)
+        }
     }
 
-    private static func testInitialAudioImportUsesLocalWhisperConfiguration() throws {
+    private static func testInitialAudioImportUsesChoiceConfiguration() throws {
         let appStateSource = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
         let importBody = sourceBlock(
             in: appStateSource,
             from: "func importAudioFile(_ fileURL: URL, mode: NoteBrowserTranscriptionMode)",
             to: "\n    @MainActor\n    func retryTranscription"
         )
-        precondition(importBody.contains("transcriptionConfiguration: audioImportConfiguration(for: mode)"))
+        precondition(importBody.contains("func importAudioFile(_ fileURL: URL, choice: TranscriptionBackendChoice)"))
+        precondition(importBody.contains("transcriptionConfiguration: audioImportConfiguration(for: choice)"))
+        precondition(!importBody.contains("useLegacyMlxWhisper: useLegacyMlxWhisper,"))
         precondition(!importBody.contains("allowsNativeWhisper"))
 
         let noteBrowserSource = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
@@ -594,22 +597,81 @@ struct AppStateTranscriptionConfigurationTests {
             from: "private func showAudioImportPicker()",
             to: "\n    private var emptyListState"
         )
-        precondition(pickerBody.contains("hasLocalWhisperModel: appState.hasInstalledLocalWhisperModel"))
-        precondition(!pickerBody.contains("appState.useLegacyMlxWhisper && appState.hasLegacyLocalWhisperModel"))
+        precondition(pickerBody.contains("currentChoice: appState.currentNoteBrowserTranscriptionChoice"))
+        precondition(pickerBody.contains("hasNativeLocalWhisperModel: appState.hasNativeLocalWhisperModel"))
+        precondition(pickerBody.contains("legacyLocalWhisperModels: appState.installedLegacyLocalWhisperModels"))
+        precondition(!pickerBody.contains("hasLocalWhisperModel: appState.hasInstalledLocalWhisperModel"))
     }
 
-    private static func testAudioImportSheetUsesAudioImportOptionsLocalWhisperReason() throws {
+    private static func testAudioImportSheetUsesChoiceDisplayRows() throws {
         let source = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
         let sheetBody = sourceBlock(
             in: source,
             from: "private struct AudioImportSheet",
-            to: "private func transcriptionModeMenuItem"
+            to: "private func transcriptionChoiceMenuItem"
         )
 
-        precondition(sheetBody.contains("Text(importRequest.options.localWhisperUnavailableReason)"))
-        precondition(!sheetBody.contains("appState.useLegacyMlxWhisper"))
-        precondition(!sheetBody.contains("Install a legacy mlx-whisper model to import locally"))
-        precondition(!sheetBody.contains("Imported audio uses API unless legacy mlx-whisper is enabled"))
+        precondition(sheetBody.contains("ForEach(options.displayRows)"))
+        precondition(sheetBody.contains("@State private var selectedChoice: TranscriptionBackendChoice"))
+        precondition(sheetBody.contains("onImport: (TranscriptionBackendChoice) -> Void"))
+        precondition(sheetBody.contains("Text(display.title)"))
+        precondition(sheetBody.contains("Text(unavailableReason)"))
+        precondition(!sheetBody.contains("[NoteBrowserTranscriptionMode.apiStandard, .localWhisper]"))
+        precondition(!sheetBody.contains("appState.audioImportLabel(for:"))
+    }
+
+    private static func testNoteBrowserTranscriptionChoiceDisplayIncludesResolvedModels() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = AppState()
+            appState.transcriptionModel = "whisper-large-v3-turbo"
+            appState.realtimeStreamingModel = ""
+
+            let apiDisplay = appState.noteBrowserTranscriptionDisplay(for: .apiStandard(modelID: appState.transcriptionModel))
+            precondition(apiDisplay.currentLabel == "API · Standard · whisper-large-v3-turbo")
+
+            let realtimeDisplay = appState.noteBrowserTranscriptionDisplay(for: .apiRealtime(modelID: nil))
+            precondition(realtimeDisplay.currentLabel == "API · Realtime · Provider default")
+
+            let nativeDisplay = appState.noteBrowserTranscriptionDisplay(for: .nativeWhisper(modelID: NativeWhisperModelCatalog.recommended.id))
+            precondition(nativeDisplay.currentLabel == "Local · Native Whisper · Whisper Large v3 Turbo")
+
+            let legacyModel = TranscriptionModel.find(id: "mlx-community/whisper-medium-mlx")
+            let legacyDisplay = appState.noteBrowserTranscriptionDisplay(for: .legacyMlxWhisper(model: legacyModel))
+            precondition(legacyDisplay.currentLabel == "Local · Legacy · Whisper Medium")
+
+            let appleDisplay = appState.noteBrowserTranscriptionDisplay(for: .appleLive)
+            precondition(appleDisplay.currentLabel == "Local · Apple Live · Apple Speech")
+        }
+    }
+
+    private static func testNoteBrowserTranscriptionChoiceSetterUpdatesLocalBackend() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let applyChoiceBody = sourceBlock(
+            in: source,
+            from: "private func applyNoteBrowserTranscriptionChoice(_ choice: TranscriptionBackendChoice)",
+            to: "\n    @MainActor\n    func setGoogleCalendarSelected"
+        )
+        let nativeBranch = sourceBlock(
+            in: applyChoiceBody,
+            from: "case .nativeWhisper:",
+            to: "        case .legacyMlxWhisper"
+        )
+        let legacyBranch = sourceBlock(
+            in: applyChoiceBody,
+            from: "case .legacyMlxWhisper(let model):",
+            to: "        case .appleLive:"
+        )
+
+        precondition(nativeBranch.contains("useLocalTranscription = true"))
+        precondition(nativeBranch.contains("realtimeStreamingEnabled = false"))
+        precondition(nativeBranch.contains("useLegacyMlxWhisper = false"))
+        precondition(nativeBranch.contains("localTranscriptionModel = nativeLocalWhisperSelectionModel"))
+        precondition(legacyBranch.contains("useLocalTranscription = true"))
+        precondition(legacyBranch.contains("realtimeStreamingEnabled = false"))
+        precondition(legacyBranch.contains("useLegacyMlxWhisper = true"))
+        precondition(legacyBranch.contains("showLegacyMlxWhisperOptions = true"))
+        precondition(legacyBranch.contains("localTranscriptionModel = model"))
     }
 
     private static func testAPITranscriptionModesRequireResolvedAPIKey() async {

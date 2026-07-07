@@ -67,7 +67,7 @@ struct AudioImportFileCopyTests {
     }
 
     private static func importAudioFileBody(in source: String) -> String {
-        guard let start = source.range(of: "func importAudioFile(_ fileURL: URL, mode: NoteBrowserTranscriptionMode)"),
+        guard let start = source.range(of: "func importAudioFile(_ fileURL: URL, choice: TranscriptionBackendChoice)"),
               let end = source.range(of: "\n    @MainActor\n    func retryTranscription", range: start.upperBound..<source.endIndex) else {
             preconditionFailure("Could not find importAudioFile body")
         }
