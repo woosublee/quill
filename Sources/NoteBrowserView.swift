@@ -259,21 +259,27 @@ source: Quill
 private struct PendingAudioImport: Identifiable {
     let id = UUID()
     let fileURL: URL
-    let currentMode: NoteBrowserTranscriptionMode
+    let currentChoice: TranscriptionBackendChoice
+    let apiStandardModelID: String
     let hasAPIKey: Bool
-    let hasLocalWhisperModel: Bool
+    let hasNativeLocalWhisperModel: Bool
+    let legacyLocalWhisperModels: [TranscriptionModel]
     let fileSizeBytes: Int64?
 
     init(
         fileURL: URL,
-        currentMode: NoteBrowserTranscriptionMode,
+        currentChoice: TranscriptionBackendChoice,
+        apiStandardModelID: String,
         hasAPIKey: Bool,
-        hasLocalWhisperModel: Bool
+        hasNativeLocalWhisperModel: Bool,
+        legacyLocalWhisperModels: [TranscriptionModel]
     ) {
         self.fileURL = fileURL
-        self.currentMode = currentMode
+        self.currentChoice = currentChoice
+        self.apiStandardModelID = apiStandardModelID
         self.hasAPIKey = hasAPIKey
-        self.hasLocalWhisperModel = hasLocalWhisperModel
+        self.hasNativeLocalWhisperModel = hasNativeLocalWhisperModel
+        self.legacyLocalWhisperModels = legacyLocalWhisperModels
         let accessGranted = fileURL.startAccessingSecurityScopedResource()
         self.fileSizeBytes = accessGranted ? AppState.fileSizeBytes(for: fileURL) : nil
         if accessGranted {
@@ -284,34 +290,39 @@ private struct PendingAudioImport: Identifiable {
     var options: AudioImportOptions {
         AudioImportOptions(
             fileExtension: fileURL.pathExtension,
-            currentMode: currentMode,
+            currentChoice: currentChoice,
+            apiStandardModelID: apiStandardModelID,
             fileSizeBytes: fileSizeBytes,
             hasAPIKey: hasAPIKey,
-            hasLocalWhisperModel: hasLocalWhisperModel
+            hasNativeLocalWhisperModel: hasNativeLocalWhisperModel,
+            legacyLocalWhisperModels: legacyLocalWhisperModels,
+            nativeWhisperModelID: NativeWhisperModelCatalog.recommended.id,
+            nativeWhisperDisplayName: NativeWhisperModelCatalog.recommended.displayName
         )
     }
 }
 
 private struct AudioImportSheet: View {
     let importRequest: PendingAudioImport
-    let onImport: (NoteBrowserTranscriptionMode) -> Void
+    let onImport: (TranscriptionBackendChoice) -> Void
     let onCancel: () -> Void
 
-    @EnvironmentObject private var appState: AppState
-    @State private var selectedMode: NoteBrowserTranscriptionMode
+    @State private var selectedChoice: TranscriptionBackendChoice
 
     init(
         importRequest: PendingAudioImport,
-        onImport: @escaping (NoteBrowserTranscriptionMode) -> Void,
+        onImport: @escaping (TranscriptionBackendChoice) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.importRequest = importRequest
         self.onImport = onImport
         self.onCancel = onCancel
-        _selectedMode = State(initialValue: importRequest.options.defaultMode ?? .apiStandard)
+        let fallbackChoice = TranscriptionBackendChoice.apiStandard(modelID: importRequest.apiStandardModelID)
+        _selectedChoice = State(initialValue: importRequest.options.defaultChoice ?? fallbackChoice)
     }
 
     var body: some View {
+        let options = importRequest.options
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Import Audio File")
@@ -323,7 +334,7 @@ private struct AudioImportSheet: View {
                     .truncationMode(.middle)
             }
 
-            if importRequest.options.supportedModes.isEmpty {
+            if options.supportedChoices.isEmpty {
                 Text("No transcription method is available. Configure an API key or install a Local Whisper model, then try again.")
                     .font(.system(size: 12))
                     .foregroundStyle(.red)
@@ -334,21 +345,21 @@ private struct AudioImportSheet: View {
                 Text("Transcription Method")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
-                ForEach([NoteBrowserTranscriptionMode.apiStandard, .localWhisper], id: \.self) { mode in
-                    let isSupported = importRequest.options.supportedModes.contains(mode)
+                ForEach(options.displayRows) { display in
                     Button {
-                        selectedMode = mode
+                        selectedChoice = display.choice
                     } label: {
                         HStack {
-                            Image(systemName: selectedMode == mode ? "largecircle.fill.circle" : "circle")
+                            Image(systemName: selectedChoice == display.choice ? "largecircle.fill.circle" : "circle")
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(appState.audioImportLabel(for: mode))
-                                if mode == .apiStandard && !isSupported {
-                                    Text(importRequest.options.apiUnavailableReason)
+                                Text(display.title)
+                                if let subtitle = display.subtitle {
+                                    Text(subtitle)
                                         .font(.system(size: 10))
-                                        .foregroundStyle(.tertiary)
-                                } else if mode == .localWhisper && !isSupported {
-                                    Text(importRequest.options.localWhisperUnavailableReason)
+                                        .foregroundStyle(.secondary)
+                                }
+                                if let unavailableReason = display.unavailableReason {
+                                    Text(unavailableReason)
                                         .font(.system(size: 10))
                                         .foregroundStyle(.tertiary)
                                 }
@@ -357,8 +368,8 @@ private struct AudioImportSheet: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .disabled(!isSupported)
-                    .opacity(isSupported ? 1 : 0.45)
+                    .disabled(!display.isAvailable)
+                    .opacity(display.isAvailable ? 1 : 0.45)
                 }
             }
 
@@ -366,10 +377,10 @@ private struct AudioImportSheet: View {
                 Button("Cancel") { onCancel() }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("Transcribe") { onImport(selectedMode) }
+                Button("Transcribe") { onImport(selectedChoice) }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
-                    .disabled(importRequest.options.supportedModes.isEmpty || !importRequest.options.supportedModes.contains(selectedMode))
+                    .disabled(options.supportedChoices.isEmpty || !options.supportedChoices.contains(selectedChoice))
             }
         }
         .padding(24)
@@ -399,16 +410,20 @@ struct NoteBrowserView: View {
         }
     }
 
-    private func transcriptionModeMenuItem(_ title: String, mode: NoteBrowserTranscriptionMode) -> some View {
+    private func transcriptionChoiceMenuItem(_ display: TranscriptionChoiceDisplay) -> some View {
         Toggle(isOn: Binding<Bool>(
-            get: { appState.currentNoteBrowserTranscriptionMode == mode },
+            get: { appState.currentNoteBrowserTranscriptionChoice == display.choice },
             set: { isSelected in
-                if isSelected { appState.setNoteBrowserTranscriptionMode(mode) }
+                if isSelected { appState.setNoteBrowserTranscriptionChoice(display.choice) }
             }
         )) {
-            Text(title)
+            Text(display.compactLabel)
         }
-        .disabled(!appState.isNoteBrowserTranscriptionModeAvailable(mode))
+        .disabled(!display.isAvailable)
+    }
+
+    private func transcriptionChoiceDisplays(in section: String) -> [TranscriptionChoiceDisplay] {
+        appState.noteBrowserTranscriptionChoiceDisplays.filter { $0.section == section }
     }
 
     var body: some View {
@@ -425,13 +440,12 @@ struct NoteBrowserView: View {
             }
         }
         .sheet(item: $pendingAudioImport) { importRequest in
-            AudioImportSheet(importRequest: importRequest) { mode in
+            AudioImportSheet(importRequest: importRequest) { choice in
                 pendingAudioImport = nil
-                appState.importAudioFile(importRequest.fileURL, mode: mode)
+                appState.importAudioFile(importRequest.fileURL, choice: choice)
             } onCancel: {
                 pendingAudioImport = nil
             }
-            .environmentObject(appState)
         }
         .onReceive(appState.$pipelineHistory) { newHistory in
             let ids = newHistory.map(\.id)
@@ -585,22 +599,34 @@ struct NoteBrowserView: View {
 
                 Menu {
                     Section("API") {
-                        transcriptionModeMenuItem("Standard", mode: .apiStandard)
-                        transcriptionModeMenuItem("Realtime", mode: .apiRealtime)
+                        ForEach(transcriptionChoiceDisplays(in: "API")) { display in
+                            transcriptionChoiceMenuItem(display)
+                        }
                     }
                     Section("Local") {
-                        transcriptionModeMenuItem("Whisper", mode: .localWhisper)
-                        transcriptionModeMenuItem("Apple Live", mode: .localAppleLive)
+                        ForEach(transcriptionChoiceDisplays(in: "Local")) { display in
+                            transcriptionChoiceMenuItem(display)
+                        }
+                    }
+                    if !transcriptionChoiceDisplays(in: "Legacy mlx-whisper").isEmpty {
+                        Section("Legacy mlx-whisper") {
+                            ForEach(transcriptionChoiceDisplays(in: "Legacy mlx-whisper")) { display in
+                                transcriptionChoiceMenuItem(display)
+                            }
+                        }
                     }
                 } label: {
-                    Text(appState.noteBrowserTranscriptionModeLabel)
+                    Text(appState.noteBrowserTranscriptionChoiceLabel)
                         .font(.system(size: 11, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
                         .background(Color.primary.opacity(0.06), in: Capsule())
+                        .frame(maxWidth: 170, alignment: .trailing)
                 }
                 .menuStyle(.borderlessButton)
-                .fixedSize()
+                .help(appState.noteBrowserTranscriptionChoiceLabel)
                 .disabled(appState.isRecording || appState.isTranscribing)
             }
             .padding(.horizontal, 12)
@@ -687,9 +713,11 @@ struct NoteBrowserView: View {
             guard response == .OK, let url = panel.url else { return }
             pendingAudioImport = PendingAudioImport(
                 fileURL: url,
-                currentMode: appState.currentNoteBrowserTranscriptionMode,
+                currentChoice: appState.currentNoteBrowserTranscriptionChoice,
+                apiStandardModelID: appState.transcriptionModel,
                 hasAPIKey: appState.hasTranscriptionAPIKey,
-                hasLocalWhisperModel: appState.hasInstalledLocalWhisperModel
+                hasNativeLocalWhisperModel: appState.hasNativeLocalWhisperModel,
+                legacyLocalWhisperModels: appState.installedLegacyLocalWhisperModels
             )
         }
     }

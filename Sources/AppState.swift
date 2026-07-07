@@ -100,6 +100,8 @@ struct AudioImportTranscriptionConfiguration {
     let mode: NoteBrowserTranscriptionMode
     let useLocalTranscription: Bool
     let localTranscriptionModel: TranscriptionModel
+    let useLegacyMlxWhisper: Bool
+    let transcriptionModel: String
 }
 
 private struct AudioImportTaskConfiguration {
@@ -128,9 +130,7 @@ private struct AudioImportTaskConfiguration {
         transcriptionAPIKey: String,
         transcriptionAPIBaseURL: String,
         localWhisperPath: String,
-        useLegacyMlxWhisper: Bool,
         transcriptionLanguage: TranscriptionLanguage,
-        transcriptionModel: String,
         customVocabulary: String,
         customSystemPrompt: String,
         outputLanguage: String,
@@ -148,9 +148,9 @@ private struct AudioImportTaskConfiguration {
         self.transcriptionAPIKey = transcriptionAPIKey
         self.transcriptionAPIBaseURL = transcriptionAPIBaseURL
         self.localWhisperPath = localWhisperPath
-        self.useLegacyMlxWhisper = useLegacyMlxWhisper
+        self.useLegacyMlxWhisper = transcriptionConfiguration.useLegacyMlxWhisper
         self.transcriptionLanguage = transcriptionLanguage
-        self.transcriptionModel = transcriptionModel
+        self.transcriptionModel = transcriptionConfiguration.transcriptionModel
         self.customVocabulary = customVocabulary
         self.customSystemPrompt = customSystemPrompt
         self.outputLanguage = outputLanguage
@@ -205,6 +205,7 @@ private struct RetrySnapshot {
     let postProcessingEnabled: Bool
     let localWhisperPath: String?
     let useLegacyMlxWhisper: Bool
+    let transcriptionModel: String
 }
 
 private struct TranscriptCommandParsingResult {
@@ -437,7 +438,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         didSet {
             persistAPIKey(apiKey)
             rebuildContextService()
-            normalizeNoteBrowserTranscriptionModeForProviderConfiguration()
+            scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration()
         }
     }
 
@@ -457,7 +458,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var transcriptionAPIKey: String {
         didSet {
             persistOptionalAPIValue(transcriptionAPIKey, account: transcriptionAPIKeyStorageKey)
-            normalizeNoteBrowserTranscriptionModeForProviderConfiguration()
+            scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration()
         }
     }
 
@@ -740,7 +741,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var useLegacyMlxWhisper: Bool {
         didSet {
             UserDefaults.standard.set(useLegacyMlxWhisper, forKey: useLegacyMlxWhisperStorageKey)
-            normalizeNoteBrowserTranscriptionModeForProviderConfiguration()
+            scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration()
         }
     }
 
@@ -799,23 +800,126 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var nativeWhisperInstallTask: NativeWhisperInstallTask?
     private var nativeWhisperInstallCancellationMessage: String?
 
+    @MainActor
     var noteBrowserTranscriptionModeLabel: String {
-        label(for: currentNoteBrowserTranscriptionMode)
+        noteBrowserTranscriptionChoiceLabel
     }
 
-    var currentNoteBrowserTranscriptionMode: NoteBrowserTranscriptionMode {
+    @MainActor
+    var noteBrowserTranscriptionChoiceLabel: String {
+        noteBrowserTranscriptionDisplay(for: currentNoteBrowserTranscriptionChoice).currentLabel
+    }
+
+    @MainActor
+    var currentNoteBrowserTranscriptionChoice: TranscriptionBackendChoice {
         if useLocalTranscription {
-            return localTranscriptionModel.isAppleSpeech ? .localAppleLive : .localWhisper
+            if localTranscriptionModel.isAppleSpeech {
+                return .appleLive
+            }
+            if useLegacyMlxWhisper {
+                return .legacyMlxWhisper(model: localTranscriptionModel)
+            }
+            return nativeWhisperChoice
         }
-        return realtimeStreamingEnabled ? .apiRealtime : .apiStandard
+        return realtimeStreamingEnabled ? apiRealtimeChoice : apiStandardChoice
     }
 
+    @MainActor
+    var currentNoteBrowserTranscriptionMode: NoteBrowserTranscriptionMode {
+        currentNoteBrowserTranscriptionChoice.mode
+    }
+
+    @MainActor
+    var noteBrowserTranscriptionChoiceDisplays: [TranscriptionChoiceDisplay] {
+        [
+            noteBrowserTranscriptionDisplay(for: apiStandardChoice),
+            noteBrowserTranscriptionDisplay(for: apiRealtimeChoice),
+            noteBrowserTranscriptionDisplay(for: nativeWhisperChoice),
+            noteBrowserTranscriptionDisplay(for: .appleLive)
+        ] + installedLegacyLocalWhisperModels.map { model in
+            noteBrowserTranscriptionDisplay(for: .legacyMlxWhisper(model: model))
+        }
+    }
+
+    @MainActor
     func label(for mode: NoteBrowserTranscriptionMode) -> String {
-        switch mode {
-        case .apiStandard: return "API · Standard"
-        case .apiRealtime: return "API · Realtime"
-        case .localWhisper: return "Local · Whisper"
-        case .localAppleLive: return "Local · Apple Live"
+        noteBrowserTranscriptionDisplay(for: preferredNoteBrowserTranscriptionChoice(for: mode)).currentLabel
+    }
+
+    @MainActor
+    func noteBrowserTranscriptionDisplay(for choice: TranscriptionBackendChoice) -> TranscriptionChoiceDisplay {
+        switch choice {
+        case .apiStandard(let modelID):
+            let resolvedModelID = nonEmptyModelID(modelID) ?? resolvedStandardTranscriptionModelID
+            let unavailableReason = hasTranscriptionAPIKey ? nil : "API key is not configured"
+            return TranscriptionChoiceDisplay(
+                choice: .apiStandard(modelID: resolvedModelID),
+                section: "API",
+                title: "Standard",
+                subtitle: resolvedModelID,
+                compactLabel: "Standard · \(resolvedModelID)",
+                currentLabel: "API · Standard · \(resolvedModelID)",
+                isAvailable: unavailableReason == nil,
+                unavailableReason: unavailableReason
+            )
+        case .apiRealtime(let modelID):
+            let resolvedModelID = nonEmptyModelID(modelID ?? realtimeStreamingModel)
+            let modelLabel = resolvedModelID ?? "Provider default"
+            let unavailableReason: String? = if !hasTranscriptionAPIKey {
+                "API key is not configured"
+            } else if AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID) {
+                "Realtime is unavailable with System Default + System Audio"
+            } else {
+                nil
+            }
+            return TranscriptionChoiceDisplay(
+                choice: .apiRealtime(modelID: resolvedModelID),
+                section: "API",
+                title: "Realtime",
+                subtitle: modelLabel,
+                compactLabel: "Realtime · \(modelLabel)",
+                currentLabel: "API · Realtime · \(modelLabel)",
+                isAvailable: unavailableReason == nil,
+                unavailableReason: unavailableReason
+            )
+        case .nativeWhisper:
+            let unavailableReason = hasNativeLocalWhisperModel ? nil : "Install the native Local Whisper model to use this option"
+            return TranscriptionChoiceDisplay(
+                choice: nativeWhisperChoice,
+                section: "Local",
+                title: "Native Whisper",
+                subtitle: nativeWhisperDisplayName,
+                compactLabel: "Native Whisper · \(nativeWhisperDisplayName)",
+                currentLabel: "Local · Native Whisper · \(nativeWhisperDisplayName)",
+                isAvailable: unavailableReason == nil,
+                unavailableReason: unavailableReason
+            )
+        case .legacyMlxWhisper(let model):
+            let unavailableReason = model.isInstalled ? nil : "Install \(model.displayName) in Settings to use this option"
+            return TranscriptionChoiceDisplay(
+                choice: .legacyMlxWhisper(model: model),
+                section: "Legacy mlx-whisper",
+                title: "Legacy mlx-whisper",
+                subtitle: model.displayName,
+                compactLabel: "Legacy · \(model.displayName)",
+                currentLabel: "Local · Legacy · \(model.displayName)",
+                isAvailable: unavailableReason == nil,
+                unavailableReason: unavailableReason
+            )
+        case .appleLive:
+            let unavailableReason = AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID)
+                ? "Apple Live is unavailable with System Default + System Audio"
+                : nil
+            return TranscriptionChoiceDisplay(
+                choice: .appleLive,
+                section: "Local",
+                title: "Apple Live",
+                subtitle: "Apple Speech",
+                compactLabel: "Apple Live · Apple Speech",
+                currentLabel: "Local · Apple Live · Apple Speech",
+                isAvailable: unavailableReason == nil,
+                unavailableReason: unavailableReason
+            )
         }
     }
 
@@ -830,21 +934,66 @@ final class AppState: ObservableObject, @unchecked Sendable {
         !resolvedTranscriptionAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    var hasNativeLocalWhisperModel: Bool {
+        nativeWhisperInstallStatus == .ready
+    }
+
+    var installedLegacyLocalWhisperModels: [TranscriptionModel] {
+        TranscriptionModel.all.filter { !$0.isAppleSpeech && $0.isInstalled }
+    }
+
+    var hasAnyLocalWhisperModel: Bool {
+        hasNativeLocalWhisperModel || !installedLegacyLocalWhisperModels.isEmpty
+    }
+
     var hasInstalledLocalWhisperModel: Bool {
         if useLegacyMlxWhisper {
             return hasLegacyLocalWhisperModel
         }
-        return nativeWhisperInstallStatus == .ready
+        return hasNativeLocalWhisperModel
     }
 
     var hasLegacyLocalWhisperModel: Bool {
-        TranscriptionModel.all.contains { !$0.isAppleSpeech && $0.isInstalled }
+        !installedLegacyLocalWhisperModels.isEmpty
+    }
+
+    private var apiStandardChoice: TranscriptionBackendChoice {
+        .apiStandard(modelID: resolvedStandardTranscriptionModelID)
+    }
+
+    private var apiRealtimeChoice: TranscriptionBackendChoice {
+        .apiRealtime(modelID: resolvedRealtimeStreamingModelID)
+    }
+
+    private var nativeWhisperChoice: TranscriptionBackendChoice {
+        .nativeWhisper(modelID: NativeWhisperModelCatalog.recommended.id)
+    }
+
+    private var nativeWhisperDisplayName: String {
+        NativeWhisperModelCatalog.recommended.displayName
+    }
+
+    private var nativeLocalWhisperSelectionModel: TranscriptionModel {
+        TranscriptionModel.find(id: "mlx-community/whisper-large-v3-turbo")
+    }
+
+    private var resolvedStandardTranscriptionModelID: String {
+        nonEmptyModelID(transcriptionModel) ?? Self.defaultTranscriptionModel
+    }
+
+    private var resolvedRealtimeStreamingModelID: String? {
+        nonEmptyModelID(realtimeStreamingModel)
+    }
+
+    private func nonEmptyModelID(_ modelID: String) -> String? {
+        let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     @MainActor
     func refreshNativeWhisperInstallStatus() {
         nativeWhisperInstallStatus = NativeWhisperModelStore().installStatus(for: .recommended)
-        normalizeNoteBrowserTranscriptionModeForProviderConfiguration()
+        scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration()
     }
 
     @MainActor
@@ -926,25 +1075,47 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func audioImportConfiguration(
         for mode: NoteBrowserTranscriptionMode
     ) -> AudioImportTranscriptionConfiguration {
-        switch mode {
-        case .apiStandard, .apiRealtime:
+        audioImportConfiguration(for: preferredAudioImportChoice(for: mode))
+    }
+
+    @MainActor
+    func audioImportConfiguration(
+        for choice: TranscriptionBackendChoice
+    ) -> AudioImportTranscriptionConfiguration {
+        switch choice {
+        case .apiStandard(let modelID):
+            let resolvedModelID = nonEmptyModelID(modelID) ?? resolvedStandardTranscriptionModelID
             return AudioImportTranscriptionConfiguration(
-                mode: mode,
+                mode: .apiStandard,
                 useLocalTranscription: false,
-                localTranscriptionModel: localTranscriptionModel
+                localTranscriptionModel: localTranscriptionModel,
+                useLegacyMlxWhisper: false,
+                transcriptionModel: resolvedModelID
             )
-        case .localWhisper, .localAppleLive:
-            let model = localTranscriptionModel.isAppleSpeech
-                ? TranscriptionModel.all.first(where: { !$0.isAppleSpeech }) ?? localTranscriptionModel
-                : localTranscriptionModel
+        case .apiRealtime:
+            return audioImportConfiguration(for: apiStandardChoice)
+        case .nativeWhisper:
             return AudioImportTranscriptionConfiguration(
                 mode: .localWhisper,
                 useLocalTranscription: true,
-                localTranscriptionModel: model
+                localTranscriptionModel: nativeLocalWhisperSelectionModel,
+                useLegacyMlxWhisper: false,
+                transcriptionModel: resolvedStandardTranscriptionModelID
             )
+        case .legacyMlxWhisper(let model):
+            return AudioImportTranscriptionConfiguration(
+                mode: .localWhisper,
+                useLocalTranscription: true,
+                localTranscriptionModel: model,
+                useLegacyMlxWhisper: true,
+                transcriptionModel: resolvedStandardTranscriptionModelID
+            )
+        case .appleLive:
+            return audioImportConfiguration(for: preferredAudioImportChoice(for: .localWhisper))
         }
     }
 
+    @MainActor
     func isNoteBrowserTranscriptionModeAvailable(_ mode: NoteBrowserTranscriptionMode) -> Bool {
         switch mode {
         case .apiStandard:
@@ -952,65 +1123,156 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .apiRealtime:
             return hasTranscriptionAPIKey && !AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID)
         case .localWhisper:
-            return hasInstalledLocalWhisperModel
+            return hasAnyLocalWhisperModel
         case .localAppleLive:
             return !AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID)
         }
     }
 
     @MainActor
+    func isNoteBrowserTranscriptionChoiceAvailable(_ choice: TranscriptionBackendChoice) -> Bool {
+        noteBrowserTranscriptionDisplay(for: choice).isAvailable
+    }
+
+    @MainActor
     func setNoteBrowserTranscriptionMode(_ mode: NoteBrowserTranscriptionMode) {
-        applyNoteBrowserTranscriptionMode(normalizedNoteBrowserTranscriptionMode(mode))
+        setNoteBrowserTranscriptionChoice(preferredNoteBrowserTranscriptionChoice(for: mode))
     }
 
-    private func normalizeNoteBrowserTranscriptionModeForSelectedInput() {
-        normalizeNoteBrowserTranscriptionMode()
+    @MainActor
+    func setNoteBrowserTranscriptionChoice(_ choice: TranscriptionBackendChoice) {
+        applyNoteBrowserTranscriptionChoice(normalizedNoteBrowserTranscriptionChoice(choice))
     }
 
-    private func normalizeNoteBrowserTranscriptionModeForProviderConfiguration() {
-        guard !isRecording, !isTranscribing else { return }
-        normalizeNoteBrowserTranscriptionMode()
-    }
-
-    private func normalizeNoteBrowserTranscriptionMode() {
-        let normalizedMode = normalizedNoteBrowserTranscriptionMode(currentNoteBrowserTranscriptionMode)
-        guard normalizedMode != currentNoteBrowserTranscriptionMode else { return }
-        applyNoteBrowserTranscriptionMode(normalizedMode)
-    }
-
-    private func normalizedNoteBrowserTranscriptionMode(_ mode: NoteBrowserTranscriptionMode) -> NoteBrowserTranscriptionMode {
-        guard !isNoteBrowserTranscriptionModeAvailable(mode) else { return mode }
-        let fallbackOrder: [NoteBrowserTranscriptionMode]
-        switch mode {
-        case .apiRealtime:
-            fallbackOrder = [.apiStandard, .localWhisper, .localAppleLive]
-        case .apiStandard:
-            fallbackOrder = [.localWhisper, .localAppleLive, .apiRealtime]
-        case .localAppleLive:
-            fallbackOrder = [.localWhisper, .apiStandard, .apiRealtime]
-        case .localWhisper:
-            fallbackOrder = [.apiStandard, .localAppleLive, .apiRealtime]
+    private func scheduleNoteBrowserTranscriptionModeNormalizationForSelectedInput() {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                normalizeNoteBrowserTranscriptionMode()
+            }
+        } else {
+            Task { @MainActor [weak self] in
+                self?.normalizeNoteBrowserTranscriptionMode()
+            }
         }
-        return fallbackOrder.first(where: isNoteBrowserTranscriptionModeAvailable) ?? mode
     }
 
-    private func applyNoteBrowserTranscriptionMode(_ mode: NoteBrowserTranscriptionMode) {
+    private func scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration() {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                guard !isRecording, !isTranscribing else { return }
+                normalizeNoteBrowserTranscriptionMode()
+            }
+        } else {
+            Task { @MainActor [weak self] in
+                guard let self, !self.isRecording, !self.isTranscribing else { return }
+                self.normalizeNoteBrowserTranscriptionMode()
+            }
+        }
+    }
+
+    @MainActor
+    private func normalizeNoteBrowserTranscriptionMode() {
+        let currentChoice = currentNoteBrowserTranscriptionChoice
+        let normalizedChoice = normalizedNoteBrowserTranscriptionChoice(currentChoice)
+        guard normalizedChoice != currentChoice else { return }
+        applyNoteBrowserTranscriptionChoice(normalizedChoice)
+    }
+
+    @MainActor
+    private func normalizedNoteBrowserTranscriptionMode(_ mode: NoteBrowserTranscriptionMode) -> NoteBrowserTranscriptionMode {
+        normalizedNoteBrowserTranscriptionChoice(preferredNoteBrowserTranscriptionChoice(for: mode)).mode
+    }
+
+    @MainActor
+    private func normalizedNoteBrowserTranscriptionChoice(_ choice: TranscriptionBackendChoice) -> TranscriptionBackendChoice {
+        guard !isNoteBrowserTranscriptionChoiceAvailable(choice) else { return choice }
+        return noteBrowserFallbackChoices(for: choice).first(where: isNoteBrowserTranscriptionChoiceAvailable) ?? choice
+    }
+
+    @MainActor
+    private func preferredNoteBrowserTranscriptionChoice(for mode: NoteBrowserTranscriptionMode) -> TranscriptionBackendChoice {
         switch mode {
         case .apiStandard:
+            return apiStandardChoice
+        case .apiRealtime:
+            return apiRealtimeChoice
+        case .localWhisper:
+            if useLegacyMlxWhisper, !localTranscriptionModel.isAppleSpeech {
+                return .legacyMlxWhisper(model: localTranscriptionModel)
+            }
+            return nativeWhisperChoice
+        case .localAppleLive:
+            return .appleLive
+        }
+    }
+
+    @MainActor
+    private func preferredAudioImportChoice(for mode: NoteBrowserTranscriptionMode) -> TranscriptionBackendChoice {
+        switch mode {
+        case .apiStandard, .apiRealtime:
+            return apiStandardChoice
+        case .localWhisper, .localAppleLive:
+            if useLegacyMlxWhisper, !localTranscriptionModel.isAppleSpeech, localTranscriptionModel.isInstalled {
+                return .legacyMlxWhisper(model: localTranscriptionModel)
+            }
+            if hasNativeLocalWhisperModel {
+                return nativeWhisperChoice
+            }
+            if let legacyModel = installedLegacyLocalWhisperModels.first {
+                return .legacyMlxWhisper(model: legacyModel)
+            }
+            return nativeWhisperChoice
+        }
+    }
+
+    @MainActor
+    private func noteBrowserFallbackChoices(for choice: TranscriptionBackendChoice) -> [TranscriptionBackendChoice] {
+        let legacyChoices = installedLegacyLocalWhisperModels.map { TranscriptionBackendChoice.legacyMlxWhisper(model: $0) }
+        switch choice {
+        case .apiRealtime:
+            return [apiStandardChoice, nativeWhisperChoice] + legacyChoices + [.appleLive]
+        case .apiStandard:
+            return [nativeWhisperChoice] + legacyChoices + [.appleLive, apiRealtimeChoice]
+        case .appleLive:
+            return [nativeWhisperChoice] + legacyChoices + [apiStandardChoice, apiRealtimeChoice]
+        case .nativeWhisper:
+            return legacyChoices + [apiStandardChoice, .appleLive, apiRealtimeChoice]
+        case .legacyMlxWhisper(let model):
+            let sameLegacy = TranscriptionBackendChoice.legacyMlxWhisper(model: model)
+            return [nativeWhisperChoice] + legacyChoices.filter { $0 != sameLegacy } + [apiStandardChoice, .appleLive, apiRealtimeChoice]
+        }
+    }
+
+    @MainActor
+    private func applyNoteBrowserTranscriptionMode(_ mode: NoteBrowserTranscriptionMode) {
+        applyNoteBrowserTranscriptionChoice(preferredNoteBrowserTranscriptionChoice(for: mode))
+    }
+
+    @MainActor
+    private func applyNoteBrowserTranscriptionChoice(_ choice: TranscriptionBackendChoice) {
+        switch choice {
+        case .apiStandard(let modelID):
+            transcriptionModel = nonEmptyModelID(modelID) ?? resolvedStandardTranscriptionModelID
             useLocalTranscription = false
             realtimeStreamingEnabled = false
-        case .apiRealtime:
+        case .apiRealtime(let modelID):
+            if let modelID {
+                realtimeStreamingModel = modelID
+            }
             useLocalTranscription = false
             realtimeStreamingEnabled = true
-        case .localWhisper:
-            guard isNoteBrowserTranscriptionModeAvailable(.localWhisper) else { return }
+        case .nativeWhisper:
             useLocalTranscription = true
             realtimeStreamingEnabled = false
-            if localTranscriptionModel.isAppleSpeech,
-               let nonAppleModel = TranscriptionModel.all.first(where: { !$0.isAppleSpeech }) {
-                localTranscriptionModel = nonAppleModel
-            }
-        case .localAppleLive:
+            useLegacyMlxWhisper = false
+            localTranscriptionModel = nativeLocalWhisperSelectionModel
+        case .legacyMlxWhisper(let model):
+            useLocalTranscription = true
+            realtimeStreamingEnabled = false
+            useLegacyMlxWhisper = true
+            showLegacyMlxWhisperOptions = true
+            localTranscriptionModel = model
+        case .appleLive:
             useLocalTranscription = true
             realtimeStreamingEnabled = false
             localTranscriptionModel = .find(id: "apple-speech")
@@ -1234,7 +1496,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var selectedMicrophoneID: String {
         didSet {
             UserDefaults.standard.set(selectedMicrophoneID, forKey: selectedMicrophoneStorageKey)
-            normalizeNoteBrowserTranscriptionModeForSelectedInput()
+            scheduleNoteBrowserTranscriptionModeNormalizationForSelectedInput()
         }
     }
     @Published var availableMicrophones: [AudioDevice] = []
@@ -1583,7 +1845,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.hasScreenRecordingPermission = initialScreenCapturePermission
         self.launchAtLogin = SMAppService.mainApp.status == .enabled
         self.selectedMicrophoneID = selectedMicrophoneID
-        normalizeNoteBrowserTranscriptionModeForSelectedInput()
+        scheduleNoteBrowserTranscriptionModeNormalizationForSelectedInput()
         self.precomputeMacros()
 
         speechRecognitionAuthorizationStatus = Self.currentSpeechRecognitionAuthorizationStatus()
@@ -2676,14 +2938,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func importAudioFile(_ fileURL: URL, mode: NoteBrowserTranscriptionMode) {
+        importAudioFile(fileURL, choice: preferredAudioImportChoice(for: mode))
+    }
+
+    @MainActor
+    func importAudioFile(_ fileURL: URL, choice: TranscriptionBackendChoice) {
         let configuration = AudioImportTaskConfiguration(
-            transcriptionConfiguration: audioImportConfiguration(for: mode),
+            transcriptionConfiguration: audioImportConfiguration(for: choice),
             transcriptionAPIKey: resolvedTranscriptionAPIKey,
             transcriptionAPIBaseURL: resolvedTranscriptionBaseURL,
             localWhisperPath: localWhisperPath,
-            useLegacyMlxWhisper: useLegacyMlxWhisper,
             transcriptionLanguage: transcriptionLanguage,
-            transcriptionModel: transcriptionModel,
             customVocabulary: customVocabulary,
             customSystemPrompt: customSystemPrompt,
             outputLanguage: outputLanguage,
@@ -2889,7 +3154,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     useLegacyMlxWhisper: snapshot.useLegacyMlxWhisper,
                     transcriptionLanguage: snapshot.transcriptionLanguage,
                     localTranscriptionModel: snapshot.localTranscriptionModel,
-                    transcriptionModel: transcriptionModel
+                    transcriptionModel: snapshot.transcriptionModel
                 )
                 let rawTranscript = try await transcriptionService.transcribe(fileURL: snapshot.audioURL)
                 let parsedTranscript = Self.parseTranscriptCommands(
@@ -2967,15 +3232,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         let options = AudioImportOptions(
             fileExtension: audioURL.pathExtension,
-            currentMode: currentNoteBrowserTranscriptionMode,
+            currentChoice: currentNoteBrowserTranscriptionChoice,
+            apiStandardModelID: resolvedStandardTranscriptionModelID,
             fileSizeBytes: Self.fileSizeBytes(for: audioURL),
             hasAPIKey: hasTranscriptionAPIKey,
-            hasLocalWhisperModel: hasInstalledLocalWhisperModel
+            hasNativeLocalWhisperModel: hasNativeLocalWhisperModel,
+            legacyLocalWhisperModels: installedLegacyLocalWhisperModels,
+            nativeWhisperModelID: NativeWhisperModelCatalog.recommended.id,
+            nativeWhisperDisplayName: NativeWhisperModelCatalog.recommended.displayName
         )
-        guard let retryMode = options.defaultMode else {
+        guard let retryChoice = options.defaultChoice else {
             throw TranscriptionError.submissionFailed("No transcription method is available. Configure an API key or install a Local Whisper model, then try again.")
         }
-        let configuration = audioImportConfiguration(for: retryMode)
+        let configuration = audioImportConfiguration(for: retryChoice)
 
         return RetrySnapshot(
             item: item,
@@ -3001,7 +3270,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             outputLanguage: outputLanguage,
             postProcessingEnabled: item.usedPostProcessing,
             localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath,
-            useLegacyMlxWhisper: useLegacyMlxWhisper
+            useLegacyMlxWhisper: configuration.useLegacyMlxWhisper,
+            transcriptionModel: configuration.transcriptionModel
         )
     }
 

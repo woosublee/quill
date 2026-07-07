@@ -317,6 +317,8 @@ test: $(SPARKLE_STAMP)
 	@/tmp/SetupFlowTests
 	@swiftc -parse-as-library Sources/TranscriptionModel.swift Tests/TranscriptionModelCacheTests.swift -o /tmp/TranscriptionModelCacheTests
 	@/tmp/TranscriptionModelCacheTests
+	@swiftc -parse-as-library Sources/TranscriptionModel.swift Sources/AudioImportOptions.swift Tests/AudioImportOptionsTests.swift -o /tmp/AudioImportOptionsTests
+	@/tmp/AudioImportOptionsTests
 	@swiftc -parse-as-library Sources/NativeWhisperModel.swift Tests/NativeWhisperModelTests.swift -o /tmp/NativeWhisperModelTests
 	@/tmp/NativeWhisperModelTests
 	@swiftc -parse-as-library Sources/NativeWhisperModel.swift Sources/NativeWhisperRuntime.swift Tests/NativeWhisperRuntimeTests.swift -o /tmp/NativeWhisperRuntimeTests
