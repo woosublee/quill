@@ -8,6 +8,13 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.20] - 2026-07-07
+
+### Improved
+
+- The Note Browser transcription menu now shows the selected backend and model, distinguishing API Standard, API Realtime, Native Whisper, Apple Live, and installed legacy mlx-whisper models.
+- Audio import now uses the same backend/model choices as the Note Browser, so choosing Native Whisper or a legacy mlx-whisper model matches the backend used for the import job.
+
 ## [0.1.19] - 2026-07-07
 
 ### Improved
