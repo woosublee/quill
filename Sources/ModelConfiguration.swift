@@ -74,7 +74,7 @@ public struct ModelConfiguration {
             return ModelConfig(
                 maxCompletionTokens: nil,
                 reasoningEffort: "none",
-                includeReasoning: nil,
+                includeReasoning: false,
                 shouldStripThinkTags: true
             )
         } else if cleanModel == "llama-3.1-8b-instant" {

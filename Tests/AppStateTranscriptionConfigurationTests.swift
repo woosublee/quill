@@ -163,6 +163,7 @@ struct AppStateTranscriptionConfigurationTests {
     private static func testQwen36ModelConfiguration() {
         assert(ModelConfiguration.llmModels.contains("qwen/qwen3.6-27b"))
         assert(ModelConfiguration.config(for: "qwen/qwen3.6-27b").reasoningEffort == "none")
+        assert(ModelConfiguration.config(for: "qwen/qwen3.6-27b").includeReasoning == false)
         assert(ModelConfiguration.config(for: "qwen3.6-27b").shouldStripThinkTags)
     }
 
