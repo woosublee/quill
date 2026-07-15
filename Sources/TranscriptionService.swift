@@ -6,6 +6,12 @@ import os.log
 private let transcriptionLog = OSLog(subsystem: "com.woosublee.quill", category: "Transcription")
 
 class TranscriptionService {
+    private static let modelsSupportingVerboseJSON: Set<String> = [
+        "whisper-1",
+        "whisper-large-v3",
+        "whisper-large-v3-turbo"
+    ]
+
     private let apiKey: String
     private let baseURL: URL
     private let useLocalTranscription: Bool
@@ -15,7 +21,9 @@ class TranscriptionService {
     private let localTranscriptionModel: TranscriptionModel
     private let transcriptionModel: String
     private let language: String?
-    private let transcriptionResponseFormat = "verbose_json"
+    private var transcriptionResponseFormat: String {
+        Self.responseFormat(forModel: transcriptionModel)
+    }
     private var transcriptionTimeoutSeconds: TimeInterval {
         let override = UserDefaults.standard.double(forKey: "transcription_timeout_seconds")
         return override > 0 ? override : 20
@@ -46,6 +54,11 @@ class TranscriptionService {
         self.language = (trimmedLanguage?.isEmpty == false)
             ? trimmedLanguage
             : transcriptionLanguage.whisperArgument
+    }
+
+    static func responseFormat(forModel model: String) -> String {
+        let normalizedModel = model.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return modelsSupportingVerboseJSON.contains(normalizedModel) ? "verbose_json" : "json"
     }
 
     // Validate API key by hitting a lightweight endpoint
@@ -496,6 +509,8 @@ class TranscriptionService {
     static func friendlyHTTPMessage(status: Int, host: String?) -> String {
         let provider = host ?? "the provider"
         switch status {
+        case 400:
+            return "Provider rejected the request (HTTP 400). Check your model name and Base URL in Settings."
         case 401:
             return "Invalid API key for \(provider). Open Settings to fix it."
         case 403:

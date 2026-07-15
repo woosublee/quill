@@ -118,6 +118,7 @@ private struct AudioImportTaskConfiguration {
     let customSystemPrompt: String
     let outputLanguage: String
     let postProcessingEnabled: Bool
+    let preserveExactWording: Bool
     let pressEnterCommandEnabled: Bool
     let postProcessingAPIKey: String
     let postProcessingBaseURL: String
@@ -135,6 +136,7 @@ private struct AudioImportTaskConfiguration {
         customSystemPrompt: String,
         outputLanguage: String,
         postProcessingEnabled: Bool,
+        preserveExactWording: Bool,
         pressEnterCommandEnabled: Bool,
         postProcessingAPIKey: String,
         postProcessingBaseURL: String,
@@ -155,6 +157,7 @@ private struct AudioImportTaskConfiguration {
         self.customSystemPrompt = customSystemPrompt
         self.outputLanguage = outputLanguage
         self.postProcessingEnabled = postProcessingEnabled
+        self.preserveExactWording = preserveExactWording
         self.pressEnterCommandEnabled = pressEnterCommandEnabled
         self.postProcessingAPIKey = postProcessingAPIKey
         self.postProcessingBaseURL = postProcessingBaseURL
@@ -203,6 +206,7 @@ private struct RetrySnapshot {
     let customSystemPrompt: String
     let outputLanguage: String
     let postProcessingEnabled: Bool
+    let preserveExactWording: Bool
     let localWhisperPath: String?
     let useLegacyMlxWhisper: Bool
     let transcriptionModel: String
@@ -246,6 +250,7 @@ struct StoppedTranscriptionSettingsSnapshot {
     let transcriptionLanguage: TranscriptionLanguage
     let usedContextCapture: Bool
     let usedPostProcessing: Bool
+    let preserveExactWording: Bool
 }
 
 private enum CommandInvocation: String {
@@ -373,6 +378,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let disableContextCaptureStorageKey = "disable_context_capture"
     private let disableAutoPasteStorageKey = "disable_auto_paste"
     private let disablePostProcessingStorageKey = "disable_post_processing"
+    private let preserveExactWordingStorageKey = "preserve_exact_wording"
     private let transcriptionLanguageStorageKey = "transcription_language"
     private let outputLanguageStorageKey = "output_language"
     private let localTranscriptionModelStorageKey = AppState.localTranscriptionModelStorageKeyName
@@ -400,7 +406,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     static let defaultTranscriptionModel = "whisper-large-v3"
     static let defaultPostProcessingModel = "openai/gpt-oss-20b"
     static let defaultPostProcessingFallbackModel = "meta-llama/llama-4-scout-17b-16e-instruct"
-    static let defaultContextModel = "meta-llama/llama-4-scout-17b-16e-instruct"
+    static let defaultContextModel = "qwen/qwen3.6-27b"
+    private static let deprecatedDefaultContextModel = "meta-llama/llama-4-scout-17b-16e-instruct"
     private static let trailingPressEnterCommandPattern = try! NSRegularExpression(
         pattern: #"(?i)(?:^|[ \t\r\n,;:\-]+)press[ \t\r\n]+enter[\s\p{P}]*$"#
     )
@@ -766,6 +773,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var disablePostProcessing: Bool {
         didSet {
             UserDefaults.standard.set(disablePostProcessing, forKey: disablePostProcessingStorageKey)
+        }
+    }
+
+    @Published var preserveExactWording: Bool {
+        didSet {
+            UserDefaults.standard.set(preserveExactWording, forKey: preserveExactWordingStorageKey)
         }
     }
 
@@ -1604,7 +1617,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let transcriptionAPIKey = Self.loadStoredAPIKey(account: transcriptionAPIKeyStorageKey)
         let postProcessingModel = UserDefaults.standard.string(forKey: postProcessingModelStorageKey) ?? Self.defaultPostProcessingModel
         let postProcessingFallbackModel = UserDefaults.standard.string(forKey: postProcessingFallbackModelStorageKey) ?? Self.defaultPostProcessingFallbackModel
-        let contextModel = UserDefaults.standard.string(forKey: contextModelStorageKey) ?? Self.defaultContextModel
+        let contextModel = Self.loadStoredContextModel(key: contextModelStorageKey)
         let shortcuts = Self.loadShortcutConfiguration(
             holdKey: holdShortcutStorageKey,
             toggleKey: toggleShortcutStorageKey,
@@ -1723,6 +1736,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let disableContextCapture = UserDefaults.standard.bool(forKey: disableContextCaptureStorageKey)
         let disableAutoPaste = UserDefaults.standard.bool(forKey: disableAutoPasteStorageKey)
         let disablePostProcessing = UserDefaults.standard.bool(forKey: disablePostProcessingStorageKey)
+        let preserveExactWording = UserDefaults.standard.bool(forKey: preserveExactWordingStorageKey)
         let noteBrowserEnabled = UserDefaults.standard.bool(forKey: noteBrowserEnabledStorageKey)
         let transcriptionLanguage = TranscriptionLanguage.find(
             code: UserDefaults.standard.string(forKey: transcriptionLanguageStorageKey) ?? "ko"
@@ -1839,6 +1853,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.disableContextCapture = disableContextCapture
         self.disableAutoPaste = disableAutoPaste
         self.disablePostProcessing = disablePostProcessing
+        self.preserveExactWording = preserveExactWording
         self.noteBrowserEnabled = noteBrowserEnabled
         self.transcriptionLanguage = transcriptionLanguage
         self.outputLanguage = outputLanguage
@@ -1959,6 +1974,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return stored
         }
         return defaultAPIBaseURL
+    }
+
+    private static func loadStoredContextModel(key: String) -> String {
+        guard let stored = UserDefaults.standard.string(forKey: key) else {
+            return defaultContextModel
+        }
+
+        let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed == deprecatedDefaultContextModel {
+            UserDefaults.standard.set(defaultContextModel, forKey: key)
+            return defaultContextModel
+        }
+
+        return trimmed.isEmpty ? defaultContextModel : trimmed
     }
 
     private static func loadGoogleCalendarConnectionMetadata() -> GoogleCalendarConnectionMetadata? {
@@ -2958,6 +2987,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             customSystemPrompt: customSystemPrompt,
             outputLanguage: outputLanguage,
             postProcessingEnabled: !disablePostProcessing,
+            preserveExactWording: preserveExactWording,
             pressEnterCommandEnabled: isPressEnterVoiceCommandEnabled,
             postProcessingAPIKey: apiKey,
             postProcessingBaseURL: apiBaseURL,
@@ -3065,7 +3095,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         customVocabulary: configuration.customVocabulary,
                         customSystemPrompt: configuration.customSystemPrompt,
                         outputLanguage: configuration.outputLanguage,
-                        postProcessingEnabled: configuration.postProcessingEnabled
+                        postProcessingEnabled: configuration.postProcessingEnabled,
+                        preserveExactWording: configuration.preserveExactWording
                     )
                     try Task.checkCancellation()
                     let processingStatus = Self.statusMessage(
@@ -3174,7 +3205,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     customVocabulary: snapshot.customVocabulary,
                     customSystemPrompt: snapshot.customSystemPrompt,
                     outputLanguage: snapshot.outputLanguage,
-                    postProcessingEnabled: snapshot.postProcessingEnabled
+                    postProcessingEnabled: snapshot.postProcessingEnabled,
+                    preserveExactWording: snapshot.preserveExactWording
                 )
                 updatedItem = self.makeRetryHistoryItem(
                     from: snapshot,
@@ -3274,6 +3306,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             customSystemPrompt: item.customSystemPrompt,
             outputLanguage: outputLanguage,
             postProcessingEnabled: item.usedPostProcessing,
+            preserveExactWording: preserveExactWording,
             localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath,
             useLegacyMlxWhisper: configuration.useLegacyMlxWhisper,
             transcriptionModel: configuration.transcriptionModel
@@ -5111,9 +5144,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case skippedEmptyRawTranscript
         case voiceMacro(command: String)
         case postProcessingDisabled
+        case preservedExactWording
+        case preservedExactWordingTranslated
+        case preservedExactWordingTranslationFailedFallback
         case postProcessingSucceeded
+        case postProcessingSkippedCooldown
         case postProcessingFailedFallback
         case commandModeSucceeded(invocation: CommandInvocation)
+        case commandModeSkippedCooldown(invocation: CommandInvocation)
         case commandModeFailedFallback(invocation: CommandInvocation)
 
         func statusMessage(isRetry: Bool = false) -> String {
@@ -5124,14 +5162,24 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 return "Voice macro used: \(command)"
             case .postProcessingDisabled:
                 return "Post-processing disabled"
+            case .preservedExactWording:
+                return "Preserved exact wording, skipped cleanup"
+            case .preservedExactWordingTranslated:
+                return "Preserved exact wording, translated to output language"
+            case .preservedExactWordingTranslationFailedFallback:
+                return "Literal translation failed, using raw transcript"
             case .postProcessingSucceeded:
                 return isRetry ? "Post-processing succeeded (retried)" : "Post-processing succeeded"
+            case .postProcessingSkippedCooldown:
+                return "Post-processing skipped while configured models cool down"
             case .postProcessingFailedFallback:
                 return isRetry
                     ? "Post-processing failed on retry, using raw transcript"
                     : "Post-processing failed, using raw transcript"
             case .commandModeSucceeded(let invocation):
                 return "Edit mode succeeded (\(invocation.rawValue))"
+            case .commandModeSkippedCooldown(let invocation):
+                return "Edit mode skipped while configured models cool down (\(invocation.rawValue))"
             case .commandModeFailedFallback(let invocation):
                 return "Edit mode failed, using selected text (\(invocation.rawValue))"
             }
@@ -5146,7 +5194,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         customVocabulary: String,
         customSystemPrompt: String,
         outputLanguage: String,
-        postProcessingEnabled: Bool
+        postProcessingEnabled: Bool,
+        preserveExactWording: Bool
     ) async -> (finalTranscript: String, outcome: TranscriptProcessingOutcome, prompt: String) {
         let trimmedRawTranscript = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -5163,7 +5212,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     customVocabulary: customVocabulary,
                     outputLanguage: outputLanguage
                 )
-                return (result.transcript, .commandModeSucceeded(invocation: invocation), result.prompt)
+                let outcome: TranscriptProcessingOutcome = result.skippedDueToCooldown
+                    ? .commandModeSkippedCooldown(invocation: invocation)
+                    : .commandModeSucceeded(invocation: invocation)
+                return (result.transcript, outcome, result.prompt)
             } catch {
                 os_log(.error, log: recordingLog, "Edit mode failed: %{public}@", error.localizedDescription)
                 return (selectedText, .commandModeFailedFallback(invocation: invocation), "")
@@ -5179,6 +5231,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return (rawTranscript, .postProcessingDisabled, "")
         }
 
+        if preserveExactWording {
+            let targetLanguage = outputLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !targetLanguage.isEmpty else {
+                return (trimmedRawTranscript, .preservedExactWording, "")
+            }
+            do {
+                let result = try await postProcessingService.translateVerbatim(
+                    transcript: trimmedRawTranscript,
+                    targetLanguage: targetLanguage
+                )
+                let outcome: TranscriptProcessingOutcome = result.skippedDueToCooldown
+                    ? .postProcessingSkippedCooldown
+                    : .preservedExactWordingTranslated
+                return (result.transcript, outcome, result.prompt)
+            } catch {
+                os_log(.error, log: recordingLog, "Literal translation failed: %{public}@", error.localizedDescription)
+                return (trimmedRawTranscript, .preservedExactWordingTranslationFailedFallback, "")
+            }
+        }
+
         do {
             let result = try await postProcessingService.postProcess(
                 transcript: trimmedRawTranscript,
@@ -5187,7 +5259,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 customSystemPrompt: customSystemPrompt,
                 outputLanguage: outputLanguage
             )
-            return (result.transcript, .postProcessingSucceeded, result.prompt)
+            let outcome: TranscriptProcessingOutcome = result.skippedDueToCooldown
+                ? .postProcessingSkippedCooldown
+                : .postProcessingSucceeded
+            return (result.transcript, outcome, result.prompt)
         } catch {
             os_log(.error, log: recordingLog, "Post-processing failed: %{public}@", error.localizedDescription)
             return (trimmedRawTranscript, .postProcessingFailedFallback, "")
@@ -5254,6 +5329,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         customSystemPrompt: String,
         outputLanguage: String,
         postProcessingEnabled: Bool,
+        preserveExactWording: Bool,
         pressEnterCommandEnabled: Bool
     ) async throws -> StoppedTranscriptionCompletionSummary {
         let parsedTranscript = Self.parseTranscriptCommands(
@@ -5272,7 +5348,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             customVocabulary: customVocabulary,
             customSystemPrompt: customSystemPrompt,
             outputLanguage: outputLanguage,
-            postProcessingEnabled: postProcessingEnabled
+            postProcessingEnabled: postProcessingEnabled,
+            preserveExactWording: preserveExactWording
         )
         try Task.checkCancellation()
         let processingStatus = Self.statusMessage(
@@ -5281,7 +5358,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
         let outcomeWasPostProcessingFailedFallback: Bool
         switch result.outcome {
-        case .postProcessingFailedFallback:
+        case .postProcessingFailedFallback, .preservedExactWordingTranslationFailedFallback:
             outcomeWasPostProcessingFailedFallback = true
         default:
             outcomeWasPostProcessingFailedFallback = false
@@ -5480,7 +5557,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             localTranscriptionModel: capturedLocalTranscriptionModel,
             transcriptionLanguage: capturedTranscriptionLanguage,
             usedContextCapture: !disableContextCapture,
-            usedPostProcessing: !disablePostProcessing
+            usedPostProcessing: !disablePostProcessing,
+            preserveExactWording: preserveExactWording
         )
         let capturedLiveTranscriber = liveTranscriber
         let capturedPressEnterCommandEnabled = isPressEnterVoiceCommandEnabled
@@ -5520,6 +5598,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         customSystemPrompt: capturedCustomSystemPrompt,
                         outputLanguage: capturedOutputLanguage,
                         postProcessingEnabled: capturedSettings.usedPostProcessing,
+                        preserveExactWording: capturedSettings.preserveExactWording,
                         pressEnterCommandEnabled: capturedPressEnterCommandEnabled
                     )
                     try await self.runSuccessfulStoppedTranscriptionCompletionPipeline(
@@ -5684,6 +5763,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         customSystemPrompt: capturedCustomSystemPrompt,
                         outputLanguage: capturedOutputLanguage,
                         postProcessingEnabled: capturedSettings.usedPostProcessing,
+                        preserveExactWording: capturedSettings.preserveExactWording,
                         pressEnterCommandEnabled: capturedPressEnterCommandEnabled
                     )
                     try await self.runSuccessfulStoppedTranscriptionCompletionPipeline(

@@ -253,7 +253,7 @@ Selected text: \(selectedText ?? "None")
 
             let fullPrompt = "Model: \(model)\n\n[System]\n\(contextSystemPrompt)\n[User]\n\(userMessageDescription)"
 
-            let payload: [String: Any] = [
+            var payload: [String: Any] = [
                 "model": model,
                 "temperature": 0.2,
                 "messages": [
@@ -261,6 +261,13 @@ Selected text: \(selectedText ?? "None")
                     ["role": "user", "content": userMessage]
                 ]
             ]
+            let config = ModelConfiguration.config(for: model)
+            if let reasoningEffort = config.reasoningEffort {
+                payload["reasoning_effort"] = reasoningEffort
+            }
+            if let includeReasoning = config.includeReasoning {
+                payload["include_reasoning"] = includeReasoning
+            }
 
             request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
             let (data, response) = try await LLMAPITransport.data(for: request)
@@ -278,15 +285,25 @@ Selected text: \(selectedText ?? "None")
                 return nil
             }
 
-            let cleaned = content.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !cleaned.isEmpty else { return nil }
-            return (activity: normalizedActivitySummary(cleaned), prompt: fullPrompt)
+            guard let activity = Self.activitySummary(from: content, model: model) else { return nil }
+            return (activity: activity, prompt: fullPrompt)
         } catch {
             return nil
         }
     }
 
-    private func normalizedActivitySummary(_ value: String) -> String {
+    static func activitySummary(from rawContent: String, model: String) -> String? {
+        var content = rawContent
+        if ModelConfiguration.config(for: model).shouldStripThinkTags {
+            content = ModelConfiguration.stripThinkTags(content)
+        }
+
+        let cleaned = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return nil }
+        return normalizedActivitySummary(cleaned)
+    }
+
+    private static func normalizedActivitySummary(_ value: String) -> String {
         let sentences = value
             .split(whereSeparator: { $0 == "." || $0 == "。" || $0 == "!" || $0 == "?" })
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

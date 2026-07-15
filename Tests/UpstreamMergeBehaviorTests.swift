@@ -59,9 +59,10 @@ struct UpstreamMergeBehaviorTests {
         checkNotContains(appState, "return lowered.contains(\"permission\") || lowered.contains(\"screen recording\")", "Screen recording permission detection should not treat generic capture failures as permission errors")
 
         let transport = try read("Sources/LLMAPITransport.swift")
-        checkContains(transport, "makeEphemeralSession(resourceTimeout: TimeInterval = 30)", "LLMAPITransport should allow request-specific resource timeout overrides")
-        checkContains(transport, "configuration.timeoutIntervalForResource = max(30, resourceTimeout)", "LLMAPITransport resource timeout should not cap provider timeout overrides at 30 seconds")
-        checkContains(transport, "makeEphemeralSession(resourceTimeout: request.timeoutInterval)", "LLMAPITransport upload/data calls should honor request timeout overrides")
+        checkContains(transport, "private static let requestSession", "LLMAPITransport should preserve shared-session reuse for short requests")
+        checkContains(transport, "configuration.timeoutIntervalForRequest = timeout", "LLMAPITransport request timeout should honor the caller timeout")
+        checkContains(transport, "configuration.timeoutIntervalForResource = timeout", "LLMAPITransport resource timeout should honor the caller timeout")
+        checkContains(transport, "timeout(for: request.timeoutInterval)", "LLMAPITransport should normalize request-specific timeout overrides")
 
         let transcriptionService = try read("Sources/TranscriptionService.swift")
         checkContains(transcriptionService, "UserDefaults.standard.double(forKey: \"transcription_timeout_seconds\")", "TranscriptionService should support provider timeout overrides")
