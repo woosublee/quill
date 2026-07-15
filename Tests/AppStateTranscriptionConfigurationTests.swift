@@ -22,6 +22,7 @@ struct AppStateTranscriptionConfigurationTests {
         testPostProcessingCooldownDispositionCanBeMarkedSkipped()
         testPreserveExactWordingDefaultsOffAndPersists()
         testVerbatimTranslationPromptAndSanitizer()
+        testVerbatimTranslationRejectsOutputThatSanitizesToEmpty()
         try testPreserveExactWordingSettingsAndPipelineWiring()
         testLegacyMlxWhisperOptionsDefaultToOff()
         testLegacyMlxWhisperOptionsPersistIndependentlyFromEngine()
@@ -258,6 +259,27 @@ struct AppStateTranscriptionConfigurationTests {
         assert(prompt.contains("English"))
         assert(PostProcessingService.sanitizeVerbatimTranslation("\"EMPTY\"") == "EMPTY")
         assert(PostProcessingService.sanitizeVerbatimTranslation("\" translated text \"") == "translated text")
+    }
+
+    private static func testVerbatimTranslationRejectsOutputThatSanitizesToEmpty() {
+        do {
+            _ = try PostProcessingService.validatedVerbatimTranslation("\"\"")
+            assertionFailure("Quote-only literal translation must be treated as empty output")
+        } catch PostProcessingError.emptyOutput {
+            // Expected: stripping the outer quotes leaves no literal text to paste.
+        } catch {
+            assertionFailure("Expected emptyOutput, got \(error)")
+        }
+
+        do {
+            let literalEmpty = try PostProcessingService.validatedVerbatimTranslation("\"EMPTY\"")
+            assert(literalEmpty == "EMPTY")
+
+            let translated = try PostProcessingService.validatedVerbatimTranslation("\" translated text \"")
+            assert(translated == "translated text")
+        } catch {
+            assertionFailure("Nonempty literal translations must remain valid: \(error)")
+        }
     }
 
     private static func testPreserveExactWordingSettingsAndPipelineWiring() throws {

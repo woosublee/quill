@@ -958,8 +958,9 @@ Model: \(model)
         guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw PostProcessingError.emptyOutput
         }
+        let sanitizedTranslation = try Self.validatedVerbatimTranslation(content)
         return PostProcessingResult(
-            transcript: Self.sanitizeVerbatimTranslation(content),
+            transcript: sanitizedTranslation,
             prompt: promptForDisplay
         )
     }
@@ -972,6 +973,14 @@ Model: \(model)
             result = result.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return result
+    }
+
+    static func validatedVerbatimTranslation(_ value: String) throws -> String {
+        let sanitized = sanitizeVerbatimTranslation(value)
+        guard !sanitized.isEmpty else {
+            throw PostProcessingError.emptyOutput
+        }
+        return sanitized
     }
 
     static func applyOutputLanguage(_ prompt: String, language: String) -> String {
