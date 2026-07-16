@@ -3,7 +3,7 @@ import UserNotifications
 
 @main
 struct CalendarRecordingReminderSchedulerTests {
-    static func main() async {
+    static func main() async throws {
         testLeadMinutesAffectFireDate()
         testMultipleLeadMinutesCreateMultipleSchedules()
         testPastReminderTimeForUpcomingMeetingBecomesImmediate()
@@ -16,6 +16,7 @@ struct CalendarRecordingReminderSchedulerTests {
         testReminderGroupIdentifierIgnoresLeadMinutes()
         testCalendarReminderIdentifierFilteringUsesPrefix()
         testNotificationTitleDescribesRelativeStartTime()
+        try testNotificationCopyLocalizesWrapperAndPreservesEventTitle()
         testNormalizesLeadMinutes()
         testNormalizesLeadMinuteSelections()
         testNormalizesRefreshIntervalMinutesToSupportedOptions()
@@ -221,6 +222,25 @@ struct CalendarRecordingReminderSchedulerTests {
         assert(CalendarRecordingReminderScheduler.notificationTitle(for: future, now: now) == "Meeting starts in 10 minutes")
         assert(CalendarRecordingReminderScheduler.notificationTitle(for: soon, now: now) == "Meeting starts in 1 minute")
         assert(CalendarRecordingReminderScheduler.notificationTitle(for: started, now: now) == "Meeting is starting now")
+    }
+
+    private static func testNotificationCopyLocalizesWrapperAndPreservesEventTitle() throws {
+        let bundle = try compiledLocalizationBundle()
+        let now = Date(timeIntervalSince1970: 1_000)
+        let event = calendarEvent(id: "localized", title: "Quarterly Review: Q3", start: 1_600, end: 1_900)
+        let schedule = CalendarRecordingReminderSchedule(identifier: "localized", fireDate: now, event: event, delivery: .scheduled)
+
+        assert(CalendarRecordingReminderScheduler.notificationTitle(for: schedule, now: now, language: "en", bundle: bundle) == "Meeting starts in 10 minutes")
+        assert(CalendarRecordingReminderScheduler.notificationTitle(for: schedule, now: now, language: "ko", bundle: bundle) == "회의가 10분 후 시작됩니다")
+        assert(CalendarRecordingReminderScheduler.notificationBody(for: event, language: "ko", bundle: bundle) == "눌러서 녹음 시작: Quarterly Review: Q3")
+    }
+
+    private static func compiledLocalizationBundle() throws -> Bundle {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        guard let bundle = Bundle(path: root.appendingPathComponent("build/localization").path) else {
+            throw NSError(domain: "CalendarRecordingReminderSchedulerTests", code: 1)
+        }
+        return bundle
     }
 
     private static func testNormalizesLeadMinutes() {

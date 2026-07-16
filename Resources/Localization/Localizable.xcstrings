@@ -7536,6 +7536,198 @@
           }
         }
       }
+    },
+    "Screen Recording permission is required. %@\n\nQuill requires Screen Recording permission to capture screenshots for context-aware transcription.\n\nGo to System Settings > Privacy & Security > Screen Recording and enable Quill.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen Recording permission is required. %@\n\nQuill requires Screen Recording permission to capture screenshots for context-aware transcription.\n\nGo to System Settings > Privacy & Security > Screen Recording and enable Quill."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 기록 권한이 필요합니다. %@\n\nQuill에서 맥락 인식 전사를 위한 스크린샷을 캡처하려면 화면 기록 권한이 필요합니다.\n\n시스템 설정 > 개인정보 보호 및 보안 > 화면 기록에서 Quill을 활성화하세요."
+          }
+        }
+      }
+    },
+    "Failed to capture screenshot: %@\n\nA screenshot is required for context-aware transcription. Recording has been stopped.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to capture screenshot: %@\n\nA screenshot is required for context-aware transcription. Recording has been stopped."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크린샷을 캡처하지 못했습니다: %@\n\n맥락 인식 전사에는 스크린샷이 필요합니다. 녹음이 중지되었습니다."
+          }
+        }
+      }
+    },
+    "Unable to clear run history": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to clear run history"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 기록을 지울 수 없음"
+          }
+        }
+      }
+    },
+    "Unable to delete run history entry": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to delete run history entry"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 기록 항목을 삭제할 수 없음"
+          }
+        }
+      }
+    },
+    "Failed to save note title": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to save note title"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 제목을 저장하지 못함"
+          }
+        }
+      }
+    },
+    "Failed to save transcript edit": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to save transcript edit"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 편집을 저장하지 못함"
+          }
+        }
+      }
+    },
+    "Unable to save the audio file. Check disk space or file permissions and try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to save the audio file. Check disk space or file permissions and try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오 파일을 저장할 수 없습니다. 디스크 공간 또는 파일 권한을 확인한 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Unable to save imported audio note": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to save imported audio note"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져온 오디오 노트를 저장할 수 없음"
+          }
+        }
+      }
+    },
+    "Unable to prepare retry": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to prepare retry"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 시도를 준비할 수 없음"
+          }
+        }
+      }
+    },
+    "Failed to save retry result": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to save retry result"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 시도 결과를 저장하지 못함"
+          }
+        }
+      }
+    },
+    "Unable to save recovery entry": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to save recovery entry"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 항목을 저장할 수 없음"
+          }
+        }
+      }
+    },
+    "Unable to save run history entry": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to save run history entry"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 기록 항목을 저장할 수 없음"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

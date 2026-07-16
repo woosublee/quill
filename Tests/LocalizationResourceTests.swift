@@ -41,6 +41,7 @@ struct LocalizationResourceTests {
         try assertTask3ExtractionCoverage(root: root, catalogStrings: strings)
         try assertTask3ReviewCoverage(root: root)
         try assertTask4SettingsExtractionCoverage(root: root, catalogStrings: strings)
+        try assertTask5ApplicationMessageCoverage(root: root, catalogStrings: strings)
         let settingsSource = try String(contentsOf: root.appendingPathComponent("Sources/SettingsView.swift"), encoding: .utf8)
         assert(settingsSource.contains("MicrophoneOptionRow(\n                    title: \"System Default\""))
         assert(settingsSource.contains("verbatimName: device.name,"))
@@ -199,6 +200,41 @@ struct LocalizationResourceTests {
                 let unit = (localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any]
                 assert(!(unit?["value"] as? String ?? "").isEmpty, "Missing Task 4 \(language) translation for \(key)")
             }
+        }
+    }
+
+    private static func assertTask5ApplicationMessageCoverage(root: URL, catalogStrings: [String: Any]) throws {
+        let appState = try String(contentsOf: root.appendingPathComponent("Sources/AppState.swift"), encoding: .utf8)
+        let helper = try String(contentsOf: root.appendingPathComponent("Sources/LocalizedUserMessage.swift"), encoding: .utf8)
+        let requiredPrefixes = [
+            "Unable to clear run history", "Unable to delete run history entry", "Failed to save note title",
+            "Failed to save transcript edit", "Unable to save imported audio note", "Unable to prepare retry",
+            "Failed to save retry result", "Unable to save recovery entry", "Unable to save run history entry"
+        ]
+        for key in requiredPrefixes {
+            assert(appState.contains("localizedCatalogString(\"\(key)\")"), "Missing Task 5 localized error prefix: \(key)")
+            assertCatalogTranslations(for: key, catalogStrings: catalogStrings)
+        }
+        let guidance = "Unable to save the audio file. Check disk space or file permissions and try again."
+        assert(appState.contains("localizedCatalogString(\"\(guidance)\")"))
+        assertCatalogTranslations(for: guidance, catalogStrings: catalogStrings)
+        let screenPermissionKey = "Screen Recording permission is required. %@\n\nQuill requires Screen Recording permission to capture screenshots for context-aware transcription.\n\nGo to System Settings > Privacy & Security > Screen Recording and enable Quill."
+        let screenshotFailureKey = "Failed to capture screenshot: %@\n\nA screenshot is required for context-aware transcription. Recording has been stopped."
+        assertCatalogTranslations(for: screenPermissionKey, catalogStrings: catalogStrings)
+        assertCatalogTranslations(for: screenshotFailureKey, catalogStrings: catalogStrings)
+        assert(helper.contains("static func screenRecordingPermission(detail: String, language: String, bundle: Bundle)"))
+        assert(helper.contains("static func screenshotFailure(detail: String, language: String, bundle: Bundle)"))
+        assert(appState.contains("alert.informativeText = LocalizedUserMessage.screenRecordingPermission(detail: message)"))
+        assert(appState.contains("alert.informativeText = LocalizedUserMessage.screenshotFailure(detail: message)"))
+        assert(!appState.contains("LocalizedUserMessage.screenRecordingPermission(detail: message) +"))
+        assert(!appState.contains("LocalizedUserMessage.screenshotFailure(detail: message) +"))
+    }
+
+    private static func assertCatalogTranslations(for key: String, catalogStrings: [String: Any]) {
+        let localizations = (catalogStrings[key] as? [String: Any])?["localizations"] as? [String: Any]
+        for language in ["en", "ko"] {
+            let value = (((localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String)
+            assert(!(value ?? "").isEmpty, "Missing Task 5 \(language) translation for \(key)")
         }
     }
 

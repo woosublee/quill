@@ -2880,7 +2880,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
             pipelineHistory = []
         } catch {
-            errorMessage = "Unable to clear run history: \(error.localizedDescription)"
+            errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to clear run history"), providerDetail: error.localizedDescription)
         }
     }
 
@@ -2892,7 +2892,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
             pipelineHistory.remove(at: index)
         } catch {
-            errorMessage = "Unable to delete run history entry: \(error.localizedDescription)"
+            errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to delete run history entry"), providerDetail: error.localizedDescription)
         }
     }
 
@@ -2908,7 +2908,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             try pipelineHistoryStore.update(updated)
             pipelineHistory[index] = updated
         } catch {
-            errorMessage = "Failed to save note title: \(error.localizedDescription)"
+            errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Failed to save note title"), providerDetail: error.localizedDescription)
         }
     }
 
@@ -2956,7 +2956,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 pipelineHistory[index] = updated
             }
         } catch {
-            errorMessage = "Failed to save transcript edit: \(error.localizedDescription)"
+            errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Failed to save transcript edit"), providerDetail: error.localizedDescription)
         }
     }
 
@@ -2992,7 +2992,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         Task { [weak self] in
             guard let savedAudioFile = await Self.saveSecurityScopedAudioFileOffMain(from: fileURL) else {
-                self?.errorMessage = "Unable to save the audio file. Check disk space or file permissions and try again."
+                self?.errorMessage = localizedCatalogString("Unable to save the audio file. Check disk space or file permissions and try again.")
                 return
             }
             guard let self else {
@@ -3036,7 +3036,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             } catch {
                 Self.deleteAudioFile(savedAudioFile.fileName)
-                self.errorMessage = "Unable to save imported audio note: \(error.localizedDescription)"
+                self.errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to save imported audio note"), providerDetail: error.localizedDescription)
                 return
             }
 
@@ -3152,7 +3152,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         do {
             snapshot = try makeRetrySnapshot(for: item)
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to prepare retry"), providerDetail: error.localizedDescription)
             return
         }
 
@@ -3231,7 +3231,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.copyRetryTranscriptToPasteboardIfNeeded(updatedItem.postProcessedTranscript)
                     }
                 } catch {
-                    self.errorMessage = "Failed to save retry result: \(error.localizedDescription)"
+                    self.errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Failed to save retry result"), providerDetail: error.localizedDescription)
                 }
                 self.retryingItemIDs.remove(snapshot.item.id)
             }
@@ -5984,7 +5984,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 $0.audioFileName = audioFileName
             }
         } catch {
-            errorMessage = "Unable to save recovery entry: \(error.localizedDescription)"
+            errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to save recovery entry"), providerDetail: error.localizedDescription)
         }
     }
 
@@ -6222,7 +6222,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             updatePipelineHistoryItem(entry)
         } catch {
             Self.deleteStoredFiles(audioFileName: audioFileName, transcriptFileName: transcriptFileName)
-            errorMessage = "Unable to save run history entry: \(error.localizedDescription)"
+            errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to save run history entry"), providerDetail: error.localizedDescription)
         }
 
         // MCP notification
@@ -6422,7 +6422,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         let alert = NSAlert()
         alert.messageText = localizedCatalogString("Screen Recording Permission Required")
-        alert.informativeText = LocalizedUserMessage.screenRecordingPermission(detail: message) + "\n\n" + localizedCatalogString("Quill requires Screen Recording permission to capture screenshots for context-aware transcription.\n\nGo to System Settings > Privacy & Security > Screen Recording and enable Quill.")
+        alert.informativeText = LocalizedUserMessage.screenRecordingPermission(detail: message)
         alert.alertStyle = .critical
         alert.addButton(withTitle: localizedCatalogString("Open System Settings"))
         alert.addButton(withTitle: localizedCatalogString("Dismiss"))
@@ -6437,7 +6437,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func showScreenshotCaptureErrorAlert(message: String) {
         let alert = NSAlert()
         alert.messageText = localizedCatalogString("Screenshot Capture Failed")
-        alert.informativeText = LocalizedUserMessage.screenshotFailure(detail: message) + "\n\n" + localizedCatalogString("A screenshot is required for context-aware transcription. Recording has been stopped.")
+        alert.informativeText = LocalizedUserMessage.screenshotFailure(detail: message)
         alert.alertStyle = .critical
         alert.addButton(withTitle: localizedCatalogString("Dismiss"))
         alert.icon = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: nil)
