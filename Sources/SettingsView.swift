@@ -5,14 +5,6 @@ import UserNotifications
 
 // MARK: - Shared Helpers
 
-private func localizedCatalogFormat(_ key: String, _ first: String, _ second: String) -> String {
-    var value = localizedCatalogString(key)
-    if let range = value.range(of: "%arg") { value.replaceSubrange(range, with: first) }
-    if let range = value.range(of: "%arg") { value.replaceSubrange(range, with: second) }
-    return value
-}
-
-
 private struct SettingsCard<Content: View>: View {
     let title: LocalizedStringKey
     let icon: String
@@ -3731,7 +3723,7 @@ struct NativeWhisperModelRowView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(verbatim: model.displayName)
                                 .font(.caption.weight(isSelected ? .semibold : .regular))
-                            Text(localizedCatalogFormat("%arg. About %arg.", model.localizedDescription(), ByteCountFormatter.string(fromByteCount: model.approximateBytes, countStyle: .file)))
+                            Text(localizedCatalogFormat("%@. About %@.", model.localizedDescription(), ByteCountFormatter.string(fromByteCount: model.approximateBytes, countStyle: .file)))
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }

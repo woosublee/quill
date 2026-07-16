@@ -1009,34 +1009,34 @@
         }
       }
     },
-    "  %arg": {
+    "  %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "  %arg"
+            "value": "  %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "  %arg"
+            "value": "  %@"
           }
         }
       }
     },
-    "  Custom: %arg": {
+    "  Custom: %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "  Custom: %arg"
+            "value": "  Custom: %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "  사용자 지정: %arg"
+            "value": "  사용자 지정: %@"
           }
         }
       }
@@ -1105,34 +1105,34 @@
         }
       }
     },
-    "%arg to try again": {
+    "%@ to try again": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg to try again"
+            "value": "%@ to try again"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg하여 다시 시도하세요"
+            "value": "%@하여 다시 시도하세요"
           }
         }
       }
     },
-    "%arg v%arg": {
+    "%@ v%@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg v%arg"
+            "value": "%@ v%@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg v%arg"
+            "value": "%@ v%@"
           }
         }
       }
@@ -1601,34 +1601,34 @@
         }
       }
     },
-    "Hold %arg": {
+    "Hold %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hold %arg"
+            "value": "Hold %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg 길게 누르기"
+            "value": "%@ 길게 누르기"
           }
         }
       }
     },
-    "Hold %arg or tap %arg": {
+    "Hold %@ or tap %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hold %arg or tap %arg"
+            "value": "Hold %@ or tap %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg 길게 누르기 또는 %arg 탭하기"
+            "value": "%@ 길게 누르기 또는 %@ 탭하기"
           }
         }
       }
@@ -1937,18 +1937,18 @@
         }
       }
     },
-    "Paste Again  (%arg)": {
+    "Paste Again  (%@)": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paste Again  (%arg)"
+            "value": "Paste Again  (%@)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다시 붙여넣기  (%arg)"
+            "value": "다시 붙여넣기  (%@)"
           }
         }
       }
@@ -2113,18 +2113,18 @@
         }
       }
     },
-    "Quit %arg": {
+    "Quit %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quit %arg"
+            "value": "Quit %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg 종료"
+            "value": "%@ 종료"
           }
         }
       }
@@ -2433,18 +2433,18 @@
         }
       }
     },
-    "Tap %arg": {
+    "Tap %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap %arg"
+            "value": "Tap %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg 탭하기"
+            "value": "%@ 탭하기"
           }
         }
       }
@@ -2657,18 +2657,18 @@
         }
       }
     },
-    "Welcome to %arg": {
+    "Welcome to %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Welcome to %arg"
+            "value": "Welcome to %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg에 오신 것을 환영합니다."
+            "value": "%@에 오신 것을 환영합니다."
           }
         }
       }
@@ -2705,50 +2705,50 @@
         }
       }
     },
-    "“%arg”": {
+    "“%@”": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%arg”"
+            "value": "“%@”"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "“%arg”"
+            "value": "“%@”"
           }
         }
       }
     },
-    "✓ %arg": {
+    "✓ %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "✓ %arg"
+            "value": "✓ %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "✓ %arg"
+            "value": "✓ %@"
           }
         }
       }
     },
-    "✓ Custom: %arg": {
+    "✓ Custom: %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "✓ Custom: %arg"
+            "value": "✓ Custom: %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "✓ 사용자 지정: %arg"
+            "value": "✓ 사용자 지정: %@"
           }
         }
       }
@@ -2817,50 +2817,50 @@
         }
       }
     },
-    "Hold %arg to record": {
+    "Hold %@ to record": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hold %arg to record"
+            "value": "Hold %@ to record"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg 길게 눌러 녹음"
+            "value": "%@ 길게 눌러 녹음"
           }
         }
       }
     },
-    "Hold %arg with your normal shortcut to transform selected text": {
+    "Hold %@ with your normal shortcut to transform selected text": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hold %arg with your normal shortcut to transform selected text"
+            "value": "Hold %@ with your normal shortcut to transform selected text"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "일반 단축키와 함께 %arg 길게 눌러 선택한 텍스트 변환"
+            "value": "일반 단축키와 함께 %@ 길게 눌러 선택한 텍스트 변환"
           }
         }
       }
     },
-    "Tap %arg to start and stop": {
+    "Tap %@ to start and stop": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tap %arg to start and stop"
+            "value": "Tap %@ to start and stop"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg 탭하여 시작 및 중지"
+            "value": "%@ 탭하여 시작 및 중지"
           }
         }
       }
@@ -2913,114 +2913,114 @@
         }
       }
     },
-    "%arg": {
+    "%@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg"
+            "value": "%@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg"
+            "value": "%@"
           }
         }
       }
     },
-    "%arg / %arg": {
+    "%@ / %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg / %arg"
+            "value": "%@ / %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg / %arg"
+            "value": "%@ / %@"
           }
         }
       }
     },
-    "%arg min before": {
+    "%@ min before": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg min before"
+            "value": "%@ min before"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg분 전"
+            "value": "%@분 전"
           }
         }
       }
     },
-    "%arg ms": {
+    "%@ ms": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg ms"
+            "value": "%@ ms"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%argms"
+            "value": "%@ms"
           }
         }
       }
     },
-    "%arg px": {
+    "%@ px": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg px"
+            "value": "%@ px"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%argpx"
+            "value": "%@px"
           }
         }
       }
     },
-    "%arg restores the audio state it changed when dictation ends.": {
+    "%@ restores the audio state it changed when dictation ends.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg restores the audio state it changed when dictation ends."
+            "value": "%@ restores the audio state it changed when dictation ends."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg은(는) 받아쓰기가 끝나면 변경한 오디오 상태를 복원합니다."
+            "value": "%@은(는) 받아쓰기가 끝나면 변경한 오디오 상태를 복원합니다."
           }
         }
       }
     },
-    "%arg%%": {
+    "%@%%": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg%%"
+            "value": "%@%%"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg%%"
+            "value": "%@%%"
           }
         }
       }
@@ -3599,7 +3599,8 @@
             "value": "Debug"
           }
         }
-      }
+      },
+      "shouldTranslate": false
     },
     "Default Context Prompt": {
       "localizations": {
@@ -3743,7 +3744,8 @@
             "value": "Display the update available overlay after dictation finishes."
           }
         }
-      }
+      },
+      "shouldTranslate": false
     },
     "Download": {
       "localizations": {
@@ -3809,18 +3811,18 @@
         }
       }
     },
-    "Fast local transcription. About %arg.": {
+    "Fast local transcription. About %@.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fast local transcription. About %arg."
+            "value": "Fast local transcription. About %@."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "빠른 로컬 받아쓰기. 약 %arg."
+            "value": "빠른 로컬 받아쓰기. 약 %@."
           }
         }
       }
@@ -3985,18 +3987,18 @@
         }
       }
     },
-    "Last checked: %arg": {
+    "Last checked: %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Last checked: %arg"
+            "value": "Last checked: %@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "마지막 확인: %arg"
+            "value": "마지막 확인: %@"
           }
         }
       }
@@ -4111,7 +4113,8 @@
             "value": "No Context"
           }
         }
-      }
+      },
+      "shouldTranslate": false
     },
     "No LLM": {
       "localizations": {
@@ -4127,7 +4130,8 @@
             "value": "No LLM"
           }
         }
-      }
+      },
+      "shouldTranslate": false
     },
     "No Voice Macros Yet": {
       "localizations": {
@@ -4207,7 +4211,8 @@
             "value": "No context captured"
           }
         }
-      }
+      },
+      "shouldTranslate": false
     },
     "No runs yet. Use dictation to populate history.": {
       "localizations": {
@@ -4223,7 +4228,8 @@
             "value": "No runs yet. Use dictation to populate history."
           }
         }
-      }
+      },
+      "shouldTranslate": false
     },
     "Not connected": {
       "localizations": {
@@ -4319,7 +4325,8 @@
             "value": "Pipeline"
           }
         }
-      }
+      },
+      "shouldTranslate": false
     },
     "Play alert sounds": {
       "localizations": {
@@ -4687,7 +4694,8 @@
             "value": "Run Log"
           }
         }
-      }
+      },
+      "shouldTranslate": false
     },
     "Running...": {
       "localizations": {
@@ -4831,7 +4839,8 @@
             "value": "Show Meeting Reminder"
           }
         }
-      }
+      },
+      "shouldTranslate": false
     },
     "Show Update Overlay Now": {
       "localizations": {
@@ -4847,7 +4856,8 @@
             "value": "Show Update Overlay Now"
           }
         }
-      }
+      },
+      "shouldTranslate": false
     },
     "Show a sample calendar reminder overlay. Turn on Debug Overlay first to preview the recording (wrapping) variant.": {
       "localizations": {
@@ -4863,7 +4873,8 @@
             "value": "Show a sample calendar reminder overlay. Turn on Debug Overlay first to preview the recording (wrapping) variant."
           }
         }
-      }
+      },
+      "shouldTranslate": false
     },
     "Show after dictation": {
       "localizations": {
@@ -4879,7 +4890,8 @@
             "value": "Show after dictation"
           }
         }
-      }
+      },
+      "shouldTranslate": false
     },
     "Show menu bar icon": {
       "localizations": {
@@ -4927,7 +4939,8 @@
             "value": "Show the recording overlay with simulated audio levels."
           }
         }
-      }
+      },
+      "shouldTranslate": false
     },
     "Skip LLM cleanup. Raw transcript is used as-is. No API call is made for post-processing.": {
       "localizations": {
@@ -4993,21 +5006,22 @@
         }
       }
     },
-    "Stored locally. Only the %arg most recent runs are kept.": {
+    "Stored locally. Only the %@ most recent runs are kept.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stored locally. Only the %arg most recent runs are kept."
+            "value": "Stored locally. Only the %@ most recent runs are kept."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stored locally. Only the %arg most recent runs are kept."
+            "value": "Stored locally. Only the %@ most recent runs are kept."
           }
         }
-      }
+      },
+      "shouldTranslate": false
     },
     "Stream audio while recording (realtime)": {
       "localizations": {
@@ -5521,34 +5535,34 @@
         }
       }
     },
-    "When enabled, %arg retries or falls back to the literal transcript if post-processing looks like it answered the dictated text instead of cleaning it.": {
+    "When enabled, %@ retries or falls back to the literal transcript if post-processing looks like it answered the dictated text instead of cleaning it.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When enabled, %arg retries or falls back to the literal transcript if post-processing looks like it answered the dictated text instead of cleaning it."
+            "value": "When enabled, %@ retries or falls back to the literal transcript if post-processing looks like it answered the dictated text instead of cleaning it."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "활성화하면 후처리가 받아쓴 텍스트를 정리하지 않고 답변한 것으로 보일 때 %arg이(가) 재시도하거나 원문 받아쓰기로 대체합니다."
+            "value": "활성화하면 후처리가 받아쓴 텍스트를 정리하지 않고 답변한 것으로 보일 때 %@이(가) 재시도하거나 원문 받아쓰기로 대체합니다."
           }
         }
       }
     },
-    "When on, your clipboard manager (Paste, Raycast, Maccy, etc.) records each dictation so you can find it in your recent history. When off, %arg marks dictations transient and your clipboard manager skips them.": {
+    "When on, your clipboard manager (Paste, Raycast, Maccy, etc.) records each dictation so you can find it in your recent history. When off, %@ marks dictations transient and your clipboard manager skips them.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When on, your clipboard manager (Paste, Raycast, Maccy, etc.) records each dictation so you can find it in your recent history. When off, %arg marks dictations transient and your clipboard manager skips them."
+            "value": "When on, your clipboard manager (Paste, Raycast, Maccy, etc.) records each dictation so you can find it in your recent history. When off, %@ marks dictations transient and your clipboard manager skips them."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "켜면 클립보드 관리자(Paste, Raycast, Maccy 등)가 각 받아쓰기를 기록하여 최근 기록에서 찾을 수 있습니다. 끄면 %arg이(가) 받아쓰기를 임시 항목으로 표시하고 클립보드 관리자가 건너뜁니다."
+            "value": "켜면 클립보드 관리자(Paste, Raycast, Maccy 등)가 각 받아쓰기를 기록하여 최근 기록에서 찾을 수 있습니다. 끄면 %@이(가) 받아쓰기를 임시 항목으로 표시하고 클립보드 관리자가 건너뜁니다."
           }
         }
       }
@@ -5601,18 +5615,18 @@
         }
       }
     },
-    "v%arg": {
+    "v%@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "v%arg"
+            "value": "v%@"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "v%arg"
+            "value": "v%@"
           }
         }
       }
@@ -6097,18 +6111,18 @@
         }
       }
     },
-    "%arg. About %arg.": {
+    "%@. About %@.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg. About %arg."
+            "value": "%@. About %@."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%arg. 약 %arg."
+            "value": "%@. 약 %@."
           }
         }
       }
@@ -6337,18 +6351,18 @@
         }
       }
     },
-    "About %arg.": {
+    "About %@.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "About %arg."
+            "value": "About %@."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "약 %arg."
+            "value": "약 %@."
           }
         }
       }
@@ -7949,6 +7963,153 @@
           "stringUnit": {
             "state": "translated",
             "value": "닫기"
+          }
+        }
+      }
+    },
+    "API": {
+      "shouldTranslate": false,
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API"
+          }
+        }
+      }
+    },
+    "Legacy mlx-whisper": {
+      "shouldTranslate": false,
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legacy mlx-whisper"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legacy mlx-whisper"
+          }
+        }
+      }
+    },
+    "REC": {
+      "shouldTranslate": false,
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REC"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REC"
+          }
+        }
+      }
+    },
+    "Transcription method: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription method: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 방법: %@"
+          }
+        }
+      }
+    },
+    "Both dictation shortcuts are disabled.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Both dictation shortcuts are disabled."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "두 받아쓰기 단축키가 모두 비활성화되어 있습니다."
+          }
+        }
+      }
+    },
+    "Custom shortcuts can use regular keys, modifier-only shortcuts, or modifier combinations.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom shortcuts can use regular keys, modifier-only shortcuts, or modifier combinations."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정 단축키에는 일반 키, 보조 키만으로 된 단축키 또는 보조 키 조합을 사용할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Hold to record, tap to start and stop, and press the toggle shortcut while holding to latch into tap mode. You can disable either workflow or turn both shortcuts off.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold to record, tap to start and stop, and press the toggle shortcut while holding to latch into tap mode. You can disable either workflow or turn both shortcuts off."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "길게 눌러 녹음하고, 탭하여 시작 및 중지하며, 길게 누르는 동안 전환 단축키를 눌러 탭 모드로 고정합니다. 각 방식을 비활성화하거나 두 단축키를 모두 끌 수 있습니다."
+          }
+        }
+      }
+    },
+    "Recording Cancel Shortcut": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording Cancel Shortcut"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 취소 단축키"
+          }
+        }
+      }
+    },
+    "While recording or transcribing, this shortcut opens the cancel confirmation dialog. Disable it if you want Esc to keep working in other apps.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "While recording or transcribing, this shortcut opens the cancel confirmation dialog. Disable it if you want Esc to keep working in other apps."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 또는 전사 중 이 단축키를 누르면 취소 확인 대화상자가 열립니다. 다른 앱에서 Esc 키를 계속 사용하려면 비활성화하세요."
           }
         }
       }

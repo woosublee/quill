@@ -1089,10 +1089,10 @@ struct SetupView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 if appState.hasEnabledHoldShortcut {
-                    HowToRow(icon: "keyboard", text: String(localized: "Hold \(appState.holdShortcut.displayName) to record"))
+                    HowToRow(icon: "keyboard", text: localizedCatalogFormat("Hold %@ to record", appState.holdShortcut.displayName))
                 }
                 if appState.hasEnabledToggleShortcut {
-                    HowToRow(icon: "switch.2", text: String(localized: "Tap \(appState.toggleShortcut.displayName) to start and stop"))
+                    HowToRow(icon: "switch.2", text: localizedCatalogFormat("Tap %@ to start and stop", appState.toggleShortcut.displayName))
                 }
                 if appState.hasEnabledHoldShortcut && appState.hasEnabledToggleShortcut {
                     HowToRow(icon: "arrow.triangle.branch", text: String(localized: "While holding, press the toggle shortcut to latch on"))
@@ -1104,7 +1104,7 @@ struct SetupView: View {
                     case .manual:
                         HowToRow(
                             icon: "wand.and.stars",
-                            text: String(localized: "Hold \(appState.commandModeManualModifier.title) with your normal shortcut to transform selected text")
+                            text: localizedCatalogFormat("Hold %@ with your normal shortcut to transform selected text", appState.commandModeManualModifier.title)
                         )
                     }
                 }
@@ -1145,18 +1145,18 @@ struct SetupView: View {
     private var testShortcutPrompt: String {
         switch (appState.hasEnabledHoldShortcut, appState.hasEnabledToggleShortcut) {
         case (true, true):
-            return String(localized: "Hold \(appState.holdShortcut.displayName) or tap \(appState.toggleShortcut.displayName)")
+            return localizedCatalogFormat("Hold %@ or tap %@", appState.holdShortcut.displayName, appState.toggleShortcut.displayName)
         case (true, false):
-            return String(localized: "Hold \(appState.holdShortcut.displayName)")
+            return localizedCatalogFormat("Hold %@", appState.holdShortcut.displayName)
         case (false, true):
-            return String(localized: "Tap \(appState.toggleShortcut.displayName)")
+            return localizedCatalogFormat("Tap %@", appState.toggleShortcut.displayName)
         case (false, false):
             return String(localized: "Use Start Dictating from the menu bar")
         }
     }
 
     private var retryShortcutPrompt: String {
-        String(localized: "\(testShortcutPrompt) to try again")
+        localizedCatalogFormat("%@ to try again", testShortcutPrompt)
     }
 
     // MARK: - Helpers

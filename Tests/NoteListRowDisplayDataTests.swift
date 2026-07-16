@@ -6,6 +6,7 @@ struct NoteListRowDisplayDataTests {
         testFormatsRowDate()
         testFormatsExplicitLocaleRowDates()
         testFormatsExplicitLocaleDetailTimestamps()
+        testFormatsJapaneseDetailTimestamp()
         testFormatsSameMorningRowDateStartTime()
         testFormatsMorningToAfternoonRowDateStartTime()
         testFormatsCrossDateRowDateStartTime()
@@ -61,8 +62,21 @@ struct NoteListRowDisplayDataTests {
         let english = NoteTimestampFormatter.detailTimestamp(for: item, locale: Locale(identifier: "en_US"))
         let korean = NoteTimestampFormatter.detailTimestamp(for: item, locale: Locale(identifier: "ko_KR"))
 
-        assert(english == "May 15, 2026 at 10:38 AM – 11:12 AM", "Unexpected English interval: \(english)")
-        assert(korean == "2026년 5월 15일 오전 10:38~오전 11:12", "Unexpected Korean interval: \(korean)")
+        assert(english == "May 15, 2026, 10:38 – 11:12 AM", "Unexpected English interval: \(english)")
+        assert(korean == "2026년 5월 15일 오전 10:38~11:12", "Unexpected Korean interval: \(korean)")
+    }
+
+    private static func testFormatsJapaneseDetailTimestamp() {
+        let item = historyItem(
+            timestamp: date(year: 2026, month: 5, day: 15, hour: 11, minute: 12),
+            recordingStartedAt: date(year: 2026, month: 5, day: 15, hour: 10, minute: 38),
+            recordingEndedAt: date(year: 2026, month: 5, day: 15, hour: 11, minute: 12),
+            transcript: "Morning notes"
+        )
+
+        let japanese = NoteTimestampFormatter.detailTimestamp(for: item, locale: Locale(identifier: "ja_JP"))
+
+        assert(japanese == "2026年5月15日 10時38分～11時12分", "Unexpected Japanese interval: \(japanese)")
     }
 
     private static func testFormatsSameMorningRowDateStartTime() {
@@ -114,7 +128,7 @@ struct NoteListRowDisplayDataTests {
 
         let formatted = NoteTimestampFormatter.detailTimestamp(for: item)
 
-        assert(formatted == "2026년 5월 15일 오전 10:38~오전 11:12", "Unexpected interval: \(formatted)")
+        assert(formatted == "2026년 5월 15일 오전 10:38~11:12", "Unexpected interval: \(formatted)")
     }
 
     private static func testFormatsMorningToAfternoonRecordingInterval() {
@@ -127,7 +141,7 @@ struct NoteListRowDisplayDataTests {
 
         let formatted = NoteTimestampFormatter.detailTimestamp(for: item)
 
-        assert(formatted == "2026년 5월 15일 오전 10:38~오후 12:12", "Unexpected interval: \(formatted)")
+        assert(formatted == "2026년 5월 15일 오전 10:38 ~ 오후 12:12", "Unexpected interval: \(formatted)")
     }
 
     private static func testFormatsSameAfternoonRecordingInterval() {
@@ -140,7 +154,7 @@ struct NoteListRowDisplayDataTests {
 
         let formatted = NoteTimestampFormatter.detailTimestamp(for: item)
 
-        assert(formatted == "2026년 5월 15일 오후 1:05~오후 2:22", "Unexpected interval: \(formatted)")
+        assert(formatted == "2026년 5월 15일 오후 1:05~2:22", "Unexpected interval: \(formatted)")
     }
 
     private static func testFormatsCrossDateRecordingInterval() {
@@ -153,7 +167,7 @@ struct NoteListRowDisplayDataTests {
 
         let formatted = NoteTimestampFormatter.detailTimestamp(for: item)
 
-        assert(formatted == "2026년 5월 15일 오후 11:40~2026년 5월 16일 오전 12:10", "Unexpected interval: \(formatted)")
+        assert(formatted == "2026년 5월 15일 오후 11:40 ~ 2026년 5월 16일 오전 12:10", "Unexpected interval: \(formatted)")
     }
 
     private static func testUsesSingleTimestampWhenRecordingIntervalIsMissing() {

@@ -54,7 +54,7 @@ ICON_ICNS = Resources/AppIcon.icns
 endif
 
 # Usage: make install CODESIGN_IDENTITY="Apple Development: you@example.com (TEAMID)"
-.PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test print-app-version print-build-number print-build-tag print-version-metadata FORCE
+.PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test localization-bundle-test print-app-version print-build-number print-build-tag print-version-metadata FORCE /tmp/LocalizationResourceTests
 
 all: $(APP_EXECUTABLE_TARGET)
 
@@ -297,6 +297,18 @@ check-test-wiring:
 		fi; \
 	done
 
+/tmp/LocalizationResourceTests: Tests/LocalizationResourceTests.swift
+	@swiftc -parse-as-library Tests/LocalizationResourceTests.swift -o /tmp/LocalizationResourceTests
+
+localization-bundle-test: /tmp/LocalizationResourceTests $(LOCALIZATION_STAMP)
+	@bundle="$(BUILD_DIR)/Quill Localization Test.app"; \
+		rm -rf "$$bundle"; \
+		mkdir -p "$$bundle/Contents/Resources"; \
+		ditto --norsrc --noextattr "$(LOCALIZATION_BUILD_DIR)/en.lproj" "$$bundle/Contents/Resources/en.lproj"; \
+		ditto --norsrc --noextattr "$(LOCALIZATION_BUILD_DIR)/ko.lproj" "$$bundle/Contents/Resources/ko.lproj"; \
+		printf '%s\n' '"object" = "%@";' '"integer" = "%d";' '"longLong" = "%lld";' '"unknown" = "%arg";' > "$$bundle/Contents/Resources/PlaceholderFixtures.strings"; \
+		/tmp/LocalizationResourceTests --bundle "$$bundle"
+
 test: check-test-wiring $(SPARKLE_STAMP) $(LOCALIZATION_STAMP)
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/CalendarEventMatcher.swift Tests/CalendarEventMatcherTests.swift -o /tmp/CalendarEventMatcherTests
 	@swiftc -parse-as-library Sources/AppName.swift Sources/ModifierKeyEventState.swift Sources/ShortcutCore/ShortcutModels.swift Sources/ShortcutCore/ShortcutMatcher.swift Sources/GlobalShortcutBackend.swift Sources/HotkeyManager.swift Tests/ShortcutMatcherTests.swift -o /tmp/ShortcutMatcherTests
@@ -326,7 +338,7 @@ test: check-test-wiring $(SPARKLE_STAMP) $(LOCALIZATION_STAMP)
 	@/tmp/OverlayDisplayCopyTests
 	@swiftc -parse-as-library Tests/BuildMetadataTests.swift -o /tmp/BuildMetadataTests
 	@/tmp/BuildMetadataTests
-	@swiftc -parse-as-library Tests/LocalizationResourceTests.swift -o /tmp/LocalizationResourceTests
+	@$(MAKE) /tmp/LocalizationResourceTests
 	@/tmp/LocalizationResourceTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/TranscriptionLanguage.swift Sources/TranscriptionModel.swift Sources/NativeWhisperModel.swift Sources/AudioImportOptions.swift Tests/SettingsLocalizationTests.swift -o /tmp/SettingsLocalizationTests
 	@/tmp/SettingsLocalizationTests

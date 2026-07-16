@@ -141,7 +141,7 @@ struct MenuBarView: View {
             if !appState.lastTranscript.isEmpty && !appState.isRecording && !appState.isTranscribing {
                 Button(appState.copyAgainShortcut.isDisabled
                     ? String(localized: "Paste Again")
-                    : String(localized: "Paste Again  (\(appState.copyAgainShortcut.displayName))")) {
+                    : localizedCatalogFormat("Paste Again  (%@)", appState.copyAgainShortcut.displayName)) {
                     appState.copyLastTranscriptToPasteboard()
                 }
 
@@ -451,7 +451,7 @@ struct MenuBarView: View {
 
             Divider()
 
-            Button(String(localized: "Quit \(AppName.displayName)")) {
+            Button(localizedCatalogFormat("Quit %@", AppName.displayName)) {
                 NSApplication.shared.terminate(nil)
             }
             .keyboardShortcut("q")

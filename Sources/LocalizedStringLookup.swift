@@ -17,3 +17,12 @@ func localizedCatalogString(
     }
     return strings[key] ?? key
 }
+
+func localizedCatalogFormat(
+    _ key: String,
+    _ arguments: CVarArg...,
+    language: String = preferredLocalizedStringLanguage(),
+    bundle: Bundle = .main
+) -> String {
+    String(format: localizedCatalogString(key, language: language, bundle: bundle), arguments: arguments)
+}

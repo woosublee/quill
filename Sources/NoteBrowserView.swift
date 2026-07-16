@@ -625,7 +625,7 @@ struct NoteBrowserView: View {
                         .background(Color.primary.opacity(0.06), in: Capsule())
                 }
                 .menuStyle(.borderlessButton)
-                .accessibilityLabel("Transcription method: \(appState.noteBrowserTranscriptionChoiceDetailLabel)")
+                .accessibilityLabel(String(localized: "Transcription method: \(appState.noteBrowserTranscriptionChoiceDetailLabel)"))
                 .disabled(appState.isRecording || appState.isTranscribing)
             }
             .padding(.horizontal, 12)
@@ -1278,9 +1278,10 @@ private struct NoteDetailView: View {
     }
 
     private var metadataLine: some View {
-        ViewThatFits(in: .horizontal) {
+        let detailTimestamp = NoteTimestampFormatter.detailTimestamp(for: item)
+        return ViewThatFits(in: .horizontal) {
             HStack(spacing: 8) {
-                detailTimestampLabel
+                detailTimestampLabel(detailTimestamp)
                 statusBadges
                 noteStateIndicator
                 contextSummaryLabel
@@ -1288,7 +1289,7 @@ private struct NoteDetailView: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    detailTimestampLabel
+                    detailTimestampLabel(detailTimestamp)
                     noteStateIndicator
                     Spacer(minLength: 0)
                 }
@@ -1301,8 +1302,8 @@ private struct NoteDetailView: View {
         }
     }
 
-    private var detailTimestampLabel: some View {
-        Text(NoteTimestampFormatter.detailTimestamp(for: item))
+    private func detailTimestampLabel(_ detailTimestamp: String) -> some View {
+        Text(detailTimestamp)
             .font(.system(size: 10, design: .monospaced))
             .foregroundStyle(.tertiary)
             .textCase(.uppercase)

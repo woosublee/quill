@@ -4,6 +4,15 @@ import Foundation
 struct LocalizationResourceTests {
     static func main() throws {
         let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        if CommandLine.arguments.count > 1 {
+            guard CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--bundle" else {
+                throw TestFailure("Usage: LocalizationResourceTests [--bundle <app-bundle>]")
+            }
+            try validateBundle(at: URL(fileURLWithPath: CommandLine.arguments[2], isDirectory: true))
+            print("LocalizationResourceTests bundle validation passed")
+            return
+        }
+
         let catalogURL = root.appendingPathComponent("Resources/Localization/Localizable.xcstrings")
         let catalogData = try Data(contentsOf: catalogURL)
         let catalog = try JSONSerialization.jsonObject(with: catalogData) as! [String: Any]
@@ -43,6 +52,13 @@ struct LocalizationResourceTests {
         try assertTask4SettingsExtractionCoverage(root: root, catalogStrings: strings)
         try assertTask5ApplicationMessageCoverage(root: root, catalogStrings: strings)
         try assertTask6OverlayCoverage(root: root, catalogStrings: strings)
+
+        try assertFinalManagedSourceAudit(root: root, catalogStrings: strings)
+        try assertCatalogPlaceholderCompatibility(catalogStrings: strings)
+        try assertDeveloperDiagnosticsAreExcluded(catalogStrings: strings)
+        try assertRepresentativeProductionKoreanTranslations(catalogStrings: strings)
+        try assertInfoPlistTranslations(root: root)
+
         let settingsSource = try String(contentsOf: root.appendingPathComponent("Sources/SettingsView.swift"), encoding: .utf8)
         assert(settingsSource.contains("MicrophoneOptionRow(\n                    title: \"System Default\""))
         assert(settingsSource.contains("verbatimName: device.name,"))
@@ -59,7 +75,7 @@ struct LocalizationResourceTests {
             assert(!(((localizations?["en"] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String ?? "").isEmpty)
             assert(!(((localizations?["ko"] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String ?? "").isEmpty)
         }
-        for key in ["Relaunching...", "%arg restores the audio state it changed when dictation ends.", "When enabled, %arg retries or falls back to the literal transcript if post-processing looks like it answered the dictated text instead of cleaning it.", "When on, your clipboard manager (Paste, Raycast, Maccy, etc.) records each dictation so you can find it in your recent history. When off, %arg marks dictations transient and your clipboard manager skips them."] {
+        for key in ["Relaunching...", "%@ restores the audio state it changed when dictation ends.", "When enabled, %@ retries or falls back to the literal transcript if post-processing looks like it answered the dictated text instead of cleaning it.", "When on, your clipboard manager (Paste, Raycast, Maccy, etc.) records each dictation so you can find it in your recent history. When off, %@ marks dictations transient and your clipboard manager skips them."] {
             let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
             let en = (((localizations?["en"] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String)
             let ko = (((localizations?["ko"] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String)
@@ -123,7 +139,8 @@ struct LocalizationResourceTests {
         let extractedCatalog = try JSONSerialization.jsonObject(with: extractedData) as! [String: Any]
         let extractedStrings = extractedCatalog["strings"] as! [String: Any]
         let exclusions: Set<String> = ["Open Run Log"]
-        for key in extractedStrings.keys where !exclusions.contains(key) {
+        for extractedKey in extractedStrings.keys where !exclusions.contains(extractedKey) {
+            let key = catalogKey(forExtractedKey: extractedKey)
             let entry = catalogStrings[key] as? [String: Any]
             let localizations = entry?["localizations"] as? [String: Any]
             for language in ["en", "ko"] {
@@ -178,7 +195,7 @@ struct LocalizationResourceTests {
         assert(remaining.contains("struct VoiceMacroEditorView"))
         assert(remaining.contains("struct ModelRowView"))
 
-        let temporaryDirectory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let temporaryDirectory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("quill-localization-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
         try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
         let filteredSettingsURL = temporaryDirectory.appendingPathComponent("SettingsView.swift")
@@ -194,7 +211,8 @@ struct LocalizationResourceTests {
 
         let extractedData = try Data(contentsOf: temporaryDirectory.appendingPathComponent("Localizable.xcstrings"))
         let extracted = try JSONSerialization.jsonObject(with: extractedData) as! [String: Any]
-        for key in (extracted["strings"] as! [String: Any]).keys where !key.isEmpty {
+        for extractedKey in (extracted["strings"] as! [String: Any]).keys where !extractedKey.isEmpty {
+            let key = catalogKey(forExtractedKey: extractedKey)
             let entry = catalogStrings[key] as? [String: Any]
             let localizations = entry?["localizations"] as? [String: Any]
             for language in ["en", "ko"] {
@@ -264,8 +282,311 @@ struct LocalizationResourceTests {
         }
     }
 
-    private static func assertCatalogTranslations(for key: String, catalogStrings: [String: Any]) {
-        let localizations = (catalogStrings[key] as? [String: Any])?["localizations"] as? [String: Any]
+
+    private struct TestFailure: Error, CustomStringConvertible {
+        let description: String
+        init(_ description: String) { self.description = description }
+    }
+
+    private static func validateBundle(at appURL: URL) throws {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: appURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            throw TestFailure("App bundle does not exist: \(appURL.path)")
+        }
+
+        let resourcesURL = appURL.appendingPathComponent("Contents/Resources", isDirectory: true)
+        let requiredInfoKeys = ["NSMicrophoneUsageDescription", "NSSpeechRecognitionUsageDescription"]
+        var languageBundles: [String: Bundle] = [:]
+        for language in ["en", "ko"] {
+            let localizationURL = resourcesURL.appendingPathComponent("\(language).lproj", isDirectory: true)
+            for fileName in ["Localizable.strings", "InfoPlist.strings"] {
+                let fileURL = localizationURL.appendingPathComponent(fileName)
+                guard FileManager.default.fileExists(atPath: fileURL.path) else {
+                    throw TestFailure("Missing bundled localization resource: \(fileURL.path)")
+                }
+            }
+            guard let bundle = Bundle(url: localizationURL) else {
+                throw TestFailure("Unable to load language bundle: \(localizationURL.path)")
+            }
+            languageBundles[language] = bundle
+
+            let infoValues = NSDictionary(contentsOf: localizationURL.appendingPathComponent("InfoPlist.strings")) as? [String: String] ?? [:]
+            guard Set(infoValues.keys) == Set(requiredInfoKeys) else {
+                throw TestFailure("Unexpected bundled InfoPlist.strings keys for \(language)")
+            }
+            for key in requiredInfoKeys where infoValues[key]?.isEmpty != false {
+                throw TestFailure("Missing bundled \(language) InfoPlist value for \(key)")
+            }
+        }
+
+        let representativeStatic: [String: [String: String]] = [
+            "en": ["Continue": "Continue", "Settings...": "Settings...", "Start Dictating": "Start Dictating"],
+            "ko": ["Continue": "계속", "Settings...": "설정...", "Start Dictating": "받아쓰기 시작"]
+        ]
+        for language in ["en", "ko"] {
+            guard let bundle = languageBundles[language] else { continue }
+            for (key, expected) in representativeStatic[language] ?? [:] {
+                let value = bundle.localizedString(forKey: key, value: nil, table: "Localizable")
+                guard value == expected else {
+                    throw TestFailure("Unexpected bundled \(language) value for \(key): \(value)")
+                }
+            }
+        }
+
+        try assertBundledDynamicString(
+            key: "Input changed to %@",
+            arguments: ["Studio Display"],
+            expected: ["en": "Input changed to Studio Display", "ko": "입력이 Studio Display(으)로 변경됨"],
+            languageBundles: languageBundles
+        )
+        try assertBundledDynamicString(
+            key: "Meeting starts in %d minutes",
+            arguments: [3],
+            expected: ["en": "Meeting starts in 3 minutes", "ko": "회의가 3분 후 시작됩니다"],
+            languageBundles: languageBundles
+        )
+        try assertBundledDynamicString(
+            key: "Welcome to %@",
+            arguments: ["Quill"],
+            expected: ["en": "Welcome to Quill", "ko": "Quill에 오신 것을 환영합니다."],
+            languageBundles: languageBundles
+        )
+
+
+        let fixtureURL = resourcesURL.appendingPathComponent("PlaceholderFixtures.strings")
+        let fixtureContents = try String(contentsOf: fixtureURL, encoding: .utf8)
+        for placeholder in ["%@", "%d", "%lld", "%arg"] {
+            guard fixtureContents.contains(#"= "\#(placeholder)";"#) else {
+                throw TestFailure("Missing bundled placeholder serialization fixture for \(placeholder)")
+            }
+        }
+
+        let placeholderPattern = try NSRegularExpression(pattern: #"%(?:@|d|lld|arg)"#)
+        for key in ["Input changed to %@", "Meeting starts in %d minutes", "Welcome to %@"] {
+            let expectedPlaceholders = placeholders(in: key, pattern: placeholderPattern)
+            for language in ["en", "ko"] {
+                guard let bundle = languageBundles[language] else { continue }
+                let localized = bundle.localizedString(forKey: key, value: nil, table: "Localizable")
+                guard placeholders(in: localized, pattern: placeholderPattern) == expectedPlaceholders else {
+                    throw TestFailure("Bundled \(language) placeholder mismatch for \(key)")
+                }
+            }
+        }
+    }
+
+    private static func assertBundledDynamicString(
+        key: String,
+        arguments: [CVarArg],
+        expected: [String: String],
+        languageBundles: [String: Bundle]
+    ) throws {
+        for language in ["en", "ko"] {
+            guard let bundle = languageBundles[language], let expectedValue = expected[language] else { continue }
+            let localized = bundle.localizedString(forKey: key, value: nil, table: "Localizable")
+            let value = String(format: localized, locale: Locale(identifier: language), arguments: arguments)
+            guard value == expectedValue else {
+                throw TestFailure("Unexpected bundled \(language) dynamic value for \(key): \(value)")
+            }
+        }
+    }
+
+    private static func assertFinalManagedSourceAudit(root: URL, catalogStrings: [String: Any]) throws {
+        let managedSourceFiles = [
+            "Sources/NoteBrowserView.swift", "Sources/NoteListRowDisplayData.swift",
+            "Sources/SetupView.swift", "Sources/MenuBarView.swift", "Sources/ShortcutComponents.swift",
+            "Sources/App.swift",
+            "Sources/AppDelegate.swift", "Sources/SetupFlow.swift", "Sources/SettingsView.swift",
+            "Sources/ModelDropdownView.swift", "Sources/AppState.swift", "Sources/AudioImportOptions.swift",
+            "Sources/CalendarRecordingReminderScheduler.swift", "Sources/LocalizedUserMessage.swift",
+            "Sources/UpdateManager.swift", "Sources/NativeWhisperModel.swift",
+            "Sources/TranscriptionLanguage.swift", "Sources/TranscriptionModel.swift",
+            "Sources/RecordingOverlay.swift", "Sources/MeetingReminderOverlay.swift",
+            "Sources/OverlayDisplayCopy.swift"
+        ]
+        for sourceFile in managedSourceFiles {
+            assert(FileManager.default.fileExists(atPath: root.appendingPathComponent(sourceFile).path), "Missing managed source file: \(sourceFile)")
+        }
+
+        let extractedKeys = try extractManagedKeys(root: root, sourceFiles: managedSourceFiles)
+        let exactNonCatalogSwiftUIKeys: Set<String> = [
+            "Open Run Log", "·", "API", "Legacy mlx-whisper", "REC",
+            "%arg.md saved", "Saved file name: %arg.md"
+        ]
+        for extractedKey in extractedKeys where !extractedKey.isEmpty && !exactNonCatalogSwiftUIKeys.contains(extractedKey) {
+            assertCatalogTranslations(
+                for: catalogKey(forExtractedKey: extractedKey),
+                catalogStrings: catalogStrings,
+                requiresTranslation: true
+            )
+        }
+
+        let customLookupPattern = try NSRegularExpression(pattern: #"localizedCatalogString\(\s*\"((?:\\.|[^\"\\])*)\""#)
+        for sourceFile in managedSourceFiles {
+            let source = try managedSource(sourceFile, root: root)
+            let range = NSRange(source.startIndex..., in: source)
+            for match in customLookupPattern.matches(in: source, range: range) {
+                guard let keyRange = Range(match.range(at: 1), in: source) else { continue }
+                let key = String(source[keyRange])
+                    .replacingOccurrences(of: #"\n"#, with: "\n")
+                    .replacingOccurrences(of: #"\""#, with: #"""#)
+                    .replacingOccurrences(of: #"\\"#, with: #"\"#)
+                assertCatalogTranslations(for: key, catalogStrings: catalogStrings)
+            }
+        }
+
+        let hangulPattern = try NSRegularExpression(pattern: "[가-힣]")
+        let exactHangulExceptions: Set<String> = [
+            #"@AppStorage("obsidian_gemini_prompt") private var geminiPrompt: String = "다음은 음성 전사 내용입니다. 핵심 내용을 유지하면서 읽기 쉽게 정리해주세요. 마크다운 형식으로 작성하되, 불필요한 설명 없이 정리된 내용만 출력해주세요.\n옵시디언에 다른 회의록을 참고하여 컨텍스트와 작성 포맷을 통일하여 주세요.""#,
+            #"TranscriptionLanguage(code: "ko", displayName: "한국어"),"#,
+            #"description: "시스템 내장 · 온디바이스 · 빠름""#,
+            #"description: "빠름 · 정확도 높음 (추천)""#,
+            #"description: "최고 정확도 · 느림""#,
+            #"description: "중간 속도 · 중간 정확도""#,
+            #"description: "빠름 · 정확도 낮음""#
+        ]
+        for sourceFile in managedSourceFiles {
+            let source = try managedSource(sourceFile, root: root)
+            for (index, line) in source.components(separatedBy: .newlines).enumerated() {
+                guard hangulPattern.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) != nil else { continue }
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                let isComment = trimmed.hasPrefix("//") || trimmed.hasPrefix("///")
+                let containsOnlyCommentHangul = line.split(separator: "//", maxSplits: 1).first.map {
+                    hangulPattern.firstMatch(in: String($0), range: NSRange($0.startIndex..., in: $0)) == nil
+                } ?? false
+                assert(isComment || containsOnlyCommentHangul || exactHangulExceptions.contains(trimmed), "Unexpected Hangul literal in \(sourceFile):\(index + 1): \(trimmed)")
+            }
+        }
+    }
+
+    private static func extractManagedKeys(root: URL, sourceFiles: [String]) throws -> Set<String> {
+        let temporaryDirectory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("quill-localization-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+
+        var extractionFiles: [String] = []
+        for sourceFile in sourceFiles {
+            var source = try managedSource(sourceFile, root: root)
+            if sourceFile == "Sources/RecordingOverlay.swift" {
+                source = source.replacingOccurrences(
+                    of: "isStaticQuillName ? String(localized: String.LocalizationValue(name)) : name",
+                    with: "isStaticQuillName ? localizedCatalogString(name) : name"
+                )
+            }
+            let outputURL = temporaryDirectory.appendingPathComponent(URL(fileURLWithPath: sourceFile).lastPathComponent)
+            try source.write(to: outputURL, atomically: true, encoding: .utf8)
+            extractionFiles.append(outputURL.path)
+        }
+
+        let process = Process()
+        process.currentDirectoryURL = root
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = [
+            "xcstringstool", "extract", "--SwiftUI", "--modern-localizable-strings",
+            "--output-format", "xcstrings", "-o", temporaryDirectory.path
+        ] + extractionFiles
+        try process.run()
+        process.waitUntilExit()
+        assert(process.terminationStatus == 0, "Final managed localization extraction failed")
+
+        let extractedData = try Data(contentsOf: temporaryDirectory.appendingPathComponent("Localizable.xcstrings"))
+        let extracted = try JSONSerialization.jsonObject(with: extractedData) as! [String: Any]
+        return Set((extracted["strings"] as? [String: Any] ?? [:]).keys)
+    }
+
+    private static func managedSource(_ sourceFile: String, root: URL) throws -> String {
+        var source = try String(contentsOf: root.appendingPathComponent(sourceFile), encoding: .utf8)
+        guard sourceFile == "Sources/SettingsView.swift" else { return source }
+
+        let startMarker = "// localization-exclusion: developer-diagnostics-start"
+        let endMarker = "// localization-exclusion: developer-diagnostics-end"
+        while let start = source.range(of: startMarker),
+              let end = source.range(of: endMarker, range: start.upperBound..<source.endIndex) {
+            source.removeSubrange(start.lowerBound..<end.upperBound)
+        }
+        return source
+    }
+
+    private static func catalogKey(forExtractedKey key: String) -> String {
+        key.replacingOccurrences(of: "%arg", with: "%@")
+    }
+
+    private static func assertCatalogPlaceholderCompatibility(catalogStrings: [String: Any]) throws {
+        let placeholderPattern = try NSRegularExpression(pattern: #"%(?:@|d|lld|arg)"#)
+        for (key, rawEntry) in catalogStrings {
+            let entry = rawEntry as? [String: Any] ?? [:]
+            guard entry["shouldTranslate"] as? Bool != false else { continue }
+            let localizations = entry["localizations"] as? [String: Any] ?? [:]
+            let en = (((localizations["en"] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String) ?? ""
+            let ko = (((localizations["ko"] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String) ?? ""
+            let keyPlaceholders = placeholders(in: key, pattern: placeholderPattern)
+            assert(placeholders(in: en, pattern: placeholderPattern) == keyPlaceholders, "English placeholder mismatch for \(key)")
+            assert(placeholders(in: ko, pattern: placeholderPattern) == keyPlaceholders, "Korean placeholder mismatch for \(key)")
+        }
+    }
+
+    private static func placeholders(in value: String, pattern: NSRegularExpression) -> [String] {
+        pattern.matches(in: value, range: NSRange(value.startIndex..., in: value)).compactMap {
+            Range($0.range, in: value).map { String(value[$0]) }
+        }
+    }
+
+    private static func assertDeveloperDiagnosticsAreExcluded(catalogStrings: [String: Any]) throws {
+        let diagnosticOnlyKeys = [
+            "Debug", "Display the update available overlay after dictation finishes.",
+            "No Context", "No LLM", "No context captured",
+            "No runs yet. Use dictation to populate history.", "Pipeline", "Run Log",
+            "Show Meeting Reminder", "Show Update Overlay Now",
+            "Show a sample calendar reminder overlay. Turn on Debug Overlay first to preview the recording (wrapping) variant.",
+            "Show after dictation", "Show the recording overlay with simulated audio levels.",
+            "Stored locally. Only the %@ most recent runs are kept."
+        ]
+        for key in diagnosticOnlyKeys {
+            let entry = catalogStrings[key] as? [String: Any]
+            assert(entry == nil || entry?["shouldTranslate"] as? Bool == false, "Developer diagnostic key must not require translations: \(key)")
+        }
+    }
+
+    private static func assertRepresentativeProductionKoreanTranslations(catalogStrings: [String: Any]) throws {
+        for key in [
+            "No audio recorded",
+            "When enabled, %@ retries or falls back to the literal transcript if post-processing looks like it answered the dictated text instead of cleaning it.",
+            "When on, your clipboard manager (Paste, Raycast, Maccy, etc.) records each dictation so you can find it in your recent history. When off, %@ marks dictations transient and your clipboard manager skips them."
+        ] {
+            guard let entry = catalogStrings[key] as? [String: Any], entry["shouldTranslate"] as? Bool != false else { continue }
+            let localizations = entry["localizations"] as? [String: Any]
+            let en = (((localizations?["en"] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String)
+            let ko = (((localizations?["ko"] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String)
+            assert(en != ko, "Expected Korean production translation for \(key)")
+        }
+    }
+
+    private static func assertInfoPlistTranslations(root: URL) throws {
+        let requiredKeys = ["NSMicrophoneUsageDescription", "NSSpeechRecognitionUsageDescription"]
+        var valuesByLanguage: [String: [String: String]] = [:]
+        for language in ["en", "ko"] {
+            let url = root.appendingPathComponent("Resources/Localization/\(language).lproj/InfoPlist.strings")
+            let values = NSDictionary(contentsOf: url) as? [String: String] ?? [:]
+            valuesByLanguage[language] = values
+            assert(Set(values.keys) == Set(requiredKeys), "Unexpected InfoPlist.strings keys for \(language)")
+            for key in requiredKeys {
+                assert(values[key]?.isEmpty == false, "Missing \(language) InfoPlist translation for \(key)")
+            }
+        }
+        for key in requiredKeys {
+            assert(valuesByLanguage["en"]?[key] != valuesByLanguage["ko"]?[key], "Expected distinct Korean InfoPlist translation for \(key)")
+        }
+    }
+
+    private static func assertCatalogTranslations(
+        for key: String,
+        catalogStrings: [String: Any],
+        requiresTranslation: Bool = false
+    ) {
+        let entry = catalogStrings[key] as? [String: Any]
+        if requiresTranslation {
+            assert(entry?["shouldTranslate"] as? Bool != false, "Managed production key is marked non-translatable: \(key)")
+        }
+        let localizations = entry?["localizations"] as? [String: Any]
         for language in ["en", "ko"] {
             let value = (((localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String)
             assert(!(value ?? "").isEmpty, "Missing Task 5 \(language) translation for \(key)")

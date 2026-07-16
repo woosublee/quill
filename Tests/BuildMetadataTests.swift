@@ -9,6 +9,8 @@ struct BuildMetadataTests {
         try testMakefileSeparatesDevRunFromInstallBuild()
         try testMakefileCopiesSelectedIconToBundleIconName()
         try testMakefileBundlesLocalizationResources()
+        try testMakefileBuildsAdHocLocalizationBundleForValidation()
+        try testTestsWorkflowValidatesLocalizationBundle()
         try testMakefileStripsExtendedAttributesDuringCodesignStaging()
         try testMakefileStripsExtendedAttributesDuringDmgStaging()
         try testMakefileCreatesDmgWithoutFinderMetadata()
@@ -47,7 +49,7 @@ struct BuildMetadataTests {
     private static func testMakefilePrintsVersionMetadata() throws {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
 
-        assertContains(makefile, ".PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test print-app-version print-build-number print-build-tag print-version-metadata FORCE")
+        assertContains(makefile, ".PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test localization-bundle-test print-app-version print-build-number print-build-tag print-version-metadata FORCE /tmp/LocalizationResourceTests")
         assertContains(makefile, "print-app-version:")
         assertContains(makefile, "print-build-number:")
         assertContains(makefile, "print-build-tag:")
@@ -96,6 +98,24 @@ struct BuildMetadataTests {
         assertContains(makefile, "-l en -l ko")
         assertContains(makefile, "$(RESOURCES)/en.lproj")
         assertContains(makefile, "$(RESOURCES)/ko.lproj")
+    }
+
+    private static func testMakefileBuildsAdHocLocalizationBundleForValidation() throws {
+        let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
+
+        assertContains(makefile, "localization-bundle-test: /tmp/LocalizationResourceTests $(LOCALIZATION_STAMP)")
+        assertContains(makefile, #"bundle="$(BUILD_DIR)/Quill Localization Test.app""#)
+        assertContains(makefile, #"ditto --norsrc --noextattr "$(LOCALIZATION_BUILD_DIR)/en.lproj""#)
+        assertContains(makefile, #"ditto --norsrc --noextattr "$(LOCALIZATION_BUILD_DIR)/ko.lproj""#)
+        assertContains(makefile, "PlaceholderFixtures.strings")
+        assertContains(makefile, #"/tmp/LocalizationResourceTests --bundle "$$bundle""#)
+        assertDoesNotContain(makefile, "localization-bundle-test: /tmp/LocalizationResourceTests\n\t@$(MAKE) all")
+    }
+
+    private static func testTestsWorkflowValidatesLocalizationBundle() throws {
+        let workflow = try String(contentsOfFile: ".github/workflows/tests.yml", encoding: .utf8)
+
+        assertContains(workflow, "make localization-bundle-test")
     }
 
     private static func testMakefileStripsExtendedAttributesDuringCodesignStaging() throws {

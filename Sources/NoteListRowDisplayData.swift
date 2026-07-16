@@ -21,12 +21,11 @@ enum NoteTimestampFormatter {
             return normalized(dateTimeStyle(locale: locale).format(item.timestamp))
         }
 
-        let start = normalized(dateTimeStyle(locale: locale).format(startedAt))
-        let end = normalized(timeStyle(locale: locale).format(endedAt))
-        guard Calendar.current.isDate(startedAt, inSameDayAs: endedAt) else {
-            return "\(start)\(intervalSeparator(for: locale, start: startedAt, end: endedAt))\(normalized(dateTimeStyle(locale: locale).format(endedAt)))"
-        }
-        return "\(start)\(intervalSeparator(for: locale, start: startedAt, end: endedAt))\(end)"
+        return normalized(
+            Date.IntervalFormatStyle(date: .long, time: .shortened)
+                .locale(locale)
+                .format(startedAt..<endedAt)
+        )
     }
 
     static func rowTimestamp(for item: PipelineHistoryItem, locale: Locale = .current) -> String {
@@ -42,20 +41,10 @@ enum NoteTimestampFormatter {
         Date.FormatStyle().month(.wide).day().hour().minute().locale(locale)
     }
 
-    private static func timeStyle(locale: Locale) -> Date.FormatStyle {
-        Date.FormatStyle().hour().minute().locale(locale)
-    }
-
-    private static func intervalSeparator(for locale: Locale, start: Date, end: Date) -> String {
-        let interval = Date.IntervalFormatStyle(date: .long, time: .shortened)
-            .locale(locale)
-            .format(start..<end)
-        return interval.contains("~") ? "~" : " – "
-    }
-
     private static func normalized(_ value: String) -> String {
         value.replacingOccurrences(of: "\u{202F}", with: " ")
             .replacingOccurrences(of: "\u{00A0}", with: " ")
+            .replacingOccurrences(of: "\u{2009}", with: " ")
     }
 }
 
