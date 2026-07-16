@@ -31,6 +31,20 @@ struct LocalizationResourceTests {
             assert(info.contains("NSSpeechRecognitionUsageDescription"))
         }
 
+        let hangulPattern = try NSRegularExpression(pattern: "[가-힣]")
+        let sourceFiles = ["Sources/NoteBrowserView.swift", "Sources/NoteListRowDisplayData.swift"]
+        for sourceFile in sourceFiles {
+            let source = try String(contentsOf: root.appendingPathComponent(sourceFile), encoding: .utf8)
+            let lines = source.components(separatedBy: .newlines)
+            for (index, line) in lines.enumerated() {
+                guard hangulPattern.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) != nil else { continue }
+                let previousLine = index > 0 ? lines[index - 1] : ""
+                let isAllowlistedGeminiPrompt = previousLine.contains("localization-allowlist: exact non-UI Gemini model prompt")
+                    && line.contains("@AppStorage(\"obsidian_gemini_prompt\")")
+                assert(isAllowlistedGeminiPrompt, "Unexpected Hangul literal in \(sourceFile):\(index + 1)")
+            }
+        }
+
         print("LocalizationResourceTests passed")
     }
 }

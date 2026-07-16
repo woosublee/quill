@@ -152,7 +152,7 @@ source: Quill
 
 ---
 
-# 전사문
+# \(String(localized: "Transcript"))
 \(audioEmbed)
 \(content)
 """
@@ -164,7 +164,7 @@ date: \(iso.string(from: timestamp))
 source: Quill
 ---
 
-# 전사문
+# \(String(localized: "Transcript"))
 \(audioEmbed)
 \(content)
 """
@@ -182,9 +182,9 @@ source: Quill
                     try FileManager.default.copyItem(at: srcURL, to: dstURL)
                 }
 
-                await self.notify(title: "내보내기 완료", body: "\(fileName).md 저장됨", success: true)
+                await self.notify(title: String(localized: "Export Complete"), body: String(localized: "\(fileName).md saved"), success: true)
             } catch {
-                await self.notify(title: "내보내기 실패", body: error.localizedDescription, success: false)
+                await self.notify(title: String(localized: "Export Failed"), body: error.localizedDescription, success: false)
             }
         }
     }
@@ -205,7 +205,7 @@ source: Quill
         ]
         guard let geminiPath = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
             throw NSError(domain: "GeminiCLI", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "gemini CLI를 찾을 수 없습니다"])
+                          userInfo: [NSLocalizedDescriptionKey: String(localized: "Gemini CLI could not be found")])
         }
 
         return try await withCheckedThrowingContinuation { continuation in
@@ -236,7 +236,7 @@ source: Quill
                 let cleaned = raw.replacingOccurrences(of: #"\x1B\[[0-9;]*[mGKHF]"#, with: "", options: .regularExpression)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 if cleaned.isEmpty {
-                    let err = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "알 수 없는 오류"
+                    let err = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? String(localized: "Unknown error")
                     continuation.resume(throwing: NSError(domain: "GeminiCLI", code: 2,
                         userInfo: [NSLocalizedDescriptionKey: err.trimmingCharacters(in: .whitespacesAndNewlines)]))
                 } else {
@@ -449,13 +449,13 @@ struct NoteBrowserView: View {
         }
         .onReceive(appState.$pipelineHistory) { newHistory in
             let ids = newHistory.map(\.id)
-            // 현재 선택이 사라진 경우 → 최신 항목 선택
+            // Select the latest item if the current selection disappears
             guard let current = selectedItemID, ids.contains(current) else {
                 selectedItemID = ids.first
                 knownHistoryIDs = Set(ids)
                 return
             }
-            // 진짜 새 항목이 추가된 경우에만 자동 선택 (기존 항목 수정은 무시)
+            // Auto-select only genuinely new items; ignore existing item edits
             if let newest = ids.first, newest != current, !knownHistoryIDs.contains(newest) {
                 selectedItemID = newest
             }
@@ -636,7 +636,7 @@ struct NoteBrowserView: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.tertiary)
-                TextField("검색", text: $searchText)
+                TextField("Search", text: $searchText)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
                 if !searchText.isEmpty {
@@ -665,7 +665,7 @@ struct NoteBrowserView: View {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 22, weight: .ultraLight))
                         .foregroundStyle(.tertiary)
-                    Text("검색 결과 없음")
+                    Text("No Search Results")
                         .font(.system(size: 12))
                         .foregroundStyle(.tertiary)
                     Spacer()
@@ -706,8 +706,8 @@ struct NoteBrowserView: View {
         panel.allowedContentTypes = Array(AudioImportOptions.broadlySupportedExtensions)
             .sorted()
             .compactMap { UTType(filenameExtension: $0) }
-        panel.prompt = "Choose"
-        panel.message = "Choose an audio file. Supported formats: FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, WEBM"
+        panel.prompt = String(localized: "Choose")
+        panel.message = String(localized: "Choose an audio file. Supported formats: FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, WEBM")
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             pendingAudioImport = PendingAudioImport(
@@ -732,10 +732,10 @@ struct NoteBrowserView: View {
                     .font(.system(size: 26, weight: .ultraLight))
                     .foregroundStyle(.tertiary)
             }
-            Text("녹음이 없습니다")
+            Text("No Recordings")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
-            Text("단축키를 눌러 녹음을 시작하세요")
+            Text("Press the shortcut to start recording")
                 .font(.system(size: 11))
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
@@ -773,10 +773,10 @@ struct NoteBrowserView: View {
                     .font(.system(size: 32, weight: .ultraLight))
                     .foregroundStyle(.tertiary)
             }
-            Text("노트를 선택하세요")
+            Text("Select a Note")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.secondary)
-            Text("왼쪽 목록에서 녹음을 선택하면\n전사된 내용이 표시됩니다")
+            Text("Select a recording from the list to view its transcript")
                 .font(.system(size: 12))
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
@@ -798,10 +798,10 @@ struct NoteBrowserView: View {
                     .font(.system(size: 38, weight: .ultraLight))
                     .foregroundStyle(.tertiary)
             }
-            Text("녹음이 없습니다")
+            Text("No Recordings")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.secondary)
-            Text("단축키를 눌러 첫 번째 녹음을 시작하세요.\n전사된 내용이 여기에 나타납니다.")
+            Text("Press the shortcut to start your first recording.\nYour transcript will appear here.")
                 .font(.system(size: 13))
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
@@ -1030,7 +1030,7 @@ private struct NoteListRow: View {
                     if isExporting {
                         HStack(spacing: 2) {
                             ProgressView().controlSize(.mini).scaleEffect(0.6)
-                            Text("내보내는 중")
+                            Text("Exporting")
                                 .font(.system(size: 8, weight: .medium))
                                 .foregroundStyle(isSelected ? selectedMetaColor : .orange)
                         }
@@ -1186,11 +1186,11 @@ private struct NoteDetailView: View {
         .onReceive(appState.$retryingItemIDs) { ids in
             isRetrying = ids.contains(item.id)
         }
-        .confirmationDialog("노트를 삭제할까요?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
-            Button("삭제", role: .destructive) { onDelete() }
-            Button("취소", role: .cancel) {}
+        .confirmationDialog("Delete this note?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { onDelete() }
+            Button("Cancel", role: .cancel) {}
         } message: {
-            Text("삭제한 노트는 복구할 수 없습니다.")
+            Text("Deleted notes cannot be recovered.")
         }
     }
 
@@ -1259,7 +1259,7 @@ private struct NoteDetailView: View {
                 .padding(.top, 2)
             }
 
-            // Audio player (오디오 파일이 있을 때만 표시)
+            // Show the audio player only when an audio file exists
             if let audioFileName = item.audioFileName {
                 let audioURL = AppState.audioStorageDirectory().appendingPathComponent(audioFileName)
                 if FileManager.default.fileExists(atPath: audioURL.path) {
@@ -1343,26 +1343,26 @@ private struct NoteDetailView: View {
             metaTag(
                 item.usedLocalTranscription ? "LOCAL" : "CLOUD",
                 active: item.usedLocalTranscription,
-                help: item.usedLocalTranscription ? "로컬 전사" : "클라우드 전사"
+                help: item.usedLocalTranscription ? "Local transcription" : "Cloud transcription"
             )
             metaDot
             metaTag(
                 item.usedContextCapture ? "CTX" : "NO CTX",
                 active: item.usedContextCapture,
-                help: item.usedContextCapture ? "컨텍스트 캡처 사용" : "컨텍스트 미사용"
+                help: item.usedContextCapture ? "Context capture enabled" : "Context capture disabled"
             )
             metaDot
             metaTag(
                 item.usedPostProcessing ? "LLM" : "NO LLM",
                 active: item.usedPostProcessing,
-                help: item.usedPostProcessing ? "LLM 후처리 사용" : "LLM 후처리 미사용"
+                help: item.usedPostProcessing ? "LLM post-processing enabled" : "LLM post-processing disabled"
             )
             if item.transcriptionLanguageCode != "auto" {
                 metaDot
                 metaTag(
                     item.transcriptionLanguageCode.uppercased(),
                     active: true,
-                    help: "전사 언어"
+                    help: "Transcription language"
                 )
             }
         }
@@ -1467,7 +1467,7 @@ private struct NoteDetailView: View {
                         }
                     },
                     disabled: isRetrying,
-                    help: "전사 재시도"
+                    help: "Retry transcription"
                 )
                 toolbarDivider
             }
@@ -1481,7 +1481,7 @@ private struct NoteDetailView: View {
                         .foregroundStyle(isCopied ? Color.accentColor : Color.primary)
                 },
                 disabled: displayContent.isEmpty,
-                help: "내용 복사"
+                help: "Copy content"
             )
 
             // Share (Obsidian export)
@@ -1493,7 +1493,7 @@ private struct NoteDetailView: View {
                         .foregroundStyle(Color.primary)
                 },
                 disabled: displayContent.isEmpty,
-                help: "Obsidian으로 내보내기"
+                help: "Export to Obsidian"
             )
 
             toolbarDivider
@@ -1507,7 +1507,7 @@ private struct NoteDetailView: View {
                         .foregroundStyle(Color.red.opacity(0.8))
                 },
                 disabled: false,
-                help: "노트 삭제"
+                help: "Delete note"
             )
         }
         .padding(.horizontal, 8)
@@ -1946,6 +1946,7 @@ private struct ObsidianExportSheet: View {
     let onDismiss: () -> Void
 
     @AppStorage("obsidian_vault_path") private var vaultPath: String = ""
+    // localization-allowlist: exact non-UI Gemini model prompt
     @AppStorage("obsidian_gemini_prompt") private var geminiPrompt: String = "다음은 음성 전사 내용입니다. 핵심 내용을 유지하면서 읽기 쉽게 정리해주세요. 마크다운 형식으로 작성하되, 불필요한 설명 없이 정리된 내용만 출력해주세요.\n옵시디언에 다른 회의록을 참고하여 컨텍스트와 작성 포맷을 통일하여 주세요."
     @State private var titleInput: String = ""
     @State private var includeAudio: Bool = true
@@ -1979,26 +1980,26 @@ private struct ObsidianExportSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Obsidian으로 내보내기")
+            Text("Export to Obsidian")
                 .font(.headline)
                 .padding(.bottom, 20)
 
-            fieldLabel("파일 제목")
+            fieldLabel("File Title")
             HStack(spacing: 6) {
                 Text(datePrefix)
                     .font(.body).foregroundStyle(.secondary)
                     .padding(.horizontal, 10).padding(.vertical, 6)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
-                TextField("제목 추가 (선택)", text: $titleInput)
+                TextField("Add title (optional)", text: $titleInput)
                     .textFieldStyle(.roundedBorder)
             }
-            Text("저장될 파일명: \(finalFileName).md")
+            Text("Saved file name: \(finalFileName).md")
                 .font(.caption).foregroundStyle(.tertiary)
                 .padding(.top, 4).padding(.bottom, 16)
 
-            fieldLabel("Obsidian Vault 폴더")
+            fieldLabel("Obsidian Vault Folder")
             HStack(spacing: 8) {
-                Text(vaultPath.isEmpty ? "폴더를 선택하세요" : vaultPath)
+                Text(vaultPath.isEmpty ? "Select a folder" : vaultPath)
                     .font(.callout)
                     .foregroundStyle(vaultPath.isEmpty ? .tertiary : .primary)
                     .lineLimit(1).truncationMode(.middle)
@@ -2007,15 +2008,15 @@ private struct ObsidianExportSheet: View {
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
                     .overlay(RoundedRectangle(cornerRadius: 7)
                         .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
-                Button("변경") { selectVaultFolder() }.controlSize(.small)
+                Button("Change") { selectVaultFolder() }.controlSize(.small)
             }
             .padding(.bottom, 16)
 
             if hasAudio {
                 Toggle(isOn: $includeAudio) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("오디오 파일 포함").font(.callout)
-                        Text("md 파일과 같은 폴더에 복사됩니다")
+                        Text("Include Audio File").font(.callout)
+                        Text("Copied to the same folder as the markdown file")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -2025,8 +2026,8 @@ private struct ObsidianExportSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 Toggle(isOn: $useGemini) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Gemini로 내용 정리").font(.callout)
-                        Text("내보내기 전에 Gemini CLI로 전사 내용을 정리합니다")
+                        Text("Refine content with Gemini").font(.callout)
+                        Text("Gemini CLI refines the transcript before export")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -2035,9 +2036,9 @@ private struct ObsidianExportSheet: View {
                 if useGemini {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text("프롬프트").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            Text("Prompt").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                             Spacer()
-                            Button(showPromptEditor ? "접기" : "편집") { showPromptEditor.toggle() }
+                            Button(showPromptEditor ? "Collapse" : "Edit") { showPromptEditor.toggle() }
                                 .font(.caption).controlSize(.mini)
                         }
                         if showPromptEditor {
@@ -2072,9 +2073,9 @@ private struct ObsidianExportSheet: View {
             Divider().padding(.bottom, 16)
 
             HStack {
-                Button("취소") { onDismiss() }.keyboardShortcut(.cancelAction)
+                Button("Cancel") { onDismiss() }.keyboardShortcut(.cancelAction)
                 Spacer()
-                Button(useGemini ? "백그라운드로 내보내기" : "내보내기") { exportNote() }
+                Button(useGemini ? "Export in Background" : "Export") { exportNote() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(vaultPath.isEmpty)
                     .buttonStyle(.borderedProminent)
@@ -2095,8 +2096,8 @@ private struct ObsidianExportSheet: View {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.prompt = "선택"
-        panel.message = "Obsidian Vault 폴더를 선택하세요"
+        panel.prompt = String(localized: "Choose")
+        panel.message = String(localized: "Choose an Obsidian Vault folder")
         if panel.runModal() == .OK, let url = panel.url { vaultPath = url.path }
     }
 
@@ -2256,7 +2257,7 @@ private struct LiveRecordingBadge: View {
                 .font(.system(size: 9, weight: .semibold, design: .monospaced))
                 .foregroundStyle(.red.opacity(0.7))
         }
-        .help("실시간 전사 중")
+        .help("Live transcription in progress")
     }
 }
 
