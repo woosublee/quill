@@ -359,6 +359,13 @@ Behavior:
             guard let retryModel, retryModel != primaryModel else {
                 throw error
             }
+            guard await LLMCooldownManager.shared.effectivePrimary(
+                baseURL: baseURL,
+                primary: retryModel,
+                fallback: nil
+            ) != nil else {
+                throw error
+            }
 
             do {
                 return try await process(
@@ -453,6 +460,13 @@ Behavior:
             }
 
             guard let retryModel, retryModel != primaryModel else {
+                throw error
+            }
+            guard await LLMCooldownManager.shared.effectivePrimary(
+                baseURL: baseURL,
+                primary: retryModel,
+                fallback: nil
+            ) != nil else {
                 throw error
             }
 
@@ -845,6 +859,13 @@ Model: \(model)
                 )
             }
             guard let retryModel, retryModel != primaryModel else { throw error }
+            guard await LLMCooldownManager.shared.effectivePrimary(
+                baseURL: baseURL,
+                primary: retryModel,
+                fallback: nil
+            ) != nil else {
+                throw error
+            }
             do {
                 return try await translateVerbatim(
                     transcript: transcript,

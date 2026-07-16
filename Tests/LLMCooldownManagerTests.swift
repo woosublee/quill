@@ -8,6 +8,7 @@ struct LLMCooldownManagerTests {
         await testProviderIsolationAndExpiration()
         await testDailyCooldownPersists()
         await testEffectivePrimaryUsesAvailableFallback()
+        await testEffectivePrimaryRejectsCoolingRetryCandidate()
         print("LLMCooldownManagerTests passed")
     }
 
@@ -106,6 +107,24 @@ struct LLMCooldownManagerTests {
         )
 
         let unavailable = await manager.effectivePrimary(baseURL: baseURL, primary: "primary", fallback: "fallback", now: now)
+        assert(unavailable == nil)
+    }
+
+    private static func testEffectivePrimaryRejectsCoolingRetryCandidate() async {
+        let defaults = isolatedDefaults()
+        let manager = LLMCooldownManager(defaults: defaults)
+        let now = Date(timeIntervalSince1970: 4_000)
+        let baseURL = "https://api.example.com/v1"
+        let retryIdentity = LLMCooldownIdentity(baseURL: baseURL, model: "fallback")
+
+        await manager.setCooldown(retryIdentity, retryAfterSeconds: 60, now: now)
+
+        let unavailable = await manager.effectivePrimary(
+            baseURL: baseURL,
+            primary: "fallback",
+            fallback: nil,
+            now: now
+        )
         assert(unavailable == nil)
     }
 

@@ -75,6 +75,10 @@ struct UpstreamMergeBehaviorTests {
 
         let postProcessingService = try read("Sources/PostProcessingService.swift")
         checkContains(postProcessingService, "UserDefaults.standard.double(forKey: \"post_processing_timeout_seconds\")", "PostProcessingService should support post-processing timeout overrides")
+        check(
+            postProcessingService.components(separatedBy: "guard await LLMCooldownManager.shared.effectivePrimary(").count >= 4,
+            "PostProcessingService should check cooldown before each fallback retry"
+        )
 
         let recordingOverlay = try read("Sources/RecordingOverlay.swift")
         checkContains(recordingOverlay, "var displayID: CGDirectDisplayID?", "RecordingOverlay should expose screen display IDs for the picker")
