@@ -31,7 +31,7 @@ struct MenuBarView: View {
         let text = transcriptText(for: item)
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return "(no transcript)" }
+        guard !text.isEmpty else { return String(localized: "(no transcript)") }
         return text.count > 48 ? String(text.prefix(48)) + "..." : text
     }
 
@@ -113,7 +113,7 @@ struct MenuBarView: View {
             Divider()
 
             // Manual toggle
-            Button(appState.isRecording ? "Stop Recording" : "Start Dictating") {
+            Button(appState.isRecording ? String(localized: "Stop Recording") : String(localized: "Start Dictating")) {
                 appState.toggleRecording()
             }
             .disabled(appState.isTranscribing)
@@ -140,8 +140,8 @@ struct MenuBarView: View {
 
             if !appState.lastTranscript.isEmpty && !appState.isRecording && !appState.isTranscribing {
                 Button(appState.copyAgainShortcut.isDisabled
-                    ? "Paste Again"
-                    : "Paste Again  (\(appState.copyAgainShortcut.displayName))") {
+                    ? String(localized: "Paste Again")
+                    : String(localized: "Paste Again  (\(appState.copyAgainShortcut.displayName))")) {
                     appState.copyLastTranscriptToPasteboard()
                 }
 
@@ -384,7 +384,7 @@ struct MenuBarView: View {
                         ProgressView()
                             .controlSize(.small)
                     }
-                    Text(updateManager.isChecking ? "Checking for Updates..." : "Check for Updates")
+                    Text(updateManager.isChecking ? String(localized: "Checking for Updates...") : String(localized: "Check for Updates"))
                 }
             }
             .disabled(updateManager.isChecking)
@@ -451,7 +451,7 @@ struct MenuBarView: View {
 
             Divider()
 
-            Button("Quit \(AppName.displayName)") {
+            Button(String(localized: "Quit \(AppName.displayName)")) {
                 NSApplication.shared.terminate(nil)
             }
             .keyboardShortcut("q")

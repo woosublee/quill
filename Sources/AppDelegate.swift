@@ -20,7 +20,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             item.action = #selector(handleShowSettings)
         } else {
             let item = NSMenuItem(
-                title: "Settings...",
+                title: NSLocalizedString("Settings...", comment: "Settings menu action"),
                 action: #selector(handleShowSettings),
                 keyEquivalent: ","
             )

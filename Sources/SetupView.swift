@@ -1089,26 +1089,26 @@ struct SetupView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 if appState.hasEnabledHoldShortcut {
-                    HowToRow(icon: "keyboard", text: "Hold \(appState.holdShortcut.displayName) to record")
+                    HowToRow(icon: "keyboard", text: String(localized: "Hold \(appState.holdShortcut.displayName) to record"))
                 }
                 if appState.hasEnabledToggleShortcut {
-                    HowToRow(icon: "switch.2", text: "Tap \(appState.toggleShortcut.displayName) to start and stop")
+                    HowToRow(icon: "switch.2", text: String(localized: "Tap \(appState.toggleShortcut.displayName) to start and stop"))
                 }
                 if appState.hasEnabledHoldShortcut && appState.hasEnabledToggleShortcut {
-                    HowToRow(icon: "arrow.triangle.branch", text: "While holding, press the toggle shortcut to latch on")
+                    HowToRow(icon: "arrow.triangle.branch", text: String(localized: "While holding, press the toggle shortcut to latch on"))
                 }
                 if appState.isCommandModeEnabled {
                     switch appState.commandModeStyle {
                     case .automatic:
-                        HowToRow(icon: "wand.and.stars", text: "With text selected, your normal shortcut transforms the selection")
+                        HowToRow(icon: "wand.and.stars", text: String(localized: "With text selected, your normal shortcut transforms the selection"))
                     case .manual:
                         HowToRow(
                             icon: "wand.and.stars",
-                            text: "Hold \(appState.commandModeManualModifier.title) with your normal shortcut to transform selected text"
+                            text: String(localized: "Hold \(appState.commandModeManualModifier.title) with your normal shortcut to transform selected text")
                         )
                     }
                 }
-                HowToRow(icon: "doc.on.clipboard", text: "Text is typed at your cursor & copied")
+                HowToRow(icon: "doc.on.clipboard", text: String(localized: "Text is typed at your cursor & copied"))
             }
             .padding(.top, 10)
 
@@ -1145,18 +1145,18 @@ struct SetupView: View {
     private var testShortcutPrompt: String {
         switch (appState.hasEnabledHoldShortcut, appState.hasEnabledToggleShortcut) {
         case (true, true):
-            return "Hold \(appState.holdShortcut.displayName) or tap \(appState.toggleShortcut.displayName)"
+            return String(localized: "Hold \(appState.holdShortcut.displayName) or tap \(appState.toggleShortcut.displayName)")
         case (true, false):
-            return "Hold \(appState.holdShortcut.displayName)"
+            return String(localized: "Hold \(appState.holdShortcut.displayName)")
         case (false, true):
-            return "Tap \(appState.toggleShortcut.displayName)"
+            return String(localized: "Tap \(appState.toggleShortcut.displayName)")
         case (false, false):
-            return "Use Start Dictating from the menu bar"
+            return String(localized: "Use Start Dictating from the menu bar")
         }
     }
 
     private var retryShortcutPrompt: String {
-        "\(testShortcutPrompt) to try again"
+        String(localized: "\(testShortcutPrompt) to try again")
     }
 
     // MARK: - Helpers
@@ -1193,7 +1193,7 @@ struct SetupView: View {
                         currentStep = nextStep(currentStep)
                     }
                 } else {
-                    keyValidationError = "Validation failed. Please check your API key and provider settings, then try again."
+                    keyValidationError = String(localized: "Validation failed. Please check your API key and provider settings, then try again.")
                 }
             }
         }
@@ -1524,7 +1524,7 @@ struct SetupView: View {
                 testSystemAudioRecorder = nil
                 testSystemDefaultAndSystemAudioRecorder = nil
                 if testError == nil {
-                    testError = "No audio file was created."
+                    testError = String(localized: "No audio file was created.")
                 }
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                     testPhase = .done

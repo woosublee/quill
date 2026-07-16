@@ -24,12 +24,21 @@ struct LocalizationResourceTests {
             }
         }
 
+        let continueKorean = try localizedValue(key: "Continue", language: "ko", root: root)
+        let settingsKorean = try localizedValue(key: "Settings...", language: "ko", root: root)
+        let startDictatingKorean = try localizedValue(key: "Start Dictating", language: "ko", root: root)
+        assert(continueKorean == "계속")
+        assert(settingsKorean == "설정...")
+        assert(startDictatingKorean == "받아쓰기 시작")
+
         for language in ["en", "ko"] {
             let infoURL = root.appendingPathComponent("Resources/Localization/\(language).lproj/InfoPlist.strings")
             let info = try String(contentsOf: infoURL, encoding: .utf8)
             assert(info.contains("NSMicrophoneUsageDescription"))
             assert(info.contains("NSSpeechRecognitionUsageDescription"))
         }
+
+        try assertTask3ExtractionCoverage(root: root, catalogStrings: strings)
 
         let noteBrowserSource = try String(
             contentsOf: root.appendingPathComponent("Sources/NoteBrowserView.swift"),
@@ -57,5 +66,49 @@ struct LocalizationResourceTests {
         }
 
         print("LocalizationResourceTests passed")
+    }
+
+    private static func assertTask3ExtractionCoverage(root: URL, catalogStrings: [String: Any]) throws {
+        let temporaryDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        let process = Process()
+        process.currentDirectoryURL = root
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = [
+            "xcstringstool", "extract", "--SwiftUI", "--modern-localizable-strings",
+            "--output-format", "xcstrings", "-o", temporaryDirectory.path,
+            "Sources/SetupView.swift", "Sources/MenuBarView.swift", "Sources/App.swift"
+        ]
+        try process.run()
+        process.waitUntilExit()
+        assert(process.terminationStatus == 0, "Task 3 localization extraction failed")
+
+        let extractedURL = temporaryDirectory.appendingPathComponent("Localizable.xcstrings")
+        let extractedData = try Data(contentsOf: extractedURL)
+        let extractedCatalog = try JSONSerialization.jsonObject(with: extractedData) as! [String: Any]
+        let extractedStrings = extractedCatalog["strings"] as! [String: Any]
+        let exclusions: Set<String> = ["Open Run Log"]
+        for key in extractedStrings.keys where !exclusions.contains(key) {
+            let entry = catalogStrings[key] as? [String: Any]
+            let localizations = entry?["localizations"] as? [String: Any]
+            for language in ["en", "ko"] {
+                let unit = (localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any]
+                assert(!(unit?["value"] as? String ?? "").isEmpty, "Missing Task 3 \(language) translation for \(key)")
+            }
+        }
+    }
+
+    private static func localizedValue(
+        key: String,
+        language: String,
+        root: URL
+    ) throws -> String {
+        let url = root
+            .appendingPathComponent("build/localization")
+            .appendingPathComponent("\(language).lproj/Localizable.strings")
+        let dictionary = NSDictionary(contentsOf: url) as? [String: String] ?? [:]
+        return dictionary[key] ?? key
     }
 }
