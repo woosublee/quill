@@ -218,12 +218,15 @@ struct LocalizationResourceTests {
         let guidance = "Unable to save the audio file. Check disk space or file permissions and try again."
         assert(appState.contains("localizedCatalogString(\"\(guidance)\")"))
         assertCatalogTranslations(for: guidance, catalogStrings: catalogStrings)
-        let screenPermissionKey = "Screen Recording permission is required. %@\n\nQuill requires Screen Recording permission to capture screenshots for context-aware transcription.\n\nGo to System Settings > Privacy & Security > Screen Recording and enable Quill."
+        let screenPermissionDetail = "Screen Recording access was not granted."
+        let screenPermissionKey = "%@\n\nQuill requires Screen Recording permission to capture screenshots for context-aware transcription.\n\nGo to System Settings > Privacy & Security > Screen Recording and enable Quill."
         let screenshotFailureKey = "Failed to capture screenshot: %@\n\nA screenshot is required for context-aware transcription. Recording has been stopped."
+        assertCatalogTranslations(for: screenPermissionDetail, catalogStrings: catalogStrings)
         assertCatalogTranslations(for: screenPermissionKey, catalogStrings: catalogStrings)
         assertCatalogTranslations(for: screenshotFailureKey, catalogStrings: catalogStrings)
         assert(helper.contains("static func screenRecordingPermission(detail: String, language: String, bundle: Bundle)"))
         assert(helper.contains("static func screenshotFailure(detail: String, language: String, bundle: Bundle)"))
+        assert(appState.contains("showScreenshotPermissionAlert(message: localizedCatalogString(\"Screen Recording access was not granted.\"))"))
         assert(appState.contains("alert.informativeText = LocalizedUserMessage.screenRecordingPermission(detail: message)"))
         assert(appState.contains("alert.informativeText = LocalizedUserMessage.screenshotFailure(detail: message)"))
         assert(!appState.contains("LocalizedUserMessage.screenRecordingPermission(detail: message) +"))

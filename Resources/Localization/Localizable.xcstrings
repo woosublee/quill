@@ -7537,22 +7537,6 @@
         }
       }
     },
-    "Screen Recording permission is required. %@\n\nQuill requires Screen Recording permission to capture screenshots for context-aware transcription.\n\nGo to System Settings > Privacy & Security > Screen Recording and enable Quill.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Screen Recording permission is required. %@\n\nQuill requires Screen Recording permission to capture screenshots for context-aware transcription.\n\nGo to System Settings > Privacy & Security > Screen Recording and enable Quill."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "화면 기록 권한이 필요합니다. %@\n\nQuill에서 맥락 인식 전사를 위한 스크린샷을 캡처하려면 화면 기록 권한이 필요합니다.\n\n시스템 설정 > 개인정보 보호 및 보안 > 화면 기록에서 Quill을 활성화하세요."
-          }
-        }
-      }
-    },
     "Failed to capture screenshot: %@\n\nA screenshot is required for context-aware transcription. Recording has been stopped.": {
       "localizations": {
         "en": {
@@ -7725,6 +7709,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "실행 기록 항목을 저장할 수 없음"
+          }
+        }
+      }
+    },
+    "%@\n\nQuill requires Screen Recording permission to capture screenshots for context-aware transcription.\n\nGo to System Settings > Privacy & Security > Screen Recording and enable Quill.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\n\nQuill requires Screen Recording permission to capture screenshots for context-aware transcription.\n\nGo to System Settings > Privacy & Security > Screen Recording and enable Quill."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@\n\nQuill에서 맥락 인식 전사를 위한 스크린샷을 캡처하려면 화면 기록 권한이 필요합니다.\n\n시스템 설정 > 개인정보 보호 및 보안 > 화면 기록에서 Quill을 활성화하세요."
+          }
+        }
+      }
+    },
+    "Screen Recording access was not granted.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen Recording access was not granted."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 기록 접근 권한이 부여되지 않았습니다."
           }
         }
       }

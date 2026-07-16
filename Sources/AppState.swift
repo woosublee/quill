@@ -4476,7 +4476,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             currentSessionIntent = .dictation
             shortcutSessionController.reset()
             playAlertSound(named: "Basso")
-            showScreenshotPermissionAlert(message: message)
+            showScreenshotPermissionAlert(message: localizedCatalogString("Screen Recording access was not granted."))
             return false
         }
 
@@ -4542,7 +4542,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             currentSessionIntent = .dictation
             shortcutSessionController.reset()
             playAlertSound(named: "Basso")
-            showScreenshotPermissionAlert(message: message)
+            showScreenshotPermissionAlert(message: localizedCatalogString("Screen Recording access was not granted."))
             return false
         }
         return true
@@ -6401,7 +6401,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             dismissTranscribingOverlay()
 
             playAlertSound(named: "Basso")
-            showScreenshotPermissionAlert(message: message)
+            showScreenshotPermissionAlert(message: localizedCatalogString("Screen Recording access was not granted."))
         }
         // Non-permission errors (transient failures) — continue recording without context
     }

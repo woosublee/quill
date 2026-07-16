@@ -14,7 +14,7 @@ enum LocalizedUserMessage {
     }
 
     static func screenRecordingPermission(detail: String, language: String, bundle: Bundle) -> String {
-        formatted("Screen Recording permission is required. %@\n\nQuill requires Screen Recording permission to capture screenshots for context-aware transcription.\n\nGo to System Settings > Privacy & Security > Screen Recording and enable Quill.", detail, language: language, bundle: bundle)
+        formatted("%@\n\nQuill requires Screen Recording permission to capture screenshots for context-aware transcription.\n\nGo to System Settings > Privacy & Security > Screen Recording and enable Quill.", detail, language: language, bundle: bundle)
     }
 
     static func screenshotFailure(detail: String) -> String {

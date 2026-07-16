@@ -16,14 +16,19 @@ struct LocalizedUserMessageTests {
     }
 
     private static func testPermissionAndScreenshotMessagesKeepOneVerbatimDetail(bundle: Bundle) {
-        let permissionDetail = "System Settings is unavailable"
+        let permissionDetail = "Screen Recording access was not granted."
         let screenshotDetail = "Unsupported MIME type: image/heic"
-        let permission = LocalizedUserMessage.screenRecordingPermission(detail: permissionDetail, language: "ko", bundle: bundle)
+        let englishPermission = LocalizedUserMessage.screenRecordingPermission(detail: permissionDetail, language: "en", bundle: bundle)
+        let koreanPermission = LocalizedUserMessage.screenRecordingPermission(detail: permissionDetail, language: "ko", bundle: bundle)
         let screenshot = LocalizedUserMessage.screenshotFailure(detail: screenshotDetail, language: "ko", bundle: bundle)
 
-        assert(permission == "화면 기록 권한이 필요합니다. \(permissionDetail)\n\nQuill에서 맥락 인식 전사를 위한 스크린샷을 캡처하려면 화면 기록 권한이 필요합니다.\n\n시스템 설정 > 개인정보 보호 및 보안 > 화면 기록에서 Quill을 활성화하세요.")
+        assert(englishPermission == "\(permissionDetail)\n\nQuill requires Screen Recording permission to capture screenshots for context-aware transcription.\n\nGo to System Settings > Privacy & Security > Screen Recording and enable Quill.")
+        assert(koreanPermission == "\(permissionDetail)\n\nQuill에서 맥락 인식 전사를 위한 스크린샷을 캡처하려면 화면 기록 권한이 필요합니다.\n\n시스템 설정 > 개인정보 보호 및 보안 > 화면 기록에서 Quill을 활성화하세요.")
         assert(screenshot == "스크린샷을 캡처하지 못했습니다: \(screenshotDetail)\n\n맥락 인식 전사에는 스크린샷이 필요합니다. 녹음이 중지되었습니다.")
-        assert(permission.components(separatedBy: permissionDetail).count == 2)
+        assert(englishPermission.components(separatedBy: permissionDetail).count == 2)
+        assert(koreanPermission.components(separatedBy: permissionDetail).count == 2)
+        assert(englishPermission.components(separatedBy: "System Settings > Privacy & Security > Screen Recording").count == 2)
+        assert(koreanPermission.components(separatedBy: "시스템 설정 > 개인정보 보호 및 보안 > 화면 기록").count == 2)
         assert(screenshot.components(separatedBy: screenshotDetail).count == 2)
     }
 
