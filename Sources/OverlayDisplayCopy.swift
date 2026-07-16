@@ -22,7 +22,10 @@ enum OverlayDisplayCopy {
         language: String = preferredLocalizedStringLanguage(),
         bundle: Bundle = .main
     ) -> String {
-        formatted("Update available: %@", value: version, language: language, bundle: bundle)
+        guard !version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return localizedCatalogString("Update available", language: language, bundle: bundle)
+        }
+        return formatted("Update available: %@", value: version, language: language, bundle: bundle)
     }
 
     private static func formatted(_ key: String, value: String, language: String, bundle: Bundle) -> String {

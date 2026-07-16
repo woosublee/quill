@@ -7,6 +7,7 @@ struct OverlayDisplayCopyTests {
         testMeetingStartKeepsFormattedTimeVerbatim(bundle: bundle)
         testInputChangeKeepsDeviceNameVerbatim(bundle: bundle)
         testUpdateAvailabilityKeepsVersionVerbatim(bundle: bundle)
+        testUpdateAvailabilityWithoutVersionUsesNonVersionedCopy(bundle: bundle)
         print("OverlayDisplayCopyTests passed")
     }
 
@@ -26,6 +27,11 @@ struct OverlayDisplayCopyTests {
         let version = "9.9.9"
         assert(OverlayDisplayCopy.updateAvailable(version: version, language: "en", bundle: bundle) == "Update available: 9.9.9")
         assert(OverlayDisplayCopy.updateAvailable(version: version, language: "ko", bundle: bundle) == "업데이트 가능: 9.9.9")
+    }
+
+    private static func testUpdateAvailabilityWithoutVersionUsesNonVersionedCopy(bundle: Bundle) {
+        assert(OverlayDisplayCopy.updateAvailable(version: " \n ", language: "en", bundle: bundle) == "Update available")
+        assert(OverlayDisplayCopy.updateAvailable(version: "", language: "ko", bundle: bundle) == "업데이트 사용 가능")
     }
 
     private static func compiledLocalizationBundle() throws -> Bundle {
