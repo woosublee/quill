@@ -1,15 +1,6 @@
 import Foundation
 import Speech
 
-private func languageLocalizedString(_ key: String, language: String, bundle: Bundle = .main) -> String {
-    let path = bundle.path(forResource: "Localizable", ofType: "strings", inDirectory: nil, forLocalization: language)
-        ?? URL(fileURLWithPath: bundle.bundlePath).appendingPathComponent("\(language).lproj/Localizable.strings").path
-    guard let strings = NSDictionary(contentsOfFile: path) as? [String: String] else {
-        return key
-    }
-    return strings[key] ?? key
-}
-
 struct TranscriptionLanguage: Identifiable, Hashable, Codable {
     let code: String      // mlx-whisper에 넘기는 언어 코드 (e.g. "ko")
     let displayName: String  // Stable fallback display name; `code` remains the persisted/API value.
@@ -17,7 +8,7 @@ struct TranscriptionLanguage: Identifiable, Hashable, Codable {
     var id: String { code }
 
     func localizedDisplayName(
-        language: String = Locale.current.language.languageCode?.identifier ?? "en",
+        language: String = preferredLocalizedStringLanguage(),
         bundle: Bundle = .main
     ) -> String {
         let key: String
@@ -32,7 +23,7 @@ struct TranscriptionLanguage: Identifiable, Hashable, Codable {
         case "de": key = "German"
         default: return displayName
         }
-        return languageLocalizedString(key, language: language, bundle: bundle)
+        return localizedCatalogString(key, language: language, bundle: bundle)
     }
 
     // 자동 감지 옵션

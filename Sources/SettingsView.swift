@@ -5,12 +5,13 @@ import UserNotifications
 
 // MARK: - Shared Helpers
 
-private func settingsLocalizedString(_ key: String, language: String) -> String {
-    let bundle = Bundle.main
-    let path = bundle.path(forResource: "Localizable", ofType: "strings", inDirectory: nil, forLocalization: language)
-        ?? URL(fileURLWithPath: bundle.bundlePath).appendingPathComponent("\(language).lproj/Localizable.strings").path
-    return (NSDictionary(contentsOfFile: path) as? [String: String])?[key] ?? key
+private func localizedCatalogFormat(_ key: String, _ first: String, _ second: String) -> String {
+    var value = localizedCatalogString(key)
+    if let range = value.range(of: "%arg") { value.replaceSubrange(range, with: first) }
+    if let range = value.range(of: "%arg") { value.replaceSubrange(range, with: second) }
+    return value
 }
+
 
 private struct SettingsCard<Content: View>: View {
     let title: LocalizedStringKey
@@ -370,7 +371,7 @@ struct SettingsView: View {
                     Button {
                         appState.selectedSettingsTab = tab
                     } label: {
-                        SettingsSidebarRow(title: settingsLocalizedString(tab.title, language: Locale.current.language.languageCode?.identifier ?? "en"), icon: tab.icon)
+                        SettingsSidebarRow(title: localizedCatalogString(tab.title), icon: tab.icon)
                             .background(
                                 RoundedRectangle(cornerRadius: 6)
                                     .fill(appState.selectedSettingsTab == tab
@@ -1172,7 +1173,7 @@ struct CalendarSettingsView: View {
     private func calendarGroupSection(_ group: GoogleCalendarDisplayGroup) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Text(settingsLocalizedString(group.title, language: Locale.current.language.languageCode?.identifier ?? "en"))
+                Text(localizedCatalogString(group.title))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .textCase(.uppercase)
@@ -1198,7 +1199,7 @@ struct CalendarSettingsView: View {
                         }
                         .toggleStyle(.checkbox)
 
-                        Text(settingsLocalizedString(calendarDisplayKind(calendar), language: Locale.current.language.languageCode?.identifier ?? "en"))
+                        Text(localizedCatalogString(calendarDisplayKind(calendar)))
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 6)
@@ -1452,10 +1453,10 @@ struct GeneralSettingsView: View {
     }
 
     private func permissionRow(
-        title: String,
+        title: LocalizedStringKey,
         icon: String,
         granted: Bool,
-        actionTitle: String = "Grant Access",
+        actionTitle: LocalizedStringKey = "Grant Access",
         action: @escaping () -> Void
     ) -> some View {
         HStack {
@@ -1810,7 +1811,7 @@ struct ModelsSettingsView: View {
         if appState.useLocalTranscription { key = "Use API Provider transcription to choose a final output language." }
         else if appState.disablePostProcessing { key = "Enable post-processing to choose a final output language." }
         else { key = "Final transcript language for post-processing." }
-        return settingsLocalizedString(key, language: Locale.current.language.languageCode?.identifier ?? "en")
+        return localizedCatalogString(key)
     }
 
     private var sharedTranscriptionBehaviors: some View {
@@ -2454,7 +2455,7 @@ struct ShortcutsSettingsView: View {
                 set: { newValue in _ = appState.setCommandModeStyle(newValue) }
             )) {
                 ForEach(CommandModeStyle.allCases) { style in
-                    Text(style.title).tag(style)
+                    Text(localizedCatalogString(style.title)).tag(style)
                 }
             }
             .pickerStyle(.segmented)
@@ -2477,7 +2478,7 @@ struct ShortcutsSettingsView: View {
                             set: { newValue in _ = appState.setCommandModeManualModifier(newValue) }
                         )) {
                             ForEach(CommandModeManualModifier.allCases) { modifier in
-                                Text(modifier.title).tag(modifier)
+                                Text(localizedCatalogString(modifier.title)).tag(modifier)
                             }
                         }
                         .disabled(!appState.isCommandModeEnabled || appState.commandModeStyle != .manual)
@@ -3710,7 +3711,7 @@ struct NativeWhisperModelRowView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(verbatim: model.displayName)
                                 .font(.caption.weight(isSelected ? .semibold : .regular))
-                            Text("\(model.localizedDescription()). About \(ByteCountFormatter.string(fromByteCount: model.approximateBytes, countStyle: .file)).")
+                            Text(localizedCatalogFormat("%arg. About %arg.", model.localizedDescription(), ByteCountFormatter.string(fromByteCount: model.approximateBytes, countStyle: .file)))
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }

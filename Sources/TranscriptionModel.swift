@@ -1,11 +1,5 @@
 import Foundation
 
-private func modelLocalizedString(_ key: String, language: String, bundle: Bundle = .main) -> String {
-    let path = bundle.path(forResource: "Localizable", ofType: "strings", inDirectory: nil, forLocalization: language)
-        ?? URL(fileURLWithPath: bundle.bundlePath).appendingPathComponent("\(language).lproj/Localizable.strings").path
-    guard let strings = NSDictionary(contentsOfFile: path) as? [String: String] else { return key }
-    return strings[key] ?? key
-}
 
 enum TranscriptionModelCacheError: LocalizedError {
     case builtInModelCannotBeDownloaded
@@ -131,7 +125,7 @@ struct TranscriptionModel: Identifiable, Hashable, Codable {
 
     /// Resolves only user-facing copy. The stored model ID and cache identity stay unchanged.
     func localizedDescription(
-        language: String = Locale.current.language.languageCode?.identifier ?? "en",
+        language: String = preferredLocalizedStringLanguage(),
         bundle: Bundle = .main
     ) -> String {
         let key: String
@@ -143,7 +137,7 @@ struct TranscriptionModel: Identifiable, Hashable, Codable {
         case "mlx-community/whisper-small-mlx": key = "Fast · Lower accuracy"
         default: return description
         }
-        return modelLocalizedString(key, language: language, bundle: bundle)
+        return localizedCatalogString(key, language: language, bundle: bundle)
     }
 
     var isAppleSpeech: Bool { id == "apple-speech" }

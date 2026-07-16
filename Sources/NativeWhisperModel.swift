@@ -1,12 +1,6 @@
 import CryptoKit
 import Foundation
 
-private func nativeLocalizedString(_ key: String, language: String, bundle: Bundle = .main) -> String {
-    let path = bundle.path(forResource: "Localizable", ofType: "strings", inDirectory: nil, forLocalization: language)
-        ?? URL(fileURLWithPath: bundle.bundlePath).appendingPathComponent("\(language).lproj/Localizable.strings").path
-    guard let strings = NSDictionary(contentsOfFile: path) as? [String: String] else { return key }
-    return strings[key] ?? key
-}
 
 struct NativeWhisperModel: Identifiable, Hashable, Codable {
     let id: String
@@ -21,11 +15,11 @@ struct NativeWhisperModel: Identifiable, Hashable, Codable {
 
     /// Resolves only user-facing copy. Download metadata and file identity stay unchanged.
     func localizedDescription(
-        language: String = Locale.current.language.languageCode?.identifier ?? "en",
+        language: String = preferredLocalizedStringLanguage(),
         bundle: Bundle = .main
     ) -> String {
         guard id == "whisper-large-v3-turbo" else { return description }
-        return nativeLocalizedString(
+        return localizedCatalogString(
             "Fast local transcription with high accuracy. Recommended.",
             language: language,
             bundle: bundle

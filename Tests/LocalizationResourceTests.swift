@@ -41,6 +41,17 @@ struct LocalizationResourceTests {
         try assertTask3ExtractionCoverage(root: root, catalogStrings: strings)
         try assertTask3ReviewCoverage(root: root)
         try assertTask4SettingsExtractionCoverage(root: root, catalogStrings: strings)
+        for key in ["General", "Appearance", "Models", "Shortcuts", "Input", "About", "My calendars", "Shared calendars", "Primary", "My calendar", "Shared", "Use API Provider transcription to choose a final output language.", "Enable post-processing to choose a final output language.", "Final transcript language for post-processing."] {
+            let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
+            assert(!(((localizations?["en"] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String ?? "").isEmpty)
+            assert(!(((localizations?["ko"] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String ?? "").isEmpty)
+        }
+        for key in ["Relaunching...", "%arg restores the audio state it changed when dictation ends.", "When enabled, %arg retries or falls back to the literal transcript if post-processing looks like it answered the dictated text instead of cleaning it.", "When on, your clipboard manager (Paste, Raycast, Maccy, etc.) records each dictation so you can find it in your recent history. When off, %arg marks dictations transient and your clipboard manager skips them."] {
+            let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
+            let en = (((localizations?["en"] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String)
+            let ko = (((localizations?["ko"] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String)
+            assert(en != ko, "Expected Korean regular Settings translation for \(key)")
+        }
         for key in ["Transcription Model", "Used for speech-to-text transcription.", "Post-Processing Model", "Cleans up transcripts and applies formatting.", "Context Model", "Uses active-window context to improve transcription.", "Vision Model", "Analyzes screenshots for visual context.", "Same as spoken language", "English", "Portuguese"] {
             let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
             for language in ["en", "ko"] {
