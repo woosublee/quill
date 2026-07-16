@@ -1811,6 +1811,15 @@ struct ModelsSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Preserve Exact Wording", isOn: $appState.preserveExactWording)
+                    .disabled(appState.disablePostProcessing)
+                Text("Skip cleanup while post-processing is enabled. Without an Output Language, the raw transcript is used. With one, only a literal translation is performed.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .opacity(appState.disablePostProcessing ? 0.55 : 1)
+
             Divider()
 
             VStack(alignment: .leading, spacing: 6) {

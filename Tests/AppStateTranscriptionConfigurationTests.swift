@@ -8,6 +8,22 @@ struct AppStateTranscriptionConfigurationTests {
         try testMakeTranscriptionServiceMapsEmptyLocalWhisperPathToNil()
         try testMakeTranscriptionServiceDefaultsLegacyMlxWhisperOff()
         try testMakeTranscriptionServicePassesLegacyMlxWhisperToggle()
+        testTranscriptionResponseFormatUsesVerboseJSONForKnownWhisperModels()
+        testTranscriptionResponseFormatUsesJSONForOtherModels()
+        testTranscriptionHTTP400UsesConfigurationGuidance()
+        testQwen36ModelConfiguration()
+        testQwen36ContextReasoningIsStripped()
+        testContextSummaryPreservesNonReasoningModelOutput()
+        testContextModelDefaultsToQwen36()
+        testDeprecatedDefaultContextModelMigratesToQwen36()
+        testCustomContextModelIsPreserved()
+        testLLMTransportTimeoutNormalization()
+        testPostProcessingCooldownDispositionDefaultsToProcessed()
+        testPostProcessingCooldownDispositionCanBeMarkedSkipped()
+        testPreserveExactWordingDefaultsOffAndPersists()
+        testVerbatimTranslationPromptAndSanitizer()
+        testVerbatimTranslationRejectsOutputThatSanitizesToEmpty()
+        try testPreserveExactWordingSettingsAndPipelineWiring()
         testLegacyMlxWhisperOptionsDefaultToOff()
         testLegacyMlxWhisperOptionsPersistIndependentlyFromEngine()
         testLegacyMlxWhisperOptionsFallBackToLegacyEnginePreference()
@@ -122,6 +138,165 @@ struct AppStateTranscriptionConfigurationTests {
         let configuration = mirroredTranscriptionConfiguration(service)
 
         assert(configuration.useLegacyMlxWhisper == true)
+    }
+
+    private static func testTranscriptionResponseFormatUsesVerboseJSONForKnownWhisperModels() {
+        for model in ["whisper-1", "whisper-large-v3", "whisper-large-v3-turbo", " WHISPER-LARGE-V3 "] {
+            assert(TranscriptionService.responseFormat(forModel: model) == "verbose_json")
+        }
+    }
+
+    private static func testTranscriptionResponseFormatUsesJSONForOtherModels() {
+        for model in ["gpt-4o-transcribe", "gpt-4o-mini-transcribe", "custom-whisper-compatible-model", ""] {
+            assert(TranscriptionService.responseFormat(forModel: model) == "json")
+        }
+    }
+
+    private static func testTranscriptionHTTP400UsesConfigurationGuidance() {
+        let message = TranscriptionService.friendlyHTTPMessage(status: 400, host: "api.example.com")
+
+        assert(message.contains("HTTP 400"))
+        assert(message.contains("model name"))
+        assert(message.contains("Base URL"))
+    }
+
+    private static func testQwen36ModelConfiguration() {
+        assert(ModelConfiguration.llmModels.contains("qwen/qwen3.6-27b"))
+        assert(ModelConfiguration.config(for: "qwen/qwen3.6-27b").reasoningEffort == "none")
+        assert(ModelConfiguration.config(for: "qwen/qwen3.6-27b").includeReasoning == false)
+        assert(ModelConfiguration.config(for: "qwen3.6-27b").shouldStripThinkTags)
+    }
+
+    private static func testQwen36ContextReasoningIsStripped() {
+        let output = """
+        <think>Hidden reasoning must not reach the context summary.</think>
+        The user is replying to an email about a launch. They likely intend to confirm the next steps. This sentence should be dropped.
+        """
+
+        let summary = AppContextService.activitySummary(from: output, model: "qwen/qwen3.6-27b")
+
+        assert(summary == "The user is replying to an email about a launch. They likely intend to confirm the next steps.")
+    }
+
+    private static func testContextSummaryPreservesNonReasoningModelOutput() {
+        let output = "<think>Visible for this model.</think> The user is writing a status update."
+
+        let summary = AppContextService.activitySummary(
+            from: output,
+            model: "meta-llama/llama-4-scout-17b-16e-instruct"
+        )
+
+        assert(summary == output)
+    }
+
+    private static func testContextModelDefaultsToQwen36() {
+        resetDefaults()
+        let appState = AppState()
+
+        assert(AppState.defaultContextModel == "qwen/qwen3.6-27b")
+        assert(appState.contextModel == "qwen/qwen3.6-27b")
+    }
+
+    private static func testDeprecatedDefaultContextModelMigratesToQwen36() {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set("meta-llama/llama-4-scout-17b-16e-instruct", forKey: "context_model")
+
+        let appState = AppState()
+
+        assert(appState.contextModel == "qwen/qwen3.6-27b")
+        assert(defaults.string(forKey: "context_model") == "qwen/qwen3.6-27b")
+    }
+
+    private static func testCustomContextModelIsPreserved() {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set("custom/context-model", forKey: "context_model")
+
+        let appState = AppState()
+
+        assert(appState.contextModel == "custom/context-model")
+    }
+
+    private static func testLLMTransportTimeoutNormalization() {
+        assert(LLMAPITransport.timeout(for: 45) == 45)
+        assert(LLMAPITransport.timeout(for: 0) == 60)
+        assert(LLMAPITransport.timeout(for: -1) == 60)
+        assert(LLMAPITransport.timeout(for: .infinity) == 60)
+        assert(LLMAPITransport.timeout(for: .nan) == 60)
+    }
+
+    private static func testPostProcessingCooldownDispositionDefaultsToProcessed() {
+        let result = PostProcessingResult(transcript: "processed", prompt: "prompt")
+
+        assert(!result.skippedDueToCooldown)
+    }
+
+    private static func testPostProcessingCooldownDispositionCanBeMarkedSkipped() {
+        let result = PostProcessingResult(
+            transcript: "raw",
+            prompt: "",
+            skippedDueToCooldown: true
+        )
+
+        assert(result.skippedDueToCooldown)
+    }
+
+    private static func testPreserveExactWordingDefaultsOffAndPersists() {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        let appState = AppState()
+
+        assert(!appState.preserveExactWording)
+        appState.preserveExactWording = true
+        assert(defaults.bool(forKey: "preserve_exact_wording"))
+    }
+
+    private static func testVerbatimTranslationPromptAndSanitizer() {
+        let prompt = PostProcessingService.verbatimTranslationSystemPrompt(targetLanguage: "English")
+
+        assert(prompt.contains("literal translator"))
+        assert(prompt.contains("Preserve every word"))
+        assert(prompt.contains("English"))
+        assert(PostProcessingService.sanitizeVerbatimTranslation("\"EMPTY\"") == "EMPTY")
+        assert(PostProcessingService.sanitizeVerbatimTranslation("\" translated text \"") == "translated text")
+    }
+
+    private static func testVerbatimTranslationRejectsOutputThatSanitizesToEmpty() {
+        do {
+            _ = try PostProcessingService.validatedVerbatimTranslation("\"\"")
+            assertionFailure("Quote-only literal translation must be treated as empty output")
+        } catch PostProcessingError.emptyOutput {
+            // Expected: stripping the outer quotes leaves no literal text to paste.
+        } catch {
+            assertionFailure("Expected emptyOutput, got \(error)")
+        }
+
+        do {
+            let literalEmpty = try PostProcessingService.validatedVerbatimTranslation("\"EMPTY\"")
+            assert(literalEmpty == "EMPTY")
+
+            let translated = try PostProcessingService.validatedVerbatimTranslation("\" translated text \"")
+            assert(translated == "translated text")
+        } catch {
+            assertionFailure("Nonempty literal translations must remain valid: \(error)")
+        }
+    }
+
+    private static func testPreserveExactWordingSettingsAndPipelineWiring() throws {
+        let settings = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
+        let appState = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let sharedBehaviors = sourceBlock(
+            in: settings,
+            from: "private var sharedTranscriptionBehaviors: some View",
+            to: "\n    private var vocabularySection"
+        )
+
+        precondition(sharedBehaviors.contains("Toggle(\"Preserve Exact Wording\", isOn: $appState.preserveExactWording)"))
+        precondition(sharedBehaviors.contains(".disabled(appState.disablePostProcessing)"))
+        precondition(appState.contains("if preserveExactWording"))
+        precondition(appState.contains("postProcessingService.translateVerbatim"))
+        precondition(appState.contains("preserveExactWording: preserveExactWording"))
     }
 
     private static func testLegacyMlxWhisperOptionsDefaultToOff() {
@@ -1209,7 +1384,8 @@ struct AppStateTranscriptionConfigurationTests {
             localTranscriptionModel: .find(id: "apple-speech"),
             transcriptionLanguage: .find(code: "en"),
             usedContextCapture: true,
-            usedPostProcessing: false
+            usedPostProcessing: false,
+            preserveExactWording: true
         )
 
         precondition(snapshot.customVocabulary == "team terms")
@@ -1219,6 +1395,7 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(snapshot.transcriptionLanguage.code == "en")
         precondition(snapshot.usedContextCapture)
         precondition(!snapshot.usedPostProcessing)
+        precondition(snapshot.preserveExactWording)
     }
 
     private static func resetDefaults() {
@@ -1240,6 +1417,8 @@ struct AppStateTranscriptionConfigurationTests {
         defaults.removeObject(forKey: "show_legacy_mlx_whisper_options")
         defaults.removeObject(forKey: "local_transcription_model")
         defaults.removeObject(forKey: "transcription_language")
+        defaults.removeObject(forKey: "context_model")
+        defaults.removeObject(forKey: "preserve_exact_wording")
         defaults.removeObject(forKey: "selected_microphone_id")
         defaults.removeObject(forKey: "realtime_streaming_enabled")
         defaults.removeObject(forKey: "hold_shortcut")
