@@ -39,6 +39,7 @@ struct LocalizationResourceTests {
         }
 
         try assertTask3ExtractionCoverage(root: root, catalogStrings: strings)
+        try assertTask3ReviewCoverage(root: root)
 
         let noteBrowserSource = try String(
             contentsOf: root.appendingPathComponent("Sources/NoteBrowserView.swift"),
@@ -79,7 +80,8 @@ struct LocalizationResourceTests {
         process.arguments = [
             "xcstringstool", "extract", "--SwiftUI", "--modern-localizable-strings",
             "--output-format", "xcstrings", "-o", temporaryDirectory.path,
-            "Sources/SetupView.swift", "Sources/MenuBarView.swift", "Sources/App.swift"
+            "Sources/SetupView.swift", "Sources/MenuBarView.swift", "Sources/App.swift",
+            "Sources/AppDelegate.swift", "Sources/SetupFlow.swift"
         ]
         try process.run()
         process.waitUntilExit()
@@ -98,6 +100,27 @@ struct LocalizationResourceTests {
                 assert(!(unit?["value"] as? String ?? "").isEmpty, "Missing Task 3 \(language) translation for \(key)")
             }
         }
+    }
+
+    private static func assertTask3ReviewCoverage(root: URL) throws {
+        let appDelegateSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/AppDelegate.swift"),
+            encoding: .utf8
+        )
+        assert(appDelegateSource.contains("isSettingsMenuItemTitle($0.title, localizedSettingsTitle: String(localized: \"Settings...\"))"))
+
+        let testSource = try String(
+            contentsOf: root.appendingPathComponent("Tests/LocalizationResourceTests.swift"),
+            encoding: .utf8
+        )
+        guard let argumentsStart = testSource.range(of: "process.arguments = ["),
+              let argumentsEnd = testSource.range(of: "        ]", range: argumentsStart.upperBound..<testSource.endIndex) else {
+            assertionFailure("Task 3 extraction arguments are missing")
+            return
+        }
+        let arguments = String(testSource[argumentsStart.lowerBound..<argumentsEnd.lowerBound])
+        assert(arguments.contains("Sources/AppDelegate.swift"))
+        assert(arguments.contains("Sources/SetupFlow.swift"))
     }
 
     private static func localizedValue(
