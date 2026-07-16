@@ -8,6 +8,18 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.22] - 2026-07-17
+
+### Security
+
+- Restricted the local MCP server to loopback connections, validated local `Host` values, rejected browser-origin requests, and removed wildcard CORS access. Existing Claude Code MCP setups continue to use `http://localhost:3457` without an API key or migration.
+
+### Improved
+
+- Post-processing now switches to the fallback model immediately when the primary model is rate-limited and uses the updated Qwen 3.6 defaults for fallback and context work.
+- Preserve exact wording translation now safely retains the literal transcript when a translation provider returns an empty result.
+- Added English and Korean README documentation with clearer first-launch guidance.
+
 ## [0.1.21] - 2026-07-07
 
 ### Improved
