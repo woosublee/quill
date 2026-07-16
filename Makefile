@@ -357,3 +357,5 @@ test: check-test-wiring $(SPARKLE_STAMP)
 	@/tmp/CriticalDictationActivityStateTests
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Tests/TranscriptionRecoveryPlaceholderTests.swift -o /tmp/TranscriptionRecoveryPlaceholderTests
 	@/tmp/TranscriptionRecoveryPlaceholderTests
+	@swiftc -parse-as-library Sources/MCPLocalAccessPolicy.swift Tests/MCPLocalAccessPolicyTests.swift -o /tmp/MCPLocalAccessPolicyTests
+	@/tmp/MCPLocalAccessPolicyTests

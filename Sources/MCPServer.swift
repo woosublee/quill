@@ -22,8 +22,7 @@ final class MCPServer {
     }
 
     func start() throws {
-        let params = NWParameters.tcp
-        params.allowLocalEndpointReuse = true
+        let params = MCPLocalAccessPolicy.listenerParameters()
         let nwPort = NWEndpoint.Port(rawValue: Self.port)!
         listener = try NWListener(using: params, on: nwPort)
 
@@ -64,6 +63,11 @@ final class MCPServer {
     // MARK: - Connection handling
 
     private func accept(_ connection: NWConnection) {
+        guard MCPLocalAccessPolicy.isLoopback(endpoint: connection.endpoint) else {
+            connection.cancel()
+            return
+        }
+
         connection.start(queue: queue)
         receiveRequest(connection: connection, buffer: Data())
     }
@@ -92,9 +96,8 @@ final class MCPServer {
     }
 
     private func route(request: HTTPRequest, connection: NWConnection) {
-        // CORS preflight
-        if request.method == "OPTIONS" {
-            sendResponse(connection: connection, status: 204, headers: corsHeaders(), body: "")
+        guard MCPLocalAccessPolicy.allowsRequest(headers: request.headers, port: Self.port) else {
+            sendResponse(connection: connection, status: 403, body: "Forbidden")
             return
         }
 
@@ -134,7 +137,7 @@ final class MCPServer {
             if let data = try? JSONSerialization.data(withJSONObject: response),
                let body = String(data: data, encoding: .utf8) {
                 self.sendResponse(connection: connection, status: 200,
-                                  headers: self.corsHeaders() + [("Content-Type", "application/json")],
+                                  headers: [("Content-Type", "application/json")],
                                   body: body)
             }
         }
@@ -390,7 +393,7 @@ final class MCPServer {
             "Content-Type: text/event-stream",
             "Cache-Control: no-cache",
             "Connection: keep-alive",
-        ] + corsHeaders().map { "\($0.0): \($0.1)" }
+        ]
         let headerBlock = headers.joined(separator: "\r\n") + "\r\n\r\n"
 
         connection.send(content: headerBlock.data(using: .utf8), completion: .contentProcessed({ _ in }))
@@ -458,12 +461,13 @@ final class MCPServer {
         case 200: statusText = "OK"
         case 204: statusText = "No Content"
         case 400: statusText = "Bad Request"
+        case 403: statusText = "Forbidden"
         case 404: statusText = "Not Found"
         default: statusText = "Unknown"
         }
 
         var headerLines = ["HTTP/1.1 \(status) \(statusText)"]
-        var allHeaders = corsHeaders() + headers
+        var allHeaders = headers
         if !allHeaders.contains(where: { $0.0 == "Content-Type" }) {
             allHeaders.append(("Content-Type", "text/plain; charset=utf-8"))
         }
@@ -476,14 +480,6 @@ final class MCPServer {
             content: response.data(using: .utf8),
             completion: .contentProcessed({ _ in connection.cancel() })
         )
-    }
-
-    private func corsHeaders() -> [(String, String)] {
-        [
-            ("Access-Control-Allow-Origin", "*"),
-            ("Access-Control-Allow-Methods", "GET, POST, OPTIONS"),
-            ("Access-Control-Allow-Headers", "Content-Type, Authorization")
-        ]
     }
 }
 
