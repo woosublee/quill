@@ -992,6 +992,22 @@
           }
         }
       }
+    },
+    "Obsidian Vault Folder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obsidian Vault Folder"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obsidian Vault 폴더"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

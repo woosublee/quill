@@ -31,6 +31,17 @@ struct LocalizationResourceTests {
             assert(info.contains("NSSpeechRecognitionUsageDescription"))
         }
 
+        let noteBrowserSource = try String(
+            contentsOf: root.appendingPathComponent("Sources/NoteBrowserView.swift"),
+            encoding: .utf8
+        )
+        assert(noteBrowserSource.contains("help: LocalizedStringKey"))
+        assert(noteBrowserSource.contains("let help: LocalizedStringKey"))
+        assert(noteBrowserSource.contains("fieldLabel(_ key: LocalizedStringKey)"))
+        assert(noteBrowserSource.contains("if vaultPath.isEmpty {\n                        Text(\"Select a folder\")"))
+        assert(noteBrowserSource.contains("} else {\n                        Text(vaultPath)"))
+        assert(strings["Obsidian Vault Folder"] != nil)
+
         let hangulPattern = try NSRegularExpression(pattern: "[가-힣]")
         let sourceFiles = ["Sources/NoteBrowserView.swift", "Sources/NoteListRowDisplayData.swift"]
         for sourceFile in sourceFiles {

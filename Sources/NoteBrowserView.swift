@@ -1375,7 +1375,7 @@ private struct NoteDetailView: View {
             .foregroundStyle(.quaternary)
     }
 
-    private func metaTag(_ label: String, active: Bool, help tooltip: String) -> some View {
+    private func metaTag(_ label: String, active: Bool, help tooltip: LocalizedStringKey) -> some View {
         Button(action: {}) {
             Text(label)
                 .font(.system(size: 9, weight: .medium, design: .monospaced))
@@ -1542,7 +1542,7 @@ private struct NoteDetailView: View {
         action: @escaping () -> Void,
         @ViewBuilder label: @escaping () -> L,
         disabled: Bool,
-        help: String
+        help: LocalizedStringKey
     ) -> some View {
         ToolbarIconButton(
             action: action,
@@ -1914,7 +1914,7 @@ private struct ToolbarButtonStyle: ButtonStyle {
 private struct ToolbarIconButton<Label: View>: View {
     let action: () -> Void
     let disabled: Bool
-    let help: String
+    let help: LocalizedStringKey
     @ViewBuilder let label: () -> Label
 
     @State private var isHovered = false
@@ -1999,15 +1999,22 @@ private struct ObsidianExportSheet: View {
 
             fieldLabel("Obsidian Vault Folder")
             HStack(spacing: 8) {
-                Text(vaultPath.isEmpty ? "Select a folder" : vaultPath)
-                    .font(.callout)
-                    .foregroundStyle(vaultPath.isEmpty ? .tertiary : .primary)
-                    .lineLimit(1).truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
-                    .overlay(RoundedRectangle(cornerRadius: 7)
-                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+                Group {
+                    if vaultPath.isEmpty {
+                        Text("Select a folder")
+                            .foregroundStyle(.tertiary)
+                    } else {
+                        Text(vaultPath)
+                            .foregroundStyle(.primary)
+                    }
+                }
+                .font(.callout)
+                .lineLimit(1).truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
+                .overlay(RoundedRectangle(cornerRadius: 7)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
                 Button("Change") { selectVaultFolder() }.controlSize(.small)
             }
             .padding(.bottom, 16)
@@ -2087,8 +2094,8 @@ private struct ObsidianExportSheet: View {
         .onAppear { titleInput = defaultTitleInput }
     }
 
-    private func fieldLabel(_ text: String) -> some View {
-        Text(text).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.bottom, 6)
+    private func fieldLabel(_ key: LocalizedStringKey) -> some View {
+        Text(key).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.bottom, 6)
     }
 
     private func selectVaultFolder() {
