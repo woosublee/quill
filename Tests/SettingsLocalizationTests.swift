@@ -12,8 +12,12 @@ struct SettingsLocalizationTests {
 
     private static func testTranscriptionLanguageKeepsCodeAndLocalizesDisplayName() throws {
         let korean = TranscriptionLanguage.find(code: "ko")
+        let auto = TranscriptionLanguage.auto
         let localizationBundle = try compiledLocalizationBundle()
 
+        assert(auto.code == "auto")
+        assert(auto.localizedDisplayName(language: "en", bundle: localizationBundle) == "Auto Detect")
+        assert(auto.localizedDisplayName(language: "ko", bundle: localizationBundle) == "자동 감지")
         assert(korean.code == "ko")
         assert(korean.localizedDisplayName(language: "en", bundle: localizationBundle) == "Korean")
         assert(korean.localizedDisplayName(language: "ko", bundle: localizationBundle) == "한국어")

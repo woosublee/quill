@@ -2616,23 +2616,23 @@ struct InputSettingsView: View {
 
             VStack(spacing: 6) {
                 MicrophoneOptionRow(
-                    name: "System Default",
+                    title: "System Default",
                     isSelected: appState.selectedMicrophoneID == AudioInputDevice.defaultMicrophoneID || appState.selectedMicrophoneID.isEmpty,
                     action: { appState.selectedMicrophoneID = AudioInputDevice.defaultMicrophoneID }
                 )
                 MicrophoneOptionRow(
-                    name: "System Audio",
+                    title: "System Audio",
                     isSelected: appState.selectedMicrophoneID == AudioInputDevice.systemAudioID,
                     action: { appState.selectedMicrophoneID = AudioInputDevice.systemAudioID }
                 )
                 MicrophoneOptionRow(
-                    name: "System Default + System Audio",
+                    title: "System Default + System Audio",
                     isSelected: appState.selectedMicrophoneID == AudioInputDevice.systemDefaultAndSystemAudioID,
                     action: { appState.selectedMicrophoneID = AudioInputDevice.systemDefaultAndSystemAudioID }
                 )
                 ForEach(appState.availableMicrophones) { device in
                     MicrophoneOptionRow(
-                        name: device.name,
+                        verbatimName: device.name,
                         isSelected: appState.selectedMicrophoneID == device.uid,
                         action: { appState.selectedMicrophoneID = device.uid }
                     )
@@ -2833,17 +2833,37 @@ struct AboutSettingsView: View {
 // MARK: - Microphone Option Row
 
 struct MicrophoneOptionRow: View {
-    let name: String
+    private let title: LocalizedStringKey?
+    private let verbatimName: String?
     let isSelected: Bool
     let action: () -> Void
+
+    init(title: LocalizedStringKey, isSelected: Bool, action: @escaping () -> Void) {
+        self.title = title
+        self.verbatimName = nil
+        self.isSelected = isSelected
+        self.action = action
+    }
+
+    init(verbatimName: String, isSelected: Bool, action: @escaping () -> Void) {
+        self.title = nil
+        self.verbatimName = verbatimName
+        self.isSelected = isSelected
+        self.action = action
+    }
 
     var body: some View {
         Button(action: action) {
             HStack {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(isSelected ? .blue : .secondary)
-                Text(verbatim: name)
-                    .foregroundStyle(.primary)
+                if let title {
+                    Text(title)
+                        .foregroundStyle(.primary)
+                } else if let verbatimName {
+                    Text(verbatim: verbatimName)
+                        .foregroundStyle(.primary)
+                }
                 Spacer()
             }
             .padding(12)

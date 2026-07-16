@@ -48,8 +48,8 @@ struct SystemAudioInputSelectionTests {
         let source = try sourceFile("Sources/SettingsView.swift")
         assertOrder(
             source: source,
-            first: "name: \"System Default\"",
-            second: "name: \"System Audio\"",
+            first: "title: \"System Default\"",
+            second: "title: \"System Audio\"",
             file: "Sources/SettingsView.swift"
         )
     }
@@ -83,7 +83,7 @@ struct SystemAudioInputSelectionTests {
 
     private static func testSettingsPickerIncludesSystemDefaultAndSystemAudio() throws {
         let source = try sourceFile("Sources/SettingsView.swift")
-        assertContains(source, "name: \"System Default + System Audio\"")
+        assertContains(source, "title: \"System Default + System Audio\"")
         assertContains(source, "AudioInputDevice.systemDefaultAndSystemAudioID")
     }
 

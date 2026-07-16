@@ -41,6 +41,17 @@ struct LocalizationResourceTests {
         try assertTask3ExtractionCoverage(root: root, catalogStrings: strings)
         try assertTask3ReviewCoverage(root: root)
         try assertTask4SettingsExtractionCoverage(root: root, catalogStrings: strings)
+        let settingsSource = try String(contentsOf: root.appendingPathComponent("Sources/SettingsView.swift"), encoding: .utf8)
+        assert(settingsSource.contains("MicrophoneOptionRow(\n                    title: \"System Default\""))
+        assert(settingsSource.contains("verbatimName: device.name,"))
+        assert(settingsSource.contains("init(title: LocalizedStringKey"))
+        assert(settingsSource.contains("init(verbatimName: String"))
+        for key in ["Auto Detect", "System Default", "System Audio", "System Default + System Audio"] {
+            let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
+            for language in ["en", "ko"] {
+                assert(!(((localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String ?? "").isEmpty, "Missing \(language) input localization for \(key)")
+            }
+        }
         for key in ["General", "Appearance", "Models", "Shortcuts", "Input", "About", "My calendars", "Shared calendars", "Primary", "My calendar", "Shared", "Use API Provider transcription to choose a final output language.", "Enable post-processing to choose a final output language.", "Final transcript language for post-processing."] {
             let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
             assert(!(((localizations?["en"] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String ?? "").isEmpty)

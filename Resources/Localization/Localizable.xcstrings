@@ -6528,6 +6528,22 @@
           }
         }
       }
+    },
+    "Auto Detect": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto Detect"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 감지"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
