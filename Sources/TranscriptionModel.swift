@@ -122,6 +122,19 @@ struct TranscriptionModel: Identifiable, Hashable, Codable {
         ),
     ]
 
+    /// Resolves only user-facing copy. The stored model ID and cache identity stay unchanged.
+    func localizedDescription(language: String = Locale.current.language.languageCode?.identifier ?? "en") -> String {
+        let korean = language.lowercased().hasPrefix("ko")
+        switch id {
+        case "apple-speech": return korean ? "온디바이스 · 빠름" : "On-device · Fast"
+        case "mlx-community/whisper-large-v3-turbo": return korean ? "빠름 · 정확도 높음 (추천)" : "Fast · High accuracy (Recommended)"
+        case "mlx-community/whisper-large-v3-mlx": return korean ? "최고 정확도 · 느림" : "Highest accuracy · Slow"
+        case "mlx-community/whisper-medium-mlx": return korean ? "중간 속도 · 중간 정확도" : "Medium speed · Medium accuracy"
+        case "mlx-community/whisper-small-mlx": return korean ? "빠름 · 정확도 낮음" : "Fast · Lower accuracy"
+        default: return description
+        }
+    }
+
     var isAppleSpeech: Bool { id == "apple-speech" }
 
     var estimatedDownloadBytes: Int64? {

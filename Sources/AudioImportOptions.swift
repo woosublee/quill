@@ -63,6 +63,43 @@ struct TranscriptionChoiceDisplay: Identifiable, Equatable {
     let unavailableReason: String?
 
     var id: String { choice.id }
+
+    /// Resolves only static UI labels; model IDs and persisted backend choices remain verbatim.
+    func localizedTitle(language: String = Locale.current.language.languageCode?.identifier ?? "en") -> String {
+        localizedStaticLabel(title, language: language)
+    }
+
+    func localizedCompactLabel(language: String = Locale.current.language.languageCode?.identifier ?? "en") -> String {
+        switch choice {
+        case .apiStandard(let modelID):
+            return "\(localizedStaticLabel("Standard", language: language)) · \(modelID)"
+        case .nativeWhisper:
+            return "\(localizedStaticLabel("Native Whisper", language: language)) · \(nativeModelName())"
+        case .legacyMlxWhisper(let model):
+            return "\(localizedStaticLabel("Legacy", language: language)) · \(model.displayName)"
+        case .apiRealtime(let modelID):
+            return "\(localizedStaticLabel("Realtime", language: language)) · \(modelID ?? "provider-default")"
+        case .appleLive:
+            return localizedStaticLabel("Apple Live", language: language)
+        }
+    }
+
+    private func nativeModelName() -> String {
+        subtitle ?? ""
+    }
+
+    private func localizedStaticLabel(_ value: String, language: String) -> String {
+        guard language.lowercased().hasPrefix("ko") else { return value }
+        switch value {
+        case "API Standard": return "API 표준"
+        case "Standard": return "표준"
+        case "Native Whisper": return "네이티브 Whisper"
+        case "Legacy": return "레거시"
+        case "Realtime": return "실시간"
+        case "Apple Live": return "Apple 라이브"
+        default: return value
+        }
+    }
 }
 
 struct AudioImportOptions {

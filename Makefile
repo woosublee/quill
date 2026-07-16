@@ -324,6 +324,8 @@ test: check-test-wiring $(SPARKLE_STAMP)
 	@/tmp/BuildMetadataTests
 	@swiftc -parse-as-library Tests/LocalizationResourceTests.swift -o /tmp/LocalizationResourceTests
 	@/tmp/LocalizationResourceTests
+	@swiftc -parse-as-library Sources/TranscriptionLanguage.swift Sources/TranscriptionModel.swift Sources/NativeWhisperModel.swift Sources/AudioImportOptions.swift Tests/SettingsLocalizationTests.swift -o /tmp/SettingsLocalizationTests
+	@/tmp/SettingsLocalizationTests
 	@swiftc -parse-as-library Sources/InstructionExecutionDetector.swift Tests/InstructionExecutionDetectorTests.swift -o /tmp/InstructionExecutionDetectorTests
 	@/tmp/InstructionExecutionDetectorTests
 	@swiftc -parse-as-library Tests/ReleaseSDKCompatibilityTests.swift -o /tmp/ReleaseSDKCompatibilityTests

@@ -40,6 +40,7 @@ struct LocalizationResourceTests {
 
         try assertTask3ExtractionCoverage(root: root, catalogStrings: strings)
         try assertTask3ReviewCoverage(root: root)
+        try assertTask4SettingsExtractionCoverage(root: root, catalogStrings: strings)
 
         let noteBrowserSource = try String(
             contentsOf: root.appendingPathComponent("Sources/NoteBrowserView.swift"),
@@ -121,6 +122,56 @@ struct LocalizationResourceTests {
         let arguments = String(testSource[argumentsStart.lowerBound..<argumentsEnd.lowerBound])
         assert(arguments.contains("Sources/AppDelegate.swift"))
         assert(arguments.contains("Sources/SetupFlow.swift"))
+    }
+
+
+    private static func assertTask4SettingsExtractionCoverage(root: URL, catalogStrings: [String: Any]) throws {
+        let settingsURL = root.appendingPathComponent("Sources/SettingsView.swift")
+        let source = try String(contentsOf: settingsURL, encoding: .utf8)
+        let startMarker = "// localization-exclusion: developer-diagnostics-start"
+        let endMarker = "// localization-exclusion: developer-diagnostics-end"
+        assert(source.components(separatedBy: startMarker).count == 3, "Expected exactly two developer diagnostic start markers")
+        assert(source.components(separatedBy: endMarker).count == 3, "Expected exactly two developer diagnostic end markers")
+
+        var remaining = source
+        var excluded = ""
+        while let start = remaining.range(of: startMarker), let end = remaining.range(of: endMarker, range: start.upperBound..<remaining.endIndex) {
+            excluded += String(remaining[start.lowerBound..<end.upperBound])
+            remaining.removeSubrange(start.lowerBound..<end.upperBound)
+        }
+        assert(excluded.contains("struct DebugSettingsView"))
+        assert(excluded.contains("struct RunLogView"))
+        assert(excluded.contains("struct RunLogEntryView"))
+        assert(excluded.contains("struct PipelineStepView"))
+        assert(remaining.contains("struct AppearanceSettingsView"))
+        assert(remaining.contains("struct ModelsSettingsView"))
+        assert(remaining.contains("struct VoiceMacroEditorView"))
+        assert(remaining.contains("struct ModelRowView"))
+
+        let temporaryDirectory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+        let filteredSettingsURL = temporaryDirectory.appendingPathComponent("SettingsView.swift")
+        try remaining.write(to: filteredSettingsURL, atomically: true, encoding: .utf8)
+
+        let process = Process()
+        process.currentDirectoryURL = root
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["xcstringstool", "extract", "--SwiftUI", "--modern-localizable-strings", "--output-format", "xcstrings", "-o", temporaryDirectory.path, filteredSettingsURL.path, "Sources/ModelDropdownView.swift"]
+        try process.run()
+        process.waitUntilExit()
+        assert(process.terminationStatus == 0, "Task 4 localization extraction failed")
+
+        let extractedData = try Data(contentsOf: temporaryDirectory.appendingPathComponent("Localizable.xcstrings"))
+        let extracted = try JSONSerialization.jsonObject(with: extractedData) as! [String: Any]
+        for key in (extracted["strings"] as! [String: Any]).keys where !key.isEmpty {
+            let entry = catalogStrings[key] as? [String: Any]
+            let localizations = entry?["localizations"] as? [String: Any]
+            for language in ["en", "ko"] {
+                let unit = (localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any]
+                assert(!(unit?["value"] as? String ?? "").isEmpty, "Missing Task 4 \(language) translation for \(key)")
+            }
+        }
     }
 
     private static func localizedValue(

@@ -11,6 +11,14 @@ struct NativeWhisperModel: Identifiable, Hashable, Codable {
     let checksumSHA256: String
 
     static var recommended: NativeWhisperModel { NativeWhisperModelCatalog.recommended }
+
+    /// Resolves only user-facing copy. Download metadata and file identity stay unchanged.
+    func localizedDescription(language: String = Locale.current.language.languageCode?.identifier ?? "en") -> String {
+        guard id == "whisper-large-v3-turbo" else { return description }
+        return language.lowercased().hasPrefix("ko")
+            ? "빠르고 정확한 로컬 받아쓰기. 추천."
+            : "Fast local transcription with high accuracy. Recommended."
+    }
 }
 
 struct NativeWhisperModelCatalog {

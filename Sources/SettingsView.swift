@@ -6,11 +6,11 @@ import UserNotifications
 // MARK: - Shared Helpers
 
 private struct SettingsCard<Content: View>: View {
-    let title: String
+    let title: LocalizedStringKey
     let icon: String
     let content: Content
 
-    init(_ title: String, icon: String, @ViewBuilder content: () -> Content) {
+    init(_ title: LocalizedStringKey, icon: String, @ViewBuilder content: () -> Content) {
         self.title = title
         self.icon = icon
         self.content = content()
@@ -215,7 +215,7 @@ struct ProviderSettingsFields: View {
                         .font(.caption.weight(.semibold))
                     Picker("", selection: $appState.transcriptionLanguage) {
                         ForEach(TranscriptionLanguage.all) { option in
-                            Text(option.displayName).tag(option)
+                            Text(option.localizedDisplayName()).tag(option)
                         }
                     }
                     .accessibilityLabel("Transcription Language")
@@ -437,6 +437,7 @@ private struct SettingsSidebarRow: View {
     }
 }
 
+// localization-exclusion: developer-diagnostics-start
 // MARK: - Debug Settings
 
 struct DebugSettingsView: View {
@@ -491,6 +492,8 @@ struct DebugSettingsView: View {
         }
     }
 }
+
+// localization-exclusion: developer-diagnostics-end
 
 // MARK: - Appearance Settings
 
@@ -592,7 +595,7 @@ struct AppearanceSettingsView: View {
                 Text("Active window (default)").tag(0)
                 Text("Primary display").tag(-1)
                 ForEach(connectedScreenEntries, id: \.tag) { entry in
-                    Text(entry.name).tag(entry.tag)
+                    Text(verbatim: entry.name).tag(entry.tag)
                 }
             }
             .labelsHidden()
@@ -623,8 +626,8 @@ struct AppearanceSettingsView: View {
 }
 
 struct OverlayLayoutOptionRow: View {
-    let title: String
-    let subtitle: String
+    let title: LocalizedStringKey
+    let subtitle: LocalizedStringKey
     let layout: RecordingOverlayLayout
     @Binding var selection: RecordingOverlayLayout
 
@@ -673,8 +676,8 @@ struct OverlayLayoutOptionRow: View {
 }
 
 struct OverlayWaveformModeOptionRow: View {
-    let title: String
-    let subtitle: String
+    let title: LocalizedStringKey
+    let subtitle: LocalizedStringKey
     let mode: OverlayWaveformDisplayMode
     @Binding var selection: OverlayWaveformDisplayMode
 
@@ -953,7 +956,7 @@ struct CalendarSettingsView: View {
                 if appState.googleCalendarConnection.isConnected,
                    let email = appState.googleCalendarConnection.accountEmail,
                    !email.isEmpty {
-                    Text(email)
+                    Text(verbatim: email)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1019,7 +1022,7 @@ struct CalendarSettingsView: View {
             if googleCalendarHealthMessage == nil,
                let error = appState.googleCalendarConnection.lastErrorMessage,
                !error.isEmpty {
-                Text(error)
+                Text(verbatim: error)
                     .font(.caption)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1179,15 +1182,16 @@ struct CalendarSettingsView: View {
                 ForEach(group.calendars) { calendar in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Toggle(
-                            calendar.displayName,
                             isOn: Binding(
                                 get: { appState.googleCalendarConnection.selectedCalendarIDs.contains(calendar.id) },
                                 set: { appState.setGoogleCalendarSelected(calendar.id, isSelected: $0) }
                             )
-                        )
+                        ) {
+                            Text(verbatim: calendar.displayName)
+                        }
                         .toggleStyle(.checkbox)
 
-                        Text(calendarDisplayKind(calendar))
+                        Text(verbatim: calendarDisplayKind(calendar))
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 6)
@@ -1529,16 +1533,21 @@ struct ModelsSettingsView: View {
     @State private var contextTestError: String? = nil
     @State private var contextTestPrompt: String? = nil
 
-    private static let outputLanguageOptions: [(label: String, value: String)] = [
-        ("Same as spoken language", ""),
-        ("English", "English"),
-        ("한국어", "Korean"),
-        ("日本語", "Japanese"),
-        ("中文", "Chinese"),
-        ("Español", "Spanish"),
-        ("Français", "French"),
-        ("Deutsch", "German"),
-        ("Português", "Portuguese"),
+    private struct OutputLanguageOption {
+        let label: LocalizedStringKey
+        let value: String // Persisted prompt/API value; never localize.
+    }
+
+    private static let outputLanguageOptions: [OutputLanguageOption] = [
+        .init(label: "Same as spoken language", value: ""),
+        .init(label: "English", value: "English"),
+        .init(label: "Korean", value: "Korean"),
+        .init(label: "Japanese", value: "Japanese"),
+        .init(label: "Chinese", value: "Chinese"),
+        .init(label: "Spanish", value: "Spanish"),
+        .init(label: "French", value: "French"),
+        .init(label: "German", value: "German"),
+        .init(label: "Portuguese", value: "Portuguese"),
     ]
 
     var body: some View {
@@ -1759,7 +1768,7 @@ struct ModelsSettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Picker("Transcription Language", selection: $appState.transcriptionLanguage) {
                     ForEach(TranscriptionLanguage.all) { lang in
-                        Text(lang.displayName).tag(lang)
+                        Text(lang.localizedDisplayName()).tag(lang)
                     }
                 }
                 .pickerStyle(.menu)
@@ -1954,7 +1963,7 @@ struct ModelsSettingsView: View {
                         Button("Hide") { showDefaultSystemPrompt = false }
                             .font(.caption)
                     }
-                    Text(PostProcessingService.defaultSystemPrompt)
+                    Text(verbatim: PostProcessingService.defaultSystemPrompt)
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
@@ -2167,7 +2176,7 @@ struct ModelsSettingsView: View {
                         Button("Hide") { showDefaultContextPrompt = false }
                             .font(.caption)
                     }
-                    Text(AppContextService.defaultContextPrompt)
+                    Text(verbatim: AppContextService.defaultContextPrompt)
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
@@ -2541,7 +2550,7 @@ struct ShortcutsSettingsView: View {
                     ForEach(Array(appState.voiceMacros.enumerated()), id: \.element.id) { index, macro in
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
-                                Text(macro.command)
+                                Text(verbatim: macro.command)
                                     .font(.headline)
                                 Spacer()
                                 Button("Edit") {
@@ -2557,7 +2566,7 @@ struct ShortcutsSettingsView: View {
                                 .font(.caption)
                                 .foregroundStyle(.red)
                             }
-                            Text(macro.payload)
+                            Text(verbatim: macro.payload)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
@@ -2731,7 +2740,7 @@ struct AboutSettingsView: View {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 64, height: 64)
-                    Text(appDisplayName)
+                    Text(verbatim: appDisplayName)
                         .font(.system(size: 20, weight: .bold, design: .rounded))
                     Text("v\(appVersion)")
                         .font(.caption)
@@ -2782,7 +2791,7 @@ struct AboutSettingsView: View {
             }
 
             HStack(alignment: .top, spacing: 12) {
-                Text(buildDiagnosticsText)
+                Text(verbatim: buildDiagnosticsText)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
@@ -2827,7 +2836,7 @@ struct MicrophoneOptionRow: View {
             HStack {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(isSelected ? .blue : .secondary)
-                Text(name)
+                Text(verbatim: name)
                     .foregroundStyle(.primary)
                 Spacer()
             }
@@ -2843,6 +2852,7 @@ struct MicrophoneOptionRow: View {
     }
 }
 
+// localization-exclusion: developer-diagnostics-start
 // MARK: - Run Log
 
 struct RunLogView: View {
@@ -3573,6 +3583,8 @@ struct FlowLayout: Layout {
     }
 }
 
+// localization-exclusion: developer-diagnostics-end
+
 // MARK: - Voice Macro Editor
 
 struct VoiceMacroEditorView: View {
@@ -3691,7 +3703,7 @@ struct NativeWhisperModelRowView: View {
                         Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
                             .foregroundStyle(isInstalled ? Color.accentColor : .secondary)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(model.displayName)
+                            Text(verbatim: model.displayName)
                                 .font(.caption.weight(isSelected ? .semibold : .regular))
                             Text("Fast local transcription. About \(ByteCountFormatter.string(fromByteCount: model.approximateBytes, countStyle: .file)).")
                                 .font(.caption2)
@@ -3722,7 +3734,7 @@ struct NativeWhisperModelRowView: View {
                 .stroke(isSelected ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
         )
         .confirmationDialog(
-            "Delete \(model.displayName)?",
+            "Delete model?",
             isPresented: $showDeleteConfirmation,
             titleVisibility: .visible
         ) {
@@ -3858,9 +3870,9 @@ struct ModelRowView: View {
                         Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
                             .foregroundStyle(isInstalled ? Color.accentColor : .secondary)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(model.displayName)
+                            Text(verbatim: model.displayName)
                                 .font(.caption.weight(isSelected ? .semibold : .regular))
-                            Text(model.description)
+                            Text(model.localizedDescription())
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -3889,7 +3901,7 @@ struct ModelRowView: View {
                 .stroke(isSelected ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
         )
         .confirmationDialog(
-            "Delete \(model.displayName)?",
+            "Delete model?",
             isPresented: $showDeleteConfirmation,
             titleVisibility: .visible
         ) {
@@ -3898,7 +3910,7 @@ struct ModelRowView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the downloaded local model cache for \(model.displayName). You can download it again later.")
+            Text("This removes the downloaded local model cache. You can download it again later.")
         }
         .onAppear {
             refreshInstallState()

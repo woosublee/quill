@@ -2912,6 +2912,2918 @@
           }
         }
       }
+    },
+    "%arg": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%arg"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%arg"
+          }
+        }
+      }
+    },
+    "%arg / %arg": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%arg / %arg"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%arg / %arg"
+          }
+        }
+      }
+    },
+    "%arg min before": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%arg min before"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%arg분 전"
+          }
+        }
+      }
+    },
+    "%arg ms": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%arg ms"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%argms"
+          }
+        }
+      }
+    },
+    "%arg px": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%arg px"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%argpx"
+          }
+        }
+      }
+    },
+    "%arg restores the audio state it changed when dictation ends.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%arg restores the audio state it changed when dictation ends."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%arg restores the audio state it changed when dictation ends."
+          }
+        }
+      }
+    },
+    "%arg%%": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%arg%%"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%arg%%"
+          }
+        }
+      }
+    },
+    "(empty transcript)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(empty transcript)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "(빈 받아쓰기)"
+          }
+        }
+      }
+    },
+    "A newer default prompt is available.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A newer default prompt is available."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 기본 프롬프트를 사용할 수 있습니다."
+          }
+        }
+      }
+    },
+    "API Base URL": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API Base URL"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 기본 URL"
+          }
+        }
+      }
+    },
+    "API Provider": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API Provider"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 제공업체"
+          }
+        }
+      }
+    },
+    "API Provider Options": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API Provider Options"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 제공업체 옵션"
+          }
+        }
+      }
+    },
+    "API key required to test": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API key required to test"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테스트하려면 API 키가 필요합니다."
+          }
+        }
+      }
+    },
+    "Active window (default)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active window (default)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성 창 (기본)"
+          }
+        }
+      }
+    },
+    "Add Macro": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add Macro"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "매크로 추가"
+          }
+        }
+      }
+    },
+    "Advanced Legacy mlx-whisper": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advanced Legacy mlx-whisper"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고급 레거시 mlx-whisper"
+          }
+        }
+      }
+    },
+    "Applies before recording starts for both hold and tap shortcuts. Stopping still happens immediately.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applies before recording starts for both hold and tap shortcuts. Stopping still happens immediately."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "누르기와 탭 단축키 모두 녹음 시작 전에 적용됩니다. 중지는 즉시 실행됩니다."
+          }
+        }
+      }
+    },
+    "Automatically check for updates": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically check for updates"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트 자동 확인"
+          }
+        }
+      }
+    },
+    "Build number": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build number"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빌드 번호"
+          }
+        }
+      }
+    },
+    "Built-in": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Built-in"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내장됨"
+          }
+        }
+      }
+    },
+    "Bypass post-processing and immediately paste your predefined text.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bypass post-processing and immediately paste your predefined text."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후처리 없이 미리 정의한 텍스트를 바로 붙여넣습니다."
+          }
+        }
+      }
+    },
+    "Calendar": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calendar"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캘린더"
+          }
+        }
+      }
+    },
+    "Calendar refresh issue": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calendar refresh issue"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캘린더 새로 고침 문제"
+          }
+        }
+      }
+    },
+    "Calendars used for note title suggestions": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calendars used for note title suggestions"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 제목 제안에 사용할 캘린더"
+          }
+        }
+      }
+    },
+    "Cancel Local Whisper download": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel Local Whisper download"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 Whisper 다운로드 취소"
+          }
+        }
+      }
+    },
+    "Captures a screenshot and metadata from the frontmost app, then runs the context prompt to infer activity.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Captures a screenshot and metadata from the frontmost app, then runs the context prompt to infer activity."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전면 앱의 스크린샷과 메타데이터를 캡처한 후 컨텍스트 프롬프트를 실행해 활동을 추론합니다."
+          }
+        }
+      }
+    },
+    "Change this to use a different OpenAI-compatible API provider.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change this to use a different OpenAI-compatible API provider."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 OpenAI 호환 API 제공업체를 사용하려면 변경하세요."
+          }
+        }
+      }
+    },
+    "Check Again": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check Again"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 확인"
+          }
+        }
+      }
+    },
+    "Check for Updates Now": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check for Updates Now"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 업데이트 확인"
+          }
+        }
+      }
+    },
+    "Checking...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인 중..."
+          }
+        }
+      }
+    },
+    "Clear": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지우기"
+          }
+        }
+      }
+    },
+    "Clear History": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear History"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기록 지우기"
+          }
+        }
+      }
+    },
+    "Click 'Add Macro' to define your first voice macro.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click 'Add Macro' to define your first voice macro."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "'매크로 추가'를 클릭해 첫 음성 매크로를 만드세요."
+          }
+        }
+      }
+    },
+    "Click the Dock icon to open Note Browser and browse your dictation history like notes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click the Dock icon to open Note Browser and browse your dictation history like notes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 아이콘을 클릭하여 노트 브라우저를 열고 받아쓰기 기록을 노트처럼 살펴보세요."
+          }
+        }
+      }
+    },
+    "Connect Google Calendar first.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect Google Calendar first."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 Google 캘린더를 연결하세요."
+          }
+        }
+      }
+    },
+    "Connect your Google account to let Quill suggest note titles from matching calendar events.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect your Google account to let Quill suggest note titles from matching calendar events."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google 계정을 연결하면 Quill이 일치하는 캘린더 이벤트로 노트 제목을 제안합니다."
+          }
+        }
+      }
+    },
+    "Connected · Not checked yet": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected · Not checked yet"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결됨 · 아직 확인하지 않음"
+          }
+        }
+      }
+    },
+    "Controls how Quill infers your current activity from app metadata and screenshots.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controls how Quill infers your current activity from app metadata and screenshots."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill이 앱 메타데이터와 스크린샷에서 현재 활동을 추론하는 방식을 설정합니다."
+          }
+        }
+      }
+    },
+    "Controls how raw transcriptions are cleaned up.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controls how raw transcriptions are cleaned up."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원본 받아쓰기를 정리하는 방식을 설정합니다."
+          }
+        }
+      }
+    },
+    "Controls the maximum image dimension sent for context inference.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controls the maximum image dimension sent for context inference."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨텍스트 추론에 전송할 최대 이미지 크기를 설정합니다."
+          }
+        }
+      }
+    },
+    "Custom...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정..."
+          }
+        }
+      }
+    },
+    "Dark": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dark"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다크"
+          }
+        }
+      }
+    },
+    "Debug": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Debug"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Debug"
+          }
+        }
+      }
+    },
+    "Default Context Prompt": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Context Prompt"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 컨텍스트 프롬프트"
+          }
+        }
+      }
+    },
+    "Default System Prompt": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default System Prompt"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 시스템 프롬프트"
+          }
+        }
+      }
+    },
+    "Delete Model": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Model"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델 삭제"
+          }
+        }
+      }
+    },
+    "Delete model?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete model?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델을 삭제할까요?"
+          }
+        }
+      }
+    },
+    "Disable Auto Paste": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable Auto Paste"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 붙여넣기 비활성화"
+          }
+        }
+      }
+    },
+    "Disable Context Capture": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable Context Capture"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨텍스트 캡처 비활성화"
+          }
+        }
+      }
+    },
+    "Disable Post-Processing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable Post-Processing"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후처리 비활성화"
+          }
+        }
+      }
+    },
+    "Disconnect": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnect"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결 해제"
+          }
+        }
+      }
+    },
+    "Display the update available overlay after dictation finishes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display the update available overlay after dictation finishes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Display the update available overlay after dictation finishes."
+          }
+        }
+      }
+    },
+    "Download": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드"
+          }
+        }
+      }
+    },
+    "Enable Note Browser": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable Note Browser"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 브라우저 사용"
+          }
+        }
+      }
+    },
+    "Enter sample text to see how the current prompt cleans it up.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter sample text to see how the current prompt cleans it up."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 프롬프트가 텍스트를 어떻게 정리하는지 확인할 샘플 텍스트를 입력하세요."
+          }
+        }
+      }
+    },
+    "Enter your Groq API key": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter your Groq API key"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Groq API 키 입력"
+          }
+        }
+      }
+    },
+    "Fast local transcription. About %arg.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fast local transcription. About %arg."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빠른 로컬 받아쓰기. 약 %arg."
+          }
+        }
+      }
+    },
+    "Full prompt sent": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full prompt sent"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전송된 전체 프롬프트"
+          }
+        }
+      }
+    },
+    "Google Calendar sign-in is not configured for this build.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Calendar sign-in is not configured for this build."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 빌드에서는 Google 캘린더 로그인이 구성되지 않았습니다."
+          }
+        }
+      }
+    },
+    "Hide": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "숨기기"
+          }
+        }
+      }
+    },
+    "Hint to the transcription model. Auto Detect works for most users. Pick a specific language if you see wrong-script characters appear in the output.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hint to the transcription model. Auto Detect works for most users. Pick a specific language if you see wrong-script characters appear in the output."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기 모델에 주는 힌트입니다. 대부분의 사용자에게 자동 감지가 적합합니다. 결과에 잘못된 문자 체계가 보이면 특정 언어를 선택하세요."
+          }
+        }
+      }
+    },
+    "Hold the extra modifier together with your normal dictation shortcut to transform selected text.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold the extra modifier together with your normal dictation shortcut to transform selected text."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일반 받아쓰기 단축키와 함께 추가 보조 키를 눌러 선택한 텍스트를 변환하세요."
+          }
+        }
+      }
+    },
+    "If text is selected, your normal dictation shortcut transforms the selection instead of dictating over it.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If text is selected, your normal dictation shortcut transforms the selection instead of dictating over it."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "텍스트를 선택하면 일반 받아쓰기 단축키가 받아쓰기 대신 선택한 텍스트를 변환합니다."
+          }
+        }
+      }
+    },
+    "If you close Settings while the model is downloading, Quill cancels the download and removes the partial file.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If you close Settings while the model is downloading, Quill cancels the download and removes the partial file."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델 다운로드 중 설정을 닫으면 Quill이 다운로드를 취소하고 부분 파일을 제거합니다."
+          }
+        }
+      }
+    },
+    "If you use another provider, enter that provider's model IDs here.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "If you use another provider, enter that provider's model IDs here."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 제공업체를 사용한다면 여기에 해당 제공업체의 모델 ID를 입력하세요."
+          }
+        }
+      }
+    },
+    "Installed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치됨"
+          }
+        }
+      }
+    },
+    "Keep dictations in clipboard history": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep dictations in clipboard history"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기를 클립보드 기록에 유지"
+          }
+        }
+      }
+    },
+    "Last checked: %arg": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last checked: %arg"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 확인: %arg"
+          }
+        }
+      }
+    },
+    "Light": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Light"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라이트"
+          }
+        }
+      }
+    },
+    "Loading...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "불러오는 중..."
+          }
+        }
+      }
+    },
+    "Local": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬"
+          }
+        }
+      }
+    },
+    "Local Options": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Options"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 옵션"
+          }
+        }
+      }
+    },
+    "Login item requires approval in System Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Login item requires approval in System Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인 항목은 시스템 설정에서 승인이 필요합니다."
+          }
+        }
+      }
+    },
+    "Mute audio when dictation starts": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mute audio when dictation starts"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기 시작 시 오디오 음소거"
+          }
+        }
+      }
+    },
+    "No Context": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Context"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Context"
+          }
+        }
+      }
+    },
+    "No LLM": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No LLM"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No LLM"
+          }
+        }
+      }
+    },
+    "No Voice Macros Yet": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Voice Macros Yet"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 음성 매크로가 없습니다."
+          }
+        }
+      }
+    },
+    "No audio recorded": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No audio recorded"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No audio recorded"
+          }
+        }
+      }
+    },
+    "No calendars are selected by default. Quill only reads events from calendars you explicitly select.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No calendars are selected by default. Quill only reads events from calendars you explicitly select."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본으로 선택된 캘린더는 없습니다. Quill은 명시적으로 선택한 캘린더의 이벤트만 읽습니다."
+          }
+        }
+      }
+    },
+    "No calendars loaded. Click Sync Now after connecting.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No calendars loaded. Click Sync Now after connecting."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "불러온 캘린더가 없습니다. 연결한 후 지금 동기화를 클릭하세요."
+          }
+        }
+      }
+    },
+    "No context captured": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No context captured"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No context captured"
+          }
+        }
+      }
+    },
+    "No runs yet. Use dictation to populate history.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No runs yet. Use dictation to populate history."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No runs yet. Use dictation to populate history."
+          }
+        }
+      }
+    },
+    "Not connected": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결되지 않음"
+          }
+        }
+      }
+    },
+    "Notifications are disabled in System Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications are disabled in System Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정에서 알림이 비활성화되어 있습니다."
+          }
+        }
+      }
+    },
+    "Only enable this if you already manage mlx-whisper yourself.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only enable this if you already manage mlx-whisper yourself."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mlx-whisper를 직접 관리하는 경우에만 활성화하세요."
+          }
+        }
+      }
+    },
+    "Open Login Items Settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Login Items Settings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인 항목 설정 열기"
+          }
+        }
+      }
+    },
+    "Output Language": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Output Language"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "출력 언어"
+          }
+        }
+      }
+    },
+    "Pipeline": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pipeline"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pipeline"
+          }
+        }
+      }
+    },
+    "Play alert sounds": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play alert sounds"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림 소리 재생"
+          }
+        }
+      }
+    },
+    "Preserve Exact Wording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preserve Exact Wording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정확한 표현 유지"
+          }
+        }
+      }
+    },
+    "Preserve clipboard after paste": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preserve clipboard after paste"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "붙여넣기 후 클립보드 유지"
+          }
+        }
+      }
+    },
+    "Prevent dictated prompts from being executed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prevent dictated prompts from being executed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓴 프롬프트가 실행되지 않도록 방지"
+          }
+        }
+      }
+    },
+    "Preview": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미리 보기"
+          }
+        }
+      }
+    },
+    "Primary display": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primary display"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "주 디스플레이"
+          }
+        }
+      }
+    },
+    "Quill re-reads selected Google Calendar events on this interval to keep meeting reminders and calendar-based note titles current.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill re-reads selected Google Calendar events on this interval to keep meeting reminders and calendar-based note titles current."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill이 이 간격으로 선택한 Google 캘린더 이벤트를 다시 읽어 회의 알림과 캘린더 기반 노트 제목을 최신 상태로 유지합니다."
+          }
+        }
+      }
+    },
+    "Quill schedules macOS notifications for events in your selected calendars. Clicking a reminder starts recording without toggling an active recording off.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill schedules macOS notifications for events in your selected calendars. Clicking a reminder starts recording without toggling an active recording off."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill은 선택한 캘린더 이벤트에 대해 macOS 알림을 예약합니다. 알림을 클릭하면 진행 중인 녹음을 끄지 않고 녹음을 시작합니다."
+          }
+        }
+      }
+    },
+    "Quill uses the configured transcription model with your selected OpenAI-compatible provider.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill uses the configured transcription model with your selected OpenAI-compatible provider."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill은 선택한 OpenAI 호환 제공업체와 구성된 받아쓰기 모델을 사용합니다."
+          }
+        }
+      }
+    },
+    "Quill will temporarily place the transcript on your clipboard to paste it, then restore whatever was there before. If you copy something else before the restore happens, Quill leaves it alone.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill will temporarily place the transcript on your clipboard to paste it, then restore whatever was there before. If you copy something else before the restore happens, Quill leaves it alone."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill은 붙여넣기 위해 받아쓰기 내용을 클립보드에 임시로 넣은 뒤 이전 내용을 복원합니다. 복원 전에 다른 항목을 복사하면 그대로 둡니다."
+          }
+        }
+      }
+    },
+    "Realtime Transcription Model": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Realtime Transcription Model"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실시간 받아쓰기 모델"
+          }
+        }
+      }
+    },
+    "Reconnect required": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnect required"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 연결 필요"
+          }
+        }
+      }
+    },
+    "Refresh calendars": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh calendars"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "캘린더 새로 고침"
+          }
+        }
+      }
+    },
+    "Refreshing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refreshing"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로 고치는 중"
+          }
+        }
+      }
+    },
+    "Relaunching...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relaunching..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relaunching..."
+          }
+        }
+      }
+    },
+    "Release tag": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Release tag"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "릴리스 태그"
+          }
+        }
+      }
+    },
+    "Remind me before meetings to record": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remind me before meetings to record"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "회의 전에 녹음 알림"
+          }
+        }
+      }
+    },
+    "Reminder times": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reminder times"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림 시간"
+          }
+        }
+      }
+    },
+    "Required by some providers, e.g. gpt-4o-transcribe": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Required by some providers, e.g. gpt-4o-transcribe"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 제공업체에서 필요합니다. 예: gpt-4o-transcribe"
+          }
+        }
+      }
+    },
+    "Reset": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재설정"
+          }
+        }
+      }
+    },
+    "Reset to Default": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset to Default"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본값으로 재설정"
+          }
+        }
+      }
+    },
+    "Result:": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Result:"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "결과:"
+          }
+        }
+      }
+    },
+    "Run Log": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run Log"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run Log"
+          }
+        }
+      }
+    },
+    "Running...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중..."
+          }
+        }
+      }
+    },
+    "Save": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장"
+          }
+        }
+      }
+    },
+    "Say \"press enter\" to submit after paste": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Say \"press enter\" to submit after paste"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "붙여넣기 후 제출하려면 \"press enter\"라고 말하기"
+          }
+        }
+      }
+    },
+    "Screenshot Resolution": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot Resolution"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크린샷 해상도"
+          }
+        }
+      }
+    },
+    "Select at least one calendar above.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select at least one calendar above."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위에서 캘린더를 하나 이상 선택하세요."
+          }
+        }
+      }
+    },
+    "Select which audio input to use for recording.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select which audio input to use for recording."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음에 사용할 오디오 입력을 선택하세요."
+          }
+        }
+      }
+    },
+    "Shared Behaviors": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shared Behaviors"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공통 동작"
+          }
+        }
+      }
+    },
+    "Shortcut Start Delay": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shortcut Start Delay"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단축키 시작 지연"
+          }
+        }
+      }
+    },
+    "Show Meeting Reminder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Meeting Reminder"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Meeting Reminder"
+          }
+        }
+      }
+    },
+    "Show Update Overlay Now": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Update Overlay Now"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Update Overlay Now"
+          }
+        }
+      }
+    },
+    "Show a sample calendar reminder overlay. Turn on Debug Overlay first to preview the recording (wrapping) variant.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a sample calendar reminder overlay. Turn on Debug Overlay first to preview the recording (wrapping) variant."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show a sample calendar reminder overlay. Turn on Debug Overlay first to preview the recording (wrapping) variant."
+          }
+        }
+      }
+    },
+    "Show after dictation": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show after dictation"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show after dictation"
+          }
+        }
+      }
+    },
+    "Show menu bar icon": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show menu bar icon"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메뉴 막대 아이콘 표시"
+          }
+        }
+      }
+    },
+    "Show on": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show on"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표시 위치"
+          }
+        }
+      }
+    },
+    "Show the recording overlay with simulated audio levels.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the recording overlay with simulated audio levels."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the recording overlay with simulated audio levels."
+          }
+        }
+      }
+    },
+    "Skip LLM cleanup. Raw transcript is used as-is. No API call is made for post-processing.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip LLM cleanup. Raw transcript is used as-is. No API call is made for post-processing."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LLM 정리를 건너뜁니다. 원본 받아쓰기를 그대로 사용하며 후처리를 위한 API 호출을 하지 않습니다."
+          }
+        }
+      }
+    },
+    "Skip cleanup while post-processing is enabled. Without an Output Language, the raw transcript is used. With one, only a literal translation is performed.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip cleanup while post-processing is enabled. Without an Output Language, the raw transcript is used. With one, only a literal translation is performed."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후처리가 켜진 상태에서 정리를 건너뜁니다. 출력 언어가 없으면 원본 받아쓰기를 사용하고, 있으면 직역만 수행합니다."
+          }
+        }
+      }
+    },
+    "Skip screen recording and app context detection. Transcription will not adapt to the current app. Screen Recording permission is not required.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip screen recording and app context detection. Transcription will not adapt to the current app. Screen Recording permission is not required."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 녹화와 앱 컨텍스트 감지를 건너뜁니다. 받아쓰기가 현재 앱에 맞춰지지 않으며 화면 녹화 권한이 필요하지 않습니다."
+          }
+        }
+      }
+    },
+    "Spoken language hint for speech recognition. Auto Detect works for most users.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spoken language hint for speech recognition. Auto Detect works for most users."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성 인식을 위한 발화 언어 힌트입니다. 대부분의 사용자에게 자동 감지가 적합합니다."
+          }
+        }
+      }
+    },
+    "Stored locally. Only the %arg most recent runs are kept.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stored locally. Only the %arg most recent runs are kept."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stored locally. Only the %arg most recent runs are kept."
+          }
+        }
+      }
+    },
+    "Stream audio while recording (realtime)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stream audio while recording (realtime)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 중 오디오 스트리밍 (실시간)"
+          }
+        }
+      }
+    },
+    "Streams audio through the provider's OpenAI-compatible /v1/realtime WebSocket so transcription runs while you speak.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streams audio through the provider's OpenAI-compatible /v1/realtime WebSocket so transcription runs while you speak."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제공업체의 OpenAI 호환 /v1/realtime WebSocket으로 오디오를 스트리밍해 말하는 동안 받아쓰기를 실행합니다."
+          }
+        }
+      }
+    },
+    "Switch to Default": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch to Default"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본값으로 전환"
+          }
+        }
+      }
+    },
+    "Sync Now": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync Now"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 동기화"
+          }
+        }
+      }
+    },
+    "System Setting": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System Setting"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정"
+          }
+        }
+      }
+    },
+    "System volume is muted or very low. Unmute to hear the preview.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System volume is muted or very low. Unmute to hear the preview."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 볼륨이 음소거되었거나 매우 낮습니다. 미리 보기를 들으려면 음소거를 해제하세요."
+          }
+        }
+      }
+    },
+    "Test Context Prompt": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test Context Prompt"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨텍스트 프롬프트 테스트"
+          }
+        }
+      }
+    },
+    "Test System Prompt": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Test System Prompt"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 프롬프트 테스트"
+          }
+        }
+      }
+    },
+    "Text (What gets pasted)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text (What gets pasted)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "텍스트 (붙여넣을 내용)"
+          }
+        }
+      }
+    },
+    "Theme": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Theme"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테마"
+          }
+        }
+      }
+    },
+    "This removes the downloaded Local Whisper model. You can download it again later.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This removes the downloaded Local Whisper model. You can download it again later."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드한 로컬 Whisper 모델을 제거합니다. 나중에 다시 다운로드할 수 있습니다."
+          }
+        }
+      }
+    },
+    "This removes the downloaded local model cache. You can download it again later.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This removes the downloaded local model cache. You can download it again later."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드한 로컬 모델 캐시를 제거합니다. 나중에 다시 다운로드할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Transcription API Key": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription API Key"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기 API 키"
+          }
+        }
+      }
+    },
+    "Transcription API URL": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription API URL"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기 API URL"
+          }
+        }
+      }
+    },
+    "Transcription Language": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription Language"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기 언어"
+          }
+        }
+      }
+    },
+    "Transcription Mode": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription Mode"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기 모드"
+          }
+        }
+      }
+    },
+    "Transcription will be copied to clipboard only. Paste manually when needed.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription will be copied to clipboard only. Paste manually when needed."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기는 클립보드에만 복사됩니다. 필요할 때 직접 붙여넣으세요."
+          }
+        }
+      }
+    },
+    "Transform highlighted text with a spoken instruction instead of dictating over it.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transform highlighted text with a spoken instruction instead of dictating over it."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기 대신 음성 명령으로 강조 표시한 텍스트를 변환합니다."
+          }
+        }
+      }
+    },
+    "Update Now": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Now"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 업데이트"
+          }
+        }
+      }
+    },
+    "Updates are delivered by Sparkle and verified before installation.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updates are delivered by Sparkle and verified before installation."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트는 Sparkle로 제공되며 설치 전에 검증됩니다."
+          }
+        }
+      }
+    },
+    "Use legacy mlx-whisper": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use legacy mlx-whisper"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "레거시 mlx-whisper 사용"
+          }
+        }
+      }
+    },
+    "Used only for realtime streaming. Leave empty for providers that supply a server default.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Used only for realtime streaming. Leave empty for providers that supply a server default."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실시간 스트리밍에만 사용됩니다. 서버 기본값을 제공하는 업체는 비워 두세요."
+          }
+        }
+      }
+    },
+    "Uses API Base URL when empty": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses API Base URL when empty"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비어 있으면 API 기본 URL 사용"
+          }
+        }
+      }
+    },
+    "Uses API Key when empty": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses API Key when empty"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비어 있으면 API 키 사용"
+          }
+        }
+      }
+    },
+    "Using custom prompt": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Using custom prompt"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정 프롬프트 사용 중"
+          }
+        }
+      }
+    },
+    "Using custom value": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Using custom value"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정 값 사용 중"
+          }
+        }
+      }
+    },
+    "Using default": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Using default"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본값 사용 중"
+          }
+        }
+      }
+    },
+    "Version": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "버전"
+          }
+        }
+      }
+    },
+    "View Default": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View Default"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본값 보기"
+          }
+        }
+      }
+    },
+    "Voice Command (What you say)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice Command (What you say)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성 명령 (말할 내용)"
+          }
+        }
+      }
+    },
+    "Waveform display": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waveform display"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파형 표시"
+          }
+        }
+      }
+    },
+    "What's New": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What's New"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로운 기능"
+          }
+        }
+      }
+    },
+    "When enabled, %arg retries or falls back to the literal transcript if post-processing looks like it answered the dictated text instead of cleaning it.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When enabled, %arg retries or falls back to the literal transcript if post-processing looks like it answered the dictated text instead of cleaning it."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When enabled, %arg retries or falls back to the literal transcript if post-processing looks like it answered the dictated text instead of cleaning it."
+          }
+        }
+      }
+    },
+    "When on, your clipboard manager (Paste, Raycast, Maccy, etc.) records each dictation so you can find it in your recent history. When off, %arg marks dictations transient and your clipboard manager skips them.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When on, your clipboard manager (Paste, Raycast, Maccy, etc.) records each dictation so you can find it in your recent history. When off, %arg marks dictations transient and your clipboard manager skips them."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When on, your clipboard manager (Paste, Raycast, Maccy, etc.) records each dictation so you can find it in your recent history. When off, %arg marks dictations transient and your clipboard manager skips them."
+          }
+        }
+      }
+    },
+    "When the transcription ends with \"press enter\", Quill removes those words before cleanup, pastes the remaining transcript, then presses Return.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When the transcription ends with \"press enter\", Quill removes those words before cleanup, pastes the remaining transcript, then presses Return."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받아쓰기가 \"press enter\"로 끝나면 Quill이 정리 전에 해당 단어를 제거하고 나머지를 붙여넣은 후 Return 키를 누릅니다."
+          }
+        }
+      }
+    },
+    "Words and phrases to preserve during post-processing.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Words and phrases to preserve during post-processing."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후처리 중 유지할 단어와 구문입니다."
+          }
+        }
+      }
+    },
+    "e.g. debugging prompt": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e.g. debugging prompt"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예: 디버깅 프롬프트"
+          }
+        }
+      }
+    },
+    "v%arg": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "v%arg"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "v%arg"
+          }
+        }
+      }
+    },
+    "~/.local/bin/mlx_whisper": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~/.local/bin/mlx_whisper"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "~/.local/bin/mlx_whisper"
+          }
+        }
+      }
+    },
+    "On-device · Fast": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On-device · Fast"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "온디바이스 · 빠름"
+          }
+        }
+      }
+    },
+    "Fast · High accuracy (Recommended)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fast · High accuracy (Recommended)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빠름 · 정확도 높음 (추천)"
+          }
+        }
+      }
+    },
+    "Highest accuracy · Slow": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Highest accuracy · Slow"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최고 정확도 · 느림"
+          }
+        }
+      }
+    },
+    "Medium speed · Medium accuracy": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medium speed · Medium accuracy"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중간 속도 · 중간 정확도"
+          }
+        }
+      }
+    },
+    "Fast · Lower accuracy": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fast · Lower accuracy"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빠름 · 정확도 낮음"
+          }
+        }
+      }
+    },
+    "Fast local transcription with high accuracy. Recommended.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fast local transcription with high accuracy. Recommended."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빠르고 정확한 로컬 받아쓰기. 추천."
+          }
+        }
+      }
+    },
+    "Korean": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Korean"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한국어"
+          }
+        }
+      }
+    },
+    "Japanese": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Japanese"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일본어"
+          }
+        }
+      }
+    },
+    "Chinese": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chinese"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중국어"
+          }
+        }
+      }
+    },
+    "Spanish": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spanish"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스페인어"
+          }
+        }
+      }
+    },
+    "French": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "French"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프랑스어"
+          }
+        }
+      }
+    },
+    "German": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "German"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "독일어"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
