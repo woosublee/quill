@@ -1,5 +1,12 @@
 import Foundation
 
+private func audioImportLocalizedString(_ key: String, language: String, bundle: Bundle = .main) -> String {
+    let path = bundle.path(forResource: "Localizable", ofType: "strings", inDirectory: nil, forLocalization: language)
+        ?? URL(fileURLWithPath: bundle.bundlePath).appendingPathComponent("\(language).lproj/Localizable.strings").path
+    guard let strings = NSDictionary(contentsOfFile: path) as? [String: String] else { return key }
+    return strings[key] ?? key
+}
+
 enum NoteBrowserTranscriptionMode: CaseIterable, Equatable, Hashable {
     case apiStandard
     case apiRealtime
@@ -65,22 +72,28 @@ struct TranscriptionChoiceDisplay: Identifiable, Equatable {
     var id: String { choice.id }
 
     /// Resolves only static UI labels; model IDs and persisted backend choices remain verbatim.
-    func localizedTitle(language: String = Locale.current.language.languageCode?.identifier ?? "en") -> String {
-        localizedStaticLabel(title, language: language)
+    func localizedTitle(
+        language: String = Locale.current.language.languageCode?.identifier ?? "en",
+        bundle: Bundle = .main
+    ) -> String {
+        localizedStaticLabel(title, language: language, bundle: bundle)
     }
 
-    func localizedCompactLabel(language: String = Locale.current.language.languageCode?.identifier ?? "en") -> String {
+    func localizedCompactLabel(
+        language: String = Locale.current.language.languageCode?.identifier ?? "en",
+        bundle: Bundle = .main
+    ) -> String {
         switch choice {
         case .apiStandard(let modelID):
-            return "\(localizedStaticLabel("Standard", language: language)) · \(modelID)"
+            return "\(localizedStaticLabel("Standard", language: language, bundle: bundle)) · \(modelID)"
         case .nativeWhisper:
-            return "\(localizedStaticLabel("Native Whisper", language: language)) · \(nativeModelName())"
+            return "\(localizedStaticLabel("Native Whisper", language: language, bundle: bundle)) · \(nativeModelName())"
         case .legacyMlxWhisper(let model):
-            return "\(localizedStaticLabel("Legacy", language: language)) · \(model.displayName)"
+            return "\(localizedStaticLabel("Legacy", language: language, bundle: bundle)) · \(model.displayName)"
         case .apiRealtime(let modelID):
-            return "\(localizedStaticLabel("Realtime", language: language)) · \(modelID ?? "provider-default")"
+            return "\(localizedStaticLabel("Realtime", language: language, bundle: bundle)) · \(modelID ?? "provider-default")"
         case .appleLive:
-            return localizedStaticLabel("Apple Live", language: language)
+            return localizedStaticLabel("Apple Live", language: language, bundle: bundle)
         }
     }
 
@@ -88,17 +101,35 @@ struct TranscriptionChoiceDisplay: Identifiable, Equatable {
         subtitle ?? ""
     }
 
-    private func localizedStaticLabel(_ value: String, language: String) -> String {
-        guard language.lowercased().hasPrefix("ko") else { return value }
-        switch value {
-        case "API Standard": return "API 표준"
-        case "Standard": return "표준"
-        case "Native Whisper": return "네이티브 Whisper"
-        case "Legacy": return "레거시"
-        case "Realtime": return "실시간"
-        case "Apple Live": return "Apple 라이브"
-        default: return value
+    func localizedSubtitle(
+        language: String = Locale.current.language.languageCode?.identifier ?? "en",
+        bundle: Bundle = .main
+    ) -> String? {
+        subtitle.map { audioImportLocalizedString($0, language: language, bundle: bundle) }
+    }
+
+    func localizedCurrentLabel(
+        language: String = Locale.current.language.languageCode?.identifier ?? "en",
+        bundle: Bundle = .main
+    ) -> String {
+        switch choice {
+        case .apiStandard(let modelID): return "\(audioImportLocalizedString("API", language: language, bundle: bundle)) · \(localizedStaticLabel("Standard", language: language, bundle: bundle)) · \(modelID)"
+        case .apiRealtime(let modelID): return "\(audioImportLocalizedString("API", language: language, bundle: bundle)) · \(localizedStaticLabel("Realtime", language: language, bundle: bundle)) · \(modelID ?? "provider-default")"
+        case .nativeWhisper: return "\(audioImportLocalizedString("Local", language: language, bundle: bundle)) · \(localizedStaticLabel("Native Whisper", language: language, bundle: bundle)) · \(nativeModelName())"
+        case .legacyMlxWhisper(let model): return "\(audioImportLocalizedString("Local", language: language, bundle: bundle)) · \(localizedStaticLabel("Legacy", language: language, bundle: bundle)) · \(model.displayName)"
+        case .appleLive: return "\(audioImportLocalizedString("Local", language: language, bundle: bundle)) · \(localizedStaticLabel("Apple Live", language: language, bundle: bundle))"
         }
+    }
+
+    func localizedUnavailableReason(
+        language: String = Locale.current.language.languageCode?.identifier ?? "en",
+        bundle: Bundle = .main
+    ) -> String? {
+        unavailableReason.map { audioImportLocalizedString($0, language: language, bundle: bundle) }
+    }
+
+    private func localizedStaticLabel(_ value: String, language: String, bundle: Bundle) -> String {
+        audioImportLocalizedString(value, language: language, bundle: bundle)
     }
 }
 

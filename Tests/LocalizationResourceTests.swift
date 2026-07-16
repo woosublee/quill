@@ -41,6 +41,12 @@ struct LocalizationResourceTests {
         try assertTask3ExtractionCoverage(root: root, catalogStrings: strings)
         try assertTask3ReviewCoverage(root: root)
         try assertTask4SettingsExtractionCoverage(root: root, catalogStrings: strings)
+        for key in ["Transcription Model", "Used for speech-to-text transcription.", "Post-Processing Model", "Cleans up transcripts and applies formatting.", "Context Model", "Uses active-window context to improve transcription.", "Vision Model", "Analyzes screenshots for visual context.", "Same as spoken language", "English", "Portuguese"] {
+            let localizations = (strings[key] as? [String: Any])?["localizations"] as? [String: Any]
+            for language in ["en", "ko"] {
+                assert(!(((localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String ?? "").isEmpty, "Missing required Task 4 \(language) key: \(key)")
+            }
+        }
 
         let noteBrowserSource = try String(
             contentsOf: root.appendingPathComponent("Sources/NoteBrowserView.swift"),

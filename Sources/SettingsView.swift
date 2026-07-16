@@ -5,6 +5,13 @@ import UserNotifications
 
 // MARK: - Shared Helpers
 
+private func settingsLocalizedString(_ key: String, language: String) -> String {
+    let bundle = Bundle.main
+    let path = bundle.path(forResource: "Localizable", ofType: "strings", inDirectory: nil, forLocalization: language)
+        ?? URL(fileURLWithPath: bundle.bundlePath).appendingPathComponent("\(language).lproj/Localizable.strings").path
+    return (NSDictionary(contentsOfFile: path) as? [String: String])?[key] ?? key
+}
+
 private struct SettingsCard<Content: View>: View {
     let title: LocalizedStringKey
     let icon: String
@@ -363,7 +370,7 @@ struct SettingsView: View {
                     Button {
                         appState.selectedSettingsTab = tab
                     } label: {
-                        SettingsSidebarRow(title: tab.title, icon: tab.icon)
+                        SettingsSidebarRow(title: settingsLocalizedString(tab.title, language: Locale.current.language.languageCode?.identifier ?? "en"), icon: tab.icon)
                             .background(
                                 RoundedRectangle(cornerRadius: 6)
                                     .fill(appState.selectedSettingsTab == tab
@@ -1165,7 +1172,7 @@ struct CalendarSettingsView: View {
     private func calendarGroupSection(_ group: GoogleCalendarDisplayGroup) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Text(group.title)
+                Text(settingsLocalizedString(group.title, language: Locale.current.language.languageCode?.identifier ?? "en"))
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .textCase(.uppercase)
@@ -1191,7 +1198,7 @@ struct CalendarSettingsView: View {
                         }
                         .toggleStyle(.checkbox)
 
-                        Text(verbatim: calendarDisplayKind(calendar))
+                        Text(settingsLocalizedString(calendarDisplayKind(calendar), language: Locale.current.language.languageCode?.identifier ?? "en"))
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 6)
@@ -1799,13 +1806,11 @@ struct ModelsSettingsView: View {
     }
 
     private var outputLanguageHelpText: String {
-        if appState.useLocalTranscription {
-            return "Use API Provider transcription to choose a final output language."
-        }
-        if appState.disablePostProcessing {
-            return "Enable post-processing to choose a final output language."
-        }
-        return "Final transcript language for post-processing."
+        let key: String
+        if appState.useLocalTranscription { key = "Use API Provider transcription to choose a final output language." }
+        else if appState.disablePostProcessing { key = "Enable post-processing to choose a final output language." }
+        else { key = "Final transcript language for post-processing." }
+        return settingsLocalizedString(key, language: Locale.current.language.languageCode?.identifier ?? "en")
     }
 
     private var sharedTranscriptionBehaviors: some View {
@@ -3705,7 +3710,7 @@ struct NativeWhisperModelRowView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(verbatim: model.displayName)
                                 .font(.caption.weight(isSelected ? .semibold : .regular))
-                            Text("Fast local transcription. About \(ByteCountFormatter.string(fromByteCount: model.approximateBytes, countStyle: .file)).")
+                            Text("\(model.localizedDescription()). About \(ByteCountFormatter.string(fromByteCount: model.approximateBytes, countStyle: .file)).")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }

@@ -1,5 +1,12 @@
 import Foundation
 
+private func modelLocalizedString(_ key: String, language: String, bundle: Bundle = .main) -> String {
+    let path = bundle.path(forResource: "Localizable", ofType: "strings", inDirectory: nil, forLocalization: language)
+        ?? URL(fileURLWithPath: bundle.bundlePath).appendingPathComponent("\(language).lproj/Localizable.strings").path
+    guard let strings = NSDictionary(contentsOfFile: path) as? [String: String] else { return key }
+    return strings[key] ?? key
+}
+
 enum TranscriptionModelCacheError: LocalizedError {
     case builtInModelCannotBeDownloaded
     case builtInModelCannotBeDeleted
@@ -123,16 +130,20 @@ struct TranscriptionModel: Identifiable, Hashable, Codable {
     ]
 
     /// Resolves only user-facing copy. The stored model ID and cache identity stay unchanged.
-    func localizedDescription(language: String = Locale.current.language.languageCode?.identifier ?? "en") -> String {
-        let korean = language.lowercased().hasPrefix("ko")
+    func localizedDescription(
+        language: String = Locale.current.language.languageCode?.identifier ?? "en",
+        bundle: Bundle = .main
+    ) -> String {
+        let key: String
         switch id {
-        case "apple-speech": return korean ? "온디바이스 · 빠름" : "On-device · Fast"
-        case "mlx-community/whisper-large-v3-turbo": return korean ? "빠름 · 정확도 높음 (추천)" : "Fast · High accuracy (Recommended)"
-        case "mlx-community/whisper-large-v3-mlx": return korean ? "최고 정확도 · 느림" : "Highest accuracy · Slow"
-        case "mlx-community/whisper-medium-mlx": return korean ? "중간 속도 · 중간 정확도" : "Medium speed · Medium accuracy"
-        case "mlx-community/whisper-small-mlx": return korean ? "빠름 · 정확도 낮음" : "Fast · Lower accuracy"
+        case "apple-speech": key = "On-device · Fast"
+        case "mlx-community/whisper-large-v3-turbo": key = "Fast · High accuracy (Recommended)"
+        case "mlx-community/whisper-large-v3-mlx": key = "Highest accuracy · Slow"
+        case "mlx-community/whisper-medium-mlx": key = "Medium speed · Medium accuracy"
+        case "mlx-community/whisper-small-mlx": key = "Fast · Lower accuracy"
         default: return description
         }
+        return modelLocalizedString(key, language: language, bundle: bundle)
     }
 
     var isAppleSpeech: Bool { id == "apple-speech" }

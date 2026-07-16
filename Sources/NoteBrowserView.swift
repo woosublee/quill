@@ -352,14 +352,14 @@ private struct AudioImportSheet: View {
                         HStack {
                             Image(systemName: selectedChoice == display.choice ? "largecircle.fill.circle" : "circle")
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(display.title)
+                                Text(display.localizedTitle())
                                 if let subtitle = display.subtitle {
-                                    Text(subtitle)
+                                    Text(verbatim: subtitle)
                                         .font(.system(size: 10))
                                         .foregroundStyle(.secondary)
                                 }
                                 if let unavailableReason = display.unavailableReason {
-                                    Text(unavailableReason)
+                                    Text(display.localizedUnavailableReason() ?? unavailableReason)
                                         .font(.system(size: 10))
                                         .foregroundStyle(.tertiary)
                                 }
@@ -417,7 +417,7 @@ struct NoteBrowserView: View {
                 if isSelected { appState.setNoteBrowserTranscriptionChoice(display.choice) }
             }
         )) {
-            Text(display.compactLabel)
+            Text(display.localizedCompactLabel())
         }
         .disabled(!display.isAvailable)
     }

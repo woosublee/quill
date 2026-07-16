@@ -810,12 +810,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     var noteBrowserTranscriptionChoiceLabel: String {
-        noteBrowserTranscriptionDisplay(for: currentNoteBrowserTranscriptionChoice).title
+        noteBrowserTranscriptionDisplay(for: currentNoteBrowserTranscriptionChoice).localizedTitle()
     }
 
     @MainActor
     var noteBrowserTranscriptionChoiceDetailLabel: String {
-        noteBrowserTranscriptionDisplay(for: currentNoteBrowserTranscriptionChoice).currentLabel
+        noteBrowserTranscriptionDisplay(for: currentNoteBrowserTranscriptionChoice).localizedCurrentLabel()
     }
 
     @MainActor
@@ -851,7 +851,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func label(for mode: NoteBrowserTranscriptionMode) -> String {
-        noteBrowserTranscriptionDisplay(for: preferredNoteBrowserTranscriptionChoice(for: mode)).currentLabel
+        noteBrowserTranscriptionDisplay(for: preferredNoteBrowserTranscriptionChoice(for: mode)).localizedCurrentLabel()
     }
 
     @MainActor
