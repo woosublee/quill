@@ -50,7 +50,7 @@ ICON_ICNS = Resources/AppIcon.icns
 endif
 
 # Usage: make install CODESIGN_IDENTITY="Apple Development: you@example.com (TEAMID)"
-.PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run test print-app-version print-build-number print-build-tag print-version-metadata FORCE
+.PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test print-app-version print-build-number print-build-tag print-version-metadata FORCE
 
 all: $(APP_EXECUTABLE_TARGET)
 
@@ -262,7 +262,21 @@ print-version-metadata:
 
 FORCE:
 
-test: $(SPARKLE_STAMP)
+check-test-wiring:
+	@for test_file in Tests/*.swift; do \
+		test_name="$${test_file##*/}"; \
+		test_name="$${test_name%.swift}"; \
+		if ! grep -F -- "$$test_file" Makefile | grep -Eq '^[[:space:]]+@.*swiftc '; then \
+			echo "Test file is not compiled: $$test_file" >&2; \
+			exit 1; \
+		fi; \
+		if ! grep -F -- "/tmp/$$test_name" Makefile | grep -Fv -- 'swiftc ' | grep -Eq "^[[:space:]]+@.*/tmp/$$test_name([ ;]|$$)"; then \
+			echo "Test executable is not run: /tmp/$$test_name" >&2; \
+			exit 1; \
+		fi; \
+	done
+
+test: check-test-wiring $(SPARKLE_STAMP)
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/CalendarEventMatcher.swift Tests/CalendarEventMatcherTests.swift -o /tmp/CalendarEventMatcherTests
 	@swiftc -parse-as-library Sources/AppName.swift Sources/ModifierKeyEventState.swift Sources/ShortcutCore/ShortcutModels.swift Sources/ShortcutCore/ShortcutMatcher.swift Sources/GlobalShortcutBackend.swift Sources/HotkeyManager.swift Tests/ShortcutMatcherTests.swift -o /tmp/ShortcutMatcherTests
 	@swiftc -parse-as-library Sources/ShortcutCore/ShortcutModels.swift Sources/ShortcutBinding.swift Sources/ShortcutCaptureKeyHandling.swift Tests/ShortcutCaptureKeyHandlingTests.swift -o /tmp/ShortcutCaptureKeyHandlingTests
@@ -337,3 +351,9 @@ test: $(SPARKLE_STAMP)
 	@/tmp/MeetingReminderOverlayGeometryTests
 	@framework="$$(cat "$(SPARKLE_STAMP)")"; framework_parent="$$(dirname "$$framework")"; swiftc -parse-as-library -F "$$framework_parent" -framework Sparkle -Xlinker -rpath -Xlinker "$$framework_parent" -target $(shell uname -m)-apple-macosx13.0 $(filter-out Sources/App.swift,$(SOURCES)) Tests/AppStateTranscriptionConfigurationTests.swift -o /tmp/AppStateTranscriptionConfigurationTests
 	@isolated_home="$$(mktemp -d /tmp/quill-app-state-tests.XXXXXX)"; trap 'rm -rf "$$isolated_home"' EXIT; CFFIXED_USER_HOME="$$isolated_home" /tmp/AppStateTranscriptionConfigurationTests
+	@swiftc -parse-as-library Sources/AppBuild.swift Tests/AppBuildTests.swift -o /tmp/AppBuildTests
+	@/tmp/AppBuildTests
+	@swiftc -parse-as-library Sources/CriticalDictationActivityState.swift Tests/CriticalDictationActivityStateTests.swift -o /tmp/CriticalDictationActivityStateTests
+	@/tmp/CriticalDictationActivityStateTests
+	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Tests/TranscriptionRecoveryPlaceholderTests.swift -o /tmp/TranscriptionRecoveryPlaceholderTests
+	@/tmp/TranscriptionRecoveryPlaceholderTests
