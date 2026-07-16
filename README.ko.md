@@ -95,7 +95,7 @@ claude mcp add -s user -t http quill http://localhost:3457
 - `get_status` — Quill이 대기, 녹음, 전사 중인지 확인합니다.
 - `list_transcripts` — 최근 전사 기록을 나열합니다.
 - `get_transcript` — id로 특정 전사문을 가져옵니다.
-- `get_meeting_source` — 회의록 생성에 사용할 구조화된 회의 데이터를 JSON으로 가져옵니다. 여기에는 확정된 제목, ISO 8601 타임스탬프, 일치한 캘린더 일정, 참석자, 오디오 파일 경로, 전사문, 문맥이 포함됩니다.
+- `get_meeting_source` — id로 특정 전사문의 구조화된 회의 데이터를 회의록 생성을 위해 JSON으로 가져옵니다. 여기에는 확정된 제목, ISO 8601 타임스탬프, 일치한 캘린더 일정, 참석자, 오디오 파일 경로, 전사문, 문맥이 포함됩니다.
 
 참고:
 
