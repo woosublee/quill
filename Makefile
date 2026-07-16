@@ -36,6 +36,10 @@ APP_EXECUTABLE_TARGET := $(subst $(space),\ ,$(APP_EXECUTABLE))
 
 SOURCES = $(shell find Sources -name '*.swift' -type f | LC_ALL=C sort)
 RESOURCES = $(CONTENTS)/Resources
+LOCALIZATION_CATALOG = Resources/Localization/Localizable.xcstrings
+LOCALIZATION_INFO_DIR = Resources/Localization
+LOCALIZATION_BUILD_DIR = $(BUILD_DIR)/localization
+LOCALIZATION_STAMP = $(LOCALIZATION_BUILD_DIR)/.compiled
 ARCH ?= $(shell uname -m)
 
 # Pick the icon source based on which bundle we are building. Dev builds get
@@ -79,7 +83,21 @@ $(WHISPER_STAMP): BuildSupport/WhisperRuntime/build-whisper.cpp.sh $(WHISPER_BUI
 	@mkdir -p "$(BUILD_DIR)"
 	@printf '%s\n' "$(WHISPER_HELPER)" > "$@"
 
-$(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS) $(BUILD_SETTINGS) $(SPARKLE_STAMP) $(WHISPER_STAMP)
+$(LOCALIZATION_STAMP): $(LOCALIZATION_CATALOG) $(LOCALIZATION_INFO_DIR)/en.lproj/InfoPlist.strings $(LOCALIZATION_INFO_DIR)/ko.lproj/InfoPlist.strings
+	@rm -rf "$(LOCALIZATION_BUILD_DIR)"
+	@mkdir -p "$(LOCALIZATION_BUILD_DIR)"
+	@xcrun xcstringstool compile "$(LOCALIZATION_CATALOG)" \
+		--output-directory "$(LOCALIZATION_BUILD_DIR)" \
+		-l en -l ko \
+		--serialization-format text
+	@for language in en ko; do \
+		test -f "$(LOCALIZATION_BUILD_DIR)/$$language.lproj/Localizable.strings"; \
+		cp "$(LOCALIZATION_INFO_DIR)/$$language.lproj/InfoPlist.strings" \
+			"$(LOCALIZATION_BUILD_DIR)/$$language.lproj/InfoPlist.strings"; \
+	done
+	@touch "$@"
+
+$(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS) $(BUILD_SETTINGS) $(SPARKLE_STAMP) $(WHISPER_STAMP) $(LOCALIZATION_STAMP)
 	@mkdir -p "$(MACOS_DIR)" "$(RESOURCES)" "$(FRAMEWORKS)"
 	@framework="$$(cat "$(SPARKLE_STAMP)" 2>/dev/null)"; \
 		if [ -z "$$framework" ] || [ ! -d "$$framework" ]; then \
@@ -136,6 +154,9 @@ endif
 	@plutil -replace GoogleCalendarOAuthClientID -string "$(GOOGLE_CALENDAR_OAUTH_CLIENT_ID)" "$(CONTENTS)/Info.plist"
 	@plutil -replace GoogleCalendarOAuthClientSecret -string "$(GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET)" "$(CONTENTS)/Info.plist"
 	@cp $(ICON_ICNS) "$(RESOURCES)/AppIcon.icns"
+	@rm -rf "$(RESOURCES)/en.lproj" "$(RESOURCES)/ko.lproj"
+	@ditto --norsrc --noextattr "$(LOCALIZATION_BUILD_DIR)/en.lproj" "$(RESOURCES)/en.lproj"
+	@ditto --norsrc --noextattr "$(LOCALIZATION_BUILD_DIR)/ko.lproj" "$(RESOURCES)/ko.lproj"
 	@mkdir -p "$(RESOURCES)/whisper"
 	@whisper_helper="$$(cat "$(WHISPER_STAMP)")"; \
 		if [ -z "$$whisper_helper" ] || [ ! -x "$$whisper_helper" ]; then \
@@ -301,6 +322,8 @@ test: check-test-wiring $(SPARKLE_STAMP)
 	@/tmp/UpdateManagerSafetyTests
 	@swiftc -parse-as-library Tests/BuildMetadataTests.swift -o /tmp/BuildMetadataTests
 	@/tmp/BuildMetadataTests
+	@swiftc -parse-as-library Tests/LocalizationResourceTests.swift -o /tmp/LocalizationResourceTests
+	@/tmp/LocalizationResourceTests
 	@swiftc -parse-as-library Sources/InstructionExecutionDetector.swift Tests/InstructionExecutionDetectorTests.swift -o /tmp/InstructionExecutionDetectorTests
 	@/tmp/InstructionExecutionDetectorTests
 	@swiftc -parse-as-library Tests/ReleaseSDKCompatibilityTests.swift -o /tmp/ReleaseSDKCompatibilityTests

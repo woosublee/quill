@@ -1,0 +1,2 @@
+"NSMicrophoneUsageDescription" = "Quill이 받아쓰기와 회의를 녹음하려면 마이크 접근 권한이 필요합니다.";
+"NSSpeechRecognitionUsageDescription" = "Apple Live 전사를 선택하면 Quill에 음성 인식 접근 권한이 필요합니다.";

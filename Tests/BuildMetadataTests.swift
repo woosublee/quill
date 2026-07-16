@@ -8,6 +8,7 @@ struct BuildMetadataTests {
         try testBuildSettingsTrackCodesignIdentity()
         try testMakefileSeparatesDevRunFromInstallBuild()
         try testMakefileCopiesSelectedIconToBundleIconName()
+        try testMakefileBundlesLocalizationResources()
         try testMakefileStripsExtendedAttributesDuringCodesignStaging()
         try testMakefileStripsExtendedAttributesDuringDmgStaging()
         try testMakefileCreatesDmgWithoutFinderMetadata()
@@ -85,6 +86,16 @@ struct BuildMetadataTests {
         assertContains(infoPlist, "<key>CFBundleIconFile</key>\n    <string>AppIcon</string>")
         assertContains(makefile, "ICON_ICNS = Resources/AppIcon-Dev.icns")
         assertContains(makefile, "@cp $(ICON_ICNS) \"$(RESOURCES)/AppIcon.icns\"")
+    }
+
+    private static func testMakefileBundlesLocalizationResources() throws {
+        let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
+
+        assertContains(makefile, "LOCALIZATION_CATALOG = Resources/Localization/Localizable.xcstrings")
+        assertContains(makefile, "xcrun xcstringstool compile")
+        assertContains(makefile, "-l en -l ko")
+        assertContains(makefile, "$(RESOURCES)/en.lproj")
+        assertContains(makefile, "$(RESOURCES)/ko.lproj")
     }
 
     private static func testMakefileStripsExtendedAttributesDuringCodesignStaging() throws {
