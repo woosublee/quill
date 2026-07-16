@@ -2859,9 +2859,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// than the full hardware microphone list.
     private func recordingOverlayInputOptions() -> [RecordingOverlayInputOption] {
         [
-            RecordingOverlayInputOption(id: AudioInputDevice.defaultMicrophoneID, name: "System Default"),
-            RecordingOverlayInputOption(id: AudioInputDevice.systemAudioID, name: "System Audio"),
-            RecordingOverlayInputOption(id: AudioInputDevice.systemDefaultAndSystemAudioID, name: "System Default + System Audio")
+            RecordingOverlayInputOption(id: AudioInputDevice.defaultMicrophoneID, name: "System Default", isStaticQuillName: true),
+            RecordingOverlayInputOption(id: AudioInputDevice.systemAudioID, name: "System Audio", isStaticQuillName: true),
+            RecordingOverlayInputOption(id: AudioInputDevice.systemDefaultAndSystemAudioID, name: "System Default + System Audio", isStaticQuillName: true)
         ]
     }
 

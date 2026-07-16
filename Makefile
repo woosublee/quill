@@ -322,6 +322,8 @@ test: check-test-wiring $(SPARKLE_STAMP) $(LOCALIZATION_STAMP)
 	@/tmp/UpdateManagerSafetyTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/LocalizedUserMessage.swift Tests/LocalizedUserMessageTests.swift -o /tmp/LocalizedUserMessageTests
 	@/tmp/LocalizedUserMessageTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/OverlayDisplayCopy.swift Tests/OverlayDisplayCopyTests.swift -o /tmp/OverlayDisplayCopyTests
+	@/tmp/OverlayDisplayCopyTests
 	@swiftc -parse-as-library Tests/BuildMetadataTests.swift -o /tmp/BuildMetadataTests
 	@/tmp/BuildMetadataTests
 	@swiftc -parse-as-library Tests/LocalizationResourceTests.swift -o /tmp/LocalizationResourceTests
@@ -370,11 +372,11 @@ test: check-test-wiring $(SPARKLE_STAMP) $(LOCALIZATION_STAMP)
 	@/tmp/LLMCooldownManagerTests
 	@swiftc -parse-as-library Sources/OverlayScreenGeometry.swift Tests/OverlayScreenGeometryTests.swift -o /tmp/OverlayScreenGeometryTests
 	@/tmp/OverlayScreenGeometryTests
-	@swiftc -parse-as-library Sources/OverlayScreenGeometry.swift Sources/FixedIntrinsicHostingView.swift Sources/ShortcutCore/ShortcutModels.swift Sources/AudioInputDevice.swift Sources/RecordingOverlay.swift Tests/RecordingOverlayGeometryTests.swift -o /tmp/RecordingOverlayGeometryTests
+	@swiftc -parse-as-library Sources/OverlayScreenGeometry.swift Sources/FixedIntrinsicHostingView.swift Sources/ShortcutCore/ShortcutModels.swift Sources/AudioInputDevice.swift Sources/LocalizedStringLookup.swift Sources/OverlayDisplayCopy.swift Sources/RecordingOverlay.swift Tests/RecordingOverlayGeometryTests.swift -o /tmp/RecordingOverlayGeometryTests
 	@/tmp/RecordingOverlayGeometryTests
 	@swiftc -parse-as-library Tests/UpstreamMergeBehaviorTests.swift -o /tmp/UpstreamMergeBehaviorTests
 	@/tmp/UpstreamMergeBehaviorTests
-	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/OverlayScreenGeometry.swift Sources/FixedIntrinsicHostingView.swift Sources/ShortcutCore/ShortcutModels.swift Sources/AudioInputDevice.swift Sources/RecordingOverlay.swift Sources/CalendarIntegrationModels.swift Sources/AppNotificationManager.swift Sources/CalendarRecordingReminderScheduler.swift Sources/MeetingReminderOverlay.swift Tests/MeetingReminderOverlayGeometryTests.swift -o /tmp/MeetingReminderOverlayGeometryTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/OverlayDisplayCopy.swift Sources/OverlayScreenGeometry.swift Sources/FixedIntrinsicHostingView.swift Sources/ShortcutCore/ShortcutModels.swift Sources/AudioInputDevice.swift Sources/RecordingOverlay.swift Sources/CalendarIntegrationModels.swift Sources/AppNotificationManager.swift Sources/CalendarRecordingReminderScheduler.swift Sources/MeetingReminderOverlay.swift Tests/MeetingReminderOverlayGeometryTests.swift -o /tmp/MeetingReminderOverlayGeometryTests
 	@/tmp/MeetingReminderOverlayGeometryTests
 	@framework="$$(cat "$(SPARKLE_STAMP)")"; framework_parent="$$(dirname "$$framework")"; swiftc -parse-as-library -F "$$framework_parent" -framework Sparkle -Xlinker -rpath -Xlinker "$$framework_parent" -target $(shell uname -m)-apple-macosx13.0 $(filter-out Sources/App.swift,$(SOURCES)) Tests/AppStateTranscriptionConfigurationTests.swift -o /tmp/AppStateTranscriptionConfigurationTests
 	@isolated_home="$$(mktemp -d /tmp/quill-app-state-tests.XXXXXX)"; trap 'rm -rf "$$isolated_home"' EXIT; CFFIXED_USER_HOME="$$isolated_home" /tmp/AppStateTranscriptionConfigurationTests

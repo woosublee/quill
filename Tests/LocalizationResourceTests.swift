@@ -42,6 +42,7 @@ struct LocalizationResourceTests {
         try assertTask3ReviewCoverage(root: root)
         try assertTask4SettingsExtractionCoverage(root: root, catalogStrings: strings)
         try assertTask5ApplicationMessageCoverage(root: root, catalogStrings: strings)
+        try assertTask6OverlayCoverage(root: root, catalogStrings: strings)
         let settingsSource = try String(contentsOf: root.appendingPathComponent("Sources/SettingsView.swift"), encoding: .utf8)
         assert(settingsSource.contains("MicrophoneOptionRow(\n                    title: \"System Default\""))
         assert(settingsSource.contains("verbatimName: device.name,"))
@@ -231,6 +232,36 @@ struct LocalizationResourceTests {
         assert(appState.contains("alert.informativeText = LocalizedUserMessage.screenshotFailure(detail: message)"))
         assert(!appState.contains("LocalizedUserMessage.screenRecordingPermission(detail: message) +"))
         assert(!appState.contains("LocalizedUserMessage.screenshotFailure(detail: message) +"))
+    }
+
+    private static func assertTask6OverlayCoverage(root: URL, catalogStrings: [String: Any]) throws {
+        let recordingOverlay = try String(contentsOf: root.appendingPathComponent("Sources/RecordingOverlay.swift"), encoding: .utf8)
+        let meetingOverlay = try String(contentsOf: root.appendingPathComponent("Sources/MeetingReminderOverlay.swift"), encoding: .utf8)
+        let helper = try String(contentsOf: root.appendingPathComponent("Sources/OverlayDisplayCopy.swift"), encoding: .utf8)
+
+        assert(helper.contains("static func meetingStarts("))
+        assert(helper.contains("static func inputChanged("))
+        assert(helper.contains("static func updateAvailable("))
+        assert(meetingOverlay.contains("OverlayDisplayCopy.meetingStarts(at: startTimeText(for: start))"))
+        assert(meetingOverlay.contains("Text(displayData.title)"))
+        assert(recordingOverlay.contains("UpdateAvailableOverlayView(version: state.updateVersion"))
+        assert(recordingOverlay.contains("Text(verbatim: OverlayDisplayCopy.updateAvailable(version: version))"))
+        assert(recordingOverlay.contains("var helpText: LocalizedStringKey"))
+        assert(recordingOverlay.contains("var displayName: LocalizedStringKey"))
+        assert(recordingOverlay.contains("isStaticQuillName"))
+
+        for key in [
+            "Centered", "Notch Sides",
+            "Show the recording overlay centered below the notch.",
+            "Show recording status beside the notch when supported. Update alerts stay centered.",
+            "Elapsed time · click to switch audio input",
+            "Hover for elapsed time · click to switch audio input",
+            "Switch audio input",
+            "Starts at %@", "Input changed to %@", "Update available: %@",
+            "Start", "Close"
+        ] {
+            assertCatalogTranslations(for: key, catalogStrings: catalogStrings)
+        }
     }
 
     private static func assertCatalogTranslations(for key: String, catalogStrings: [String: Any]) {

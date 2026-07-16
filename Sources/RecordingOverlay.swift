@@ -5,7 +5,18 @@ import AppKit
 
 struct RecordingOverlayInputOption: Identifiable, Equatable {
     let id: String
-    let name: String
+    private let name: String
+    private let isStaticQuillName: Bool
+
+    init(id: String, name: String, isStaticQuillName: Bool = false) {
+        self.id = id
+        self.name = name
+        self.isStaticQuillName = isStaticQuillName
+    }
+
+    var displayName: String {
+        isStaticQuillName ? String(localized: String.LocalizationValue(name)) : name
+    }
 }
 
 final class RecordingOverlayState: ObservableObject {
@@ -60,14 +71,14 @@ enum RecordingOverlayLayout: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var displayName: String {
+    var displayName: LocalizedStringKey {
         switch self {
         case .centered: return "Centered"
         case .notchSides: return "Notch Sides"
         }
     }
 
-    var helpText: String {
+    var helpText: LocalizedStringKey {
         switch self {
         case .centered:
             return "Show the recording overlay centered below the notch."
@@ -1049,6 +1060,7 @@ private struct NotchSideOverlayView: View {
                             .background(Circle().fill(Color.red.opacity(0.92)))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Stop recording")
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             case .feedback:
@@ -1091,7 +1103,7 @@ struct RecordingOverlayView: View {
             } else if state.phase == .feedback {
                 FailureIndicatorView()
             } else if state.phase == .updateAvailable {
-                UpdateAvailableOverlayView(onPress: onUpdateOverlayPressed)
+                UpdateAvailableOverlayView(version: state.updateVersion, onPress: onUpdateOverlayPressed)
             } else {
                 ZStack {
                     Group {
@@ -1188,7 +1200,7 @@ struct InputSwitchMenu<Content: View>: View {
         }
     }
 
-    private var helpText: String {
+    private var helpText: LocalizedStringKey {
         switch displayMode {
         case .timeOnly: return "Elapsed time · click to switch audio input"
         case .hoverTime: return "Hover for elapsed time · click to switch audio input"
@@ -1320,7 +1332,7 @@ private struct InputMenuClickCatcher: NSViewRepresentable {
             guard !options.isEmpty else { return }
             let menu = NSMenu()
             for option in options {
-                let item = NSMenuItem(title: option.name, action: #selector(selectOption(_:)), keyEquivalent: "")
+                let item = NSMenuItem(title: option.displayName, action: #selector(selectOption(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = option.id
                 item.state = AudioInputDevice.isSameInput(option.id, selectedID) ? .on : .off
@@ -1406,6 +1418,7 @@ struct RecordingNoticeToastView: View {
 }
 
 struct UpdateAvailableOverlayView: View {
+    let version: String
     let onPress: () -> Void
 
     var body: some View {
@@ -1415,7 +1428,7 @@ struct UpdateAvailableOverlayView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
 
-                Text("Update Available")
+                Text(verbatim: OverlayDisplayCopy.updateAvailable(version: version))
                     .font(.system(size: 11, weight: .semibold))
                     .lineLimit(1)
             }
