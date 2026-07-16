@@ -407,19 +407,19 @@ final class CalendarRecordingReminderScheduler {
     nonisolated static func notificationTitle(for schedule: CalendarRecordingReminderSchedule, now: Date) -> String {
         let minutesUntilStart = Int(ceil(schedule.event.start.timeIntervalSince(now) / 60))
         if minutesUntilStart > 1 {
-            return "Meeting starts in \(minutesUntilStart) minutes"
+            return String(format: localizedCatalogString("Meeting starts in %d minutes"), minutesUntilStart)
         }
         if minutesUntilStart == 1 {
-            return "Meeting starts in 1 minute"
+            return localizedCatalogString("Meeting starts in 1 minute")
         }
         if schedule.event.start > now {
-            return "Meeting starts soon"
+            return localizedCatalogString("Meeting starts soon")
         }
-        return "Meeting is starting now"
+        return localizedCatalogString("Meeting is starting now")
     }
 
     nonisolated static func notificationBody(for event: GoogleCalendarEvent) -> String {
-        "Tap to start recording: \(event.title)"
+        String(format: localizedCatalogString("Tap to start recording: %@"), event.title)
     }
 
     nonisolated static func isReminderEligible(_ event: GoogleCalendarEvent) -> Bool {

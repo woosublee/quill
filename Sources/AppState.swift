@@ -1470,7 +1470,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var retryingItemIDs: Set<UUID> = []
     @Published var lastTranscript: String = ""
     @Published var errorMessage: String?
-    @Published var statusText: String = "Ready"
+    @Published var statusText: String = localizedCatalogString("Ready")
 
     // MCP interface
     var mcpAdditionalContext: String = ""
@@ -3558,18 +3558,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     var shortcutStatusText: String {
         if hotkeyMonitoringErrorMessage != nil {
-            return "Global shortcuts unavailable"
+            return localizedCatalogString("Global shortcuts unavailable")
         }
 
         switch (hasEnabledHoldShortcut, hasEnabledToggleShortcut) {
         case (true, true):
-            return "Hold \(holdShortcut.displayName) or tap \(toggleShortcut.displayName) to dictate"
+            return String(format: localizedCatalogString("Hold %@ or tap %@ to dictate"), holdShortcut.displayName, toggleShortcut.displayName)
         case (true, false):
-            return "Hold \(holdShortcut.displayName) to dictate"
+            return LocalizedUserMessage.shortcutStatus(shortcut: holdShortcut.displayName, isToggleMode: false)
         case (false, true):
-            return "Tap \(toggleShortcut.displayName) to dictate"
+            return LocalizedUserMessage.shortcutStatus(shortcut: toggleShortcut.displayName, isToggleMode: true)
         case (false, false):
-            return "No dictation shortcut enabled"
+            return localizedCatalogString("No dictation shortcut enabled")
         }
     }
 
@@ -4012,11 +4012,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard !isEscapeCancelAlertPresented else { return .terminateCancel }
 
         let alert = NSAlert()
-        alert.messageText = "Quit while recording?"
-        alert.informativeText = "Quill will stop the current recording, finish transcription, and quit when transcription is complete."
+        alert.messageText = localizedCatalogString("Quit while recording?")
+        alert.informativeText = localizedCatalogString("Quill will stop the current recording, finish transcription, and quit when transcription is complete.")
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Stop Recording and Quit")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: localizedCatalogString("Stop Recording and Quit"))
+        alert.addButton(withTitle: localizedCatalogString("Cancel"))
         alert.icon = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)
 
         isEscapeCancelAlertPresented = true
@@ -4060,11 +4060,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         isEscapeCancelAlertPresented = true
 
         let alert = NSAlert()
-        alert.messageText = "Cancel current recording?"
-        alert.informativeText = "Press Cancel to keep recording, or Stop Recording to discard the current recording session."
+        alert.messageText = localizedCatalogString("Cancel current recording?")
+        alert.informativeText = localizedCatalogString("Press Cancel to keep recording, or Stop Recording to discard the current recording session.")
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Stop Recording")
-        alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: localizedCatalogString("Stop Recording"))
+        alert.addButton(withTitle: localizedCatalogString("Cancel"))
         alert.icon = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)
 
         let response = alert.runModal()
@@ -4117,7 +4117,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         isRecording = false
         errorMessage = nil
         debugStatusMessage = "Cancelled"
-        statusText = "Cancelled"
+        statusText = localizedCatalogString("Cancelled")
         dismissTranscribingOverlay()
         tearDownRealtimeService()
         cancelActiveAudioRecorder()
@@ -4143,7 +4143,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         isRecording = false
         errorMessage = nil
         debugStatusMessage = "Cancelled"
-        statusText = "Cancelled"
+        statusText = localizedCatalogString("Cancelled")
         dismissTranscribingOverlay()
         cleanupActiveAudioRecordersIfIdle()
         if let audioFileName = job.audioFileName {
@@ -4256,15 +4256,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
         activeRecordingTriggerMode = nil
         pendingSelectionSnapshot = nil
         pendingManualCommandInvocation = false
-        errorMessage = "Select text to transform first."
-        statusText = "Select text to transform first"
+        errorMessage = localizedCatalogString("Select text to transform first.")
+        statusText = localizedCatalogString("Select text to transform first")
         debugStatusMessage = "Edit mode requires selected text"
         shortcutSessionController.reset()
         if triggerMode == .toggle {
             cancelPendingShortcutStart()
         }
         playAlertSound(named: "Basso")
-        scheduleReadyStatusReset(after: 2, matching: ["Select text to transform first"])
+        scheduleReadyStatusReset(after: 2, matching: [localizedCatalogString("Select text to transform first")])
     }
 
     private func rejectInvalidCommandModeModifier(triggerMode: RecordingTriggerMode, message: String) {
@@ -4273,14 +4273,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         pendingSelectionSnapshot = nil
         pendingManualCommandInvocation = false
         errorMessage = message
-        statusText = "Fix Edit Mode modifier"
+        statusText = localizedCatalogString("Fix Edit Mode modifier")
         debugStatusMessage = "Edit mode modifier conflicts with dictation shortcuts"
         shortcutSessionController.reset()
         if triggerMode == .toggle {
             cancelPendingShortcutStart()
         }
         playAlertSound(named: "Basso")
-        scheduleReadyStatusReset(after: 2, matching: ["Fix Edit Mode modifier"])
+        scheduleReadyStatusReset(after: 2, matching: [localizedCatalogString("Fix Edit Mode modifier")])
     }
 
     @MainActor
@@ -4347,8 +4347,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let isAccessibilityTrusted = AXIsProcessTrusted()
         hasAccessibility = isAccessibilityTrusted
         guard isAccessibilityTrusted || !requiresAccessibility else {
-            errorMessage = "Accessibility permission required. Grant access in System Settings > Privacy & Security > Accessibility."
-            statusText = "No Accessibility"
+            errorMessage = localizedCatalogString("Accessibility permission required. Grant access in System Settings > Privacy & Security > Accessibility.")
+            statusText = localizedCatalogString("No Accessibility")
             activeRecordingTriggerMode = nil
             currentSessionIntent = .dictation
             shortcutSessionController.reset()
@@ -4432,11 +4432,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func showSpeechRecognitionPermissionAlert() {
 
         let alert = NSAlert()
-        alert.messageText = "Speech Recognition Permission Required"
-        alert.informativeText = "Quill cannot use Apple Live transcription without Speech Recognition access.\n\nGo to System Settings > Privacy & Security > Speech Recognition and enable Quill."
+        alert.messageText = localizedCatalogString("Speech Recognition Permission Required")
+        alert.informativeText = localizedCatalogString("Quill cannot use Apple Live transcription without Speech Recognition access.\n\nGo to System Settings > Privacy & Security > Speech Recognition and enable Quill.")
         alert.alertStyle = .critical
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Dismiss")
+        alert.addButton(withTitle: localizedCatalogString("Open System Settings"))
+        alert.addButton(withTitle: localizedCatalogString("Dismiss"))
         alert.icon = NSImage(systemSymbolName: "waveform.badge.mic", accessibilityDescription: nil)
 
         let response = alert.runModal()
@@ -4469,9 +4469,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let granted = hasScreenCapturePermission()
         hasScreenRecordingPermission = granted
         guard granted else {
-            let message = "Screen recording permission not granted. Enable in System Settings > Privacy & Security > Screen Recording."
+            let message = localizedCatalogString("Screen recording permission not granted. Enable in System Settings > Privacy & Security > Screen Recording.")
             errorMessage = message
-            statusText = "Screenshot Required"
+            statusText = localizedCatalogString("Screenshot Required")
             activeRecordingTriggerMode = nil
             currentSessionIntent = .dictation
             shortcutSessionController.reset()
@@ -4521,9 +4521,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func showSystemDefaultAndSystemAudioAccessError() {
-        let message = "System Default + System Audio recording needs Microphone and Screen & System Audio Recording access. Enable both in System Settings > Privacy & Security."
+        let message = localizedCatalogString("System Default + System Audio recording needs Microphone and Screen & System Audio Recording access. Enable both in System Settings > Privacy & Security.")
         errorMessage = message
-        statusText = "System Default + System Audio Required"
+        statusText = localizedCatalogString("System Default + System Audio Required")
         activeRecordingTriggerMode = nil
         currentSessionIntent = .dictation
         shortcutSessionController.reset()
@@ -4535,9 +4535,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let granted = await requestScreenCapturePermissionForRecordingStart()
         hasScreenRecordingPermission = granted
         guard granted else {
-            let message = "System Audio recording permission not granted. Enable Screen & System Audio Recording in System Settings > Privacy & Security."
+            let message = localizedCatalogString("System Audio recording permission not granted. Enable Screen & System Audio Recording in System Settings > Privacy & Security.")
             errorMessage = message
-            statusText = "System Audio Required"
+            statusText = localizedCatalogString("System Audio Required")
             activeRecordingTriggerMode = nil
             currentSessionIntent = .dictation
             shortcutSessionController.reset()
@@ -4597,15 +4597,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             }
                         } else {
                             strongSelf.currentSessionIntent = .dictation
-                            strongSelf.statusText = "Microphone access granted. Press and hold again to record."
+                            strongSelf.statusText = localizedCatalogString("Microphone access granted. Press and hold again to record.")
                             strongSelf.scheduleReadyStatusReset(
                                 after: 2,
-                                matching: ["Microphone access granted. Press and hold again to record."]
+                                matching: [localizedCatalogString("Microphone access granted. Press and hold again to record.")]
                             )
                         }
                     } else {
-                        strongSelf.errorMessage = "Microphone permission denied. Grant access in System Settings > Privacy & Security > Microphone."
-                        strongSelf.statusText = "No Microphone"
+                        strongSelf.errorMessage = localizedCatalogString("Microphone permission denied. Grant access in System Settings > Privacy & Security > Microphone.")
+                        strongSelf.statusText = localizedCatalogString("No Microphone")
                         strongSelf.activeRecordingTriggerMode = nil
                         strongSelf.currentSessionIntent = .dictation
                         strongSelf.shortcutSessionController.reset()
@@ -4615,8 +4615,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
             return false
         default:
-            errorMessage = "Microphone permission denied. Grant access in System Settings > Privacy & Security > Microphone."
-            statusText = "No Microphone"
+            errorMessage = localizedCatalogString("Microphone permission denied. Grant access in System Settings > Privacy & Security > Microphone.")
+            statusText = localizedCatalogString("No Microphone")
             activeRecordingTriggerMode = nil
             currentSessionIntent = .dictation
             shortcutSessionController.reset()
@@ -4729,16 +4729,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         } else {
                             self.currentSessionIntent = .dictation
                             self.restoreAudioInterruptionIfNeeded()
-                            self.statusText = "Speech Recognition access granted. Press and hold again to record."
+                            self.statusText = localizedCatalogString("Speech Recognition access granted. Press and hold again to record.")
                             self.scheduleReadyStatusReset(
                                 after: 2,
-                                matching: ["Speech Recognition access granted. Press and hold again to record."]
+                                matching: [localizedCatalogString("Speech Recognition access granted. Press and hold again to record.")]
                             )
                         }
                     } else {
                         self.restoreAudioInterruptionIfNeeded()
-                        self.errorMessage = "Speech Recognition permission is required for Apple Live transcription. Enable it in System Settings > Privacy & Security > Speech Recognition."
-                        self.statusText = "No Speech Recognition"
+                        self.errorMessage = localizedCatalogString("Speech Recognition permission is required for Apple Live transcription. Enable it in System Settings > Privacy & Security > Speech Recognition.")
+                        self.statusText = localizedCatalogString("No Speech Recognition")
                         self.activeRecordingTriggerMode = nil
                         self.currentSessionIntent = .dictation
                         self.shortcutSessionController.reset()
@@ -4753,8 +4753,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 activeRecordingTriggerMode = nil
                 currentSessionIntent = .dictation
                 shortcutSessionController.reset()
-                errorMessage = "Speech Recognition permission is required for Apple Live transcription. Enable it in System Settings > Privacy & Security > Speech Recognition."
-                statusText = "No Speech Recognition"
+                errorMessage = localizedCatalogString("Speech Recognition permission is required for Apple Live transcription. Enable it in System Settings > Privacy & Security > Speech Recognition.")
+                statusText = localizedCatalogString("No Speech Recognition")
                 showSpeechRecognitionPermissionAlert()
                 return
             }
@@ -4763,7 +4763,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         isRecording = true
         syncCriticalDictationActivity()
         meetingReminderOverlayManager.refreshVisibleReminder()
-        statusText = "Starting..."
+        statusText = localizedCatalogString("Starting...")
         hasShownScreenshotPermissionAlert = false
 
         // Show initializing dots only if engine takes longer than 0.2s to start
@@ -4796,7 +4796,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     guard let self else { return }
                     self.cancelRecordingInitializationTimer()
                     os_log(.info, log: recordingLog, "first real audio — transitioning to waveform")
-                    self.statusText = "Recording..."
+                    self.statusText = localizedCatalogString("Recording...")
                     self.clearPendingOverlayDismissToken()
                     if overlayShown {
                         self.overlayManager.transitionToRecording(
@@ -4960,27 +4960,27 @@ final class AppState: ObservableObject, @unchecked Sendable {
         currentSessionIntent = .dictation
         shortcutSessionController.reset()
         errorMessage = formattedRecordingStartError(error)
-        statusText = "Error"
+        statusText = localizedCatalogString("Error")
         dismissTranscribingOverlay()
         refreshAvailableMicrophonesIfNeeded()
     }
 
     private func formattedRecordingStartError(_ error: Error) -> String {
         if let recorderError = error as? AudioRecorderError {
-            return "Failed to start recording: \(recorderError.localizedDescription)"
+            return LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Failed to start recording"), providerDetail: recorderError.localizedDescription)
         }
 
         let lower = error.localizedDescription.lowercased()
         if lower.contains("operation couldn't be completed") || lower.contains("operation could not be completed") {
-            return "Failed to start recording: Audio input error. Verify microphone access is granted and a working mic is selected in System Settings > Sound > Input."
+            return localizedCatalogString("Failed to start recording: Audio input error. Verify microphone access is granted and a working mic is selected in System Settings > Sound > Input.")
         }
 
         let nsError = error as NSError
         if nsError.domain == NSOSStatusErrorDomain {
-            return "Failed to start recording (audio subsystem error \(nsError.code)). Check microphone permissions and selected input device."
+            return String(format: localizedCatalogString("Failed to start recording (audio subsystem error %@). Check microphone permissions and selected input device."), String(nsError.code))
         }
 
-        return "Failed to start recording: \(error.localizedDescription)"
+        return LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Failed to start recording"), providerDetail: error.localizedDescription)
     }
 
     /// Turn a transcription failure into a concise, user-facing message,
@@ -4991,11 +4991,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             switch code {
             case .notConnectedToInternet, .networkConnectionLost,
                  .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
-                return "No internet — check connection"
+                return localizedCatalogString("No internet — check connection")
             case .timedOut:
                 return NetworkMonitor.shared.isOnline
-                    ? "Request timed out — try again"
-                    : "No internet — check connection"
+                    ? localizedCatalogString("Request timed out — try again")
+                    : localizedCatalogString("No internet — check connection")
             default:
                 break
             }
@@ -5004,13 +5004,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let lower = error.localizedDescription.lowercased()
         if lower.contains("timed out") || lower.contains("timeout") {
             return NetworkMonitor.shared.isOnline
-                ? "Request timed out — try again"
-                : "No internet — check connection"
+                ? localizedCatalogString("Request timed out — try again")
+                : localizedCatalogString("No internet — check connection")
         }
         if lower.contains("offline") || lower.contains("internet connection")
             || lower.contains("not connected") || lower.contains("network")
             || lower.contains("cannot find host") {
-            return "No internet — check connection"
+            return localizedCatalogString("No internet — check connection")
         }
         return error.localizedDescription
     }
@@ -5043,11 +5043,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         let alert = NSAlert()
-        alert.messageText = "Microphone Permission Required"
-        alert.informativeText = "Quill cannot record audio without Microphone access.\n\nGo to System Settings > Privacy & Security > Microphone and enable Quill."
+        alert.messageText = localizedCatalogString("Microphone Permission Required")
+        alert.informativeText = localizedCatalogString("Quill cannot record audio without Microphone access.\n\nGo to System Settings > Privacy & Security > Microphone and enable Quill.")
         alert.alertStyle = .critical
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Dismiss")
+        alert.addButton(withTitle: localizedCatalogString("Open System Settings"))
+        alert.addButton(withTitle: localizedCatalogString("Dismiss"))
         alert.icon = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: nil)
 
         let response = alert.runModal()
@@ -5517,7 +5517,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         isRecording = false
         restoreAudioInterruptionIfNeeded()
         refreshTranscribingState()
-        statusText = "Preparing audio..."
+        statusText = localizedCatalogString("Preparing audio...")
         errorMessage = nil
         playAlertSound(named: "Pop")
         overlayManager.showTranscribing()
@@ -5557,7 +5557,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         if let transcriber = capturedLiveTranscriber, transcriber.handlesRecording {
             if overlayTranscriptionID == myOverlayID {
-                prepareTranscribingOverlay(for: myOverlayID, statusText: "Transcribing...", debugStatus: "Transcribing audio")
+                prepareTranscribingOverlay(for: myOverlayID, statusText: localizedCatalogString("Transcribing..."), debugStatus: "Transcribing audio")
             }
             let task = Task { [weak self] in
                 guard let self else { return }
@@ -5643,7 +5643,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         }
                         let userFacingErrorMessage = self.formattedTranscriptionError(error)
                         self.errorMessage = userFacingErrorMessage
-                        self.statusText = "Error"
+                        self.statusText = localizedCatalogString("Error")
                         self.overlayManager.showError(userFacingErrorMessage)
                         self.lastPostProcessedTranscript = ""
                         self.lastRawTranscript = ""
@@ -5665,8 +5665,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             guard let self else { return }
             guard let fileURL else {
                 if self.overlayTranscriptionID == myOverlayID {
-                    self.errorMessage = "No audio recorded"
-                    self.statusText = "Error"
+                    self.errorMessage = localizedCatalogString("No audio recorded")
+                    self.statusText = localizedCatalogString("Error")
                     self.dismissTranscribingOverlay()
                 }
                 self.mcpLastRecordingFailed = true
@@ -5802,7 +5802,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         }
                         let userFacingErrorMessage = self.formattedTranscriptionError(error)
                         self.errorMessage = userFacingErrorMessage
-                        self.statusText = "Error"
+                        self.statusText = localizedCatalogString("Error")
                         self.overlayManager.showError(userFacingErrorMessage)
                         self.lastPostProcessedTranscript = ""
                         self.lastRawTranscript = ""
@@ -6397,7 +6397,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             restoreAudioInterruptionIfNeeded()
             shortcutSessionController.reset()
             activeRecordingTriggerMode = nil
-            statusText = "Screenshot Required"
+            statusText = localizedCatalogString("Screenshot Required")
             dismissTranscribingOverlay()
 
             playAlertSound(named: "Basso")
@@ -6421,11 +6421,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         let alert = NSAlert()
-        alert.messageText = "Screen Recording Permission Required"
-        alert.informativeText = "\(message)\n\nQuill requires Screen Recording permission to capture screenshots for context-aware transcription.\n\nGo to System Settings > Privacy & Security > Screen Recording and enable Quill."
+        alert.messageText = localizedCatalogString("Screen Recording Permission Required")
+        alert.informativeText = LocalizedUserMessage.screenRecordingPermission(detail: message) + "\n\n" + localizedCatalogString("Quill requires Screen Recording permission to capture screenshots for context-aware transcription.\n\nGo to System Settings > Privacy & Security > Screen Recording and enable Quill.")
         alert.alertStyle = .critical
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Dismiss")
+        alert.addButton(withTitle: localizedCatalogString("Open System Settings"))
+        alert.addButton(withTitle: localizedCatalogString("Dismiss"))
         alert.icon = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: nil)
 
         let response = alert.runModal()
@@ -6436,10 +6436,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private func showScreenshotCaptureErrorAlert(message: String) {
         let alert = NSAlert()
-        alert.messageText = "Screenshot Capture Failed"
-        alert.informativeText = "\(message)\n\nA screenshot is required for context-aware transcription. Recording has been stopped."
+        alert.messageText = localizedCatalogString("Screenshot Capture Failed")
+        alert.informativeText = LocalizedUserMessage.screenshotFailure(detail: message) + "\n\n" + localizedCatalogString("A screenshot is required for context-aware transcription. Recording has been stopped.")
         alert.alertStyle = .critical
-        alert.addButton(withTitle: "Dismiss")
+        alert.addButton(withTitle: localizedCatalogString("Dismiss"))
         alert.icon = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: nil)
         _ = alert.runModal()
     }
@@ -6763,7 +6763,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             if let statuses, !statuses.contains(self.statusText) {
                 return
             }
-            self.statusText = "Ready"
+            self.statusText = localizedCatalogString("Ready")
         }
     }
 }
