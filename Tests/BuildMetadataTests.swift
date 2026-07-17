@@ -9,7 +9,7 @@ struct BuildMetadataTests {
         try testMakefileSeparatesDevRunFromInstallBuild()
         try testMakefileCopiesSelectedIconToBundleIconName()
         try testMakefileBundlesLocalizationResources()
-        try testMakefileBuildsAdHocLocalizationBundleForValidation()
+        try testMakefileBuildsAppBundleForLocalizationValidation()
         try testTestsWorkflowValidatesLocalizationBundle()
         try testMakefileStripsExtendedAttributesDuringCodesignStaging()
         try testMakefileStripsExtendedAttributesDuringDmgStaging()
@@ -100,22 +100,19 @@ struct BuildMetadataTests {
         assertContains(makefile, "$(RESOURCES)/ko.lproj")
     }
 
-    private static func testMakefileBuildsAdHocLocalizationBundleForValidation() throws {
+    private static func testMakefileBuildsAppBundleForLocalizationValidation() throws {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
 
-        assertContains(makefile, "localization-bundle-test: /tmp/LocalizationResourceTests $(LOCALIZATION_STAMP)")
-        assertContains(makefile, #"bundle="$(BUILD_DIR)/Quill Localization Test.app""#)
-        assertContains(makefile, #"ditto --norsrc --noextattr "$(LOCALIZATION_BUILD_DIR)/en.lproj""#)
-        assertContains(makefile, #"ditto --norsrc --noextattr "$(LOCALIZATION_BUILD_DIR)/ko.lproj""#)
-        assertContains(makefile, "PlaceholderFixtures.strings")
-        assertContains(makefile, #"/tmp/LocalizationResourceTests --bundle "$$bundle""#)
-        assertDoesNotContain(makefile, "localization-bundle-test: /tmp/LocalizationResourceTests\n\t@$(MAKE) all")
+        assertContains(makefile, "localization-bundle-test: /tmp/LocalizationResourceTests $(APP_EXECUTABLE_TARGET)")
+        assertContains(makefile, #"/tmp/LocalizationResourceTests --bundle "$(APP_BUNDLE)""#)
+        assertDoesNotContain(makefile, "Quill Localization Test.app")
+        assertDoesNotContain(makefile, "PlaceholderFixtures.strings")
     }
 
     private static func testTestsWorkflowValidatesLocalizationBundle() throws {
         let workflow = try String(contentsOfFile: ".github/workflows/tests.yml", encoding: .utf8)
 
-        assertContains(workflow, "make localization-bundle-test")
+        assertContains(workflow, "make localization-bundle-test CODESIGN_IDENTITY=-")
     }
 
     private static func testMakefileStripsExtendedAttributesDuringCodesignStaging() throws {

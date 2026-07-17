@@ -300,14 +300,8 @@ check-test-wiring:
 /tmp/LocalizationResourceTests: Tests/LocalizationResourceTests.swift
 	@swiftc -parse-as-library Tests/LocalizationResourceTests.swift -o /tmp/LocalizationResourceTests
 
-localization-bundle-test: /tmp/LocalizationResourceTests $(LOCALIZATION_STAMP)
-	@bundle="$(BUILD_DIR)/Quill Localization Test.app"; \
-		rm -rf "$$bundle"; \
-		mkdir -p "$$bundle/Contents/Resources"; \
-		ditto --norsrc --noextattr "$(LOCALIZATION_BUILD_DIR)/en.lproj" "$$bundle/Contents/Resources/en.lproj"; \
-		ditto --norsrc --noextattr "$(LOCALIZATION_BUILD_DIR)/ko.lproj" "$$bundle/Contents/Resources/ko.lproj"; \
-		printf '%s\n' '"object" = "%@";' '"integer" = "%d";' '"longLong" = "%lld";' '"unknown" = "%arg";' > "$$bundle/Contents/Resources/PlaceholderFixtures.strings"; \
-		/tmp/LocalizationResourceTests --bundle "$$bundle"
+localization-bundle-test: /tmp/LocalizationResourceTests $(APP_EXECUTABLE_TARGET)
+	@/tmp/LocalizationResourceTests --bundle "$(APP_BUNDLE)"
 
 test: check-test-wiring $(SPARKLE_STAMP) $(LOCALIZATION_STAMP)
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/CalendarEventMatcher.swift Tests/CalendarEventMatcherTests.swift -o /tmp/CalendarEventMatcherTests

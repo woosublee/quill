@@ -52,6 +52,7 @@ struct LocalizationResourceTests {
         try assertTask4SettingsExtractionCoverage(root: root, catalogStrings: strings)
         try assertTask5ApplicationMessageCoverage(root: root, catalogStrings: strings)
         try assertTask6OverlayCoverage(root: root, catalogStrings: strings)
+        try assertLocalizedCancellationStatusReset(root: root)
 
         try assertFinalManagedSourceAudit(root: root, catalogStrings: strings)
         try assertLocalizedStringKeyHelperLiteralCoverage(root: root, catalogStrings: strings)
@@ -283,6 +284,16 @@ struct LocalizationResourceTests {
         }
     }
 
+    private static func assertLocalizedCancellationStatusReset(root: URL) throws {
+        let appState = try String(contentsOf: root.appendingPathComponent("Sources/AppState.swift"), encoding: .utf8)
+        assert(appState.components(separatedBy: "let cancelledStatus = localizedCatalogString(\"Cancelled\")").count == 3)
+        assert(appState.components(separatedBy: "statusText = cancelledStatus").count == 3)
+        assert(appState.components(separatedBy: "statusText == cancelledStatus").count == 3)
+        assert(appState.components(separatedBy: "matching: [cancelledStatus]").count == 3)
+        assert(!appState.contains("statusText == \"Cancelled\""))
+        assert(!appState.contains("matching: [\"Cancelled\"]"))
+    }
+
 
     private struct TestFailure: Error, CustomStringConvertible {
         let description: String
@@ -353,14 +364,6 @@ struct LocalizationResourceTests {
             languageBundles: languageBundles
         )
 
-
-        let fixtureURL = resourcesURL.appendingPathComponent("PlaceholderFixtures.strings")
-        let fixtureContents = try String(contentsOf: fixtureURL, encoding: .utf8)
-        for placeholder in ["%@", "%d", "%lld", "%arg"] {
-            guard fixtureContents.contains(#"= "\#(placeholder)";"#) else {
-                throw TestFailure("Missing bundled placeholder serialization fixture for \(placeholder)")
-            }
-        }
 
         let placeholderPattern = try NSRegularExpression(pattern: #"%(?:@|d|lld|arg)"#)
         for key in ["Input changed to %@", "Meeting starts in %d minutes", "Welcome to %@"] {

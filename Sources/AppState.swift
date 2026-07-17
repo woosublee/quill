@@ -4117,7 +4117,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         isRecording = false
         errorMessage = nil
         debugStatusMessage = "Cancelled"
-        statusText = localizedCatalogString("Cancelled")
+        let cancelledStatus = localizedCatalogString("Cancelled")
+        statusText = cancelledStatus
         dismissTranscribingOverlay()
         tearDownRealtimeService()
         cancelActiveAudioRecorder()
@@ -4125,8 +4126,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         restoreAudioInterruptionIfNeeded()
         syncCriticalDictationActivity()
         refreshAvailableMicrophonesIfNeeded()
-        if !isRecording && !isTranscribing && statusText == "Cancelled" {
-            scheduleReadyStatusReset(after: 2, matching: ["Cancelled"])
+        if !isRecording && !isTranscribing && statusText == cancelledStatus {
+            scheduleReadyStatusReset(after: 2, matching: [cancelledStatus])
         }
     }
 
@@ -4143,7 +4144,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         isRecording = false
         errorMessage = nil
         debugStatusMessage = "Cancelled"
-        statusText = localizedCatalogString("Cancelled")
+        let cancelledStatus = localizedCatalogString("Cancelled")
+        statusText = cancelledStatus
         dismissTranscribingOverlay()
         cleanupActiveAudioRecordersIfIdle()
         if let audioFileName = job.audioFileName {
@@ -4157,8 +4159,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         finishTranscriptionJob(job.id)
         refreshAvailableMicrophonesIfNeeded()
-        if !isRecording && !isTranscribing && statusText == "Cancelled" {
-            scheduleReadyStatusReset(after: 2, matching: ["Cancelled"])
+        if !isRecording && !isTranscribing && statusText == cancelledStatus {
+            scheduleReadyStatusReset(after: 2, matching: [cancelledStatus])
         }
     }
 
