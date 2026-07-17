@@ -8,6 +8,16 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.23] - 2026-07-17
+
+### Added
+
+- Added English and Korean app localization, including localized setup, settings, recording, meeting reminder, transcription, and update experiences with locale-aware formatting and automated resource validation.
+
+### Fixed
+
+- Fixed a startup crash when a stored Apple Live transcription choice for `System Default + System Audio` fell back to an installed Native Whisper model.
+
 ## [0.1.22] - 2026-07-17
 
 ### Security
