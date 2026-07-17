@@ -1241,6 +1241,7 @@ struct GeneralSettingsView: View {
 
     var body: some View {
         ScrollView {
+            // localization-audit: settings-card-titles-start
             VStack(spacing: 20) {
                 SettingsCard("App", icon: "power") {
                     startupSection
@@ -1252,6 +1253,7 @@ struct GeneralSettingsView: View {
                     permissionsSection
                 }
             }
+            // localization-audit: settings-card-titles-end
             .padding(24)
         }
         .onAppear {

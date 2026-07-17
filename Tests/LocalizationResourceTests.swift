@@ -54,6 +54,7 @@ struct LocalizationResourceTests {
         try assertTask6OverlayCoverage(root: root, catalogStrings: strings)
 
         try assertFinalManagedSourceAudit(root: root, catalogStrings: strings)
+        try assertLocalizedStringKeyHelperLiteralCoverage(root: root, catalogStrings: strings)
         try assertCatalogPlaceholderCompatibility(catalogStrings: strings)
         try assertDeveloperDiagnosticsAreExcluded(catalogStrings: strings)
         try assertRepresentativeProductionKoreanTranslations(catalogStrings: strings)
@@ -454,6 +455,42 @@ struct LocalizationResourceTests {
                     hangulPattern.firstMatch(in: String($0), range: NSRange($0.startIndex..., in: $0)) == nil
                 } ?? false
                 assert(isComment || containsOnlyCommentHangul || exactHangulExceptions.contains(trimmed), "Unexpected Hangul literal in \(sourceFile):\(index + 1): \(trimmed)")
+            }
+        }
+    }
+
+    private static func assertLocalizedStringKeyHelperLiteralCoverage(
+        root: URL,
+        catalogStrings: [String: Any]
+    ) throws {
+        let helperCallSites = [
+            (sourceFile: "Sources/SettingsView.swift", helperName: "SettingsCard")
+        ]
+
+        for callSite in helperCallSites {
+            let source = try managedSource(callSite.sourceFile, root: root)
+            let startMarker = "// localization-audit: settings-card-titles-start"
+            let endMarker = "// localization-audit: settings-card-titles-end"
+            let auditedSource: String
+            if let start = source.range(of: startMarker),
+               let end = source.range(of: endMarker, range: start.upperBound..<source.endIndex) {
+                auditedSource = String(source[start.upperBound..<end.lowerBound])
+            } else {
+                assertionFailure("Missing exact helper literal audit range in \(callSite.sourceFile)")
+                continue
+            }
+
+            let escapedHelperName = NSRegularExpression.escapedPattern(for: callSite.helperName)
+            let pattern = try NSRegularExpression(
+                pattern: #"\b"# + escapedHelperName + #"\(\s*\"((?:\\.|[^\"\\])*)\""#
+            )
+            let matches = pattern.matches(in: auditedSource, range: NSRange(auditedSource.startIndex..., in: auditedSource))
+            assert(!matches.isEmpty, "No literal call sites found for localized helper \(callSite.helperName)")
+
+            for match in matches {
+                guard let keyRange = Range(match.range(at: 1), in: auditedSource) else { continue }
+                let key = String(auditedSource[keyRange])
+                assertCatalogTranslations(for: key, catalogStrings: catalogStrings, requiresTranslation: true)
             }
         }
     }
