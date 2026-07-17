@@ -311,6 +311,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     static var googleCalendarServiceFactory: () -> GoogleCalendarService = {
         GoogleCalendarService()
     }
+    static var nativeWhisperInstallStatusProvider: (NativeWhisperModel) -> NativeWhisperInstallStatus = { model in
+        NativeWhisperModelStore().installStatus(for: model)
+    }
 
     private struct TranscriptionJob {
         let id: UUID
@@ -738,6 +741,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var useLegacyMlxWhisper: Bool {
         didSet {
             UserDefaults.standard.set(useLegacyMlxWhisper, forKey: useLegacyMlxWhisperStorageKey)
+            guard oldValue != useLegacyMlxWhisper else { return }
             scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration()
         }
     }
@@ -796,7 +800,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    @Published private(set) var nativeWhisperInstallStatus: NativeWhisperInstallStatus = NativeWhisperModelStore().installStatus(for: .recommended)
+    @Published private(set) var nativeWhisperInstallStatus: NativeWhisperInstallStatus =
+        AppState.nativeWhisperInstallStatusProvider(.recommended)
     @Published private(set) var nativeWhisperInstallProgress = NativeWhisperDownloadProgress(downloadedBytes: 0, totalBytes: NativeWhisperModelCatalog.recommended.approximateBytes)
     @Published private(set) var isInstallingNativeWhisper = false
     @Published private(set) var nativeWhisperInstallError: String?
@@ -1000,7 +1005,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func refreshNativeWhisperInstallStatus() {
-        nativeWhisperInstallStatus = NativeWhisperModelStore().installStatus(for: .recommended)
+        nativeWhisperInstallStatus = Self.nativeWhisperInstallStatusProvider(.recommended)
         scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration()
     }
 
@@ -1155,11 +1160,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func scheduleNoteBrowserTranscriptionModeNormalizationForSelectedInput() {
         if Thread.isMainThread {
             MainActor.assumeIsolated {
+                guard !isApplyingNoteBrowserTranscriptionChoice else { return }
                 normalizeNoteBrowserTranscriptionMode()
             }
         } else {
             Task { @MainActor [weak self] in
-                self?.normalizeNoteBrowserTranscriptionMode()
+                guard let self, !self.isApplyingNoteBrowserTranscriptionChoice else { return }
+                self.normalizeNoteBrowserTranscriptionMode()
             }
         }
     }
@@ -1167,12 +1174,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration() {
         if Thread.isMainThread {
             MainActor.assumeIsolated {
-                guard !isRecording, !isTranscribing else { return }
+                guard !isApplyingNoteBrowserTranscriptionChoice,
+                      !isRecording,
+                      !isTranscribing else { return }
                 normalizeNoteBrowserTranscriptionMode()
             }
         } else {
             Task { @MainActor [weak self] in
-                guard let self, !self.isRecording, !self.isTranscribing else { return }
+                guard let self,
+                      !self.isApplyingNoteBrowserTranscriptionChoice,
+                      !self.isRecording,
+                      !self.isTranscribing else { return }
                 self.normalizeNoteBrowserTranscriptionMode()
             }
         }
@@ -1256,34 +1268,44 @@ final class AppState: ObservableObject, @unchecked Sendable {
         applyNoteBrowserTranscriptionChoice(preferredNoteBrowserTranscriptionChoice(for: mode))
     }
 
+    private func update<Value: Equatable>(_ keyPath: ReferenceWritableKeyPath<AppState, Value>, to value: Value) {
+        guard self[keyPath: keyPath] != value else { return }
+        self[keyPath: keyPath] = value
+    }
+
     @MainActor
     private func applyNoteBrowserTranscriptionChoice(_ choice: TranscriptionBackendChoice) {
+        guard !isApplyingNoteBrowserTranscriptionChoice else { return }
+        isApplyingNoteBrowserTranscriptionChoice = true
+        defer { isApplyingNoteBrowserTranscriptionChoice = false }
+
         switch choice {
         case .apiStandard(let modelID):
-            transcriptionModel = nonEmptyModelID(modelID) ?? resolvedStandardTranscriptionModelID
-            useLocalTranscription = false
-            realtimeStreamingEnabled = false
+            update(\AppState.transcriptionModel, to: nonEmptyModelID(modelID) ?? resolvedStandardTranscriptionModelID)
+            update(\AppState.useLocalTranscription, to: false)
+            update(\AppState.realtimeStreamingEnabled, to: false)
         case .apiRealtime(let modelID):
             if let modelID {
-                realtimeStreamingModel = modelID
+                update(\AppState.realtimeStreamingModel, to: modelID)
             }
-            useLocalTranscription = false
-            realtimeStreamingEnabled = true
+            update(\AppState.useLocalTranscription, to: false)
+            update(\AppState.realtimeStreamingEnabled, to: true)
         case .nativeWhisper:
-            useLocalTranscription = true
-            realtimeStreamingEnabled = false
-            useLegacyMlxWhisper = false
-            localTranscriptionModel = nativeLocalWhisperSelectionModel
+            update(\AppState.useLocalTranscription, to: true)
+            update(\AppState.realtimeStreamingEnabled, to: false)
+            update(\AppState.localTranscriptionModel, to: nativeLocalWhisperSelectionModel)
+            update(\AppState.useLegacyMlxWhisper, to: false)
         case .legacyMlxWhisper(let model):
-            useLocalTranscription = true
-            realtimeStreamingEnabled = false
-            useLegacyMlxWhisper = true
-            showLegacyMlxWhisperOptions = true
-            localTranscriptionModel = model
+            update(\AppState.useLocalTranscription, to: true)
+            update(\AppState.realtimeStreamingEnabled, to: false)
+            update(\AppState.localTranscriptionModel, to: model)
+            update(\AppState.useLegacyMlxWhisper, to: true)
+            update(\AppState.showLegacyMlxWhisperOptions, to: true)
         case .appleLive:
-            useLocalTranscription = true
-            realtimeStreamingEnabled = false
-            localTranscriptionModel = .find(id: "apple-speech")
+            update(\AppState.useLocalTranscription, to: true)
+            update(\AppState.realtimeStreamingEnabled, to: false)
+            update(\AppState.localTranscriptionModel, to: .find(id: "apple-speech"))
+            update(\AppState.useLegacyMlxWhisper, to: false)
         }
     }
 
@@ -1585,6 +1607,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var activeAudioInterruption: ActiveAudioInterruption?
     private var pendingOverlayDismissToken: UUID?
     private var shouldMonitorHotkeys = false
+    private var isApplyingNoteBrowserTranscriptionChoice = false
     private var isCapturingShortcut = false
     private var isAwaitingMicrophonePermission = false
     private var isAwaitingSpeechRecognitionPermission = false
