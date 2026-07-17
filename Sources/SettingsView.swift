@@ -1650,8 +1650,7 @@ struct ModelsSettingsView: View {
                     isSelected: appState.localTranscriptionModel.isAppleSpeech,
                     whisperBin: "",
                     onSelect: {
-                        appState.localTranscriptionModel = .find(id: "apple-speech")
-                        appState.useLegacyMlxWhisper = false
+                        appState.setNoteBrowserTranscriptionChoice(.appleLive)
                     },
                     onDeleted: {}
                 )
@@ -1659,9 +1658,9 @@ struct ModelsSettingsView: View {
                 NativeWhisperModelRowView(
                     isSelected: !appState.localTranscriptionModel.isAppleSpeech && !appState.useLegacyMlxWhisper,
                     onSelect: {
-                        appState.useLocalTranscription = true
-                        appState.localTranscriptionModel = .find(id: "mlx-community/whisper-large-v3-turbo")
-                        appState.useLegacyMlxWhisper = false
+                        appState.setNoteBrowserTranscriptionChoice(
+                            .nativeWhisper(modelID: NativeWhisperModelCatalog.recommended.id)
+                        )
                     }
                 )
                 Text("If you close Settings while the model is downloading, Quill cancels the download and removes the partial file.")
@@ -1683,14 +1682,12 @@ struct ModelsSettingsView: View {
                                 ? "\(FileManager.default.homeDirectoryForCurrentUser.path)/.local/bin/mlx_whisper"
                                 : appState.localWhisperPath,
                             onSelect: {
-                                appState.useLocalTranscription = true
-                                appState.useLegacyMlxWhisper = true
-                                appState.showLegacyMlxWhisperOptions = true
-                                appState.localTranscriptionModel = model
+                                appState.setNoteBrowserTranscriptionChoice(.legacyMlxWhisper(model: model))
                             },
                             onDeleted: {
-                                appState.localTranscriptionModel = .find(id: "mlx-community/whisper-large-v3-turbo")
-                                appState.useLegacyMlxWhisper = false
+                                appState.setNoteBrowserTranscriptionChoice(
+                                    .nativeWhisper(modelID: NativeWhisperModelCatalog.recommended.id)
+                                )
                             }
                         )
                         .disabled(!appState.showLegacyMlxWhisperOptions)
