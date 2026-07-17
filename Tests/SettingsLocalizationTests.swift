@@ -7,6 +7,7 @@ struct SettingsLocalizationTests {
         try testTranscriptionModelKeepsIdentityAndLocalizesDescription()
         try testNativeWhisperModelKeepsIdentityAndLocalizesDescription()
         try testAudioImportDisplayKeepsModelIDAndLocalizesStaticLabels()
+        try testSettingsSectionTitlePolicy()
         print("SettingsLocalizationTests passed")
     }
 
@@ -58,6 +59,33 @@ struct SettingsLocalizationTests {
         assert(display.localizedTitle(language: "en", bundle: localizationBundle) == "API Standard")
         assert(display.localizedTitle(language: "ko", bundle: localizationBundle) == "API 표준")
         assert(display.localizedCompactLabel(language: "ko", bundle: localizationBundle) == "표준 · whisper-large-v3")
+    }
+
+    private static func testSettingsSectionTitlePolicy() throws {
+        let bundle = try compiledLocalizationBundle()
+
+        for key in ["Note Browser", "Recording Overlay", "Google Calendar"] {
+            assert(localizedCatalogString(key, language: "en", bundle: bundle) == key)
+            assert(localizedCatalogString(key, language: "ko", bundle: bundle) == key)
+        }
+
+        let ordinaryKoreanTitles: [String: String] = [
+            "App Appearance": "앱 외관",
+            "Meeting Recording Reminders": "회의 녹음 알림",
+            "Language": "언어",
+            "System Prompt": "시스템 프롬프트",
+            "Instruction Guard": "명령 보호",
+            "Context Prompt": "컨텍스트 프롬프트",
+            "Dictation Shortcuts": "받아쓰기 단축키",
+            "Audio During Dictation": "받아쓰기 중 오디오",
+            "Clipboard": "클립보드",
+            "Voice Macros": "음성 매크로",
+            "Sound Volume": "소리 크기",
+            "Build": "빌드"
+        ]
+        for (key, expected) in ordinaryKoreanTitles {
+            assert(localizedCatalogString(key, language: "ko", bundle: bundle) == expected)
+        }
     }
 
     private static func compiledLocalizationBundle() throws -> Bundle {

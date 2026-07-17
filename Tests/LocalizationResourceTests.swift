@@ -55,7 +55,8 @@ struct LocalizationResourceTests {
         try assertLocalizedCancellationStatusReset(root: root)
 
         try assertFinalManagedSourceAudit(root: root, catalogStrings: strings)
-        try assertLocalizedStringKeyHelperLiteralCoverage(root: root, catalogStrings: strings)
+        try assertIntentionalEnglishProductCopy(root: root, catalogStrings: strings)
+        try assertRegularSettingsCardTitleCoverage(root: root, catalogStrings: strings)
         try assertCatalogPlaceholderCompatibility(catalogStrings: strings)
         try assertDeveloperDiagnosticsAreExcluded(catalogStrings: strings)
         try assertRepresentativeProductionKoreanTranslations(catalogStrings: strings)
@@ -462,39 +463,44 @@ struct LocalizationResourceTests {
         }
     }
 
-    private static func assertLocalizedStringKeyHelperLiteralCoverage(
+    private static func assertIntentionalEnglishProductCopy(
         root: URL,
         catalogStrings: [String: Any]
     ) throws {
-        let helperCallSites = [
-            (sourceFile: "Sources/SettingsView.swift", helperName: "SettingsCard")
-        ]
+        let noteBrowser = try managedSource("Sources/NoteBrowserView.swift", root: root)
+        assert(noteBrowser.contains("Text(verbatim: \"Recordings\")"))
+        assert(noteBrowser.contains("Text(verbatim: \"Transcription\")"))
+        assert(!noteBrowser.contains("Text(\"Recordings\")"))
+        assert(!noteBrowser.contains("Text(\"Transcription\")"))
 
-        for callSite in helperCallSites {
-            let source = try managedSource(callSite.sourceFile, root: root)
-            let startMarker = "// localization-audit: settings-card-titles-start"
-            let endMarker = "// localization-audit: settings-card-titles-end"
-            let auditedSource: String
-            if let start = source.range(of: startMarker),
-               let end = source.range(of: endMarker, range: start.upperBound..<source.endIndex) {
-                auditedSource = String(source[start.upperBound..<end.lowerBound])
-            } else {
-                assertionFailure("Missing exact helper literal audit range in \(callSite.sourceFile)")
-                continue
+        for key in ["Note Browser", "Recording Overlay", "Google Calendar"] {
+            let entry = catalogStrings[key] as? [String: Any]
+            assert(entry?["shouldTranslate"] as? Bool == false, "Feature name must be an explicit English exception: \(key)")
+            let localizations = entry?["localizations"] as? [String: Any]
+            for language in ["en", "ko"] {
+                let value = (((localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String)
+                assert(value == key, "Feature name must stay English for \(language): \(key)")
             }
+        }
+    }
 
-            let escapedHelperName = NSRegularExpression.escapedPattern(for: callSite.helperName)
-            let pattern = try NSRegularExpression(
-                pattern: #"\b"# + escapedHelperName + #"\(\s*\"((?:\\.|[^\"\\])*)\""#
+    private static func assertRegularSettingsCardTitleCoverage(
+        root: URL,
+        catalogStrings: [String: Any]
+    ) throws {
+        let settings = try managedSource("Sources/SettingsView.swift", root: root)
+        let pattern = try NSRegularExpression(pattern: #"SettingsCard\(\"((?:\\.|[^\"\\])*)\""#)
+        let range = NSRange(settings.startIndex..., in: settings)
+        let englishFeatureNames: Set<String> = ["Note Browser", "Recording Overlay", "Google Calendar"]
+
+        for match in pattern.matches(in: settings, range: range) {
+            guard let titleRange = Range(match.range(at: 1), in: settings) else { continue }
+            let key = String(settings[titleRange])
+            assertCatalogTranslations(
+                for: key,
+                catalogStrings: catalogStrings,
+                requiresTranslation: !englishFeatureNames.contains(key)
             )
-            let matches = pattern.matches(in: auditedSource, range: NSRange(auditedSource.startIndex..., in: auditedSource))
-            assert(!matches.isEmpty, "No literal call sites found for localized helper \(callSite.helperName)")
-
-            for match in matches {
-                guard let keyRange = Range(match.range(at: 1), in: auditedSource) else { continue }
-                let key = String(auditedSource[keyRange])
-                assertCatalogTranslations(for: key, catalogStrings: catalogStrings, requiresTranslation: true)
-            }
         }
     }
 

@@ -519,7 +519,7 @@ struct NoteBrowserView: View {
             // Title row
             HStack(spacing: 8) {
                 HStack(spacing: 6) {
-                    Text("Recordings")
+                    Text(verbatim: "Recordings")
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
@@ -589,7 +589,7 @@ struct NoteBrowserView: View {
             .padding(.bottom, 10)
 
             HStack(spacing: 8) {
-                Text("Transcription")
+                Text(verbatim: "Transcription")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.tertiary)
                     .textCase(.uppercase)
