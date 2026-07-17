@@ -1514,10 +1514,21 @@ struct ModelsSettingsView: View {
     @State private var apiBaseURLInput: String = ""
     @State private var transcriptionAPIURLInput: String = ""
     @State private var transcriptionAPIKeyInput: String = ""
-    @State private var showingLocalTranscriptionSettings = true
+    @State private var transcriptionModelDraft = ""
+    @State private var pendingNativeModelID: String?
+    @State private var nativeInstallAutoSelectModelID: String?
+    @State private var showRealtimeTranscriptionOption = false
+    @State private var realtimeStreamingModelDraft = ""
+    @State private var postProcessingModelDraft = ""
+    @State private var postProcessingFallbackModelDraft = ""
+    @State private var contextModelDraft = ""
+    @FocusState private var isEditingAPIBaseURL: Bool
+    @FocusState private var isEditingTranscriptionModel: Bool
+    @FocusState private var isEditingRealtimeStreamingModel: Bool
+    @FocusState private var transcriptionAPIURLFocused: Bool
+    @FocusState private var transcriptionAPIKeyFocused: Bool
     @State private var isValidatingKey = false
     @State private var keyValidationError: String?
-    @State private var keyValidationSuccess = false
     @State private var customVocabularyInput: String = ""
     @State private var advancedProviderSettingsExpanded = false
 
@@ -1555,23 +1566,17 @@ struct ModelsSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                SettingsCard("Transcription", icon: "waveform.badge.magnifyingglass") {
-                    transcriptionSection
+                SettingsCard("Cloud Provider", icon: "cloud.fill") {
+                    cloudProviderSection
                 }
-                SettingsCard("Language", icon: "globe") {
-                    languageSettings
+                SettingsCard("Transcription", icon: "waveform") {
+                    transcriptionFeatureSection
                 }
-                SettingsCard("Custom Vocabulary", icon: "text.book.closed.fill") {
-                    vocabularySection
+                SettingsCard("Post-processing", icon: "wand.and.stars") {
+                    postProcessingFeatureSection
                 }
-                SettingsCard("System Prompt", icon: "text.bubble.fill") {
-                    systemPromptSection
-                }
-                SettingsCard("Instruction Guard", icon: "shield.lefthalf.filled") {
-                    instructionGuardSection
-                }
-                SettingsCard("Context Prompt", icon: "eye.fill") {
-                    contextPromptSection
+                SettingsCard("Context", icon: "rectangle.and.text.magnifyingglass") {
+                    contextFeatureSection
                 }
             }
             .padding(24)
@@ -1581,7 +1586,12 @@ struct ModelsSettingsView: View {
             apiBaseURLInput = appState.apiBaseURL
             transcriptionAPIURLInput = appState.transcriptionAPIURL
             transcriptionAPIKeyInput = appState.transcriptionAPIKey
-            showingLocalTranscriptionSettings = appState.useLocalTranscription
+            transcriptionModelDraft = customStandardAPIModelDraft(for: appState.transcriptionModel)
+            showRealtimeTranscriptionOption = appState.realtimeStreamingEnabled
+            realtimeStreamingModelDraft = appState.realtimeStreamingModel
+            postProcessingModelDraft = appState.postProcessingModel
+            postProcessingFallbackModelDraft = appState.postProcessingFallbackModel
+            contextModelDraft = appState.contextModel
             customVocabularyInput = appState.customVocabulary
             customSystemPromptInput = appState.customSystemPrompt.isEmpty
                 ? PostProcessingService.defaultSystemPrompt
@@ -1589,6 +1599,7 @@ struct ModelsSettingsView: View {
             customContextPromptInput = appState.customContextPrompt.isEmpty
                 ? AppContextService.defaultContextPrompt
                 : appState.customContextPrompt
+            initializeManagedNativeModel()
         }
         .onChange(of: appState.transcriptionAPIURL) { value in
             if transcriptionAPIURLInput != value { transcriptionAPIURLInput = value }
@@ -1596,78 +1607,581 @@ struct ModelsSettingsView: View {
         .onChange(of: appState.transcriptionAPIKey) { value in
             if transcriptionAPIKeyInput != value { transcriptionAPIKeyInput = value }
         }
-    }
-
-    private var transcriptionSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Transcription Mode")
-                    .font(.caption.weight(.semibold))
-
-                Picker("Transcription Mode", selection: $showingLocalTranscriptionSettings) {
-                    Text("Local").tag(true)
-                    Text("API Provider").tag(false)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .onChange(of: showingLocalTranscriptionSettings) { showsLocal in
-                    if showsLocal {
-                        appState.useLocalTranscription = true
-                    } else if appState.hasTranscriptionAPIKey {
-                        appState.setNoteBrowserTranscriptionMode(.apiStandard)
-                    }
-                }
-
-                Text(showingLocalTranscriptionSettings
-                    ? "Run speech recognition on this Mac and configure only local transcription options."
-                    : "Use your configured OpenAI-compatible provider and configure only provider-specific options.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Divider()
-
-            if showingLocalTranscriptionSettings {
-                localTranscriptionSettings
-            } else {
-                apiProviderTranscriptionSettings
-            }
-
-            Divider()
-
-            sharedTranscriptionBehaviors
+        .onChange(of: appState.transcriptionModel) { value in
+            guard !isEditingTranscriptionModel else { return }
+            let draft = customStandardAPIModelDraft(for: value)
+            if transcriptionModelDraft != draft { transcriptionModelDraft = draft }
+        }
+        .onChange(of: appState.nativeWhisperInstallStatus) { status in
+            guard status == .ready,
+                  let modelID = nativeInstallAutoSelectModelID,
+                  pendingNativeModelID == modelID,
+                  appState.selectedSettingsTab == .models else { return }
+            appState.setNoteBrowserTranscriptionChoice(.nativeWhisper(modelID: modelID))
+            nativeInstallAutoSelectModelID = nil
         }
     }
 
-    private var localTranscriptionSettings: some View {
+    private var hasConfiguredCloudAPIKey: Bool {
+        !appState.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var cloudProviderSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Local Options")
-                    .font(.caption.weight(.semibold))
+            Text("Cloud models use this shared OpenAI-compatible provider.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
-                ModelRowView(
-                    model: TranscriptionModel.find(id: "apple-speech"),
-                    isSelected: appState.localTranscriptionModel.isAppleSpeech,
-                    whisperBin: "",
-                    onSelect: {
-                        appState.setNoteBrowserTranscriptionChoice(.appleLive)
-                    },
-                    onDeleted: {}
-                )
+            HStack(spacing: 8) {
+                SecureField("Enter your Groq API key", text: $apiKeyInput)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.body, design: .monospaced))
+                    .disabled(isValidatingKey)
+                    .onChange(of: apiKeyInput) { _ in
+                        keyValidationError = nil
+                    }
 
+                Button(isValidatingKey ? "Validating..." : "Save") {
+                    validateAndSaveKey()
+                }
+                .disabled(isValidatingKey)
+            }
+
+            providerValidationStatus
+
+            DisclosureGroup(isExpanded: $advancedProviderSettingsExpanded) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("API Base URL")
+                        .font(.caption.weight(.semibold))
+                    HStack(spacing: 8) {
+                        TextField(AppState.defaultAPIBaseURL, text: $apiBaseURLInput)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.body, design: .monospaced))
+                            .focused($isEditingAPIBaseURL)
+                            .onSubmit { commitAPIBaseURL() }
+                            .onChange(of: isEditingAPIBaseURL) { editing in
+                                if !editing { commitAPIBaseURL() }
+                            }
+                        Button("Reset to Default") {
+                            apiBaseURLInput = AppState.defaultAPIBaseURL
+                            appState.apiBaseURL = AppState.defaultAPIBaseURL
+                        }
+                        .font(.caption)
+                    }
+                }
+                .padding(.top, 8)
+            } label: {
+                Text("Advanced Provider Settings")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var providerValidationStatus: some View {
+        if isValidatingKey {
+            Label("Validating...", systemImage: "arrow.triangle.2.circlepath")
+                .foregroundStyle(.secondary)
+                .font(.caption)
+        } else {
+            if hasConfiguredCloudAPIKey {
+                Label("API Key configured", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.caption)
+            }
+
+            if let error = keyValidationError {
+                Label(error, systemImage: "xmark.circle.fill")
+                    .foregroundStyle(.red)
+                    .font(.caption)
+            }
+        }
+    }
+
+    private var currentTranscriptionDisplay: TranscriptionChoiceDisplay {
+        appState.noteBrowserTranscriptionDisplay(
+            for: appState.currentNoteBrowserTranscriptionChoice
+        )
+    }
+
+    private var standardAPIModelIDs: [String] {
+        var modelIDs: [String] = []
+        for modelID in ModelConfiguration.transcriptionModels where !modelIDs.contains(modelID) {
+            modelIDs.append(modelID)
+        }
+
+        let currentModelID = appState.transcriptionModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !currentModelID.isEmpty && !modelIDs.contains(currentModelID) {
+            modelIDs.append(currentModelID)
+        }
+        return modelIDs
+    }
+
+    private var transcriptionChoiceDisplays: [TranscriptionChoiceDisplay] {
+        let standardDisplays = standardAPIModelIDs.map { modelID in
+            appState.noteBrowserTranscriptionDisplay(for: .apiStandard(modelID: modelID))
+        }
+        let nativeDisplays = NativeWhisperModelCatalog.all.map { model in
+            appState.noteBrowserTranscriptionDisplay(for: .nativeWhisper(modelID: model.id))
+        }
+        let otherDisplays = appState.noteBrowserTranscriptionChoiceDisplays.filter { display in
+            switch display.choice {
+            case .apiStandard, .nativeWhisper:
+                return false
+            case .apiRealtime:
+                return showRealtimeTranscriptionOption || appState.realtimeStreamingEnabled
+            case .legacyMlxWhisper:
+                return display.isAvailable
+            case .appleLive:
+                return true
+            }
+        }
+        return standardDisplays + nativeDisplays + otherDisplays
+    }
+
+    private var transcriptionChoice: Binding<TranscriptionBackendChoice> {
+        Binding(
+            get: { appState.currentNoteBrowserTranscriptionChoice },
+            set: { handleTranscriptionChoiceSelection($0) }
+        )
+    }
+
+    private var managedNativeModel: NativeWhisperModel? {
+        guard let pendingNativeModelID else { return nil }
+        return NativeWhisperModelCatalog.all.first { $0.id == pendingNativeModelID }
+    }
+
+    private func initializeManagedNativeModel() {
+        guard case .nativeWhisper(let modelID) =
+            appState.currentNoteBrowserTranscriptionChoice else { return }
+        pendingNativeModelID = modelID
+    }
+
+    private func handleTranscriptionChoiceSelection(_ choice: TranscriptionBackendChoice) {
+        switch choice {
+        case .nativeWhisper(let modelID):
+            pendingNativeModelID = modelID
+            if appState.isNoteBrowserTranscriptionChoiceAvailable(choice) {
+                nativeInstallAutoSelectModelID = nil
+                appState.setNoteBrowserTranscriptionChoice(choice)
+            }
+        case .apiStandard, .apiRealtime, .legacyMlxWhisper, .appleLive:
+            pendingNativeModelID = nil
+            nativeInstallAutoSelectModelID = nil
+            appState.setNoteBrowserTranscriptionChoice(choice)
+        }
+    }
+
+    private func canSelectTranscriptionDisplay(_ display: TranscriptionChoiceDisplay) -> Bool {
+        if case .nativeWhisper = display.choice { return true }
+        return display.isAvailable
+    }
+
+    private func transcriptionChoiceMenuLabel(_ display: TranscriptionChoiceDisplay) -> String {
+        guard case .nativeWhisper = display.choice, !display.isAvailable else {
+            return display.localizedCompactLabel()
+        }
+        let status = appState.isInstallingNativeWhisper ? "Downloading..." : "Download required"
+        return "\(display.localizedCompactLabel()) — \(localizedCatalogString(status))"
+    }
+
+    @ViewBuilder
+    private var transcriptionChoicePickerControl: some View {
+        if #available(macOS 14.0, *) {
+            Picker("Model", selection: transcriptionChoice) {
+                ForEach(["API", "Local", "Legacy mlx-whisper"], id: \.self) { section in
+                    let displays = transcriptionChoiceDisplays.filter { $0.section == section }
+                    if !displays.isEmpty {
+                        Section(section) {
+                            ForEach(displays) { display in
+                                Text(transcriptionChoiceMenuLabel(display))
+                                    .tag(display.choice)
+                                    .selectionDisabled(!canSelectTranscriptionDisplay(display))
+                            }
+                        }
+                    }
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+        } else {
+            Menu {
+                ForEach(["API", "Local", "Legacy mlx-whisper"], id: \.self) { section in
+                    let displays = transcriptionChoiceDisplays.filter { $0.section == section }
+                    if !displays.isEmpty {
+                        Section(section) {
+                            ForEach(displays) { display in
+                                transcriptionChoiceMenuItem(display)
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Text(currentTranscriptionDisplay.localizedCompactLabel())
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .menuStyle(.borderlessButton)
+        }
+    }
+
+    private func transcriptionChoiceMenuItem(_ display: TranscriptionChoiceDisplay) -> some View {
+        Toggle(isOn: Binding(
+            get: { appState.currentNoteBrowserTranscriptionChoice == display.choice },
+            set: { isSelected in
+                if isSelected { handleTranscriptionChoiceSelection(display.choice) }
+            }
+        )) {
+            Text(transcriptionChoiceMenuLabel(display))
+        }
+        .disabled(!canSelectTranscriptionDisplay(display))
+    }
+
+    private var transcriptionChoicePicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Model")
+                .font(.caption.weight(.semibold))
+
+            transcriptionChoicePickerControl
+                .frame(minWidth: 280, maxWidth: 320, alignment: .leading)
+        }
+    }
+
+    private var currentTranscriptionUsesAPI: Bool {
+        switch appState.currentNoteBrowserTranscriptionChoice {
+        case .apiStandard, .apiRealtime:
+            true
+        case .nativeWhisper, .legacyMlxWhisper, .appleLive:
+            false
+        }
+    }
+
+    private var transcriptionFeatureSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Convert speech to text.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            transcriptionChoicePicker
+
+            if let model = managedNativeModel {
                 NativeWhisperModelRowView(
-                    isSelected: !appState.localTranscriptionModel.isAppleSpeech && !appState.useLegacyMlxWhisper,
+                    model: model,
+                    isSelected: appState.currentNoteBrowserTranscriptionChoice == .nativeWhisper(modelID: model.id),
                     onSelect: {
-                        appState.setNoteBrowserTranscriptionChoice(
-                            .nativeWhisper(modelID: NativeWhisperModelCatalog.recommended.id)
-                        )
+                        handleTranscriptionChoiceSelection(.nativeWhisper(modelID: model.id))
+                    },
+                    showsSelectionControl: false,
+                    onDownloadStarted: {
+                        nativeInstallAutoSelectModelID = model.id
                     }
                 )
+
                 Text("If you close Settings while the model is downloading, Quill cancels the download and removes the partial file.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
 
+            if currentTranscriptionUsesAPI && !appState.hasTranscriptionAPIKey {
+                Label(
+                    "Cloud transcription requires an API key. Add one in Cloud Provider or use the transcription override in Details.",
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+            } else if let reason = currentTranscriptionDisplay.localizedUnavailableReason() {
+                Label(reason, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
+            DisclosureGroup("Details") {
+                VStack(alignment: .leading, spacing: 14) {
+                    transcriptionLanguageSetting
+                    Divider()
+                    standardAPITranscriptionSetting
+                    realtimeTranscriptionSetting
+                    transcriptionProviderOverrideSetting
+                    Divider()
+                    legacyTranscriptionSettings
+                }
+                .padding(.top, 8)
+            }
+        }
+    }
+
+    private var postProcessingEnabled: Binding<Bool> {
+        Binding(
+            get: { !appState.disablePostProcessing },
+            set: { appState.disablePostProcessing = !$0 }
+        )
+    }
+
+    private var postProcessingFeatureSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Clean up wording, formatting, and language.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Toggle("", isOn: postProcessingEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .accessibilityLabel("Post-processing")
+                    .disabled(!hasConfiguredCloudAPIKey)
+                    .opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)
+            }
+
+            ModelDropdownView(
+                title: "Model",
+                subtitle: "Used for transcript cleanup and Edit Mode transforms.",
+                predefinedModels: ModelConfiguration.llmModels,
+                defaultModel: AppState.defaultPostProcessingModel,
+                textDraft: $postProcessingModelDraft,
+                onCommit: commitPostProcessingModel,
+                onReset: {
+                    postProcessingModelDraft = AppState.defaultPostProcessingModel
+                    appState.postProcessingModel = AppState.defaultPostProcessingModel
+                }
+            )
+            .disabled(!hasConfiguredCloudAPIKey)
+            .opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)
+
+            if !hasConfiguredCloudAPIKey {
+                Label(
+                    appState.disablePostProcessing
+                        ? "Add an API key in Cloud Provider to enable Post-processing."
+                        : "Post-processing is on, but cloud processing is unavailable until an API key is configured.",
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+            }
+
+            if appState.disablePostProcessing {
+                Text("Normal dictation uses the raw transcript while Post-processing is off. Edit Mode still uses this model configuration.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            DisclosureGroup("Details") {
+                postProcessingDetails
+                    .padding(.top, 8)
+            }
+        }
+    }
+
+    private var contextEnabled: Binding<Bool> {
+        Binding(
+            get: { !appState.disableContextCapture },
+            set: { appState.disableContextCapture = !$0 }
+        )
+    }
+
+    private var contextFeatureSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Use the current app and screen to improve context.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Toggle("", isOn: contextEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .accessibilityLabel("Context")
+                    .disabled(!hasConfiguredCloudAPIKey)
+                    .opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)
+            }
+
+            ModelDropdownView(
+                title: "Model",
+                subtitle: "Used for context inference, with a text-only retry when screenshot analysis fails.",
+                predefinedModels: ModelConfiguration.llmModels,
+                defaultModel: AppState.defaultContextModel,
+                textDraft: $contextModelDraft,
+                onCommit: commitContextModel,
+                onReset: {
+                    contextModelDraft = AppState.defaultContextModel
+                    appState.contextModel = AppState.defaultContextModel
+                }
+            )
+            .disabled(!hasConfiguredCloudAPIKey)
+            .opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)
+
+            if !hasConfiguredCloudAPIKey {
+                Label(
+                    appState.disableContextCapture
+                        ? "Add an API key in Cloud Provider to enable Context."
+                        : "Context is on, but AI context analysis is unavailable until an API key is configured.",
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+            }
+
+            if appState.disableContextCapture {
+                Text("Context capture is off. Quill skips app context and screenshots for normal dictation.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            DisclosureGroup("Details") {
+                contextPromptSection
+                    .padding(.top, 8)
+            }
+        }
+    }
+
+    private var postProcessingDetails: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            outputLanguageSetting
+            Divider()
+            preserveExactWordingSetting
+            Divider()
+            ModelDropdownView(
+                title: "Post-Processing Fallback Model",
+                subtitle: "Used as the explicit retry model for transcript cleanup and Edit Mode transforms.",
+                predefinedModels: ModelConfiguration.llmModels,
+                defaultModel: AppState.defaultPostProcessingFallbackModel,
+                textDraft: $postProcessingFallbackModelDraft,
+                onCommit: commitPostProcessingFallbackModel,
+                onReset: {
+                    postProcessingFallbackModelDraft = AppState.defaultPostProcessingFallbackModel
+                    appState.postProcessingFallbackModel = AppState.defaultPostProcessingFallbackModel
+                }
+            )
+            .disabled(!hasConfiguredCloudAPIKey)
+            .opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)
+            Divider()
+            vocabularySection
+            Divider()
+            systemPromptSection
+            Divider()
+            instructionGuardSection
+            Divider()
+            Text("Edit Mode uses this model, fallback model, Output Language, and Custom Vocabulary. Invocation Style and Extra Modifier remain in Shortcuts.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var transcriptionLanguageSetting: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("Transcription Language", selection: $appState.transcriptionLanguage) {
+                ForEach(TranscriptionLanguage.all) { lang in
+                    Text(lang.localizedDisplayName()).tag(lang)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: 240, alignment: .leading)
+
+            Text("Spoken language hint for speech recognition. Auto Detect works for most users.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var standardAPITranscriptionSetting: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Custom Standard API Model")
+                .font(.caption.weight(.semibold))
+
+            HStack(spacing: 8) {
+                TextField("e.g. custom-transcription-model", text: $transcriptionModelDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($isEditingTranscriptionModel)
+                    .onSubmit { commitTranscriptionModel() }
+                    .onChange(of: isEditingTranscriptionModel) { editing in
+                        if !editing { commitTranscriptionModel() }
+                    }
+
+                Button("Reset to Default") {
+                    transcriptionModelDraft = ""
+                    appState.transcriptionModel = AppState.defaultTranscriptionModel
+                }
+                .font(.caption)
+            }
+
+            Text("Add a custom model ID when it is not listed in the main Model menu.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var realtimeTranscriptionSetting: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle("Show Realtime transcription option", isOn: $showRealtimeTranscriptionOption)
+
+            if showRealtimeTranscriptionOption || appState.realtimeStreamingEnabled {
+                Text("Realtime Transcription Model")
+                    .font(.caption.weight(.semibold))
+                HStack(spacing: 8) {
+                    TextField("Required by some providers, e.g. gpt-4o-transcribe", text: $realtimeStreamingModelDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($isEditingRealtimeStreamingModel)
+                        .onSubmit { commitRealtimeStreamingModel() }
+                        .onChange(of: isEditingRealtimeStreamingModel) { editing in
+                            if !editing { commitRealtimeStreamingModel() }
+                        }
+                    if !realtimeStreamingModelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Button("Reset") {
+                            realtimeStreamingModelDraft = ""
+                            appState.realtimeStreamingModel = ""
+                        }
+                        .font(.caption)
+                    }
+                }
+                Text("Used only for realtime streaming. Leave empty for providers that supply a server default.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var transcriptionProviderOverrideSetting: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Transcription API URL")
+                .font(.caption.weight(.semibold))
+            HStack(spacing: 8) {
+                TextField("Uses API Base URL when empty", text: $transcriptionAPIURLInput)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.body, design: .monospaced))
+                    .focused($transcriptionAPIURLFocused)
+                    .onSubmit { commitTranscriptionAPIURL() }
+                    .onChange(of: transcriptionAPIURLFocused) { focused in
+                        if !focused { commitTranscriptionAPIURL() }
+                    }
+                if !transcriptionAPIURLInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Button("Clear") {
+                        transcriptionAPIURLInput = ""
+                        appState.transcriptionAPIURL = ""
+                    }
+                    .font(.caption)
+                }
+            }
+
+            Text("Transcription API Key")
+                .font(.caption.weight(.semibold))
+            HStack(spacing: 8) {
+                SecureField("Uses API Key when empty", text: $transcriptionAPIKeyInput)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.body, design: .monospaced))
+                    .focused($transcriptionAPIKeyFocused)
+                    .onSubmit { commitTranscriptionAPIKey() }
+                    .onChange(of: transcriptionAPIKeyFocused) { focused in
+                        if !focused { commitTranscriptionAPIKey() }
+                    }
+                if !transcriptionAPIKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Button("Clear") {
+                        transcriptionAPIKeyInput = ""
+                        appState.transcriptionAPIKey = ""
+                    }
+                    .font(.caption)
+                }
+            }
+        }
+    }
+
+    private var legacyTranscriptionSettings: some View {
+        VStack(alignment: .leading, spacing: 12) {
             DisclosureGroup("Advanced Legacy mlx-whisper") {
                 VStack(alignment: .leading, spacing: 8) {
                     Toggle("Use legacy mlx-whisper", isOn: $appState.showLegacyMlxWhisperOptions)
@@ -1688,7 +2202,8 @@ struct ModelsSettingsView: View {
                                 appState.setNoteBrowserTranscriptionChoice(
                                     .nativeWhisper(modelID: NativeWhisperModelCatalog.recommended.id)
                                 )
-                            }
+                            },
+                            showsSelectionControl: false
                         )
                         .disabled(!appState.showLegacyMlxWhisperOptions)
                         .opacity(appState.showLegacyMlxWhisperOptions ? 1 : 0.55)
@@ -1704,146 +2219,57 @@ struct ModelsSettingsView: View {
         }
     }
 
-    private var apiProviderTranscriptionSettings: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("API Provider Options")
-                .font(.caption.weight(.semibold))
+    private var outputLanguageSetting: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("Output Language", selection: $appState.outputLanguage) {
+                ForEach(Self.outputLanguageOptions, id: \.value) { option in
+                    Text(option.label).tag(option.value)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(minWidth: 280, maxWidth: 320, alignment: .leading)
+            .disabled(!isOutputLanguageAvailable)
+            .opacity(isOutputLanguageAvailable ? 1 : 0.55)
 
-            Text("Quill uses the configured transcription model with your selected OpenAI-compatible provider.")
+            Text(outputLanguageHelpText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-
-            HStack(spacing: 8) {
-                SecureField("Enter your Groq API key", text: $apiKeyInput)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.body, design: .monospaced))
-                    .disabled(isValidatingKey)
-                    .onChange(of: apiKeyInput) { _ in
-                        keyValidationError = nil
-                        keyValidationSuccess = false
-                    }
-
-                Button(isValidatingKey ? "Validating..." : "Save") {
-                    validateAndSaveKey()
-                }
-                .disabled(isValidatingKey)
-            }
-
-            if let error = keyValidationError {
-                Label(error, systemImage: "xmark.circle.fill")
-                    .foregroundStyle(.red)
-                    .font(.caption)
-            } else if keyValidationSuccess {
-                Label(appState.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "API key cleared" : "API key saved", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                    .font(.caption)
-            }
-
-            DisclosureGroup(isExpanded: $advancedProviderSettingsExpanded) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Divider()
-                    ProviderSettingsFields(
-                        apiBaseURLInput: $apiBaseURLInput,
-                        transcriptionAPIURLInput: $transcriptionAPIURLInput,
-                        transcriptionAPIKeyInput: $transcriptionAPIKeyInput,
-                        showsModelDescription: false,
-                        showsTranscriptionLanguage: false
-                    )
-                }
-            } label: {
-                HStack {
-                    Text("Advanced Provider Settings")
-                    Spacer()
-                }
-                .contentShape(Rectangle())
-                .onTapGesture { advancedProviderSettingsExpanded.toggle() }
-            }
-            .padding(.top, 4)
         }
     }
 
-    private var languageSettings: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 8) {
-                Picker("Transcription Language", selection: $appState.transcriptionLanguage) {
-                    ForEach(TranscriptionLanguage.all) { lang in
-                        Text(lang.localizedDisplayName()).tag(lang)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: 240, alignment: .leading)
-
-                Text("Spoken language hint for speech recognition. Auto Detect works for most users.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 8) {
-                Picker("Output Language", selection: $appState.outputLanguage) {
-                    ForEach(Self.outputLanguageOptions, id: \.value) { option in
-                        Text(option.label).tag(option.value)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(minWidth: 280, maxWidth: 320, alignment: .leading)
-                .disabled(appState.disablePostProcessing || appState.useLocalTranscription)
-
-                Text(outputLanguageHelpText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
+    private var isOutputLanguageAvailable: Bool {
+        !appState.disablePostProcessing || appState.isCommandModeEnabled
     }
 
     private var outputLanguageHelpText: String {
         let key: String
-        if appState.useLocalTranscription { key = "Use API Provider transcription to choose a final output language." }
-        else if appState.disablePostProcessing { key = "Enable post-processing to choose a final output language." }
-        else { key = "Final transcript language for post-processing." }
+        if !isOutputLanguageAvailable {
+            key = "Output Language is unavailable while Post-processing and Edit Mode are off."
+        } else if appState.disablePostProcessing {
+            key = "Output Language remains available for Edit Mode transforms."
+        } else {
+            key = "Final transcript language for post-processing and Edit Mode transforms."
+        }
         return localizedCatalogString(key)
     }
 
-    private var sharedTranscriptionBehaviors: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Shared Behaviors")
-                .font(.caption.weight(.semibold))
-
-            VStack(alignment: .leading, spacing: 6) {
-                Toggle("Disable Post-Processing", isOn: $appState.disablePostProcessing)
-                Text("Skip LLM cleanup. Raw transcript is used as-is. No API call is made for post-processing.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Toggle("Preserve Exact Wording", isOn: $appState.preserveExactWording)
-                    .disabled(appState.disablePostProcessing)
-                Text("Skip cleanup while post-processing is enabled. Without an Output Language, the raw transcript is used. With one, only a literal translation is performed.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .opacity(appState.disablePostProcessing ? 0.55 : 1)
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 6) {
-                Toggle("Disable Auto Paste", isOn: $appState.disableAutoPaste)
-                Text("Transcription will be copied to clipboard only. Paste manually when needed.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 6) {
-                Toggle("Disable Context Capture", isOn: $appState.disableContextCapture)
-                Text("Skip screen recording and app context detection. Transcription will not adapt to the current app. Screen Recording permission is not required.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+    private var preserveExactWordingSetting: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle("Preserve Exact Wording", isOn: $appState.preserveExactWording)
+                .disabled(appState.disablePostProcessing)
+            Text("Skip cleanup while post-processing is enabled. Without an Output Language, the raw transcript is used. With one, only a literal translation is performed.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
+        .opacity(appState.disablePostProcessing ? 0.55 : 1)
+    }
+
+    private func customStandardAPIModelDraft(for modelID: String) -> String {
+        let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !ModelConfiguration.transcriptionModels.contains(trimmed) else {
+            return ""
+        }
+        return trimmed
     }
 
     private var vocabularySection: some View {
@@ -1869,13 +2295,74 @@ struct ModelsSettingsView: View {
         }
     }
 
+    private func commitAPIBaseURL() {
+        let trimmed = apiBaseURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedBaseURL = trimmed.isEmpty ? AppState.defaultAPIBaseURL : trimmed
+        apiBaseURLInput = resolvedBaseURL
+        appState.apiBaseURL = resolvedBaseURL
+    }
+
+    private func commitTranscriptionModel() {
+        let trimmed = transcriptionModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolved = trimmed.isEmpty ? AppState.defaultTranscriptionModel : trimmed
+        transcriptionModelDraft = customStandardAPIModelDraft(for: resolved)
+        guard appState.transcriptionModel != resolved else { return }
+        appState.transcriptionModel = resolved
+    }
+
+    private func commitRealtimeStreamingModel() {
+        let trimmed = realtimeStreamingModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        realtimeStreamingModelDraft = trimmed
+        guard appState.realtimeStreamingModel != trimmed else { return }
+        appState.realtimeStreamingModel = trimmed
+    }
+
+    private func commitPostProcessingModel() {
+        let trimmed = postProcessingModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolved = trimmed.isEmpty ? AppState.defaultPostProcessingModel : trimmed
+        postProcessingModelDraft = resolved
+        if appState.postProcessingModel != resolved {
+            appState.postProcessingModel = resolved
+        }
+    }
+
+    private func commitPostProcessingFallbackModel() {
+        let trimmed = postProcessingFallbackModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolved = trimmed.isEmpty ? AppState.defaultPostProcessingFallbackModel : trimmed
+        postProcessingFallbackModelDraft = resolved
+        if appState.postProcessingFallbackModel != resolved {
+            appState.postProcessingFallbackModel = resolved
+        }
+    }
+
+    private func commitContextModel() {
+        let trimmed = contextModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolved = trimmed.isEmpty ? AppState.defaultContextModel : trimmed
+        contextModelDraft = resolved
+        if appState.contextModel != resolved {
+            appState.contextModel = resolved
+        }
+    }
+
+    private func commitTranscriptionAPIURL() {
+        let trimmed = transcriptionAPIURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        transcriptionAPIURLInput = trimmed
+        guard appState.transcriptionAPIURL != trimmed else { return }
+        appState.transcriptionAPIURL = trimmed
+    }
+
+    private func commitTranscriptionAPIKey() {
+        let trimmed = transcriptionAPIKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        transcriptionAPIKeyInput = trimmed
+        guard appState.transcriptionAPIKey != trimmed else { return }
+        appState.transcriptionAPIKey = trimmed
+    }
+
     private func validateAndSaveKey() {
         let key = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
         keyValidationError = nil
-        keyValidationSuccess = false
         if key.isEmpty {
             appState.apiKey = ""
-            keyValidationSuccess = true
             isValidatingKey = false
             return
         }
@@ -1892,10 +2379,6 @@ struct ModelsSettingsView: View {
                 isValidatingKey = false
                 if valid {
                     appState.apiKey = key
-                    if !showingLocalTranscriptionSettings {
-                        appState.setNoteBrowserTranscriptionMode(.apiStandard)
-                    }
-                    keyValidationSuccess = true
                 } else {
                     keyValidationError = "Validation failed. Please check your API key and provider settings, then try again."
                 }
@@ -2488,6 +2971,18 @@ struct ShortcutsSettingsView: View {
 
     private var clipboardSection: some View {
         VStack(alignment: .leading, spacing: 10) {
+            Toggle("Paste Automatically", isOn: Binding(
+                get: { !appState.disableAutoPaste },
+                set: { appState.disableAutoPaste = !$0 }
+            ))
+
+            Text("When off, Quill copies the transcript to the clipboard so you can paste it manually.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Divider()
+                .padding(.vertical, 2)
+
             Toggle("Preserve clipboard after paste", isOn: $appState.preserveClipboard)
 
             Text("Quill will temporarily place the transcript on your clipboard to paste it, then restore whatever was there before. If you copy something else before the restore happens, Quill leaves it alone.")
@@ -3691,6 +4186,8 @@ struct NativeWhisperModelRowView: View {
     let model: NativeWhisperModel
     let isSelected: Bool
     let onSelect: () -> Void
+    let showsSelectionControl: Bool
+    let onDownloadStarted: () -> Void
 
     @State private var showDeleteConfirmation = false
     @State private var isHoveringDownloadProgress = false
@@ -3699,39 +4196,46 @@ struct NativeWhisperModelRowView: View {
     init(
         model: NativeWhisperModel = NativeWhisperModelCatalog.recommended,
         isSelected: Bool,
-        onSelect: @escaping () -> Void
+        onSelect: @escaping () -> Void,
+        showsSelectionControl: Bool = true,
+        onDownloadStarted: @escaping () -> Void = {}
     ) {
         self.model = model
         self.isSelected = isSelected
         self.onSelect = onSelect
+        self.showsSelectionControl = showsSelectionControl
+        self.onDownloadStarted = onDownloadStarted
     }
 
     private var isInstalled: Bool {
         appState.nativeWhisperInstallStatus == .ready
     }
 
+    private var showsSelectedAppearance: Bool {
+        showsSelectionControl && isSelected
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
-                Button {
-                    onSelect()
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                            .foregroundStyle(isInstalled ? Color.accentColor : .secondary)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(verbatim: model.displayName)
-                                .font(.caption.weight(isSelected ? .semibold : .regular))
-                            Text(localizedCatalogFormat("%@. About %@.", model.localizedDescription(), ByteCountFormatter.string(fromByteCount: model.approximateBytes, countStyle: .file)))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                if showsSelectionControl {
+                    Button {
+                        onSelect()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                                .foregroundStyle(isInstalled ? Color.accentColor : .secondary)
+                            modelDescription
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .disabled(!isInstalled || appState.isInstallingNativeWhisper)
+                } else {
+                    modelDescription
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .buttonStyle(.plain)
-                .disabled(!isInstalled || appState.isInstallingNativeWhisper)
 
                 actionView
             }
@@ -3744,11 +4248,11 @@ struct NativeWhisperModelRowView: View {
             }
         }
         .padding(8)
-        .background(isSelected ? Color.accentColor.opacity(0.08) : Color(nsColor: .controlBackgroundColor))
+        .background(showsSelectedAppearance ? Color.accentColor.opacity(0.08) : Color(nsColor: .controlBackgroundColor))
         .cornerRadius(6)
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(isSelected ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
+                .stroke(showsSelectedAppearance ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
         )
         .confirmationDialog(
             "Delete model?",
@@ -3762,8 +4266,15 @@ struct NativeWhisperModelRowView: View {
         } message: {
             Text("This removes the downloaded Local Whisper model. You can download it again later.")
         }
-        .onAppear {
-            appState.refreshNativeWhisperInstallStatus()
+    }
+
+    private var modelDescription: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(verbatim: model.displayName)
+                .font(.caption.weight(showsSelectionControl && isSelected ? .semibold : .regular))
+            Text(localizedCatalogFormat("%@. About %@.", model.localizedDescription(), ByteCountFormatter.string(fromByteCount: model.approximateBytes, countStyle: .file)))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -3789,6 +4300,7 @@ struct NativeWhisperModelRowView: View {
             }
         } else {
             Button("Download") {
+                onDownloadStarted()
                 appState.installNativeWhisperModel()
             }
             .font(.caption)
@@ -3843,6 +4355,7 @@ struct NativeWhisperModelRowView: View {
                 .lineLimit(1)
                 .frame(minWidth: 72, alignment: .trailing)
             Button("Download") {
+                onDownloadStarted()
                 appState.installNativeWhisperModel()
             }
             .font(.caption)
@@ -3862,6 +4375,23 @@ struct ModelRowView: View {
     let whisperBin: String
     let onSelect: () -> Void
     let onDeleted: () -> Void
+    let showsSelectionControl: Bool
+
+    init(
+        model: TranscriptionModel,
+        isSelected: Bool,
+        whisperBin: String,
+        onSelect: @escaping () -> Void,
+        onDeleted: @escaping () -> Void,
+        showsSelectionControl: Bool = true
+    ) {
+        self.model = model
+        self.isSelected = isSelected
+        self.whisperBin = whisperBin
+        self.onSelect = onSelect
+        self.onDeleted = onDeleted
+        self.showsSelectionControl = showsSelectionControl
+    }
 
     @State private var isInstalled: Bool = false
     @State private var isDownloading: Bool = false
@@ -3877,28 +4407,31 @@ struct ModelRowView: View {
         isDownloading || isDeleting
     }
 
+    private var showsSelectedAppearance: Bool {
+        showsSelectionControl && isSelected
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
-                Button {
-                    onSelect()
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                            .foregroundStyle(isInstalled ? Color.accentColor : .secondary)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(verbatim: model.displayName)
-                                .font(.caption.weight(isSelected ? .semibold : .regular))
-                            Text(model.localizedDescription())
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                if showsSelectionControl {
+                    Button {
+                        onSelect()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                                .foregroundStyle(isInstalled ? Color.accentColor : .secondary)
+                            modelDescription
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
+                    .disabled(!isInstalled || isBusy)
+                } else {
+                    modelDescription
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .buttonStyle(.plain)
-                .disabled(!isInstalled || isBusy)
 
                 modelActionView
             }
@@ -3911,11 +4444,11 @@ struct ModelRowView: View {
             }
         }
         .padding(8)
-        .background(isSelected ? Color.accentColor.opacity(0.08) : Color(nsColor: .controlBackgroundColor))
+        .background(showsSelectedAppearance ? Color.accentColor.opacity(0.08) : Color(nsColor: .controlBackgroundColor))
         .cornerRadius(6)
         .overlay(
             RoundedRectangle(cornerRadius: 6)
-                .stroke(isSelected ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
+                .stroke(showsSelectedAppearance ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
         )
         .confirmationDialog(
             "Delete model?",
@@ -3931,6 +4464,16 @@ struct ModelRowView: View {
         }
         .onAppear {
             refreshInstallState()
+        }
+    }
+
+    private var modelDescription: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(verbatim: model.displayName)
+                .font(.caption.weight(showsSelectedAppearance ? .semibold : .regular))
+            Text(model.localizedDescription())
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 

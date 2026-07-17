@@ -5,6 +5,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let appState = AppState()
     var setupWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private lazy var settingsWindowDelegate = SettingsWindowDelegate(appState: appState)
     private var noteBrowserWindow: NSWindow?
     private var mcpServer: MCPServer?
     private var shouldRestoreAfterSetupWindowClose = false
@@ -266,6 +267,7 @@ private func showNoteBrowserWindow() {
         window.title = AppName.displayName
         window.contentView = hostingView
         window.isReleasedWhenClosed = false
+        window.delegate = settingsWindowDelegate
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -342,5 +344,32 @@ private func showNoteBrowserWindow() {
         } catch {
             print("[MCP] Failed to start server: \(error)")
         }
+    }
+}
+
+private final class SettingsWindowDelegate: NSObject, NSWindowDelegate {
+    private let appState: AppState
+
+    init(appState: AppState) {
+        self.appState = appState
+    }
+
+    @MainActor
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard appState.isInstallingNativeWhisper else { return true }
+
+        let alert = NSAlert()
+        alert.messageText = localizedCatalogString("Local Whisper Download in Progress")
+        alert.informativeText = localizedCatalogString(
+            "Closing Settings will cancel the model download and remove the partial file."
+        )
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: localizedCatalogString("Keep Settings Open"))
+        alert.addButton(withTitle: localizedCatalogString("Close and Cancel Download"))
+        alert.buttons.last?.hasDestructiveAction = true
+
+        guard alert.runModal() == .alertSecondButtonReturn else { return false }
+        appState.cancelNativeWhisperInstallForSettingsClose()
+        return true
     }
 }
