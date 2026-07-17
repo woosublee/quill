@@ -51,6 +51,7 @@ struct LocalizationResourceTests {
         try assertTask3ReviewCoverage(root: root)
         try assertTask4SettingsExtractionCoverage(root: root, catalogStrings: strings)
         try assertTask5ApplicationMessageCoverage(root: root, catalogStrings: strings)
+        try assertGoogleCalendarHealthMessageCoverage(root: root, catalogStrings: strings)
         try assertTask6OverlayCoverage(root: root, catalogStrings: strings)
         try assertLocalizedCancellationStatusReset(root: root)
 
@@ -253,6 +254,44 @@ struct LocalizationResourceTests {
         assert(appState.contains("alert.informativeText = LocalizedUserMessage.screenshotFailure(detail: message)"))
         assert(!appState.contains("LocalizedUserMessage.screenRecordingPermission(detail: message) +"))
         assert(!appState.contains("LocalizedUserMessage.screenshotFailure(detail: message) +"))
+    }
+
+    private static func assertGoogleCalendarHealthMessageCoverage(
+        root: URL,
+        catalogStrings: [String: Any]
+    ) throws {
+        let appState = try managedSource("Sources/AppState.swift", root: root)
+        let settings = try managedSource("Sources/SettingsView.swift", root: root)
+        let fixedKeys = [
+            "Google Calendar needs reconnecting.",
+            "Google Calendar needs reconnecting. Reconnect to restore meeting reminders and calendar-based note titles.",
+            "Google Calendar needs reconnecting. Reconnect to restore meeting reminders.",
+            "Google Calendar needs reconnecting. Calendar-based note titles may be unavailable.",
+            "Some Google calendars could not be refreshed. Reminders may be incomplete.",
+            "Some Google calendars could not be refreshed. Calendar-based note titles may be incomplete.",
+            "Quill can’t access Google Calendar. Reconnect to restore meeting reminders and calendar-based note titles.",
+            "Quill couldn’t refresh Google Calendar just now. Recording still works; reminders or note titles may be incomplete.",
+            "Reconnect Google Calendar to keep meeting recording reminders working.",
+            "Calendar reminders may be incomplete until the next successful refresh."
+        ]
+        let formattedKeys = [
+            "Unable to refresh Google Calendar reminders: %@",
+            "Unable to refresh Google Calendar: %@",
+            "Unable to refresh Google Calendar for note titles: %@"
+        ]
+
+        for key in fixedKeys + formattedKeys {
+            assertCatalogTranslations(for: key, catalogStrings: catalogStrings, requiresTranslation: true)
+        }
+        for key in fixedKeys where appState.contains(key) {
+            assert(appState.contains("localizedCatalogString(\"\(key)\")"), "Calendar message bypasses the catalog: \(key)")
+        }
+        for key in fixedKeys where settings.contains(key) {
+            assert(settings.contains("localizedCatalogString(\"\(key)\")"), "Settings fallback bypasses the catalog: \(key)")
+        }
+        for key in formattedKeys {
+            assert(appState.contains("localizedCatalogFormat(\"\(key)\", error.localizedDescription)"), "Calendar detail must stay a verbatim format argument: \(key)")
+        }
     }
 
     private static func assertTask6OverlayCoverage(root: URL, catalogStrings: [String: Any]) throws {

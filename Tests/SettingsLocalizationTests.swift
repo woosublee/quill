@@ -8,6 +8,7 @@ struct SettingsLocalizationTests {
         try testNativeWhisperModelKeepsIdentityAndLocalizesDescription()
         try testAudioImportDisplayKeepsModelIDAndLocalizesStaticLabels()
         try testSettingsSectionTitlePolicy()
+        try testGoogleCalendarHealthMessagesLocalizeWithoutChangingDetail()
         print("SettingsLocalizationTests passed")
     }
 
@@ -86,6 +87,27 @@ struct SettingsLocalizationTests {
         for (key, expected) in ordinaryKoreanTitles {
             assert(localizedCatalogString(key, language: "ko", bundle: bundle) == expected)
         }
+    }
+
+    private static func testGoogleCalendarHealthMessagesLocalizeWithoutChangingDetail() throws {
+        let bundle = try compiledLocalizationBundle()
+        let detail = "HTTP 503: upstream unavailable"
+
+        assert(
+            localizedCatalogString(
+                "Google Calendar needs reconnecting. Reconnect to restore meeting reminders and calendar-based note titles.",
+                language: "ko",
+                bundle: bundle
+            ) == "Google Calendar를 다시 연결해야 합니다. 회의 알림과 캘린더 기반 노트 제목을 복원하려면 다시 연결하세요."
+        )
+        assert(
+            localizedCatalogFormat(
+                "Unable to refresh Google Calendar: %@",
+                detail,
+                language: "ko",
+                bundle: bundle
+            ) == "Google Calendar를 새로 고치지 못했습니다: \(detail)"
+        )
     }
 
     private static func compiledLocalizationBundle() throws -> Bundle {

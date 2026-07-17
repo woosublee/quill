@@ -892,9 +892,9 @@ struct CalendarSettingsView: View {
         case .unknown, .healthy:
             return nil
         case .needsReconnect:
-            return health.message ?? "Quill can’t access Google Calendar. Reconnect to restore meeting reminders and calendar-based note titles."
+            return health.message ?? localizedCatalogString("Quill can’t access Google Calendar. Reconnect to restore meeting reminders and calendar-based note titles.")
         case .temporaryFailure:
-            return health.message ?? "Quill couldn’t refresh Google Calendar just now. Recording still works; reminders or note titles may be incomplete."
+            return health.message ?? localizedCatalogString("Quill couldn’t refresh Google Calendar just now. Recording still works; reminders or note titles may be incomplete.")
         }
     }
 
@@ -904,9 +904,9 @@ struct CalendarSettingsView: View {
         guard health.affectedFeature == .recordingReminders else { return nil }
         switch health.status {
         case .needsReconnect:
-            return "Reconnect Google Calendar to keep meeting recording reminders working."
+            return localizedCatalogString("Reconnect Google Calendar to keep meeting recording reminders working.")
         case .temporaryFailure:
-            return "Calendar reminders may be incomplete until the next successful refresh."
+            return localizedCatalogString("Calendar reminders may be incomplete until the next successful refresh.")
         case .unknown, .healthy:
             return nil
         }

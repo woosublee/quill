@@ -8404,6 +8404,214 @@
           }
         }
       }
+    },
+    "Google Calendar needs reconnecting.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Calendar needs reconnecting."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Calendar를 다시 연결해야 합니다."
+          }
+        }
+      }
+    },
+    "Google Calendar needs reconnecting. Reconnect to restore meeting reminders and calendar-based note titles.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Calendar needs reconnecting. Reconnect to restore meeting reminders and calendar-based note titles."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Calendar를 다시 연결해야 합니다. 회의 알림과 캘린더 기반 노트 제목을 복원하려면 다시 연결하세요."
+          }
+        }
+      }
+    },
+    "Google Calendar needs reconnecting. Reconnect to restore meeting reminders.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Calendar needs reconnecting. Reconnect to restore meeting reminders."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Calendar를 다시 연결해야 합니다. 회의 알림을 복원하려면 다시 연결하세요."
+          }
+        }
+      }
+    },
+    "Google Calendar needs reconnecting. Calendar-based note titles may be unavailable.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Calendar needs reconnecting. Calendar-based note titles may be unavailable."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Calendar를 다시 연결해야 합니다. 캘린더 기반 노트 제목을 사용할 수 없을 수 있습니다."
+          }
+        }
+      }
+    },
+    "Unable to refresh Google Calendar reminders: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to refresh Google Calendar reminders: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Calendar 알림을 새로 고치지 못했습니다: %@"
+          }
+        }
+      }
+    },
+    "Some Google calendars could not be refreshed. Reminders may be incomplete.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some Google calendars could not be refreshed. Reminders may be incomplete."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 Google 캘린더를 새로 고치지 못했습니다. 알림이 누락될 수 있습니다."
+          }
+        }
+      }
+    },
+    "Unable to refresh Google Calendar: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to refresh Google Calendar: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google Calendar를 새로 고치지 못했습니다: %@"
+          }
+        }
+      }
+    },
+    "Some Google calendars could not be refreshed. Calendar-based note titles may be incomplete.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some Google calendars could not be refreshed. Calendar-based note titles may be incomplete."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 Google 캘린더를 새로 고치지 못했습니다. 캘린더 기반 노트 제목이 불완전할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Unable to refresh Google Calendar for note titles: %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to refresh Google Calendar for note titles: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 제목에 사용할 Google Calendar를 새로 고치지 못했습니다: %@"
+          }
+        }
+      }
+    },
+    "Quill can’t access Google Calendar. Reconnect to restore meeting reminders and calendar-based note titles.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill can’t access Google Calendar. Reconnect to restore meeting reminders and calendar-based note titles."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill에서 Google Calendar에 접근할 수 없습니다. 회의 알림과 캘린더 기반 노트 제목을 복원하려면 다시 연결하세요."
+          }
+        }
+      }
+    },
+    "Quill couldn’t refresh Google Calendar just now. Recording still works; reminders or note titles may be incomplete.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill couldn’t refresh Google Calendar just now. Recording still works; reminders or note titles may be incomplete."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 Quill에서 Google Calendar를 새로 고치지 못했습니다. 녹음은 계속 사용할 수 있지만 알림이나 노트 제목이 불완전할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Reconnect Google Calendar to keep meeting recording reminders working.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnect Google Calendar to keep meeting recording reminders working."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "회의 녹음 알림을 계속 사용하려면 Google Calendar를 다시 연결하세요."
+          }
+        }
+      }
+    },
+    "Calendar reminders may be incomplete until the next successful refresh.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calendar reminders may be incomplete until the next successful refresh."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 새로 고침에 성공할 때까지 캘린더 알림이 누락될 수 있습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

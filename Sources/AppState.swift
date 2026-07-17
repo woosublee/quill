@@ -2166,13 +2166,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         var errorDescription: String? {
             switch self {
             case .needsReconnect:
-                return "Google Calendar needs reconnecting."
+                return localizedCatalogString("Google Calendar needs reconnecting.")
             }
         }
     }
 
     private static func googleCalendarReconnectMessage() -> String {
-        "Google Calendar needs reconnecting. Reconnect to restore meeting reminders and calendar-based note titles."
+        localizedCatalogString("Google Calendar needs reconnecting. Reconnect to restore meeting reminders and calendar-based note titles.")
     }
 
     static func isGoogleCalendarReconnectError(_ error: Error) -> Bool {
@@ -2214,7 +2214,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 await MainActor.run {
                     markGoogleCalendarNeedsReconnect(
                         feature: .recordingReminders,
-                        message: "Google Calendar needs reconnecting. Reconnect to restore meeting reminders."
+                        message: localizedCatalogString("Google Calendar needs reconnecting. Reconnect to restore meeting reminders.")
                     )
                 }
                 throw GoogleCalendarHealthError.needsReconnect
@@ -2225,12 +2225,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 if Self.isGoogleCalendarReconnectError(error) {
                     markGoogleCalendarNeedsReconnect(
                         feature: .recordingReminders,
-                        message: "Google Calendar needs reconnecting. Reconnect to restore meeting reminders."
+                        message: localizedCatalogString("Google Calendar needs reconnecting. Reconnect to restore meeting reminders.")
                     )
                 } else {
                     markGoogleCalendarTemporarilyUnavailable(
                         feature: .recordingReminders,
-                        message: "Unable to refresh Google Calendar reminders: \(error.localizedDescription)"
+                        message: localizedCatalogFormat("Unable to refresh Google Calendar reminders: %@", error.localizedDescription)
                     )
                 }
             }
@@ -2248,7 +2248,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             } else {
                 markGoogleCalendarTemporarilyUnavailable(
                     feature: .recordingReminders,
-                    message: "Some Google calendars could not be refreshed. Reminders may be incomplete."
+                    message: localizedCatalogString("Some Google calendars could not be refreshed. Reminders may be incomplete.")
                 )
             }
         }
@@ -2359,7 +2359,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             } else {
                 markGoogleCalendarTemporarilyUnavailable(
                     feature: .calendarList,
-                    message: "Unable to refresh Google Calendar: \(error.localizedDescription)"
+                    message: localizedCatalogFormat("Unable to refresh Google Calendar: %@", error.localizedDescription)
                 )
             }
         }
@@ -6037,7 +6037,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 await MainActor.run {
                     markGoogleCalendarNeedsReconnect(
                         feature: .recordingMatch,
-                        message: "Google Calendar needs reconnecting. Calendar-based note titles may be unavailable."
+                        message: localizedCatalogString("Google Calendar needs reconnecting. Calendar-based note titles may be unavailable.")
                     )
                 }
                 return nil
@@ -6061,7 +6061,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 await MainActor.run {
                     markGoogleCalendarTemporarilyUnavailable(
                         feature: .recordingMatch,
-                        message: "Some Google calendars could not be refreshed. Calendar-based note titles may be incomplete."
+                        message: localizedCatalogString("Some Google calendars could not be refreshed. Calendar-based note titles may be incomplete.")
                     )
                 }
                 os_log(
@@ -6127,12 +6127,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 if Self.isGoogleCalendarReconnectError(error) {
                     markGoogleCalendarNeedsReconnect(
                         feature: .recordingMatch,
-                        message: "Google Calendar needs reconnecting. Calendar-based note titles may be unavailable."
+                        message: localizedCatalogString("Google Calendar needs reconnecting. Calendar-based note titles may be unavailable.")
                     )
                 } else {
                     markGoogleCalendarTemporarilyUnavailable(
                         feature: .recordingMatch,
-                        message: "Unable to refresh Google Calendar for note titles: \(error.localizedDescription)"
+                        message: localizedCatalogFormat("Unable to refresh Google Calendar for note titles: %@", error.localizedDescription)
                     )
                 }
             }
