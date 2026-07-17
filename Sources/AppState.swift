@@ -741,8 +741,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var useLegacyMlxWhisper: Bool {
         didSet {
             UserDefaults.standard.set(useLegacyMlxWhisper, forKey: useLegacyMlxWhisperStorageKey)
-            guard oldValue != useLegacyMlxWhisper,
-                  !isApplyingNoteBrowserTranscriptionChoice else { return }
+            guard oldValue != useLegacyMlxWhisper else { return }
             scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration()
         }
     }
@@ -1159,9 +1158,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func scheduleNoteBrowserTranscriptionModeNormalizationForSelectedInput() {
-        guard !isApplyingNoteBrowserTranscriptionChoice else { return }
         if Thread.isMainThread {
             MainActor.assumeIsolated {
+                guard !isApplyingNoteBrowserTranscriptionChoice else { return }
                 normalizeNoteBrowserTranscriptionMode()
             }
         } else {
@@ -1173,10 +1172,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration() {
-        guard !isApplyingNoteBrowserTranscriptionChoice else { return }
         if Thread.isMainThread {
             MainActor.assumeIsolated {
-                guard !isRecording, !isTranscribing else { return }
+                guard !isApplyingNoteBrowserTranscriptionChoice,
+                      !isRecording,
+                      !isTranscribing else { return }
                 normalizeNoteBrowserTranscriptionMode()
             }
         } else {
@@ -1305,6 +1305,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             update(\AppState.useLocalTranscription, to: true)
             update(\AppState.realtimeStreamingEnabled, to: false)
             update(\AppState.localTranscriptionModel, to: .find(id: "apple-speech"))
+            update(\AppState.useLegacyMlxWhisper, to: false)
         }
     }
 

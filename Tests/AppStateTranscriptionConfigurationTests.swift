@@ -57,6 +57,7 @@ struct AppStateTranscriptionConfigurationTests {
         try testAudioImportSheetUsesChoiceDisplayRows()
         await testNoteBrowserTranscriptionChoiceDisplayIncludesResolvedModels()
         try testNoteBrowserTranscriptionChoiceSetterUpdatesLocalBackend()
+        try testNormalizationGuardsStayInsideMainActorIsolation()
         await testAPITranscriptionModesRequireResolvedAPIKey()
         try testSettingsAPIProviderTabDoesNotForceUnavailableAPIMode()
         try testSettingsLegacyMlxWhisperToggleControlsOptionsVisibilityOnly()
@@ -74,6 +75,8 @@ struct AppStateTranscriptionConfigurationTests {
         await testSystemDefaultAndSystemAudioFallsBackFromStoredAppleLiveToInstalledNativeWhisperWithoutReentry()
         await testRepeatedNativeWhisperSelectionRemainsStable()
         await testLegacyAndNativeWhisperTransitionsRemainStable()
+        await testLegacyToAppleLiveClearsLegacyEnginePreference()
+        await testLegacyOnlyStoredConfigurationRemainsLegacyWithoutNativeWhisper()
         try testGoogleCalendarConnectionMetadataRestoresStartupState()
         testGoogleCalendarConnectionMetadataClearsCorruptValue()
         testCalendarRecordingReminderLeadMinutesMigrateLegacyValue()
@@ -334,7 +337,7 @@ struct AppStateTranscriptionConfigurationTests {
 
         let appState = AppState()
 
-        assert(appState.useLegacyMlxWhisper == true)
+        assert(appState.useLegacyMlxWhisper == false)
         assert(appState.showLegacyMlxWhisperOptions == true)
         assert(defaults.bool(forKey: "show_legacy_mlx_whisper_options") == true)
     }
@@ -863,6 +866,31 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(legacyBranch.contains("update(\\AppState.showLegacyMlxWhisperOptions, to: true)"))
     }
 
+    private static func testNormalizationGuardsStayInsideMainActorIsolation() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let selectedInputScheduler = sourceBlock(
+            in: source,
+            from: "private func scheduleNoteBrowserTranscriptionModeNormalizationForSelectedInput()",
+            to: "\n    private func scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration()"
+        )
+        let providerScheduler = sourceBlock(
+            in: source,
+            from: "private func scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration()",
+            to: "\n    @MainActor\n    private func normalizeNoteBrowserTranscriptionMode()"
+        )
+        let legacyObserver = sourceBlock(
+            in: source,
+            from: "@Published var useLegacyMlxWhisper: Bool",
+            to: "\n\n    @Published var showLegacyMlxWhisperOptions"
+        )
+
+        precondition(!selectedInputScheduler.contains("guard !isApplyingNoteBrowserTranscriptionChoice else { return }\n        if Thread.isMainThread"))
+        precondition(selectedInputScheduler.contains("MainActor.assumeIsolated {\n                guard !isApplyingNoteBrowserTranscriptionChoice else { return }"))
+        precondition(!providerScheduler.contains("guard !isApplyingNoteBrowserTranscriptionChoice else { return }\n        if Thread.isMainThread"))
+        precondition(providerScheduler.contains("MainActor.assumeIsolated {\n                guard !isApplyingNoteBrowserTranscriptionChoice,"))
+        precondition(!legacyObserver.contains("!isApplyingNoteBrowserTranscriptionChoice"))
+    }
+
     private static func testAPITranscriptionModesRequireResolvedAPIKey() async {
         resetDefaults()
         await MainActor.run {
@@ -1217,6 +1245,76 @@ struct AppStateTranscriptionConfigurationTests {
             appState.setNoteBrowserTranscriptionChoice(legacyChoice)
             precondition(appState.currentNoteBrowserTranscriptionChoice == legacyChoice)
             precondition(appState.useLegacyMlxWhisper)
+        }
+    }
+
+    private static func testLegacyToAppleLiveClearsLegacyEnginePreference() async {
+        resetDefaults()
+        let legacyModel = TranscriptionModel.find(id: "mlx-community/whisper-medium-mlx")
+        let cacheRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("quill-legacy-to-apple-live-\(UUID().uuidString)", isDirectory: true)
+        let snapshot = legacyModel.cacheDirectory(in: cacheRoot)
+            .appendingPathComponent("snapshots/revision", isDirectory: true)
+        try! FileManager.default.createDirectory(at: snapshot, withIntermediateDirectories: true)
+        FileManager.default.createFile(
+            atPath: snapshot.appendingPathComponent("weights.npz").path,
+            contents: Data()
+        )
+        setenv("HUGGINGFACE_HUB_CACHE", cacheRoot.path, 1)
+        defer {
+            unsetenv("HUGGINGFACE_HUB_CACHE")
+            try? FileManager.default.removeItem(at: cacheRoot)
+        }
+
+        await MainActor.run {
+            let appState = AppState()
+            appState.useLocalTranscription = true
+            appState.localTranscriptionModel = legacyModel
+            appState.useLegacyMlxWhisper = true
+            precondition(appState.currentNoteBrowserTranscriptionChoice == .legacyMlxWhisper(model: legacyModel))
+
+            appState.setNoteBrowserTranscriptionChoice(.appleLive)
+
+            precondition(appState.currentNoteBrowserTranscriptionChoice == .appleLive)
+            precondition(appState.localTranscriptionModel.isAppleSpeech)
+            precondition(!appState.useLegacyMlxWhisper)
+        }
+    }
+
+    private static func testLegacyOnlyStoredConfigurationRemainsLegacyWithoutNativeWhisper() async {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        let legacyModel = TranscriptionModel.find(id: "mlx-community/whisper-medium-mlx")
+        let cacheRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("quill-legacy-only-startup-\(UUID().uuidString)", isDirectory: true)
+        let snapshot = legacyModel.cacheDirectory(in: cacheRoot)
+            .appendingPathComponent("snapshots/revision", isDirectory: true)
+        try! FileManager.default.createDirectory(at: snapshot, withIntermediateDirectories: true)
+        FileManager.default.createFile(
+            atPath: snapshot.appendingPathComponent("weights.npz").path,
+            contents: Data()
+        )
+        setenv("HUGGINGFACE_HUB_CACHE", cacheRoot.path, 1)
+        defer {
+            unsetenv("HUGGINGFACE_HUB_CACHE")
+            try? FileManager.default.removeItem(at: cacheRoot)
+        }
+
+        defaults.set(true, forKey: "use_local_transcription")
+        defaults.set(legacyModel.id, forKey: "local_transcription_model")
+        defaults.set(true, forKey: "use_legacy_mlx_whisper")
+
+        let originalProvider = AppState.nativeWhisperInstallStatusProvider
+        defer { AppState.nativeWhisperInstallStatusProvider = originalProvider }
+        AppState.nativeWhisperInstallStatusProvider = { _ in .notInstalled }
+
+        await MainActor.run {
+            let appState = AppState()
+
+            precondition(appState.currentNoteBrowserTranscriptionChoice == .legacyMlxWhisper(model: legacyModel))
+            precondition(appState.useLocalTranscription)
+            precondition(appState.useLegacyMlxWhisper)
+            precondition(appState.localTranscriptionModel == legacyModel)
         }
     }
 
