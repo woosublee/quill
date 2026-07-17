@@ -322,6 +322,28 @@ struct LocalizationResourceTests {
         ] {
             assertCatalogTranslations(for: key, catalogStrings: catalogStrings)
         }
+
+        assertCatalogTranslations(for: "Recording Overlay", catalogStrings: catalogStrings)
+        for key in [
+            "Notch-side menu-bar overlay",
+            "Shows recording status beside the camera notch when supported, without covering app tabs or toolbars.",
+            "Centered drop-down pill",
+            "Shows a single centered pill below the menu bar. More visible, but it can cover a thin strip of the active app.",
+            "Waveform display",
+            "Waveform only",
+            "Show the live audio waveform while recording.",
+            "Show elapsed time on hover",
+            "Show the waveform; hover it to peek the elapsed recording time.",
+            "Show elapsed time instead of waveform",
+            "Replace the waveform with a running elapsed-time counter.",
+            "Show on", "Active window (default)", "Primary display",
+            "Selected", "Not selected"
+        ] {
+            assertCatalogTranslations(for: key, catalogStrings: catalogStrings, requiresTranslation: true)
+        }
+
+        let settings = try managedSource("Sources/SettingsView.swift", root: root)
+        assert(settings.components(separatedBy: "localizedCatalogString(isSelected ? \"Selected\" : \"Not selected\")").count == 3)
     }
 
     private static func assertLocalizedCancellationStatusReset(root: URL) throws {

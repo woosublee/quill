@@ -671,7 +671,7 @@ struct OverlayLayoutOptionRow: View {
         .buttonStyle(.plain)
         // Combine so VoiceOver reads the subtitle too, not just the title.
         .accessibilityElement(children: .combine)
-        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityValue(localizedCatalogString(isSelected ? "Selected" : "Not selected"))
     }
 }
 
@@ -719,7 +719,7 @@ struct OverlayWaveformModeOptionRow: View {
         .buttonStyle(.plain)
         // Combine so VoiceOver reads the subtitle too, not just the title.
         .accessibilityElement(children: .combine)
-        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityValue(localizedCatalogString(isSelected ? "Selected" : "Not selected"))
     }
 }
 

@@ -9,6 +9,7 @@ struct SettingsLocalizationTests {
         try testAudioImportDisplayKeepsModelIDAndLocalizesStaticLabels()
         try testSettingsSectionTitlePolicy()
         try testGoogleCalendarHealthMessagesLocalizeWithoutChangingDetail()
+        try testRecordingOverlaySettingsCopyLocalizes()
         print("SettingsLocalizationTests passed")
     }
 
@@ -108,6 +109,23 @@ struct SettingsLocalizationTests {
                 bundle: bundle
             ) == "Google Calendar를 새로 고치지 못했습니다: \(detail)"
         )
+    }
+
+    private static func testRecordingOverlaySettingsCopyLocalizes() throws {
+        let bundle = try compiledLocalizationBundle()
+        let expected: [String: String] = [
+            "Notch-side menu-bar overlay": "노치 양옆 메뉴 막대 오버레이",
+            "Centered drop-down pill": "중앙 드롭다운 필",
+            "Waveform display": "파형 표시",
+            "Waveform only": "파형만 표시",
+            "Show elapsed time on hover": "포인터를 올리면 경과 시간 표시",
+            "Show elapsed time instead of waveform": "파형 대신 경과 시간 표시",
+            "Selected": "선택됨",
+            "Not selected": "선택되지 않음"
+        ]
+        for (key, value) in expected {
+            assert(localizedCatalogString(key, language: "ko", bundle: bundle) == value)
+        }
     }
 
     private static func compiledLocalizationBundle() throws -> Bundle {

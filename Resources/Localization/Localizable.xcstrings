@@ -8612,6 +8612,198 @@
           }
         }
       }
+    },
+    "Notch-side menu-bar overlay": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notch-side menu-bar overlay"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노치 양옆 메뉴 막대 오버레이"
+          }
+        }
+      }
+    },
+    "Shows recording status beside the camera notch when supported, without covering app tabs or toolbars.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows recording status beside the camera notch when supported, without covering app tabs or toolbars."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지원되는 경우 앱 탭이나 도구 막대를 가리지 않고 카메라 노치 양옆에 녹음 상태를 표시합니다."
+          }
+        }
+      }
+    },
+    "Centered drop-down pill": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Centered drop-down pill"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중앙 드롭다운 필"
+          }
+        }
+      }
+    },
+    "Shows a single centered pill below the menu bar. More visible, but it can cover a thin strip of the active app.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows a single centered pill below the menu bar. More visible, but it can cover a thin strip of the active app."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메뉴 막대 아래 중앙에 하나의 필을 표시합니다. 더 잘 보이지만 활성 앱의 얇은 영역을 가릴 수 있습니다."
+          }
+        }
+      }
+    },
+    "Waveform only": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waveform only"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파형만 표시"
+          }
+        }
+      }
+    },
+    "Show the live audio waveform while recording.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the live audio waveform while recording."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 중 실시간 오디오 파형을 표시합니다."
+          }
+        }
+      }
+    },
+    "Show elapsed time on hover": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show elapsed time on hover"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "포인터를 올리면 경과 시간 표시"
+          }
+        }
+      }
+    },
+    "Show the waveform; hover it to peek the elapsed recording time.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show the waveform; hover it to peek the elapsed recording time."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파형을 표시하고 포인터를 올리면 녹음 경과 시간을 잠시 보여 줍니다."
+          }
+        }
+      }
+    },
+    "Show elapsed time instead of waveform": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show elapsed time instead of waveform"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파형 대신 경과 시간 표시"
+          }
+        }
+      }
+    },
+    "Replace the waveform with a running elapsed-time counter.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace the waveform with a running elapsed-time counter."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파형을 실행 중인 경과 시간 카운터로 바꿉니다."
+          }
+        }
+      }
+    },
+    "Selected": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selected"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택됨"
+          }
+        }
+      }
+    },
+    "Not selected": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not selected"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택되지 않음"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
