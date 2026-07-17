@@ -3,8 +3,8 @@ import SwiftUI
 /// A reusable dropdown for selecting a model from predefined options,
 /// or providing a custom model string if "Custom..." is chosen.
 struct ModelDropdownView: View {
-    let title: String
-    let subtitle: String?
+    let title: LocalizedStringKey
+    let subtitle: LocalizedStringKey?
     let predefinedModels: [String]
     let defaultModel: String
     
@@ -47,7 +47,7 @@ struct ModelDropdownView: View {
             HStack(spacing: 8) {
                 Picker("", selection: effectiveSelection) {
                     ForEach(predefinedModels, id: \.self) { model in
-                        Text(model).tag(model)
+                        Text(verbatim: model).tag(model)
                     }
                     Divider()
                     Text("Custom...").tag("Custom...")

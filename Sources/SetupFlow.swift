@@ -1,7 +1,7 @@
 import UserNotifications
 
 enum SetupFlow {
-    static let localOnlySkipButtonTitle = "Skip"
+    static let localOnlySkipButtonTitle = String(localized: "Skip")
 
     struct LocalOnlySkipState: Equatable {
         let useLocalTranscription: Bool
@@ -34,6 +34,6 @@ enum SetupFlow {
     }
 
     static func notificationPermissionActionTitle(for status: UNAuthorizationStatus) -> String {
-        status == .denied ? "Open Settings" : "Grant Access"
+        status == .denied ? String(localized: "Open Settings") : String(localized: "Grant Access")
     }
 }

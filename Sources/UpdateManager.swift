@@ -165,11 +165,11 @@ final class UpdateManager: NSObject, ObservableObject {
 
     func showUpToDateAlert() {
         let alert = NSAlert()
-        alert.messageText = "You're Up to Date"
-        alert.informativeText = "You're running the latest version of Quill."
+        alert.messageText = localizedCatalogString("You're Up to Date")
+        alert.informativeText = localizedCatalogString("You're running the latest version of Quill.")
         alert.alertStyle = .informational
         alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: localizedCatalogString("OK"))
         alert.runModal()
     }
 
@@ -263,12 +263,12 @@ final class UpdateManager: NSObject, ObservableObject {
 
     private func showReleaseBuildRequiredAlert() {
         let alert = NSAlert()
-        alert.messageText = "Updates Are Available in Release Builds"
-        alert.informativeText = "This local build of Quill does not use automatic updates. Download the latest release from GitHub when you want to update."
+        alert.messageText = localizedCatalogString("Updates Are Available in Release Builds")
+        alert.informativeText = localizedCatalogString("This local build of Quill does not use automatic updates. Download the latest release from GitHub when you want to update.")
         alert.alertStyle = .informational
         alert.icon = NSApp.applicationIconImage
-        alert.addButton(withTitle: "Open Releases")
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: localizedCatalogString("Open Releases"))
+        alert.addButton(withTitle: localizedCatalogString("OK"))
 
         if alert.runModal() == .alertFirstButtonReturn,
            let url = URL(string: "https://github.com/woosublee/quill/releases/latest") {
@@ -310,7 +310,7 @@ extension UpdateManager: SPUUpdaterDelegate {
 
     func updater(_ updater: SPUUpdater, failedToDownloadUpdate item: SUAppcastItem, error: Error) {
         applyAvailableUpdate(item)
-        updateStatus = .error("Download failed: \(error.localizedDescription)")
+        updateStatus = .error(LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Download failed"), providerDetail: error.localizedDescription))
     }
 
     func userDidCancelDownload(_ updater: SPUUpdater) {
@@ -338,7 +338,7 @@ extension UpdateManager: SPUUpdaterDelegate {
     }
 
     func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
-        updateStatus = .error(error.localizedDescription)
+        updateStatus = .error(LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Update failed"), providerDetail: error.localizedDescription))
         isChecking = false
     }
 
@@ -350,7 +350,7 @@ extension UpdateManager: SPUUpdaterDelegate {
             if nsError.domain == SUSparkleErrorDomain, nsError.code == SUError.noUpdateError.rawValue {
                 clearAvailableUpdate()
             } else if updateStatus == .idle {
-                updateStatus = .error(error.localizedDescription)
+                updateStatus = .error(LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Update failed"), providerDetail: error.localizedDescription))
             }
         }
     }

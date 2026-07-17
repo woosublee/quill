@@ -8,6 +8,9 @@ struct BuildMetadataTests {
         try testBuildSettingsTrackCodesignIdentity()
         try testMakefileSeparatesDevRunFromInstallBuild()
         try testMakefileCopiesSelectedIconToBundleIconName()
+        try testMakefileBundlesLocalizationResources()
+        try testMakefileBuildsAppBundleForLocalizationValidation()
+        try testTestsWorkflowValidatesLocalizationBundle()
         try testMakefileStripsExtendedAttributesDuringCodesignStaging()
         try testMakefileStripsExtendedAttributesDuringDmgStaging()
         try testMakefileCreatesDmgWithoutFinderMetadata()
@@ -46,7 +49,7 @@ struct BuildMetadataTests {
     private static func testMakefilePrintsVersionMetadata() throws {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
 
-        assertContains(makefile, ".PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test print-app-version print-build-number print-build-tag print-version-metadata FORCE")
+        assertContains(makefile, ".PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test localization-bundle-test print-app-version print-build-number print-build-tag print-version-metadata FORCE /tmp/LocalizationResourceTests")
         assertContains(makefile, "print-app-version:")
         assertContains(makefile, "print-build-number:")
         assertContains(makefile, "print-build-tag:")
@@ -85,6 +88,31 @@ struct BuildMetadataTests {
         assertContains(infoPlist, "<key>CFBundleIconFile</key>\n    <string>AppIcon</string>")
         assertContains(makefile, "ICON_ICNS = Resources/AppIcon-Dev.icns")
         assertContains(makefile, "@cp $(ICON_ICNS) \"$(RESOURCES)/AppIcon.icns\"")
+    }
+
+    private static func testMakefileBundlesLocalizationResources() throws {
+        let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
+
+        assertContains(makefile, "LOCALIZATION_CATALOG = Resources/Localization/Localizable.xcstrings")
+        assertContains(makefile, "xcrun xcstringstool compile")
+        assertContains(makefile, "-l en -l ko")
+        assertContains(makefile, "$(RESOURCES)/en.lproj")
+        assertContains(makefile, "$(RESOURCES)/ko.lproj")
+    }
+
+    private static func testMakefileBuildsAppBundleForLocalizationValidation() throws {
+        let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
+
+        assertContains(makefile, "localization-bundle-test: /tmp/LocalizationResourceTests $(APP_EXECUTABLE_TARGET)")
+        assertContains(makefile, #"/tmp/LocalizationResourceTests --bundle "$(APP_BUNDLE)""#)
+        assertDoesNotContain(makefile, "Quill Localization Test.app")
+        assertDoesNotContain(makefile, "PlaceholderFixtures.strings")
+    }
+
+    private static func testTestsWorkflowValidatesLocalizationBundle() throws {
+        let workflow = try String(contentsOfFile: ".github/workflows/tests.yml", encoding: .utf8)
+
+        assertContains(workflow, "make localization-bundle-test CODESIGN_IDENTITY=-")
     }
 
     private static func testMakefileStripsExtendedAttributesDuringCodesignStaging() throws {

@@ -789,8 +789,8 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(sheetBody.contains("ForEach(options.displayRows)"))
         precondition(sheetBody.contains("@State private var selectedChoice: TranscriptionBackendChoice"))
         precondition(sheetBody.contains("onImport: (TranscriptionBackendChoice) -> Void"))
-        precondition(sheetBody.contains("Text(display.title)"))
-        precondition(sheetBody.contains("Text(unavailableReason)"))
+        precondition(sheetBody.contains("Text(display.localizedTitle())"))
+        precondition(sheetBody.contains("Text(display.localizedUnavailableReason() ?? unavailableReason)"))
         precondition(!sheetBody.contains("[NoteBrowserTranscriptionMode.apiStandard, .localWhisper]"))
         precondition(!sheetBody.contains("appState.audioImportLabel(for:"))
     }

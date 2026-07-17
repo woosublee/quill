@@ -39,3 +39,6 @@ jobs:
 
       - name: Run tests
         run: make test
+
+      - name: Validate app localization bundle
+        run: make localization-bundle-test CODESIGN_IDENTITY=-

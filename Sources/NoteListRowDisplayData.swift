@@ -14,64 +14,37 @@ func transcriptStatus(for item: PipelineHistoryItem, retrying: Set<UUID>) -> Tra
 }
 
 enum NoteTimestampFormatter {
-    static func detailTimestamp(for item: PipelineHistoryItem) -> String {
-        intervalTimestamp(
-            for: item,
-            fallbackFormatter: fullDateTimeFormatter,
-            startFormatter: fullDateTimeFormatter,
-            crossDateEndFormatter: fullDateTimeFormatter
-        )
-    }
-
-    static func rowTimestamp(for item: PipelineHistoryItem) -> String {
-        guard let startedAt = item.recordingStartedAt else {
-            return rowSingleTimestampFormatter.string(from: item.timestamp)
-        }
-        return rowStartTimestampFormatter.string(from: startedAt)
-    }
-
-    private static func intervalTimestamp(
-        for item: PipelineHistoryItem,
-        fallbackFormatter: DateFormatter,
-        startFormatter: DateFormatter,
-        crossDateEndFormatter: DateFormatter
-    ) -> String {
+    static func detailTimestamp(for item: PipelineHistoryItem, locale: Locale = .current) -> String {
         guard let startedAt = item.recordingStartedAt,
               let endedAt = item.recordingEndedAt,
               endedAt >= startedAt else {
-            return fallbackFormatter.string(from: item.timestamp)
+            return normalized(dateTimeStyle(locale: locale).format(item.timestamp))
         }
 
-        let startText = startFormatter.string(from: startedAt)
-        guard calendar.isDate(startedAt, inSameDayAs: endedAt) else {
-            return "\(startText) - \(crossDateEndFormatter.string(from: endedAt))"
-        }
-
-        if periodFormatter.string(from: startedAt) == periodFormatter.string(from: endedAt) {
-            return "\(startText) - \(timeFormatter.string(from: endedAt))"
-        }
-        return "\(startText) - \(periodTimeFormatter.string(from: endedAt))"
+        return normalized(
+            Date.IntervalFormatStyle(date: .long, time: .shortened)
+                .locale(locale)
+                .format(startedAt..<endedAt)
+        )
     }
 
-    private static let calendar: Calendar = {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.locale = Locale(identifier: "ko_KR")
-        return calendar
-    }()
+    static func rowTimestamp(for item: PipelineHistoryItem, locale: Locale = .current) -> String {
+        let timestamp = item.recordingStartedAt ?? item.timestamp
+        return normalized(rowTimestampStyle(locale: locale).format(timestamp))
+    }
 
-    private static let fullDateTimeFormatter = makeFormatter("yyyy년 M월 d일 a h:mm")
-    private static let rowSingleTimestampFormatter = makeFormatter("M월 d일 · HH:mm")
-    private static let rowStartTimestampFormatter = makeFormatter("M월 d일 a h:mm")
-    private static let periodTimeFormatter = makeFormatter("a h:mm")
-    private static let timeFormatter = makeFormatter("h:mm")
-    private static let periodFormatter = makeFormatter("a")
+    private static func dateTimeStyle(locale: Locale) -> Date.FormatStyle {
+        Date.FormatStyle(date: .long, time: .shortened).locale(locale)
+    }
 
-    private static func makeFormatter(_ dateFormat: String) -> DateFormatter {
-        let formatter = DateFormatter()
-        formatter.calendar = calendar
-        formatter.locale = Locale(identifier: "ko_KR")
-        formatter.dateFormat = dateFormat
-        return formatter
+    private static func rowTimestampStyle(locale: Locale) -> Date.FormatStyle {
+        Date.FormatStyle().month(.wide).day().hour().minute().locale(locale)
+    }
+
+    private static func normalized(_ value: String) -> String {
+        value.replacingOccurrences(of: "\u{202F}", with: " ")
+            .replacingOccurrences(of: "\u{00A0}", with: " ")
+            .replacingOccurrences(of: "\u{2009}", with: " ")
     }
 }
 
@@ -82,7 +55,7 @@ struct NoteListRowDisplayData: Equatable {
     let displayTitle: String
     let preview: String
 
-    init(item: PipelineHistoryItem, retryingIDs: Set<UUID>) {
+    init(item: PipelineHistoryItem, retryingIDs: Set<UUID>, locale: Locale = .current) {
         let status = transcriptStatus(for: item, retrying: retryingIDs)
         let trimmedCustomTitle = item.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
         let customTitle = trimmedCustomTitle?.isEmpty == true ? nil : trimmedCustomTitle
@@ -94,7 +67,7 @@ struct NoteListRowDisplayData: Equatable {
 
         self.id = item.id
         self.status = status
-        self.rowDate = NoteTimestampFormatter.rowTimestamp(for: item)
+        self.rowDate = NoteTimestampFormatter.rowTimestamp(for: item, locale: locale)
         self.displayTitle = displayTitle
         self.preview = Self.preview(
             for: item,

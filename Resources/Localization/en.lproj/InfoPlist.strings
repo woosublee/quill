@@ -1,0 +1,2 @@
+"NSMicrophoneUsageDescription" = "Quill needs microphone access to record dictation and meetings.";
+"NSSpeechRecognitionUsageDescription" = "Quill needs speech recognition access when Apple Live transcription is selected.";

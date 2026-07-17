@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 
+
 struct NativeWhisperModel: Identifiable, Hashable, Codable {
     let id: String
     let displayName: String
@@ -11,6 +12,19 @@ struct NativeWhisperModel: Identifiable, Hashable, Codable {
     let checksumSHA256: String
 
     static var recommended: NativeWhisperModel { NativeWhisperModelCatalog.recommended }
+
+    /// Resolves only user-facing copy. Download metadata and file identity stay unchanged.
+    func localizedDescription(
+        language: String = preferredLocalizedStringLanguage(),
+        bundle: Bundle = .main
+    ) -> String {
+        guard id == "whisper-large-v3-turbo" else { return description }
+        return localizedCatalogString(
+            "Fast local transcription with high accuracy. Recommended.",
+            language: language,
+            bundle: bundle
+        )
+    }
 }
 
 struct NativeWhisperModelCatalog {

@@ -12,7 +12,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func patchSettingsMenuItem() {
         guard let appMenu = NSApp.mainMenu?.items.first?.submenu else { return }
         if let item = appMenu.items.first(where: {
-            $0.title.contains("Settings") || $0.title.contains("Preferences")
+            Self.isSettingsMenuItemTitle($0.title, localizedSettingsTitle: String(localized: "Settings..."))
         }) {
             item.keyEquivalent = ","
             item.keyEquivalentModifierMask = .command
@@ -20,7 +20,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             item.action = #selector(handleShowSettings)
         } else {
             let item = NSMenuItem(
-                title: "Settings...",
+                title: NSLocalizedString("Settings...", comment: "Settings menu action"),
                 action: #selector(handleShowSettings),
                 keyEquivalent: ","
             )
@@ -30,6 +30,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             appMenu.insertItem(NSMenuItem.separator(), at: insertIndex)
             appMenu.insertItem(item, at: insertIndex + 1)
         }
+    }
+
+    static func isSettingsMenuItemTitle(_ title: String, localizedSettingsTitle: String) -> Bool {
+        let recognizedTitles = [localizedSettingsTitle, "Settings...", "Settings", "Preferences...", "Preferences"]
+        return recognizedTitles.contains(title)
     }
 
     func updateActivationPolicy() {

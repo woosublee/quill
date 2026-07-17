@@ -36,6 +36,10 @@ APP_EXECUTABLE_TARGET := $(subst $(space),\ ,$(APP_EXECUTABLE))
 
 SOURCES = $(shell find Sources -name '*.swift' -type f | LC_ALL=C sort)
 RESOURCES = $(CONTENTS)/Resources
+LOCALIZATION_CATALOG = Resources/Localization/Localizable.xcstrings
+LOCALIZATION_INFO_DIR = Resources/Localization
+LOCALIZATION_BUILD_DIR = $(BUILD_DIR)/localization
+LOCALIZATION_STAMP = $(LOCALIZATION_BUILD_DIR)/.compiled
 ARCH ?= $(shell uname -m)
 
 # Pick the icon source based on which bundle we are building. Dev builds get
@@ -50,7 +54,7 @@ ICON_ICNS = Resources/AppIcon.icns
 endif
 
 # Usage: make install CODESIGN_IDENTITY="Apple Development: you@example.com (TEAMID)"
-.PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test print-app-version print-build-number print-build-tag print-version-metadata FORCE
+.PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test localization-bundle-test print-app-version print-build-number print-build-tag print-version-metadata FORCE /tmp/LocalizationResourceTests
 
 all: $(APP_EXECUTABLE_TARGET)
 
@@ -79,7 +83,21 @@ $(WHISPER_STAMP): BuildSupport/WhisperRuntime/build-whisper.cpp.sh $(WHISPER_BUI
 	@mkdir -p "$(BUILD_DIR)"
 	@printf '%s\n' "$(WHISPER_HELPER)" > "$@"
 
-$(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS) $(BUILD_SETTINGS) $(SPARKLE_STAMP) $(WHISPER_STAMP)
+$(LOCALIZATION_STAMP): $(LOCALIZATION_CATALOG) $(LOCALIZATION_INFO_DIR)/en.lproj/InfoPlist.strings $(LOCALIZATION_INFO_DIR)/ko.lproj/InfoPlist.strings
+	@rm -rf "$(LOCALIZATION_BUILD_DIR)"
+	@mkdir -p "$(LOCALIZATION_BUILD_DIR)"
+	@xcrun xcstringstool compile "$(LOCALIZATION_CATALOG)" \
+		--output-directory "$(LOCALIZATION_BUILD_DIR)" \
+		-l en -l ko \
+		--serialization-format text
+	@for language in en ko; do \
+		test -f "$(LOCALIZATION_BUILD_DIR)/$$language.lproj/Localizable.strings"; \
+		cp "$(LOCALIZATION_INFO_DIR)/$$language.lproj/InfoPlist.strings" \
+			"$(LOCALIZATION_BUILD_DIR)/$$language.lproj/InfoPlist.strings"; \
+	done
+	@touch "$@"
+
+$(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS) $(BUILD_SETTINGS) $(SPARKLE_STAMP) $(WHISPER_STAMP) $(LOCALIZATION_STAMP)
 	@mkdir -p "$(MACOS_DIR)" "$(RESOURCES)" "$(FRAMEWORKS)"
 	@framework="$$(cat "$(SPARKLE_STAMP)" 2>/dev/null)"; \
 		if [ -z "$$framework" ] || [ ! -d "$$framework" ]; then \
@@ -136,6 +154,9 @@ endif
 	@plutil -replace GoogleCalendarOAuthClientID -string "$(GOOGLE_CALENDAR_OAUTH_CLIENT_ID)" "$(CONTENTS)/Info.plist"
 	@plutil -replace GoogleCalendarOAuthClientSecret -string "$(GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET)" "$(CONTENTS)/Info.plist"
 	@cp $(ICON_ICNS) "$(RESOURCES)/AppIcon.icns"
+	@rm -rf "$(RESOURCES)/en.lproj" "$(RESOURCES)/ko.lproj"
+	@ditto --norsrc --noextattr "$(LOCALIZATION_BUILD_DIR)/en.lproj" "$(RESOURCES)/en.lproj"
+	@ditto --norsrc --noextattr "$(LOCALIZATION_BUILD_DIR)/ko.lproj" "$(RESOURCES)/ko.lproj"
 	@mkdir -p "$(RESOURCES)/whisper"
 	@whisper_helper="$$(cat "$(WHISPER_STAMP)")"; \
 		if [ -z "$$whisper_helper" ] || [ ! -x "$$whisper_helper" ]; then \
@@ -276,7 +297,13 @@ check-test-wiring:
 		fi; \
 	done
 
-test: check-test-wiring $(SPARKLE_STAMP)
+/tmp/LocalizationResourceTests: Tests/LocalizationResourceTests.swift
+	@swiftc -parse-as-library Tests/LocalizationResourceTests.swift -o /tmp/LocalizationResourceTests
+
+localization-bundle-test: /tmp/LocalizationResourceTests $(APP_EXECUTABLE_TARGET)
+	@/tmp/LocalizationResourceTests --bundle "$(APP_BUNDLE)"
+
+test: check-test-wiring $(SPARKLE_STAMP) $(LOCALIZATION_STAMP)
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/CalendarEventMatcher.swift Tests/CalendarEventMatcherTests.swift -o /tmp/CalendarEventMatcherTests
 	@swiftc -parse-as-library Sources/AppName.swift Sources/ModifierKeyEventState.swift Sources/ShortcutCore/ShortcutModels.swift Sources/ShortcutCore/ShortcutMatcher.swift Sources/GlobalShortcutBackend.swift Sources/HotkeyManager.swift Tests/ShortcutMatcherTests.swift -o /tmp/ShortcutMatcherTests
 	@swiftc -parse-as-library Sources/ShortcutCore/ShortcutModels.swift Sources/ShortcutBinding.swift Sources/ShortcutCaptureKeyHandling.swift Tests/ShortcutCaptureKeyHandlingTests.swift -o /tmp/ShortcutCaptureKeyHandlingTests
@@ -297,10 +324,20 @@ test: check-test-wiring $(SPARKLE_STAMP)
 	@/tmp/LegacyNoteTitleMigrationTests
 	@swiftc -parse-as-library Tests/ManualReleaseWorkflowTests.swift -o /tmp/ManualReleaseWorkflowTests
 	@/tmp/ManualReleaseWorkflowTests
-	@framework="$$(cat "$(SPARKLE_STAMP)")"; framework_parent="$$(dirname "$$framework")"; swiftc -parse-as-library -F "$$framework_parent" -framework Sparkle -Xlinker -rpath -Xlinker "$$framework_parent" Sources/UpdateManager.swift Tests/UpdateManagerSafetyTests.swift -o /tmp/UpdateManagerSafetyTests
+	@framework="$$(cat "$(SPARKLE_STAMP)")"; framework_parent="$$(dirname "$$framework")"; swiftc -parse-as-library -F "$$framework_parent" -framework Sparkle -Xlinker -rpath -Xlinker "$$framework_parent" Sources/LocalizedStringLookup.swift Sources/LocalizedUserMessage.swift Sources/UpdateManager.swift Tests/UpdateManagerSafetyTests.swift -o /tmp/UpdateManagerSafetyTests
 	@/tmp/UpdateManagerSafetyTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Tests/LocalizedStringLookupTests.swift -o /tmp/LocalizedStringLookupTests
+	@/tmp/LocalizedStringLookupTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/LocalizedUserMessage.swift Tests/LocalizedUserMessageTests.swift -o /tmp/LocalizedUserMessageTests
+	@/tmp/LocalizedUserMessageTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/OverlayDisplayCopy.swift Tests/OverlayDisplayCopyTests.swift -o /tmp/OverlayDisplayCopyTests
+	@/tmp/OverlayDisplayCopyTests
 	@swiftc -parse-as-library Tests/BuildMetadataTests.swift -o /tmp/BuildMetadataTests
 	@/tmp/BuildMetadataTests
+	@$(MAKE) /tmp/LocalizationResourceTests
+	@/tmp/LocalizationResourceTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/TranscriptionLanguage.swift Sources/TranscriptionModel.swift Sources/NativeWhisperModel.swift Sources/AudioImportOptions.swift Tests/SettingsLocalizationTests.swift -o /tmp/SettingsLocalizationTests
+	@/tmp/SettingsLocalizationTests
 	@swiftc -parse-as-library Sources/InstructionExecutionDetector.swift Tests/InstructionExecutionDetectorTests.swift -o /tmp/InstructionExecutionDetectorTests
 	@/tmp/InstructionExecutionDetectorTests
 	@swiftc -parse-as-library Tests/ReleaseSDKCompatibilityTests.swift -o /tmp/ReleaseSDKCompatibilityTests
@@ -321,33 +358,33 @@ test: check-test-wiring $(SPARKLE_STAMP)
 	@/tmp/AudioWaveformHeightsTests
 	@swiftc -parse-as-library Tests/SystemAudioAppStateRoutingTests.swift -o /tmp/SystemAudioAppStateRoutingTests
 	@/tmp/SystemAudioAppStateRoutingTests
-	@swiftc -parse-as-library Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Tests/PipelineHistoryCalendarMetadataTests.swift -o /tmp/PipelineHistoryCalendarMetadataTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Tests/PipelineHistoryCalendarMetadataTests.swift -o /tmp/PipelineHistoryCalendarMetadataTests
 	@/tmp/PipelineHistoryCalendarMetadataTests
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/GoogleCalendarTokenStore.swift Sources/GoogleCalendarAuthService.swift Sources/GoogleCalendarService.swift Tests/GoogleCalendarServiceTests.swift -o /tmp/GoogleCalendarServiceTests
 	@/tmp/GoogleCalendarServiceTests
-	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/AppNotificationManager.swift Sources/CalendarRecordingReminderScheduler.swift Tests/CalendarRecordingReminderSchedulerTests.swift -o /tmp/CalendarRecordingReminderSchedulerTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/AppNotificationManager.swift Sources/CalendarRecordingReminderScheduler.swift Tests/CalendarRecordingReminderSchedulerTests.swift -o /tmp/CalendarRecordingReminderSchedulerTests
 	@/tmp/CalendarRecordingReminderSchedulerTests
-	@swiftc -parse-as-library Sources/TranscriptionModel.swift Sources/SetupFlow.swift Tests/SetupFlowTests.swift -o /tmp/SetupFlowTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/TranscriptionModel.swift Sources/SetupFlow.swift Tests/SetupFlowTests.swift -o /tmp/SetupFlowTests
 	@/tmp/SetupFlowTests
-	@swiftc -parse-as-library Sources/TranscriptionModel.swift Tests/TranscriptionModelCacheTests.swift -o /tmp/TranscriptionModelCacheTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/TranscriptionModel.swift Tests/TranscriptionModelCacheTests.swift -o /tmp/TranscriptionModelCacheTests
 	@/tmp/TranscriptionModelCacheTests
-	@swiftc -parse-as-library Sources/TranscriptionModel.swift Sources/AudioImportOptions.swift Tests/AudioImportOptionsTests.swift -o /tmp/AudioImportOptionsTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/TranscriptionModel.swift Sources/AudioImportOptions.swift Tests/AudioImportOptionsTests.swift -o /tmp/AudioImportOptionsTests
 	@/tmp/AudioImportOptionsTests
-	@swiftc -parse-as-library Sources/NativeWhisperModel.swift Tests/NativeWhisperModelTests.swift -o /tmp/NativeWhisperModelTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/NativeWhisperModel.swift Tests/NativeWhisperModelTests.swift -o /tmp/NativeWhisperModelTests
 	@/tmp/NativeWhisperModelTests
-	@swiftc -parse-as-library Sources/NativeWhisperModel.swift Sources/NativeWhisperRuntime.swift Tests/NativeWhisperRuntimeTests.swift -o /tmp/NativeWhisperRuntimeTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/NativeWhisperModel.swift Sources/NativeWhisperRuntime.swift Tests/NativeWhisperRuntimeTests.swift -o /tmp/NativeWhisperRuntimeTests
 	@/tmp/NativeWhisperRuntimeTests
-	@swiftc -parse-as-library Sources/NativeWhisperModel.swift Sources/NativeWhisperInstaller.swift Tests/NativeWhisperInstallerTests.swift -o /tmp/NativeWhisperInstallerTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/NativeWhisperModel.swift Sources/NativeWhisperInstaller.swift Tests/NativeWhisperInstallerTests.swift -o /tmp/NativeWhisperInstallerTests
 	@/tmp/NativeWhisperInstallerTests
 	@swiftc -parse-as-library Sources/LLMCooldownManager.swift Tests/LLMCooldownManagerTests.swift -o /tmp/LLMCooldownManagerTests
 	@/tmp/LLMCooldownManagerTests
 	@swiftc -parse-as-library Sources/OverlayScreenGeometry.swift Tests/OverlayScreenGeometryTests.swift -o /tmp/OverlayScreenGeometryTests
 	@/tmp/OverlayScreenGeometryTests
-	@swiftc -parse-as-library Sources/OverlayScreenGeometry.swift Sources/FixedIntrinsicHostingView.swift Sources/ShortcutCore/ShortcutModels.swift Sources/AudioInputDevice.swift Sources/RecordingOverlay.swift Tests/RecordingOverlayGeometryTests.swift -o /tmp/RecordingOverlayGeometryTests
+	@swiftc -parse-as-library Sources/OverlayScreenGeometry.swift Sources/FixedIntrinsicHostingView.swift Sources/ShortcutCore/ShortcutModels.swift Sources/AudioInputDevice.swift Sources/LocalizedStringLookup.swift Sources/OverlayDisplayCopy.swift Sources/RecordingOverlay.swift Tests/RecordingOverlayGeometryTests.swift -o /tmp/RecordingOverlayGeometryTests
 	@/tmp/RecordingOverlayGeometryTests
 	@swiftc -parse-as-library Tests/UpstreamMergeBehaviorTests.swift -o /tmp/UpstreamMergeBehaviorTests
 	@/tmp/UpstreamMergeBehaviorTests
-	@swiftc -parse-as-library Sources/OverlayScreenGeometry.swift Sources/FixedIntrinsicHostingView.swift Sources/ShortcutCore/ShortcutModels.swift Sources/AudioInputDevice.swift Sources/RecordingOverlay.swift Sources/CalendarIntegrationModels.swift Sources/AppNotificationManager.swift Sources/CalendarRecordingReminderScheduler.swift Sources/MeetingReminderOverlay.swift Tests/MeetingReminderOverlayGeometryTests.swift -o /tmp/MeetingReminderOverlayGeometryTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/OverlayDisplayCopy.swift Sources/OverlayScreenGeometry.swift Sources/FixedIntrinsicHostingView.swift Sources/ShortcutCore/ShortcutModels.swift Sources/AudioInputDevice.swift Sources/RecordingOverlay.swift Sources/CalendarIntegrationModels.swift Sources/AppNotificationManager.swift Sources/CalendarRecordingReminderScheduler.swift Sources/MeetingReminderOverlay.swift Tests/MeetingReminderOverlayGeometryTests.swift -o /tmp/MeetingReminderOverlayGeometryTests
 	@/tmp/MeetingReminderOverlayGeometryTests
 	@framework="$$(cat "$(SPARKLE_STAMP)")"; framework_parent="$$(dirname "$$framework")"; swiftc -parse-as-library -F "$$framework_parent" -framework Sparkle -Xlinker -rpath -Xlinker "$$framework_parent" -target $(shell uname -m)-apple-macosx13.0 $(filter-out Sources/App.swift,$(SOURCES)) Tests/AppStateTranscriptionConfigurationTests.swift -o /tmp/AppStateTranscriptionConfigurationTests
 	@isolated_home="$$(mktemp -d /tmp/quill-app-state-tests.XXXXXX)"; trap 'rm -rf "$$isolated_home"' EXIT; CFFIXED_USER_HOME="$$isolated_home" /tmp/AppStateTranscriptionConfigurationTests

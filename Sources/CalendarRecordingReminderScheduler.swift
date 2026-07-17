@@ -405,21 +405,29 @@ final class CalendarRecordingReminderScheduler {
     }
 
     nonisolated static func notificationTitle(for schedule: CalendarRecordingReminderSchedule, now: Date) -> String {
+        notificationTitle(for: schedule, now: now, language: preferredLocalizedStringLanguage(), bundle: .main)
+    }
+
+    nonisolated static func notificationTitle(for schedule: CalendarRecordingReminderSchedule, now: Date, language: String, bundle: Bundle) -> String {
         let minutesUntilStart = Int(ceil(schedule.event.start.timeIntervalSince(now) / 60))
         if minutesUntilStart > 1 {
-            return "Meeting starts in \(minutesUntilStart) minutes"
+            return String(format: localizedCatalogString("Meeting starts in %d minutes", language: language, bundle: bundle), minutesUntilStart)
         }
         if minutesUntilStart == 1 {
-            return "Meeting starts in 1 minute"
+            return localizedCatalogString("Meeting starts in 1 minute", language: language, bundle: bundle)
         }
         if schedule.event.start > now {
-            return "Meeting starts soon"
+            return localizedCatalogString("Meeting starts soon", language: language, bundle: bundle)
         }
-        return "Meeting is starting now"
+        return localizedCatalogString("Meeting is starting now", language: language, bundle: bundle)
     }
 
     nonisolated static func notificationBody(for event: GoogleCalendarEvent) -> String {
-        "Tap to start recording: \(event.title)"
+        notificationBody(for: event, language: preferredLocalizedStringLanguage(), bundle: .main)
+    }
+
+    nonisolated static func notificationBody(for event: GoogleCalendarEvent, language: String, bundle: Bundle) -> String {
+        String(format: localizedCatalogString("Tap to start recording: %@", language: language, bundle: bundle), event.title)
     }
 
     nonisolated static func isReminderEligible(_ event: GoogleCalendarEvent) -> Bool {

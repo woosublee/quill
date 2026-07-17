@@ -1,5 +1,6 @@
 import Foundation
 
+
 enum TranscriptionModelCacheError: LocalizedError {
     case builtInModelCannotBeDownloaded
     case builtInModelCannotBeDeleted
@@ -121,6 +122,23 @@ struct TranscriptionModel: Identifiable, Hashable, Codable {
             description: "빠름 · 정확도 낮음"
         ),
     ]
+
+    /// Resolves only user-facing copy. The stored model ID and cache identity stay unchanged.
+    func localizedDescription(
+        language: String = preferredLocalizedStringLanguage(),
+        bundle: Bundle = .main
+    ) -> String {
+        let key: String
+        switch id {
+        case "apple-speech": key = "On-device · Fast"
+        case "mlx-community/whisper-large-v3-turbo": key = "Fast · High accuracy (Recommended)"
+        case "mlx-community/whisper-large-v3-mlx": key = "Highest accuracy · Slow"
+        case "mlx-community/whisper-medium-mlx": key = "Medium speed · Medium accuracy"
+        case "mlx-community/whisper-small-mlx": key = "Fast · Lower accuracy"
+        default: return description
+        }
+        return localizedCatalogString(key, language: language, bundle: bundle)
+    }
 
     var isAppleSpeech: Bool { id == "apple-speech" }
 

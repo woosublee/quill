@@ -3,9 +3,28 @@ import Speech
 
 struct TranscriptionLanguage: Identifiable, Hashable, Codable {
     let code: String      // mlx-whisper에 넘기는 언어 코드 (e.g. "ko")
-    let displayName: String  // UI에 표시되는 이름 (e.g. "한국어")
+    let displayName: String  // Stable fallback display name; `code` remains the persisted/API value.
 
     var id: String { code }
+
+    func localizedDisplayName(
+        language: String = preferredLocalizedStringLanguage(),
+        bundle: Bundle = .main
+    ) -> String {
+        let key: String
+        switch code {
+        case "auto": key = "Auto Detect"
+        case "ko": key = "Korean"
+        case "en": key = "English"
+        case "ja": key = "Japanese"
+        case "zh": key = "Chinese"
+        case "es": key = "Spanish"
+        case "fr": key = "French"
+        case "de": key = "German"
+        default: return displayName
+        }
+        return localizedCatalogString(key, language: language, bundle: bundle)
+    }
 
     // 자동 감지 옵션
     static let auto = TranscriptionLanguage(code: "auto", displayName: "Auto Detect")

@@ -504,7 +504,7 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
     }
 
     private static func startText(for start: Date) -> String {
-        "Starts at \(startTimeText(for: start))"
+        OverlayDisplayCopy.meetingStarts(at: startTimeText(for: start))
     }
 
     private static func startTimeText(for start: Date) -> String {
@@ -615,7 +615,7 @@ private struct DefaultMeetingReminderOverlayView: View {
                         HStack(spacing: 6) {
                             AppIconView(size: 22, cornerRadius: 6)
                                 .matchedGeometryEffect(id: "appIcon", in: animationNamespace)
-                            Text("Quill")
+                            Text(verbatim: "Quill")
                                 .font(.system(size: 11, weight: .bold))
                                 .foregroundStyle(.white.opacity(0.72))
                                 .lineLimit(1)
@@ -699,7 +699,7 @@ private struct CenterMeetingReminderOverlayView: View {
                 HStack(spacing: 6) {
                     AppIconView(size: 22, cornerRadius: 6)
                         .matchedGeometryEffect(id: "appIcon", in: animationNamespace)
-                    Text("Quill")
+                    Text(verbatim: "Quill")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.white.opacity(0.72))
                         .lineLimit(1)
@@ -805,6 +805,7 @@ private struct CloseButton: View {
                 .background(Color.white.opacity(0.10), in: Circle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Close")
     }
 }
 
