@@ -237,7 +237,7 @@ Cloud Provider는 다음 기능에 사용된다.
 
 ### Future work — Local AI Server (not implemented in this UI pass)
 
-#64가 #145 Phase 2를 충족하도록 Post-processing과 Context에서 외부 OpenAI-compatible Local AI Server를 선택할 수 있게 한다.
+\#64가 #145 Phase 2를 충족하도록 Post-processing과 Context에서 외부 OpenAI-compatible Local AI Server를 선택할 수 있게 한다.
 
 새 설정:
 
@@ -787,7 +787,7 @@ Cloud 및 Local credential은 동일한 `AppSettingsStorage` 정책을 사용한
 | Legacy binary path | Transcription → Details | same default/custom path |
 | Legacy download/progress/cancel/retry | Transcription → Details | preserved per model |
 | Legacy installed/delete/error | Transcription → Details | preserved per model |
-| Installed Legacy dropdown entries | Transcription dropdown | existing availability, installed state, and `showLegacyMlxWhisperOptions` behavior preserved; no new visibility key |
+| Installed Legacy dropdown entries | Transcription dropdown | existing availability and installed state preserved; the management toggle does not hide installed choices and no new visibility key is added |
 | Delete selected Legacy fallback | Transcription routing | Native first, existing fallback order thereafter |
 | Output Language | Post-processing → Details | one location; not tied to transcription backend |
 | Disable Post-Processing | Post-processing card toggle | inverse binding and persisted visual value retained; disabled without common Cloud key |

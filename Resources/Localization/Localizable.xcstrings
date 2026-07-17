@@ -9349,6 +9349,22 @@
         }
       }
     },
+    "Output Language is unavailable while Post-processing and Edit Mode are off.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Output Language is unavailable while Post-processing and Edit Mode are off."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후처리와 Edit Mode가 모두 꺼져 있으면 출력 언어를 사용할 수 없습니다."
+          }
+        }
+      }
+    },
     "Final transcript language for post-processing and Edit Mode transforms.": {
       "localizations": {
         "en": {

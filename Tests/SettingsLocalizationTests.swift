@@ -167,6 +167,7 @@ struct SettingsLocalizationTests {
             "Used as the explicit retry model for transcript cleanup and Edit Mode transforms.": "전사문 정리와 Edit Mode 변환을 다시 시도할 때 사용할 모델입니다.",
             "Edit Mode uses this model, fallback model, Output Language, and Custom Vocabulary. Invocation Style and Extra Modifier remain in Shortcuts.": "Edit Mode는 이 모델, 대체 모델, 출력 언어 및 사용자 지정 어휘를 사용합니다. 실행 방식과 추가 보조 키는 단축키에 그대로 있습니다.",
             "Output Language remains available for Edit Mode transforms.": "출력 언어는 Edit Mode 변환에서도 계속 사용할 수 있습니다.",
+            "Output Language is unavailable while Post-processing and Edit Mode are off.": "후처리와 Edit Mode가 모두 꺼져 있으면 출력 언어를 사용할 수 없습니다.",
             "Final transcript language for post-processing and Edit Mode transforms.": "후처리와 Edit Mode 변환에 사용할 최종 전사문 언어입니다.",
             "Spoken language hint for speech recognition. Auto Detect works for most users.": "음성 인식을 위한 발화 언어 힌트입니다. 대부분의 사용자는 자동 감지를 사용하면 됩니다.",
             "Stream audio while recording (realtime)": "녹음 중 오디오 스트리밍(실시간)",

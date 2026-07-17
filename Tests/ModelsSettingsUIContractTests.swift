@@ -20,6 +20,7 @@ struct ModelsSettingsUIContractTests {
         try testTranscriptionUsesNativePickerAndExistingChoiceAPI(settings)
         testNativeDropdownUsesPendingContextualManagement(settings)
         testNativeManagementRegressionGuards(settings: settings, appDelegate: appDelegate)
+        testReviewRegressionGuards(settings)
         testPostProcessingUsesExplicitSwitchAndExistingState(settings)
         testContextUsesExplicitSwitchAndExistingState(settings)
         try testAutoPasteLivesInShortcutsClipboard(settings)
@@ -304,6 +305,47 @@ struct ModelsSettingsUIContractTests {
         precondition(appDelegate.contains("Keep Settings Open"))
         precondition(appDelegate.contains("Close and Cancel Download"))
         precondition(settingsWindow.contains("window.delegate ="))
+    }
+
+    private static func testReviewRegressionGuards(_ source: String) {
+        let models = block(
+            in: source,
+            from: "struct ModelsSettingsView",
+            to: "// MARK: - Shortcuts Settings"
+        )
+        let displays = block(
+            in: models,
+            from: "private var transcriptionChoiceDisplays: [TranscriptionChoiceDisplay]",
+            to: "\n    private var transcriptionChoice"
+        )
+        let menuItem = block(
+            in: models,
+            from: "private func transcriptionChoiceMenuItem",
+            to: "\n    private var transcriptionChoicePicker"
+        )
+        let outputLanguage = block(
+            in: models,
+            from: "private var outputLanguageSetting: some View",
+            to: "\n    private var preserveExactWordingSetting"
+        )
+        let validation = block(
+            in: models,
+            from: "private func validateAndSaveKey()",
+            to: "\n    // MARK: System Prompt"
+        )
+
+        precondition(displays.contains("case .legacyMlxWhisper:"))
+        precondition(displays.contains("return display.isAvailable"))
+        precondition(!displays.contains("appState.showLegacyMlxWhisperOptions"))
+        precondition(menuItem.contains("handleTranscriptionChoiceSelection(display.choice)"))
+        precondition(!menuItem.contains("appState.setNoteBrowserTranscriptionChoice(display.choice)"))
+        precondition(outputLanguage.contains("private var isOutputLanguageAvailable: Bool"))
+        precondition(outputLanguage.contains("!appState.disablePostProcessing || appState.isCommandModeEnabled"))
+        precondition(outputLanguage.contains(".disabled(!isOutputLanguageAvailable)"))
+        precondition(outputLanguage.contains(".opacity(isOutputLanguageAvailable ? 1 : 0.55)"))
+        precondition(outputLanguage.contains("Output Language is unavailable while Post-processing and Edit Mode are off."))
+        precondition(validation.contains("appState.apiKey = key"))
+        precondition(!validation.contains("setNoteBrowserTranscriptionMode(.apiStandard)"))
     }
 
     private static func testContextUsesExplicitSwitchAndExistingState(_ source: String) {

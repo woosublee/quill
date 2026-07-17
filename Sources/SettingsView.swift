@@ -1730,7 +1730,7 @@ struct ModelsSettingsView: View {
             case .apiRealtime:
                 return showRealtimeTranscriptionOption || appState.realtimeStreamingEnabled
             case .legacyMlxWhisper:
-                return appState.showLegacyMlxWhisperOptions
+                return display.isAvailable
             case .appleLive:
                 return true
             }
@@ -1827,7 +1827,7 @@ struct ModelsSettingsView: View {
         Toggle(isOn: Binding(
             get: { appState.currentNoteBrowserTranscriptionChoice == display.choice },
             set: { isSelected in
-                if isSelected { appState.setNoteBrowserTranscriptionChoice(display.choice) }
+                if isSelected { handleTranscriptionChoiceSelection(display.choice) }
             }
         )) {
             Text(transcriptionChoiceMenuLabel(display))
@@ -2228,6 +2228,8 @@ struct ModelsSettingsView: View {
             }
             .pickerStyle(.menu)
             .frame(minWidth: 280, maxWidth: 320, alignment: .leading)
+            .disabled(!isOutputLanguageAvailable)
+            .opacity(isOutputLanguageAvailable ? 1 : 0.55)
 
             Text(outputLanguageHelpText)
                 .font(.caption)
@@ -2235,10 +2237,19 @@ struct ModelsSettingsView: View {
         }
     }
 
+    private var isOutputLanguageAvailable: Bool {
+        !appState.disablePostProcessing || appState.isCommandModeEnabled
+    }
+
     private var outputLanguageHelpText: String {
-        let key = appState.disablePostProcessing
-            ? "Output Language remains available for Edit Mode transforms."
-            : "Final transcript language for post-processing and Edit Mode transforms."
+        let key: String
+        if !isOutputLanguageAvailable {
+            key = "Output Language is unavailable while Post-processing and Edit Mode are off."
+        } else if appState.disablePostProcessing {
+            key = "Output Language remains available for Edit Mode transforms."
+        } else {
+            key = "Final transcript language for post-processing and Edit Mode transforms."
+        }
         return localizedCatalogString(key)
     }
 
@@ -2368,9 +2379,6 @@ struct ModelsSettingsView: View {
                 isValidatingKey = false
                 if valid {
                     appState.apiKey = key
-                    if !appState.useLocalTranscription {
-                        appState.setNoteBrowserTranscriptionMode(.apiStandard)
-                    }
                 } else {
                     keyValidationError = "Validation failed. Please check your API key and provider settings, then try again."
                 }
