@@ -1,5 +1,7 @@
 # Model selection UX design
 
+> **Superseded on 2026-07-17:** This exploration is retained for history. The approved preservation-first design is [`2026-07-17-model-first-settings-redesign.md`](./2026-07-17-model-first-settings-redesign.md). The newer design does not remove existing models or options, does not change current defaults, and uses the existing transcription choice model instead of replacing it with a generic `ModelChoice`.
+
 Interactive mockup: [`2026-06-19-model-selection-ux-mockup.html`](./2026-06-19-model-selection-ux-mockup.html) (open in a browser — click the per-feature dropdowns and the bulk shortcuts).
 
 Part of Epic #145 (Local-first AI pipeline). This design covers the **settings UX and data model** for how users choose models, so that local back-ends added in Phases 2–3 land on a coherent foundation.

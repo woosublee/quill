@@ -59,8 +59,8 @@ struct AppStateTranscriptionConfigurationTests {
         try testNoteBrowserTranscriptionChoiceSetterUpdatesLocalBackend()
         try testNormalizationGuardsStayInsideMainActorIsolation()
         await testAPITranscriptionModesRequireResolvedAPIKey()
-        try testSettingsAPIProviderTabDoesNotForceUnavailableAPIMode()
-        try testSettingsLegacyMlxWhisperToggleControlsOptionsVisibilityOnly()
+        try testSettingsModelFirstTranscriptionUsesExistingChoiceSetter()
+        try testSettingsLegacyManagementKeepsExistingModelRows()
         try testSettingsGlobalAPIKeyCanBeCleared()
         await testTranscriptionAPIKeyEnablesAPIModesWithoutGlobalAPIKey()
         await testEmptyTranscriptionAPIKeyFallsBackToGlobalAPIKey()
@@ -293,14 +293,20 @@ struct AppStateTranscriptionConfigurationTests {
     private static func testPreserveExactWordingSettingsAndPipelineWiring() throws {
         let settings = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
         let appState = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
-        let sharedBehaviors = sourceBlock(
+        let postProcessingDetails = sourceBlock(
             in: settings,
-            from: "private var sharedTranscriptionBehaviors: some View",
+            from: "private var postProcessingDetails: some View",
+            to: "\n    private var preserveExactWordingSetting"
+        )
+        let preserveExactWordingSetting = sourceBlock(
+            in: settings,
+            from: "private var preserveExactWordingSetting: some View",
             to: "\n    private var vocabularySection"
         )
 
-        precondition(sharedBehaviors.contains("Toggle(\"Preserve Exact Wording\", isOn: $appState.preserveExactWording)"))
-        precondition(sharedBehaviors.contains(".disabled(appState.disablePostProcessing)"))
+        precondition(postProcessingDetails.contains("preserveExactWordingSetting"))
+        precondition(preserveExactWordingSetting.contains("Toggle(\"Preserve Exact Wording\", isOn: $appState.preserveExactWording)"))
+        precondition(preserveExactWordingSetting.contains(".disabled(appState.disablePostProcessing)"))
         precondition(appState.contains("if preserveExactWording"))
         precondition(appState.contains("postProcessingService.translateVerbatim"))
         precondition(appState.contains("preserveExactWording: preserveExactWording"))
@@ -909,73 +915,72 @@ struct AppStateTranscriptionConfigurationTests {
         }
     }
 
-    private static func testSettingsAPIProviderTabDoesNotForceUnavailableAPIMode() throws {
+    private static func testSettingsModelFirstTranscriptionUsesExistingChoiceSetter() throws {
         let source = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
-        let transcriptionSection = sourceBlock(
+        let models = sourceBlock(
             in: source,
-            from: "private var transcriptionSection: some View",
-            to: "\n    private var localTranscriptionSettings"
-        )
-        let saveKeyBody = sourceBlock(
-            in: source,
-            from: "private func validateAndSaveKey()",
-            to: "\n    // MARK: System Prompt"
+            from: "struct ModelsSettingsView",
+            to: "// MARK: - Shortcuts Settings"
         )
 
-        precondition(source.contains("@State private var showingLocalTranscriptionSettings = true"))
-        precondition(transcriptionSection.contains("Picker(\"Transcription Mode\", selection: $showingLocalTranscriptionSettings)"))
-        precondition(transcriptionSection.contains("if showsLocal {"))
-        precondition(transcriptionSection.contains("appState.useLocalTranscription = true"))
-        precondition(transcriptionSection.contains("} else if appState.hasTranscriptionAPIKey {"))
-        precondition(transcriptionSection.contains("appState.setNoteBrowserTranscriptionMode(.apiStandard)"))
-        precondition(!transcriptionSection.contains("selection: $appState.useLocalTranscription"))
-        precondition(saveKeyBody.contains("if !showingLocalTranscriptionSettings"))
-        precondition(saveKeyBody.contains("appState.setNoteBrowserTranscriptionMode(.apiStandard)"))
+        precondition(!models.contains("showingLocalTranscriptionSettings"))
+        precondition(!models.contains("Picker(\"Transcription Mode\""))
+        precondition(models.contains("@State private var showRealtimeTranscriptionOption = false"))
+        precondition(models.contains("private var transcriptionChoiceDisplays: [TranscriptionChoiceDisplay]"))
+        precondition(models.contains("private var standardAPIModelIDs: [String]"))
+        precondition(models.contains("showRealtimeTranscriptionOption || appState.realtimeStreamingEnabled"))
+        precondition(models.contains("appState.showLegacyMlxWhisperOptions"))
+        precondition(models.contains("ModelConfiguration.transcriptionModels"))
+        precondition(models.contains("appState.noteBrowserTranscriptionDisplay(for: .apiStandard(modelID: modelID))"))
+        precondition(models.contains("appState.transcriptionModel.trimmingCharacters(in: .whitespacesAndNewlines)"))
+        precondition(models.contains("private var transcriptionChoice: Binding<TranscriptionBackendChoice>"))
+        precondition(models.contains("get: { appState.currentNoteBrowserTranscriptionChoice }"))
+        precondition(models.contains("set: { handleTranscriptionChoiceSelection($0) }"))
+        precondition(models.contains("Picker(\"Model\", selection: transcriptionChoice)"))
+        precondition(models.contains("@State private var pendingNativeModelID: String?"))
+        precondition(models.contains("NativeWhisperModelCatalog.all.map"))
+        precondition(models.contains("handleTranscriptionChoiceSelection($0)"))
+        precondition(!models.contains("private var transcriptionChoiceMenu"))
+        let customStandardAPI = sourceBlock(
+            in: models,
+            from: "private var standardAPITranscriptionSetting: some View",
+            to: "\n    private var realtimeTranscriptionSetting"
+        )
+        precondition(customStandardAPI.contains("TextField(\"e.g. custom-transcription-model\", text: $transcriptionModelDraft)"))
+        precondition(models.contains("transcriptionModelDraft = customStandardAPIModelDraft(for: appState.transcriptionModel)"))
+        precondition(models.contains(".onChange(of: appState.transcriptionModel)"))
+        precondition(models.contains("transcriptionModelDraft = customStandardAPIModelDraft(for: resolved)"))
+        precondition(!customStandardAPI.contains("TextField(AppState.defaultTranscriptionModel"))
+        precondition(!customStandardAPI.contains("ModelDropdownView("))
+        precondition(!models.contains("Required · Always On"))
+        precondition(!models.contains("isOn: $appState.realtimeStreamingEnabled"))
+        precondition(!models.contains("appState.useLocalTranscription ="))
+        precondition(!models.contains("appState.useLegacyMlxWhisper ="))
     }
 
-    private static func testSettingsLegacyMlxWhisperToggleControlsOptionsVisibilityOnly() throws {
+    private static func testSettingsLegacyManagementKeepsExistingModelRows() throws {
         let source = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
-        let localSettings = sourceBlock(
+        let models = sourceBlock(
             in: source,
-            from: "private var localTranscriptionSettings: some View",
-            to: "\n    private var apiProviderTranscriptionSettings"
-        )
-        let appleSpeechRow = sourceBlock(
-            in: localSettings,
-            from: "ModelRowView(\n                    model: TranscriptionModel.find(id: \"apple-speech\")",
-            to: "\n\n                NativeWhisperModelRowView"
-        )
-        let nativeWhisperRow = sourceBlock(
-            in: localSettings,
-            from: "NativeWhisperModelRowView(",
-            to: "\n                Text(\"If you close Settings while the model is downloading"
-        )
-        let legacyRows = sourceBlock(
-            in: localSettings,
-            from: "ForEach(TranscriptionModel.all.filter { !$0.isAppleSpeech })",
-            to: "\n\n                    TextField(\"~/.local/bin/mlx_whisper\""
+            from: "struct ModelsSettingsView",
+            to: "// MARK: - Shortcuts Settings"
         )
 
-        precondition(localSettings.contains("Toggle(\"Use legacy mlx-whisper\", isOn: $appState.showLegacyMlxWhisperOptions)"))
-        precondition(!localSettings.contains("Toggle(\"Use legacy mlx-whisper\", isOn: $appState.useLegacyMlxWhisper)"))
-        precondition(appleSpeechRow.contains("appState.setNoteBrowserTranscriptionChoice(.appleLive)"))
-        precondition(!appleSpeechRow.contains("appState.useLegacyMlxWhisper ="))
-        precondition(nativeWhisperRow.contains("appState.setNoteBrowserTranscriptionChoice("))
-        precondition(nativeWhisperRow.contains(".nativeWhisper(modelID: NativeWhisperModelCatalog.recommended.id)"))
-        precondition(!nativeWhisperRow.contains("appState.useLegacyMlxWhisper ="))
-        precondition(legacyRows.contains("appState.setNoteBrowserTranscriptionChoice(.legacyMlxWhisper(model: model))"))
-        precondition(!legacyRows.contains("appState.useLegacyMlxWhisper ="))
-        precondition(!legacyRows.contains("appState.localTranscriptionModel = model"))
-        precondition(localSettings.contains(".disabled(!appState.showLegacyMlxWhisperOptions)"))
-        precondition(localSettings.contains(".opacity(appState.showLegacyMlxWhisperOptions ? 1 : 0.55)"))
+        precondition(models.contains("isOn: $appState.showLegacyMlxWhisperOptions"))
+        precondition(models.contains("ForEach(TranscriptionModel.all.filter { !$0.isAppleSpeech })"))
+        precondition(models.contains("appState.setNoteBrowserTranscriptionChoice(.legacyMlxWhisper(model: model))"))
+        precondition(models.contains("showsSelectionControl: false"))
+        precondition(models.contains("onDeleted:"))
+        precondition(models.contains(".nativeWhisper(modelID: NativeWhisperModelCatalog.recommended.id)"))
+        precondition(!models.contains("TranscriptionModel.find(id: \"apple-speech\")"))
     }
 
     private static func testSettingsGlobalAPIKeyCanBeCleared() throws {
         let source = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
         let providerSection = sourceBlock(
             in: source,
-            from: "private var apiProviderTranscriptionSettings: some View",
-            to: "\n    private var languageSettings"
+            from: "private var cloudProviderSection: some View",
+            to: "\n    private var transcriptionFeatureSection"
         )
         let saveKeyBody = sourceBlock(
             in: source,
@@ -989,10 +994,11 @@ struct AppStateTranscriptionConfigurationTests {
 
         precondition(emptyKeyRange.lowerBound < validationRange.lowerBound)
         precondition(saveKeyBody.contains("appState.apiKey = \"\""))
-        precondition(saveKeyBody.contains("keyValidationSuccess = true"))
         precondition(providerSection.contains(".disabled(isValidatingKey)"))
         precondition(!providerSection.contains(".disabled(apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isValidatingKey)"))
-        precondition(providerSection.contains("API key cleared"))
+        precondition(providerSection.contains("API Key configured"))
+        precondition(!providerSection.contains("API Key not configured"))
+        precondition(providerSection.contains("Validating..."))
     }
 
     private static func testTranscriptionAPIKeyEnablesAPIModesWithoutGlobalAPIKey() async {
