@@ -87,7 +87,11 @@ struct NoteListRowDisplayDataTests {
             transcript: "Morning notes"
         )
 
-        let data = NoteListRowDisplayData(item: item, retryingIDs: [])
+        let data = NoteListRowDisplayData(
+            item: item,
+            retryingIDs: [],
+            locale: Locale(identifier: "ko_KR")
+        )
 
         assert(data.rowDate == "5월 15일 오전 10:38", "Unexpected row date: \(data.rowDate)")
     }
@@ -100,7 +104,11 @@ struct NoteListRowDisplayDataTests {
             transcript: "Noon notes"
         )
 
-        let data = NoteListRowDisplayData(item: item, retryingIDs: [])
+        let data = NoteListRowDisplayData(
+            item: item,
+            retryingIDs: [],
+            locale: Locale(identifier: "ko_KR")
+        )
 
         assert(data.rowDate == "5월 15일 오전 10:38", "Unexpected row date: \(data.rowDate)")
     }
@@ -113,7 +121,11 @@ struct NoteListRowDisplayDataTests {
             transcript: "Late notes"
         )
 
-        let data = NoteListRowDisplayData(item: item, retryingIDs: [])
+        let data = NoteListRowDisplayData(
+            item: item,
+            retryingIDs: [],
+            locale: Locale(identifier: "ko_KR")
+        )
 
         assert(data.rowDate == "5월 15일 오후 11:40", "Unexpected row date: \(data.rowDate)")
     }
@@ -126,7 +138,7 @@ struct NoteListRowDisplayDataTests {
             transcript: "Morning notes"
         )
 
-        let formatted = NoteTimestampFormatter.detailTimestamp(for: item)
+        let formatted = NoteTimestampFormatter.detailTimestamp(for: item, locale: Locale(identifier: "ko_KR"))
 
         assert(formatted == "2026년 5월 15일 오전 10:38~11:12", "Unexpected interval: \(formatted)")
     }
@@ -139,7 +151,7 @@ struct NoteListRowDisplayDataTests {
             transcript: "Noon notes"
         )
 
-        let formatted = NoteTimestampFormatter.detailTimestamp(for: item)
+        let formatted = NoteTimestampFormatter.detailTimestamp(for: item, locale: Locale(identifier: "ko_KR"))
 
         assert(formatted == "2026년 5월 15일 오전 10:38 ~ 오후 12:12", "Unexpected interval: \(formatted)")
     }
@@ -152,7 +164,7 @@ struct NoteListRowDisplayDataTests {
             transcript: "Afternoon notes"
         )
 
-        let formatted = NoteTimestampFormatter.detailTimestamp(for: item)
+        let formatted = NoteTimestampFormatter.detailTimestamp(for: item, locale: Locale(identifier: "ko_KR"))
 
         assert(formatted == "2026년 5월 15일 오후 1:05~2:22", "Unexpected interval: \(formatted)")
     }
@@ -165,7 +177,7 @@ struct NoteListRowDisplayDataTests {
             transcript: "Late notes"
         )
 
-        let formatted = NoteTimestampFormatter.detailTimestamp(for: item)
+        let formatted = NoteTimestampFormatter.detailTimestamp(for: item, locale: Locale(identifier: "ko_KR"))
 
         assert(formatted == "2026년 5월 15일 오후 11:40 ~ 2026년 5월 16일 오전 12:10", "Unexpected interval: \(formatted)")
     }
@@ -176,7 +188,7 @@ struct NoteListRowDisplayDataTests {
             transcript: "Imported notes"
         )
 
-        let formatted = NoteTimestampFormatter.detailTimestamp(for: item)
+        let formatted = NoteTimestampFormatter.detailTimestamp(for: item, locale: Locale(identifier: "ko_KR"))
 
         assert(formatted == "2026년 5월 15일 오전 10:38", "Unexpected timestamp: \(formatted)")
     }

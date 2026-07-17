@@ -55,7 +55,7 @@ struct NoteListRowDisplayData: Equatable {
     let displayTitle: String
     let preview: String
 
-    init(item: PipelineHistoryItem, retryingIDs: Set<UUID>) {
+    init(item: PipelineHistoryItem, retryingIDs: Set<UUID>, locale: Locale = .current) {
         let status = transcriptStatus(for: item, retrying: retryingIDs)
         let trimmedCustomTitle = item.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
         let customTitle = trimmedCustomTitle?.isEmpty == true ? nil : trimmedCustomTitle
@@ -67,7 +67,7 @@ struct NoteListRowDisplayData: Equatable {
 
         self.id = item.id
         self.status = status
-        self.rowDate = NoteTimestampFormatter.rowTimestamp(for: item)
+        self.rowDate = NoteTimestampFormatter.rowTimestamp(for: item, locale: locale)
         self.displayTitle = displayTitle
         self.preview = Self.preview(
             for: item,
