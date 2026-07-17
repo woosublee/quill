@@ -8,6 +8,20 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.24] - 2026-07-18
+
+### Improved
+
+- Redesigned Models settings around Cloud Provider, Transcription, Post-processing, and Context, with clearer model selection, API-key readiness, and feature-specific details.
+- Integrated Native Whisper download and deletion controls with the main transcription model selector while preserving active-model behavior during installation.
+- Kept installed legacy mlx-whisper choices available independently from the advanced management toggle.
+
+### Fixed
+
+- Preserved the selected Standard, Realtime, or Local transcription choice when saving a Cloud API key.
+- Restored Native Whisper management immediately when opening Settings, removed a model-status refresh that could briefly freeze the UI, and added confirmation before closing Settings during a download.
+- Disabled Output Language only when both Post-processing and Edit Mode are off, with localized guidance.
+
 ## [0.1.23] - 2026-07-17
 
 ### Added
