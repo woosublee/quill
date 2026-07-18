@@ -8,13 +8,18 @@ struct RecordingJournalRuntimeTests {
             try createBuildsSingleSourceInflightLayout()
             try duplicateCreateReusesExistingRecordingWithoutTruncation()
             try conflictingCreatePreservesExistingArtifact()
+            try failedCreateRemovesNewInflightDirectory()
             try failedReplacementLeavesPreviousManifestReadable()
+            try checkpointRejectsOverflowingGenerationWithoutTrapping()
             try writerCheckpointsOrderedPCMWithoutPerAppendManifestWrites()
             try writerRejectsOddChunksAndPostCloseWritesWithoutDamagingPCM()
             try writerCanBeReleasedAfterQueuedWriteWithoutCrashing()
             try finalizerRepairsHeaderTruncatesOddTailAndPromotesWithoutCopy()
+            try finalizerUsesCommittedCheckpointBoundary()
+            try finalizerRejectsTruncatedCommittedPayload()
             try finalizerPreservesEmptyAndConflictingArtifacts()
             try scannerPreservesManualRecoveryArtifactsAndUsesActualEvenPayload()
+            try manualRecoveryCandidateProtectsDerivedPermanentFileName()
             try scannerReturnsExecutablePlanForRecordingState()
             try scannerPlansReuseAfterPromotionRenameBeforeManifestUpdate()
             try scannerRequiresPermanentArtifactForPromotedState()
@@ -85,6 +90,28 @@ struct RecordingJournalRuntimeTests {
         }
     }
 
+    private static func failedCreateRemovesNewInflightDirectory() throws {
+        try withFixture { fixture in
+            var invalidRequest = fixture.request
+            invalidRequest.sourceFileName = String(repeating: "a", count: 300)
+
+            do {
+                _ = try fixture.store.createSingleSource(invalidRequest)
+                throw TestFailure("oversized source filename must fail creation")
+            } catch {
+                // expected
+            }
+
+            guard !FileManager.default.fileExists(
+                atPath: fixture.store.recordingDirectory(
+                    recordingID: fixture.recordingID
+                ).path
+            ) else {
+                throw TestFailure("failed create must remove the new inflight directory")
+            }
+        }
+    }
+
     private static func failedReplacementLeavesPreviousManifestReadable() throws {
         try withFixture { fixture in
             let session = try fixture.store.createSingleSource(fixture.request)
@@ -113,6 +140,31 @@ struct RecordingJournalRuntimeTests {
             try expectEqual(try Data(contentsOf: session.manifestURL), manifestBefore, "previous manifest after failed replace")
             let decoded = try fixture.store.loadManifest(recordingID: fixture.recordingID)
             try expectEqual(decoded.state, .recording, "state after failed replace")
+        }
+    }
+
+    private static func checkpointRejectsOverflowingGenerationWithoutTrapping() throws {
+        try withFixture { fixture in
+            let session = try fixture.store.createSingleSource(fixture.request)
+            var manifest = try fixture.store.loadManifest(recordingID: fixture.recordingID)
+            manifest.generation = UInt64.max
+            let encoded = try RecordingJournalCoding.makeEncoder().encode(manifest)
+            try encoded.write(to: session.manifestURL, options: .atomic)
+
+            do {
+                _ = try fixture.store.recordCheckpoint(
+                    recordingID: fixture.recordingID,
+                    sourceID: fixture.sourceID,
+                    commit: RecordingJournalSourceCommit(
+                        dataByteCount: 2,
+                        frameCount: 1,
+                        firstCommittedFrameOffset: 0
+                    )
+                )
+                throw TestFailure("overflowing checkpoint generation must fail")
+            } catch RecordingJournalError.invalidManifest {
+                // expected
+            }
         }
     }
 
@@ -218,8 +270,11 @@ struct RecordingJournalRuntimeTests {
     private static func finalizerRepairsHeaderTruncatesOddTailAndPromotesWithoutCopy() throws {
         try withFixture { fixture in
             let session = try fixture.store.createSingleSource(fixture.request)
+            let writer = try RecordingPCMJournalWriter(session: session, store: fixture.store)
+            writer.enqueue(Data([0x01, 0x00, 0x02, 0x00]))
+            _ = try writer.drainAndClose()
             try overwriteHeader(with: Data(repeating: 0xA5, count: RecordingCanonicalWAV.headerByteCount), at: session.sourceURL)
-            try appendRaw(Data([0x01, 0x00, 0x02, 0x00, 0x7F]), to: session.sourceURL)
+            try appendRaw(Data([0x7F]), to: session.sourceURL)
             _ = try fixture.store.transition(recordingID: fixture.recordingID, to: .stopping)
 
             let inodeBefore = try inodeNumber(session.sourceURL)
@@ -227,7 +282,7 @@ struct RecordingJournalRuntimeTests {
             let artifact = try finalizer.finalizeSingleSource(recordingID: fixture.recordingID)
             try expectEqual(artifact.dataByteCount, 4, "finalized bytes")
             try expectEqual(artifact.frameCount, 2, "finalized frames")
-            guard artifact.removedOddTrailingByte else {
+            guard artifact.removedTrailingData else {
                 throw TestFailure("finalizer should report odd-tail truncation")
             }
 
@@ -245,6 +300,50 @@ struct RecordingJournalRuntimeTests {
             try expectEqual(try inodeNumber(permanentURL), inodeBefore, "promotion inode identity")
             try expectEqual(promotion.dataByteCount, 4, "promotion bytes")
             try expectEqual(try finalizer.promote(artifact), promotion, "repeated promotion")
+        }
+    }
+
+    private static func finalizerUsesCommittedCheckpointBoundary() throws {
+        try withFixture { fixture in
+            let session = try fixture.store.createSingleSource(fixture.request)
+            let writer = try RecordingPCMJournalWriter(session: session, store: fixture.store)
+            writer.enqueue(Data([0x01, 0x00, 0x02, 0x00]))
+            _ = try writer.checkpoint()
+            try appendRaw(Data([0x03, 0x00, 0x04, 0x00]), to: session.sourceURL)
+            _ = try fixture.store.transition(recordingID: fixture.recordingID, to: .recoverable)
+
+            let artifact = try RecordingArtifactFinalizer(store: fixture.store)
+                .finalizeSingleSource(recordingID: fixture.recordingID)
+
+            try expectEqual(artifact.dataByteCount, 4, "committed finalization bytes")
+            try expectEqual(
+                try payloadData(from: session.sourceURL),
+                Data([0x01, 0x00, 0x02, 0x00]),
+                "uncommitted tail truncation"
+            )
+        }
+    }
+
+    private static func finalizerRejectsTruncatedCommittedPayload() throws {
+        try withFixture { fixture in
+            let session = try fixture.store.createSingleSource(fixture.request)
+            let writer = try RecordingPCMJournalWriter(session: session, store: fixture.store)
+            writer.enqueue(Data([0x01, 0x00, 0x02, 0x00]))
+            _ = try writer.checkpoint()
+            let handle = try FileHandle(forUpdating: session.sourceURL)
+            try handle.truncate(
+                atOffset: UInt64(RecordingCanonicalWAV.headerByteCount + 2)
+            )
+            try handle.close()
+            _ = try fixture.store.transition(recordingID: fixture.recordingID, to: .recoverable)
+
+            do {
+                _ = try RecordingArtifactFinalizer(store: fixture.store)
+                    .finalizeSingleSource(recordingID: fixture.recordingID)
+                throw TestFailure("truncated committed payload must fail")
+            } catch RecordingArtifactFinalizerError.committedPayloadUnavailable {
+                // expected
+            }
         }
     }
 
@@ -266,7 +365,9 @@ struct RecordingJournalRuntimeTests {
 
         try withFixture { fixture in
             let session = try fixture.store.createSingleSource(fixture.request)
-            try appendRaw(Data([0x01, 0x00]), to: session.sourceURL)
+            let writer = try RecordingPCMJournalWriter(session: session, store: fixture.store)
+            writer.enqueue(Data([0x01, 0x00]))
+            _ = try writer.drainAndClose()
             _ = try fixture.store.transition(recordingID: fixture.recordingID, to: .stopping)
             let finalizer = RecordingArtifactFinalizer(store: fixture.store)
             let artifact = try finalizer.finalizeSingleSource(recordingID: fixture.recordingID)
@@ -303,7 +404,13 @@ struct RecordingJournalRuntimeTests {
             try Data("not-json".utf8).write(to: corruptDirectory.appendingPathComponent("manifest.json"))
 
             let valid = try fixture.store.createSingleSource(fixture.request)
-            try appendRaw(Data([0x01, 0x00, 0x02, 0x00, 0xFF]), to: valid.sourceURL)
+            let validWriter = try RecordingPCMJournalWriter(
+                session: valid,
+                store: fixture.store
+            )
+            validWriter.enqueue(Data([0x01, 0x00, 0x02, 0x00]))
+            _ = try validWriter.checkpoint()
+            try appendRaw(Data([0xFF]), to: valid.sourceURL)
             let scanner = InflightRecordingRecovery(store: fixture.store)
             let before = try snapshotTree(fixture.audioDirectory)
             let candidates = scanner.scan()
@@ -318,17 +425,40 @@ struct RecordingJournalRuntimeTests {
             }
             try expectEqual(validCandidate.action, .markRecoverable, "valid candidate action")
             try expectEqual(validCandidate.recoverableDataByteCount, 4, "actual even payload")
-            guard validCandidate.diagnostics.contains(.manifestBehind),
-                  validCandidate.diagnostics.contains(.oddTrailingByte) else {
-                throw TestFailure("expected stale and odd-tail diagnostics: \(validCandidate.diagnostics)")
+            guard validCandidate.diagnostics.contains(.oddTrailingByte) else {
+                throw TestFailure("expected odd-tail diagnostic: \(validCandidate.diagnostics)")
             }
+        }
+    }
+
+    private static func manualRecoveryCandidateProtectsDerivedPermanentFileName() throws {
+        try withFixture { fixture in
+            let directory = fixture.store.recordingDirectory(recordingID: fixture.recordingID)
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+
+            guard let candidate = InflightRecordingRecovery(store: fixture.store)
+                .scan()
+                .first(where: { $0.recordingID == fixture.recordingID }) else {
+                throw TestFailure("missing manual recovery candidate")
+            }
+
+            try expectEqual(
+                candidate.protectedPermanentFileName,
+                fixture.recordingID.uuidString.lowercased() + ".wav",
+                "manual recovery permanent filename protection"
+            )
         }
     }
 
     private static func scannerReturnsExecutablePlanForRecordingState() throws {
         try withFixture { fixture in
             let session = try fixture.store.createSingleSource(fixture.request)
-            try appendRaw(Data([0x01, 0x00]), to: session.sourceURL)
+            let writer = try RecordingPCMJournalWriter(session: session, store: fixture.store)
+            writer.enqueue(Data([0x01, 0x00]))
+            _ = try writer.checkpoint()
             let scanner = InflightRecordingRecovery(store: fixture.store)
             let candidate = scanner.scan().first(where: { $0.recordingID == fixture.recordingID })
             try expectEqual(candidate?.action, .markRecoverable, "recording-state scan action")
@@ -343,7 +473,9 @@ struct RecordingJournalRuntimeTests {
     private static func scannerPlansReuseAfterPromotionRenameBeforeManifestUpdate() throws {
         try withFixture { fixture in
             let session = try fixture.store.createSingleSource(fixture.request)
-            try appendRaw(Data([0x01, 0x00, 0x02, 0x00]), to: session.sourceURL)
+            let writer = try RecordingPCMJournalWriter(session: session, store: fixture.store)
+            writer.enqueue(Data([0x01, 0x00, 0x02, 0x00]))
+            _ = try writer.drainAndClose()
             _ = try fixture.store.transition(recordingID: fixture.recordingID, to: .stopping)
             let finalizer = RecordingArtifactFinalizer(store: fixture.store)
             let artifact = try finalizer.finalizeSingleSource(recordingID: fixture.recordingID)
@@ -360,7 +492,9 @@ struct RecordingJournalRuntimeTests {
     private static func scannerRequiresPermanentArtifactForPromotedState() throws {
         try withFixture { fixture in
             let session = try fixture.store.createSingleSource(fixture.request)
-            try appendRaw(Data([0x01, 0x00, 0x02, 0x00]), to: session.sourceURL)
+            let writer = try RecordingPCMJournalWriter(session: session, store: fixture.store)
+            writer.enqueue(Data([0x01, 0x00, 0x02, 0x00]))
+            _ = try writer.drainAndClose()
             _ = try fixture.store.transition(recordingID: fixture.recordingID, to: .stopping)
             let artifact = try RecordingArtifactFinalizer(store: fixture.store)
                 .finalizeSingleSource(recordingID: fixture.recordingID)
@@ -393,7 +527,9 @@ struct RecordingJournalRuntimeTests {
     private static func scannerPlansPersistFinalizeAndCleanupAfterValidPromotion() throws {
         try withFixture { fixture in
             let session = try fixture.store.createSingleSource(fixture.request)
-            try appendRaw(Data([0x01, 0x00, 0x02, 0x00]), to: session.sourceURL)
+            let writer = try RecordingPCMJournalWriter(session: session, store: fixture.store)
+            writer.enqueue(Data([0x01, 0x00, 0x02, 0x00]))
+            _ = try writer.drainAndClose()
             _ = try fixture.store.transition(recordingID: fixture.recordingID, to: .stopping)
             let finalizer = RecordingArtifactFinalizer(store: fixture.store)
             let artifact = try finalizer.finalizeSingleSource(recordingID: fixture.recordingID)
@@ -432,7 +568,9 @@ struct RecordingJournalRuntimeTests {
     private static func scannerIsReadOnlyAndIdempotent() throws {
         try withFixture { fixture in
             let session = try fixture.store.createSingleSource(fixture.request)
-            try appendRaw(Data([0x01, 0x00]), to: session.sourceURL)
+            let writer = try RecordingPCMJournalWriter(session: session, store: fixture.store)
+            writer.enqueue(Data([0x01, 0x00]))
+            _ = try writer.checkpoint()
             let scanner = InflightRecordingRecovery(store: fixture.store)
             let before = try snapshotTree(fixture.audioDirectory)
             let first = scanner.scan()
@@ -547,7 +685,7 @@ struct RecordingJournalRuntimeTests {
         return number.uint64Value
     }
 
-    private static func snapshotTree(_ root: URL) throws -> [String: UInt64] {
+    private static func snapshotTree(_ root: URL) throws -> [String: String] {
         guard let enumerator = FileManager.default.enumerator(
             at: root,
             includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
@@ -556,11 +694,16 @@ struct RecordingJournalRuntimeTests {
         ) else {
             return [:]
         }
-        var result: [String: UInt64] = [:]
+        var result: [String: String] = [:]
         for case let url as URL in enumerator {
             let values = try url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
             let relative = String(url.path.dropFirst(root.path.count + 1))
-            result[relative] = values.isDirectory == true ? UInt64.max : UInt64(values.fileSize ?? 0)
+            if values.isDirectory == true {
+                result[relative] = "directory"
+            } else {
+                let data = try Data(contentsOf: url)
+                result[relative] = "\(values.fileSize ?? 0):\(data.base64EncodedString())"
+            }
         }
         return result
     }

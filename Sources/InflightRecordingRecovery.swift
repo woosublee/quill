@@ -32,6 +32,7 @@ struct InflightRecordingRecoveryCandidate: Equatable {
     let action: InflightRecordingRecoveryAction
     let recoverableDataByteCount: UInt64?
     let promotion: RecordingPromotion?
+    let protectedPermanentFileName: String?
     let diagnostics: Set<InflightRecordingRecoveryDiagnostic>
 }
 
@@ -157,6 +158,7 @@ struct InflightRecordingRecovery {
                     action: .reusePromotedArtifact,
                     recoverableDataByteCount: permanentPromotion.dataByteCount,
                     promotion: permanentPromotion,
+                    protectedPermanentFileName: permanentPromotion.fileName,
                     diagnostics: []
                 )
             }
@@ -216,9 +218,23 @@ struct InflightRecordingRecovery {
         if actualPayload != evenPayload {
             diagnostics.insert(.oddTrailingByte)
         }
+        guard committed > 0 else {
+            return manualCandidate(
+                directory: directory,
+                recordingID: manifest.recordingID,
+                diagnostics: diagnostics.union([.emptySource])
+            )
+        }
+        guard evenPayload >= committed else {
+            return manualCandidate(
+                directory: directory,
+                recordingID: manifest.recordingID,
+                diagnostics: diagnostics
+            )
+        }
 
         if let permanentPromotion {
-            let sourceMatchesDestination = permanentPromotion.dataByteCount == evenPayload
+            let sourceMatchesDestination = permanentPromotion.dataByteCount == committed
             guard sourceMatchesDestination else {
                 return manualCandidate(
                     directory: directory,
@@ -233,8 +249,9 @@ struct InflightRecordingRecovery {
                     recordingID: manifest.recordingID,
                     recordingDirectory: directory,
                     action: .reusePromotedArtifact,
-                    recoverableDataByteCount: evenPayload,
+                    recoverableDataByteCount: committed,
                     promotion: permanentPromotion,
+                    protectedPermanentFileName: permanentPromotion.fileName,
                     diagnostics: diagnostics
                 )
             }
@@ -246,8 +263,9 @@ struct InflightRecordingRecovery {
                 recordingID: manifest.recordingID,
                 recordingDirectory: directory,
                 action: .markRecoverable,
-                recoverableDataByteCount: evenPayload,
+                recoverableDataByteCount: committed,
                 promotion: nil,
+                protectedPermanentFileName: nil,
                 diagnostics: diagnostics
             )
         case .stopping, .recoverable:
@@ -255,8 +273,9 @@ struct InflightRecordingRecovery {
                 recordingID: manifest.recordingID,
                 recordingDirectory: directory,
                 action: .finalizeSingleSource,
-                recoverableDataByteCount: evenPayload,
+                recoverableDataByteCount: committed,
                 promotion: nil,
+                protectedPermanentFileName: nil,
                 diagnostics: diagnostics
             )
         case .promoted, .historyStored, .finalized:
@@ -299,6 +318,7 @@ struct InflightRecordingRecovery {
             action: action,
             recoverableDataByteCount: promotion.dataByteCount,
             promotion: promotion,
+            protectedPermanentFileName: promotion.fileName,
             diagnostics: diagnostics
         )
     }
@@ -314,6 +334,9 @@ struct InflightRecordingRecovery {
             action: .manualRecoveryRequired,
             recoverableDataByteCount: nil,
             promotion: nil,
+            protectedPermanentFileName: recordingID.map {
+                $0.uuidString.lowercased() + ".wav"
+            },
             diagnostics: diagnostics
         )
     }

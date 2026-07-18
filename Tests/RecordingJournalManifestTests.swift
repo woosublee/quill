@@ -11,6 +11,7 @@ struct RecordingJournalManifestTests {
             try conflictingIdempotentTransitionIsRejected()
             try manifestRejectsUnsupportedSchemaAndUnsafeFileNames()
             try manifestRejectsOverflowingCountsWithoutTrapping()
+            try transitionRejectsOverflowingGenerationWithoutTrapping()
             try encodedManifestContainsNoCredentialFields()
             print("RecordingJournalManifestTests passed")
         } catch {
@@ -208,6 +209,21 @@ struct RecordingJournalManifestTests {
         do {
             try promotionOverflow.validate()
             throw TestFailure("overflowing promotion counts must fail validation")
+        } catch RecordingJournalError.invalidManifest {
+            // expected
+        }
+    }
+
+    private static func transitionRejectsOverflowingGenerationWithoutTrapping() throws {
+        var manifest = try makeManifest()
+        manifest.generation = UInt64.max
+
+        do {
+            _ = try manifest.transitioned(
+                to: .stopping,
+                now: fixedDate.addingTimeInterval(1)
+            )
+            throw TestFailure("overflowing generation must fail transition")
         } catch RecordingJournalError.invalidManifest {
             // expected
         }

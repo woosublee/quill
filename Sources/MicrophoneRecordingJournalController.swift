@@ -5,6 +5,8 @@ enum MicrophoneRecordingJournalControllerError: Error, Equatable {
 }
 
 final class MicrophoneRecordingJournalController {
+    private static let lifecycleQueueKey = DispatchSpecificKey<UInt8>()
+
     private enum State {
         case recording
         case promoted(URL)
@@ -39,11 +41,21 @@ final class MicrophoneRecordingJournalController {
         self.writer = writer
         self.sink = writer
         self.finalizer = RecordingArtifactFinalizer(store: store)
+        self.lifecycleQueue.setSpecific(
+            key: Self.lifecycleQueueKey,
+            value: 1
+        )
     }
 
     deinit {
-        checkpointTimer?.setEventHandler {}
-        checkpointTimer?.cancel()
+        let cancelTimer = {
+            self.cancelCheckpointTimerLocked()
+        }
+        if DispatchQueue.getSpecific(key: Self.lifecycleQueueKey) != nil {
+            cancelTimer()
+        } else {
+            lifecycleQueue.sync(execute: cancelTimer)
+        }
     }
 
     func startCheckpointing(

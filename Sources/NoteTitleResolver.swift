@@ -29,7 +29,9 @@ enum NoteTitleResolver {
         if content.isEmpty {
             if isTranscribing { return "Transcribing..." }
             if item.postProcessingStatus.hasPrefix("Error:") { return "Transcription failed" }
-            if item.isRecoveredRecording { return "Recording interrupted" }
+            if item.isRecoveredRecording {
+                return localizedCatalogString("Recording interrupted")
+            }
             if item.postProcessingStatus == "live-recording" { return "Recording..." }
             if item.postProcessingStatus == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus || item.postProcessingStatus == "importing" { return "Transcribing..." }
             return "(No content)"

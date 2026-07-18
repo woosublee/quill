@@ -26,10 +26,13 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         precondition(source.contains("savedAudioFileForStoppedRecording"))
         precondition(source.contains("pipelineHistoryStore.upsert("))
         precondition(source.contains("discardRecordingJournalAfterSuccessfulTranscription"))
-        precondition(source.contains("isProtectedRecordingJournalAudioFile"))
-        precondition(source.contains("let entryID = existingID ?? (isJournalAudioFile ? jobID : UUID())"))
+        precondition(source.contains("recordingJournalID(forAudioFileName:"))
+        precondition(source.contains("let entryID = existingID ?? (journalRecordingID ?? UUID())"))
         precondition(source.contains("if !isJournalAudioFile {"))
-        precondition(source.contains("completePromotedRecordingJournal(recordingID: jobID)"))
+        precondition(source.contains("completePromotedRecordingJournal("))
+        precondition(source.contains("recordingID: journalRecordingID"))
+        precondition(source.contains("recoverableJournalID"))
+        precondition(source.contains("recordingID: recoverableJournalID"))
 
         let startupRecoveryBody = try functionBody(named: "recoverRecordingJournalsBeforeHistoryLoad", in: source)
         precondition(!startupRecoveryBody.contains("retryTranscription"))
@@ -37,6 +40,10 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         let startBody = try functionBody(named: "startSelectedAudioRecorder", in: source)
         precondition(startBody.contains("makeActiveMicrophoneJournalController"))
         precondition(startBody.contains("try audioRecorder.startRecording(deviceUID: inputID)"))
+
+        let stopBody = try functionBody(named: "stopActiveAudioRecorder", in: source)
+        precondition(stopBody.contains("recordingJournalFinalizationQueue.async"))
+        precondition(stopBody.contains("DispatchQueue.main.async"))
 
         let switchBody = try functionBody(named: "switchActiveRecordingInput", in: source)
         precondition(switchBody.contains("let journalToDiscardAfterDrain = detachActiveMicrophoneJournalForDiscard()"))

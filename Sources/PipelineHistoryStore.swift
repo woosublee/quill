@@ -6,9 +6,15 @@ struct DeletedPipelineHistoryAssets {
     let transcriptFileName: String?
 }
 
+enum PipelineHistoryStoreError: Error {
+    case storeUnavailable
+    case durableStoreUnavailable
+}
+
 final class PipelineHistoryStore {
     private let container: NSPersistentContainer
     private let isStoreLoaded: Bool
+    private let isDurableStore: Bool
 
     convenience init() {
         self.init(inMemory: false)
@@ -23,6 +29,7 @@ final class PipelineHistoryStore {
             description.type = NSInMemoryStoreType
             container.persistentStoreDescriptions = [description]
             isStoreLoaded = Self.loadPersistentStoresSynchronously(container: container) == nil
+            isDurableStore = true
             return
         }
 
@@ -45,6 +52,7 @@ final class PipelineHistoryStore {
 
         if Self.loadPersistentStoresSynchronously(container: container) == nil {
             isStoreLoaded = true
+            isDurableStore = true
         } else {
             if let storeURL {
                 print("[PipelineHistoryStore] Failed to load persistent store at \(storeURL.path). Attempting recovery.")
@@ -64,6 +72,7 @@ final class PipelineHistoryStore {
 
             if Self.loadPersistentStoresSynchronously(container: container) == nil {
                 isStoreLoaded = true
+                isDurableStore = true
             } else {
                 print("[PipelineHistoryStore] Failed to recover persistent store. Falling back to in-memory history.")
                 let coordinator = container.persistentStoreCoordinator
@@ -74,6 +83,7 @@ final class PipelineHistoryStore {
                 description.type = NSInMemoryStoreType
                 container.persistentStoreDescriptions = [description]
                 isStoreLoaded = Self.loadPersistentStoresSynchronously(container: container) == nil
+                isDurableStore = false
             }
         }
     }
@@ -98,9 +108,15 @@ final class PipelineHistoryStore {
 
     func upsert(
         _ item: PipelineHistoryItem,
-        maxCount: Int
+        maxCount: Int,
+        requiresDurableStore: Bool = false
     ) throws -> [DeletedPipelineHistoryAssets] {
-        guard isStoreLoaded else { return [] }
+        guard isStoreLoaded else {
+            throw PipelineHistoryStoreError.storeUnavailable
+        }
+        if requiresDurableStore, !isDurableStore {
+            throw PipelineHistoryStoreError.durableStoreUnavailable
+        }
 
         var thrownError: Error?
         container.viewContext.performAndWait {

@@ -1597,6 +1597,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let pipelineHistoryStore = PipelineHistoryStore()
     private let recordingJournalStore: RecordingJournalStore
     private var activeMicrophoneJournalController: MicrophoneRecordingJournalController?
+    private let recordingJournalFinalizationQueue = DispatchQueue(
+        label: "com.woosublee.quill.recording-journal.finalization",
+        qos: .userInitiated
+    )
     private var activeRecordingID: UUID?
     private let shortcutSessionController = DictationShortcutSessionController()
     private var activeRecordingTriggerMode: RecordingTriggerMode?
@@ -1942,7 +1946,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         Task { @MainActor [weak self] in
             self?.meetingReminderOverlayManager.onStart = { [weak self] schedule in
-                self?.activeRecordingCalendarSnapshot = RecordingCalendarSnapshot(
+                guard let self else { return }
+                self.activeRecordingCalendarSnapshot = RecordingCalendarSnapshot(
                     eventID: schedule.event.id,
                     calendarID: schedule.event.calendarID,
                     title: schedule.event.title,
@@ -1953,7 +1958,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         attendee.displayName ?? attendee.email
                     }
                 )
-                self?.startRecordingFromCalendarReminder()
+                self.startRecordingFromCalendarReminder()
             }
         }
     }
@@ -2446,6 +2451,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let fileURL: URL
     }
 
+    private struct StoppedAudioRecording {
+        let fileURL: URL?
+        let recoverableJournalID: UUID?
+    }
+
     static func audioStorageDirectory() -> URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Quill"
@@ -2504,7 +2514,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     ) -> Set<String> {
         Set(
             InflightRecordingRecovery(store: store).scan().compactMap { candidate in
-                candidate.promotion?.fileName
+                candidate.protectedPermanentFileName
+                    ?? candidate.promotion?.fileName
             }
         )
     }
@@ -2580,12 +2591,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    private static func isProtectedRecordingJournalAudioFile(
-        _ fileName: String
-    ) -> Bool {
-        guard fileName.hasSuffix(".wav") else { return false }
-        let recordingID = String(fileName.dropLast(4))
-        return UUID(uuidString: recordingID) != nil
+    private func recordingJournalID(
+        forAudioFileName fileName: String
+    ) -> UUID? {
+        guard fileName.hasSuffix(".wav") else { return nil }
+        let identifier = String(fileName.dropLast(4))
+        guard let recordingID = UUID(uuidString: identifier),
+              let manifest = try? recordingJournalStore.loadManifest(
+                  recordingID: recordingID
+              ),
+              manifest.promotion?.fileName == fileName else {
+            return nil
+        }
+        return recordingID
     }
 
     private static func savedAudioFileForStoppedRecording(
@@ -2827,27 +2845,57 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    private func stopActiveAudioRecorder(completion: @escaping (URL?) -> Void) {
+    private func stopActiveAudioRecorder(
+        completion: @escaping (StoppedAudioRecording) -> Void
+    ) {
         let inputID = activeAudioInputID ?? selectedMicrophoneID
         if AudioInputDevice.isSystemDefaultAndSystemAudio(inputID) {
-            systemDefaultAndSystemAudioRecorder.stopRecording(completion: completion)
+            systemDefaultAndSystemAudioRecorder.stopRecording { url in
+                completion(StoppedAudioRecording(
+                    fileURL: url,
+                    recoverableJournalID: nil
+                ))
+            }
         } else if AudioInputDevice.isSystemAudio(inputID) {
-            systemAudioRecorder.stopRecording(completion: completion)
+            systemAudioRecorder.stopRecording { url in
+                completion(StoppedAudioRecording(
+                    fileURL: url,
+                    recoverableJournalID: nil
+                ))
+            }
         } else {
             audioRecorder.stopRecording { [weak self] temporaryURL in
                 guard let self else {
-                    completion(temporaryURL)
+                    completion(StoppedAudioRecording(
+                        fileURL: temporaryURL,
+                        recoverableJournalID: nil
+                    ))
                     return
                 }
                 self.audioRecorder.normalizedPCM16Sink = nil
-                let promotedURL = self.finishActiveMicrophoneJournal()
-                if let promotedURL {
-                    if let temporaryURL, temporaryURL.path != promotedURL.path {
-                        try? FileManager.default.removeItem(at: temporaryURL)
+                let controller = self.detachActiveMicrophoneJournalForFinish()
+                let recoverableJournalID = controller?.recordingID
+                self.recordingJournalFinalizationQueue.async {
+                    let promotedURL = Self.finishActiveMicrophoneJournal(
+                        controller
+                    )
+                    DispatchQueue.main.async {
+                        if let promotedURL {
+                            if let temporaryURL,
+                               temporaryURL.path != promotedURL.path {
+                                try? FileManager.default.removeItem(at: temporaryURL)
+                            }
+                            completion(StoppedAudioRecording(
+                                fileURL: promotedURL,
+                                recoverableJournalID: nil
+                            ))
+                        } else {
+                            completion(StoppedAudioRecording(
+                                fileURL: temporaryURL,
+                                recoverableJournalID: recoverableJournalID
+                            ))
+                        }
                     }
-                    completion(promotedURL)
-                } else {
-                    completion(temporaryURL)
                 }
             }
         }
@@ -2961,15 +3009,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
     }
 
-    private func finishActiveMicrophoneJournal() -> URL? {
-        guard let controller = activeMicrophoneJournalController else {
-            activeRecordingID = nil
-            return nil
-        }
-        defer {
-            activeMicrophoneJournalController = nil
-            activeRecordingID = nil
-        }
+    private func detachActiveMicrophoneJournalForFinish()
+        -> MicrophoneRecordingJournalController? {
+        let controller = activeMicrophoneJournalController
+        activeMicrophoneJournalController = nil
+        activeRecordingID = nil
+        return controller
+    }
+
+    private static func finishActiveMicrophoneJournal(
+        _ controller: MicrophoneRecordingJournalController?
+    ) -> URL? {
+        guard let controller else { return nil }
         do {
             return try controller.finish()
         } catch {
@@ -3106,7 +3157,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // (AudioRecorder, SystemAudioRecorder, SystemDefaultAndSystemAudioRecorder),
         // matching the existing stopAndTranscribe path, so it is safe to touch
         // main-actor state here.
-        stopActiveAudioRecorder { [weak self] segmentURL in
+        stopActiveAudioRecorder { [weak self] stoppedRecording in
+            let segmentURL = stoppedRecording.fileURL
             try? journalToDiscardAfterDrain?.discard()
             guard let self else { return }
             // The session may have been stopped/cancelled while the old recorder
@@ -4360,7 +4412,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func beginCalendarReminderRecording(onStarted: (@MainActor () -> Void)? = nil) {
-        guard !isRecording else { return }
+        guard !isRecording else {
+            activeRecordingCalendarSnapshot = nil
+            return
+        }
         lastTranscript = ""
         shortcutSessionController.beginManual(mode: .toggle)
         startRecording(triggerMode: .toggle, onStarted: onStarted)
@@ -4686,9 +4741,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 selectionSnapshotTask: scheduledSelectionSnapshotTask,
                 manualCommandRequested: manualCommandRequested,
                 startedAt: t0
-            ) else { return }
+            ) else {
+                activeRecordingCalendarSnapshot = nil
+                return
+            }
             let audioInputID = selectedMicrophoneID
-            guard await ensureRecordingInputAccess(for: audioInputID) else { return }
+            guard await ensureRecordingInputAccess(for: audioInputID) else {
+                if !isAwaitingMicrophonePermission {
+                    activeRecordingCalendarSnapshot = nil
+                }
+                return
+            }
             os_log(.info, log: recordingLog, "audio input access check passed: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
             if AudioInputDevice.isMicrophoneOnly(audioInputID) {
                 applyAudioInterruptionIfNeeded()
@@ -4979,6 +5042,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             )
                         }
                     } else {
+                        strongSelf.activeRecordingCalendarSnapshot = nil
                         strongSelf.errorMessage = localizedCatalogString("Microphone permission denied. Grant access in System Settings > Privacy & Security > Microphone.")
                         strongSelf.statusText = localizedCatalogString("No Microphone")
                         strongSelf.activeRecordingTriggerMode = nil
@@ -5115,6 +5179,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         }
                     } else {
                         self.restoreAudioInterruptionIfNeeded()
+                        self.activeRecordingCalendarSnapshot = nil
                         self.errorMessage = localizedCatalogString("Speech Recognition permission is required for Apple Live transcription. Enable it in System Settings > Privacy & Security > Speech Recognition.")
                         self.statusText = localizedCatalogString("No Speech Recognition")
                         self.activeRecordingTriggerMode = nil
@@ -5126,6 +5191,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 return
             default:
                 isRecording = false
+                activeRecordingCalendarSnapshot = nil
                 syncCriticalDictationActivity()
                 restoreAudioInterruptionIfNeeded()
                 activeRecordingTriggerMode = nil
@@ -5777,9 +5843,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 customSystemPromptOverride: settings.customSystemPrompt,
                 calendarMatch: calendarMatch
             )
-            if audioFileName.map(Self.isProtectedRecordingJournalAudioFile) == true {
+            if let journalRecordingID = audioFileName.flatMap(
+                recordingJournalID(forAudioFileName:)
+            ) {
                 discardRecordingJournalAfterSuccessfulTranscription(
-                    recordingID: jobID
+                    recordingID: journalRecordingID
                 )
             }
             cleanupActiveAudioRecordersIfIdle()
@@ -6048,8 +6116,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return
         }
 
-        stopActiveAudioRecorder { [weak self] fileURL in
+        stopActiveAudioRecorder { [weak self] stoppedRecording in
             guard let self else { return }
+            let fileURL = stoppedRecording.fileURL
+            let recoverableJournalID = stoppedRecording.recoverableJournalID
             guard let fileURL else {
                 if self.overlayTranscriptionID == myOverlayID {
                     self.errorMessage = localizedCatalogString("No audio recorded")
@@ -6076,7 +6146,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             if let savedAudioFile {
                 let recoveryContext = sessionContext ?? self.fallbackContextAtStop()
                 let activeJob = self.activeTranscriptionJobs[jobID]
-                _ = self.createTranscriptionRecoveryPlaceholder(
+                let didPersistRecoveryPlaceholder = self.createTranscriptionRecoveryPlaceholder(
                     jobID: jobID,
                     noteID: liveNoteID ?? jobID,
                     startedAt: startedAt,
@@ -6089,6 +6159,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     recordingStartedAt: activeJob?.recordingStartedAt,
                     recordingEndedAt: activeJob?.recordingEndedAt
                 )
+                if didPersistRecoveryPlaceholder,
+                   let recoverableJournalID {
+                    do {
+                        try recordingJournalStore.removeInflightRecording(
+                            recordingID: recoverableJournalID
+                        )
+                    } catch {
+                        os_log(
+                            .error,
+                            log: recordingLog,
+                            "failed to remove fallback recording journal: %{public}@",
+                            error.localizedDescription
+                        )
+                    }
+                }
             } else {
                 self.updateTranscriptionJob(jobID) { $0.audioFileName = nil }
             }
@@ -6361,7 +6446,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         do {
             let removedStoredFiles = try pipelineHistoryStore.upsert(
                 item,
-                maxCount: maxPipelineHistoryCount
+                maxCount: maxPipelineHistoryCount,
+                requiresDurableStore: true
             )
             for removedAssets in removedStoredFiles {
                 Self.deleteStoredFiles(removedAssets)
@@ -6561,10 +6647,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             $0.liveNoteID = nil
             $0.audioFileName = audioFileName
         }
-        let isJournalAudioFile = audioFileName.map(
-            Self.isProtectedRecordingJournalAudioFile
-        ) == true
-        let entryID = existingID ?? (isJournalAudioFile ? jobID : UUID())
+        let journalRecordingID = audioFileName.flatMap(
+            recordingJournalID(forAudioFileName:)
+        )
+        let isJournalAudioFile = journalRecordingID != nil
+        let entryID = existingID ?? (journalRecordingID ?? UUID())
         let entry = PipelineHistoryItem(
             intent: intent.persistedIntent,
             selectedText: intent.persistedSelectedText,
@@ -6614,8 +6701,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             }
             updatePipelineHistoryItem(entry)
-            if isJournalAudioFile {
-                completePromotedRecordingJournal(recordingID: jobID)
+            if let journalRecordingID {
+                completePromotedRecordingJournal(
+                    recordingID: journalRecordingID
+                )
             }
         } catch {
             if !isJournalAudioFile {

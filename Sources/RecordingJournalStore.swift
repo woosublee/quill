@@ -150,9 +150,15 @@ final class RecordingJournalStore {
             }
 
             try ensureDirectory(session.recordingDirectory, permissions: 0o700)
-            try RecordingJournalDurability.syncDirectory(inflightDirectory)
-            try createReservedSource(at: session.sourceURL)
-            try RecordingJournalDurability.syncDirectory(session.recordingDirectory)
+            do {
+                try RecordingJournalDurability.syncDirectory(inflightDirectory)
+                try createReservedSource(at: session.sourceURL)
+                try RecordingJournalDurability.syncDirectory(session.recordingDirectory)
+            } catch {
+                try? fileManager.removeItem(at: session.recordingDirectory)
+                try? RecordingJournalDurability.syncDirectory(inflightDirectory)
+                throw error
+            }
 
             let source = RecordingJournalSource(
                 id: request.sourceID,
@@ -184,9 +190,15 @@ final class RecordingJournalStore {
                 promotion: nil,
                 historyItemID: nil
             )
-            try manifest.validate()
-            try writeManifestUnlocked(manifest, to: session.manifestURL)
-            return session
+            do {
+                try manifest.validate()
+                try writeManifestUnlocked(manifest, to: session.manifestURL)
+                return session
+            } catch {
+                try? fileManager.removeItem(at: session.recordingDirectory)
+                try? RecordingJournalDurability.syncDirectory(inflightDirectory)
+                throw error
+            }
         }
     }
 
@@ -235,10 +247,17 @@ final class RecordingJournalStore {
                 return manifest
             }
 
+            let (nextGeneration, generationOverflow) = manifest.generation.addingReportingOverflow(1)
+            guard !generationOverflow else {
+                throw RecordingJournalError.invalidManifest(
+                    "Manifest generation overflow."
+                )
+            }
+
             manifest.sources[index].committedDataByteCount = commit.dataByteCount
             manifest.sources[index].committedFrameCount = commit.frameCount
             manifest.sources[index].firstCommittedFrameOffset = resolvedOffset
-            manifest.generation += 1
+            manifest.generation = nextGeneration
             manifest.updatedAt = now()
             try manifest.validate()
             try writeManifestUnlocked(manifest, to: manifestURL(recordingID: recordingID))
@@ -347,6 +366,7 @@ final class RecordingJournalStore {
             }
             shouldClose = false
         } catch {
+            try? fileManager.removeItem(at: url)
             throw error
         }
     }

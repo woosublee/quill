@@ -95,7 +95,12 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
 
     var onRecordingReady: (() -> Void)?
     var onRecordingFailure: ((Error) -> Void)?
-    var normalizedPCM16Sink: (any NormalizedPCM16Sink)?
+    private let normalizedPCM16SinkLock =
+        OSAllocatedUnfairLock<(any NormalizedPCM16Sink)?>(initialState: nil)
+    var normalizedPCM16Sink: (any NormalizedPCM16Sink)? {
+        get { normalizedPCM16SinkLock.withLock { $0 } }
+        set { normalizedPCM16SinkLock.withLock { $0 = newValue } }
+    }
     /// Fires on the sample-buffer queue with a 24 kHz mono PCM16 chunk for
     /// each incoming audio buffer (matching OpenAI Realtime's default PCM
     /// input rate). Set before ``startRecording`` to stream audio out-of-band
@@ -429,9 +434,9 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
     ) throws {
         try activeAudioFile.write(from: buffer)
         recordedFrameCount += AVAudioFramePosition(buffer.frameLength)
-        guard normalizedPCM16Sink != nil else { return }
+        guard let sink = normalizedPCM16SinkLock.withLock({ $0 }) else { return }
         let copiedPCM16LE = try RecordingPCMBufferCopy.data(from: buffer)
-        normalizedPCM16Sink?.enqueue(copiedPCM16LE)
+        sink.enqueue(copiedPCM16LE)
     }
 
     private func validatedPCMBufferFormat(

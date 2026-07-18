@@ -244,9 +244,16 @@ struct RecordingJournalManifest: Codable, Equatable {
             throw RecordingJournalError.invalidStateTransition(from: state, to: newState)
         }
 
+        let (nextGeneration, overflow) = generation.addingReportingOverflow(1)
+        guard !overflow else {
+            throw RecordingJournalError.invalidManifest(
+                "Manifest generation overflow."
+            )
+        }
+
         var next = self
         next.state = newState
-        next.generation += 1
+        next.generation = nextGeneration
         next.updatedAt = now
 
         switch newState {

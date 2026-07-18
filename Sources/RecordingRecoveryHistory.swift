@@ -26,7 +26,8 @@ struct RecordingRecoveryHistory {
                 let item = makePlaceholder(from: recovered)
                 deletedAssets = try historyStore.upsert(
                     item,
-                    maxCount: maxCount
+                    maxCount: maxCount,
+                    requiresDurableStore: true
                 )
             }
             manifest = try journalStore.transition(

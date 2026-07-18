@@ -6,6 +6,7 @@ enum RecordingArtifactFinalizerError: Error, Equatable {
     case invalidLifecycleState(RecordingJournalState)
     case sourceTooShort
     case emptyPayload
+    case committedPayloadUnavailable
     case payloadTooLarge
     case promotionConflict
     case sourceMissing
@@ -18,7 +19,7 @@ struct FinalizedRecordingArtifact: Equatable {
     let destinationURL: URL
     let dataByteCount: UInt64
     let frameCount: UInt64
-    let removedOddTrailingByte: Bool
+    let removedTrailingData: Bool
 }
 
 struct RecordingArtifactFinalizer {
@@ -45,29 +46,35 @@ struct RecordingArtifactFinalizer {
             throw RecordingArtifactFinalizerError.sourceMissing
         }
         let physicalSize = try RecordingJournalDurability.fileSize(at: sourceURL)
-        guard physicalSize >= UInt64(RecordingCanonicalWAV.headerByteCount) else {
+        let headerByteCount = UInt64(RecordingCanonicalWAV.headerByteCount)
+        guard physicalSize >= headerByteCount else {
             throw RecordingArtifactFinalizerError.sourceTooShort
         }
 
-        let payloadSize = physicalSize - UInt64(RecordingCanonicalWAV.headerByteCount)
-        let evenPayloadSize = payloadSize - (payloadSize % UInt64(RecordingPCMFormat.canonical.bytesPerFrame))
-        guard evenPayloadSize > 0 else {
+        let committedPayloadSize = manifest.sources[0].committedDataByteCount
+        guard committedPayloadSize > 0 else {
             throw RecordingArtifactFinalizerError.emptyPayload
         }
-        guard evenPayloadSize <= UInt64(UInt32.max - 36) else {
+        let physicalPayloadSize = physicalSize - headerByteCount
+        guard physicalPayloadSize >= committedPayloadSize else {
+            throw RecordingArtifactFinalizerError.committedPayloadUnavailable
+        }
+        guard committedPayloadSize <= UInt64(UInt32.max - 36) else {
             throw RecordingArtifactFinalizerError.payloadTooLarge
         }
 
         let handle = try FileHandle(forUpdating: sourceURL)
         defer { try? handle.close() }
-        if evenPayloadSize != payloadSize {
+        if physicalPayloadSize != committedPayloadSize {
             try handle.truncate(
-                atOffset: UInt64(RecordingCanonicalWAV.headerByteCount) + evenPayloadSize
+                atOffset: headerByteCount + committedPayloadSize
             )
         }
         try handle.seek(toOffset: 0)
         try handle.write(
-            contentsOf: RecordingCanonicalWAV.header(dataByteCount: UInt32(evenPayloadSize))
+            contentsOf: RecordingCanonicalWAV.header(
+                dataByteCount: UInt32(committedPayloadSize)
+            )
         )
         try RecordingJournalDurability.fullSync(handle.fileDescriptor)
 
@@ -75,9 +82,10 @@ struct RecordingArtifactFinalizer {
             recordingID: recordingID,
             sourceURL: sourceURL,
             destinationURL: store.permanentURL(recordingID: recordingID),
-            dataByteCount: evenPayloadSize,
-            frameCount: evenPayloadSize / UInt64(RecordingPCMFormat.canonical.bytesPerFrame),
-            removedOddTrailingByte: evenPayloadSize != payloadSize
+            dataByteCount: committedPayloadSize,
+            frameCount: committedPayloadSize
+                / UInt64(RecordingPCMFormat.canonical.bytesPerFrame),
+            removedTrailingData: physicalPayloadSize != committedPayloadSize
         )
     }
 

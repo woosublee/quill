@@ -17,7 +17,12 @@ struct RecordingJournalRecoveryExecutorTests {
     private static func recordingJournalIsRecoveredAndPromoted() throws {
         try withFixture { fixture in
             let session = try fixture.store.createSingleSource(fixture.request)
-            try appendRaw(Data([0x01, 0x00, 0x02, 0x00]), to: session.sourceURL)
+            let writer = try RecordingPCMJournalWriter(
+                session: session,
+                store: fixture.store
+            )
+            writer.enqueue(Data([0x01, 0x00, 0x02, 0x00]))
+            _ = try writer.checkpoint()
 
             let executor = RecordingJournalRecoveryExecutor(store: fixture.store)
             let results = executor.recoverAll()

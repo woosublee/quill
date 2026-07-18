@@ -8,11 +8,13 @@ struct AudioRecorderJournalIntegrationSourceTests {
             encoding: .utf8
         )
 
+        precondition(source.contains("private let normalizedPCM16SinkLock"))
         precondition(source.contains("var normalizedPCM16Sink: (any NormalizedPCM16Sink)?"))
         precondition(source.contains("private func writeCanonicalRecordingBuffer("))
         precondition(source.contains("try activeAudioFile.write(from: buffer)"))
+        precondition(source.contains("let sink = normalizedPCM16SinkLock.withLock"))
         precondition(source.contains("let copiedPCM16LE = try RecordingPCMBufferCopy.data(from: buffer)"))
-        precondition(source.contains("normalizedPCM16Sink?.enqueue(copiedPCM16LE)"))
+        precondition(source.contains("sink.enqueue(copiedPCM16LE)"))
         precondition(source.contains("func cancelRecording(completion: (() -> Void)?)"))
         precondition(source.contains("completion?()"))
 
