@@ -5,8 +5,10 @@ import Foundation
 struct SingleSourceRecordingJournalControllerTests {
     static func main() {
         do {
+            try initializationFailureRollsBackInflightJournal()
             try microphoneFinishPromotesReadableCanonicalWAV()
             try microphoneExplicitDiscardRemovesInflightJournal()
+            try discardFailureLeavesHiddenTombstoneAndRetriesRemoval()
             try microphoneRuntimeFailurePreservesRecoverableJournal()
             try repeatedMicrophoneFinishReturnsSamePromotedArtifact()
             try systemAudioFinishPromotesReadableCanonicalWAV()
@@ -17,6 +19,34 @@ struct SingleSourceRecordingJournalControllerTests {
         } catch {
             fputs("SingleSourceRecordingJournalControllerTests failed: \(error)\n", stderr)
             exit(1)
+        }
+    }
+
+    private static func initializationFailureRollsBackInflightJournal() throws {
+        try withMicrophoneFixture { fixture in
+            do {
+                _ = try SingleSourceRecordingJournalController(
+                    request: fixture.request,
+                    store: fixture.store,
+                    makeWriter: { session, store in
+                        throw TestFailure("injected writer failure")
+                    }
+                )
+                throw TestFailure("controller initialization must fail")
+            } catch let error as TestFailure
+                where error.description == "injected writer failure" {
+                // expected
+            }
+
+            guard !FileManager.default.fileExists(
+                atPath: fixture.store.recordingDirectory(
+                    recordingID: fixture.recordingID
+                ).path
+            ) else {
+                throw TestFailure(
+                    "failed initialization must remove its inflight journal"
+                )
+            }
         }
     }
 
@@ -60,6 +90,70 @@ struct SingleSourceRecordingJournalControllerTests {
             )
             controller.sink.enqueue(Data([0x01, 0x00]))
             try controller.discard()
+            try controller.discard()
+            try verifyDiscarded(fixture: fixture)
+        }
+    }
+
+    private static func discardFailureLeavesHiddenTombstoneAndRetriesRemoval() throws {
+        let fileManager = FailingTombstoneRemovalFileManager()
+        try withFixture(
+            sourceMode: .microphone,
+            sourceKind: .microphone,
+            sourceFileName: "microphone.wav.part",
+            fileManager: fileManager
+        ) { fixture in
+            let controller = try SingleSourceRecordingJournalController(
+                request: fixture.request,
+                store: fixture.store
+            )
+            controller.sink.enqueue(Data([0x01, 0x00]))
+            let directory = fixture.store.recordingDirectory(
+                recordingID: fixture.recordingID
+            )
+            let inflightDirectory = fixture.store.inflightDirectory
+            fileManager.failNextTombstoneRemoval = true
+
+            do {
+                try controller.discard()
+                throw TestFailure("first discard must fail deletion")
+            } catch let error as TestFailure {
+                throw error
+            } catch {
+                // expected
+            }
+            guard !FileManager.default.fileExists(atPath: directory.path) else {
+                throw TestFailure(
+                    "discard failure must move journal out of recovery scan"
+                )
+            }
+            let tombstone = inflightDirectory.appendingPathComponent(
+                ".discarded-\(fixture.recordingID.uuidString.lowercased())",
+                isDirectory: true
+            )
+            guard FileManager.default.fileExists(atPath: tombstone.path) else {
+                throw TestFailure("discard failure must leave hidden tombstone")
+            }
+            let candidates = InflightRecordingRecovery(
+                store: fixture.store
+            ).scan()
+            try expectEqual(candidates.count, 1, "tombstone candidate count")
+            try expectEqual(
+                candidates[0].action,
+                .discard,
+                "tombstone recovery action"
+            )
+            let results = RecordingJournalRecoveryExecutor(
+                store: fixture.store
+            ).recoverAll()
+            guard case .discarded(let recordingID) = results.first else {
+                throw TestFailure("startup recovery must delete tombstone")
+            }
+            try expectEqual(recordingID, fixture.recordingID, "tombstone ID")
+            guard !FileManager.default.fileExists(atPath: tombstone.path) else {
+                throw TestFailure("startup recovery must remove hidden tombstone")
+            }
+
             try controller.discard()
             try verifyDiscarded(fixture: fixture)
         }
@@ -260,6 +354,7 @@ struct SingleSourceRecordingJournalControllerTests {
         sourceMode: RecordingAudioSourceMode,
         sourceKind: RecordingJournalSourceKind,
         sourceFileName: String,
+        fileManager: FileManager = .default,
         _ body: (Fixture) throws -> Void
     ) throws {
         let root = FileManager.default.temporaryDirectory
@@ -278,7 +373,8 @@ struct SingleSourceRecordingJournalControllerTests {
             audioDirectory: root.appendingPathComponent(
                 "audio",
                 isDirectory: true
-            )
+            ),
+            fileManager: fileManager
         )
         let request = RecordingJournalCreateRequest(
             recordingID: recordingID,
@@ -332,6 +428,19 @@ struct SingleSourceRecordingJournalControllerTests {
     ) throws {
         guard actual == expected else {
             throw TestFailure("\(label): expected \(expected), got \(actual)")
+        }
+    }
+
+    private final class FailingTombstoneRemovalFileManager: FileManager {
+        var failNextTombstoneRemoval = false
+
+        override func removeItem(at URL: URL) throws {
+            if failNextTombstoneRemoval,
+               URL.lastPathComponent.hasPrefix(".discarded-") {
+                failNextTombstoneRemoval = false
+                throw CocoaError(.fileWriteUnknown)
+            }
+            try super.removeItem(at: URL)
         }
     }
 

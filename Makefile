@@ -342,13 +342,13 @@ test: check-test-wiring $(SPARKLE_STAMP) $(LOCALIZATION_STAMP)
 	@/tmp/ModelsSettingsUIContractTests
 	@swiftc -parse-as-library Sources/RecordingJournalModels.swift Tests/RecordingJournalManifestTests.swift -o /tmp/RecordingJournalManifestTests
 	@/tmp/RecordingJournalManifestTests
-	@swiftc -parse-as-library Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/RecordingArtifactFinalizer.swift Sources/InflightRecordingRecovery.swift Tests/RecordingJournalRuntimeTests.swift -o /tmp/RecordingJournalRuntimeTests
+	@swiftc -parse-as-library Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/RecordingArtifactFinalizer.swift Sources/InflightRecordingRecovery.swift Sources/RecordingJournalRecoveryExecutor.swift Tests/RecordingJournalRuntimeTests.swift -o /tmp/RecordingJournalRuntimeTests
 	@/tmp/RecordingJournalRuntimeTests
 	@swiftc -parse-as-library -framework AVFoundation Sources/RecordingPCMBufferCopy.swift Tests/RecordingPCMBufferCopyTests.swift -o /tmp/RecordingPCMBufferCopyTests
 	@/tmp/RecordingPCMBufferCopyTests
 	@swiftc -parse-as-library Tests/AudioRecorderJournalIntegrationSourceTests.swift -o /tmp/AudioRecorderJournalIntegrationSourceTests
 	@/tmp/AudioRecorderJournalIntegrationSourceTests
-	@swiftc -parse-as-library -framework AVFoundation Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/RecordingArtifactFinalizer.swift Sources/SingleSourceRecordingJournalController.swift Tests/SingleSourceRecordingJournalControllerTests.swift -o /tmp/SingleSourceRecordingJournalControllerTests
+	@swiftc -parse-as-library -framework AVFoundation Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/RecordingArtifactFinalizer.swift Sources/InflightRecordingRecovery.swift Sources/RecordingJournalRecoveryExecutor.swift Sources/SingleSourceRecordingJournalController.swift Tests/SingleSourceRecordingJournalControllerTests.swift -o /tmp/SingleSourceRecordingJournalControllerTests
 	@/tmp/SingleSourceRecordingJournalControllerTests
 	@swiftc -parse-as-library -framework AVFoundation Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/RecordingArtifactFinalizer.swift Sources/InflightRecordingRecovery.swift Sources/SingleSourceRecordingJournalController.swift Sources/RecordingJournalRecoveryExecutor.swift Tests/RecordingJournalRecoveryExecutorTests.swift -o /tmp/RecordingJournalRecoveryExecutorTests
 	@/tmp/RecordingJournalRecoveryExecutorTests

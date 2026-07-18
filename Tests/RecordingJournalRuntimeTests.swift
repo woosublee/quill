@@ -18,6 +18,7 @@ struct RecordingJournalRuntimeTests {
             try finalizerUsesCommittedCheckpointBoundary()
             try finalizerRejectsTruncatedCommittedPayload()
             try finalizerPreservesEmptyAndConflictingArtifacts()
+            try discardedJournalIsNeverRecovered()
             try scannerPreservesManualRecoveryArtifactsAndUsesActualEvenPayload()
             try manualRecoveryCandidateProtectsDerivedPermanentFileName()
             try scannerReturnsExecutablePlanForRecordingState()
@@ -385,6 +386,53 @@ struct RecordingJournalRuntimeTests {
             }
             try expectEqual(try Data(contentsOf: session.sourceURL), sourceBefore, "source conflict preservation")
             try expectEqual(try Data(contentsOf: permanentURL), permanentBefore, "destination conflict preservation")
+        }
+    }
+
+    private static func discardedJournalIsNeverRecovered() throws {
+        try withFixture { fixture in
+            let session = try fixture.store.createSingleSource(fixture.request)
+            let writer = try RecordingPCMJournalWriter(
+                session: session,
+                store: fixture.store
+            )
+            writer.enqueue(Data([0x01, 0x00, 0x02, 0x00]))
+            _ = try writer.drainAndClose()
+
+            _ = try fixture.store.markDiscarded(
+                recordingID: fixture.recordingID
+            )
+
+            let candidates = InflightRecordingRecovery(
+                store: fixture.store
+            ).scan()
+            try expectEqual(candidates.count, 1, "discard candidate count")
+            try expectEqual(
+                candidates[0].action,
+                .discard,
+                "discard recovery action"
+            )
+
+            let results = RecordingJournalRecoveryExecutor(
+                store: fixture.store
+            ).recoverAll()
+            try expectEqual(results.count, 1, "discard result count")
+            guard case .discarded(let recordingID) = results[0] else {
+                throw TestFailure("discarded journal must not be recovered")
+            }
+            try expectEqual(recordingID, fixture.recordingID, "discarded ID")
+            guard !FileManager.default.fileExists(
+                atPath: session.recordingDirectory.path
+            ) else {
+                throw TestFailure("discarded inflight directory must be removed")
+            }
+            guard !FileManager.default.fileExists(
+                atPath: fixture.store.permanentURL(
+                    recordingID: fixture.recordingID
+                ).path
+            ) else {
+                throw TestFailure("discarded audio must not be promoted")
+            }
         }
     }
 

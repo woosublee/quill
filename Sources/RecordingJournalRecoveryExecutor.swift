@@ -9,6 +9,7 @@ struct RecoveredRecordingArtifact: Equatable {
 
 enum RecordingJournalRecoveryResult: Equatable {
     case recovered(RecoveredRecordingArtifact)
+    case discarded(UUID)
     case manualRecoveryRequired(InflightRecordingRecoveryCandidate)
     case failed(InflightRecordingRecoveryCandidate, String)
 }
@@ -61,6 +62,12 @@ struct RecordingJournalRecoveryExecutor {
                     promotion: promotion,
                     manifest: manifest
                 ))
+
+            case .discard:
+                try store.discardInflightRecording(
+                    recordingID: recordingID
+                )
+                return .discarded(recordingID)
 
             case .manualRecoveryRequired:
                 return .manualRecoveryRequired(candidate)

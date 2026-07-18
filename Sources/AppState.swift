@@ -2501,6 +2501,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 } catch {
                     print("Failed to persist recovered recording \(artifact.recordingID): \(error)")
                 }
+            case .discarded:
+                continue
             case .manualRecoveryRequired(let candidate):
                 print("Recording journal requires manual recovery at \(candidate.recordingDirectory.path): \(candidate.diagnostics)")
             case .failed(let candidate, let message):
@@ -2853,7 +2855,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
         } catch {
             detachSingleSourceJournalSink(inputID: inputID)
-            try? controller.discard()
+            discardSingleSourceJournal(controller)
             activeSingleSourceJournalController = nil
             activeRecordingID = nil
             throw error
@@ -3104,7 +3106,23 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private func discardActiveSingleSourceJournal() {
         let controller = detachActiveSingleSourceJournalForDiscard()
-        try? controller?.discard()
+        discardSingleSourceJournal(controller)
+    }
+
+    private func discardSingleSourceJournal(
+        _ controller: SingleSourceRecordingJournalController?
+    ) {
+        guard let controller else { return }
+        do {
+            try controller.discard()
+        } catch {
+            os_log(
+                .error,
+                log: recordingLog,
+                "failed to delete discarded recording journal: %{public}@",
+                error.localizedDescription
+            )
+        }
     }
 
     private func completePromotedRecordingJournal(recordingID: UUID) {
@@ -3219,7 +3237,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // main-actor state here.
         stopActiveAudioRecorder { [weak self] stoppedRecording in
             let segmentURL = stoppedRecording.fileURL
-            try? journalToDiscardAfterDrain?.discard()
+            self?.discardSingleSourceJournal(journalToDiscardAfterDrain)
             guard let self else { return }
             // The session may have been stopped/cancelled while the old recorder
             // was finishing. Don't start a new recorder in that case — it would

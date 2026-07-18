@@ -27,15 +27,38 @@ final class SingleSourceRecordingJournalController {
     private var state: State = .recording
     private var didReportCheckpointFailure = false
 
-    init(
+    convenience init(
         request: RecordingJournalCreateRequest,
         store: RecordingJournalStore
     ) throws {
-        let session = try store.createSingleSource(request)
-        let writer = try RecordingPCMJournalWriter(
-            session: session,
-            store: store
+        try self.init(
+            request: request,
+            store: store,
+            makeWriter: RecordingPCMJournalWriter.init
         )
+    }
+
+    init(
+        request: RecordingJournalCreateRequest,
+        store: RecordingJournalStore,
+        makeWriter: (
+            RecordingJournalSession,
+            RecordingJournalStore
+        ) throws -> RecordingPCMJournalWriter
+    ) throws {
+        let session = try store.createSingleSource(request)
+        let writer: RecordingPCMJournalWriter
+        do {
+            writer = try makeWriter(session, store)
+        } catch {
+            try? store.markDiscarded(
+                recordingID: request.recordingID
+            )
+            try? store.discardInflightRecording(
+                recordingID: request.recordingID
+            )
+            throw error
+        }
         self.recordingID = request.recordingID
         self.store = store
         self.writer = writer
@@ -158,13 +181,17 @@ final class SingleSourceRecordingJournalController {
             case .recording:
                 cancelCheckpointTimerLocked()
                 _ = try? writer.drainAndClose()
-                try store.removeInflightRecording(recordingID: recordingID)
-                state = .discarded
+                try discardJournalLocked()
             case .recoverable:
-                try store.removeInflightRecording(recordingID: recordingID)
-                state = .discarded
+                try discardJournalLocked()
             }
         }
+    }
+
+    private func discardJournalLocked() throws {
+        try store.markDiscarded(recordingID: recordingID)
+        try store.discardInflightRecording(recordingID: recordingID)
+        state = .discarded
     }
 
     private func preserveAfterFinishFailureLocked() throws {

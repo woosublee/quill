@@ -53,6 +53,8 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         precondition(startBody.contains("try await systemAudioRecorder.startRecording()"))
         precondition(startBody.contains("try audioRecorder.startRecording(deviceUID: inputID)"))
         precondition(!startBody.contains("systemDefaultAndSystemAudioRecorder.normalizedPCM16Sink"))
+        precondition(startBody.contains("discardSingleSourceJournal(controller)"))
+        precondition(!startBody.contains("try? controller.discard()"))
         let makeControllerBody = try functionBody(
             named: "makeActiveSingleSourceJournalController",
             in: source
@@ -85,6 +87,12 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         precondition(cancelBody.contains("systemAudioRecorder.cancelRecording { [weak self] in"))
         precondition(cancelBody.contains("self?.discardActiveSingleSourceJournal()"))
         precondition(cancelBody.contains("audioRecorder.normalizedPCM16Sink = nil"))
+        let discardBody = try functionBody(
+            named: "discardActiveSingleSourceJournal",
+            in: source
+        )
+        precondition(discardBody.contains("discardSingleSourceJournal"))
+        precondition(!discardBody.contains("try? controller?.discard()"))
 
         let preserveBody = try functionBody(
             named: "preserveActiveSingleSourceJournalForRecovery",
@@ -103,10 +111,15 @@ struct AppStateRecordingJournalIntegrationSourceTests {
                 "let journalToDiscardAfterDrain = detachActiveSingleSourceJournalForDiscard()"
             )
         )
-        precondition(switchBody.contains("try? journalToDiscardAfterDrain?.discard()"))
+        precondition(
+            switchBody.contains(
+                "self?.discardSingleSourceJournal(journalToDiscardAfterDrain)"
+            )
+        )
+        precondition(!switchBody.contains("try? journalToDiscardAfterDrain?.discard()"))
         let stopRange = try requiredRange(of: "stopActiveAudioRecorder", in: switchBody)
         let discardRange = try requiredRange(
-            of: "try? journalToDiscardAfterDrain?.discard()",
+            of: "self?.discardSingleSourceJournal(journalToDiscardAfterDrain)",
             in: switchBody
         )
         precondition(stopRange.lowerBound < discardRange.lowerBound)
