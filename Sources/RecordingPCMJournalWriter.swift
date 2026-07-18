@@ -2,9 +2,23 @@ import Foundation
 
 protocol NormalizedPCM16Sink: AnyObject {
     func enqueue(_ copiedPCM16LE: Data)
+    func enqueue(
+        _ copiedPCM16LE: Data,
+        firstFrameMonotonicNanoseconds: UInt64
+    )
+}
+
+extension NormalizedPCM16Sink {
+    func enqueue(
+        _ copiedPCM16LE: Data,
+        firstFrameMonotonicNanoseconds: UInt64
+    ) {
+        enqueue(copiedPCM16LE)
+    }
 }
 
 enum RecordingPCMJournalWriterError: Error, Equatable {
+    case conflictingFrameOffset
     case oddByteChunk
     case writerClosed
     case writeFailed(String)
@@ -52,6 +66,13 @@ final class RecordingPCMJournalWriter: NormalizedPCM16Sink {
     }
 
     func enqueue(_ copiedPCM16LE: Data) {
+        enqueue(copiedPCM16LE, firstCommittedFrameOffset: 0)
+    }
+
+    func enqueue(
+        _ copiedPCM16LE: Data,
+        firstCommittedFrameOffset requestedFrameOffset: UInt64?
+    ) {
         queue.async { [self] in
             guard failure == nil else { return }
             guard !isClosed, let handle else {
@@ -64,11 +85,18 @@ final class RecordingPCMJournalWriter: NormalizedPCM16Sink {
             }
             guard !copiedPCM16LE.isEmpty else { return }
 
+            let resolvedFrameOffset = requestedFrameOffset ?? 0
+            if let firstCommittedFrameOffset,
+               firstCommittedFrameOffset != resolvedFrameOffset {
+                failure = .conflictingFrameOffset
+                return
+            }
+
             do {
                 try handle.write(contentsOf: copiedPCM16LE)
                 writtenDataByteCount += UInt64(copiedPCM16LE.count)
                 if firstCommittedFrameOffset == nil {
-                    firstCommittedFrameOffset = 0
+                    firstCommittedFrameOffset = resolvedFrameOffset
                 }
             } catch {
                 failure = .writeFailed(error.localizedDescription)

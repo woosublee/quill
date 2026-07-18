@@ -5,6 +5,11 @@ import Foundation
 struct AudioMixdownServiceTests {
     static func main() {
         do {
+            try alignsLaterSystemAudioWithLeadingSilence()
+            try alignsLaterMicrophoneWithLeadingSilence()
+            try normalizesEqualNonzeroOffsetsToFrameZero()
+            try materializesOneSourceWithoutLeadingSilence()
+            try rejectsAlignedOutputSizeOverflow()
             try sumsOverlappingSamplesWithHeadroomAndPreservesLongerTail()
             try boostsQuietSystemAudioBeforeMixing()
             try preservesSystemAudioWhenMicrophoneIsSilent()
@@ -25,6 +30,105 @@ struct AudioMixdownServiceTests {
         } catch {
             fputs("AudioMixdownServiceTests failed: \(error)\n", stderr)
             exit(1)
+        }
+    }
+
+    private static func alignsLaterSystemAudioWithLeadingSilence() throws {
+        let microphoneURL = try writeTinyWAV(samples: [1_000, 1_000])
+        let systemAudioURL = try writeTinyWAV(samples: [3_000, 3_000])
+        defer { try? FileManager.default.removeItem(at: microphoneURL) }
+        defer { try? FileManager.default.removeItem(at: systemAudioURL) }
+
+        let outputURL = try AudioMixdownService().mix(
+            microphoneURL: microphoneURL,
+            microphoneFrameOffset: 0,
+            systemAudioURL: systemAudioURL,
+            systemAudioFrameOffset: 2
+        )
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        try expectEqual(
+            try readSamples(from: outputURL),
+            [800, 800, 2_400, 2_400],
+            "later System Audio alignment"
+        )
+    }
+
+    private static func alignsLaterMicrophoneWithLeadingSilence() throws {
+        let microphoneURL = try writeTinyWAV(samples: [1_000, 1_000, 1_000])
+        let systemAudioURL = try writeTinyWAV(samples: [3_000, 3_000, 3_000])
+        defer { try? FileManager.default.removeItem(at: microphoneURL) }
+        defer { try? FileManager.default.removeItem(at: systemAudioURL) }
+
+        let outputURL = try AudioMixdownService().mix(
+            microphoneURL: microphoneURL,
+            microphoneFrameOffset: 2,
+            systemAudioURL: systemAudioURL,
+            systemAudioFrameOffset: 0
+        )
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        try expectEqual(
+            try readSamples(from: outputURL),
+            [2_400, 2_400, 3_200, 800, 800],
+            "later microphone alignment and trailing silence"
+        )
+    }
+
+    private static func normalizesEqualNonzeroOffsetsToFrameZero() throws {
+        let microphoneURL = try writeTinyWAV(samples: [1_000])
+        let systemAudioURL = try writeTinyWAV(samples: [3_000])
+        defer { try? FileManager.default.removeItem(at: microphoneURL) }
+        defer { try? FileManager.default.removeItem(at: systemAudioURL) }
+
+        let outputURL = try AudioMixdownService().mix(
+            microphoneURL: microphoneURL,
+            microphoneFrameOffset: 5_000,
+            systemAudioURL: systemAudioURL,
+            systemAudioFrameOffset: 5_000
+        )
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        try expectEqual(
+            try readSamples(from: outputURL),
+            [3_200],
+            "equal absolute offsets normalize to zero"
+        )
+    }
+
+    private static func materializesOneSourceWithoutLeadingSilence() throws {
+        let sourceURL = try writeTinyWAV(samples: [123, -456, 789])
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+
+        let outputURL = try AudioMixdownService().materialize(
+            sourceURL: sourceURL,
+            frameOffset: 9_999
+        )
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        try expectEqual(
+            try readSamples(from: outputURL),
+            [123, -456, 789],
+            "one-source materialization"
+        )
+    }
+
+    private static func rejectsAlignedOutputSizeOverflow() throws {
+        let microphoneURL = try writeTinyWAV(samples: [1])
+        let systemAudioURL = try writeTinyWAV(samples: [1])
+        defer { try? FileManager.default.removeItem(at: microphoneURL) }
+        defer { try? FileManager.default.removeItem(at: systemAudioURL) }
+
+        do {
+            _ = try AudioMixdownService().mix(
+                microphoneURL: microphoneURL,
+                microphoneFrameOffset: 0,
+                systemAudioURL: systemAudioURL,
+                systemAudioFrameOffset: UInt64.max
+            )
+            throw TestFailure("aligned output overflow must fail")
+        } catch AudioMixdownServiceError.outputTooLarge {
+            // expected
         }
     }
 
@@ -296,6 +400,9 @@ struct AudioMixdownServiceTests {
         }
         guard countOccurrences(of: "Data(contentsOf:", in: source) == 1 else {
             throw TestFailure("only the unchanged concatenate path may use Data(contentsOf:)")
+        }
+        guard source.contains("private static let streamingFrameCount = 4_096") else {
+            throw TestFailure("aligned mix must preserve fixed 4,096-frame streaming")
         }
     }
 

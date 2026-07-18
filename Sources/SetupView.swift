@@ -1424,7 +1424,7 @@ struct SetupView: View {
         }
         Task {
             do {
-                try await recorder.startRecording()
+                _ = try await recorder.startRecording()
                 await MainActor.run {
                     guard testPhase == .starting else { return }
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
@@ -1468,7 +1468,7 @@ struct SetupView: View {
         }
         Task {
             do {
-                try await recorder.startRecording()
+                _ = try await recorder.startRecording()
                 await MainActor.run {
                     guard testPhase == .starting else { return }
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {

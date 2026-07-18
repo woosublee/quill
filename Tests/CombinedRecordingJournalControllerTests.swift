@@ -4,6 +4,9 @@ import Foundation
 struct CombinedRecordingJournalControllerTests {
     static func main() {
         do {
+            try timestampedSinksCommitStableFirstOffsets()
+            try timestampEarlierThanAnchorClampsToZero()
+            try frameOffsetConversionHandlesMaximumTimestamp()
             try independentSinksCheckpointInOneGeneration()
             try checkpointPreservesNonemptySourceWhenOtherSourceIsEmpty()
             try stopDrainsBothSourcesAndReturnsStableResult()
@@ -23,6 +26,89 @@ struct CombinedRecordingJournalControllerTests {
             )
             exit(1)
         }
+    }
+
+    private static func timestampedSinksCommitStableFirstOffsets() throws {
+        try withFixture { fixture in
+            let controller = try CombinedRecordingJournalController(
+                request: fixture.request,
+                store: fixture.store
+            )
+            controller.microphoneSink.enqueue(
+                Data([0x01, 0x00]),
+                firstFrameMonotonicNanoseconds: fixture.request.monotonicAnchorNanoseconds
+                    + 100_000_000
+            )
+            controller.systemAudioSink.enqueue(
+                Data([0x02, 0x00]),
+                firstFrameMonotonicNanoseconds: fixture.request.monotonicAnchorNanoseconds
+                    + 350_000_000
+            )
+            controller.microphoneSink.enqueue(
+                Data([0x03, 0x00]),
+                firstFrameMonotonicNanoseconds: fixture.request.monotonicAnchorNanoseconds
+                    + 900_000_000
+            )
+            controller.systemAudioSink.enqueue(
+                Data([0x04, 0x00]),
+                firstFrameMonotonicNanoseconds: fixture.request.monotonicAnchorNanoseconds
+                    + 1_200_000_000
+            )
+
+            try controller.checkpoint()
+
+            let manifest = try fixture.store.loadManifest(
+                recordingID: fixture.recordingID
+            )
+            try expectEqual(
+                committedOffset(in: manifest, kind: .microphone),
+                1_600,
+                "microphone first offset"
+            )
+            try expectEqual(
+                committedOffset(in: manifest, kind: .systemAudio),
+                5_600,
+                "System Audio first offset"
+            )
+        }
+    }
+
+    private static func timestampEarlierThanAnchorClampsToZero() throws {
+        try withFixture { fixture in
+            let controller = try CombinedRecordingJournalController(
+                request: fixture.request,
+                store: fixture.store
+            )
+            controller.microphoneSink.enqueue(
+                Data([0x01, 0x00]),
+                firstFrameMonotonicNanoseconds: fixture.request.monotonicAnchorNanoseconds
+                    - 1
+            )
+
+            try controller.checkpoint()
+
+            let manifest = try fixture.store.loadManifest(
+                recordingID: fixture.recordingID
+            )
+            try expectEqual(
+                committedOffset(in: manifest, kind: .microphone),
+                0,
+                "timestamp before anchor offset"
+            )
+        }
+    }
+
+    private static func frameOffsetConversionHandlesMaximumTimestamp() throws {
+        let offset = RecordingFrameOffset.frames(
+            firstFrameMonotonicNanoseconds: UInt64.max,
+            monotonicAnchorNanoseconds: 0,
+            sampleRate: RecordingPCMFormat.canonical.sampleRate
+        )
+        try expectEqual(
+            offset,
+            295_147_905_179_353,
+            "maximum timestamp frame offset"
+        )
     }
 
     private static func independentSinksCheckpointInOneGeneration() throws {
@@ -380,6 +466,14 @@ struct CombinedRecordingJournalControllerTests {
     ) -> UInt64? {
         manifest.sources.first(where: { $0.kind == kind })?
             .committedDataByteCount
+    }
+
+    private static func committedOffset(
+        in manifest: RecordingJournalManifest,
+        kind: RecordingJournalSourceKind
+    ) -> UInt64? {
+        manifest.sources.first(where: { $0.kind == kind })?
+            .firstCommittedFrameOffset
     }
 
     private static func withFixture(

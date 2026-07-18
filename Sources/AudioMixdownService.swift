@@ -13,12 +13,37 @@ public struct AudioMixdownService {
     public init() {}
 
     public func mix(microphoneURL: URL, systemAudioURL: URL) throws -> URL {
+        try mix(
+            microphoneURL: microphoneURL,
+            microphoneFrameOffset: 0,
+            systemAudioURL: systemAudioURL,
+            systemAudioFrameOffset: 0
+        )
+    }
+
+    public func mix(
+        microphoneURL: URL,
+        microphoneFrameOffset: UInt64,
+        systemAudioURL: URL,
+        systemAudioFrameOffset: UInt64
+    ) throws -> URL {
         let microphoneScan = try scanSamples(at: microphoneURL)
         let systemAudioScan = try scanSamples(at: systemAudioURL)
-        let outputFrameCount = max(
-            microphoneScan.frameCount,
-            systemAudioScan.frameCount
+        let earliestOffset = min(
+            microphoneFrameOffset,
+            systemAudioFrameOffset
         )
+        let normalizedMicrophoneOffset = microphoneFrameOffset - earliestOffset
+        let normalizedSystemAudioOffset = systemAudioFrameOffset - earliestOffset
+        let microphoneEndFrame = try alignedEndFrame(
+            offset: normalizedMicrophoneOffset,
+            frameCount: microphoneScan.frameCount
+        )
+        let systemAudioEndFrame = try alignedEndFrame(
+            offset: normalizedSystemAudioOffset,
+            frameCount: systemAudioScan.frameCount
+        )
+        let outputFrameCount = max(microphoneEndFrame, systemAudioEndFrame)
         let outputDataByteCount = try validatedOutputDataByteCount(
             frameCount: outputFrameCount
         )
@@ -27,23 +52,49 @@ public struct AudioMixdownService {
             systemAudioStatistics: systemAudioScan.statistics
         )
 
-        let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("wav")
+        let outputURL = temporaryWAVURL()
         do {
             try writeStreamingMix(
                 microphoneURL: microphoneURL,
+                microphoneFrameOffset: normalizedMicrophoneOffset,
                 systemAudioURL: systemAudioURL,
+                systemAudioFrameOffset: normalizedSystemAudioOffset,
                 outputURL: outputURL,
                 outputFrameCount: outputFrameCount,
                 outputDataByteCount: outputDataByteCount,
                 systemGain: systemGain
             )
-            let validationReader = try StreamingPCM16WAVReader(url: outputURL)
-            defer { try? validationReader.close() }
-            guard validationReader.frameCount == outputFrameCount else {
-                throw AudioMixdownServiceError.invalidWAVFile
-            }
+            try validateOutput(
+                at: outputURL,
+                expectedFrameCount: outputFrameCount
+            )
+            return outputURL
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw error
+        }
+    }
+
+    public func materialize(
+        sourceURL: URL,
+        frameOffset: UInt64
+    ) throws -> URL {
+        _ = frameOffset
+        let scan = try scanSamples(at: sourceURL)
+        let outputDataByteCount = try validatedOutputDataByteCount(
+            frameCount: scan.frameCount
+        )
+        let outputURL = temporaryWAVURL()
+        do {
+            try writeStreamingSource(
+                sourceURL: sourceURL,
+                outputURL: outputURL,
+                outputDataByteCount: outputDataByteCount
+            )
+            try validateOutput(
+                at: outputURL,
+                expectedFrameCount: scan.frameCount
+            )
             return outputURL
         } catch {
             try? FileManager.default.removeItem(at: outputURL)
@@ -109,15 +160,23 @@ public struct AudioMixdownService {
 
     private func writeStreamingMix(
         microphoneURL: URL,
+        microphoneFrameOffset: UInt64,
         systemAudioURL: URL,
+        systemAudioFrameOffset: UInt64,
         outputURL: URL,
         outputFrameCount: UInt64,
         outputDataByteCount: UInt32,
         systemGain: Float
     ) throws {
-        var microphoneReader = try StreamingPCM16WAVReader(url: microphoneURL)
+        var microphoneReader = try AlignedPCM16WAVReader(
+            url: microphoneURL,
+            leadingFrameCount: microphoneFrameOffset
+        )
         defer { try? microphoneReader.close() }
-        var systemAudioReader = try StreamingPCM16WAVReader(url: systemAudioURL)
+        var systemAudioReader = try AlignedPCM16WAVReader(
+            url: systemAudioURL,
+            leadingFrameCount: systemAudioFrameOffset
+        )
         defer { try? systemAudioReader.close() }
 
         try wavHeader(dataByteCount: 0).write(to: outputURL, options: .atomic)
@@ -162,6 +221,68 @@ public struct AudioMixdownService {
         try outputHandle.write(
             contentsOf: wavHeader(dataByteCount: outputDataByteCount)
         )
+    }
+
+    private func writeStreamingSource(
+        sourceURL: URL,
+        outputURL: URL,
+        outputDataByteCount: UInt32
+    ) throws {
+        var reader = try StreamingPCM16WAVReader(url: sourceURL)
+        defer { try? reader.close() }
+
+        try wavHeader(dataByteCount: 0).write(to: outputURL, options: .atomic)
+        let outputHandle = try FileHandle(forWritingTo: outputURL)
+        defer { try? outputHandle.close() }
+        try outputHandle.seekToEnd()
+
+        while true {
+            let samples = try reader.readChunk(
+                maximumFrameCount: Self.streamingFrameCount
+            )
+            guard !samples.isEmpty else { break }
+            var outputData = Data()
+            outputData.reserveCapacity(
+                samples.count * MemoryLayout<Int16>.size
+            )
+            for sample in samples {
+                outputData.appendUInt16LE(UInt16(bitPattern: sample))
+            }
+            try outputHandle.write(contentsOf: outputData)
+        }
+
+        try outputHandle.seek(toOffset: 0)
+        try outputHandle.write(
+            contentsOf: wavHeader(dataByteCount: outputDataByteCount)
+        )
+    }
+
+    private func temporaryWAVURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+    }
+
+    private func validateOutput(
+        at outputURL: URL,
+        expectedFrameCount: UInt64
+    ) throws {
+        let validationReader = try StreamingPCM16WAVReader(url: outputURL)
+        defer { try? validationReader.close() }
+        guard validationReader.frameCount == expectedFrameCount else {
+            throw AudioMixdownServiceError.invalidWAVFile
+        }
+    }
+
+    private func alignedEndFrame(
+        offset: UInt64,
+        frameCount: UInt64
+    ) throws -> UInt64 {
+        let (result, overflow) = offset.addingReportingOverflow(frameCount)
+        guard !overflow else {
+            throw AudioMixdownServiceError.outputTooLarge
+        }
+        return result
     }
 
     private func validatedOutputDataByteCount(
@@ -320,6 +441,43 @@ private struct SampleStatistics {
                 activeSampleCount += 1
             }
         }
+    }
+}
+
+private struct AlignedPCM16WAVReader {
+    private var reader: StreamingPCM16WAVReader
+    private var remainingLeadingFrameCount: UInt64
+
+    init(url: URL, leadingFrameCount: UInt64) throws {
+        reader = try StreamingPCM16WAVReader(url: url)
+        remainingLeadingFrameCount = leadingFrameCount
+    }
+
+    mutating func readChunk(maximumFrameCount: Int) throws -> [Int16] {
+        guard maximumFrameCount > 0 else { return [] }
+        var samples: [Int16] = []
+        samples.reserveCapacity(maximumFrameCount)
+
+        if remainingLeadingFrameCount > 0 {
+            let silenceFrameCount = Int(min(
+                UInt64(maximumFrameCount),
+                remainingLeadingFrameCount
+            ))
+            samples.append(contentsOf: repeatElement(0, count: silenceFrameCount))
+            remainingLeadingFrameCount -= UInt64(silenceFrameCount)
+        }
+
+        let sourceFrameCount = maximumFrameCount - samples.count
+        if sourceFrameCount > 0 {
+            samples.append(contentsOf: try reader.readChunk(
+                maximumFrameCount: sourceFrameCount
+            ))
+        }
+        return samples
+    }
+
+    func close() throws {
+        try reader.close()
     }
 }
 

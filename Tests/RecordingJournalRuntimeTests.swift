@@ -17,6 +17,7 @@ struct RecordingJournalRuntimeTests {
             try checkpointRejectsOverflowingGenerationWithoutTrapping()
             try batchCheckpointCommitsBothSourcesInOneGeneration()
             try invalidBatchCheckpointPreservesPreviousManifest()
+            try timestampAwareSinkDispatchPreservesTimestamp()
             try writerSnapshotsDoNotWriteManifestBeforeBatchCommit()
             try writerCheckpointsOrderedPCMWithoutPerAppendManifestWrites()
             try writerRejectsOddChunksAndPostCloseWritesWithoutDamagingPCM()
@@ -433,6 +434,24 @@ struct RecordingJournalRuntimeTests {
                 "invalid batch manifest preservation"
             )
         }
+    }
+
+    private static func timestampAwareSinkDispatchPreservesTimestamp() throws {
+        let sink = TimestampCapturingSink()
+        let existential: any NormalizedPCM16Sink = sink
+        let data = Data([0x01, 0x00, 0x02, 0x00])
+
+        existential.enqueue(
+            data,
+            firstFrameMonotonicNanoseconds: 123_456_789
+        )
+
+        try expectEqual(sink.receivedData, data, "timestamp-aware sink data")
+        try expectEqual(
+            sink.receivedTimestamp,
+            123_456_789,
+            "timestamp-aware sink timestamp"
+        )
     }
 
     private static func writerSnapshotsDoNotWriteManifestBeforeBatchCommit() throws {
@@ -1355,6 +1374,23 @@ struct RecordingJournalRuntimeTests {
     ) throws {
         guard actual == expected else {
             throw TestFailure("\(label): expected \(expected), got \(actual)")
+        }
+    }
+
+    private final class TimestampCapturingSink: NormalizedPCM16Sink {
+        var receivedData: Data?
+        var receivedTimestamp: UInt64?
+
+        func enqueue(_ copiedPCM16LE: Data) {
+            receivedData = copiedPCM16LE
+        }
+
+        func enqueue(
+            _ copiedPCM16LE: Data,
+            firstFrameMonotonicNanoseconds: UInt64
+        ) {
+            receivedData = copiedPCM16LE
+            receivedTimestamp = firstFrameMonotonicNanoseconds
         }
     }
 
