@@ -1,10 +1,10 @@
 import Foundation
 
-enum MicrophoneRecordingJournalControllerError: Error, Equatable {
+enum SingleSourceRecordingJournalControllerError: Error, Equatable {
     case controllerClosed
 }
 
-final class MicrophoneRecordingJournalController {
+final class SingleSourceRecordingJournalController {
     private static let lifecycleQueueKey = DispatchSpecificKey<UInt8>()
 
     private enum State {
@@ -21,21 +21,44 @@ final class MicrophoneRecordingJournalController {
     private let writer: RecordingPCMJournalWriter
     private let finalizer: RecordingArtifactFinalizer
     private let lifecycleQueue = DispatchQueue(
-        label: "com.woosublee.quill.recording-journal.microphone-lifecycle"
+        label: "com.woosublee.quill.recording-journal.single-source-lifecycle"
     )
     private var checkpointTimer: DispatchSourceTimer?
     private var state: State = .recording
     private var didReportCheckpointFailure = false
 
-    init(
+    convenience init(
         request: RecordingJournalCreateRequest,
         store: RecordingJournalStore
     ) throws {
-        let session = try store.createSingleSource(request)
-        let writer = try RecordingPCMJournalWriter(
-            session: session,
-            store: store
+        try self.init(
+            request: request,
+            store: store,
+            makeWriter: RecordingPCMJournalWriter.init
         )
+    }
+
+    init(
+        request: RecordingJournalCreateRequest,
+        store: RecordingJournalStore,
+        makeWriter: (
+            RecordingJournalSession,
+            RecordingJournalStore
+        ) throws -> RecordingPCMJournalWriter
+    ) throws {
+        let session = try store.createSingleSource(request)
+        let writer: RecordingPCMJournalWriter
+        do {
+            writer = try makeWriter(session, store)
+        } catch {
+            try? store.markDiscarded(
+                recordingID: request.recordingID
+            )
+            try? store.discardInflightRecording(
+                recordingID: request.recordingID
+            )
+            throw error
+        }
         self.recordingID = request.recordingID
         self.store = store
         self.writer = writer
@@ -89,7 +112,7 @@ final class MicrophoneRecordingJournalController {
     func checkpoint() throws {
         try lifecycleQueue.sync {
             guard case .recording = state else {
-                throw MicrophoneRecordingJournalControllerError.controllerClosed
+                throw SingleSourceRecordingJournalControllerError.controllerClosed
             }
             _ = try writer.checkpoint()
         }
@@ -124,7 +147,7 @@ final class MicrophoneRecordingJournalController {
                     throw error
                 }
             case .recoverable, .discarded:
-                throw MicrophoneRecordingJournalControllerError.controllerClosed
+                throw SingleSourceRecordingJournalControllerError.controllerClosed
             }
         }
     }
@@ -135,7 +158,7 @@ final class MicrophoneRecordingJournalController {
             case .recoverable, .promoted:
                 return
             case .discarded:
-                throw MicrophoneRecordingJournalControllerError.controllerClosed
+                throw SingleSourceRecordingJournalControllerError.controllerClosed
             case .recording:
                 cancelCheckpointTimerLocked()
                 _ = try writer.drainAndClose()
@@ -154,17 +177,21 @@ final class MicrophoneRecordingJournalController {
             case .discarded:
                 return
             case .promoted:
-                throw MicrophoneRecordingJournalControllerError.controllerClosed
+                throw SingleSourceRecordingJournalControllerError.controllerClosed
             case .recording:
                 cancelCheckpointTimerLocked()
                 _ = try? writer.drainAndClose()
-                try store.removeInflightRecording(recordingID: recordingID)
-                state = .discarded
+                try discardJournalLocked()
             case .recoverable:
-                try store.removeInflightRecording(recordingID: recordingID)
-                state = .discarded
+                try discardJournalLocked()
             }
         }
+    }
+
+    private func discardJournalLocked() throws {
+        try store.markDiscarded(recordingID: recordingID)
+        try store.discardInflightRecording(recordingID: recordingID)
+        state = .discarded
     }
 
     private func preserveAfterFinishFailureLocked() throws {

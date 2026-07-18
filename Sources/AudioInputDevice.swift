@@ -15,6 +15,10 @@ enum AudioInputDevice {
         isSystemAudio(id) || isSystemDefaultAndSystemAudio(id)
     }
 
+    static func isSingleSource(_ id: String) -> Bool {
+        !isSystemDefaultAndSystemAudio(id)
+    }
+
     static func isMicrophoneOnly(_ id: String) -> Bool {
         !isSpecialInput(id)
     }

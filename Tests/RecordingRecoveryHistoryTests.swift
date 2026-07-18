@@ -4,7 +4,8 @@ import Foundation
 struct RecordingRecoveryHistoryTests {
     static func main() {
         do {
-            try recoveredArtifactCreatesIdempotentRetryableHistory()
+            try recoveredMicrophoneArtifactCreatesIdempotentRetryableHistory()
+            try recoveredSystemAudioArtifactCreatesIdempotentRetryableHistory()
             try existingCompletedHistoryIsNotReplacedDuringJournalCleanup()
             print("RecordingRecoveryHistoryTests passed")
         } catch {
@@ -13,7 +14,27 @@ struct RecordingRecoveryHistoryTests {
         }
     }
 
-    private static func recoveredArtifactCreatesIdempotentRetryableHistory() throws {
+    private static func recoveredMicrophoneArtifactCreatesIdempotentRetryableHistory() throws {
+        try recoveredArtifactCreatesIdempotentRetryableHistory(
+            sourceMode: .microphone,
+            sourceKind: .microphone,
+            sourceFileName: "microphone.wav.part"
+        )
+    }
+
+    private static func recoveredSystemAudioArtifactCreatesIdempotentRetryableHistory() throws {
+        try recoveredArtifactCreatesIdempotentRetryableHistory(
+            sourceMode: .systemAudio,
+            sourceKind: .systemAudio,
+            sourceFileName: "system-audio.wav.part"
+        )
+    }
+
+    private static func recoveredArtifactCreatesIdempotentRetryableHistory(
+        sourceMode: RecordingAudioSourceMode,
+        sourceKind: RecordingJournalSourceKind,
+        sourceFileName: String
+    ) throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("quill-recording-recovery-history-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -30,9 +51,9 @@ struct RecordingRecoveryHistoryTests {
             segmentID: UUID(),
             startedAt: startedAt,
             monotonicAnchorNanoseconds: 100,
-            sourceMode: .microphone,
-            sourceKind: .microphone,
-            sourceFileName: "microphone.wav.part",
+            sourceMode: sourceMode,
+            sourceKind: sourceKind,
+            sourceFileName: sourceFileName,
             pipeline: RecordingPipelineSnapshot(
                 trigger: .toggle,
                 intent: .commandManual,
@@ -66,7 +87,7 @@ struct RecordingRecoveryHistoryTests {
                 )
             )
         )
-        let controller = try MicrophoneRecordingJournalController(
+        let controller = try SingleSourceRecordingJournalController(
             request: request,
             store: store
         )
@@ -75,6 +96,16 @@ struct RecordingRecoveryHistoryTests {
 
         let recovered = try requireRecovered(
             RecordingJournalRecoveryExecutor(store: store).recoverAll()[0]
+        )
+        try expectEqual(
+            recovered.manifest.sourceMode,
+            sourceMode,
+            "recovered source mode"
+        )
+        try expectEqual(
+            recovered.manifest.sources[0].kind,
+            sourceKind,
+            "recovered source kind"
         )
         let historyStore = PipelineHistoryStore(inMemory: true)
         let bridge = RecordingRecoveryHistory(
@@ -161,7 +192,7 @@ struct RecordingRecoveryHistoryTests {
                 )
             )
         )
-        let controller = try MicrophoneRecordingJournalController(
+        let controller = try SingleSourceRecordingJournalController(
             request: request,
             store: store
         )

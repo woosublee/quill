@@ -103,6 +103,8 @@ enum RecordingCanonicalWAV {
 }
 
 final class RecordingJournalStore {
+    static let discardMarkerFileName = ".discarded"
+
     let audioDirectory: URL
     let inflightDirectory: URL
 
@@ -301,6 +303,78 @@ final class RecordingJournalStore {
 
     func permanentURL(recordingID: UUID) -> URL {
         audioDirectory.appendingPathComponent(recordingID.uuidString.lowercased() + ".wav")
+    }
+
+    func markDiscarded(recordingID: UUID) throws {
+        try lock.withLock {
+            let directory = recordingDirectory(recordingID: recordingID)
+            guard fileManager.fileExists(atPath: directory.path) else { return }
+            let markerURL = directory.appendingPathComponent(
+                Self.discardMarkerFileName
+            )
+            if fileManager.fileExists(atPath: markerURL.path) {
+                return
+            }
+
+            let descriptor = Darwin.open(
+                markerURL.path,
+                O_WRONLY | O_CREAT | O_EXCL,
+                mode_t(0o600)
+            )
+            guard descriptor >= 0 else {
+                throw RecordingJournalStoreError.systemCall(
+                    "open discard marker",
+                    errno
+                )
+            }
+            var descriptorOpen = true
+            defer {
+                if descriptorOpen { Darwin.close(descriptor) }
+            }
+            try RecordingJournalDurability.fullSync(descriptor)
+            guard Darwin.close(descriptor) == 0 else {
+                descriptorOpen = false
+                throw RecordingJournalStoreError.systemCall(
+                    "close discard marker",
+                    errno
+                )
+            }
+            descriptorOpen = false
+            try RecordingJournalDurability.syncDirectory(directory)
+        }
+    }
+
+    func discardInflightRecording(recordingID: UUID) throws {
+        try lock.withLock {
+            let directory = recordingDirectory(recordingID: recordingID)
+            let tombstone = inflightDirectory.appendingPathComponent(
+                ".discarded-\(recordingID.uuidString.lowercased())",
+                isDirectory: true
+            )
+
+            if fileManager.fileExists(atPath: directory.path) {
+                guard !fileManager.fileExists(atPath: tombstone.path) else {
+                    throw RecordingJournalStoreError.conflictingExistingRecording(
+                        recordingID
+                    )
+                }
+                guard Darwin.rename(directory.path, tombstone.path) == 0 else {
+                    throw RecordingJournalStoreError.systemCall(
+                        "rename discarded recording",
+                        errno
+                    )
+                }
+                try RecordingJournalDurability.syncDirectory(
+                    inflightDirectory
+                )
+            }
+
+            guard fileManager.fileExists(atPath: tombstone.path) else {
+                return
+            }
+            try fileManager.removeItem(at: tombstone)
+            try RecordingJournalDurability.syncDirectory(inflightDirectory)
+        }
     }
 
     func removeInflightRecording(recordingID: UUID) throws {

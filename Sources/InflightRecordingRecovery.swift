@@ -7,6 +7,7 @@ enum InflightRecordingRecoveryAction: String, Equatable {
     case persistHistory
     case markFinalized
     case cleanupEligible
+    case discard
     case manualRecoveryRequired
 }
 
@@ -44,7 +45,7 @@ struct InflightRecordingRecovery {
         guard let directories = try? fileManager.contentsOfDirectory(
             at: store.inflightDirectory,
             includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
+            options: []
         ) else {
             return []
         }
@@ -58,7 +59,34 @@ struct InflightRecordingRecovery {
     private func scanDirectory(
         _ directory: URL
     ) -> InflightRecordingRecoveryCandidate {
-        let directoryRecordingID = UUID(uuidString: directory.lastPathComponent)
+        let directoryRecordingID: UUID?
+        if directory.lastPathComponent.hasPrefix(".discarded-") {
+            directoryRecordingID = UUID(
+                uuidString: String(
+                    directory.lastPathComponent.dropFirst(".discarded-".count)
+                )
+            )
+        } else {
+            directoryRecordingID = UUID(
+                uuidString: directory.lastPathComponent
+            )
+        }
+        let discardMarkerURL = directory.appendingPathComponent(
+            RecordingJournalStore.discardMarkerFileName
+        )
+        if directory.lastPathComponent.hasPrefix(".discarded-")
+            || FileManager.default.fileExists(atPath: discardMarkerURL.path) {
+            return InflightRecordingRecoveryCandidate(
+                recordingID: directoryRecordingID,
+                recordingDirectory: directory,
+                action: .discard,
+                recoverableDataByteCount: nil,
+                promotion: nil,
+                protectedPermanentFileName: nil,
+                diagnostics: []
+            )
+        }
+
         let manifestURL = directory.appendingPathComponent("manifest.json")
         guard FileManager.default.fileExists(atPath: manifestURL.path) else {
             return manualCandidate(
