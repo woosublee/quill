@@ -8,6 +8,11 @@ enum PipelineHistoryItemIntent: String, Codable {
 
 struct PipelineHistoryItem: Identifiable, Codable {
     static let transcriptionRecoveryPlaceholderStatus = "transcription-interrupted"
+    static let recoveredRecordingStatus = "recording-recovered"
+
+    var isRecoveredRecording: Bool {
+        postProcessingStatus == Self.recoveredRecordingStatus
+    }
 
     var isIncompleteTranscription: Bool {
         postProcessingStatus == Self.transcriptionRecoveryPlaceholderStatus
@@ -235,8 +240,12 @@ struct PipelineHistoryItem: Identifiable, Codable {
             contextPrompt: contextPrompt,
             contextScreenshotDataURL: contextScreenshotDataURL,
             contextScreenshotStatus: contextScreenshotStatus,
-            postProcessingStatus: "Error: Interrupted before transcription completed",
-            debugStatus: "Interrupted before completion",
+            postProcessingStatus: postProcessingStatus == Self.transcriptionRecoveryPlaceholderStatus
+                ? Self.recoveredRecordingStatus
+                : "Error: Interrupted before transcription completed",
+            debugStatus: postProcessingStatus == Self.transcriptionRecoveryPlaceholderStatus
+                ? "Recovered after an unexpected shutdown; transcription has not started"
+                : "Interrupted before completion",
             customVocabulary: customVocabulary,
             customSystemPrompt: customSystemPrompt,
             audioFileName: audioFileName,

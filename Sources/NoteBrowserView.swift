@@ -1113,6 +1113,10 @@ private struct NoteListRow: View {
                 .frame(width: 6, height: 6)
         case .recording, .transcribing:
             YellowSpinner(color: .orange)
+        case .recovered:
+            Image(systemName: "arrow.clockwise.circle")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.orange.opacity(0.7))
         case .fail:
             Circle()
                 .fill(Color.red)
@@ -1139,6 +1143,7 @@ private struct NoteDetailView: View {
     @State private var showDeleteConfirmation = false
 
     private var isError: Bool { item.postProcessingStatus.hasPrefix("Error:") }
+    private var isRecoveredRecording: Bool { item.isRecoveredRecording }
     private var isLiveRecording: Bool { item.postProcessingStatus == "live-recording" }
     private var canRetry: Bool { item.audioFileName != nil }
     private var displayContent: String { loadedContent ?? item.postProcessedTranscript }
@@ -1315,6 +1320,11 @@ private struct NoteDetailView: View {
     private var noteStateIndicator: some View {
         if isLiveRecording {
             LiveRecordingBadge()
+        } else if isRecoveredRecording {
+            Image(systemName: "arrow.clockwise.circle")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.orange.opacity(0.7))
+                .help("Recording recovered after an unexpected shutdown")
         } else if isError {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 10, weight: .light))
@@ -1414,7 +1424,24 @@ private struct NoteDetailView: View {
     private var emptyContentState: some View {
         VStack(spacing: 14) {
             Spacer()
-            if isError {
+            if isRecoveredRecording {
+                ZStack {
+                    Circle()
+                        .fill(Color.orange.opacity(0.08))
+                        .frame(width: 80, height: 80)
+                    Image(systemName: "arrow.clockwise.circle")
+                        .font(.system(size: 30, weight: .ultraLight))
+                        .foregroundStyle(.orange.opacity(0.7))
+                }
+                Text("Recording interrupted")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text("Recovered after an unexpected shutdown. Not yet transcribed.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 60)
+            } else if isError {
                 ZStack {
                     Circle()
                         .fill(Color.red.opacity(0.06))

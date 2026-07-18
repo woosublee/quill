@@ -1,13 +1,14 @@
 import Foundation
 
 enum TranscriptStatus: Equatable {
-    case done, recording, transcribing, fail
+    case done, recording, transcribing, recovered, fail
 }
 
 func transcriptStatus(for item: PipelineHistoryItem, retrying: Set<UUID>) -> TranscriptStatus {
     if retrying.contains(item.id) { return .transcribing }
     if item.postProcessingStatus == "live-recording" { return .recording }
     if item.postProcessingStatus == "importing" { return .transcribing }
+    if item.isRecoveredRecording { return .recovered }
     if item.postProcessingStatus == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus { return .transcribing }
     if item.postProcessingStatus.hasPrefix("Error:") { return .fail }
     return .done
@@ -88,6 +89,9 @@ struct NoteListRowDisplayData: Equatable {
         if status == .fail {
             return String(item.postProcessingStatus.dropFirst("Error:".count))
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if status == .recovered {
+            return "Recovered after an unexpected shutdown. Not yet transcribed."
         }
         if status == .transcribing {
             return ""

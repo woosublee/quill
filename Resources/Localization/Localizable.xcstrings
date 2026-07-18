@@ -9508,6 +9508,54 @@
           }
         }
       }
+    },
+    "Recording interrupted": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording interrupted"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음이 중단됨"
+          }
+        }
+      }
+    },
+    "Recovered after an unexpected shutdown. Not yet transcribed.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovered after an unexpected shutdown. Not yet transcribed."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예기치 않은 종료 후 녹음을 복구했습니다. 아직 전사되지 않았습니다."
+          }
+        }
+      }
+    },
+    "Recording recovered after an unexpected shutdown": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording recovered after an unexpected shutdown"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예기치 않은 종료 후 녹음을 복구함"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

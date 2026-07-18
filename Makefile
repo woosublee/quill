@@ -356,6 +356,8 @@ test: check-test-wiring $(SPARKLE_STAMP) $(LOCALIZATION_STAMP)
 	@/tmp/RecordingRecoveryHistoryTests
 	@swiftc -parse-as-library Tests/AppStateRecordingJournalIntegrationSourceTests.swift -o /tmp/AppStateRecordingJournalIntegrationSourceTests
 	@/tmp/AppStateRecordingJournalIntegrationSourceTests
+	@swiftc -parse-as-library Tests/RecoveredRecordingNoteBrowserSourceTests.swift -o /tmp/RecoveredRecordingNoteBrowserSourceTests
+	@/tmp/RecoveredRecordingNoteBrowserSourceTests
 	@swiftc -parse-as-library Sources/InstructionExecutionDetector.swift Tests/InstructionExecutionDetectorTests.swift -o /tmp/InstructionExecutionDetectorTests
 	@/tmp/InstructionExecutionDetectorTests
 	@swiftc -parse-as-library Tests/ReleaseSDKCompatibilityTests.swift -o /tmp/ReleaseSDKCompatibilityTests
