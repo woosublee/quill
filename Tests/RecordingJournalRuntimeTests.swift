@@ -17,12 +17,14 @@ struct RecordingJournalRuntimeTests {
             try checkpointRejectsOverflowingGenerationWithoutTrapping()
             try batchCheckpointCommitsBothSourcesInOneGeneration()
             try invalidBatchCheckpointPreservesPreviousManifest()
+            try timestampAwareSinkDispatchPreservesTimestamp()
             try writerSnapshotsDoNotWriteManifestBeforeBatchCommit()
             try writerCheckpointsOrderedPCMWithoutPerAppendManifestWrites()
             try writerRejectsOddChunksAndPostCloseWritesWithoutDamagingPCM()
             try writerCanBeReleasedAfterQueuedWriteWithoutCrashing()
             try finalizerRepairsHeaderTruncatesOddTailAndPromotesWithoutCopy()
             try finalizerUsesCommittedCheckpointBoundary()
+            try finalizerTreatsMissingLegacyOffsetAsZero()
             try finalizerRejectsTruncatedCommittedPayload()
             try finalizerPreservesEmptyAndConflictingArtifacts()
             try discardedJournalIsNeverRecovered()
@@ -435,6 +437,24 @@ struct RecordingJournalRuntimeTests {
         }
     }
 
+    private static func timestampAwareSinkDispatchPreservesTimestamp() throws {
+        let sink = TimestampCapturingSink()
+        let existential: any NormalizedPCM16Sink = sink
+        let data = Data([0x01, 0x00, 0x02, 0x00])
+
+        existential.enqueue(
+            data,
+            firstFrameMonotonicNanoseconds: 123_456_789
+        )
+
+        try expectEqual(sink.receivedData, data, "timestamp-aware sink data")
+        try expectEqual(
+            sink.receivedTimestamp,
+            123_456_789,
+            "timestamp-aware sink timestamp"
+        )
+    }
+
     private static func writerSnapshotsDoNotWriteManifestBeforeBatchCommit() throws {
         try withFixture { fixture in
             let request = combinedRequest(fixture)
@@ -627,6 +647,39 @@ struct RecordingJournalRuntimeTests {
                 try payloadData(from: session.sourceURL),
                 Data([0x01, 0x00, 0x02, 0x00]),
                 "uncommitted tail truncation"
+            )
+        }
+    }
+
+    private static func finalizerTreatsMissingLegacyOffsetAsZero() throws {
+        try withFixture { fixture in
+            let session = try fixture.store.createSingleSource(fixture.request)
+            let writer = try RecordingPCMJournalWriter(
+                session: session,
+                store: fixture.store
+            )
+            writer.enqueue(Data([0x01, 0x00, 0x02, 0x00]))
+            _ = try writer.drainAndClose()
+            var manifest = try fixture.store.loadManifest(
+                recordingID: fixture.recordingID
+            )
+            manifest.sources[0].firstCommittedFrameOffset = nil
+            manifest.state = .recoverable
+            try RecordingJournalCoding.makeEncoder().encode(manifest).write(
+                to: session.manifestURL,
+                options: .atomic
+            )
+
+            let finalized = try RecordingArtifactFinalizer(store: fixture.store)
+                .finalizeSource(
+                    recordingID: fixture.recordingID,
+                    source: manifest.sources[0]
+                )
+
+            try expectEqual(
+                finalized.firstCommittedFrameOffset,
+                0,
+                "legacy missing frame offset"
             )
         }
     }
@@ -1355,6 +1408,23 @@ struct RecordingJournalRuntimeTests {
     ) throws {
         guard actual == expected else {
             throw TestFailure("\(label): expected \(expected), got \(actual)")
+        }
+    }
+
+    private final class TimestampCapturingSink: NormalizedPCM16Sink {
+        var receivedData: Data?
+        var receivedTimestamp: UInt64?
+
+        func enqueue(_ copiedPCM16LE: Data) {
+            receivedData = copiedPCM16LE
+        }
+
+        func enqueue(
+            _ copiedPCM16LE: Data,
+            firstFrameMonotonicNanoseconds: UInt64
+        ) {
+            receivedData = copiedPCM16LE
+            receivedTimestamp = firstFrameMonotonicNanoseconds
         }
     }
 

@@ -72,6 +72,11 @@ struct SingleSourceRecordingJournalControllerTests {
                 4,
                 "checkpoint bytes"
             )
+            try expectEqual(
+                checkpointed.sources[0].firstCommittedFrameOffset,
+                0,
+                "single-source first frame offset"
+            )
 
             let promotedURL = try controller.finish()
             try verifyPromotedWAV(

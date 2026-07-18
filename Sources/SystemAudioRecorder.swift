@@ -413,6 +413,7 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
     }
 
     private func appendSampleBufferToFile(_ sampleBuffer: CMSampleBuffer) throws {
+        let firstFrameMonotonicNanoseconds = RecordingMonotonicClock.nowNanoseconds()
         if let fileWriteError = fileWriteErrorLock.withLock({ _ in self.fileWriteError }) {
             throw fileWriteError
         }
@@ -470,7 +471,8 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
         if sourceFormat == targetFormat {
             try writeCanonicalRecordingBuffer(
                 inputBuffer,
-                to: activeAudioFile
+                to: activeAudioFile,
+                firstFrameMonotonicNanoseconds: firstFrameMonotonicNanoseconds
             )
             return
         }
@@ -483,13 +485,15 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
         guard outputBuffer.frameLength > 0 else { return }
         try writeCanonicalRecordingBuffer(
             outputBuffer,
-            to: activeAudioFile
+            to: activeAudioFile,
+            firstFrameMonotonicNanoseconds: firstFrameMonotonicNanoseconds
         )
     }
 
     private func writeCanonicalRecordingBuffer(
         _ buffer: AVAudioPCMBuffer,
-        to activeAudioFile: AVAudioFile
+        to activeAudioFile: AVAudioFile,
+        firstFrameMonotonicNanoseconds: UInt64
     ) throws {
         try activeAudioFile.write(from: buffer)
         recordedFrameCount += AVAudioFramePosition(buffer.frameLength)
@@ -499,7 +503,10 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
         let copiedPCM16LE = try RecordingPCMBufferCopy.data(
             from: buffer
         )
-        sink.enqueue(copiedPCM16LE)
+        sink.enqueue(
+            copiedPCM16LE,
+            firstFrameMonotonicNanoseconds: firstFrameMonotonicNanoseconds
+        )
     }
 
     private func validatedPCMBufferFormat(

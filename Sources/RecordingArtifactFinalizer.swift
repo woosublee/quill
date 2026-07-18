@@ -22,6 +22,15 @@ struct FinalizedRecordingArtifact: Equatable {
     let removedTrailingData: Bool
 }
 
+struct FinalizedRecordingJournalSource: Equatable {
+    let source: RecordingJournalSource
+    let sourceURL: URL
+    let dataByteCount: UInt64
+    let frameCount: UInt64
+    let firstCommittedFrameOffset: UInt64
+    let removedTrailingData: Bool
+}
+
 struct RecordingArtifactFinalizer {
     let store: RecordingJournalStore
 
@@ -38,9 +47,27 @@ struct RecordingArtifactFinalizer {
             throw RecordingArtifactFinalizerError.unsupportedManifestShape
         }
 
+        let finalizedSource = try finalizeSource(
+            recordingID: recordingID,
+            source: manifest.sources[0]
+        )
+        return FinalizedRecordingArtifact(
+            recordingID: recordingID,
+            sourceURL: finalizedSource.sourceURL,
+            destinationURL: store.permanentURL(recordingID: recordingID),
+            dataByteCount: finalizedSource.dataByteCount,
+            frameCount: finalizedSource.frameCount,
+            removedTrailingData: finalizedSource.removedTrailingData
+        )
+    }
+
+    func finalizeSource(
+        recordingID: UUID,
+        source: RecordingJournalSource
+    ) throws -> FinalizedRecordingJournalSource {
         let sourceURL = try store.sourceURL(
             recordingID: recordingID,
-            fileName: manifest.sources[0].fileName
+            fileName: source.fileName
         )
         guard FileManager.default.fileExists(atPath: sourceURL.path) else {
             throw RecordingArtifactFinalizerError.sourceMissing
@@ -51,7 +78,7 @@ struct RecordingArtifactFinalizer {
             throw RecordingArtifactFinalizerError.sourceTooShort
         }
 
-        let committedPayloadSize = manifest.sources[0].committedDataByteCount
+        let committedPayloadSize = source.committedDataByteCount
         guard committedPayloadSize > 0 else {
             throw RecordingArtifactFinalizerError.emptyPayload
         }
@@ -62,6 +89,7 @@ struct RecordingArtifactFinalizer {
         guard committedPayloadSize <= UInt64(UInt32.max - 36) else {
             throw RecordingArtifactFinalizerError.payloadTooLarge
         }
+        let firstCommittedFrameOffset = source.firstCommittedFrameOffset ?? 0
 
         let handle = try FileHandle(forUpdating: sourceURL)
         defer { try? handle.close() }
@@ -78,13 +106,13 @@ struct RecordingArtifactFinalizer {
         )
         try RecordingJournalDurability.fullSync(handle.fileDescriptor)
 
-        return FinalizedRecordingArtifact(
-            recordingID: recordingID,
+        return FinalizedRecordingJournalSource(
+            source: source,
             sourceURL: sourceURL,
-            destinationURL: store.permanentURL(recordingID: recordingID),
             dataByteCount: committedPayloadSize,
             frameCount: committedPayloadSize
                 / UInt64(RecordingPCMFormat.canonical.bytesPerFrame),
+            firstCommittedFrameOffset: firstCommittedFrameOffset,
             removedTrailingData: physicalPayloadSize != committedPayloadSize
         )
     }

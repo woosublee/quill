@@ -2,6 +2,16 @@ import Combine
 import Foundation
 import os
 
+struct CombinedRecordingStartResult: Equatable {
+    let microphoneStarted: Bool
+    let systemAudioStarted: Bool
+}
+
+struct CombinedStoppedRecordingSources: Equatable {
+    let microphoneURL: URL?
+    let systemAudioURL: URL?
+}
+
 final class SystemDefaultAndSystemAudioRecorder: ObservableObject {
     let microphoneRecorder: AudioRecorder
     let systemAudioRecorder: SystemAudioRecorder
@@ -55,7 +65,7 @@ final class SystemDefaultAndSystemAudioRecorder: ObservableObject {
         subscribeToAudioLevelsIfNeeded()
     }
 
-    func startRecording() async throws {
+    func startRecording() async throws -> CombinedRecordingStartResult {
         configureChildCallbacks()
         subscribeToAudioLevelsIfNeeded()
 
@@ -91,9 +101,24 @@ final class SystemDefaultAndSystemAudioRecorder: ObservableObject {
         guard microphoneStarted || systemStarted else {
             throw SystemDefaultAndSystemAudioRecorderError.failedToStartAnyRecorder(startErrors)
         }
+        return CombinedRecordingStartResult(
+            microphoneStarted: microphoneStarted,
+            systemAudioStarted: systemStarted
+        )
     }
 
     func stopRecording(completion: @escaping (URL?) -> Void) {
+        stopRecordingSources { sources in
+            self.temporaryCombinedFallback(
+                sources,
+                completion: completion
+            )
+        }
+    }
+
+    func stopRecordingSources(
+        completion: @escaping (CombinedStoppedRecordingSources) -> Void
+    ) {
         let (shouldStopMicrophone, shouldStopSystemAudio) = stateLock.withLock { state in
             let result = (state.microphoneStarted, state.systemStarted)
             state.resetIdle()
@@ -101,7 +126,10 @@ final class SystemDefaultAndSystemAudioRecorder: ObservableObject {
         }
 
         guard shouldStopMicrophone || shouldStopSystemAudio else {
-            completion(nil)
+            completion(CombinedStoppedRecordingSources(
+                microphoneURL: nil,
+                systemAudioURL: nil
+            ))
             return
         }
 
@@ -128,29 +156,58 @@ final class SystemDefaultAndSystemAudioRecorder: ObservableObject {
             }
         }
 
-        group.notify(queue: .global(qos: .userInitiated)) {
+        group.notify(queue: .main) {
             let urls = stoppedURLs.withLock { $0 }
-            let finalURL = self.finalRecordingURL(microphoneURL: urls.microphoneURL, systemAudioURL: urls.systemAudioURL)
-            DispatchQueue.main.async {
-                completion(finalURL)
-            }
+            completion(CombinedStoppedRecordingSources(
+                microphoneURL: urls.microphoneURL,
+                systemAudioURL: urls.systemAudioURL
+            ))
         }
     }
 
     func cancelRecording() {
+        cancelRecording(completion: nil)
+    }
+
+    func cancelRecording(completion: (() -> Void)?) {
         let (shouldCancelMicrophone, shouldCancelSystemAudio) = stateLock.withLock { state in
             let result = (state.microphoneStarted, state.systemStarted)
             state.resetIdle()
             return result
         }
 
+        let group = DispatchGroup()
         if shouldCancelMicrophone {
-            microphoneRecorder.cancelRecording()
+            group.enter()
+            microphoneRecorder.cancelRecording(completion: {
+                group.leave()
+            })
         }
         if shouldCancelSystemAudio {
-            systemAudioRecorder.cancelRecording()
+            group.enter()
+            systemAudioRecorder.cancelRecording(completion: {
+                group.leave()
+            })
         }
-        audioLevel = 0.0
+        group.notify(queue: .main) {
+            self.audioLevel = 0.0
+            completion?()
+        }
+    }
+
+    func temporaryCombinedFallback(
+        _ sources: CombinedStoppedRecordingSources,
+        completion: @escaping (URL?) -> Void
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let finalURL = self.finalRecordingURL(
+                microphoneURL: sources.microphoneURL,
+                systemAudioURL: sources.systemAudioURL
+            )
+            DispatchQueue.main.async {
+                completion(finalURL)
+            }
+        }
     }
 
     func cleanup() {
