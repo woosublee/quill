@@ -12,6 +12,7 @@ struct AudioMixdownServiceTests {
             try outputFormatIs16kHzMonoInt16AndFrameCountIsMaxInputFrameCount()
             try streamsAcrossFixedChunkBoundaries()
             try mixesLongSyntheticWAVWithConstantMemoryContract()
+            try preservesGainAccuracyAcrossLongRecordings()
             try rejectsEmptyFile()
             try rejectsTruncatedPayload()
             try rejectsOddBytePCM16Payload()
@@ -197,6 +198,32 @@ struct AudioMixdownServiceTests {
         )
     }
 
+    private static func preservesGainAccuracyAcrossLongRecordings() throws {
+        let frameCount = 1_000_000
+        let microphoneURL = try writeRepeatedSampleWAV(
+            sample: 300,
+            frameCount: frameCount
+        )
+        let systemAudioURL = try writeRepeatedSampleWAV(
+            sample: 200,
+            frameCount: frameCount
+        )
+        defer { try? FileManager.default.removeItem(at: microphoneURL) }
+        defer { try? FileManager.default.removeItem(at: systemAudioURL) }
+
+        let outputURL = try AudioMixdownService().mix(
+            microphoneURL: microphoneURL,
+            systemAudioURL: systemAudioURL
+        )
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        try expectEqual(
+            try readCanonicalSample(from: outputURL, atFrame: frameCount - 1),
+            432,
+            "long recording gain should match exact constant-amplitude RMS"
+        )
+    }
+
     private static func rejectsEmptyFile() throws {
         let emptyURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -234,7 +261,8 @@ struct AudioMixdownServiceTests {
     private static func rejectsOddBytePCM16Payload() throws {
         let oddPayloadURL = try writeCanonicalWAVPayload(
             declaredDataByteCount: 1,
-            payload: Data([0x01])
+            payload: Data([0x01]),
+            padOddDataChunk: true
         )
         let validURL = try writeTinyWAV(samples: [1])
         defer { try? FileManager.default.removeItem(at: oddPayloadURL) }
@@ -431,14 +459,18 @@ struct AudioMixdownServiceTests {
 
     private static func writeCanonicalWAVPayload(
         declaredDataByteCount: UInt32,
-        payload: Data
+        payload: Data,
+        padOddDataChunk: Bool = false
     ) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("wav")
+        let needsPadding = padOddDataChunk && declaredDataByteCount % 2 == 1
         var data = Data()
         data.appendASCII("RIFF")
-        data.appendUInt32LE(36 + declaredDataByteCount)
+        data.appendUInt32LE(
+            36 + declaredDataByteCount + (needsPadding ? 1 : 0)
+        )
         data.appendASCII("WAVE")
         data.appendASCII("fmt ")
         data.appendUInt32LE(16)
@@ -451,6 +483,9 @@ struct AudioMixdownServiceTests {
         data.appendASCII("data")
         data.appendUInt32LE(declaredDataByteCount)
         data.append(payload)
+        if needsPadding {
+            data.append(0)
+        }
         try data.write(to: url, options: .atomic)
         return url
     }

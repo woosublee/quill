@@ -300,13 +300,13 @@ private struct SampleScan {
 }
 
 private struct SampleStatistics {
-    private var activeSquareSum: Float = 0
+    private var activeSquareSum: Double = 0
     private var activeSampleCount = 0
     private(set) var peak = 0
 
     var activeRMS: Float {
         guard activeSampleCount > 0 else { return 0 }
-        return sqrt(activeSquareSum / Float(activeSampleCount))
+        return Float(sqrt(activeSquareSum / Double(activeSampleCount)))
     }
 
     mutating func consume(_ samples: [Int16]) {
@@ -314,9 +314,9 @@ private struct SampleStatistics {
             let integerSample = Int(sample)
             peak = max(peak, abs(integerSample))
 
-            let floatSample = Float(sample)
-            if abs(floatSample) > 32 {
-                activeSquareSum += floatSample * floatSample
+            let doubleSample = Double(sample)
+            if abs(doubleSample) > 32 {
+                activeSquareSum += doubleSample * doubleSample
                 activeSampleCount += 1
             }
         }
