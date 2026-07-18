@@ -344,6 +344,8 @@ test: check-test-wiring $(SPARKLE_STAMP) $(LOCALIZATION_STAMP)
 	@/tmp/RecordingJournalManifestTests
 	@swiftc -parse-as-library Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/RecordingArtifactFinalizer.swift Sources/InflightRecordingRecovery.swift Sources/RecordingJournalRecoveryExecutor.swift Tests/RecordingJournalRuntimeTests.swift -o /tmp/RecordingJournalRuntimeTests
 	@/tmp/RecordingJournalRuntimeTests
+	@swiftc -parse-as-library Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/CombinedRecordingJournalController.swift Tests/CombinedRecordingJournalControllerTests.swift -o /tmp/CombinedRecordingJournalControllerTests
+	@/tmp/CombinedRecordingJournalControllerTests
 	@swiftc -parse-as-library -framework AVFoundation Sources/RecordingPCMBufferCopy.swift Tests/RecordingPCMBufferCopyTests.swift -o /tmp/RecordingPCMBufferCopyTests
 	@/tmp/RecordingPCMBufferCopyTests
 	@swiftc -parse-as-library Tests/AudioRecorderJournalIntegrationSourceTests.swift -o /tmp/AudioRecorderJournalIntegrationSourceTests

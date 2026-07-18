@@ -33,6 +33,31 @@ struct RecordingJournalSession: Equatable {
     let sourceURL: URL
 }
 
+struct CombinedRecordingJournalCreateRequest: Equatable {
+    var recordingID: UUID
+    var microphoneSourceID: UUID
+    var systemAudioSourceID: UUID
+    var segmentID: UUID
+    var startedAt: Date
+    var monotonicAnchorNanoseconds: UInt64
+    var pipeline: RecordingPipelineSnapshot
+}
+
+enum RecordingJournalCreationDisposition: Equatable {
+    case created
+    case reused
+}
+
+struct CombinedRecordingJournalSession: Equatable {
+    let recordingID: UUID
+    let segmentID: UUID
+    let recordingDirectory: URL
+    let manifestURL: URL
+    let microphoneSession: RecordingJournalSession
+    let systemAudioSession: RecordingJournalSession
+    let creationDisposition: RecordingJournalCreationDisposition
+}
+
 struct RecordingJournalSourceCommit: Equatable {
     let dataByteCount: UInt64
     let frameCount: UInt64
@@ -204,6 +229,132 @@ final class RecordingJournalStore {
         }
     }
 
+    func createCombined(
+        _ request: CombinedRecordingJournalCreateRequest
+    ) throws -> CombinedRecordingJournalSession {
+        try lock.withLock {
+            try ensureDirectory(audioDirectory, permissions: 0o700)
+            try ensureDirectory(inflightDirectory, permissions: 0o700)
+            let createdSession = combinedSession(
+                request: request,
+                creationDisposition: .created
+            )
+
+            if fileManager.fileExists(atPath: createdSession.manifestURL.path) {
+                let combinedSession = combinedSession(
+                    request: request,
+                    creationDisposition: .reused
+                )
+                let manifest = try loadManifestUnlocked(
+                    recordingID: request.recordingID
+                )
+                guard manifestMatchesCombinedRequest(
+                    manifest,
+                    request: request
+                ) else {
+                    throw RecordingJournalStoreError.conflictingExistingRecording(
+                        request.recordingID
+                    )
+                }
+                guard fileManager.fileExists(
+                        atPath: combinedSession.microphoneSession.sourceURL.path
+                    ),
+                    fileManager.fileExists(
+                        atPath: combinedSession.systemAudioSession.sourceURL.path
+                    ) else {
+                    throw RecordingJournalStoreError.incompleteExistingRecording(
+                        request.recordingID
+                    )
+                }
+                return combinedSession
+            }
+            let combinedSession = createdSession
+            if fileManager.fileExists(
+                atPath: combinedSession.recordingDirectory.path
+            ) {
+                throw RecordingJournalStoreError.incompleteExistingRecording(
+                    request.recordingID
+                )
+            }
+
+            try ensureDirectory(
+                combinedSession.recordingDirectory,
+                permissions: 0o700
+            )
+            do {
+                try RecordingJournalDurability.syncDirectory(inflightDirectory)
+                try createReservedSource(
+                    at: combinedSession.microphoneSession.sourceURL
+                )
+                try createReservedSource(
+                    at: combinedSession.systemAudioSession.sourceURL
+                )
+                try RecordingJournalDurability.syncDirectory(
+                    combinedSession.recordingDirectory
+                )
+
+                let microphoneSource = RecordingJournalSource(
+                    id: request.microphoneSourceID,
+                    kind: .microphone,
+                    fileName: "microphone.wav.part",
+                    storageLayout: .reservedWAVHeader44,
+                    committedDataByteCount: 0,
+                    committedFrameCount: 0,
+                    firstCommittedFrameOffset: nil,
+                    segmentID: request.segmentID
+                )
+                let systemAudioSource = RecordingJournalSource(
+                    id: request.systemAudioSourceID,
+                    kind: .systemAudio,
+                    fileName: "system-audio.wav.part",
+                    storageLayout: .reservedWAVHeader44,
+                    committedDataByteCount: 0,
+                    committedFrameCount: 0,
+                    firstCommittedFrameOffset: nil,
+                    segmentID: request.segmentID
+                )
+                let manifest = RecordingJournalManifest(
+                    schemaVersion: 1,
+                    generation: 1,
+                    recordingID: request.recordingID,
+                    startedAt: request.startedAt,
+                    updatedAt: now(),
+                    monotonicAnchorNanoseconds:
+                        request.monotonicAnchorNanoseconds,
+                    state: .recording,
+                    sourceMode: .combined,
+                    pcmFormat: .canonical,
+                    sources: [microphoneSource, systemAudioSource],
+                    segments: [RecordingJournalSegment(
+                        id: request.segmentID,
+                        sequence: 0,
+                        sourceIDs: [
+                            request.microphoneSourceID,
+                            request.systemAudioSourceID
+                        ]
+                    )],
+                    pipeline: request.pipeline,
+                    promotion: nil,
+                    historyItemID: nil
+                )
+                try manifest.validate()
+                try writeManifestUnlocked(
+                    manifest,
+                    to: combinedSession.manifestURL
+                )
+                return combinedSession
+            } catch {
+                try? fileManager.removeItem(
+                    at: combinedSession.recordingDirectory
+                )
+                try? RecordingJournalDurability.syncDirectory(
+                    inflightDirectory
+                )
+                throw error
+            }
+        }
+    }
+
     func loadManifest(recordingID: UUID) throws -> RecordingJournalManifest {
         try lock.withLock {
             try loadManifestUnlocked(recordingID: recordingID)
@@ -215,54 +366,95 @@ final class RecordingJournalStore {
         sourceID: UUID,
         commit: RecordingJournalSourceCommit
     ) throws -> RecordingJournalManifest {
+        try recordCheckpoints(
+            recordingID: recordingID,
+            commitsBySourceID: [sourceID: commit]
+        )
+    }
+
+    func recordCheckpoints(
+        recordingID: UUID,
+        commitsBySourceID: [UUID: RecordingJournalSourceCommit]
+    ) throws -> RecordingJournalManifest {
         try lock.withLock {
             var manifest = try loadManifestUnlocked(recordingID: recordingID)
             guard manifest.state == .recording
                     || manifest.state == .stopping
                     || manifest.state == .recoverable else {
-                throw RecordingJournalStoreError.invalidCheckpointState(manifest.state)
-            }
-            guard let index = manifest.sources.firstIndex(where: { $0.id == sourceID }) else {
-                throw RecordingJournalStoreError.sourceNotFound(sourceID)
-            }
-            let existing = manifest.sources[index]
-            let (expectedDataByteCount, overflow) = commit.frameCount.multipliedReportingOverflow(
-                by: UInt64(manifest.pcmFormat.bytesPerFrame)
-            )
-            guard !overflow,
-                  commit.dataByteCount == expectedDataByteCount,
-                  commit.dataByteCount >= existing.committedDataByteCount,
-                  commit.frameCount >= existing.committedFrameCount else {
-                throw RecordingJournalStoreError.checkpointRegression
-            }
-            if let existingOffset = existing.firstCommittedFrameOffset,
-               let requestedOffset = commit.firstCommittedFrameOffset,
-               existingOffset != requestedOffset {
-                throw RecordingJournalStoreError.checkpointRegression
-            }
-            let resolvedOffset = existing.firstCommittedFrameOffset ?? commit.firstCommittedFrameOffset
-            guard commit.dataByteCount == 0 || resolvedOffset != nil else {
-                throw RecordingJournalStoreError.checkpointRegression
-            }
-            guard commit.dataByteCount != existing.committedDataByteCount
-                    || resolvedOffset != existing.firstCommittedFrameOffset else {
-                return manifest
+                throw RecordingJournalStoreError.invalidCheckpointState(
+                    manifest.state
+                )
             }
 
-            let (nextGeneration, generationOverflow) = manifest.generation.addingReportingOverflow(1)
+            var updates: [Int: RecordingJournalSourceCommit] = [:]
+            for (sourceID, commit) in commitsBySourceID {
+                guard let index = manifest.sources.firstIndex(where: {
+                    $0.id == sourceID
+                }) else {
+                    throw RecordingJournalStoreError.sourceNotFound(sourceID)
+                }
+                let existing = manifest.sources[index]
+                let (expectedDataByteCount, overflow) =
+                    commit.frameCount.multipliedReportingOverflow(
+                        by: UInt64(manifest.pcmFormat.bytesPerFrame)
+                    )
+                guard !overflow,
+                      commit.dataByteCount == expectedDataByteCount,
+                      commit.dataByteCount >= existing.committedDataByteCount,
+                      commit.frameCount >= existing.committedFrameCount else {
+                    throw RecordingJournalStoreError.checkpointRegression
+                }
+                if let existingOffset = existing.firstCommittedFrameOffset,
+                   let requestedOffset = commit.firstCommittedFrameOffset,
+                   existingOffset != requestedOffset {
+                    throw RecordingJournalStoreError.checkpointRegression
+                }
+                let resolvedOffset = existing.firstCommittedFrameOffset
+                    ?? commit.firstCommittedFrameOffset
+                guard commit.dataByteCount == 0 || resolvedOffset != nil else {
+                    throw RecordingJournalStoreError.checkpointRegression
+                }
+                updates[index] = RecordingJournalSourceCommit(
+                    dataByteCount: commit.dataByteCount,
+                    frameCount: commit.frameCount,
+                    firstCommittedFrameOffset: resolvedOffset
+                )
+            }
+
+            let changedUpdates = updates.filter { index, commit in
+                let existing = manifest.sources[index]
+                return commit.dataByteCount
+                        != existing.committedDataByteCount
+                    || commit.frameCount
+                        != existing.committedFrameCount
+                    || commit.firstCommittedFrameOffset
+                        != existing.firstCommittedFrameOffset
+            }
+            guard !changedUpdates.isEmpty else { return manifest }
+
+            let (nextGeneration, generationOverflow) =
+                manifest.generation.addingReportingOverflow(1)
             guard !generationOverflow else {
                 throw RecordingJournalError.invalidManifest(
                     "Manifest generation overflow."
                 )
             }
 
-            manifest.sources[index].committedDataByteCount = commit.dataByteCount
-            manifest.sources[index].committedFrameCount = commit.frameCount
-            manifest.sources[index].firstCommittedFrameOffset = resolvedOffset
+            for (index, commit) in changedUpdates {
+                manifest.sources[index].committedDataByteCount =
+                    commit.dataByteCount
+                manifest.sources[index].committedFrameCount =
+                    commit.frameCount
+                manifest.sources[index].firstCommittedFrameOffset =
+                    commit.firstCommittedFrameOffset
+            }
             manifest.generation = nextGeneration
             manifest.updatedAt = now()
             try manifest.validate()
-            try writeManifestUnlocked(manifest, to: manifestURL(recordingID: recordingID))
+            try writeManifestUnlocked(
+                manifest,
+                to: manifestURL(recordingID: recordingID)
+            )
             return manifest
         }
     }
@@ -405,6 +597,33 @@ final class RecordingJournalStore {
         )
     }
 
+    private func combinedSession(
+        request: CombinedRecordingJournalCreateRequest,
+        creationDisposition: RecordingJournalCreationDisposition
+    ) -> CombinedRecordingJournalSession {
+        let microphoneSession = session(
+            recordingID: request.recordingID,
+            sourceID: request.microphoneSourceID,
+            segmentID: request.segmentID,
+            sourceFileName: "microphone.wav.part"
+        )
+        let systemAudioSession = session(
+            recordingID: request.recordingID,
+            sourceID: request.systemAudioSourceID,
+            segmentID: request.segmentID,
+            sourceFileName: "system-audio.wav.part"
+        )
+        return CombinedRecordingJournalSession(
+            recordingID: request.recordingID,
+            segmentID: request.segmentID,
+            recordingDirectory: microphoneSession.recordingDirectory,
+            manifestURL: microphoneSession.manifestURL,
+            microphoneSession: microphoneSession,
+            systemAudioSession: systemAudioSession,
+            creationDisposition: creationDisposition
+        )
+    }
+
     private func ensureDirectory(_ url: URL, permissions: Int) throws {
         if !fileManager.fileExists(atPath: url.path) {
             try fileManager.createDirectory(
@@ -495,6 +714,43 @@ final class RecordingJournalStore {
             throw RecordingJournalStoreError.systemCall("rename manifest", errno)
         }
         try RecordingJournalDurability.syncDirectory(targetURL.deletingLastPathComponent())
+    }
+
+    private func manifestMatchesCombinedRequest(
+        _ manifest: RecordingJournalManifest,
+        request: CombinedRecordingJournalCreateRequest
+    ) -> Bool {
+        guard manifest.recordingID == request.recordingID,
+              manifest.startedAt == request.startedAt,
+              manifest.monotonicAnchorNanoseconds
+                == request.monotonicAnchorNanoseconds,
+              manifest.sourceMode == .combined,
+              manifest.pipeline == request.pipeline,
+              manifest.sources.count == 2,
+              manifest.segments.count == 1 else {
+            return false
+        }
+        let segment = manifest.segments[0]
+        guard segment.id == request.segmentID,
+              segment.sequence == 0,
+              Set(segment.sourceIDs) == Set([
+                request.microphoneSourceID,
+                request.systemAudioSourceID
+              ]) else {
+            return false
+        }
+        let microphoneSource = manifest.sources.first(where: {
+            $0.kind == .microphone
+        })
+        let systemAudioSource = manifest.sources.first(where: {
+            $0.kind == .systemAudio
+        })
+        return microphoneSource?.id == request.microphoneSourceID
+            && microphoneSource?.fileName == "microphone.wav.part"
+            && microphoneSource?.segmentID == request.segmentID
+            && systemAudioSource?.id == request.systemAudioSourceID
+            && systemAudioSource?.fileName == "system-audio.wav.part"
+            && systemAudioSource?.segmentID == request.segmentID
     }
 
     private func manifestMatchesRequest(

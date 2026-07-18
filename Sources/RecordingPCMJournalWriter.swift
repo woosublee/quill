@@ -78,11 +78,40 @@ final class RecordingPCMJournalWriter: NormalizedPCM16Sink {
 
     func checkpoint() throws -> RecordingJournalSourceCommit {
         try queue.sync {
-            try checkpointLocked(closeAfterCheckpoint: false)
+            let commit = try checkpointLocked(
+                closeAfterCheckpoint: false
+            )
+            _ = try store.recordCheckpoint(
+                recordingID: session.recordingID,
+                sourceID: session.sourceID,
+                commit: commit
+            )
+            return commit
         }
     }
 
     func drainAndClose() throws -> RecordingJournalSourceCommit {
+        try queue.sync {
+            let commit = try checkpointLocked(
+                closeAfterCheckpoint: false
+            )
+            _ = try store.recordCheckpoint(
+                recordingID: session.recordingID,
+                sourceID: session.sourceID,
+                commit: commit
+            )
+            try closeLocked()
+            return commit
+        }
+    }
+
+    func checkpointSnapshot() throws -> RecordingJournalSourceCommit {
+        try queue.sync {
+            try checkpointLocked(closeAfterCheckpoint: false)
+        }
+    }
+
+    func drainAndCloseSnapshot() throws -> RecordingJournalSourceCommit {
         try queue.sync {
             try checkpointLocked(closeAfterCheckpoint: true)
         }
@@ -108,22 +137,23 @@ final class RecordingPCMJournalWriter: NormalizedPCM16Sink {
             frameCount: writtenDataByteCount / UInt64(RecordingPCMFormat.canonical.bytesPerFrame),
             firstCommittedFrameOffset: writtenDataByteCount > 0 ? firstCommittedFrameOffset : nil
         )
-        _ = try store.recordCheckpoint(
-            recordingID: session.recordingID,
-            sourceID: session.sourceID,
-            commit: commit
-        )
-
         if closeAfterCheckpoint {
-            do {
-                try handle.close()
-                self.handle = nil
-                isClosed = true
-            } catch {
-                failure = .writeFailed(error.localizedDescription)
-                throw error
-            }
+            try closeLocked()
         }
         return commit
+    }
+
+    private func closeLocked() throws {
+        guard !isClosed, let handle else {
+            throw RecordingPCMJournalWriterError.writerClosed
+        }
+        do {
+            try handle.close()
+            self.handle = nil
+            isClosed = true
+        } catch {
+            failure = .writeFailed(error.localizedDescription)
+            throw error
+        }
     }
 }
