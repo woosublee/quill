@@ -4,7 +4,7 @@ import Foundation
 struct TranscriptionRecoveryPlaceholderTests {
     static func main() {
         testPlaceholderKeepsSavedAudioReferenceForRetryAfterInterruption()
-        testInterruptedPlaceholderBecomesFailedButKeepsAudioReference()
+        testInterruptedPlaceholderBecomesRecoveredButKeepsAudioReference()
         testImportingItemIsIncompleteAndBecomesFailedButKeepsAudioReference()
         testLiveRecordingItemIsIncompleteAndBecomesFailedWithoutRetryAudio()
         testCompletedItemIsNotIncomplete()
@@ -105,7 +105,7 @@ struct TranscriptionRecoveryPlaceholderTests {
         )
     }
 
-    private static func testInterruptedPlaceholderBecomesFailedButKeepsAudioReference() {
+    private static func testInterruptedPlaceholderBecomesRecoveredButKeepsAudioReference() {
         let item = PipelineHistoryItem.transcriptionRecoveryPlaceholder(
             timestamp: Date(timeIntervalSince1970: 1_800_000_000),
             intent: .dictation,
@@ -134,8 +134,9 @@ struct TranscriptionRecoveryPlaceholderTests {
 
         assert(interrupted.id == item.id)
         assert(interrupted.audioFileName == "recording.wav")
-        assert(interrupted.postProcessingStatus == "Error: Interrupted before transcription completed")
-        assert(interrupted.debugStatus == "Interrupted before completion")
+        assert(interrupted.postProcessingStatus == PipelineHistoryItem.recoveredRecordingStatus)
+        assert(interrupted.debugStatus == "Recovered after an unexpected shutdown; transcription has not started")
+        assert(interrupted.isRecoveredRecording)
         assert(interrupted.transcriptFileName == item.transcriptFileName)
     }
 }

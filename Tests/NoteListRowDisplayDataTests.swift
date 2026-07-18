@@ -20,6 +20,7 @@ struct NoteListRowDisplayDataTests {
         testWhitespaceOnlyCustomTitleDoesNotForceContentPreview()
         testFailurePreviewUsesErrorMessage()
         testFailurePreviewHandlesMissingSpaceAfterPrefix()
+        testRecoveredRecordingUsesFriendlyStatusAndPreview()
         testTranscribingTitleAndEmptyPreview()
         testRetryingItemHidesExistingPreview()
         print("NoteListRowDisplayDataTests passed")
@@ -248,6 +249,19 @@ struct NoteListRowDisplayDataTests {
 
         assert(data.status == .fail)
         assert(data.preview == "Network unavailable", "Unexpected failure preview: \(data.preview)")
+    }
+
+    private static func testRecoveredRecordingUsesFriendlyStatusAndPreview() {
+        let item = historyItem(
+            transcript: "",
+            postProcessingStatus: PipelineHistoryItem.recoveredRecordingStatus
+        )
+
+        let data = NoteListRowDisplayData(item: item, retryingIDs: [])
+
+        assert(data.status == .recovered)
+        assert(data.displayTitle == "Recording interrupted")
+        assert(data.preview == "Recovered after an unexpected shutdown. Not yet transcribed.")
     }
 
     private static func testTranscribingTitleAndEmptyPreview() {
