@@ -96,6 +96,29 @@ final class PipelineHistoryStore {
         return try trim(to: maxCount)
     }
 
+    func upsert(
+        _ item: PipelineHistoryItem,
+        maxCount: Int
+    ) throws -> [DeletedPipelineHistoryAssets] {
+        guard isStoreLoaded else { return [] }
+
+        var thrownError: Error?
+        container.viewContext.performAndWait {
+            do {
+                let request = pipelineHistoryRequest()
+                request.predicate = NSPredicate(format: "id == %@", item.id as CVarArg)
+                let entity = try container.viewContext.fetch(request).first
+                    ?? PipelineHistoryEntry(context: container.viewContext)
+                Self.apply(item, to: entity)
+                try saveContext()
+            } catch {
+                thrownError = error
+            }
+        }
+        if let thrownError { throw thrownError }
+        return try trim(to: maxCount)
+    }
+
     func update(_ item: PipelineHistoryItem) throws {
         guard isStoreLoaded else { return }
 
@@ -105,36 +128,7 @@ final class PipelineHistoryStore {
                 let request = pipelineHistoryRequest()
                 request.predicate = NSPredicate(format: "id == %@", item.id as CVarArg)
                 guard let entity = try container.viewContext.fetch(request).first else { return }
-                entity.intent = item.intent.rawValue
-                entity.selectedText = item.selectedText
-                entity.capturedSelection = item.capturedSelection
-                entity.recordingStartedAt = item.recordingStartedAt
-                entity.recordingEndedAt = item.recordingEndedAt
-                entity.calendarMatchJSON = Self.encodeCalendarMatch(item.calendarMatch)
-                entity.rawTranscript = item.rawTranscript
-                entity.postProcessedTranscript = item.postProcessedTranscript
-                entity.postProcessingPrompt = item.postProcessingPrompt
-                entity.systemPrompt = item.systemPrompt
-                entity.contextSummary = item.contextSummary
-                entity.contextSystemPrompt = item.contextSystemPrompt
-                entity.contextPrompt = item.contextPrompt
-                entity.contextScreenshotDataURL = item.contextScreenshotDataURL
-                entity.contextScreenshotStatus = item.contextScreenshotStatus
-                entity.postProcessingStatus = item.postProcessingStatus
-                entity.debugStatus = item.debugStatus
-                entity.customVocabulary = item.customVocabulary
-                entity.customSystemPrompt = item.customSystemPrompt
-                entity.audioFileName = item.audioFileName
-                entity.usedLocalTranscription = item.usedLocalTranscription
-                entity.usedContextCapture = item.usedContextCapture
-                entity.usedPostProcessing = item.usedPostProcessing
-                entity.transcriptionLanguageCode = item.transcriptionLanguageCode
-                entity.localTranscriptionModelID = item.localTranscriptionModelID
-                entity.transcriptFileName = item.transcriptFileName
-                entity.contextAppName = item.contextAppName
-                entity.contextBundleIdentifier = item.contextBundleIdentifier
-                entity.contextWindowTitle = item.contextWindowTitle
-                entity.customTitle = item.customTitle
+                Self.apply(item, to: entity)
                 try saveContext()
             } catch {
                 thrownError = error
@@ -223,44 +217,51 @@ final class PipelineHistoryStore {
             do {
                 let context = container.viewContext
                 let entity = PipelineHistoryEntry(context: context)
-                entity.id = item.id
-                entity.intent = item.intent.rawValue
-                entity.selectedText = item.selectedText
-                entity.capturedSelection = item.capturedSelection
-                entity.timestamp = item.timestamp
-                entity.recordingStartedAt = item.recordingStartedAt
-                entity.recordingEndedAt = item.recordingEndedAt
-                entity.calendarMatchJSON = Self.encodeCalendarMatch(item.calendarMatch)
-                entity.rawTranscript = item.rawTranscript
-                entity.postProcessedTranscript = item.postProcessedTranscript
-                entity.postProcessingPrompt = item.postProcessingPrompt
-                entity.systemPrompt = item.systemPrompt
-                entity.contextSummary = item.contextSummary
-                entity.contextSystemPrompt = item.contextSystemPrompt
-                entity.contextPrompt = item.contextPrompt
-                entity.contextScreenshotDataURL = item.contextScreenshotDataURL
-                entity.contextScreenshotStatus = item.contextScreenshotStatus
-                entity.postProcessingStatus = item.postProcessingStatus
-                entity.debugStatus = item.debugStatus
-                entity.customVocabulary = item.customVocabulary
-                entity.customSystemPrompt = item.customSystemPrompt
-                entity.audioFileName = item.audioFileName
-                entity.usedLocalTranscription = item.usedLocalTranscription
-                entity.usedContextCapture = item.usedContextCapture
-                entity.usedPostProcessing = item.usedPostProcessing
-                entity.transcriptionLanguageCode = item.transcriptionLanguageCode
-                entity.localTranscriptionModelID = item.localTranscriptionModelID
-                entity.transcriptFileName = item.transcriptFileName
-                entity.contextAppName = item.contextAppName
-                entity.contextBundleIdentifier = item.contextBundleIdentifier
-                entity.contextWindowTitle = item.contextWindowTitle
-                entity.customTitle = item.customTitle
+                Self.apply(item, to: entity)
                 try saveContext()
             } catch {
                 thrownError = error
             }
         }
         if let thrownError { throw thrownError }
+    }
+
+    private static func apply(
+        _ item: PipelineHistoryItem,
+        to entity: PipelineHistoryEntry
+    ) {
+        entity.id = item.id
+        entity.intent = item.intent.rawValue
+        entity.selectedText = item.selectedText
+        entity.capturedSelection = item.capturedSelection
+        entity.timestamp = item.timestamp
+        entity.recordingStartedAt = item.recordingStartedAt
+        entity.recordingEndedAt = item.recordingEndedAt
+        entity.calendarMatchJSON = encodeCalendarMatch(item.calendarMatch)
+        entity.rawTranscript = item.rawTranscript
+        entity.postProcessedTranscript = item.postProcessedTranscript
+        entity.postProcessingPrompt = item.postProcessingPrompt
+        entity.systemPrompt = item.systemPrompt
+        entity.contextSummary = item.contextSummary
+        entity.contextSystemPrompt = item.contextSystemPrompt
+        entity.contextPrompt = item.contextPrompt
+        entity.contextScreenshotDataURL = item.contextScreenshotDataURL
+        entity.contextScreenshotStatus = item.contextScreenshotStatus
+        entity.postProcessingStatus = item.postProcessingStatus
+        entity.debugStatus = item.debugStatus
+        entity.customVocabulary = item.customVocabulary
+        entity.customSystemPrompt = item.customSystemPrompt
+        entity.audioFileName = item.audioFileName
+        entity.usedLocalTranscription = item.usedLocalTranscription
+        entity.usedContextCapture = item.usedContextCapture
+        entity.usedPostProcessing = item.usedPostProcessing
+        entity.transcriptionLanguageCode = item.transcriptionLanguageCode
+        entity.localTranscriptionModelID = item.localTranscriptionModelID
+        entity.transcriptFileName = item.transcriptFileName
+        entity.contextAppName = item.contextAppName
+        entity.contextBundleIdentifier = item.contextBundleIdentifier
+        entity.contextWindowTitle = item.contextWindowTitle
+        entity.customTitle = item.customTitle
     }
 
     private func saveContext() throws {

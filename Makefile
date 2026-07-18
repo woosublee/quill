@@ -340,6 +340,22 @@ test: check-test-wiring $(SPARKLE_STAMP) $(LOCALIZATION_STAMP)
 	@/tmp/SettingsLocalizationTests
 	@swiftc -parse-as-library Tests/ModelsSettingsUIContractTests.swift -o /tmp/ModelsSettingsUIContractTests
 	@/tmp/ModelsSettingsUIContractTests
+	@swiftc -parse-as-library Sources/RecordingJournalModels.swift Tests/RecordingJournalManifestTests.swift -o /tmp/RecordingJournalManifestTests
+	@/tmp/RecordingJournalManifestTests
+	@swiftc -parse-as-library Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/RecordingArtifactFinalizer.swift Sources/InflightRecordingRecovery.swift Tests/RecordingJournalRuntimeTests.swift -o /tmp/RecordingJournalRuntimeTests
+	@/tmp/RecordingJournalRuntimeTests
+	@swiftc -parse-as-library -framework AVFoundation Sources/RecordingPCMBufferCopy.swift Tests/RecordingPCMBufferCopyTests.swift -o /tmp/RecordingPCMBufferCopyTests
+	@/tmp/RecordingPCMBufferCopyTests
+	@swiftc -parse-as-library Tests/AudioRecorderJournalIntegrationSourceTests.swift -o /tmp/AudioRecorderJournalIntegrationSourceTests
+	@/tmp/AudioRecorderJournalIntegrationSourceTests
+	@swiftc -parse-as-library -framework AVFoundation Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/RecordingArtifactFinalizer.swift Sources/MicrophoneRecordingJournalController.swift Tests/MicrophoneRecordingJournalControllerTests.swift -o /tmp/MicrophoneRecordingJournalControllerTests
+	@/tmp/MicrophoneRecordingJournalControllerTests
+	@swiftc -parse-as-library Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/RecordingArtifactFinalizer.swift Sources/InflightRecordingRecovery.swift Sources/MicrophoneRecordingJournalController.swift Sources/RecordingJournalRecoveryExecutor.swift Tests/RecordingJournalRecoveryExecutorTests.swift -o /tmp/RecordingJournalRecoveryExecutorTests
+	@/tmp/RecordingJournalRecoveryExecutorTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/RecordingArtifactFinalizer.swift Sources/InflightRecordingRecovery.swift Sources/MicrophoneRecordingJournalController.swift Sources/RecordingJournalRecoveryExecutor.swift Sources/RecordingRecoveryHistory.swift Tests/RecordingRecoveryHistoryTests.swift -o /tmp/RecordingRecoveryHistoryTests
+	@/tmp/RecordingRecoveryHistoryTests
+	@swiftc -parse-as-library Tests/AppStateRecordingJournalIntegrationSourceTests.swift -o /tmp/AppStateRecordingJournalIntegrationSourceTests
+	@/tmp/AppStateRecordingJournalIntegrationSourceTests
 	@swiftc -parse-as-library Sources/InstructionExecutionDetector.swift Tests/InstructionExecutionDetectorTests.swift -o /tmp/InstructionExecutionDetectorTests
 	@/tmp/InstructionExecutionDetectorTests
 	@swiftc -parse-as-library Tests/ReleaseSDKCompatibilityTests.swift -o /tmp/ReleaseSDKCompatibilityTests

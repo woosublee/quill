@@ -9492,6 +9492,22 @@
           }
         }
       }
+    },
+    "Unexpected quit recovery is unavailable for this recording. Recording continues normally.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unexpected quit recovery is unavailable for this recording. Recording continues normally."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이번 녹음은 예기치 않은 종료 시 복구할 수 없습니다. 녹음은 정상적으로 계속됩니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

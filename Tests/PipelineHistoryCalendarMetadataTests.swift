@@ -9,6 +9,7 @@ struct PipelineHistoryCalendarMetadataTests {
         try testLegacyEncodedHistoryItemDecodesMissingCalendarMetadataAsNil()
         try testCustomTitlePersistsThroughPipelineHistoryStore()
         try testCalendarMetadataPersistsThroughPipelineHistoryStore()
+        try testUpsertKeepsOneRowAndUpdatesAllFields()
         testGoogleCalendarConnectionMetadataBuildsConnectedState()
         print("PipelineHistoryCalendarMetadataTests passed")
     }
@@ -209,6 +210,72 @@ struct PipelineHistoryCalendarMetadataTests {
         assert(loaded[0].recordingStartedAt == recordingStart)
         assert(loaded[0].recordingEndedAt == recordingEnd)
         assert(loaded[0].calendarMatch == match)
+    }
+
+    private static func testUpsertKeepsOneRowAndUpdatesAllFields() throws {
+        let store = PipelineHistoryStore(inMemory: true)
+        let id = UUID(uuidString: "00000000-0000-0000-0000-000000000181")!
+        let initial = PipelineHistoryItem(
+            id: id,
+            timestamp: Date(timeIntervalSince1970: 6_000),
+            rawTranscript: "",
+            postProcessedTranscript: "",
+            postProcessingPrompt: nil,
+            contextSummary: "before",
+            contextPrompt: nil,
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus,
+            debugStatus: "before",
+            customVocabulary: "alpha",
+            audioFileName: "before.wav",
+            usedLocalTranscription: false,
+            usedContextCapture: false,
+            usedPostProcessing: false,
+            transcriptionLanguageCode: "auto",
+            localTranscriptionModelID: "before-model"
+        )
+        let updated = PipelineHistoryItem(
+            intent: .commandManual,
+            selectedText: "selected",
+            capturedSelection: "captured",
+            id: id,
+            timestamp: Date(timeIntervalSince1970: 6_100),
+            recordingStartedAt: Date(timeIntervalSince1970: 6_000),
+            recordingEndedAt: Date(timeIntervalSince1970: 6_090),
+            rawTranscript: "raw",
+            postProcessedTranscript: "processed",
+            postProcessingPrompt: "prompt",
+            systemPrompt: "system",
+            contextSummary: "after",
+            contextPrompt: "context",
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: "Error: Interrupted before transcription completed",
+            debugStatus: "after",
+            customVocabulary: "beta",
+            customSystemPrompt: "custom",
+            audioFileName: "after.wav",
+            usedLocalTranscription: true,
+            usedContextCapture: true,
+            usedPostProcessing: true,
+            transcriptionLanguageCode: "ko",
+            localTranscriptionModelID: "after-model",
+            customTitle: "Recovered"
+        )
+
+        _ = try store.upsert(initial, maxCount: 10)
+        _ = try store.upsert(updated, maxCount: 10)
+        let loaded = store.loadAllHistory()
+        assert(loaded.count == 1)
+        assert(loaded[0].id == id)
+        assert(loaded[0].timestamp == updated.timestamp)
+        assert(loaded[0].intent == .commandManual)
+        assert(loaded[0].selectedText == "selected")
+        assert(loaded[0].audioFileName == "after.wav")
+        assert(loaded[0].usedLocalTranscription)
+        assert(loaded[0].localTranscriptionModelID == "after-model")
+        assert(loaded[0].customTitle == "Recovered")
     }
 
     private struct LegacyPipelineHistoryItem: Encodable {

@@ -1564,6 +1564,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var liveTranscriber: (any LiveTranscriber)?
     private var currentRecordingLiveNoteID: UUID?
     private var activeRecordingStartedAt: Date?
+    private var activeRecordingCalendarSnapshot: RecordingCalendarSnapshot?
     private var activeAudioInputID: String?
     /// Audio files of recording segments captured before a mid-recording input
     /// switch. Stitched with the final segment at finish to keep one note.
@@ -1594,6 +1595,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var audioDeviceObservers: [NSObjectProtocol] = []
     private var needsMicrophoneRefreshAfterRecording = false
     private let pipelineHistoryStore = PipelineHistoryStore()
+    private let recordingJournalStore: RecordingJournalStore
+    private var activeMicrophoneJournalController: MicrophoneRecordingJournalController?
+    private var activeRecordingID: UUID?
     private let shortcutSessionController = DictationShortcutSessionController()
     private var activeRecordingTriggerMode: RecordingTriggerMode?
     private var currentSessionIntent: SessionIntent = .dictation
@@ -1620,6 +1624,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let postTranscriptionUpdateReminderDuration: TimeInterval = 7
 
     init() {
+        recordingJournalStore = RecordingJournalStore(
+            audioDirectory: Self.audioStorageDirectory()
+        )
         UserDefaults.standard.removeObject(forKey: "force_http2_transcription")
         Self.migrateModelStorageKeys()
         let hasCompletedSetup = UserDefaults.standard.bool(forKey: "hasCompletedSetup")
@@ -1774,6 +1781,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         let initialAccessibility = AXIsProcessTrusted()
         let initialScreenCapturePermission = CGPreflightScreenCaptureAccess()
+        Self.recoverRecordingJournalsBeforeHistoryLoad(
+            recordingJournalStore: recordingJournalStore,
+            historyStore: pipelineHistoryStore
+        )
         var removedStoredFiles: [DeletedPipelineHistoryAssets] = []
         do {
             removedStoredFiles = try pipelineHistoryStore.trim(to: maxPipelineHistoryCount)
@@ -1797,10 +1808,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         let referencedAudioFileNames = Set(savedHistory.compactMap(\.audioFileName))
         let referencedTranscriptFileNames = Set(savedHistory.compactMap(\.transcriptFileName))
+        let protectedInflightAudioFileNames = Self.protectedInflightAudioFileNames(
+            store: recordingJournalStore
+        )
         Task.detached(priority: .background) {
             Self.sweepOrphanStoredFiles(
                 referencedAudioFileNames: referencedAudioFileNames,
-                referencedTranscriptFileNames: referencedTranscriptFileNames
+                referencedTranscriptFileNames: referencedTranscriptFileNames,
+                protectedInflightAudioFileNames: protectedInflightAudioFileNames
             )
         }
 
@@ -1926,7 +1941,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
         }
         Task { @MainActor [weak self] in
-            self?.meetingReminderOverlayManager.onStart = { [weak self] _ in
+            self?.meetingReminderOverlayManager.onStart = { [weak self] schedule in
+                self?.activeRecordingCalendarSnapshot = RecordingCalendarSnapshot(
+                    eventID: schedule.event.id,
+                    calendarID: schedule.event.calendarID,
+                    title: schedule.event.title,
+                    startDate: schedule.event.start,
+                    endDate: schedule.event.end,
+                    matchSource: CalendarMatchSource.calendarNotification.rawValue,
+                    attendeeNames: schedule.event.attendees.compactMap { attendee in
+                        attendee.displayName ?? attendee.email
+                    }
+                )
                 self?.startRecordingFromCalendarReminder()
             }
         }
@@ -2440,13 +2466,62 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return dir
     }
 
-    private static func sweepOrphanStoredFiles(referencedAudioFileNames: Set<String>, referencedTranscriptFileNames: Set<String>) {
+    private static func recoverRecordingJournalsBeforeHistoryLoad(
+        recordingJournalStore: RecordingJournalStore,
+        historyStore: PipelineHistoryStore
+    ) {
+        let executor = RecordingJournalRecoveryExecutor(
+            store: recordingJournalStore
+        )
+        let historyBridge = RecordingRecoveryHistory(
+            journalStore: recordingJournalStore,
+            historyStore: historyStore
+        )
+        for result in executor.recoverAll() {
+            switch result {
+            case .recovered(let artifact):
+                do {
+                    let removedAssets = try historyBridge.persist(
+                        artifact,
+                        maxCount: Int.max
+                    )
+                    for assets in removedAssets {
+                        Self.deleteStoredFiles(assets)
+                    }
+                } catch {
+                    print("Failed to persist recovered recording \(artifact.recordingID): \(error)")
+                }
+            case .manualRecoveryRequired(let candidate):
+                print("Recording journal requires manual recovery at \(candidate.recordingDirectory.path): \(candidate.diagnostics)")
+            case .failed(let candidate, let message):
+                print("Failed to recover recording journal at \(candidate.recordingDirectory.path): \(message)")
+            }
+        }
+    }
+
+    private static func protectedInflightAudioFileNames(
+        store: RecordingJournalStore
+    ) -> Set<String> {
+        Set(
+            InflightRecordingRecovery(store: store).scan().compactMap { candidate in
+                candidate.promotion?.fileName
+            }
+        )
+    }
+
+    private static func sweepOrphanStoredFiles(
+        referencedAudioFileNames: Set<String>,
+        referencedTranscriptFileNames: Set<String>,
+        protectedInflightAudioFileNames: Set<String> = []
+    ) {
         let fileManager = FileManager.default
         let now = Date()
         let gracePeriod: TimeInterval = 300
         let audioDirectory = audioStorageDirectory()
         if let audioFiles = try? fileManager.contentsOfDirectory(atPath: audioDirectory.path) {
             for fileName in audioFiles where !referencedAudioFileNames.contains(fileName) {
+                guard fileName != "inflight" else { continue }
+                guard !protectedInflightAudioFileNames.contains(fileName) else { continue }
                 let fileURL = audioDirectory.appendingPathComponent(fileName)
                 guard let attributes = try? fileManager.attributesOfItem(atPath: fileURL.path),
                       let modificationDate = attributes[.modificationDate] as? Date,
@@ -2503,6 +2578,32 @@ final class AppState: ObservableObject, @unchecked Sendable {
         } catch {
             return nil
         }
+    }
+
+    private static func isProtectedRecordingJournalAudioFile(
+        _ fileName: String
+    ) -> Bool {
+        guard fileName.hasSuffix(".wav") else { return false }
+        let recordingID = String(fileName.dropLast(4))
+        return UUID(uuidString: recordingID) != nil
+    }
+
+    private static func savedAudioFileForStoppedRecording(
+        _ fileURL: URL
+    ) -> SavedAudioFile? {
+        let audioDirectory = audioStorageDirectory().standardizedFileURL
+        let standardizedURL = fileURL.standardizedFileURL
+        guard standardizedURL.deletingLastPathComponent() == audioDirectory else {
+            return saveAudioFile(from: fileURL)
+        }
+        guard standardizedURL.pathExtension.lowercased() == "wav",
+              (try? RecordingCanonicalWAV.validateFile(at: standardizedURL)) != nil else {
+            return saveAudioFile(from: fileURL)
+        }
+        return SavedAudioFile(
+            fileName: standardizedURL.lastPathComponent,
+            fileURL: standardizedURL
+        )
     }
 
     static func saveSecurityScopedAudioFileOffMain(from fileURL: URL) async -> SavedAudioFile? {
@@ -2687,13 +2788,42 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     private func startSelectedAudioRecorder(inputID: String) async throws {
         if AudioInputDevice.isSystemDefaultAndSystemAudio(inputID) {
             try await systemDefaultAndSystemAudioRecorder.startRecording()
         } else if AudioInputDevice.isSystemAudio(inputID) {
             try await systemAudioRecorder.startRecording()
-        } else {
+        } else if didSwitchInputDuringRecording {
             try audioRecorder.startRecording(deviceUID: inputID)
+        } else {
+            let controller = try makeActiveMicrophoneJournalController()
+            audioRecorder.normalizedPCM16Sink = controller.sink
+            do {
+                try audioRecorder.startRecording(deviceUID: inputID)
+                controller.startCheckpointing { [weak self] error in
+                    DispatchQueue.main.async {
+                        guard let self else { return }
+                        let message = localizedCatalogString(
+                            "Unexpected quit recovery is unavailable for this recording. Recording continues normally."
+                        )
+                        self.errorMessage = LocalizedUserMessage.providerFailure(
+                            prefix: message,
+                            providerDetail: error.localizedDescription
+                        )
+                        self.overlayManager.showRecordingNotice(
+                            message,
+                            reminderFrame: self.meetingReminderOverlayManager.visibleOverlayFrame
+                        )
+                    }
+                }
+            } catch {
+                audioRecorder.normalizedPCM16Sink = nil
+                try? controller.discard()
+                activeMicrophoneJournalController = nil
+                activeRecordingID = nil
+                throw error
+            }
         }
     }
 
@@ -2704,7 +2834,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
         } else if AudioInputDevice.isSystemAudio(inputID) {
             systemAudioRecorder.stopRecording(completion: completion)
         } else {
-            audioRecorder.stopRecording(completion: completion)
+            audioRecorder.stopRecording { [weak self] temporaryURL in
+                guard let self else {
+                    completion(temporaryURL)
+                    return
+                }
+                self.audioRecorder.normalizedPCM16Sink = nil
+                let promotedURL = self.finishActiveMicrophoneJournal()
+                if let promotedURL {
+                    if let temporaryURL, temporaryURL.path != promotedURL.path {
+                        try? FileManager.default.removeItem(at: temporaryURL)
+                    }
+                    completion(promotedURL)
+                } else {
+                    completion(temporaryURL)
+                }
+            }
         }
     }
 
@@ -2715,8 +2860,210 @@ final class AppState: ObservableObject, @unchecked Sendable {
         } else if AudioInputDevice.isSystemAudio(inputID) {
             systemAudioRecorder.cancelRecording()
         } else {
-            audioRecorder.cancelRecording()
+            audioRecorder.normalizedPCM16Sink = nil
+            audioRecorder.cancelRecording { [weak self] in
+                self?.discardActiveMicrophoneJournal()
+            }
         }
+    }
+
+    @MainActor
+    private func makeActiveMicrophoneJournalController() throws -> MicrophoneRecordingJournalController {
+        if let activeMicrophoneJournalController {
+            return activeMicrophoneJournalController
+        }
+        let recordingID = activeRecordingID ?? UUID()
+        activeRecordingID = recordingID
+        let startedAt = Date(
+            timeIntervalSince1970: floor(Date().timeIntervalSince1970 * 1_000) / 1_000
+        )
+        let request = RecordingJournalCreateRequest(
+            recordingID: recordingID,
+            sourceID: UUID(),
+            segmentID: UUID(),
+            startedAt: startedAt,
+            monotonicAnchorNanoseconds: DispatchTime.now().uptimeNanoseconds,
+            sourceMode: .microphone,
+            sourceKind: .microphone,
+            sourceFileName: "microphone.wav.part",
+            pipeline: recordingPipelineSnapshot()
+        )
+        let controller = try MicrophoneRecordingJournalController(
+            request: request,
+            store: recordingJournalStore
+        )
+        activeMicrophoneJournalController = controller
+        return controller
+    }
+
+    @MainActor
+    private func recordingPipelineSnapshot() -> RecordingPipelineSnapshot {
+        let transcriptionBackend: RecordingTranscriptionBackendSnapshot
+        let transcriptionModelID: String?
+        switch currentNoteBrowserTranscriptionChoice {
+        case .apiStandard(let modelID):
+            transcriptionBackend = .apiStandard
+            transcriptionModelID = modelID
+        case .apiRealtime(let modelID):
+            transcriptionBackend = .apiRealtime
+            transcriptionModelID = modelID
+        case .nativeWhisper(let modelID):
+            transcriptionBackend = .nativeWhisper
+            transcriptionModelID = modelID
+        case .legacyMlxWhisper(let model):
+            transcriptionBackend = .legacyMlxWhisper
+            transcriptionModelID = model.id
+        case .appleLive:
+            transcriptionBackend = .appleLive
+            transcriptionModelID = nil
+        }
+
+        let intent: RecordingIntentSnapshot = switch currentSessionIntent.persistedIntent {
+        case .dictation: .dictation
+        case .commandAutomatic: .commandAutomatic
+        case .commandManual: .commandManual
+        }
+        let trigger: RecordingTriggerSnapshot = switch activeRecordingTriggerMode {
+        case .hold: .hold
+        case .toggle: .toggle
+        case nil: .unknown
+        }
+
+        return RecordingPipelineSnapshot(
+            trigger: trigger,
+            intent: intent,
+            selectedText: currentSessionIntent.persistedSelectedText,
+            title: activeRecordingCalendarSnapshot?.title,
+            calendar: activeRecordingCalendarSnapshot,
+            transcription: RecordingTranscriptionSnapshot(
+                backend: transcriptionBackend,
+                modelID: transcriptionModelID,
+                spokenLanguageCode: transcriptionLanguage.code,
+                providerSelection: transcriptionAPIURL.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ).isEmpty ? .defaultConfiguration : .transcriptionOverride
+            ),
+            processing: RecordingProcessingSnapshot(
+                postProcessingEnabled: !disablePostProcessing,
+                preferredModelID: postProcessingModel,
+                fallbackModelID: postProcessingFallbackModel,
+                outputLanguage: outputLanguage,
+                preserveExactWording: preserveExactWording,
+                contextCaptureEnabled: !disableContextCapture,
+                instructionExecutionGuardEnabled: instructionExecutionGuardEnabled,
+                customVocabulary: customVocabulary
+                    .split(whereSeparator: \.isNewline)
+                    .map(String.init),
+                customSystemPrompt: customSystemPrompt.trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ).isEmpty ? nil : customSystemPrompt
+            )
+        )
+    }
+
+    private func finishActiveMicrophoneJournal() -> URL? {
+        guard let controller = activeMicrophoneJournalController else {
+            activeRecordingID = nil
+            return nil
+        }
+        defer {
+            activeMicrophoneJournalController = nil
+            activeRecordingID = nil
+        }
+        do {
+            return try controller.finish()
+        } catch {
+            os_log(
+                .error,
+                log: recordingLog,
+                "microphone journal finalization failed: %{public}@",
+                error.localizedDescription
+            )
+            try? controller.preserveForRecovery()
+            return nil
+        }
+    }
+
+    private func detachActiveMicrophoneJournalForDiscard() -> MicrophoneRecordingJournalController? {
+        audioRecorder.normalizedPCM16Sink = nil
+        let controller = activeMicrophoneJournalController
+        activeMicrophoneJournalController = nil
+        activeRecordingID = nil
+        return controller
+    }
+
+    private func discardActiveMicrophoneJournal() {
+        let controller = detachActiveMicrophoneJournalForDiscard()
+        try? controller?.discard()
+    }
+
+    private func completePromotedRecordingJournal(recordingID: UUID) {
+        do {
+            var manifest = try recordingJournalStore.loadManifest(
+                recordingID: recordingID
+            )
+            guard manifest.state == .promoted
+                    || manifest.state == .historyStored
+                    || manifest.state == .finalized else {
+                return
+            }
+            if manifest.state == .promoted {
+                manifest = try recordingJournalStore.transition(
+                    recordingID: recordingID,
+                    to: .historyStored,
+                    historyItemID: recordingID
+                )
+            }
+            if manifest.state == .historyStored {
+                _ = try recordingJournalStore.transition(
+                    recordingID: recordingID,
+                    to: .finalized
+                )
+            }
+            try recordingJournalStore.removeInflightRecording(
+                recordingID: recordingID
+            )
+        } catch RecordingJournalStoreError.recordingNotFound {
+            return
+        } catch {
+            os_log(
+                .error,
+                log: recordingLog,
+                "failed to complete promoted recording journal: %{public}@",
+                error.localizedDescription
+            )
+        }
+    }
+
+    private func discardRecordingJournalAfterSuccessfulTranscription(
+        recordingID: UUID
+    ) {
+        do {
+            let manifest = try recordingJournalStore.loadManifest(
+                recordingID: recordingID
+            )
+            guard manifest.state == .promoted else { return }
+            try recordingJournalStore.removeInflightRecording(
+                recordingID: recordingID
+            )
+        } catch RecordingJournalStoreError.recordingNotFound {
+            return
+        } catch {
+            os_log(
+                .error,
+                log: recordingLog,
+                "failed to remove completed recording journal: %{public}@",
+                error.localizedDescription
+            )
+        }
+    }
+
+    private func preserveActiveMicrophoneJournalForRecovery() {
+        audioRecorder.normalizedPCM16Sink = nil
+        let controller = activeMicrophoneJournalController
+        activeMicrophoneJournalController = nil
+        activeRecordingID = nil
+        try? controller?.preserveForRecovery()
     }
 
     /// Switches the audio input of an in-progress recording without ending the
@@ -2751,6 +3098,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         liveTranscriber = nil
         tearDownRealtimeService()
         setActiveRecorderPCMHandler(nil)
+        let journalToDiscardAfterDrain = detachActiveMicrophoneJournalForDiscard()
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
 
@@ -2759,6 +3107,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // matching the existing stopAndTranscribe path, so it is safe to touch
         // main-actor state here.
         stopActiveAudioRecorder { [weak self] segmentURL in
+            try? journalToDiscardAfterDrain?.discard()
             guard let self else { return }
             // The session may have been stopped/cancelled while the old recorder
             // was finishing. Don't start a new recorder in that case — it would
@@ -4136,6 +4485,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         contextCaptureTask = nil
         capturedContext = nil
         activeRecordingStartedAt = nil
+        activeRecordingCalendarSnapshot = nil
         currentSessionIntent = .dictation
         isRecording = false
         errorMessage = nil
@@ -4708,6 +5058,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         clearPendingOverlayDismissToken()
         errorMessage = nil
         let audioInputID = selectedMicrophoneID
+        activeRecordingID = AudioInputDevice.isMicrophoneOnly(audioInputID)
+            ? UUID()
+            : nil
         let supportsLiveTranscription = !AudioInputDevice.isSystemDefaultAndSystemAudio(audioInputID)
 
         if supportsLiveTranscription && useLocalTranscription && localTranscriptionModel.isAppleSpeech {
@@ -4874,7 +5227,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     }
 
                     // 녹음 시작 전 예비 노트를 생성해 Note Browser에 즉시 표시
-                    let liveID = UUID()
+                    let liveID = self.activeRecordingID ?? UUID()
+                    self.activeRecordingID = liveID
                     self.currentRecordingLiveNoteID = liveID
                     transcriber.onPartialResult = { [weak self] text in
                         Task { @MainActor [weak self] in
@@ -4959,6 +5313,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     private func handleRecordingFailure(_ error: Error) {
         cancelRecordingInitializationTimer()
+        preserveActiveMicrophoneJournalForRecovery()
         clearAudioRecorderCallbacks()
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
@@ -4966,6 +5321,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         contextCaptureTask = nil
         capturedContext = nil
         activeRecordingStartedAt = nil
+        activeRecordingCalendarSnapshot = nil
         if let liveNoteID = currentRecordingLiveNoteID {
             currentRecordingLiveNoteID = nil
             pipelineHistory.removeAll { $0.id == liveNoteID }
@@ -5421,6 +5777,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 customSystemPromptOverride: settings.customSystemPrompt,
                 calendarMatch: calendarMatch
             )
+            if audioFileName.map(Self.isProtectedRecordingJournalAudioFile) == true {
+                discardRecordingJournalAfterSuccessfulTranscription(
+                    recordingID: jobID
+                )
+            }
             cleanupActiveAudioRecordersIfIdle()
             let completionStatusText = disableAutoPaste || !preserveClipboard ? "Copied to clipboard!" : "Pasted at cursor!"
             updateForegroundUIForStoppedTranscriptionCompletion(
@@ -5510,12 +5871,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         let sessionContext = capturedContext
         let inFlightContextTask = contextCaptureTask
-        let jobID = currentRecordingLiveNoteID ?? UUID()
+        let jobID = currentRecordingLiveNoteID ?? activeRecordingID ?? UUID()
         let liveNoteID = currentRecordingLiveNoteID
         currentRecordingLiveNoteID = nil
         let recordingStartedAt = activeRecordingStartedAt
         let recordingEndedAt = Date()
         activeRecordingStartedAt = nil
+        activeRecordingCalendarSnapshot = nil
         let startedAt = recordingEndedAt
         registerTranscriptionJob(
             id: jobID,
@@ -5702,7 +6064,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
 
             let recordingFileURL = self.stitchedRecordingURL(finalSegmentURL: fileURL)
-            let savedAudioFile = Self.saveAudioFile(from: recordingFileURL)
+            let savedAudioFile = Self.savedAudioFileForStoppedRecording(
+                recordingFileURL
+            )
             let transcriptionFileURL = savedAudioFile?.fileURL ?? recordingFileURL
             // Remove the stitched temp file once it has been copied to permanent
             // storage (only created when segments were stitched, i.e. a new path).
@@ -5712,7 +6076,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             if let savedAudioFile {
                 let recoveryContext = sessionContext ?? self.fallbackContextAtStop()
                 let activeJob = self.activeTranscriptionJobs[jobID]
-                self.createTranscriptionRecoveryPlaceholder(
+                _ = self.createTranscriptionRecoveryPlaceholder(
                     jobID: jobID,
                     noteID: liveNoteID ?? jobID,
                     startedAt: startedAt,
@@ -5967,7 +6331,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         transcriptionLanguageCode: String,
         recordingStartedAt: Date?,
         recordingEndedAt: Date?
-    ) {
+    ) -> Bool {
         let item = PipelineHistoryItem.transcriptionRecoveryPlaceholder(
             id: noteID,
             timestamp: startedAt,
@@ -5995,21 +6359,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
             contextWindowTitle: context.windowTitle
         )
         do {
-            if pipelineHistory.contains(where: { $0.id == noteID }) {
-                try pipelineHistoryStore.update(item)
-                updatePipelineHistoryItem(item)
-            } else {
-                let removedStoredFiles = try appendPipelineHistoryItem(item)
-                for removedAssets in removedStoredFiles {
-                    Self.deleteStoredFiles(removedAssets)
-                }
+            let removedStoredFiles = try pipelineHistoryStore.upsert(
+                item,
+                maxCount: maxPipelineHistoryCount
+            )
+            for removedAssets in removedStoredFiles {
+                Self.deleteStoredFiles(removedAssets)
             }
+            updatePipelineHistoryItem(item)
             updateTranscriptionJob(jobID) {
                 $0.liveNoteID = noteID
                 $0.audioFileName = audioFileName
             }
+            return true
         } catch {
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to save recovery entry"), providerDetail: error.localizedDescription)
+            return false
         }
     }
 
@@ -6196,11 +6561,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
             $0.liveNoteID = nil
             $0.audioFileName = audioFileName
         }
+        let isJournalAudioFile = audioFileName.map(
+            Self.isProtectedRecordingJournalAudioFile
+        ) == true
+        let entryID = existingID ?? (isJournalAudioFile ? jobID : UUID())
         let entry = PipelineHistoryItem(
             intent: intent.persistedIntent,
             selectedText: intent.persistedSelectedText,
             capturedSelection: context.selectedText,
-            id: existingID ?? UUID(),
+            id: entryID,
             timestamp: existingEntry?.timestamp ?? activeTranscriptionJobs[jobID]?.startedAt ?? Date(),
             recordingStartedAt: activeTranscriptionJobs[jobID]?.recordingStartedAt ?? existingEntry?.recordingStartedAt,
             recordingEndedAt: activeTranscriptionJobs[jobID]?.recordingEndedAt ?? existingEntry?.recordingEndedAt,
@@ -6245,8 +6614,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             }
             updatePipelineHistoryItem(entry)
+            if isJournalAudioFile {
+                completePromotedRecordingJournal(recordingID: jobID)
+            }
         } catch {
-            Self.deleteStoredFiles(audioFileName: audioFileName, transcriptFileName: transcriptFileName)
+            if !isJournalAudioFile {
+                Self.deleteStoredFiles(
+                    audioFileName: audioFileName,
+                    transcriptFileName: transcriptFileName
+                )
+            } else if let transcriptFileName {
+                Self.deleteTranscriptFile(transcriptFileName)
+            }
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to save run history entry"), providerDetail: error.localizedDescription)
         }
 
@@ -6409,8 +6788,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             errorMessage = message
             hasShownScreenshotPermissionAlert = true
 
-            // Permission errors are fatal — stop recording
+            // Permission errors are fatal — preserve committed microphone audio for recovery.
             tearDownRealtimeService()
+            preserveActiveMicrophoneJournalForRecovery()
             cancelActiveAudioRecorder()
             audioLevelCancellable?.cancel()
             audioLevelCancellable = nil

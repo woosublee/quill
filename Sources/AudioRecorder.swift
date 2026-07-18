@@ -95,6 +95,7 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
 
     var onRecordingReady: (() -> Void)?
     var onRecordingFailure: ((Error) -> Void)?
+    var normalizedPCM16Sink: (any NormalizedPCM16Sink)?
     /// Fires on the sample-buffer queue with a 24 kHz mono PCM16 chunk for
     /// each incoming audio buffer (matching OpenAI Realtime's default PCM
     /// input rate). Set before ``startRecording`` to stream audio out-of-band
@@ -403,8 +404,10 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
         }
 
         if sourceFormat == targetFormat {
-            try activeAudioFile.write(from: inputBuffer)
-            recordedFrameCount += AVAudioFramePosition(inputBuffer.frameLength)
+            try writeCanonicalRecordingBuffer(
+                inputBuffer,
+                to: activeAudioFile
+            )
             return
         }
 
@@ -414,8 +417,21 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
             to: targetFormat
         )
         guard outputBuffer.frameLength > 0 else { return }
-        try activeAudioFile.write(from: outputBuffer)
-        recordedFrameCount += AVAudioFramePosition(outputBuffer.frameLength)
+        try writeCanonicalRecordingBuffer(
+            outputBuffer,
+            to: activeAudioFile
+        )
+    }
+
+    private func writeCanonicalRecordingBuffer(
+        _ buffer: AVAudioPCMBuffer,
+        to activeAudioFile: AVAudioFile
+    ) throws {
+        try activeAudioFile.write(from: buffer)
+        recordedFrameCount += AVAudioFramePosition(buffer.frameLength)
+        guard normalizedPCM16Sink != nil else { return }
+        let copiedPCM16LE = try RecordingPCMBufferCopy.data(from: buffer)
+        normalizedPCM16Sink?.enqueue(copiedPCM16LE)
     }
 
     private func validatedPCMBufferFormat(
@@ -698,6 +714,10 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
     }
 
     func cancelRecording() {
+        cancelRecording(completion: nil)
+    }
+
+    func cancelRecording(completion: (() -> Void)?) {
         sessionQueue.async {
             self.cancelWatchdog()
             self.teardownSessionLocked()
@@ -710,6 +730,7 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
             DispatchQueue.main.async {
                 self.isRecording = false
                 self.audioLevel = 0.0
+                completion?()
             }
         }
     }
