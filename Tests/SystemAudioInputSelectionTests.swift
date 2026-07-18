@@ -6,6 +6,7 @@ struct SystemAudioInputSelectionTests {
         testSystemAudioInputIdentifier()
         testSystemDefaultAndSystemAudioInputIdentifier()
         testSpecialInputClassification()
+        testSingleSourceClassification()
         testMicrophoneOnlyClassification()
         try testSettingsPickerShowsDefaultBeforeSystemAudio()
         try testMenuBarPickerShowsDefaultBeforeSystemAudio()
@@ -36,6 +37,12 @@ struct SystemAudioInputSelectionTests {
         assert(AudioInputDevice.isSpecialInput(AudioInputDevice.systemAudioID))
         assert(AudioInputDevice.isSpecialInput(AudioInputDevice.systemDefaultAndSystemAudioID))
         assert(!AudioInputDevice.isSpecialInput(AudioInputDevice.defaultMicrophoneID))
+    }
+
+    private static func testSingleSourceClassification() {
+        assert(AudioInputDevice.isSingleSource(AudioInputDevice.defaultMicrophoneID))
+        assert(AudioInputDevice.isSingleSource(AudioInputDevice.systemAudioID))
+        assert(!AudioInputDevice.isSingleSource(AudioInputDevice.systemDefaultAndSystemAudioID))
     }
 
     private static func testMicrophoneOnlyClassification() {

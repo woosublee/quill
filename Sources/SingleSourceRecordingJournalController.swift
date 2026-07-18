@@ -1,10 +1,10 @@
 import Foundation
 
-enum MicrophoneRecordingJournalControllerError: Error, Equatable {
+enum SingleSourceRecordingJournalControllerError: Error, Equatable {
     case controllerClosed
 }
 
-final class MicrophoneRecordingJournalController {
+final class SingleSourceRecordingJournalController {
     private static let lifecycleQueueKey = DispatchSpecificKey<UInt8>()
 
     private enum State {
@@ -21,7 +21,7 @@ final class MicrophoneRecordingJournalController {
     private let writer: RecordingPCMJournalWriter
     private let finalizer: RecordingArtifactFinalizer
     private let lifecycleQueue = DispatchQueue(
-        label: "com.woosublee.quill.recording-journal.microphone-lifecycle"
+        label: "com.woosublee.quill.recording-journal.single-source-lifecycle"
     )
     private var checkpointTimer: DispatchSourceTimer?
     private var state: State = .recording
@@ -89,7 +89,7 @@ final class MicrophoneRecordingJournalController {
     func checkpoint() throws {
         try lifecycleQueue.sync {
             guard case .recording = state else {
-                throw MicrophoneRecordingJournalControllerError.controllerClosed
+                throw SingleSourceRecordingJournalControllerError.controllerClosed
             }
             _ = try writer.checkpoint()
         }
@@ -124,7 +124,7 @@ final class MicrophoneRecordingJournalController {
                     throw error
                 }
             case .recoverable, .discarded:
-                throw MicrophoneRecordingJournalControllerError.controllerClosed
+                throw SingleSourceRecordingJournalControllerError.controllerClosed
             }
         }
     }
@@ -135,7 +135,7 @@ final class MicrophoneRecordingJournalController {
             case .recoverable, .promoted:
                 return
             case .discarded:
-                throw MicrophoneRecordingJournalControllerError.controllerClosed
+                throw SingleSourceRecordingJournalControllerError.controllerClosed
             case .recording:
                 cancelCheckpointTimerLocked()
                 _ = try writer.drainAndClose()
@@ -154,7 +154,7 @@ final class MicrophoneRecordingJournalController {
             case .discarded:
                 return
             case .promoted:
-                throw MicrophoneRecordingJournalControllerError.controllerClosed
+                throw SingleSourceRecordingJournalControllerError.controllerClosed
             case .recording:
                 cancelCheckpointTimerLocked()
                 _ = try? writer.drainAndClose()

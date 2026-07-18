@@ -1596,7 +1596,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var needsMicrophoneRefreshAfterRecording = false
     private let pipelineHistoryStore = PipelineHistoryStore()
     private let recordingJournalStore: RecordingJournalStore
-    private var activeMicrophoneJournalController: MicrophoneRecordingJournalController?
+    private var activeSingleSourceJournalController: SingleSourceRecordingJournalController?
     private let recordingJournalFinalizationQueue = DispatchQueue(
         label: "com.woosublee.quill.recording-journal.finalization",
         qos: .userInitiated
@@ -2810,38 +2810,61 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func startSelectedAudioRecorder(inputID: String) async throws {
         if AudioInputDevice.isSystemDefaultAndSystemAudio(inputID) {
             try await systemDefaultAndSystemAudioRecorder.startRecording()
-        } else if AudioInputDevice.isSystemAudio(inputID) {
-            try await systemAudioRecorder.startRecording()
-        } else if didSwitchInputDuringRecording {
-            try audioRecorder.startRecording(deviceUID: inputID)
-        } else {
-            let controller = try makeActiveMicrophoneJournalController()
-            audioRecorder.normalizedPCM16Sink = controller.sink
-            do {
+            return
+        }
+        if didSwitchInputDuringRecording {
+            if AudioInputDevice.isSystemAudio(inputID) {
+                try await systemAudioRecorder.startRecording()
+            } else {
                 try audioRecorder.startRecording(deviceUID: inputID)
-                controller.startCheckpointing { [weak self] error in
-                    DispatchQueue.main.async {
-                        guard let self else { return }
-                        let message = localizedCatalogString(
-                            "Unexpected quit recovery is unavailable for this recording. Recording continues normally."
-                        )
-                        self.errorMessage = LocalizedUserMessage.providerFailure(
-                            prefix: message,
-                            providerDetail: error.localizedDescription
-                        )
-                        self.overlayManager.showRecordingNotice(
-                            message,
-                            reminderFrame: self.meetingReminderOverlayManager.visibleOverlayFrame
-                        )
-                    }
-                }
-            } catch {
-                audioRecorder.normalizedPCM16Sink = nil
-                try? controller.discard()
-                activeMicrophoneJournalController = nil
-                activeRecordingID = nil
-                throw error
             }
+            return
+        }
+
+        let controller = try makeActiveSingleSourceJournalController(
+            inputID: inputID
+        )
+        if AudioInputDevice.isSystemAudio(inputID) {
+            systemAudioRecorder.normalizedPCM16Sink = controller.sink
+        } else {
+            audioRecorder.normalizedPCM16Sink = controller.sink
+        }
+        do {
+            if AudioInputDevice.isSystemAudio(inputID) {
+                try await systemAudioRecorder.startRecording()
+            } else {
+                try audioRecorder.startRecording(deviceUID: inputID)
+            }
+            controller.startCheckpointing { [weak self] error in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    let message = localizedCatalogString(
+                        "Unexpected quit recovery is unavailable for this recording. Recording continues normally."
+                    )
+                    self.errorMessage = LocalizedUserMessage.providerFailure(
+                        prefix: message,
+                        providerDetail: error.localizedDescription
+                    )
+                    self.overlayManager.showRecordingNotice(
+                        message,
+                        reminderFrame: self.meetingReminderOverlayManager.visibleOverlayFrame
+                    )
+                }
+            }
+        } catch {
+            detachSingleSourceJournalSink(inputID: inputID)
+            try? controller.discard()
+            activeSingleSourceJournalController = nil
+            activeRecordingID = nil
+            throw error
+        }
+    }
+
+    private func detachSingleSourceJournalSink(inputID: String) {
+        if AudioInputDevice.isSystemAudio(inputID) {
+            systemAudioRecorder.normalizedPCM16Sink = nil
+        } else {
+            audioRecorder.normalizedPCM16Sink = nil
         }
     }
 
@@ -2857,11 +2880,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 ))
             }
         } else if AudioInputDevice.isSystemAudio(inputID) {
-            systemAudioRecorder.stopRecording { url in
-                completion(StoppedAudioRecording(
-                    fileURL: url,
-                    recoverableJournalID: nil
-                ))
+            systemAudioRecorder.stopRecording { [weak self] temporaryURL in
+                guard let self else {
+                    completion(StoppedAudioRecording(
+                        fileURL: temporaryURL,
+                        recoverableJournalID: nil
+                    ))
+                    return
+                }
+                self.systemAudioRecorder.normalizedPCM16Sink = nil
+                self.finishStoppedSingleSourceRecording(
+                    temporaryURL: temporaryURL,
+                    completion: completion
+                )
             }
         } else {
             audioRecorder.stopRecording { [weak self] temporaryURL in
@@ -2873,29 +2904,39 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     return
                 }
                 self.audioRecorder.normalizedPCM16Sink = nil
-                let controller = self.detachActiveMicrophoneJournalForFinish()
-                let recoverableJournalID = controller?.recordingID
-                self.recordingJournalFinalizationQueue.async {
-                    let promotedURL = Self.finishActiveMicrophoneJournal(
-                        controller
-                    )
-                    DispatchQueue.main.async {
-                        if let promotedURL {
-                            if let temporaryURL,
-                               temporaryURL.path != promotedURL.path {
-                                try? FileManager.default.removeItem(at: temporaryURL)
-                            }
-                            completion(StoppedAudioRecording(
-                                fileURL: promotedURL,
-                                recoverableJournalID: nil
-                            ))
-                        } else {
-                            completion(StoppedAudioRecording(
-                                fileURL: temporaryURL,
-                                recoverableJournalID: recoverableJournalID
-                            ))
-                        }
+                self.finishStoppedSingleSourceRecording(
+                    temporaryURL: temporaryURL,
+                    completion: completion
+                )
+            }
+        }
+    }
+
+    private func finishStoppedSingleSourceRecording(
+        temporaryURL: URL?,
+        completion: @escaping (StoppedAudioRecording) -> Void
+    ) {
+        let controller = detachActiveSingleSourceJournalForFinish()
+        let recoverableJournalID = controller?.recordingID
+        recordingJournalFinalizationQueue.async {
+            let promotedURL = Self.finishActiveSingleSourceJournal(
+                controller
+            )
+            DispatchQueue.main.async {
+                if let promotedURL {
+                    if let temporaryURL,
+                       temporaryURL.path != promotedURL.path {
+                        try? FileManager.default.removeItem(at: temporaryURL)
                     }
+                    completion(StoppedAudioRecording(
+                        fileURL: promotedURL,
+                        recoverableJournalID: nil
+                    ))
+                } else {
+                    completion(StoppedAudioRecording(
+                        fileURL: temporaryURL,
+                        recoverableJournalID: recoverableJournalID
+                    ))
                 }
             }
         }
@@ -2906,41 +2947,58 @@ final class AppState: ObservableObject, @unchecked Sendable {
         if AudioInputDevice.isSystemDefaultAndSystemAudio(inputID) {
             systemDefaultAndSystemAudioRecorder.cancelRecording()
         } else if AudioInputDevice.isSystemAudio(inputID) {
-            systemAudioRecorder.cancelRecording()
+            systemAudioRecorder.normalizedPCM16Sink = nil
+            systemAudioRecorder.cancelRecording { [weak self] in
+                self?.discardActiveSingleSourceJournal()
+            }
         } else {
             audioRecorder.normalizedPCM16Sink = nil
             audioRecorder.cancelRecording { [weak self] in
-                self?.discardActiveMicrophoneJournal()
+                self?.discardActiveSingleSourceJournal()
             }
         }
     }
 
     @MainActor
-    private func makeActiveMicrophoneJournalController() throws -> MicrophoneRecordingJournalController {
-        if let activeMicrophoneJournalController {
-            return activeMicrophoneJournalController
+    private func makeActiveSingleSourceJournalController(
+        inputID: String
+    ) throws -> SingleSourceRecordingJournalController {
+        if let activeSingleSourceJournalController {
+            return activeSingleSourceJournalController
         }
         let recordingID = activeRecordingID ?? UUID()
         activeRecordingID = recordingID
         let startedAt = Date(
             timeIntervalSince1970: floor(Date().timeIntervalSince1970 * 1_000) / 1_000
         )
+        let sourceMode: RecordingAudioSourceMode
+        let sourceKind: RecordingJournalSourceKind
+        let sourceFileName: String
+        if AudioInputDevice.isSystemAudio(inputID) {
+            sourceMode = .systemAudio
+            sourceKind = .systemAudio
+            sourceFileName = "system-audio.wav.part"
+        } else {
+            sourceMode = .microphone
+            sourceKind = .microphone
+            sourceFileName = "microphone.wav.part"
+        }
         let request = RecordingJournalCreateRequest(
             recordingID: recordingID,
             sourceID: UUID(),
             segmentID: UUID(),
             startedAt: startedAt,
             monotonicAnchorNanoseconds: DispatchTime.now().uptimeNanoseconds,
-            sourceMode: .microphone,
-            sourceKind: .microphone,
-            sourceFileName: "microphone.wav.part",
+            sourceMode: sourceMode,
+            sourceKind: sourceKind,
+            sourceFileName: sourceFileName,
             pipeline: recordingPipelineSnapshot()
         )
-        let controller = try MicrophoneRecordingJournalController(
+        let controller = try SingleSourceRecordingJournalController(
             request: request,
             store: recordingJournalStore
         )
-        activeMicrophoneJournalController = controller
+        activeSingleSourceJournalController = controller
         return controller
     }
 
@@ -3009,16 +3067,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
     }
 
-    private func detachActiveMicrophoneJournalForFinish()
-        -> MicrophoneRecordingJournalController? {
-        let controller = activeMicrophoneJournalController
-        activeMicrophoneJournalController = nil
+    private func detachActiveSingleSourceJournalForFinish()
+        -> SingleSourceRecordingJournalController? {
+        let controller = activeSingleSourceJournalController
+        activeSingleSourceJournalController = nil
         activeRecordingID = nil
         return controller
     }
 
-    private static func finishActiveMicrophoneJournal(
-        _ controller: MicrophoneRecordingJournalController?
+    private static func finishActiveSingleSourceJournal(
+        _ controller: SingleSourceRecordingJournalController?
     ) -> URL? {
         guard let controller else { return nil }
         do {
@@ -3027,7 +3085,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             os_log(
                 .error,
                 log: recordingLog,
-                "microphone journal finalization failed: %{public}@",
+                "single-source journal finalization failed: %{public}@",
                 error.localizedDescription
             )
             try? controller.preserveForRecovery()
@@ -3035,16 +3093,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    private func detachActiveMicrophoneJournalForDiscard() -> MicrophoneRecordingJournalController? {
+    private func detachActiveSingleSourceJournalForDiscard() -> SingleSourceRecordingJournalController? {
         audioRecorder.normalizedPCM16Sink = nil
-        let controller = activeMicrophoneJournalController
-        activeMicrophoneJournalController = nil
+        systemAudioRecorder.normalizedPCM16Sink = nil
+        let controller = activeSingleSourceJournalController
+        activeSingleSourceJournalController = nil
         activeRecordingID = nil
         return controller
     }
 
-    private func discardActiveMicrophoneJournal() {
-        let controller = detachActiveMicrophoneJournalForDiscard()
+    private func discardActiveSingleSourceJournal() {
+        let controller = detachActiveSingleSourceJournalForDiscard()
         try? controller?.discard()
     }
 
@@ -3109,10 +3168,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    private func preserveActiveMicrophoneJournalForRecovery() {
+    private func preserveActiveSingleSourceJournalForRecovery() {
         audioRecorder.normalizedPCM16Sink = nil
-        let controller = activeMicrophoneJournalController
-        activeMicrophoneJournalController = nil
+        systemAudioRecorder.normalizedPCM16Sink = nil
+        let controller = activeSingleSourceJournalController
+        activeSingleSourceJournalController = nil
         activeRecordingID = nil
         try? controller?.preserveForRecovery()
     }
@@ -3149,7 +3209,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         liveTranscriber = nil
         tearDownRealtimeService()
         setActiveRecorderPCMHandler(nil)
-        let journalToDiscardAfterDrain = detachActiveMicrophoneJournalForDiscard()
+        let journalToDiscardAfterDrain = detachActiveSingleSourceJournalForDiscard()
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
 
@@ -5122,7 +5182,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         clearPendingOverlayDismissToken()
         errorMessage = nil
         let audioInputID = selectedMicrophoneID
-        activeRecordingID = AudioInputDevice.isMicrophoneOnly(audioInputID)
+        activeRecordingID = AudioInputDevice.isSingleSource(audioInputID)
             ? UUID()
             : nil
         let supportsLiveTranscription = !AudioInputDevice.isSystemDefaultAndSystemAudio(audioInputID)
@@ -5379,7 +5439,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     private func handleRecordingFailure(_ error: Error) {
         cancelRecordingInitializationTimer()
-        preserveActiveMicrophoneJournalForRecovery()
+        preserveActiveSingleSourceJournalForRecovery()
         clearAudioRecorderCallbacks()
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
@@ -6877,9 +6937,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             errorMessage = message
             hasShownScreenshotPermissionAlert = true
 
-            // Permission errors are fatal — preserve committed microphone audio for recovery.
+            // Permission errors are fatal — preserve committed single-source audio for recovery.
             tearDownRealtimeService()
-            preserveActiveMicrophoneJournalForRecovery()
+            preserveActiveSingleSourceJournalForRecovery()
             cancelActiveAudioRecorder()
             audioLevelCancellable?.cancel()
             audioLevelCancellable = nil

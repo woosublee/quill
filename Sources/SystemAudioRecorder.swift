@@ -52,6 +52,8 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
     private let recordingConverterLock = OSAllocatedUnfairLock<AVAudioConverter?>(initialState: nil)
     private let pcm16ConverterLock = OSAllocatedUnfairLock<AVAudioConverter?>(initialState: nil)
     private let callbacksLock = OSAllocatedUnfairLock(initialState: CallbackState())
+    private let normalizedPCM16SinkLock =
+        OSAllocatedUnfairLock<(any NormalizedPCM16Sink)?>(initialState: nil)
 
     private var stream: SCStream?
     private var tempFileURL: URL?
@@ -81,6 +83,10 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
     var onPCM16Samples: ((Data) -> Void)? {
         get { callbacksLock.withLock { $0.onPCM16Samples } }
         set { callbacksLock.withLock { $0.onPCM16Samples = newValue } }
+    }
+    var normalizedPCM16Sink: (any NormalizedPCM16Sink)? {
+        get { normalizedPCM16SinkLock.withLock { $0 } }
+        set { normalizedPCM16SinkLock.withLock { $0 = newValue } }
     }
 
     private let recordingTargetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: true)!
@@ -193,12 +199,18 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
     }
 
     func cancelRecording() {
+        cancelRecording(completion: nil)
+    }
+
+    func cancelRecording(completion: (() -> Void)?) {
         let currentStream = currentStreamSnapshot()
         Task {
             if let currentStream {
                 try? await currentStream.stopCapture()
             }
-            finishRecording(discard: true, completion: nil)
+            finishRecording(discard: true) { _ in
+                completion?()
+            }
         }
     }
 
@@ -456,8 +468,10 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
         }
 
         if sourceFormat == targetFormat {
-            try activeAudioFile.write(from: inputBuffer)
-            recordedFrameCount += AVAudioFramePosition(inputBuffer.frameLength)
+            try writeCanonicalRecordingBuffer(
+                inputBuffer,
+                to: activeAudioFile
+            )
             return
         }
 
@@ -467,8 +481,25 @@ final class SystemAudioRecorder: NSObject, ObservableObject, SCStreamOutput, SCS
             to: targetFormat
         )
         guard outputBuffer.frameLength > 0 else { return }
-        try activeAudioFile.write(from: outputBuffer)
-        recordedFrameCount += AVAudioFramePosition(outputBuffer.frameLength)
+        try writeCanonicalRecordingBuffer(
+            outputBuffer,
+            to: activeAudioFile
+        )
+    }
+
+    private func writeCanonicalRecordingBuffer(
+        _ buffer: AVAudioPCMBuffer,
+        to activeAudioFile: AVAudioFile
+    ) throws {
+        try activeAudioFile.write(from: buffer)
+        recordedFrameCount += AVAudioFramePosition(buffer.frameLength)
+        guard let sink = normalizedPCM16SinkLock.withLock({ $0 }) else {
+            return
+        }
+        let copiedPCM16LE = try RecordingPCMBufferCopy.data(
+            from: buffer
+        )
+        sink.enqueue(copiedPCM16LE)
     }
 
     private func validatedPCMBufferFormat(
