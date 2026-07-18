@@ -71,10 +71,12 @@ final class CombinedRecordingJournalController {
                 store
             )
         } catch {
-            try? store.markDiscarded(recordingID: request.recordingID)
-            try? store.discardInflightRecording(
-                recordingID: request.recordingID
-            )
+            if session.creationDisposition == .created {
+                try? store.markDiscarded(recordingID: request.recordingID)
+                try? store.discardInflightRecording(
+                    recordingID: request.recordingID
+                )
+            }
             throw error
         }
 
@@ -95,20 +97,13 @@ final class CombinedRecordingJournalController {
     }
 
     deinit {
-        let cancelTimer = {
-            self.cancelCheckpointTimerLocked()
-        }
-        if DispatchQueue.getSpecific(
-            key: Self.lifecycleQueueKey
-        ) != nil {
-            cancelTimer()
-        } else {
-            lifecycleQueue.sync(execute: cancelTimer)
-        }
+        checkpointTimer?.setEventHandler {}
+        checkpointTimer?.cancel()
     }
 
     func startCheckpointing(
         every interval: TimeInterval = 7,
+        callbackQueue: DispatchQueue = .main,
         onFirstFailure: @escaping (Error) -> Void
     ) {
         lifecycleQueue.async { [weak self] in
@@ -134,7 +129,9 @@ final class CombinedRecordingJournalController {
                         return
                     }
                     self.didReportCheckpointFailure = true
-                    onFirstFailure(error)
+                    callbackQueue.async {
+                        onFirstFailure(error)
+                    }
                 }
             }
             timer.resume()
@@ -240,10 +237,25 @@ final class CombinedRecordingJournalController {
         microphone: RecordingJournalSourceCommit,
         systemAudio: RecordingJournalSourceCommit
     ) {
-        let microphoneCommit =
-            try microphoneWriter.drainAndCloseSnapshot()
-        let systemAudioCommit =
-            try systemAudioWriter.drainAndCloseSnapshot()
+        var microphoneCommit: RecordingJournalSourceCommit?
+        var systemAudioCommit: RecordingJournalSourceCommit?
+        var firstError: Error?
+
+        do {
+            microphoneCommit = try microphoneWriter.drainAndCloseSnapshot()
+        } catch {
+            firstError = error
+        }
+        do {
+            systemAudioCommit = try systemAudioWriter.drainAndCloseSnapshot()
+        } catch {
+            if firstError == nil { firstError = error }
+        }
+        if let firstError { throw firstError }
+        guard let microphoneCommit, let systemAudioCommit else {
+            throw CombinedRecordingJournalControllerError.controllerClosed
+        }
+
         _ = try store.recordCheckpoints(
             recordingID: recordingID,
             commitsBySourceID: [

@@ -167,29 +167,15 @@ struct RecordingJournalManifest: Codable, Equatable {
         guard pcmFormat == .canonical else {
             throw RecordingJournalError.invalidManifest("Unsupported PCM format.")
         }
-        guard !sources.isEmpty, segments.count == 1 else {
+        guard !sources.isEmpty, !segments.isEmpty else {
             throw RecordingJournalError.invalidManifest(
-                "Manifest must contain sources and exactly one segment."
+                "Manifest must contain a source and segment."
             )
         }
 
-        switch sourceMode {
-        case .microphone:
-            guard sources.count == 1,
-                  sources[0].kind == .microphone else {
-                throw RecordingJournalError.invalidManifest(
-                    "Microphone recordings require exactly one microphone source."
-                )
-            }
-        case .systemAudio:
-            guard sources.count == 1,
-                  sources[0].kind == .systemAudio else {
-                throw RecordingJournalError.invalidManifest(
-                    "System Audio recordings require exactly one System Audio source."
-                )
-            }
-        case .combined:
+        if sourceMode == .combined {
             guard sources.count == 2,
+                  segments.count == 1,
                   sources.filter({ $0.kind == .microphone }).count == 1,
                   sources.filter({ $0.kind == .systemAudio }).count == 1 else {
                 throw RecordingJournalError.invalidManifest(
@@ -204,10 +190,12 @@ struct RecordingJournalManifest: Codable, Equatable {
                 "Source identifiers must be unique."
             )
         }
-        guard Set(sources.map(\.fileName)).count == sources.count else {
-            throw RecordingJournalError.invalidManifest(
-                "Source filenames must be unique."
-            )
+        if sourceMode == .combined {
+            guard Set(sources.map(\.fileName)).count == sources.count else {
+                throw RecordingJournalError.invalidManifest(
+                    "Combined source filenames must be unique."
+                )
+            }
         }
         let segmentIDs = Set(segments.map(\.id))
         guard segmentIDs.count == segments.count else {
@@ -230,14 +218,25 @@ struct RecordingJournalManifest: Codable, Equatable {
                 throw RecordingJournalError.invalidManifest("Committed byte and frame counts disagree.")
             }
         }
-        let segment = segments[0]
-        let segmentSourceIDs = Set(segment.sourceIDs)
-        guard segmentSourceIDs.count == segment.sourceIDs.count,
-              segmentSourceIDs == sourceIDs,
-              sources.allSatisfy({ $0.segmentID == segment.id }) else {
-            throw RecordingJournalError.invalidManifest(
-                "The recording segment must reference every source exactly once."
-            )
+        if sourceMode == .combined {
+            let segment = segments[0]
+            let segmentSourceIDs = Set(segment.sourceIDs)
+            guard segmentSourceIDs.count == segment.sourceIDs.count,
+                  segmentSourceIDs == sourceIDs,
+                  sources.allSatisfy({ $0.segmentID == segment.id }) else {
+                throw RecordingJournalError.invalidManifest(
+                    "The combined recording segment must reference every source exactly once."
+                )
+            }
+        } else {
+            for segment in segments {
+                guard !segment.sourceIDs.isEmpty,
+                      segment.sourceIDs.allSatisfy(sourceIDs.contains) else {
+                    throw RecordingJournalError.invalidManifest(
+                        "Segment references an unknown source."
+                    )
+                }
+            }
         }
 
         if let promotion {

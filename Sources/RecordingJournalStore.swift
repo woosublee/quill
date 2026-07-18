@@ -43,6 +43,11 @@ struct CombinedRecordingJournalCreateRequest: Equatable {
     var pipeline: RecordingPipelineSnapshot
 }
 
+enum RecordingJournalCreationDisposition: Equatable {
+    case created
+    case reused
+}
+
 struct CombinedRecordingJournalSession: Equatable {
     let recordingID: UUID
     let segmentID: UUID
@@ -50,6 +55,7 @@ struct CombinedRecordingJournalSession: Equatable {
     let manifestURL: URL
     let microphoneSession: RecordingJournalSession
     let systemAudioSession: RecordingJournalSession
+    let creationDisposition: RecordingJournalCreationDisposition
 }
 
 struct RecordingJournalSourceCommit: Equatable {
@@ -229,9 +235,16 @@ final class RecordingJournalStore {
         try lock.withLock {
             try ensureDirectory(audioDirectory, permissions: 0o700)
             try ensureDirectory(inflightDirectory, permissions: 0o700)
-            let combinedSession = combinedSession(request: request)
+            let createdSession = combinedSession(
+                request: request,
+                creationDisposition: .created
+            )
 
-            if fileManager.fileExists(atPath: combinedSession.manifestURL.path) {
+            if fileManager.fileExists(atPath: createdSession.manifestURL.path) {
+                let combinedSession = combinedSession(
+                    request: request,
+                    creationDisposition: .reused
+                )
                 let manifest = try loadManifestUnlocked(
                     recordingID: request.recordingID
                 )
@@ -255,6 +268,7 @@ final class RecordingJournalStore {
                 }
                 return combinedSession
             }
+            let combinedSession = createdSession
             if fileManager.fileExists(
                 atPath: combinedSession.recordingDirectory.path
             ) {
@@ -584,7 +598,8 @@ final class RecordingJournalStore {
     }
 
     private func combinedSession(
-        request: CombinedRecordingJournalCreateRequest
+        request: CombinedRecordingJournalCreateRequest,
+        creationDisposition: RecordingJournalCreationDisposition
     ) -> CombinedRecordingJournalSession {
         let microphoneSession = session(
             recordingID: request.recordingID,
@@ -604,7 +619,8 @@ final class RecordingJournalStore {
             recordingDirectory: microphoneSession.recordingDirectory,
             manifestURL: microphoneSession.manifestURL,
             microphoneSession: microphoneSession,
-            systemAudioSession: systemAudioSession
+            systemAudioSession: systemAudioSession,
+            creationDisposition: creationDisposition
         )
     }
 

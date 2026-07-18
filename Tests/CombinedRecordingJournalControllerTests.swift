@@ -9,8 +9,12 @@ struct CombinedRecordingJournalControllerTests {
             try stopDrainsBothSourcesAndReturnsStableResult()
             try preserveForRecoveryCommitsBothSources()
             try preserveFailureStillMarksJournalRecoverable()
+            try failedMicrophoneDrainStillClosesSystemAudioWriter()
+            try checkpointFailureCallbackRunsOffLifecycleQueue()
             try discardRemovesCombinedJournal()
             try initializationFailureRollsBackCombinedJournal()
+            try reusedInitializationFailurePreservesCombinedJournal()
+            try deinitAvoidsLifecycleQueueSync()
             print("CombinedRecordingJournalControllerTests passed")
         } catch {
             fputs(
@@ -167,6 +171,77 @@ struct CombinedRecordingJournalControllerTests {
         }
     }
 
+    private static func failedMicrophoneDrainStillClosesSystemAudioWriter() throws {
+        try withFixture { fixture in
+            let controller = try CombinedRecordingJournalController(
+                request: fixture.request,
+                store: fixture.store
+            )
+            controller.microphoneSink.enqueue(Data([0xFF]))
+            controller.systemAudioSink.enqueue(Data([0x01, 0x00]))
+
+            do {
+                try controller.preserveForRecovery()
+                throw TestFailure("odd microphone chunk must fail preserve")
+            } catch RecordingPCMJournalWriterError.oddByteChunk {
+                // expected
+            }
+
+            controller.systemAudioSink.enqueue(Data([0x02, 0x00]))
+            let systemAudioURL = try fixture.store.sourceURL(
+                recordingID: fixture.recordingID,
+                fileName: "system-audio.wav.part"
+            )
+            Thread.sleep(forTimeInterval: 0.05)
+            try expectEqual(
+                try payloadData(from: systemAudioURL),
+                Data([0x01, 0x00]),
+                "failed preserve must close System Audio writer"
+            )
+        }
+    }
+
+    private static func checkpointFailureCallbackRunsOffLifecycleQueue() throws {
+        try withFixture { fixture in
+            let controller = try CombinedRecordingJournalController(
+                request: fixture.request,
+                store: fixture.store
+            )
+            let callbackQueue = DispatchQueue(
+                label: "com.woosublee.quill.tests.combined-callback"
+            )
+            let callbackQueueKey = DispatchSpecificKey<UInt8>()
+            callbackQueue.setSpecific(key: callbackQueueKey, value: 1)
+            let callbackFinished = DispatchSemaphore(value: 0)
+            var callbackError: Error?
+
+            controller.microphoneSink.enqueue(Data([0xFF]))
+            controller.startCheckpointing(
+                every: 0.01,
+                callbackQueue: callbackQueue
+            ) { _ in
+                do {
+                    guard DispatchQueue.getSpecific(
+                        key: callbackQueueKey
+                    ) != nil else {
+                        throw TestFailure(
+                            "checkpoint failure callback used the lifecycle queue"
+                        )
+                    }
+                    try controller.discard()
+                } catch {
+                    callbackError = error
+                }
+                callbackFinished.signal()
+            }
+
+            guard callbackFinished.wait(timeout: .now() + 2) == .success else {
+                throw TestFailure("checkpoint failure callback timed out")
+            }
+            if let callbackError { throw callbackError }
+        }
+    }
+
     private static func discardRemovesCombinedJournal() throws {
         try withFixture { fixture in
             let controller = try CombinedRecordingJournalController(
@@ -223,6 +298,80 @@ struct CombinedRecordingJournalControllerTests {
                 )
             }
         }
+    }
+
+    private static func reusedInitializationFailurePreservesCombinedJournal() throws {
+        try withFixture { fixture in
+            let session = try fixture.store.createCombined(fixture.request)
+            let microphoneBefore = try Data(
+                contentsOf: session.microphoneSession.sourceURL
+            )
+            let systemAudioBefore = try Data(
+                contentsOf: session.systemAudioSession.sourceURL
+            )
+            let manifestBefore = try Data(contentsOf: session.manifestURL)
+
+            do {
+                _ = try CombinedRecordingJournalController(
+                    request: fixture.request,
+                    store: fixture.store,
+                    makeWriter: { _, _ in
+                        throw TestFailure("injected reused writer failure")
+                    }
+                )
+                throw TestFailure("reused controller initialization must fail")
+            } catch let error as TestFailure
+                where error.description == "injected reused writer failure" {
+                // expected
+            }
+
+            try expectEqual(
+                try Data(contentsOf: session.manifestURL),
+                manifestBefore,
+                "reused manifest preservation"
+            )
+            try expectEqual(
+                try Data(contentsOf: session.microphoneSession.sourceURL),
+                microphoneBefore,
+                "reused microphone preservation"
+            )
+            try expectEqual(
+                try Data(contentsOf: session.systemAudioSession.sourceURL),
+                systemAudioBefore,
+                "reused System Audio preservation"
+            )
+        }
+    }
+
+    private static func deinitAvoidsLifecycleQueueSync() throws {
+        let source = try String(
+            contentsOfFile: "Sources/CombinedRecordingJournalController.swift",
+            encoding: .utf8
+        )
+        guard let deinitRange = source.range(of: "deinit {") else {
+            throw TestFailure("missing controller deinit")
+        }
+        let suffix = source[deinitRange.lowerBound...]
+        guard let endRange = suffix.range(of: "\n    }\n\n    func startCheckpointing") else {
+            throw TestFailure("missing controller deinit boundary")
+        }
+        let body = String(suffix[..<endRange.lowerBound])
+        guard !body.contains("lifecycleQueue.sync"),
+              body.contains("checkpointTimer?.cancel()") else {
+            throw TestFailure(
+                "controller deinit must cancel the timer without queue sync"
+            )
+        }
+    }
+
+    private static func payloadData(from url: URL) throws -> Data {
+        let data = try Data(contentsOf: url)
+        guard data.count >= RecordingCanonicalWAV.headerByteCount else {
+            throw TestFailure("source is shorter than reserved WAV header")
+        }
+        return data.subdata(
+            in: RecordingCanonicalWAV.headerByteCount..<data.count
+        )
     }
 
     private static func committedBytes(

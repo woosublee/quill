@@ -7,6 +7,7 @@ struct RecordingJournalManifestTests {
             try canonicalFormatMatchesRecorderContract()
             try manifestRoundTripPreservesStableMetadata()
             try combinedManifestAcceptsCanonicalShape()
+            try legacySingleSourceManifestShapeRemainsValid()
             try manifestRejectsSourceModeShapeMismatch()
             try stateMachineAllowsOnlyDocumentedTransitions()
             try sameStateTransitionIsIdempotent()
@@ -63,14 +64,50 @@ struct RecordingJournalManifestTests {
         )
     }
 
+    private static func legacySingleSourceManifestShapeRemainsValid() throws {
+        var manifest = try makeManifest()
+        let secondSegmentID = UUID()
+        manifest.sources.append(RecordingJournalSource(
+            id: systemSourceID,
+            kind: .systemAudio,
+            fileName: "microphone.wav.part",
+            storageLayout: .reservedWAVHeader44,
+            committedDataByteCount: 0,
+            committedFrameCount: 0,
+            firstCommittedFrameOffset: nil,
+            segmentID: secondSegmentID
+        ))
+        manifest = RecordingJournalManifest(
+            schemaVersion: manifest.schemaVersion,
+            generation: manifest.generation,
+            recordingID: manifest.recordingID,
+            startedAt: manifest.startedAt,
+            updatedAt: manifest.updatedAt,
+            monotonicAnchorNanoseconds: manifest.monotonicAnchorNanoseconds,
+            state: manifest.state,
+            sourceMode: .microphone,
+            pcmFormat: manifest.pcmFormat,
+            sources: manifest.sources,
+            segments: [
+                manifest.segments[0],
+                RecordingJournalSegment(
+                    id: secondSegmentID,
+                    sequence: 1,
+                    sourceIDs: [systemSourceID]
+                )
+            ],
+            pipeline: manifest.pipeline,
+            promotion: nil,
+            historyItemID: nil
+        )
+
+        try manifest.validate()
+    }
+
     private static func manifestRejectsSourceModeShapeMismatch() throws {
         try expectInvalidManifest(
             makeCombinedManifest(systemSourceKind: .microphone),
             "combined duplicate source kind"
-        )
-        try expectInvalidManifest(
-            makeCombinedManifest(sourceMode: .microphone),
-            "single-source mode with two sources"
         )
         try expectInvalidManifest(
             makeCombinedManifest(includeSystemSource: false),

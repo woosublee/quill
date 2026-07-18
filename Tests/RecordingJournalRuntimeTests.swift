@@ -28,6 +28,10 @@ struct RecordingJournalRuntimeTests {
             try discardedJournalIsNeverRecovered()
             try scannerPreservesValidCombinedJournalForManualRecovery()
             try scannerDiagnosesEmptyCombinedSource()
+            try scannerDiagnosesShortCombinedSource()
+            try scannerDiagnosesOddCombinedTail()
+            try scannerDiagnosesCombinedManifestBehind()
+            try scannerDiagnosesTruncatedCombinedSource()
             try scannerDiagnosesDegradedCombinedSourcesWithoutDeletingThem()
             try scannerPreservesManualRecoveryArtifactsAndUsesActualEvenPayload()
             try manualRecoveryCandidateProtectsDerivedPermanentFileName()
@@ -147,7 +151,31 @@ struct RecordingJournalRuntimeTests {
 
             let second = try fixture.store.createCombined(request)
 
-            try expectEqual(second, first, "duplicate combined session")
+            try expectEqual(
+                first.creationDisposition,
+                .created,
+                "first combined creation disposition"
+            )
+            try expectEqual(
+                second.creationDisposition,
+                .reused,
+                "duplicate combined creation disposition"
+            )
+            try expectEqual(
+                second.recordingDirectory,
+                first.recordingDirectory,
+                "duplicate combined recording directory"
+            )
+            try expectEqual(
+                second.microphoneSession,
+                first.microphoneSession,
+                "duplicate combined microphone session"
+            )
+            try expectEqual(
+                second.systemAudioSession,
+                first.systemAudioSession,
+                "duplicate combined System Audio session"
+            )
             try expectEqual(
                 try Data(contentsOf: second.microphoneSession.sourceURL),
                 microphoneBefore,
@@ -261,7 +289,7 @@ struct RecordingJournalRuntimeTests {
                 throw TestFailure("duplicate combined source IDs must fail")
             } catch let error as TestFailure {
                 throw error
-            } catch {
+            } catch RecordingJournalError.invalidManifest {
                 // expected
             }
 
@@ -800,6 +828,126 @@ struct RecordingJournalRuntimeTests {
         }
     }
 
+    private static func scannerDiagnosesShortCombinedSource() throws {
+        try withFixture { fixture in
+            let session = try fixture.store.createCombined(
+                combinedRequest(fixture)
+            )
+            try Data(repeating: 0, count: 10).write(
+                to: session.systemAudioSession.sourceURL,
+                options: .atomic
+            )
+
+            let candidate = try requireCandidate(
+                recordingID: fixture.recordingID,
+                store: fixture.store
+            )
+            guard candidate.diagnostics.contains(.sourceTooShort) else {
+                throw TestFailure(
+                    "short combined diagnostics: \(candidate.diagnostics)"
+                )
+            }
+            guard FileManager.default.fileExists(
+                atPath: session.systemAudioSession.sourceURL.path
+            ) else {
+                throw TestFailure("scanner must preserve short source file")
+            }
+        }
+    }
+
+    private static func scannerDiagnosesOddCombinedTail() throws {
+        try withFixture { fixture in
+            let session = try fixture.store.createCombined(
+                combinedRequest(fixture)
+            )
+            try appendRaw(
+                Data([0xFF]),
+                to: session.systemAudioSession.sourceURL
+            )
+
+            let candidate = try requireCandidate(
+                recordingID: fixture.recordingID,
+                store: fixture.store
+            )
+            guard candidate.diagnostics.contains(.oddTrailingByte) else {
+                throw TestFailure(
+                    "odd combined diagnostics: \(candidate.diagnostics)"
+                )
+            }
+            guard FileManager.default.fileExists(
+                atPath: session.systemAudioSession.sourceURL.path
+            ) else {
+                throw TestFailure("scanner must preserve odd-tail source")
+            }
+        }
+    }
+
+    private static func scannerDiagnosesCombinedManifestBehind() throws {
+        try withFixture { fixture in
+            let session = try fixture.store.createCombined(
+                combinedRequest(fixture)
+            )
+            try appendRaw(
+                Data([0x01, 0x00]),
+                to: session.systemAudioSession.sourceURL
+            )
+
+            let candidate = try requireCandidate(
+                recordingID: fixture.recordingID,
+                store: fixture.store
+            )
+            guard candidate.diagnostics.contains(.manifestBehind) else {
+                throw TestFailure(
+                    "manifest-behind combined diagnostics: \(candidate.diagnostics)"
+                )
+            }
+            guard FileManager.default.fileExists(
+                atPath: session.systemAudioSession.sourceURL.path
+            ) else {
+                throw TestFailure("scanner must preserve uncommitted source tail")
+            }
+        }
+    }
+
+    private static func scannerDiagnosesTruncatedCombinedSource() throws {
+        try withFixture { fixture in
+            let request = combinedRequest(fixture)
+            let session = try fixture.store.createCombined(request)
+            let writer = try RecordingPCMJournalWriter(
+                session: session.systemAudioSession,
+                store: fixture.store
+            )
+            writer.enqueue(Data([0x01, 0x00, 0x02, 0x00]))
+            let commit = try writer.drainAndCloseSnapshot()
+            _ = try fixture.store.recordCheckpoints(
+                recordingID: fixture.recordingID,
+                commitsBySourceID: [request.systemAudioSourceID: commit]
+            )
+            let handle = try FileHandle(
+                forUpdating: session.systemAudioSession.sourceURL
+            )
+            try handle.truncate(
+                atOffset: UInt64(RecordingCanonicalWAV.headerByteCount + 2)
+            )
+            try handle.close()
+
+            let candidate = try requireCandidate(
+                recordingID: fixture.recordingID,
+                store: fixture.store
+            )
+            guard candidate.diagnostics.contains(.sourceTruncated) else {
+                throw TestFailure(
+                    "truncated combined diagnostics: \(candidate.diagnostics)"
+                )
+            }
+            guard FileManager.default.fileExists(
+                atPath: session.systemAudioSession.sourceURL.path
+            ) else {
+                throw TestFailure("scanner must preserve truncated source")
+            }
+        }
+    }
+
     private static func scannerDiagnosesDegradedCombinedSourcesWithoutDeletingThem() throws {
         try withFixture { fixture in
             let request = combinedRequest(fixture)
@@ -1043,6 +1191,18 @@ struct RecordingJournalRuntimeTests {
             try expectEqual(before, middle, "first scan preservation")
             try expectEqual(middle, after, "second scan preservation")
         }
+    }
+
+    private static func requireCandidate(
+        recordingID: UUID,
+        store: RecordingJournalStore
+    ) throws -> InflightRecordingRecoveryCandidate {
+        guard let candidate = InflightRecordingRecovery(store: store)
+            .scan()
+            .first(where: { $0.recordingID == recordingID }) else {
+            throw TestFailure("missing combined recovery candidate")
+        }
+        return candidate
     }
 
     private static func combinedRequest(
