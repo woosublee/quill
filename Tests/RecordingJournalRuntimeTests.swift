@@ -6,11 +6,18 @@ struct RecordingJournalRuntimeTests {
     static func main() {
         do {
             try createBuildsSingleSourceInflightLayout()
+            try createCombinedBuildsTwoSourceInflightLayout()
             try duplicateCreateReusesExistingRecordingWithoutTruncation()
+            try duplicateCombinedCreateReusesBothSourcesWithoutTruncation()
             try conflictingCreatePreservesExistingArtifact()
+            try conflictingCombinedCreatePreservesExistingArtifacts()
             try failedCreateRemovesNewInflightDirectory()
+            try failedCombinedCreateRemovesPartialInflightDirectory()
             try failedReplacementLeavesPreviousManifestReadable()
             try checkpointRejectsOverflowingGenerationWithoutTrapping()
+            try batchCheckpointCommitsBothSourcesInOneGeneration()
+            try invalidBatchCheckpointPreservesPreviousManifest()
+            try writerSnapshotsDoNotWriteManifestBeforeBatchCommit()
             try writerCheckpointsOrderedPCMWithoutPerAppendManifestWrites()
             try writerRejectsOddChunksAndPostCloseWritesWithoutDamagingPCM()
             try writerCanBeReleasedAfterQueuedWriteWithoutCrashing()
@@ -19,6 +26,9 @@ struct RecordingJournalRuntimeTests {
             try finalizerRejectsTruncatedCommittedPayload()
             try finalizerPreservesEmptyAndConflictingArtifacts()
             try discardedJournalIsNeverRecovered()
+            try scannerPreservesValidCombinedJournalForManualRecovery()
+            try scannerDiagnosesEmptyCombinedSource()
+            try scannerDiagnosesDegradedCombinedSourcesWithoutDeletingThem()
             try scannerPreservesManualRecoveryArtifactsAndUsesActualEvenPayload()
             try manualRecoveryCandidateProtectsDerivedPermanentFileName()
             try scannerReturnsExecutablePlanForRecordingState()
@@ -58,6 +68,52 @@ struct RecordingJournalRuntimeTests {
         }
     }
 
+    private static func createCombinedBuildsTwoSourceInflightLayout() throws {
+        try withFixture { fixture in
+            let request = combinedRequest(fixture)
+            let session = try fixture.store.createCombined(request)
+
+            try expectEqual(
+                session.microphoneSession.sourceURL.lastPathComponent,
+                "microphone.wav.part",
+                "combined microphone filename"
+            )
+            try expectEqual(
+                session.systemAudioSession.sourceURL.lastPathComponent,
+                "system-audio.wav.part",
+                "combined System Audio filename"
+            )
+            for sourceURL in [
+                session.microphoneSession.sourceURL,
+                session.systemAudioSession.sourceURL
+            ] {
+                let sourceData = try Data(contentsOf: sourceURL)
+                try expectEqual(
+                    sourceData.count,
+                    RecordingCanonicalWAV.headerByteCount,
+                    "combined empty source size"
+                )
+                try expectEqual(
+                    RecordingCanonicalWAV.dataByteCount(in: sourceData),
+                    0,
+                    "combined empty WAV data size"
+                )
+            }
+
+            let manifest = try fixture.store.loadManifest(
+                recordingID: fixture.recordingID
+            )
+            try expectEqual(manifest.sourceMode, .combined, "combined source mode")
+            try expectEqual(manifest.sources.count, 2, "combined source count")
+            try expectEqual(manifest.segments.count, 1, "combined segment count")
+            try expectEqual(
+                Set(manifest.sources.map(\.kind)),
+                Set([.microphone, .systemAudio]),
+                "combined source kinds"
+            )
+        }
+    }
+
     private static func duplicateCreateReusesExistingRecordingWithoutTruncation() throws {
         try withFixture { fixture in
             let first = try fixture.store.createSingleSource(fixture.request)
@@ -67,6 +123,41 @@ struct RecordingJournalRuntimeTests {
             let second = try fixture.store.createSingleSource(fixture.request)
             try expectEqual(second, first, "duplicate session")
             try expectEqual(try fileSize(second.sourceURL), sizeBefore, "duplicate create source size")
+        }
+    }
+
+    private static func duplicateCombinedCreateReusesBothSourcesWithoutTruncation() throws {
+        try withFixture { fixture in
+            let request = combinedRequest(fixture)
+            let first = try fixture.store.createCombined(request)
+            try appendRaw(
+                Data([0x01, 0x00]),
+                to: first.microphoneSession.sourceURL
+            )
+            try appendRaw(
+                Data([0x02, 0x00]),
+                to: first.systemAudioSession.sourceURL
+            )
+            let microphoneBefore = try Data(
+                contentsOf: first.microphoneSession.sourceURL
+            )
+            let systemAudioBefore = try Data(
+                contentsOf: first.systemAudioSession.sourceURL
+            )
+
+            let second = try fixture.store.createCombined(request)
+
+            try expectEqual(second, first, "duplicate combined session")
+            try expectEqual(
+                try Data(contentsOf: second.microphoneSession.sourceURL),
+                microphoneBefore,
+                "duplicate combined microphone preservation"
+            )
+            try expectEqual(
+                try Data(contentsOf: second.systemAudioSession.sourceURL),
+                systemAudioBefore,
+                "duplicate combined System Audio preservation"
+            )
         }
     }
 
@@ -91,6 +182,53 @@ struct RecordingJournalRuntimeTests {
         }
     }
 
+    private static func conflictingCombinedCreatePreservesExistingArtifacts() throws {
+        try withFixture { fixture in
+            let request = combinedRequest(fixture)
+            let session = try fixture.store.createCombined(request)
+            try appendRaw(
+                Data([0x01, 0x00]),
+                to: session.microphoneSession.sourceURL
+            )
+            try appendRaw(
+                Data([0x02, 0x00]),
+                to: session.systemAudioSession.sourceURL
+            )
+            let manifestBefore = try Data(contentsOf: session.manifestURL)
+            let microphoneBefore = try Data(
+                contentsOf: session.microphoneSession.sourceURL
+            )
+            let systemAudioBefore = try Data(
+                contentsOf: session.systemAudioSession.sourceURL
+            )
+
+            var conflict = request
+            conflict.systemAudioSourceID = UUID()
+            do {
+                _ = try fixture.store.createCombined(conflict)
+                throw TestFailure("conflicting combined create should fail")
+            } catch RecordingJournalStoreError.conflictingExistingRecording {
+                // expected
+            }
+
+            try expectEqual(
+                try Data(contentsOf: session.manifestURL),
+                manifestBefore,
+                "combined conflict manifest preservation"
+            )
+            try expectEqual(
+                try Data(contentsOf: session.microphoneSession.sourceURL),
+                microphoneBefore,
+                "combined conflict microphone preservation"
+            )
+            try expectEqual(
+                try Data(contentsOf: session.systemAudioSession.sourceURL),
+                systemAudioBefore,
+                "combined conflict System Audio preservation"
+            )
+        }
+    }
+
     private static func failedCreateRemovesNewInflightDirectory() throws {
         try withFixture { fixture in
             var invalidRequest = fixture.request
@@ -109,6 +247,32 @@ struct RecordingJournalRuntimeTests {
                 ).path
             ) else {
                 throw TestFailure("failed create must remove the new inflight directory")
+            }
+        }
+    }
+
+    private static func failedCombinedCreateRemovesPartialInflightDirectory() throws {
+        try withFixture { fixture in
+            var invalidRequest = combinedRequest(fixture)
+            invalidRequest.systemAudioSourceID = invalidRequest.microphoneSourceID
+
+            do {
+                _ = try fixture.store.createCombined(invalidRequest)
+                throw TestFailure("duplicate combined source IDs must fail")
+            } catch let error as TestFailure {
+                throw error
+            } catch {
+                // expected
+            }
+
+            guard !FileManager.default.fileExists(
+                atPath: fixture.store.recordingDirectory(
+                    recordingID: fixture.recordingID
+                ).path
+            ) else {
+                throw TestFailure(
+                    "failed combined create must remove its partial directory"
+                )
             }
         }
     }
@@ -166,6 +330,120 @@ struct RecordingJournalRuntimeTests {
             } catch RecordingJournalError.invalidManifest {
                 // expected
             }
+        }
+    }
+
+    private static func batchCheckpointCommitsBothSourcesInOneGeneration() throws {
+        try withFixture { fixture in
+            let request = combinedRequest(fixture)
+            _ = try fixture.store.createCombined(request)
+
+            let manifest = try fixture.store.recordCheckpoints(
+                recordingID: fixture.recordingID,
+                commitsBySourceID: [
+                    request.microphoneSourceID: RecordingJournalSourceCommit(
+                        dataByteCount: 4,
+                        frameCount: 2,
+                        firstCommittedFrameOffset: 0
+                    ),
+                    request.systemAudioSourceID: RecordingJournalSourceCommit(
+                        dataByteCount: 6,
+                        frameCount: 3,
+                        firstCommittedFrameOffset: 0
+                    )
+                ]
+            )
+
+            try expectEqual(manifest.generation, 2, "batch checkpoint generation")
+            try expectEqual(
+                manifest.sources.first(where: {
+                    $0.id == request.microphoneSourceID
+                })?.committedDataByteCount,
+                4,
+                "batch microphone bytes"
+            )
+            try expectEqual(
+                manifest.sources.first(where: {
+                    $0.id == request.systemAudioSourceID
+                })?.committedDataByteCount,
+                6,
+                "batch System Audio bytes"
+            )
+        }
+    }
+
+    private static func invalidBatchCheckpointPreservesPreviousManifest() throws {
+        try withFixture { fixture in
+            let request = combinedRequest(fixture)
+            let session = try fixture.store.createCombined(request)
+            let before = try Data(contentsOf: session.manifestURL)
+
+            do {
+                _ = try fixture.store.recordCheckpoints(
+                    recordingID: fixture.recordingID,
+                    commitsBySourceID: [
+                        request.microphoneSourceID: RecordingJournalSourceCommit(
+                            dataByteCount: 4,
+                            frameCount: 2,
+                            firstCommittedFrameOffset: 0
+                        ),
+                        request.systemAudioSourceID: RecordingJournalSourceCommit(
+                            dataByteCount: 3,
+                            frameCount: 1,
+                            firstCommittedFrameOffset: 0
+                        )
+                    ]
+                )
+                throw TestFailure("invalid batch checkpoint must fail")
+            } catch RecordingJournalStoreError.checkpointRegression {
+                // expected
+            }
+
+            try expectEqual(
+                try Data(contentsOf: session.manifestURL),
+                before,
+                "invalid batch manifest preservation"
+            )
+        }
+    }
+
+    private static func writerSnapshotsDoNotWriteManifestBeforeBatchCommit() throws {
+        try withFixture { fixture in
+            let request = combinedRequest(fixture)
+            let session = try fixture.store.createCombined(request)
+            let microphoneWriter = try RecordingPCMJournalWriter(
+                session: session.microphoneSession,
+                store: fixture.store
+            )
+            let systemAudioWriter = try RecordingPCMJournalWriter(
+                session: session.systemAudioSession,
+                store: fixture.store
+            )
+            microphoneWriter.enqueue(Data([0x01, 0x00, 0x02, 0x00]))
+            systemAudioWriter.enqueue(Data([0x03, 0x00]))
+
+            let microphoneCommit = try microphoneWriter.checkpointSnapshot()
+            let systemAudioCommit = try systemAudioWriter.checkpointSnapshot()
+            let beforeBatch = try fixture.store.loadManifest(
+                recordingID: fixture.recordingID
+            )
+            try expectEqual(beforeBatch.generation, 1, "snapshot generation")
+            try expectEqual(
+                beforeBatch.sources.map(\.committedDataByteCount),
+                [0, 0],
+                "snapshot manifest bytes"
+            )
+
+            let committed = try fixture.store.recordCheckpoints(
+                recordingID: fixture.recordingID,
+                commitsBySourceID: [
+                    request.microphoneSourceID: microphoneCommit,
+                    request.systemAudioSourceID: systemAudioCommit
+                ]
+            )
+            try expectEqual(committed.generation, 2, "snapshot batch generation")
+            _ = try microphoneWriter.drainAndCloseSnapshot()
+            _ = try systemAudioWriter.drainAndCloseSnapshot()
         }
     }
 
@@ -436,6 +714,141 @@ struct RecordingJournalRuntimeTests {
         }
     }
 
+    private static func scannerPreservesValidCombinedJournalForManualRecovery() throws {
+        try withFixture { fixture in
+            let request = combinedRequest(fixture)
+            let session = try fixture.store.createCombined(request)
+            let microphoneWriter = try RecordingPCMJournalWriter(
+                session: session.microphoneSession,
+                store: fixture.store
+            )
+            let systemAudioWriter = try RecordingPCMJournalWriter(
+                session: session.systemAudioSession,
+                store: fixture.store
+            )
+            microphoneWriter.enqueue(Data([0x01, 0x00, 0x02, 0x00]))
+            systemAudioWriter.enqueue(Data([0x03, 0x00]))
+            let microphoneCommit = try microphoneWriter.drainAndCloseSnapshot()
+            let systemAudioCommit = try systemAudioWriter.drainAndCloseSnapshot()
+            _ = try fixture.store.recordCheckpoints(
+                recordingID: fixture.recordingID,
+                commitsBySourceID: [
+                    request.microphoneSourceID: microphoneCommit,
+                    request.systemAudioSourceID: systemAudioCommit
+                ]
+            )
+
+            let before = try snapshotTree(fixture.audioDirectory)
+            guard let candidate = InflightRecordingRecovery(
+                store: fixture.store
+            ).scan().first(where: {
+                $0.recordingID == fixture.recordingID
+            }) else {
+                throw TestFailure("missing combined recovery candidate")
+            }
+            let after = try snapshotTree(fixture.audioDirectory)
+
+            try expectEqual(
+                candidate.action,
+                .manualRecoveryRequired,
+                "combined recovery action"
+            )
+            try expectEqual(
+                candidate.diagnostics,
+                [.combinedRecoveryPending],
+                "combined recovery diagnostic"
+            )
+            try expectEqual(after, before, "combined scanner preservation")
+        }
+    }
+
+    private static func scannerDiagnosesEmptyCombinedSource() throws {
+        try withFixture { fixture in
+            let request = combinedRequest(fixture)
+            let session = try fixture.store.createCombined(request)
+            let microphoneWriter = try RecordingPCMJournalWriter(
+                session: session.microphoneSession,
+                store: fixture.store
+            )
+            microphoneWriter.enqueue(Data([0x01, 0x00]))
+            let microphoneCommit = try microphoneWriter.drainAndCloseSnapshot()
+            _ = try fixture.store.recordCheckpoints(
+                recordingID: fixture.recordingID,
+                commitsBySourceID: [
+                    request.microphoneSourceID: microphoneCommit
+                ]
+            )
+
+            guard let candidate = InflightRecordingRecovery(
+                store: fixture.store
+            ).scan().first(where: {
+                $0.recordingID == fixture.recordingID
+            }) else {
+                throw TestFailure("missing empty combined candidate")
+            }
+
+            guard candidate.diagnostics.contains(.emptySource) else {
+                throw TestFailure(
+                    "empty combined diagnostics: \(candidate.diagnostics)"
+                )
+            }
+            guard FileManager.default.fileExists(
+                atPath: session.systemAudioSession.sourceURL.path
+            ) else {
+                throw TestFailure("scanner must preserve empty source file")
+            }
+        }
+    }
+
+    private static func scannerDiagnosesDegradedCombinedSourcesWithoutDeletingThem() throws {
+        try withFixture { fixture in
+            let request = combinedRequest(fixture)
+            let session = try fixture.store.createCombined(request)
+            let microphoneWriter = try RecordingPCMJournalWriter(
+                session: session.microphoneSession,
+                store: fixture.store
+            )
+            microphoneWriter.enqueue(Data([0x01, 0x00, 0x02, 0x00]))
+            let microphoneCommit = try microphoneWriter.drainAndCloseSnapshot()
+            _ = try fixture.store.recordCheckpoints(
+                recordingID: fixture.recordingID,
+                commitsBySourceID: [
+                    request.microphoneSourceID: microphoneCommit
+                ]
+            )
+            try FileManager.default.removeItem(
+                at: session.systemAudioSession.sourceURL
+            )
+
+            guard let candidate = InflightRecordingRecovery(
+                store: fixture.store
+            ).scan().first(where: {
+                $0.recordingID == fixture.recordingID
+            }) else {
+                throw TestFailure("missing degraded combined candidate")
+            }
+
+            try expectEqual(
+                candidate.action,
+                .manualRecoveryRequired,
+                "degraded combined action"
+            )
+            guard candidate.diagnostics.contains(.combinedRecoveryPending),
+                  candidate.diagnostics.contains(.missingSource) else {
+                throw TestFailure(
+                    "degraded combined diagnostics: \(candidate.diagnostics)"
+                )
+            }
+            guard FileManager.default.fileExists(
+                atPath: session.microphoneSession.sourceURL.path
+            ) else {
+                throw TestFailure(
+                    "scanner must preserve surviving combined source"
+                )
+            }
+        }
+    }
+
     private static func scannerPreservesManualRecoveryArtifactsAndUsesActualEvenPayload() throws {
         try withFixture { fixture in
             let missingManifestDirectory = fixture.audioDirectory
@@ -632,7 +1045,24 @@ struct RecordingJournalRuntimeTests {
         }
     }
 
-    private static func withFixture(_ body: (Fixture) throws -> Void) throws {
+    private static func combinedRequest(
+        _ fixture: Fixture
+    ) -> CombinedRecordingJournalCreateRequest {
+        CombinedRecordingJournalCreateRequest(
+            recordingID: fixture.recordingID,
+            microphoneSourceID: fixture.sourceID,
+            systemAudioSourceID: fixture.systemAudioSourceID,
+            segmentID: fixture.segmentID,
+            startedAt: fixture.request.startedAt,
+            monotonicAnchorNanoseconds:
+                fixture.request.monotonicAnchorNanoseconds,
+            pipeline: fixture.request.pipeline
+        )
+    }
+
+    private static func withFixture(
+        _ body: (Fixture) throws -> Void
+    ) throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("quill-recording-journal-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -640,6 +1070,7 @@ struct RecordingJournalRuntimeTests {
 
         let recordingID = UUID()
         let sourceID = UUID()
+        let systemAudioSourceID = UUID()
         let segmentID = UUID()
         let audioDirectory = root.appendingPathComponent("audio", isDirectory: true)
         var now = Date(timeIntervalSince1970: 1_700_000_000)
@@ -662,6 +1093,7 @@ struct RecordingJournalRuntimeTests {
             audioDirectory: audioDirectory,
             recordingID: recordingID,
             sourceID: sourceID,
+            systemAudioSourceID: systemAudioSourceID,
             segmentID: segmentID,
             store: store,
             request: request
@@ -770,6 +1202,7 @@ struct RecordingJournalRuntimeTests {
         let audioDirectory: URL
         let recordingID: UUID
         let sourceID: UUID
+        let systemAudioSourceID: UUID
         let segmentID: UUID
         let store: RecordingJournalStore
         let request: RecordingJournalCreateRequest

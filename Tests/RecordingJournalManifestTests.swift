@@ -6,6 +6,8 @@ struct RecordingJournalManifestTests {
         do {
             try canonicalFormatMatchesRecorderContract()
             try manifestRoundTripPreservesStableMetadata()
+            try combinedManifestAcceptsCanonicalShape()
+            try manifestRejectsSourceModeShapeMismatch()
             try stateMachineAllowsOnlyDocumentedTransitions()
             try sameStateTransitionIsIdempotent()
             try conflictingIdempotentTransitionIsRejected()
@@ -41,6 +43,49 @@ struct RecordingJournalManifestTests {
 
         try expectEqual(decoded, manifest, "manifest round trip")
         try decoded.validate()
+    }
+
+    private static func combinedManifestAcceptsCanonicalShape() throws {
+        let manifest = try makeCombinedManifest()
+
+        try manifest.validate()
+        try expectEqual(manifest.sourceMode, .combined, "combined source mode")
+        try expectEqual(manifest.sources.count, 2, "combined source count")
+        try expectEqual(
+            Set(manifest.sources.map(\.kind)),
+            Set([.microphone, .systemAudio]),
+            "combined source kinds"
+        )
+        try expectEqual(
+            Set(manifest.segments[0].sourceIDs),
+            Set(manifest.sources.map(\.id)),
+            "combined segment sources"
+        )
+    }
+
+    private static func manifestRejectsSourceModeShapeMismatch() throws {
+        try expectInvalidManifest(
+            makeCombinedManifest(systemSourceKind: .microphone),
+            "combined duplicate source kind"
+        )
+        try expectInvalidManifest(
+            makeCombinedManifest(sourceMode: .microphone),
+            "single-source mode with two sources"
+        )
+        try expectInvalidManifest(
+            makeCombinedManifest(includeSystemSource: false),
+            "combined mode missing System Audio source"
+        )
+        try expectInvalidManifest(
+            makeCombinedManifest(segmentSourceIDs: [sourceID]),
+            "combined segment missing a source"
+        )
+        try expectInvalidManifest(
+            makeCombinedManifest(
+                systemSourceFileName: "microphone.wav.part"
+            ),
+            "combined duplicate source filename"
+        )
     }
 
     private static func stateMachineAllowsOnlyDocumentedTransitions() throws {
@@ -298,8 +343,72 @@ struct RecordingJournalManifestTests {
         return manifest
     }
 
+    private static func makeCombinedManifest(
+        sourceMode: RecordingAudioSourceMode = .combined,
+        systemSourceKind: RecordingJournalSourceKind = .systemAudio,
+        systemSourceFileName: String = "system-audio.wav.part",
+        includeSystemSource: Bool = true,
+        segmentSourceIDs: [UUID]? = nil
+    ) throws -> RecordingJournalManifest {
+        var sources = [RecordingJournalSource(
+            id: sourceID,
+            kind: .microphone,
+            fileName: "microphone.wav.part",
+            storageLayout: .reservedWAVHeader44,
+            committedDataByteCount: 0,
+            committedFrameCount: 0,
+            firstCommittedFrameOffset: nil,
+            segmentID: segmentID
+        )]
+        if includeSystemSource {
+            sources.append(RecordingJournalSource(
+                id: systemSourceID,
+                kind: systemSourceKind,
+                fileName: systemSourceFileName,
+                storageLayout: .reservedWAVHeader44,
+                committedDataByteCount: 0,
+                committedFrameCount: 0,
+                firstCommittedFrameOffset: nil,
+                segmentID: segmentID
+            ))
+        }
+        return RecordingJournalManifest(
+            schemaVersion: 1,
+            generation: 1,
+            recordingID: recordingID,
+            startedAt: fixedDate,
+            updatedAt: fixedDate,
+            monotonicAnchorNanoseconds: 123_456,
+            state: .recording,
+            sourceMode: sourceMode,
+            pcmFormat: .canonical,
+            sources: sources,
+            segments: [RecordingJournalSegment(
+                id: segmentID,
+                sequence: 0,
+                sourceIDs: segmentSourceIDs ?? sources.map(\.id)
+            )],
+            pipeline: try makeManifest().pipeline,
+            promotion: nil,
+            historyItemID: nil
+        )
+    }
+
+    private static func expectInvalidManifest(
+        _ manifest: RecordingJournalManifest,
+        _ label: String
+    ) throws {
+        do {
+            try manifest.validate()
+            throw TestFailure("\(label) must fail validation")
+        } catch RecordingJournalError.invalidManifest {
+            // expected
+        }
+    }
+
     private static let recordingID = UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!
     private static let sourceID = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
+    private static let systemSourceID = UUID(uuidString: "66666666-7777-8888-9999-AAAAAAAAAAAA")!
     private static let segmentID = UUID(uuidString: "99999999-8888-7777-6666-555555555555")!
     private static let fixedDate = Date(timeIntervalSince1970: 1_700_000_000.123)
 

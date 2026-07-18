@@ -25,6 +25,7 @@ enum InflightRecordingRecoveryDiagnostic: String, Equatable, Hashable {
     case sourceTruncated
     case oddTrailingByte
     case promotionConflict
+    case combinedRecoveryPending
 }
 
 struct InflightRecordingRecoveryCandidate: Equatable {
@@ -129,6 +130,12 @@ struct InflightRecordingRecovery {
                 directory: directory,
                 recordingID: manifest.recordingID,
                 diagnostics: [.recordingIDMismatch]
+            )
+        }
+        if manifest.sourceMode == .combined {
+            return scanCombinedManifest(
+                manifest,
+                directory: directory
             )
         }
         guard manifest.sources.count == 1,
@@ -321,6 +328,73 @@ struct InflightRecordingRecovery {
                 diagnostics: diagnostics
             )
         }
+    }
+
+    private func scanCombinedManifest(
+        _ manifest: RecordingJournalManifest,
+        directory: URL
+    ) -> InflightRecordingRecoveryCandidate {
+        var diagnostics: Set<InflightRecordingRecoveryDiagnostic> = [
+            .combinedRecoveryPending
+        ]
+
+        for source in manifest.sources {
+            let sourceURL: URL
+            do {
+                sourceURL = try store.sourceURL(
+                    recordingID: manifest.recordingID,
+                    fileName: source.fileName
+                )
+            } catch {
+                diagnostics.insert(.unsafeSourceFileName)
+                continue
+            }
+            guard FileManager.default.fileExists(
+                atPath: sourceURL.path
+            ) else {
+                diagnostics.insert(.missingSource)
+                continue
+            }
+
+            let sourceSize: UInt64
+            do {
+                sourceSize = try RecordingJournalDurability.fileSize(
+                    at: sourceURL
+                )
+            } catch {
+                diagnostics.insert(.missingSource)
+                continue
+            }
+            guard sourceSize
+                    >= UInt64(RecordingCanonicalWAV.headerByteCount) else {
+                diagnostics.insert(.sourceTooShort)
+                continue
+            }
+
+            let actualPayload = sourceSize
+                - UInt64(RecordingCanonicalWAV.headerByteCount)
+            let frameSize = UInt64(
+                RecordingPCMFormat.canonical.bytesPerFrame
+            )
+            let evenPayload = actualPayload - (actualPayload % frameSize)
+            if actualPayload != evenPayload {
+                diagnostics.insert(.oddTrailingByte)
+            }
+            if evenPayload > source.committedDataByteCount {
+                diagnostics.insert(.manifestBehind)
+            } else if evenPayload < source.committedDataByteCount {
+                diagnostics.insert(.sourceTruncated)
+            }
+            if evenPayload == 0 {
+                diagnostics.insert(.emptySource)
+            }
+        }
+
+        return manualCandidate(
+            directory: directory,
+            recordingID: manifest.recordingID,
+            diagnostics: diagnostics
+        )
     }
 
     private func stateCandidate(
