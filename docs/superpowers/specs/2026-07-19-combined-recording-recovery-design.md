@@ -95,7 +95,7 @@ The finalizer returns metadata describing whether the result is complete combine
 Extend `AudioMixdownService` with offset-aware streaming entry points while preserving existing APIs as zero-offset wrappers.
 
 - Two valid sources: prepend per-source silence and mix using the existing headroom/gain policy.
-- One valid source: stream leading silence plus the source samples into one canonical WAV.
+- One valid source: remove its source offset and stream samples from the original first frame into one canonical WAV without leading silence.
 - Never load a complete recording into `Data` or `[Int16]`.
 - Preserve fixed-size chunking and output-size overflow checks.
 

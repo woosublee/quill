@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 enum CombinedRecordingJournalControllerError: Error, Equatable {
     case controllerClosed
@@ -49,8 +50,7 @@ enum RecordingFrameOffset {
 private final class CombinedRecordingJournalSourceSink: NormalizedPCM16Sink {
     private let writer: RecordingPCMJournalWriter
     private let monotonicAnchorNanoseconds: UInt64
-    private let lock = NSLock()
-    private var firstFrameOffset: UInt64?
+    private let firstFrameOffsetLock = OSAllocatedUnfairLock<UInt64?>(initialState: nil)
 
     init(
         writer: RecordingPCMJournalWriter,
@@ -85,9 +85,9 @@ private final class CombinedRecordingJournalSourceSink: NormalizedPCM16Sink {
     }
 
     private func selectFirstOffset(_ candidate: UInt64) -> UInt64 {
-        lock.withLock {
-            if let firstFrameOffset { return firstFrameOffset }
-            firstFrameOffset = candidate
+        firstFrameOffsetLock.withLock { offset in
+            if let existing = offset { return existing }
+            offset = candidate
             return candidate
         }
     }

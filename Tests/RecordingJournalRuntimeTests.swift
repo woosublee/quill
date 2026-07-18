@@ -24,6 +24,7 @@ struct RecordingJournalRuntimeTests {
             try writerCanBeReleasedAfterQueuedWriteWithoutCrashing()
             try finalizerRepairsHeaderTruncatesOddTailAndPromotesWithoutCopy()
             try finalizerUsesCommittedCheckpointBoundary()
+            try finalizerTreatsMissingLegacyOffsetAsZero()
             try finalizerRejectsTruncatedCommittedPayload()
             try finalizerPreservesEmptyAndConflictingArtifacts()
             try discardedJournalIsNeverRecovered()
@@ -646,6 +647,39 @@ struct RecordingJournalRuntimeTests {
                 try payloadData(from: session.sourceURL),
                 Data([0x01, 0x00, 0x02, 0x00]),
                 "uncommitted tail truncation"
+            )
+        }
+    }
+
+    private static func finalizerTreatsMissingLegacyOffsetAsZero() throws {
+        try withFixture { fixture in
+            let session = try fixture.store.createSingleSource(fixture.request)
+            let writer = try RecordingPCMJournalWriter(
+                session: session,
+                store: fixture.store
+            )
+            writer.enqueue(Data([0x01, 0x00, 0x02, 0x00]))
+            _ = try writer.drainAndClose()
+            var manifest = try fixture.store.loadManifest(
+                recordingID: fixture.recordingID
+            )
+            manifest.sources[0].firstCommittedFrameOffset = nil
+            manifest.state = .recoverable
+            try RecordingJournalCoding.makeEncoder().encode(manifest).write(
+                to: session.manifestURL,
+                options: .atomic
+            )
+
+            let finalized = try RecordingArtifactFinalizer(store: fixture.store)
+                .finalizeSource(
+                    recordingID: fixture.recordingID,
+                    source: manifest.sources[0]
+                )
+
+            try expectEqual(
+                finalized.firstCommittedFrameOffset,
+                0,
+                "legacy missing frame offset"
             )
         }
     }

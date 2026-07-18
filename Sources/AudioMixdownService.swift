@@ -241,13 +241,7 @@ public struct AudioMixdownService {
                 maximumFrameCount: Self.streamingFrameCount
             )
             guard !samples.isEmpty else { break }
-            var outputData = Data()
-            outputData.reserveCapacity(
-                samples.count * MemoryLayout<Int16>.size
-            )
-            for sample in samples {
-                outputData.appendUInt16LE(UInt16(bitPattern: sample))
-            }
+            let outputData = samples.withUnsafeBufferPointer { Data(buffer: $0) }
             try outputHandle.write(contentsOf: outputData)
         }
 

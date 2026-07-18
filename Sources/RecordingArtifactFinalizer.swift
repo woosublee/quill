@@ -89,9 +89,7 @@ struct RecordingArtifactFinalizer {
         guard committedPayloadSize <= UInt64(UInt32.max - 36) else {
             throw RecordingArtifactFinalizerError.payloadTooLarge
         }
-        guard let firstCommittedFrameOffset = source.firstCommittedFrameOffset else {
-            throw RecordingArtifactFinalizerError.committedPayloadUnavailable
-        }
+        let firstCommittedFrameOffset = source.firstCommittedFrameOffset ?? 0
 
         let handle = try FileHandle(forUpdating: sourceURL)
         defer { try? handle.close() }

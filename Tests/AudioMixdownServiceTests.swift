@@ -404,6 +404,22 @@ struct AudioMixdownServiceTests {
         guard source.contains("private static let streamingFrameCount = 4_096") else {
             throw TestFailure("aligned mix must preserve fixed 4,096-frame streaming")
         }
+        let materializeBody = try functionBody(
+            startingWith: "private func writeStreamingSource(",
+            in: source
+        )
+        guard materializeBody.contains(
+            "samples.withUnsafeBufferPointer { Data(buffer: $0) }"
+        ) else {
+            throw TestFailure(
+                "degraded materialization should copy each fixed-size sample chunk directly"
+            )
+        }
+        guard !materializeBody.contains("for sample in samples") else {
+            throw TestFailure(
+                "degraded materialization should not serialize each sample individually"
+            )
+        }
     }
 
     private static func concatenatesSegmentsInOrder() throws {

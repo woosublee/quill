@@ -129,27 +129,31 @@ struct CombinedRecordingArtifactFinalizer {
         manifest: RecordingJournalManifest
     ) throws -> CombinedRecordingArtifactMode {
         let sourceFinalizer = RecordingArtifactFinalizer(store: store)
-        let microphone = manifest.sources.first { $0.kind == .microphone }
-            .flatMap {
-                try? finalizeUsableSource(
-                    sourceFinalizer: sourceFinalizer,
-                    recordingID: recordingID,
-                    source: $0
-                )
-            } ?? nil
-        let systemAudio = manifest.sources.first { $0.kind == .systemAudio }
-            .flatMap {
-                try? finalizeUsableSource(
-                    sourceFinalizer: sourceFinalizer,
-                    recordingID: recordingID,
-                    source: $0
-                )
-            } ?? nil
-        switch (microphone != nil, systemAudio != nil) {
-        case (true, true): return .combined
-        case (true, false): return .microphoneOnly
-        case (false, true): return .systemAudioOnly
-        case (false, false):
+        let microphone: FinalizedRecordingJournalSource?
+        if let source = manifest.sources.first(where: { $0.kind == .microphone }) {
+            microphone = try finalizeUsableSource(
+                sourceFinalizer: sourceFinalizer,
+                recordingID: recordingID,
+                source: source
+            )
+        } else {
+            microphone = nil
+        }
+        let systemAudio: FinalizedRecordingJournalSource?
+        if let source = manifest.sources.first(where: { $0.kind == .systemAudio }) {
+            systemAudio = try finalizeUsableSource(
+                sourceFinalizer: sourceFinalizer,
+                recordingID: recordingID,
+                source: source
+            )
+        } else {
+            systemAudio = nil
+        }
+        switch (microphone, systemAudio) {
+        case (.some, .some): return .combined
+        case (.some, .none): return .microphoneOnly
+        case (.none, .some): return .systemAudioOnly
+        case (.none, .none):
             throw CombinedRecordingArtifactFinalizerError.noRecoverableSources
         }
     }

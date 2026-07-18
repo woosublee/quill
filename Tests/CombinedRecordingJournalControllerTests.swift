@@ -18,6 +18,7 @@ struct CombinedRecordingJournalControllerTests {
             try initializationFailureRollsBackCombinedJournal()
             try reusedInitializationFailurePreservesCombinedJournal()
             try deinitAvoidsLifecycleQueueSync()
+            try sourceSinkUsesAudioCallbackLockConvention()
             print("CombinedRecordingJournalControllerTests passed")
         } catch {
             fputs(
@@ -446,6 +447,21 @@ struct CombinedRecordingJournalControllerTests {
               body.contains("checkpointTimer?.cancel()") else {
             throw TestFailure(
                 "controller deinit must cancel the timer without queue sync"
+            )
+        }
+    }
+
+    private static func sourceSinkUsesAudioCallbackLockConvention() throws {
+        let source = try String(
+            contentsOfFile: "Sources/CombinedRecordingJournalController.swift",
+            encoding: .utf8
+        )
+        guard source.contains(
+            "private let firstFrameOffsetLock = OSAllocatedUnfairLock<UInt64?>(initialState: nil)"
+        ), source.contains("firstFrameOffsetLock.withLock { offset in"),
+           !source.contains("private let lock = NSLock()") else {
+            throw TestFailure(
+                "combined source sink must use the audio callback unfair-lock convention"
             )
         }
     }

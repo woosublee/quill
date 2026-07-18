@@ -12,6 +12,7 @@ struct CombinedRecordingArtifactFinalizerTests {
             try unusableSourcesRemainRecoverable()
             try uncommittedTailIsRemovedBeforeMixing()
             try repeatedFinalizationReusesPromotion()
+            try promotedModePropagatesUnexpectedSourceIOFailure()
             try conflictingPermanentFilePreservesJournalSources()
             print("CombinedRecordingArtifactFinalizerTests passed")
         } catch {
@@ -213,6 +214,51 @@ struct CombinedRecordingArtifactFinalizerTests {
                 generation,
                 "repeated promotion generation"
             )
+        }
+    }
+
+    private static func promotedModePropagatesUnexpectedSourceIOFailure() throws {
+        try withFixture { fixture in
+            let controller = try fixture.makeController()
+            controller.microphoneSink.enqueue(
+                pcmData([100, 200]),
+                firstFrameMonotonicNanoseconds: fixture.anchor
+            )
+            controller.systemAudioSink.enqueue(
+                pcmData([300, 400]),
+                firstFrameMonotonicNanoseconds: fixture.anchor
+            )
+            let stopped = try controller.stopAndClose()
+            _ = try fixture.finalizer.finalizeAndPromote(
+                recordingID: fixture.recordingID
+            )
+            try FileManager.default.setAttributes(
+                [.immutable: true],
+                ofItemAtPath: stopped.systemAudioSourceURL.path
+            )
+            defer {
+                try? FileManager.default.setAttributes(
+                    [.immutable: false],
+                    ofItemAtPath: stopped.systemAudioSourceURL.path
+                )
+            }
+
+            do {
+                _ = try fixture.finalizer.finalizeAndPromote(
+                    recordingID: fixture.recordingID
+                )
+                throw TestFailure(
+                    "promoted mode must propagate unexpected source I/O failure"
+                )
+            } catch let error as TestFailure {
+                throw error
+            } catch CombinedRecordingArtifactFinalizerError.noRecoverableSources {
+                throw TestFailure(
+                    "unexpected source I/O failure must not become noRecoverableSources"
+                )
+            } catch {
+                // expected
+            }
         }
     }
 
