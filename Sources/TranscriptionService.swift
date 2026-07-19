@@ -1,9 +1,40 @@
 import AVFoundation
+import CryptoKit
 import Foundation
 import Speech
 import os.log
 
 private let transcriptionLog = OSLog(subsystem: "com.woosublee.quill", category: "Transcription")
+
+struct CloudTranscriptionDependencies: Sendable {
+    let encodedUploadCeilingBytes: UInt64
+    let upload: @Sendable (URLRequest, Data) async throws -> (Data, URLResponse)
+    let checkpointStore: any CloudTranscriptionCheckpointStore
+    let progress: @Sendable (CloudTranscriptionProgress) -> Void
+    let temporaryRoot: URL
+    let sleep: @Sendable (TimeInterval) async throws -> Void
+
+    static var live: CloudTranscriptionDependencies {
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                Bundle.main.bundleIdentifier ?? "com.woosublee.quill",
+                isDirectory: true
+            )
+            .appendingPathComponent("cloud-transcription", isDirectory: true)
+        return CloudTranscriptionDependencies(
+            encodedUploadCeilingBytes: 20_000_000,
+            upload: { request, body in
+                try await LLMAPITransport.upload(for: request, from: body)
+            },
+            checkpointStore: InMemoryCloudTranscriptionCheckpointStore(),
+            progress: { _ in },
+            temporaryRoot: temporaryRoot,
+            sleep: { seconds in
+                try await Task.sleep(for: .seconds(seconds))
+            }
+        )
+    }
+}
 
 class TranscriptionService {
     private static let modelsSupportingVerboseJSON: Set<String> = [
@@ -21,6 +52,7 @@ class TranscriptionService {
     private let localTranscriptionModel: TranscriptionModel
     private let transcriptionModel: String
     private let language: String?
+    private let cloudDependencies: CloudTranscriptionDependencies
     private var transcriptionResponseFormat: String {
         Self.responseFormat(forModel: transcriptionModel)
     }
@@ -39,7 +71,8 @@ class TranscriptionService {
         transcriptionLanguage: TranscriptionLanguage = .auto,
         localTranscriptionModel: TranscriptionModel = .default,
         transcriptionModel: String = AppState.defaultTranscriptionModel,
-        language: String? = nil
+        language: String? = nil,
+        cloudDependencies: CloudTranscriptionDependencies = .live
     ) throws {
         self.apiKey = apiKey
         self.baseURL = try Self.normalizedBaseURL(from: baseURL)
@@ -54,6 +87,7 @@ class TranscriptionService {
         self.language = (trimmedLanguage?.isEmpty == false)
             ? trimmedLanguage
             : transcriptionLanguage.whisperArgument
+        self.cloudDependencies = cloudDependencies
     }
 
     static func responseFormat(forModel model: String) -> String {
@@ -106,6 +140,10 @@ class TranscriptionService {
                 group.cancelAll()
                 return result
             }
+        }
+
+        if try shouldUseLargeCloudChunkPath(fileURL: fileURL) {
+            return try await transcribeLargeCanonicalWAV(fileURL: fileURL)
         }
 
         let timeoutSeconds = transcriptionTimeoutSeconds
@@ -381,18 +419,112 @@ class TranscriptionService {
         }.value
     }
 
-    // Send audio file for transcription and return text
-    private func transcribeAudio(fileURL: URL) async throws -> String {
-        return try await transcribeAudioWithURLSession(fileURL: fileURL)
+    private func shouldUseLargeCloudChunkPath(fileURL: URL) throws -> Bool {
+        let physicalByteCount = try physicalByteCount(for: fileURL)
+        let multipart = cloudMultipartLayout
+        let encodedByteCount = try multipart.encodedByteCount(
+            audioDataByteCount: physicalByteCount,
+            fileName: fileURL.lastPathComponent,
+            contentType: audioContentType(for: fileURL.lastPathComponent)
+        )
+        guard encodedByteCount > cloudDependencies.encodedUploadCeilingBytes else {
+            return false
+        }
+        return (try? CanonicalPCM16WAV.validateFile(at: fileURL)) != nil
     }
 
-    private func transcribeAudioWithURLSession(fileURL: URL) async throws -> String {
+    private func transcribeLargeCanonicalWAV(fileURL: URL) async throws -> String {
+        let sourceLayout = try CanonicalPCM16WAV.validateFile(at: fileURL)
+        let sourceIdentity = try CloudTranscriptionSourceIdentityBuilder.make(
+            fileURL: fileURL,
+            layout: sourceLayout
+        )
+        let multipart = cloudMultipartLayout
+        let plan = try CloudTranscriptionChunkPlanner().plan(
+            fileURL: fileURL,
+            source: sourceIdentity,
+            wavLayout: sourceLayout,
+            multipart: multipart,
+            encodedUploadCeilingBytes: cloudDependencies.encodedUploadCeilingBytes
+        )
+        let providerID = SHA256.hash(data: Data(baseURL.absoluteString.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        let identity = CloudTranscriptionJobIdentity(
+            providerID: providerID,
+            model: transcriptionModel,
+            language: language,
+            responseFormat: transcriptionResponseFormat,
+            source: sourceIdentity,
+            planID: plan.planID
+        )
+        let retryPolicy = CloudTranscriptionRetryPolicy(
+            maximumAttempts: 3,
+            jitter: { _ in Double.random(in: 0...0.25) }
+        )
+        let core = CloudTranscriptionCore(
+            configuration: CloudTranscriptionConfiguration(
+                model: transcriptionModel,
+                language: language,
+                responseFormat: transcriptionResponseFormat,
+                encodedUploadCeilingBytes: cloudDependencies.encodedUploadCeilingBytes,
+                minimumAttemptTimeoutSeconds: transcriptionTimeoutSeconds,
+                maximumAttemptTimeoutSeconds: 300,
+                maximumAttempts: 3
+            ),
+            materializer: CloudTranscriptionChunkMaterializer(
+                temporaryRoot: cloudDependencies.temporaryRoot,
+                copyBufferByteCount: 1_048_576
+            ),
+            retryPolicy: retryPolicy,
+            sleep: cloudDependencies.sleep
+        )
+        do {
+            return try await core.transcribe(
+                sourceURL: fileURL,
+                sourceLayout: sourceLayout,
+                sourceIdentity: sourceIdentity,
+                plan: plan,
+                identity: identity,
+                multipart: multipart,
+                checkpointStore: cloudDependencies.checkpointStore,
+                request: { [self] chunkURL, timeoutSeconds in
+                    try await transcribeCloudFile(
+                        fileURL: chunkURL,
+                        timeoutSeconds: timeoutSeconds,
+                        useStructuredHTTPFailure: true
+                    )
+                },
+                progress: cloudDependencies.progress
+            )
+        } catch let failure as CloudTranscriptionHTTPFailure {
+            throw TranscriptionError.submissionFailed(Self.friendlyHTTPMessage(
+                status: failure.statusCode,
+                host: baseURL.host
+            ))
+        }
+    }
+
+    // Send audio file for transcription and return text
+    private func transcribeAudio(fileURL: URL) async throws -> String {
+        try await transcribeCloudFile(
+            fileURL: fileURL,
+            timeoutSeconds: transcriptionTimeoutSeconds,
+            useStructuredHTTPFailure: false
+        )
+    }
+
+    private func transcribeCloudFile(
+        fileURL: URL,
+        timeoutSeconds: TimeInterval,
+        useStructuredHTTPFailure: Bool
+    ) async throws -> String {
         let url = baseURL
             .appendingPathComponent("audio")
             .appendingPathComponent("transcriptions")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = transcriptionTimeoutSeconds
+        request.timeoutInterval = timeoutSeconds
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         let boundary = UUID().uuidString
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
@@ -408,8 +540,13 @@ class TranscriptionService {
         )
 
         do {
-            let (data, response) = try await LLMAPITransport.upload(for: request, from: body)
-            return try validateTranscriptionResponse(data: data, response: response, fileURL: fileURL)
+            let (data, response) = try await cloudDependencies.upload(request, body)
+            return try validateTranscriptionResponse(
+                data: data,
+                response: response,
+                fileURL: fileURL,
+                useStructuredHTTPFailure: useStructuredHTTPFailure
+            )
         } catch {
             let nsError = error as NSError
             os_log(
@@ -426,30 +563,94 @@ class TranscriptionService {
         }
     }
 
-    private func validateTranscriptionResponse(data: Data, response: URLResponse, fileURL: URL) throws -> String {
+    private func validateTranscriptionResponse(
+        data: Data,
+        response: URLResponse,
+        fileURL: URL,
+        useStructuredHTTPFailure: Bool
+    ) throws -> String {
         guard let httpResponse = response as? HTTPURLResponse else {
+            if useStructuredHTTPFailure {
+                throw CloudTranscriptionHTTPFailure(statusCode: 0)
+            }
             throw TranscriptionError.submissionFailed("No response from server")
         }
 
         guard httpResponse.statusCode == 200 else {
-            let responseBody = String(data: data, encoding: .utf8) ?? ""
             os_log(
                 .error,
                 log: transcriptionLog,
-                "URLSession upload returned HTTP %ld for %{public}@ (bytes=%{public}lld) body=%{public}@",
+                "URLSession upload returned HTTP %ld for %{public}@ (bytes=%{public}lld)",
                 httpResponse.statusCode,
                 fileURL.lastPathComponent,
-                fileSizeBytes(for: fileURL),
-                responseBody
+                fileSizeBytes(for: fileURL)
             )
+            if useStructuredHTTPFailure {
+                throw structuredHTTPFailure(data: data, response: httpResponse)
+            }
             throw TranscriptionError.submissionFailed(Self.friendlyHTTPMessage(
                 status: httpResponse.statusCode,
                 host: baseURL.host
             ))
         }
 
-        return try parseTranscript(from: data)
+        do {
+            return try parseTranscript(from: data)
+        } catch {
+            if useStructuredHTTPFailure {
+                throw CloudTranscriptionHTTPFailure(statusCode: 200)
+            }
+            throw error
+        }
     }
+
+    private func structuredHTTPFailure(
+        data: Data,
+        response: HTTPURLResponse
+    ) -> CloudTranscriptionHTTPFailure {
+        let retryAfterSeconds = response.value(
+            forHTTPHeaderField: "Retry-After"
+        ).flatMap(TimeInterval.init)
+        let errorObject = (
+            try? JSONSerialization.jsonObject(with: data)
+        ) as? [String: Any]
+        let providerError = errorObject?["error"] as? [String: Any]
+        return CloudTranscriptionHTTPFailure(
+            statusCode: response.statusCode,
+            retryAfterSeconds: retryAfterSeconds,
+            providerCode: safeProviderErrorField(providerError?["code"]),
+            providerType: safeProviderErrorField(providerError?["type"]),
+            sanitizedMessage: safeProviderErrorField(providerError?["message"])
+        )
+    }
+
+    private func safeProviderErrorField(_ value: Any?) -> String? {
+        guard let value = value as? String else { return nil }
+        let sanitized = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .prefix(256)
+        return sanitized.isEmpty ? nil : String(sanitized)
+    }
+    private var cloudMultipartLayout: CloudTranscriptionMultipartLayout {
+        CloudTranscriptionMultipartLayout(
+            model: transcriptionModel,
+            responseFormat: transcriptionResponseFormat,
+            language: language
+        )
+    }
+
+    private func physicalByteCount(for fileURL: URL) throws -> UInt64 {
+        let attributes = try FileManager.default.attributesOfItem(
+            atPath: fileURL.path
+        )
+        guard let size = attributes[.size] as? NSNumber else {
+            throw TranscriptionError.audioPreparationFailed(
+                "Unable to determine audio file size."
+            )
+        }
+        return size.uint64Value
+    }
+
     private func audioContentType(for fileName: String) -> String {
         if fileName.lowercased().hasSuffix(".wav") {
             return "audio/wav"
