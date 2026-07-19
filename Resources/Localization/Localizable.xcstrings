@@ -9684,6 +9684,182 @@
           }
         }
       }
+    },
+    "Recording stopped: storage full": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장 공간 부족으로 녹음 중단됨"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording stopped: storage full"
+          }
+        }
+      }
+    },
+    "Recording stopped: storage unavailable": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장소 접근 문제로 녹음 중단됨"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording stopped: storage unavailable"
+          }
+        }
+      }
+    },
+    "Recording stopped: save error": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오 저장 오류로 녹음 중단됨"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording stopped: save error"
+          }
+        }
+      }
+    },
+    "Quill stopped recording because storage was full.": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장 공간이 부족해 Quill이 녹음을 중단했습니다."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill stopped recording because storage was full."
+          }
+        }
+      }
+    },
+    "Quill stopped recording because audio storage was unavailable.": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장소 접근 문제로 Quill이 녹음을 중단했습니다."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill stopped recording because audio storage was unavailable."
+          }
+        }
+      }
+    },
+    "Quill stopped recording because of an audio save error.": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오 저장 오류로 Quill이 녹음을 중단했습니다."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill stopped recording because of an audio save error."
+          }
+        }
+      }
+    },
+    "Audio saved before the interruption is available for playback or transcription.": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중단 전에 저장된 오디오는 재생하거나 전사할 수 있습니다."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio saved before the interruption is available for playback or transcription."
+          }
+        }
+      }
+    },
+    "Recording stopped because storage is full. Free up space, then review the recovered audio.": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장 공간이 부족해 녹음을 중단했습니다. 공간을 확보한 뒤 복구된 오디오를 확인해 주세요."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording stopped because storage is full. Free up space, then review the recovered audio."
+          }
+        }
+      }
+    },
+    "Recording stopped because audio could not be saved. Check storage access, then review the recovered audio.": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오를 저장할 수 없어 녹음을 중단했습니다. 저장소 접근 권한을 확인한 뒤 복구된 오디오를 확인해 주세요."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording stopped because audio could not be saved. Check storage access, then review the recovered audio."
+          }
+        }
+      }
+    },
+    "Recording stopped because of an audio save error. Audio saved before the error is being recovered.": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오 저장 오류로 녹음을 중단했습니다. 오류 전에 저장된 오디오를 복구하고 있습니다."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording stopped because of an audio save error. Audio saved before the error is being recovered."
+          }
+        }
+      }
+    },
+    "Free up space or restore storage access, then relaunch Quill to recover the audio.": {
+      "localizations": {
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공간을 확보하거나 저장소 접근 문제를 해결한 뒤 Quill을 다시 실행해 오디오를 복구해 주세요."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free up space or restore storage access, then relaunch Quill to recover the audio."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -17,11 +17,21 @@ extension NormalizedPCM16Sink {
     }
 }
 
-enum RecordingPCMJournalWriterError: Error, Equatable {
-    case conflictingFrameOffset
-    case oddByteChunk
-    case writerClosed
-    case writeFailed(String)
+struct RecordingPCMJournalWriterOperations {
+    let write: (FileHandle, Data) throws -> Void
+    let fullSync: (Int32) throws -> Void
+    let close: (FileHandle) throws -> Void
+
+    static let live = RecordingPCMJournalWriterOperations(
+        write: { try $0.write(contentsOf: $1) },
+        fullSync: RecordingJournalDurability.fullSync,
+        close: { try $0.close() }
+    )
+}
+
+struct RecordingPCMJournalFailureCloseResult: Equatable {
+    let commit: RecordingJournalSourceCommit?
+    let failure: RecordingJournalPersistenceFailure?
 }
 
 final class RecordingPCMJournalWriter: NormalizedPCM16Sink {
@@ -29,19 +39,25 @@ final class RecordingPCMJournalWriter: NormalizedPCM16Sink {
     private let queue = DispatchQueue(label: "com.woosublee.quill.recording-journal.pcm-writer")
     private let session: RecordingJournalSession
     private let store: RecordingJournalStore
+    private let operations: RecordingPCMJournalWriterOperations
 
     private var handle: FileHandle?
     private var writtenDataByteCount: UInt64
     private var firstCommittedFrameOffset: UInt64?
     private var failure: RecordingPCMJournalWriterError?
+    private var persistenceFailure: RecordingJournalPersistenceFailure?
+    private var persistenceFailureHandler: ((RecordingJournalPersistenceFailure) -> Void)?
+    private var didReportPersistenceFailure = false
     private var isClosed = false
 
     init(
         session: RecordingJournalSession,
-        store: RecordingJournalStore
+        store: RecordingJournalStore,
+        operations: RecordingPCMJournalWriterOperations = .live
     ) throws {
         self.session = session
         self.store = store
+        self.operations = operations
         self.queue.setSpecific(key: Self.queueKey, value: 1)
         let physicalSize = try RecordingJournalDurability.fileSize(at: session.sourceURL)
         guard physicalSize >= UInt64(RecordingCanonicalWAV.headerByteCount) else {
@@ -62,6 +78,15 @@ final class RecordingPCMJournalWriter: NormalizedPCM16Sink {
             close()
         } else {
             queue.sync(execute: close)
+        }
+    }
+
+    func setPersistenceFailureHandler(
+        _ handler: @escaping (RecordingJournalPersistenceFailure) -> Void
+    ) {
+        queue.sync {
+            persistenceFailureHandler = handler
+            reportPersistenceFailureIfNeededLocked()
         }
     }
 
@@ -93,13 +118,13 @@ final class RecordingPCMJournalWriter: NormalizedPCM16Sink {
             }
 
             do {
-                try handle.write(contentsOf: copiedPCM16LE)
+                try operations.write(handle, copiedPCM16LE)
                 writtenDataByteCount += UInt64(copiedPCM16LE.count)
                 if firstCommittedFrameOffset == nil {
                     firstCommittedFrameOffset = resolvedFrameOffset
                 }
             } catch {
-                failure = .writeFailed(error.localizedDescription)
+                recordPersistenceFailureLocked(error, operation: .appendPCM)
             }
         }
     }
@@ -145,18 +170,61 @@ final class RecordingPCMJournalWriter: NormalizedPCM16Sink {
         }
     }
 
+    func closeAfterPersistenceFailure() -> RecordingPCMJournalFailureCloseResult {
+        queue.sync {
+            guard !isClosed else {
+                return RecordingPCMJournalFailureCloseResult(
+                    commit: nil,
+                    failure: persistenceFailure
+                )
+            }
+
+            var commit: RecordingJournalSourceCommit?
+            if persistenceFailure == nil, failure == nil, let handle {
+                do {
+                    try operations.fullSync(handle.fileDescriptor)
+                    commit = RecordingJournalSourceCommit(
+                        dataByteCount: writtenDataByteCount,
+                        frameCount: writtenDataByteCount / UInt64(RecordingPCMFormat.canonical.bytesPerFrame),
+                        firstCommittedFrameOffset: writtenDataByteCount > 0
+                            ? firstCommittedFrameOffset
+                            : nil
+                    )
+                } catch {
+                    recordPersistenceFailureLocked(error, operation: .syncSource)
+                }
+            }
+
+            if let handle {
+                do {
+                    try operations.close(handle)
+                } catch {
+                    commit = nil
+                    recordPersistenceFailureLocked(error, operation: .closeSource)
+                }
+            }
+            handle = nil
+            isClosed = true
+
+            return RecordingPCMJournalFailureCloseResult(
+                commit: persistenceFailure == nil && failure == nil ? commit : nil,
+                failure: persistenceFailure
+            )
+        }
+    }
+
     private func checkpointLocked(
         closeAfterCheckpoint: Bool
     ) throws -> RecordingJournalSourceCommit {
-        if let failure { throw failure }
         guard !isClosed, let handle else {
             throw RecordingPCMJournalWriterError.writerClosed
         }
+        if let failure { throw failure }
 
         do {
-            try RecordingJournalDurability.fullSync(handle.fileDescriptor)
+            try operations.fullSync(handle.fileDescriptor)
         } catch {
-            failure = .writeFailed(error.localizedDescription)
+            recordPersistenceFailureLocked(error, operation: .syncSource)
             throw error
         }
 
@@ -176,12 +244,39 @@ final class RecordingPCMJournalWriter: NormalizedPCM16Sink {
             throw RecordingPCMJournalWriterError.writerClosed
         }
         do {
-            try handle.close()
+            try operations.close(handle)
             self.handle = nil
             isClosed = true
         } catch {
-            failure = .writeFailed(error.localizedDescription)
+            self.handle = nil
+            isClosed = true
+            recordPersistenceFailureLocked(error, operation: .closeSource)
             throw error
         }
+    }
+
+    private func recordPersistenceFailureLocked(
+        _ error: Error,
+        operation: RecordingJournalPersistenceOperation
+    ) {
+        let persistenceFailure = RecordingJournalPersistenceFailure.knownPersistenceFailure(
+            error,
+            operation: operation
+        )
+        if self.persistenceFailure == nil {
+            self.persistenceFailure = persistenceFailure
+        }
+        failure = .writeFailed(error.localizedDescription)
+        reportPersistenceFailureIfNeededLocked()
+    }
+
+    private func reportPersistenceFailureIfNeededLocked() {
+        guard !didReportPersistenceFailure,
+              let persistenceFailure,
+              let persistenceFailureHandler else {
+            return
+        }
+        didReportPersistenceFailure = true
+        persistenceFailureHandler(persistenceFailure)
     }
 }

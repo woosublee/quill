@@ -46,11 +46,11 @@ extension RecoveredRecordingMode {
     }
 
     static func placeholderMode(for status: String) -> RecoveredRecordingMode? {
-        allCases.first { $0.placeholderStatus == status }
+        RecoveredRecordingContext.placeholderContext(for: status)?.mode
     }
 
     static func recoveredMode(for status: String) -> RecoveredRecordingMode? {
-        allCases.first { $0.recoveredStatus == status }
+        RecoveredRecordingContext.recoveredContext(for: status)?.mode
     }
 
     var titleLocalizationKey: String {

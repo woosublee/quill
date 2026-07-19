@@ -11,6 +11,7 @@ struct SegmentedRecordingArtifactFinalizerTests {
             try emptyPreparationSegmentDoesNotMakeRecoveryPartial()
             try noUsableAudioPreservesInflightRecording()
             try promotedPartialResultReusesStoredMetadataWithoutSources()
+            try interruptionReasonSurvivesCompleteAndPartialPromotion()
             print("SegmentedRecordingArtifactFinalizerTests passed")
         } catch {
             fputs("SegmentedRecordingArtifactFinalizerTests failed: \(error)\n", stderr)
@@ -304,6 +305,69 @@ struct SegmentedRecordingArtifactFinalizerTests {
 
             try expectEqual(first.mode, .partial, "first partial mode")
             try expectEqual(second, first, "promoted partial reuse")
+        }
+    }
+
+    private static func interruptionReasonSurvivesCompleteAndPartialPromotion() throws {
+        try withFixture { fixture in
+            let controller = try fixture.makeController()
+            controller.activeSegment.microphoneSink?.enqueue(pcmData([1, 2]))
+            try controller.checkpoint()
+            _ = try fixture.store.markRecoverableAfterPersistenceFailure(
+                recordingID: fixture.recordingID,
+                commitsBySourceID: [:],
+                interruptionReason: .storageFull
+            )
+            let first = try fixture.finalizer.finalizeAndPromote(
+                recordingID: fixture.recordingID
+            )
+            let second = try fixture.finalizer.finalizeAndPromote(
+                recordingID: fixture.recordingID
+            )
+
+            try expectEqual(first.mode, .complete, "interrupted complete mode")
+            try expectEqual(
+                first.promotion.interruptionReason,
+                .storageFull,
+                "interrupted complete reason"
+            )
+            try expectEqual(second, first, "interrupted promoted metadata reuse")
+        }
+
+        try withFixture { fixture in
+            let controller = try fixture.makeController()
+            let combined = try controller.switchSegment(
+                segmentID: UUID(),
+                sources: [
+                    RecordingJournalSegmentSourceRequest(id: UUID(), kind: .microphone),
+                    RecordingJournalSegmentSourceRequest(id: UUID(), kind: .systemAudio)
+                ]
+            )
+            combined.microphoneSink?.enqueue(pcmData([3, 4]))
+            combined.systemAudioSink?.enqueue(pcmData([5, 6]))
+            try controller.checkpoint()
+            _ = try fixture.store.markRecoverableAfterPersistenceFailure(
+                recordingID: fixture.recordingID,
+                commitsBySourceID: [:],
+                interruptionReason: .storageFull
+            )
+            let manifest = try fixture.store.loadManifest(recordingID: fixture.recordingID)
+            let systemSource = manifest.sources.last { $0.kind == .systemAudio }!
+            try FileManager.default.removeItem(at: try fixture.store.sourceURL(
+                recordingID: fixture.recordingID,
+                fileName: systemSource.fileName
+            ))
+
+            let result = try fixture.finalizer.finalizeAndPromote(
+                recordingID: fixture.recordingID
+            )
+
+            try expectEqual(result.mode, .partial, "interrupted partial mode")
+            try expectEqual(
+                result.promotion.interruptionReason,
+                .storageFull,
+                "interrupted partial reason"
+            )
         }
     }
 

@@ -1,20 +1,6 @@
 import Darwin
 import Foundation
 
-enum RecordingJournalStoreError: Error, Equatable {
-    case conflictingExistingRecording(UUID)
-    case incompleteExistingRecording(UUID)
-    case recordingNotFound(UUID)
-    case sourceNotFound(UUID)
-    case checkpointRegression
-    case invalidCheckpointState(RecordingJournalState)
-    case invalidSegmentSequence(expected: Int, actual: Int)
-    case invalidSegmentSourceShape
-    case conflictingExistingSegment(UUID)
-    case invalidSourceFile
-    case systemCall(String, Int32)
-}
-
 struct RecordingJournalCreateRequest: Equatable {
     var recordingID: UUID
     var sourceID: UUID
@@ -96,6 +82,46 @@ struct RecordingJournalSourceCommit: Equatable {
     let firstCommittedFrameOffset: UInt64?
 }
 
+struct RecordingJournalManifestWriter {
+    let write: (
+        _ data: Data,
+        _ generation: UInt64,
+        _ targetURL: URL,
+        _ fileManager: FileManager
+    ) throws -> Void
+
+    static let live = RecordingJournalManifestWriter { data, generation, targetURL, fileManager in
+        let temporaryURL = targetURL.deletingLastPathComponent()
+            .appendingPathComponent(".manifest.\(generation).\(UUID().uuidString).tmp")
+        let descriptor = Darwin.open(
+            temporaryURL.path,
+            O_WRONLY | O_CREAT | O_EXCL,
+            mode_t(0o600)
+        )
+        guard descriptor >= 0 else {
+            throw RecordingJournalStoreError.systemCall("open manifest temp", errno)
+        }
+        var descriptorOpen = true
+        defer {
+            if descriptorOpen { Darwin.close(descriptor) }
+            try? fileManager.removeItem(at: temporaryURL)
+        }
+
+        try RecordingJournalDurability.writeAll(data, to: descriptor)
+        try RecordingJournalDurability.fullSync(descriptor)
+        guard Darwin.close(descriptor) == 0 else {
+            descriptorOpen = false
+            throw RecordingJournalStoreError.systemCall("close manifest temp", errno)
+        }
+        descriptorOpen = false
+
+        guard Darwin.rename(temporaryURL.path, targetURL.path) == 0 else {
+            throw RecordingJournalStoreError.systemCall("rename manifest", errno)
+        }
+        try RecordingJournalDurability.syncDirectory(targetURL.deletingLastPathComponent())
+    }
+}
+
 enum RecordingCanonicalWAV {
     static let headerByteCount = 44
 
@@ -168,16 +194,19 @@ final class RecordingJournalStore {
     private let now: () -> Date
     private let lock = NSLock()
     private let fileManager: FileManager
+    private let manifestWriter: RecordingJournalManifestWriter
 
     init(
         audioDirectory: URL,
         now: @escaping () -> Date = Date.init,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        manifestWriter: RecordingJournalManifestWriter = .live
     ) {
         self.audioDirectory = audioDirectory
         self.inflightDirectory = audioDirectory.appendingPathComponent("inflight", isDirectory: true)
         self.now = now
         self.fileManager = fileManager
+        self.manifestWriter = manifestWriter
     }
 
     func createSingleSource(
@@ -648,50 +677,10 @@ final class RecordingJournalStore {
                 )
             }
 
-            var updates: [Int: RecordingJournalSourceCommit] = [:]
-            for (sourceID, commit) in commitsBySourceID {
-                guard let index = manifest.sources.firstIndex(where: {
-                    $0.id == sourceID
-                }) else {
-                    throw RecordingJournalStoreError.sourceNotFound(sourceID)
-                }
-                let existing = manifest.sources[index]
-                let (expectedDataByteCount, overflow) =
-                    commit.frameCount.multipliedReportingOverflow(
-                        by: UInt64(manifest.pcmFormat.bytesPerFrame)
-                    )
-                guard !overflow,
-                      commit.dataByteCount == expectedDataByteCount,
-                      commit.dataByteCount >= existing.committedDataByteCount,
-                      commit.frameCount >= existing.committedFrameCount else {
-                    throw RecordingJournalStoreError.checkpointRegression
-                }
-                if let existingOffset = existing.firstCommittedFrameOffset,
-                   let requestedOffset = commit.firstCommittedFrameOffset,
-                   existingOffset != requestedOffset {
-                    throw RecordingJournalStoreError.checkpointRegression
-                }
-                let resolvedOffset = existing.firstCommittedFrameOffset
-                    ?? commit.firstCommittedFrameOffset
-                guard commit.dataByteCount == 0 || resolvedOffset != nil else {
-                    throw RecordingJournalStoreError.checkpointRegression
-                }
-                updates[index] = RecordingJournalSourceCommit(
-                    dataByteCount: commit.dataByteCount,
-                    frameCount: commit.frameCount,
-                    firstCommittedFrameOffset: resolvedOffset
-                )
-            }
-
-            let changedUpdates = updates.filter { index, commit in
-                let existing = manifest.sources[index]
-                return commit.dataByteCount
-                        != existing.committedDataByteCount
-                    || commit.frameCount
-                        != existing.committedFrameCount
-                    || commit.firstCommittedFrameOffset
-                        != existing.firstCommittedFrameOffset
-            }
+            let changedUpdates = try validatedCheckpointUpdates(
+                commitsBySourceID,
+                in: manifest
+            )
             guard !changedUpdates.isEmpty else { return manifest }
 
             let (nextGeneration, generationOverflow) =
@@ -718,6 +707,53 @@ final class RecordingJournalStore {
                 to: manifestURL(recordingID: recordingID)
             )
             return manifest
+        }
+    }
+
+    func markRecoverableAfterPersistenceFailure(
+        recordingID: UUID,
+        commitsBySourceID: [UUID: RecordingJournalSourceCommit],
+        interruptionReason: RecordingInterruptionReason
+    ) throws -> RecordingJournalManifest {
+        try lock.withLock {
+            let manifest = try loadManifestUnlocked(recordingID: recordingID)
+            guard manifest.state == .recording
+                    || manifest.state == .stopping
+                    || manifest.state == .recoverable else {
+                throw RecordingJournalStoreError.invalidCheckpointState(
+                    manifest.state
+                )
+            }
+
+            let updates = try validatedCheckpointUpdates(
+                commitsBySourceID,
+                in: manifest
+            )
+            let current = manifest
+            var next = try current.transitioned(
+                to: .recoverable,
+                interruptionReason: interruptionReason,
+                now: now()
+            )
+            for (index, commit) in updates {
+                next.sources[index].committedDataByteCount = commit.dataByteCount
+                next.sources[index].committedFrameCount = commit.frameCount
+                next.sources[index].firstCommittedFrameOffset = commit.firstCommittedFrameOffset
+            }
+            if next.state == current.state, next != current {
+                let (nextGeneration, overflow) = current.generation.addingReportingOverflow(1)
+                guard !overflow else {
+                    throw RecordingJournalError.invalidManifest(
+                        "Manifest generation overflow."
+                    )
+                }
+                next.generation = nextGeneration
+                next.updatedAt = now()
+            }
+            guard next != current else { return current }
+            try next.validate()
+            try writeManifestUnlocked(next, to: manifestURL(recordingID: recordingID))
+            return next
         }
     }
 
@@ -1021,6 +1057,53 @@ final class RecordingJournalStore {
         }
     }
 
+    private func validatedCheckpointUpdates(
+        _ commitsBySourceID: [UUID: RecordingJournalSourceCommit],
+        in manifest: RecordingJournalManifest
+    ) throws -> [Int: RecordingJournalSourceCommit] {
+        var updates: [Int: RecordingJournalSourceCommit] = [:]
+        for (sourceID, commit) in commitsBySourceID {
+            guard let index = manifest.sources.firstIndex(where: {
+                $0.id == sourceID
+            }) else {
+                throw RecordingJournalStoreError.sourceNotFound(sourceID)
+            }
+            let existing = manifest.sources[index]
+            let (expectedDataByteCount, overflow) =
+                commit.frameCount.multipliedReportingOverflow(
+                    by: UInt64(manifest.pcmFormat.bytesPerFrame)
+                )
+            guard !overflow,
+                  commit.dataByteCount == expectedDataByteCount,
+                  commit.dataByteCount >= existing.committedDataByteCount,
+                  commit.frameCount >= existing.committedFrameCount else {
+                throw RecordingJournalStoreError.checkpointRegression
+            }
+            if let existingOffset = existing.firstCommittedFrameOffset,
+               let requestedOffset = commit.firstCommittedFrameOffset,
+               existingOffset != requestedOffset {
+                throw RecordingJournalStoreError.checkpointRegression
+            }
+            let resolvedOffset = existing.firstCommittedFrameOffset
+                ?? commit.firstCommittedFrameOffset
+            guard commit.dataByteCount == 0 || resolvedOffset != nil else {
+                throw RecordingJournalStoreError.checkpointRegression
+            }
+            let resolvedCommit = RecordingJournalSourceCommit(
+                dataByteCount: commit.dataByteCount,
+                frameCount: commit.frameCount,
+                firstCommittedFrameOffset: resolvedOffset
+            )
+            if resolvedCommit.dataByteCount != existing.committedDataByteCount
+                || resolvedCommit.frameCount != existing.committedFrameCount
+                || resolvedCommit.firstCommittedFrameOffset
+                    != existing.firstCommittedFrameOffset {
+                updates[index] = resolvedCommit
+            }
+        }
+        return updates
+    }
+
     private func loadManifestUnlocked(recordingID: UUID) throws -> RecordingJournalManifest {
         let url = manifestURL(recordingID: recordingID)
         guard fileManager.fileExists(atPath: url.path) else {
@@ -1043,34 +1126,12 @@ final class RecordingJournalStore {
         to targetURL: URL
     ) throws {
         let data = try RecordingJournalCoding.makeEncoder().encode(manifest)
-        let temporaryURL = targetURL.deletingLastPathComponent()
-            .appendingPathComponent(".manifest.\(manifest.generation).\(UUID().uuidString).tmp")
-        let descriptor = Darwin.open(
-            temporaryURL.path,
-            O_WRONLY | O_CREAT | O_EXCL,
-            mode_t(0o600)
+        try manifestWriter.write(
+            data,
+            manifest.generation,
+            targetURL,
+            fileManager
         )
-        guard descriptor >= 0 else {
-            throw RecordingJournalStoreError.systemCall("open manifest temp", errno)
-        }
-        var descriptorOpen = true
-        defer {
-            if descriptorOpen { Darwin.close(descriptor) }
-            try? fileManager.removeItem(at: temporaryURL)
-        }
-
-        try RecordingJournalDurability.writeAll(data, to: descriptor)
-        try RecordingJournalDurability.fullSync(descriptor)
-        guard Darwin.close(descriptor) == 0 else {
-            descriptorOpen = false
-            throw RecordingJournalStoreError.systemCall("close manifest temp", errno)
-        }
-        descriptorOpen = false
-
-        guard Darwin.rename(temporaryURL.path, targetURL.path) == 0 else {
-            throw RecordingJournalStoreError.systemCall("rename manifest", errno)
-        }
-        try RecordingJournalDurability.syncDirectory(targetURL.deletingLastPathComponent())
     }
 
     private func manifestMatchesSegmentedCreateRequest(

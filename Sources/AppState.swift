@@ -1567,6 +1567,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var activeRecordingCalendarSnapshot: RecordingCalendarSnapshot?
     private var activeAudioInputID: String?
     private var activeInputSwitchToken: UUID?
+    private var isActiveInputSwitchPhysicalStopInProgress = false
     private var isCancelConfirmationShowing = false
     private var overlayTranscriptionID: UUID = UUID()
     private var foregroundTranscriptionJobID: UUID?
@@ -1592,6 +1593,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let pipelineHistoryStore = PipelineHistoryStore()
     private let recordingJournalStore: RecordingJournalStore
     private var activeSegmentedJournalController: SegmentedRecordingJournalController?
+    private var activeRecordingStorageFailureID: UUID?
     private let recordingJournalFinalizationQueue = DispatchQueue(
         label: "com.woosublee.quill.recording-journal.finalization",
         qos: .userInitiated
@@ -2889,10 +2891,224 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
         let controller = try SegmentedRecordingJournalController(
             request: request,
-            store: recordingJournalStore
+            store: recordingJournalStore,
+            onTerminalPersistenceFailure: { [weak self] sourceFailure in
+                Task { @MainActor [weak self] in
+                    self?.handleRecordingJournalPersistenceFailure(sourceFailure)
+                }
+            },
+            makeWriter: { try RecordingPCMJournalWriter(session: $0, store: $1) }
         )
         activeSegmentedJournalController = controller
         return controller
+    }
+
+    @MainActor
+    private func handleRecordingJournalPersistenceFailure(
+        _ sourceFailure: RecordingJournalSourcePersistenceFailure
+    ) {
+        guard isRecording,
+              activeRecordingTriggerMode != nil,
+              let controller = activeSegmentedJournalController,
+              controller.recordingID == sourceFailure.recordingID,
+              activeRecordingStorageFailureID == nil else {
+            return
+        }
+        let physicalStopInProgress = isActiveInputSwitchPhysicalStopInProgress
+        prepareForRecordingJournalPersistenceFailure(sourceFailure)
+        if physicalStopInProgress { return }
+
+        let inputID = activeAudioInputID ?? selectedMicrophoneID
+        stopPhysicalAudioRecorder(inputID: inputID) { [weak self] temporaryURLs in
+            guard let self else {
+                for url in temporaryURLs { try? FileManager.default.removeItem(at: url) }
+                return
+            }
+            self.finishRecordingAfterJournalPersistenceFailure(
+                controller: controller,
+                sourceFailure: sourceFailure,
+                temporaryURLs: temporaryURLs
+            )
+        }
+    }
+
+    @MainActor
+    private func handleRecordingJournalPersistenceFailure(
+        _ sourceFailure: RecordingJournalSourcePersistenceFailure,
+        alreadyStoppedTemporaryURLs temporaryURLs: [URL]
+    ) {
+        guard isRecording,
+              activeRecordingTriggerMode != nil,
+              let controller = activeSegmentedJournalController,
+              controller.recordingID == sourceFailure.recordingID,
+              activeRecordingStorageFailureID == nil else {
+            for url in temporaryURLs { try? FileManager.default.removeItem(at: url) }
+            return
+        }
+        prepareForRecordingJournalPersistenceFailure(sourceFailure)
+        finishRecordingAfterJournalPersistenceFailure(
+            controller: controller,
+            sourceFailure: sourceFailure,
+            temporaryURLs: temporaryURLs
+        )
+    }
+
+    @MainActor
+    private func prepareForRecordingJournalPersistenceFailure(
+        _ sourceFailure: RecordingJournalSourcePersistenceFailure
+    ) {
+        activeRecordingStorageFailureID = sourceFailure.recordingID
+        detachSegmentedJournalSinks()
+        activeInputSwitchToken = nil
+        isActiveInputSwitchPhysicalStopInProgress = false
+        cancelPendingShortcutStart()
+        cancelRecordingInitializationTimer()
+        clearAudioRecorderCallbacks()
+        audioLevelCancellable?.cancel()
+        audioLevelCancellable = nil
+        contextCaptureTask?.cancel()
+        contextCaptureTask = nil
+        capturedContext = nil
+        liveTranscriber?.cancel()
+        liveTranscriber = nil
+        tearDownRealtimeService()
+        shortcutSessionController.reset()
+        activeRecordingTriggerMode = nil
+        currentSessionIntent = .dictation
+        activeRecordingStartedAt = nil
+        activeRecordingCalendarSnapshot = nil
+        isRecording = false
+        restoreAudioInterruptionIfNeeded()
+        syncCriticalDictationActivity()
+
+        let message = localizedCatalogString(
+            sourceFailure.failure.reason.overlayLocalizationKey
+        )
+        statusText = localizedCatalogString(
+            sourceFailure.failure.reason.titleLocalizationKey
+        )
+        errorMessage = message
+        overlayManager.showRecordingNotice(
+            message,
+            reminderFrame: meetingReminderOverlayManager.visibleOverlayFrame
+        )
+    }
+
+    private func finishRecordingAfterJournalPersistenceFailure(
+        controller: SegmentedRecordingJournalController,
+        sourceFailure: RecordingJournalSourcePersistenceFailure,
+        temporaryURLs: [URL]
+    ) {
+        for url in temporaryURLs {
+            try? FileManager.default.removeItem(at: url)
+        }
+        recordingJournalFinalizationQueue.async {
+            let result = self.recoverRecordingAfterJournalPersistenceFailure(
+                controller: controller
+            )
+            Task { @MainActor [weak self] in
+                self?.completeRecordingStorageFailureRecovery(
+                    result,
+                    sourceFailure: sourceFailure
+                )
+            }
+        }
+    }
+
+    private func recoverRecordingAfterJournalPersistenceFailure(
+        controller: SegmentedRecordingJournalController
+    ) -> Result<RecoveredRecordingArtifact, Error> {
+        do {
+            _ = try controller.closeAfterPersistenceFailure()
+            let artifact = try SegmentedRecordingArtifactFinalizer(
+                store: recordingJournalStore,
+                mixdownService: AudioMixdownService()
+            ).finalizeAndPromote(recordingID: controller.recordingID)
+            let manifest = try recordingJournalStore.loadManifest(
+                recordingID: controller.recordingID
+            )
+            return .success(RecoveredRecordingArtifact(
+                recordingID: artifact.recordingID,
+                audioURL: artifact.destinationURL,
+                promotion: artifact.promotion,
+                manifest: manifest,
+                mode: artifact.mode
+            ))
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    @MainActor
+    private func completeRecordingStorageFailureRecovery(
+        _ result: Result<RecoveredRecordingArtifact, Error>,
+        sourceFailure: RecordingJournalSourcePersistenceFailure
+    ) {
+        defer {
+            activeSegmentedJournalController = nil
+            activeRecordingID = nil
+            activeRecordingStorageFailureID = nil
+            cleanupActiveAudioRecordersIfIdle()
+            restoreAudioInterruptionIfNeeded()
+            refreshAvailableMicrophonesIfNeeded()
+        }
+
+        switch result {
+        case .success(let recovered):
+            if let liveNoteID = currentRecordingLiveNoteID {
+                currentRecordingLiveNoteID = nil
+                pipelineHistory.removeAll { $0.id == liveNoteID }
+                if let deletedAssets = try? pipelineHistoryStore.delete(id: liveNoteID) {
+                    Self.deleteStoredFiles(deletedAssets)
+                }
+            }
+            do {
+                let removedAssets = try RecordingRecoveryHistory(
+                    journalStore: recordingJournalStore,
+                    historyStore: pipelineHistoryStore
+                ).persist(recovered, maxCount: maxPipelineHistoryCount)
+                for assets in removedAssets {
+                    Self.deleteStoredFiles(assets)
+                }
+                if let item = pipelineHistoryStore.loadAllHistory().first(where: {
+                    $0.id == recovered.recordingID
+                }), item.isIncompleteTranscription {
+                    try pipelineHistoryStore.update(
+                        item.markInterruptedBeforeCompletion()
+                    )
+                }
+                pipelineHistory = Self.markInterruptedRecoveryPlaceholders(
+                    in: pipelineHistoryStore.loadAllHistory(),
+                    store: pipelineHistoryStore
+                )
+                let context = RecoveredRecordingContext(
+                    mode: recovered.mode,
+                    interruptionReason: recovered.interruptionReason
+                )
+                statusText = localizedCatalogString(context.titleLocalizationKey)
+                errorMessage = context.localizedDescription()
+            } catch {
+                showRecordingStorageRecoveryFailure(error)
+            }
+        case .failure(let error):
+            showRecordingStorageRecoveryFailure(error)
+        }
+    }
+
+    @MainActor
+    private func showRecordingStorageRecoveryFailure(_ error: Error) {
+        os_log(
+            .error,
+            log: recordingLog,
+            "recording storage recovery failed: %{public}@",
+            error.localizedDescription
+        )
+        let message = localizedCatalogString(
+            "Free up space or restore storage access, then relaunch Quill to recover the audio."
+        )
+        statusText = localizedCatalogString("Error")
+        errorMessage = message
+        overlayManager.showError(message)
     }
 
     @MainActor
@@ -2972,6 +3188,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         activeSegmentedJournalController = nil
         activeRecordingID = nil
         activeInputSwitchToken = nil
+        isActiveInputSwitchPhysicalStopInProgress = false
         recordingJournalFinalizationQueue.async {
             do {
                 try controller.stopAndClose()
@@ -3009,6 +3226,24 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     }
                 }
             } catch {
+                if controller.terminalPersistenceFailure != nil {
+                    let result = self.recoverRecordingAfterJournalPersistenceFailure(
+                        controller: controller
+                    )
+                    DispatchQueue.main.async {
+                        for url in temporaryURLs { try? FileManager.default.removeItem(at: url) }
+                        switch result {
+                        case .success(let recovered):
+                            completion(.recoveredWithoutTranscription(recovered))
+                        case .failure(let recoveryError):
+                            completion(.preservedForRecovery(
+                                recordingID: controller.recordingID,
+                                message: recoveryError.localizedDescription
+                            ))
+                        }
+                    }
+                    return
+                }
                 os_log(
                     .error,
                     log: recordingLog,
@@ -3030,6 +3265,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func cancelActiveAudioRecorder() {
         let inputID = activeAudioInputID ?? selectedMicrophoneID
         activeInputSwitchToken = nil
+        isActiveInputSwitchPhysicalStopInProgress = false
         detachSegmentedJournalSinks()
         cancelPhysicalAudioRecorder(inputID: inputID) { [weak self] in
             self?.discardActiveSegmentedJournal()
@@ -3042,6 +3278,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         activeSegmentedJournalController = nil
         activeRecordingID = nil
         activeInputSwitchToken = nil
+        isActiveInputSwitchPhysicalStopInProgress = false
         discardSegmentedJournal(controller)
     }
 
@@ -3067,6 +3304,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         activeSegmentedJournalController = nil
         activeRecordingID = nil
         activeInputSwitchToken = nil
+        isActiveInputSwitchPhysicalStopInProgress = false
         if let controller {
             try? controller.preserveForRecovery()
         }
@@ -3222,6 +3460,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         let switchToken = UUID()
         activeInputSwitchToken = switchToken
+        isActiveInputSwitchPhysicalStopInProgress = true
         liveTranscriber = nil
         tearDownRealtimeService()
         setActiveRecorderPCMHandler(nil)
@@ -3233,8 +3472,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 for url in temporaryURLs { try? FileManager.default.removeItem(at: url) }
                 return
             }
+            self.isActiveInputSwitchPhysicalStopInProgress = false
             guard self.activeInputSwitchToken == switchToken,
                   self.isRecording else {
+                if self.activeRecordingStorageFailureID == controller.recordingID,
+                   let sourceFailure = controller.terminalPersistenceFailure {
+                    self.finishRecordingAfterJournalPersistenceFailure(
+                        controller: controller,
+                        sourceFailure: sourceFailure,
+                        temporaryURLs: temporaryURLs
+                    )
+                    return
+                }
                 for url in temporaryURLs { try? FileManager.default.removeItem(at: url) }
                 return
             }
@@ -3274,6 +3523,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             guard self.activeInputSwitchToken == switchToken,
                                   self.isRecording else { return }
                             self.activeInputSwitchToken = nil
+                            self.isActiveInputSwitchPhysicalStopInProgress = false
                             self.audioLevelCancellable = self.activeRecorderAudioLevelPublisher(
                                 inputID: newInputID
                             )
@@ -3292,8 +3542,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     }
                 }
             } catch {
+                if let sourceFailure = controller.terminalPersistenceFailure {
+                    self.handleRecordingJournalPersistenceFailure(
+                        sourceFailure,
+                        alreadyStoppedTemporaryURLs: temporaryURLs
+                    )
+                    return
+                }
                 for url in temporaryURLs { try? FileManager.default.removeItem(at: url) }
                 self.activeInputSwitchToken = nil
+                self.isActiveInputSwitchPhysicalStopInProgress = false
                 self.preserveActiveSegmentedJournalForRecovery()
                 self.handleRecordingFailure(error)
             }
@@ -3307,6 +3565,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     ) {
         guard activeInputSwitchToken == switchToken, isRecording else { return }
         activeInputSwitchToken = nil
+        isActiveInputSwitchPhysicalStopInProgress = false
         errorMessage = formattedRecordingStartError(error)
         overlayManager.showRecordingNotice(
             localizedCatalogString("Failed to switch audio input. Saving the recorded audio."),
@@ -6000,6 +6259,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func stopAndTranscribe() {
+        guard activeRecordingStorageFailureID == nil else { return }
         cancelPendingShortcutStart()
         cancelRecordingInitializationTimer()
         shortcutSessionController.reset()

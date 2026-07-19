@@ -11,6 +11,7 @@ struct NoteTitleResolutionTests {
         testAppliedCalendarTitleKeepsWinningWhileTranscribing()
         testCalendarAppliedTitleIncludesRecordingDate()
         testRecoveredRecordingTitlesNameAvailableSource()
+        testStorageInterruptionReasonWinsRecoveredTitle()
         print("NoteTitleResolutionTests passed")
     }
 
@@ -75,6 +76,26 @@ struct NoteTitleResolutionTests {
                 transcript: "",
                 calendarMatch: nil,
                 postProcessingStatus: mode.recoveredStatus
+            )
+            assert(NoteTitleResolver.displayTitle(for: recovered) == expected)
+        }
+    }
+
+    private static func testStorageInterruptionReasonWinsRecoveredTitle() {
+        let cases: [(RecordingInterruptionReason, String)] = [
+            (.storageFull, "Recording stopped: storage full"),
+            (.permissionDenied, "Recording stopped: storage unavailable"),
+            (.journalIOFailure, "Recording stopped: save error")
+        ]
+        for (reason, expected) in cases {
+            let context = RecoveredRecordingContext(
+                mode: .partial,
+                interruptionReason: reason
+            )
+            let recovered = item(
+                transcript: "",
+                calendarMatch: nil,
+                postProcessingStatus: context.recoveredStatus
             )
             assert(NoteTitleResolver.displayTitle(for: recovered) == expected)
         }

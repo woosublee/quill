@@ -11,9 +11,24 @@ struct SegmentedRecordingJournalSegmentHandle {
     let systemAudioSink: (any NormalizedPCM16Sink)?
 }
 
+struct RecordingJournalSourcePersistenceFailure: Error, Equatable {
+    let recordingID: UUID
+    let segmentSequence: Int
+    let sourceID: UUID?
+    let sourceKind: RecordingJournalSourceKind?
+    let failure: RecordingJournalPersistenceFailure
+}
+
+struct RecordingJournalFailureCloseResult: Equatable {
+    let recordingID: UUID
+    let interruptionReason: RecordingInterruptionReason
+    let closeFailures: [RecordingJournalSourcePersistenceFailure]
+}
+
 final class SegmentedRecordingJournalController {
     private enum State {
         case recording
+        case persistenceFailed
         case stopped
         case recoverable
         case discarded
@@ -56,6 +71,13 @@ final class SegmentedRecordingJournalController {
     private var checkpointTimer: DispatchSourceTimer?
     private var state: State = .recording
     private var didReportCheckpointFailure = false
+    private let callbackQueue: DispatchQueue
+    private let onTerminalPersistenceFailure: (
+        RecordingJournalSourcePersistenceFailure
+    ) -> Void
+    private let terminalFailureLock = NSLock()
+    private var terminalFailure: RecordingJournalSourcePersistenceFailure?
+    private var failureCloseResult: RecordingJournalFailureCloseResult?
 
     convenience init(
         request: SegmentedRecordingJournalCreateRequest,
@@ -64,13 +86,17 @@ final class SegmentedRecordingJournalController {
         try self.init(
             request: request,
             store: store,
-            makeWriter: RecordingPCMJournalWriter.init
+            makeWriter: { try RecordingPCMJournalWriter(session: $0, store: $1) }
         )
     }
 
     init(
         request: SegmentedRecordingJournalCreateRequest,
         store: RecordingJournalStore,
+        callbackQueue: DispatchQueue = .main,
+        onTerminalPersistenceFailure: @escaping (
+            RecordingJournalSourcePersistenceFailure
+        ) -> Void = { _ in },
         makeWriter: @escaping (
             RecordingJournalSession,
             RecordingJournalStore
@@ -100,8 +126,11 @@ final class SegmentedRecordingJournalController {
         self.store = store
         self.monotonicAnchorNanoseconds = request.monotonicAnchorNanoseconds
         self.makeWriter = makeWriter
+        self.callbackQueue = callbackQueue
+        self.onTerminalPersistenceFailure = onTerminalPersistenceFailure
         self.segment = activeSegment
         self.lastHandle = activeSegment.handle
+        installPersistenceFailureHandlers(on: activeSegment)
     }
 
     deinit {
@@ -111,6 +140,10 @@ final class SegmentedRecordingJournalController {
 
     var activeSegment: SegmentedRecordingJournalSegmentHandle {
         lifecycleQueue.sync { lastHandle }
+    }
+
+    var terminalPersistenceFailure: RecordingJournalSourcePersistenceFailure? {
+        claimedTerminalFailure()
     }
 
     func startCheckpointing(
@@ -131,6 +164,10 @@ final class SegmentedRecordingJournalController {
                 do {
                     try self.checkpointLocked()
                 } catch {
+                    self.handlePersistenceErrorIfNeeded(error)
+                    if self.claimedTerminalFailure() != nil {
+                        return
+                    }
                     guard !self.didReportCheckpointFailure else { return }
                     self.didReportCheckpointFailure = true
                     callbackQueue.async { onFirstFailure(error) }
@@ -142,11 +179,20 @@ final class SegmentedRecordingJournalController {
     }
 
     func checkpoint() throws {
+        guard claimedTerminalFailure() == nil else {
+            throw SegmentedRecordingJournalControllerError.controllerClosed
+        }
         try lifecycleQueue.sync {
-            guard case .recording = state else {
+            guard claimedTerminalFailure() == nil,
+                  case .recording = state else {
                 throw SegmentedRecordingJournalControllerError.controllerClosed
             }
-            try checkpointLocked()
+            do {
+                try checkpointLocked()
+            } catch {
+                handlePersistenceErrorIfNeeded(error)
+                throw error
+            }
         }
     }
 
@@ -154,19 +200,38 @@ final class SegmentedRecordingJournalController {
         segmentID: UUID,
         sources: [RecordingJournalSegmentSourceRequest]
     ) throws -> SegmentedRecordingJournalSegmentHandle {
-        try lifecycleQueue.sync {
-            guard case .recording = state, let currentSegment = segment else {
+        guard claimedTerminalFailure() == nil else {
+            throw SegmentedRecordingJournalControllerError.controllerClosed
+        }
+        return try lifecycleQueue.sync {
+            guard claimedTerminalFailure() == nil,
+                  case .recording = state,
+                  let currentSegment = segment else {
                 throw SegmentedRecordingJournalControllerError.controllerClosed
             }
-            try drainAndCommitLocked(currentSegment)
+            do {
+                try drainAndCommitLocked(currentSegment)
+            } catch {
+                handlePersistenceErrorIfNeeded(error)
+                throw error
+            }
             segment = nil
 
-            let session = try store.appendSegment(
-                recordingID: recordingID,
-                segmentID: segmentID,
-                sequence: currentSegment.sequence + 1,
-                sources: sources
-            )
+            let session: RecordingJournalSegmentSession
+            do {
+                session = try store.appendSegment(
+                    recordingID: recordingID,
+                    segmentID: segmentID,
+                    sequence: currentSegment.sequence + 1,
+                    sources: sources
+                )
+            } catch {
+                handlePersistenceFailureIfNeeded(
+                    error,
+                    segmentSequence: currentSegment.sequence
+                )
+                throw error
+            }
             do {
                 let next = try Self.makeActiveSegment(
                     session: session,
@@ -174,6 +239,7 @@ final class SegmentedRecordingJournalController {
                     monotonicAnchorNanoseconds: monotonicAnchorNanoseconds,
                     makeWriter: makeWriter
                 )
+                installPersistenceFailureHandlers(on: next)
                 segment = next
                 lastHandle = next.handle
                 return next.handle
@@ -190,24 +256,86 @@ final class SegmentedRecordingJournalController {
     }
 
     func stopAndClose() throws {
+        guard claimedTerminalFailure() == nil else {
+            throw SegmentedRecordingJournalControllerError.controllerClosed
+        }
         try lifecycleQueue.sync {
+            guard claimedTerminalFailure() == nil else {
+                throw SegmentedRecordingJournalControllerError.controllerClosed
+            }
             switch state {
             case .stopped:
                 return
-            case .recoverable, .discarded:
+            case .persistenceFailed, .recoverable, .discarded:
                 throw SegmentedRecordingJournalControllerError.controllerClosed
             case .recording:
                 cancelCheckpointTimerLocked()
                 if let segment {
-                    try drainAndCommitLocked(segment)
+                    do {
+                        try drainAndCommitLocked(segment)
+                    } catch {
+                        handlePersistenceErrorIfNeeded(error)
+                        throw error
+                    }
                     self.segment = nil
                 }
-                _ = try store.transition(
-                    recordingID: recordingID,
-                    to: .stopping
-                )
+                do {
+                    _ = try store.transition(
+                        recordingID: recordingID,
+                        to: .stopping
+                    )
+                } catch {
+                    handlePersistenceFailureIfNeeded(error, segmentSequence: lastHandle.sequence)
+                    throw error
+                }
                 state = .stopped
             }
+        }
+    }
+
+    func closeAfterPersistenceFailure() throws -> RecordingJournalFailureCloseResult {
+        try lifecycleQueue.sync {
+            if let failureCloseResult {
+                return failureCloseResult
+            }
+            guard let terminalFailure = claimedTerminalFailure() else {
+                throw SegmentedRecordingJournalControllerError.controllerClosed
+            }
+            cancelCheckpointTimerLocked()
+            var commits: [UUID: RecordingJournalSourceCommit] = [:]
+            var closeFailures: [RecordingJournalSourcePersistenceFailure] = []
+            if let segment {
+                for (kind, source) in segment.sourcesByKind {
+                    let closeResult = source.writer.closeAfterPersistenceFailure()
+                    if let commit = closeResult.commit {
+                        commits[source.id] = commit
+                    }
+                    if let failure = closeResult.failure,
+                       failure != terminalFailure.failure {
+                        closeFailures.append(RecordingJournalSourcePersistenceFailure(
+                            recordingID: recordingID,
+                            segmentSequence: segment.sequence,
+                            sourceID: source.id,
+                            sourceKind: kind,
+                            failure: failure
+                        ))
+                    }
+                }
+            }
+            _ = try store.markRecoverableAfterPersistenceFailure(
+                recordingID: recordingID,
+                commitsBySourceID: commits,
+                interruptionReason: terminalFailure.failure.reason
+            )
+            self.segment = nil
+            state = .recoverable
+            let result = RecordingJournalFailureCloseResult(
+                recordingID: recordingID,
+                interruptionReason: terminalFailure.failure.reason,
+                closeFailures: closeFailures
+            )
+            failureCloseResult = result
+            return result
         }
     }
 
@@ -216,7 +344,7 @@ final class SegmentedRecordingJournalController {
             switch state {
             case .recoverable, .stopped:
                 return
-            case .discarded:
+            case .persistenceFailed, .discarded:
                 throw SegmentedRecordingJournalControllerError.controllerClosed
             case .recording:
                 cancelCheckpointTimerLocked()
@@ -243,7 +371,7 @@ final class SegmentedRecordingJournalController {
             switch state {
             case .discarded:
                 return
-            case .stopped:
+            case .persistenceFailed, .stopped:
                 throw SegmentedRecordingJournalControllerError.controllerClosed
             case .recording:
                 cancelCheckpointTimerLocked()
@@ -292,6 +420,78 @@ final class SegmentedRecordingJournalController {
             id: session.segmentID,
             sequence: session.sequence,
             sourcesByKind: sourcesByKind
+        )
+    }
+
+    private func installPersistenceFailureHandlers(on segment: ActiveSegment) {
+        for (kind, source) in segment.sourcesByKind {
+            source.writer.setPersistenceFailureHandler { [weak self] failure in
+                self?.handlePersistenceFailure(
+                    failure,
+                    segmentSequence: segment.sequence,
+                    sourceID: source.id,
+                    sourceKind: kind
+                )
+            }
+        }
+    }
+
+    private func handlePersistenceFailure(
+        _ failure: RecordingJournalPersistenceFailure,
+        segmentSequence: Int,
+        sourceID: UUID?,
+        sourceKind: RecordingJournalSourceKind?
+    ) {
+        let sourceFailure = RecordingJournalSourcePersistenceFailure(
+            recordingID: recordingID,
+            segmentSequence: segmentSequence,
+            sourceID: sourceID,
+            sourceKind: sourceKind,
+            failure: failure
+        )
+        let claimed = terminalFailureLock.withLock { () -> Bool in
+            guard terminalFailure == nil else { return false }
+            terminalFailure = sourceFailure
+            return true
+        }
+        guard claimed else { return }
+        lifecycleQueue.async { [weak self] in
+            guard let self else { return }
+            self.cancelCheckpointTimerLocked()
+            if case .recording = self.state {
+                self.state = .persistenceFailed
+            }
+        }
+        callbackQueue.async { [onTerminalPersistenceFailure] in
+            onTerminalPersistenceFailure(sourceFailure)
+        }
+    }
+
+    private func claimedTerminalFailure() -> RecordingJournalSourcePersistenceFailure? {
+        terminalFailureLock.withLock { terminalFailure }
+    }
+
+    private func handlePersistenceErrorIfNeeded(_ error: Error) {
+        guard let segment else { return }
+        handlePersistenceFailureIfNeeded(
+            error,
+            segmentSequence: segment.sequence
+        )
+    }
+
+    private func handlePersistenceFailureIfNeeded(
+        _ error: Error,
+        segmentSequence: Int
+    ) {
+        guard let failure = RecordingJournalPersistenceFailure
+            .classifyIfPersistenceFailure(error, operation: .writeManifest) else {
+            return
+        }
+        handlePersistenceFailure(
+            failure,
+            segmentSequence: segmentSequence,
+            sourceID: nil,
+            sourceKind: nil
         )
     }
 
