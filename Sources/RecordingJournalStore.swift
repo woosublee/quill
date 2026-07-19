@@ -123,65 +123,27 @@ struct RecordingJournalManifestWriter {
 }
 
 enum RecordingCanonicalWAV {
-    static let headerByteCount = 44
+    static let headerByteCount = Int(CanonicalPCM16WAV.headerByteCount)
 
     static func header(dataByteCount: UInt32) -> Data {
-        var data = Data()
-        data.appendASCII("RIFF")
-        data.appendUInt32LE(36 + dataByteCount)
-        data.appendASCII("WAVE")
-        data.appendASCII("fmt ")
-        data.appendUInt32LE(16)
-        data.appendUInt16LE(1)
-        data.appendUInt16LE(1)
-        data.appendUInt32LE(RecordingPCMFormat.canonical.sampleRate)
-        data.appendUInt32LE(
-            RecordingPCMFormat.canonical.sampleRate
-                * UInt32(RecordingPCMFormat.canonical.bytesPerFrame)
-        )
-        data.appendUInt16LE(RecordingPCMFormat.canonical.bytesPerFrame)
-        data.appendUInt16LE(RecordingPCMFormat.canonical.bitsPerSample)
-        data.appendASCII("data")
-        data.appendUInt32LE(dataByteCount)
-        return data
+        CanonicalPCM16WAV.header(dataByteCount: dataByteCount)
     }
 
     static func dataByteCount(in data: Data) -> UInt32? {
-        guard data.count >= headerByteCount,
-              String(bytes: data[0..<4], encoding: .ascii) == "RIFF",
-              String(bytes: data[8..<12], encoding: .ascii) == "WAVE",
-              String(bytes: data[12..<16], encoding: .ascii) == "fmt ",
-              data.readUInt32LE(at: 16) == 16,
-              data.readUInt16LE(at: 20) == 1,
-              data.readUInt16LE(at: 22) == RecordingPCMFormat.canonical.channelCount,
-              data.readUInt32LE(at: 24) == RecordingPCMFormat.canonical.sampleRate,
-              data.readUInt16LE(at: 32) == RecordingPCMFormat.canonical.bytesPerFrame,
-              data.readUInt16LE(at: 34) == RecordingPCMFormat.canonical.bitsPerSample,
-              String(bytes: data[36..<40], encoding: .ascii) == "data" else {
-            return nil
-        }
-        return data.readUInt32LE(at: 40)
+        CanonicalPCM16WAV.declaredDataByteCount(in: data)
     }
 
     static func validateFile(at url: URL) throws -> RecordingPromotion {
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        let header = try handle.read(upToCount: headerByteCount) ?? Data()
-        guard let declaredDataBytes = dataByteCount(in: header) else {
+        do {
+            let layout = try CanonicalPCM16WAV.validateFile(at: url)
+            return RecordingPromotion(
+                fileName: url.lastPathComponent,
+                dataByteCount: layout.dataByteCount,
+                frameCount: layout.frameCount
+            )
+        } catch {
             throw RecordingJournalStoreError.invalidSourceFile
         }
-        let physicalSize = try RecordingJournalDurability.fileSize(at: url)
-        guard physicalSize >= UInt64(headerByteCount),
-              physicalSize - UInt64(headerByteCount) == UInt64(declaredDataBytes),
-              declaredDataBytes > 0,
-              declaredDataBytes % UInt32(RecordingPCMFormat.canonical.bytesPerFrame) == 0 else {
-            throw RecordingJournalStoreError.invalidSourceFile
-        }
-        return RecordingPromotion(
-            fileName: url.lastPathComponent,
-            dataByteCount: UInt64(declaredDataBytes),
-            frameCount: UInt64(declaredDataBytes) / UInt64(RecordingPCMFormat.canonical.bytesPerFrame)
-        )
     }
 }
 

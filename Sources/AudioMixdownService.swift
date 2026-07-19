@@ -139,7 +139,7 @@ public struct AudioMixdownService {
         )
 
         do {
-            try wavHeader(dataByteCount: 0).write(to: outputURL, options: .atomic)
+            try CanonicalPCM16WAV.header(dataByteCount: 0).write(to: outputURL, options: .atomic)
             let outputHandle = try FileHandle(forWritingTo: outputURL)
             defer { try? outputHandle.close() }
             try outputHandle.seekToEnd()
@@ -171,7 +171,7 @@ public struct AudioMixdownService {
             }
             try outputHandle.seek(toOffset: 0)
             try outputHandle.write(
-                contentsOf: wavHeader(dataByteCount: outputDataByteCount)
+                contentsOf: CanonicalPCM16WAV.header(dataByteCount: outputDataByteCount)
             )
             try validateOutput(
                 at: outputURL,
@@ -302,9 +302,14 @@ public struct AudioMixdownService {
         at outputURL: URL,
         expectedFrameCount: UInt64
     ) throws {
-        let validationReader = try StreamingPCM16WAVReader(url: outputURL)
-        defer { try? validationReader.close() }
-        guard validationReader.frameCount == expectedFrameCount else {
+        do {
+            let layout = try CanonicalPCM16WAV.validateFile(at: outputURL)
+            guard layout.frameCount == expectedFrameCount else {
+                throw AudioMixdownServiceError.invalidWAVFile
+            }
+        } catch let error as AudioMixdownServiceError {
+            throw error
+        } catch {
             throw AudioMixdownServiceError.invalidWAVFile
         }
     }
@@ -323,12 +328,11 @@ public struct AudioMixdownService {
     private func validatedOutputDataByteCount(
         frameCount: UInt64
     ) throws -> UInt32 {
-        let maximumDataByteCount = UInt64(UInt32.max - 36)
-        let bytesPerFrame = UInt64(MemoryLayout<Int16>.size)
-        guard frameCount <= maximumDataByteCount / bytesPerFrame else {
+        do {
+            return try CanonicalPCM16WAV.dataByteCount(forFrameCount: frameCount)
+        } catch CanonicalPCM16WAVError.outputTooLarge {
             throw AudioMixdownServiceError.outputTooLarge
         }
-        return UInt32(frameCount * bytesPerFrame)
     }
 
     private func systemAudioGain(
@@ -368,25 +372,6 @@ public struct AudioMixdownService {
 
     private func clampedInt16(_ sample: Int) -> Int16 {
         Int16(max(Int(Int16.min), min(Int(Int16.max), sample)))
-    }
-
-    /// 44-byte canonical header for 16 kHz mono 16-bit PCM WAV.
-    private func wavHeader(dataByteCount: UInt32) -> Data {
-        var data = Data()
-        data.appendASCII("RIFF")
-        data.appendUInt32LE(36 + dataByteCount)
-        data.appendASCII("WAVE")
-        data.appendASCII("fmt ")
-        data.appendUInt32LE(16)
-        data.appendUInt16LE(1)
-        data.appendUInt16LE(1)
-        data.appendUInt32LE(16_000)
-        data.appendUInt32LE(16_000 * 2)
-        data.appendUInt16LE(2)
-        data.appendUInt16LE(16)
-        data.appendASCII("data")
-        data.appendUInt32LE(dataByteCount)
-        return data
     }
 
 }
