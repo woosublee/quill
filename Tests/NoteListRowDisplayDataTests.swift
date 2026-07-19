@@ -22,6 +22,7 @@ struct NoteListRowDisplayDataTests {
         testFailurePreviewHandlesMissingSpaceAfterPrefix()
         testRecoveredRecordingUsesFriendlyStatusAndPreview()
         testDegradedRecoveredRecordingNamesAvailableSource()
+        testStorageInterruptionPreviewCombinesCauseAndMode()
         testTranscribingTitleAndEmptyPreview()
         testRetryingItemHidesExistingPreview()
         print("NoteListRowDisplayDataTests passed")
@@ -294,6 +295,40 @@ struct NoteListRowDisplayDataTests {
             assert(data.displayTitle == title)
             assert(data.preview == preview)
         }
+    }
+
+    private static func testStorageInterruptionPreviewCombinesCauseAndMode() {
+        let complete = RecoveredRecordingContext(
+            mode: .complete,
+            interruptionReason: .storageFull
+        )
+        let completeData = NoteListRowDisplayData(
+            item: historyItem(
+                transcript: "",
+                postProcessingStatus: complete.recoveredStatus
+            ),
+            retryingIDs: []
+        )
+        assert(completeData.displayTitle == "Recording stopped: storage full")
+        assert(
+            completeData.preview == "Quill stopped recording because storage was full. Audio saved before the interruption is available for playback or transcription."
+        )
+
+        let partial = RecoveredRecordingContext(
+            mode: .partial,
+            interruptionReason: .storageFull
+        )
+        let partialData = NoteListRowDisplayData(
+            item: historyItem(
+                transcript: "",
+                postProcessingStatus: partial.recoveredStatus
+            ),
+            retryingIDs: []
+        )
+        assert(partialData.displayTitle == "Recording stopped: storage full")
+        assert(
+            partialData.preview == "Quill stopped recording because storage was full. Some parts of this recording may be missing. The recovered audio is available for playback or transcription."
+        )
     }
 
     private static func testTranscribingTitleAndEmptyPreview() {

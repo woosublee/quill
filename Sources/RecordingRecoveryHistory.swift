@@ -102,7 +102,8 @@ struct RecordingRecoveryHistory {
             contextAppName: nil,
             contextBundleIdentifier: nil,
             contextWindowTitle: nil,
-            recoveryMode: recovered.mode
+            recoveryMode: recovered.mode,
+            interruptionReason: recovered.interruptionReason
         )
     }
 

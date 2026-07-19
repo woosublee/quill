@@ -155,19 +155,22 @@ struct RecordingPromotion: Codable, Equatable {
     let frameCount: UInt64
     let recoveryMode: RecoveredRecordingMode?
     let recoveryIssues: [RecordingRecoveryIssue]?
+    let interruptionReason: RecordingInterruptionReason?
 
     init(
         fileName: String,
         dataByteCount: UInt64,
         frameCount: UInt64,
         recoveryMode: RecoveredRecordingMode? = nil,
-        recoveryIssues: [RecordingRecoveryIssue]? = nil
+        recoveryIssues: [RecordingRecoveryIssue]? = nil,
+        interruptionReason: RecordingInterruptionReason? = nil
     ) {
         self.fileName = fileName
         self.dataByteCount = dataByteCount
         self.frameCount = frameCount
         self.recoveryMode = recoveryMode
         self.recoveryIssues = recoveryIssues
+        self.interruptionReason = interruptionReason
     }
 }
 
@@ -186,6 +189,7 @@ struct RecordingJournalManifest: Codable, Equatable {
     let pipeline: RecordingPipelineSnapshot
     var promotion: RecordingPromotion?
     var historyItemID: UUID?
+    var interruptionReason: RecordingInterruptionReason? = nil
 
     func validate() throws {
         guard schemaVersion == 1 else {
@@ -304,6 +308,9 @@ struct RecordingJournalManifest: Codable, Equatable {
         }
 
         if let promotion {
+            guard promotion.interruptionReason == interruptionReason else {
+                throw RecordingJournalError.conflictingTransitionMetadata
+            }
             try Self.validateRelativeFileName(promotion.fileName)
             let (expectedBytes, overflow) = promotion.frameCount.multipliedReportingOverflow(
                 by: UInt64(pcmFormat.bytesPerFrame)
@@ -336,6 +343,7 @@ struct RecordingJournalManifest: Codable, Equatable {
         to newState: RecordingJournalState,
         promotion requestedPromotion: RecordingPromotion? = nil,
         historyItemID requestedHistoryItemID: UUID? = nil,
+        interruptionReason requestedInterruptionReason: RecordingInterruptionReason? = nil,
         now: Date
     ) throws -> RecordingJournalManifest {
         if newState == state {
@@ -343,6 +351,10 @@ struct RecordingJournalManifest: Codable, Equatable {
                 throw RecordingJournalError.conflictingTransitionMetadata
             }
             if let requestedHistoryItemID, requestedHistoryItemID != historyItemID {
+                throw RecordingJournalError.conflictingTransitionMetadata
+            }
+            if let requestedInterruptionReason,
+               requestedInterruptionReason != interruptionReason {
                 throw RecordingJournalError.conflictingTransitionMetadata
             }
             return self
@@ -369,18 +381,44 @@ struct RecordingJournalManifest: Codable, Equatable {
             guard let requestedPromotion else {
                 throw RecordingJournalError.missingTransitionMetadata(.promoted)
             }
+            guard requestedPromotion.interruptionReason == interruptionReason,
+                  requestedInterruptionReason == nil
+                    || requestedInterruptionReason == interruptionReason else {
+                throw RecordingJournalError.conflictingTransitionMetadata
+            }
             next.promotion = requestedPromotion
         case .historyStored:
             guard promotion != nil, requestedHistoryItemID == recordingID else {
                 throw RecordingJournalError.missingTransitionMetadata(.historyStored)
+            }
+            guard requestedInterruptionReason == nil
+                    || requestedInterruptionReason == interruptionReason else {
+                throw RecordingJournalError.conflictingTransitionMetadata
             }
             next.historyItemID = requestedHistoryItemID
         case .finalized:
             guard promotion != nil, historyItemID == recordingID else {
                 throw RecordingJournalError.missingTransitionMetadata(.finalized)
             }
-        case .recording, .stopping, .recoverable:
+            guard requestedInterruptionReason == nil
+                    || requestedInterruptionReason == interruptionReason else {
+                throw RecordingJournalError.conflictingTransitionMetadata
+            }
+        case .recoverable:
             guard requestedPromotion == nil, requestedHistoryItemID == nil else {
+                throw RecordingJournalError.conflictingTransitionMetadata
+            }
+            if let requestedInterruptionReason {
+                guard interruptionReason == nil
+                        || interruptionReason == requestedInterruptionReason else {
+                    throw RecordingJournalError.conflictingTransitionMetadata
+                }
+                next.interruptionReason = requestedInterruptionReason
+            }
+        case .recording, .stopping:
+            guard requestedPromotion == nil,
+                  requestedHistoryItemID == nil,
+                  requestedInterruptionReason == nil else {
                 throw RecordingJournalError.conflictingTransitionMetadata
             }
         }

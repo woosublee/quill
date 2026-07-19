@@ -91,8 +91,7 @@ struct NoteListRowDisplayData: Equatable {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
         if status == .recovered {
-            let mode = item.recoveredRecordingMode ?? .complete
-            return localizedCatalogString(mode.descriptionLocalizationKey)
+            return item.recoveredRecordingContext?.localizedDescription() ?? ""
         }
         if status == .transcribing {
             return ""

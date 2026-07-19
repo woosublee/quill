@@ -177,7 +177,8 @@ struct SegmentedRecordingArtifactFinalizer {
             dataByteCount: physicalPromotion.dataByteCount,
             frameCount: physicalPromotion.frameCount,
             recoveryMode: mode,
-            recoveryIssues: issues.isEmpty ? nil : issues
+            recoveryIssues: issues.isEmpty ? nil : issues,
+            interruptionReason: manifest.interruptionReason
         )
         _ = try store.transition(
             recordingID: recordingID,

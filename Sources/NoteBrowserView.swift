@@ -1144,14 +1144,17 @@ private struct NoteDetailView: View {
 
     private var isError: Bool { item.postProcessingStatus.hasPrefix("Error:") }
     private var isRecoveredRecording: Bool { item.isRecoveredRecording }
-    private var recoveredRecordingMode: RecoveredRecordingMode {
-        item.recoveredRecordingMode ?? .complete
+    private var recoveredRecordingContext: RecoveredRecordingContext {
+        item.recoveredRecordingContext ?? RecoveredRecordingContext(
+            mode: .complete,
+            interruptionReason: nil
+        )
     }
     private var recoveryTitle: String {
-        localizedCatalogString(recoveredRecordingMode.titleLocalizationKey)
+        localizedCatalogString(recoveredRecordingContext.titleLocalizationKey)
     }
     private var recoveryDescription: String {
-        localizedCatalogString(recoveredRecordingMode.descriptionLocalizationKey)
+        recoveredRecordingContext.localizedDescription()
     }
     private var isLiveRecording: Bool { item.postProcessingStatus == "live-recording" }
     private var canRetry: Bool { item.audioFileName != nil }

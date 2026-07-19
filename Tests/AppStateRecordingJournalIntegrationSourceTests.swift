@@ -12,6 +12,8 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         precondition(source.contains("private var activeSegmentedJournalController: SegmentedRecordingJournalController?"))
         precondition(source.contains("private var activeRecordingID: UUID?"))
         precondition(source.contains("private var activeInputSwitchToken: UUID?"))
+        precondition(source.contains("private var isActiveInputSwitchPhysicalStopInProgress = false"))
+        precondition(source.contains("private var activeRecordingStorageFailureID: UUID?"))
         precondition(!source.contains("recordingSegmentURLs"))
         precondition(!source.contains("didSwitchInputDuringRecording"))
         precondition(!source.contains("stitchedRecordingURL"))
@@ -67,14 +69,86 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         precondition(makeControllerBody.contains("SegmentedRecordingJournalCreateRequest("))
         precondition(makeControllerBody.contains("journalSourceRequests(for: inputID)"))
         precondition(makeControllerBody.contains("recordingPipelineSnapshot()"))
+        precondition(makeControllerBody.contains("onTerminalPersistenceFailure:"))
+        precondition(makeControllerBody.contains("handleRecordingJournalPersistenceFailure("))
+
+        let storageFailureBody = try functionBody(
+            named: "handleRecordingJournalPersistenceFailure",
+            in: source
+        )
+        precondition(storageFailureBody.contains("guard isRecording,"))
+        precondition(storageFailureBody.contains("activeRecordingTriggerMode != nil,"))
+        precondition(storageFailureBody.contains("let physicalStopInProgress = isActiveInputSwitchPhysicalStopInProgress"))
+        precondition(storageFailureBody.contains("if physicalStopInProgress { return }"))
+        let detachRange = try requiredRange(
+            of: "detachSegmentedJournalSinks()",
+            in: storageFailureBody
+        )
+        let tokenRange = try requiredRange(
+            of: "activeInputSwitchToken = nil",
+            in: storageFailureBody
+        )
+        let physicalStopRange = try requiredRange(
+            of: "stopPhysicalAudioRecorder(",
+            in: storageFailureBody
+        )
+        let finishFailureRange = try requiredRange(
+            of: "finishRecordingAfterJournalPersistenceFailure(",
+            in: storageFailureBody
+        )
+        precondition(detachRange.lowerBound < tokenRange.lowerBound)
+        precondition(tokenRange.lowerBound < physicalStopRange.lowerBound)
+        precondition(physicalStopRange.lowerBound < finishFailureRange.lowerBound)
+
+        let finishFailureBody = try functionBody(
+            named: "finishRecordingAfterJournalPersistenceFailure",
+            in: source
+        )
+        precondition(finishFailureBody.contains("recoverRecordingAfterJournalPersistenceFailure("))
+        precondition(finishFailureBody.contains("controller.closeAfterPersistenceFailure()") == false)
+        precondition(finishFailureBody.contains("SegmentedRecordingArtifactFinalizer(") == false)
+        precondition(finishFailureBody.contains("completeRecordingStorageFailureRecovery("))
+        let coreFailureRecoveryBody = try functionBody(
+            named: "recoverRecordingAfterJournalPersistenceFailure",
+            in: source
+        )
+        precondition(coreFailureRecoveryBody.contains("controller.closeAfterPersistenceFailure()"))
+        precondition(coreFailureRecoveryBody.contains("SegmentedRecordingArtifactFinalizer("))
+
+        let completeFailureBody = try functionBody(
+            named: "completeRecordingStorageFailureRecovery",
+            in: source
+        )
+        precondition(completeFailureBody.contains("RecordingRecoveryHistory("))
+        precondition(completeFailureBody.contains("pipelineHistoryStore.loadAllHistory()"))
+        precondition(completeFailureBody.contains("pipelineHistoryStore.delete(id:"))
+
+        let storageBodies = storageFailureBody + finishFailureBody + completeFailureBody
+        for forbidden in [
+            "stopAndTranscribe",
+            "TranscriptionService",
+            "resolveRawTranscript",
+            "PostProcessingService",
+            "resolvedTranscriptionAPIKey",
+            "provider",
+            "upload"
+        ] {
+            precondition(!storageBodies.contains(forbidden))
+        }
 
         let switchBody = try functionBody(named: "switchActiveRecordingInput", in: source)
         precondition(switchBody.contains("activeInputSwitchToken = switchToken"))
+        precondition(switchBody.contains("isActiveInputSwitchPhysicalStopInProgress = true"))
+        precondition(switchBody.contains("isActiveInputSwitchPhysicalStopInProgress = false"))
         let stopRange = try requiredRange(of: "stopPhysicalAudioRecorder(", in: switchBody)
         let switchRange = try requiredRange(of: "controller.switchSegment(", in: switchBody)
         let startRange = try requiredRange(of: "startPhysicalAudioRecorder(inputID: newInputID)", in: switchBody)
         precondition(stopRange.lowerBound < switchRange.lowerBound)
         precondition(switchRange.lowerBound < startRange.lowerBound)
+        precondition(switchBody.contains("controller.terminalPersistenceFailure"))
+        precondition(switchBody.contains("activeRecordingStorageFailureID == controller.recordingID"))
+        precondition(switchBody.contains("finishRecordingAfterJournalPersistenceFailure("))
+        precondition(switchBody.contains("alreadyStoppedTemporaryURLs: temporaryURLs"))
         precondition(!switchBody.contains("discardSingleSourceJournal"))
         precondition(!switchBody.contains("removeInflightRecording"))
 
@@ -92,10 +166,13 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         precondition(finishBody.contains("SegmentedRecordingArtifactFinalizer("))
         precondition(finishBody.contains("case .complete:"))
         precondition(finishBody.contains("case .partial:"))
+        precondition(finishBody.contains("controller.terminalPersistenceFailure"))
+        precondition(finishBody.contains("recoverRecordingAfterJournalPersistenceFailure("))
         precondition(finishBody.contains(".recoveredWithoutTranscription"))
         precondition(!finishBody.contains("temporaryCombinedFallback"))
 
         let stopAndTranscribeBody = try functionBody(named: "stopAndTranscribe", in: source)
+        precondition(stopAndTranscribeBody.contains("guard activeRecordingStorageFailureID == nil else { return }"))
         precondition(stopAndTranscribeBody.contains("case .transcribable("))
         precondition(stopAndTranscribeBody.contains("case .recoveredWithoutTranscription(let recovered):"))
         precondition(stopAndTranscribeBody.contains("persistRecoveredRecordingWithoutTranscription("))

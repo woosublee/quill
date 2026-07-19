@@ -6,6 +6,10 @@ struct RecoveredRecordingArtifact: Equatable {
     let promotion: RecordingPromotion
     let manifest: RecordingJournalManifest
     let mode: RecoveredRecordingMode
+
+    var interruptionReason: RecordingInterruptionReason? {
+        promotion.interruptionReason ?? manifest.interruptionReason
+    }
 }
 
 enum RecordingJournalRecoveryResult: Equatable {

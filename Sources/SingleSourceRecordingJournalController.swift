@@ -34,7 +34,7 @@ final class SingleSourceRecordingJournalController {
         try self.init(
             request: request,
             store: store,
-            makeWriter: RecordingPCMJournalWriter.init
+            makeWriter: { try RecordingPCMJournalWriter(session: $0, store: $1) }
         )
     }
 

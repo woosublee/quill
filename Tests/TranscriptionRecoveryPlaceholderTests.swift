@@ -5,6 +5,7 @@ struct TranscriptionRecoveryPlaceholderTests {
     static func main() {
         testPlaceholderKeepsSavedAudioReferenceForRetryAfterInterruption()
         testRecoveryModesPreserveStableStatusesAndAudio()
+        testInterruptionReasonsPreserveStableStatusesAndAudio()
         testInterruptedPlaceholderBecomesRecoveredButKeepsAudioReference()
         testImportingItemIsIncompleteAndBecomesFailedButKeepsAudioReference()
         testLiveRecordingItemIsIncompleteAndBecomesFailedWithoutRetryAudio()
@@ -117,6 +118,75 @@ struct TranscriptionRecoveryPlaceholderTests {
             assert(recovered.recoveredRecordingMode == mode)
             assert(recovered.audioFileName == "recording.wav")
         }
+    }
+
+    private static func testInterruptionReasonsPreserveStableStatusesAndAudio() {
+        let cases: [(RecoveredRecordingContext, String, String)] = [
+            (
+                .init(mode: .complete, interruptionReason: .storageFull),
+                "transcription-interrupted:storage-full",
+                "recording-recovered:storage-full"
+            ),
+            (
+                .init(mode: .partial, interruptionReason: .storageFull),
+                "transcription-interrupted:storage-full:partial",
+                "recording-recovered:storage-full:partial"
+            ),
+            (
+                .init(mode: .microphoneOnly, interruptionReason: .permissionDenied),
+                "transcription-interrupted:permission-denied:microphone-only",
+                "recording-recovered:permission-denied:microphone-only"
+            ),
+            (
+                .init(mode: .systemAudioOnly, interruptionReason: .journalIOFailure),
+                "transcription-interrupted:journal-io-failure:system-audio-only",
+                "recording-recovered:journal-io-failure:system-audio-only"
+            )
+        ]
+
+        for (context, placeholderStatus, recoveredStatus) in cases {
+            let item = PipelineHistoryItem.transcriptionRecoveryPlaceholder(
+                timestamp: Date(timeIntervalSince1970: 1_800_000_000),
+                intent: .dictation,
+                selectedText: nil,
+                capturedSelection: nil,
+                contextSummary: "",
+                contextSystemPrompt: nil,
+                contextPrompt: nil,
+                contextScreenshotDataURL: nil,
+                contextScreenshotStatus: "No screenshot",
+                systemPrompt: nil,
+                customVocabulary: "",
+                customSystemPrompt: "",
+                audioFileName: "recording.wav",
+                usedLocalTranscription: false,
+                usedContextCapture: false,
+                usedPostProcessing: false,
+                transcriptionLanguageCode: "auto",
+                localTranscriptionModelID: "local-model",
+                contextAppName: nil,
+                contextBundleIdentifier: nil,
+                contextWindowTitle: nil,
+                recoveryMode: context.mode,
+                interruptionReason: context.interruptionReason
+            )
+
+            assert(item.postProcessingStatus == placeholderStatus)
+            assert(item.isIncompleteTranscription)
+            let recovered = item.markInterruptedBeforeCompletion()
+            assert(recovered.postProcessingStatus == recoveredStatus)
+            assert(recovered.recoveredRecordingContext == context)
+            assert(recovered.recoveredRecordingMode == context.mode)
+            assert(recovered.recordingInterruptionReason == context.interruptionReason)
+            assert(recovered.audioFileName == "recording.wav")
+        }
+
+        assert(RecoveredRecordingContext.placeholderContext(
+            for: "transcription-interrupted:storage-full:partial:extra"
+        ) == nil)
+        assert(RecoveredRecordingContext.recoveredContext(
+            for: "recording-recovered:unknown"
+        ) == nil)
     }
 
     private static func testImportingItemIsIncompleteAndBecomesFailedButKeepsAudioReference() {

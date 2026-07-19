@@ -9,6 +9,9 @@ struct RecordingJournalManifestTests {
             try legacyPromotionWithoutRecoveryModeDefaultsToComplete()
             try promotionRoundTripPreservesRecoveryMode()
             try partialPromotionRoundTripPreservesRecoveryIssues()
+            try interruptedManifestAndPromotionRoundTrip()
+            try conflictingInterruptionMetadataIsRejected()
+            try promotionInterruptionReasonMustMatchManifest()
             try combinedManifestAcceptsCanonicalShape()
             try segmentedManifestAcceptsOrderedShape()
             try segmentedManifestRejectsInvalidShapes()
@@ -71,11 +74,16 @@ struct RecordingJournalManifestTests {
         guard !json.contains("recoveryMode") else {
             throw TestFailure("legacy nil recovery mode must be omitted from schema-v1 JSON")
         }
+        guard !json.contains("interruptionReason") else {
+            throw TestFailure("legacy nil interruption reason must be omitted from schema-v1 JSON")
+        }
         let decoded = try RecordingJournalCoding.makeDecoder().decode(
             RecordingJournalManifest.self,
             from: data
         )
 
+        try expectEqual(decoded.interruptionReason, nil, "legacy manifest interruption reason")
+        try expectEqual(decoded.promotion?.interruptionReason, nil, "legacy promotion interruption reason")
         try expectEqual(decoded.promotion?.recoveryMode, nil, "legacy recovery mode")
         try expectEqual(
             decoded.promotion?.resolvedRecoveryMode,
@@ -176,6 +184,90 @@ struct RecordingJournalManifestTests {
             [],
             "legacy resolved recovery issues"
         )
+    }
+
+    private static func interruptedManifestAndPromotionRoundTrip() throws {
+        var recording = try makeSegmentedManifest()
+        recording.state = .recording
+        let recoverable = try recording.transitioned(
+            to: .recoverable,
+            interruptionReason: .storageFull,
+            now: fixedDate.addingTimeInterval(1)
+        )
+        let issues = [RecordingRecoveryIssue(
+            segmentSequence: 1,
+            sourceKind: .systemAudio,
+            reason: .sourceMissing
+        )]
+        let promoted = try recoverable.transitioned(
+            to: .promoted,
+            promotion: RecordingPromotion(
+                fileName: recordingID.uuidString.lowercased() + ".wav",
+                dataByteCount: 8,
+                frameCount: 4,
+                recoveryMode: .partial,
+                recoveryIssues: issues,
+                interruptionReason: .storageFull
+            ),
+            now: fixedDate.addingTimeInterval(2)
+        )
+        let data = try RecordingJournalCoding.makeEncoder().encode(promoted)
+        let decoded = try RecordingJournalCoding.makeDecoder().decode(
+            RecordingJournalManifest.self,
+            from: data
+        )
+
+        try expectEqual(decoded.interruptionReason, .storageFull, "manifest interruption reason")
+        try expectEqual(
+            decoded.promotion?.interruptionReason,
+            .storageFull,
+            "promotion interruption reason"
+        )
+        try expectEqual(decoded.promotion?.recoveryMode, .partial, "interrupted partial mode")
+        try decoded.validate()
+    }
+
+    private static func conflictingInterruptionMetadataIsRejected() throws {
+        let recoverable = try makeManifest().transitioned(
+            to: .recoverable,
+            interruptionReason: .storageFull,
+            now: fixedDate.addingTimeInterval(1)
+        )
+
+        do {
+            _ = try recoverable.transitioned(
+                to: .recoverable,
+                interruptionReason: .permissionDenied,
+                now: fixedDate.addingTimeInterval(2)
+            )
+            throw TestFailure("conflicting interruption reason must fail")
+        } catch RecordingJournalError.conflictingTransitionMetadata {
+            // expected
+        }
+    }
+
+    private static func promotionInterruptionReasonMustMatchManifest() throws {
+        let recoverable = try makeManifest().transitioned(
+            to: .recoverable,
+            interruptionReason: .storageFull,
+            now: fixedDate.addingTimeInterval(1)
+        )
+
+        do {
+            _ = try recoverable.transitioned(
+                to: .promoted,
+                promotion: RecordingPromotion(
+                    fileName: recordingID.uuidString.lowercased() + ".wav",
+                    dataByteCount: 8,
+                    frameCount: 4,
+                    interruptionReason: .permissionDenied
+                ),
+                now: fixedDate.addingTimeInterval(2)
+            )
+            throw TestFailure("promotion reason mismatch must fail")
+        } catch RecordingJournalError.conflictingTransitionMetadata {
+            // expected
+        }
     }
 
     private static func combinedManifestAcceptsCanonicalShape() throws {
