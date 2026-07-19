@@ -139,6 +139,19 @@ struct RecordingPromotion: Codable, Equatable {
     let fileName: String
     let dataByteCount: UInt64
     let frameCount: UInt64
+    let recoveryMode: RecoveredRecordingMode?
+
+    init(
+        fileName: String,
+        dataByteCount: UInt64,
+        frameCount: UInt64,
+        recoveryMode: RecoveredRecordingMode? = nil
+    ) {
+        self.fileName = fileName
+        self.dataByteCount = dataByteCount
+        self.frameCount = frameCount
+        self.recoveryMode = recoveryMode
+    }
 }
 
 struct RecordingJournalManifest: Codable, Equatable {

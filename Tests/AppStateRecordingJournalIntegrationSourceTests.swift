@@ -40,7 +40,30 @@ struct AppStateRecordingJournalIntegrationSourceTests {
             named: "recoverRecordingJournalsBeforeHistoryLoad",
             in: source
         )
-        precondition(!startupRecoveryBody.contains("retryTranscription"))
+        for forbidden in [
+            "retryTranscription",
+            "transcribe(",
+            "processTranscript",
+            "PostProcessingService",
+            "resolvedTranscriptionAPIKey",
+            "provider",
+            "upload"
+        ] {
+            precondition(!startupRecoveryBody.contains(forbidden))
+        }
+        let initializerBody = try body(
+            startingWith: "init()",
+            in: source
+        )
+        let initializerRecovery = try requiredRange(
+            of: "recoverRecordingJournalsBeforeHistoryLoad(",
+            in: initializerBody
+        )
+        let initializerHistoryLoad = try requiredRange(
+            of: "pipelineHistoryStore.loadAllHistory()",
+            in: initializerBody
+        )
+        precondition(initializerRecovery.lowerBound < initializerHistoryLoad.lowerBound)
 
         let beginBody = try functionBody(named: "beginRecording", in: source)
         precondition(beginBody.contains("AudioInputDevice.isSingleSource(audioInputID)"))
@@ -173,6 +196,17 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         return range
     }
 
+    private static func body(
+        startingWith signature: String,
+        in text: String
+    ) throws -> String {
+        guard let signatureRange = text.range(of: signature),
+              let openBrace = text[signatureRange.upperBound...].firstIndex(of: "{") else {
+            throw TestFailure("missing body starting with \(signature)")
+        }
+        return try body(after: openBrace, in: text)
+    }
+
     private static func functionBody(named name: String, in text: String) throws -> String {
         let signatures = ["private func \(name)", "private static func \(name)", "func \(name)"]
         guard let signatureRange = signatures.compactMap({ text.range(of: $0) }).first,
@@ -180,6 +214,17 @@ struct AppStateRecordingJournalIntegrationSourceTests {
             throw TestFailure("missing function \(name)")
         }
 
+        do {
+            return try body(after: openBrace, in: text)
+        } catch {
+            throw TestFailure("unterminated function \(name)")
+        }
+    }
+
+    private static func body(
+        after openBrace: String.Index,
+        in text: String
+    ) throws -> String {
         var depth = 0
         var index = openBrace
         while index < text.endIndex {
@@ -196,7 +241,7 @@ struct AppStateRecordingJournalIntegrationSourceTests {
             }
             index = text.index(after: index)
         }
-        throw TestFailure("unterminated function \(name)")
+        throw TestFailure("unterminated body")
     }
 
     private struct TestFailure: Error, CustomStringConvertible {

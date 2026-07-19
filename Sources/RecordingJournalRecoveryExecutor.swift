@@ -5,6 +5,7 @@ struct RecoveredRecordingArtifact: Equatable {
     let audioURL: URL
     let promotion: RecordingPromotion
     let manifest: RecordingJournalManifest
+    let mode: RecoveredRecordingMode
 }
 
 enum RecordingJournalRecoveryResult: Equatable {
@@ -40,6 +41,27 @@ struct RecordingJournalRecoveryExecutor {
             case .finalizeSingleSource:
                 return try finalizeAndPromote(recordingID: recordingID)
 
+            case .finalizeCombined:
+                let manifest = try store.loadManifest(recordingID: recordingID)
+                if manifest.state == .recording {
+                    _ = try store.transition(
+                        recordingID: recordingID,
+                        to: .recoverable
+                    )
+                }
+                do {
+                    let artifact = try CombinedRecordingArtifactFinalizer(
+                        store: store,
+                        mixdownService: AudioMixdownService()
+                    ).finalizeAndPromote(recordingID: recordingID)
+                    return try recordPromotion(
+                        recordingID: recordingID,
+                        promotion: artifact.promotion
+                    )
+                } catch CombinedRecordingArtifactFinalizerError.noRecoverableSources {
+                    return .manualRecoveryRequired(candidate)
+                }
+
             case .reusePromotedArtifact:
                 let promotion = try candidate.promotion
                     ?? RecordingCanonicalWAV.validateFile(
@@ -60,7 +82,8 @@ struct RecordingJournalRecoveryExecutor {
                     recordingID: recordingID,
                     audioURL: store.permanentURL(recordingID: recordingID),
                     promotion: promotion,
-                    manifest: manifest
+                    manifest: manifest,
+                    mode: promotion.resolvedRecoveryMode
                 ))
 
             case .discard:
@@ -120,7 +143,9 @@ struct RecordingJournalRecoveryExecutor {
             recordingID: recordingID,
             audioURL: store.permanentURL(recordingID: recordingID),
             promotion: promotion,
-            manifest: manifest
+            manifest: manifest,
+            mode: manifest.promotion?.resolvedRecoveryMode
+                ?? promotion.resolvedRecoveryMode
         ))
     }
 }

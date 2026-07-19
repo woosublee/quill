@@ -12,7 +12,7 @@ struct CombinedRecordingArtifactFinalizerTests {
             try unusableSourcesRemainRecoverable()
             try uncommittedTailIsRemovedBeforeMixing()
             try repeatedFinalizationReusesPromotion()
-            try promotedModePropagatesUnexpectedSourceIOFailure()
+            try promotedFinalizationUsesStoredModeWithoutReopeningSources()
             try conflictingPermanentFilePreservesJournalSources()
             print("CombinedRecordingArtifactFinalizerTests passed")
         } catch {
@@ -40,6 +40,11 @@ struct CombinedRecordingArtifactFinalizerTests {
 
             try expectEqual(result.mode, .combined, "combined mode")
             try expectEqual(
+                result.promotion.recoveryMode,
+                .complete,
+                "combined promotion recovery mode"
+            )
+            try expectEqual(
                 result.destinationURL,
                 fixture.store.permanentURL(recordingID: fixture.recordingID),
                 "combined destination"
@@ -54,6 +59,11 @@ struct CombinedRecordingArtifactFinalizerTests {
             )
             try expectEqual(manifest.state, .promoted, "combined promoted state")
             try expectEqual(manifest.promotion, result.promotion, "combined promotion")
+            try expectEqual(
+                manifest.promotion?.recoveryMode,
+                .complete,
+                "persisted combined recovery mode"
+            )
         }
     }
 
@@ -71,6 +81,17 @@ struct CombinedRecordingArtifactFinalizerTests {
             )
 
             try expectEqual(result.mode, .microphoneOnly, "microphone-only mode")
+            try expectEqual(
+                result.promotion.recoveryMode,
+                .microphoneOnly,
+                "microphone-only promotion recovery mode"
+            )
+            try expectEqual(
+                try fixture.store.loadManifest(recordingID: fixture.recordingID)
+                    .promotion?.recoveryMode,
+                .microphoneOnly,
+                "persisted microphone-only recovery mode"
+            )
             try expectEqual(
                 try readSamples(from: result.destinationURL),
                 [123, -456, 789],
@@ -93,6 +114,17 @@ struct CombinedRecordingArtifactFinalizerTests {
             )
 
             try expectEqual(result.mode, .systemAudioOnly, "System Audio-only mode")
+            try expectEqual(
+                result.promotion.recoveryMode,
+                .systemAudioOnly,
+                "System Audio-only promotion recovery mode"
+            )
+            try expectEqual(
+                try fixture.store.loadManifest(recordingID: fixture.recordingID)
+                    .promotion?.recoveryMode,
+                .systemAudioOnly,
+                "persisted System Audio-only recovery mode"
+            )
             try expectEqual(
                 try readSamples(from: result.destinationURL),
                 [321, -654],
@@ -217,48 +249,39 @@ struct CombinedRecordingArtifactFinalizerTests {
         }
     }
 
-    private static func promotedModePropagatesUnexpectedSourceIOFailure() throws {
+    private static func promotedFinalizationUsesStoredModeWithoutReopeningSources() throws {
         try withFixture { fixture in
             let controller = try fixture.makeController()
             controller.microphoneSink.enqueue(
                 pcmData([100, 200]),
                 firstFrameMonotonicNanoseconds: fixture.anchor
             )
-            controller.systemAudioSink.enqueue(
-                pcmData([300, 400]),
-                firstFrameMonotonicNanoseconds: fixture.anchor
-            )
             let stopped = try controller.stopAndClose()
-            _ = try fixture.finalizer.finalizeAndPromote(
+            let first = try fixture.finalizer.finalizeAndPromote(
                 recordingID: fixture.recordingID
             )
-            try FileManager.default.setAttributes(
-                [.immutable: true],
-                ofItemAtPath: stopped.systemAudioSourceURL.path
+            try expectEqual(
+                first.promotion.recoveryMode,
+                .microphoneOnly,
+                "stored promoted mode"
             )
-            defer {
-                try? FileManager.default.setAttributes(
-                    [.immutable: false],
-                    ofItemAtPath: stopped.systemAudioSourceURL.path
-                )
-            }
+            try FileManager.default.removeItem(at: stopped.microphoneSourceURL)
+            try FileManager.default.removeItem(at: stopped.systemAudioSourceURL)
 
-            do {
-                _ = try fixture.finalizer.finalizeAndPromote(
-                    recordingID: fixture.recordingID
-                )
-                throw TestFailure(
-                    "promoted mode must propagate unexpected source I/O failure"
-                )
-            } catch let error as TestFailure {
-                throw error
-            } catch CombinedRecordingArtifactFinalizerError.noRecoverableSources {
-                throw TestFailure(
-                    "unexpected source I/O failure must not become noRecoverableSources"
-                )
-            } catch {
-                // expected
-            }
+            let repeated = try fixture.finalizer.finalizeAndPromote(
+                recordingID: fixture.recordingID
+            )
+
+            try expectEqual(
+                repeated.mode,
+                .microphoneOnly,
+                "repeated stored mode"
+            )
+            try expectEqual(
+                repeated.promotion.recoveryMode,
+                .microphoneOnly,
+                "repeated promotion recovery mode"
+            )
         }
     }
 

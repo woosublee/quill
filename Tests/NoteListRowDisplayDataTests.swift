@@ -21,6 +21,7 @@ struct NoteListRowDisplayDataTests {
         testFailurePreviewUsesErrorMessage()
         testFailurePreviewHandlesMissingSpaceAfterPrefix()
         testRecoveredRecordingUsesFriendlyStatusAndPreview()
+        testDegradedRecoveredRecordingNamesAvailableSource()
         testTranscribingTitleAndEmptyPreview()
         testRetryingItemHidesExistingPreview()
         print("NoteListRowDisplayDataTests passed")
@@ -262,6 +263,32 @@ struct NoteListRowDisplayDataTests {
         assert(data.status == .recovered)
         assert(data.displayTitle == "Recording interrupted")
         assert(data.preview == "Recovered after an unexpected shutdown. Not yet transcribed.")
+    }
+
+    private static func testDegradedRecoveredRecordingNamesAvailableSource() {
+        let cases: [(RecoveredRecordingMode, String, String)] = [
+            (
+                .microphoneOnly,
+                "Microphone audio recovered",
+                "System Audio could not be recovered. Microphone audio is available for playback or transcription."
+            ),
+            (
+                .systemAudioOnly,
+                "System Audio recovered",
+                "Microphone audio could not be recovered. System Audio is available for playback or transcription."
+            )
+        ]
+        for (mode, title, preview) in cases {
+            let item = historyItem(
+                transcript: "",
+                postProcessingStatus: mode.recoveredStatus
+            )
+            let data = NoteListRowDisplayData(item: item, retryingIDs: [])
+
+            assert(data.status == .recovered)
+            assert(data.displayTitle == title)
+            assert(data.preview == preview)
+        }
     }
 
     private static func testTranscribingTitleAndEmptyPreview() {

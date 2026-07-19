@@ -7,15 +7,21 @@ enum PipelineHistoryItemIntent: String, Codable {
 }
 
 struct PipelineHistoryItem: Identifiable, Codable {
-    static let transcriptionRecoveryPlaceholderStatus = "transcription-interrupted"
-    static let recoveredRecordingStatus = "recording-recovered"
+    static let transcriptionRecoveryPlaceholderStatus =
+        RecoveredRecordingMode.complete.placeholderStatus
+    static let recoveredRecordingStatus =
+        RecoveredRecordingMode.complete.recoveredStatus
+
+    var recoveredRecordingMode: RecoveredRecordingMode? {
+        RecoveredRecordingMode.recoveredMode(for: postProcessingStatus)
+    }
 
     var isRecoveredRecording: Bool {
-        postProcessingStatus == Self.recoveredRecordingStatus
+        recoveredRecordingMode != nil
     }
 
     var isIncompleteTranscription: Bool {
-        postProcessingStatus == Self.transcriptionRecoveryPlaceholderStatus
+        RecoveredRecordingMode.placeholderMode(for: postProcessingStatus) != nil
             || postProcessingStatus == "importing"
             || postProcessingStatus == "live-recording"
     }
@@ -146,7 +152,8 @@ struct PipelineHistoryItem: Identifiable, Codable {
         localTranscriptionModelID: String,
         contextAppName: String?,
         contextBundleIdentifier: String?,
-        contextWindowTitle: String?
+        contextWindowTitle: String?,
+        recoveryMode: RecoveredRecordingMode = .complete
     ) -> PipelineHistoryItem {
         PipelineHistoryItem(
             intent: intent,
@@ -166,7 +173,7 @@ struct PipelineHistoryItem: Identifiable, Codable {
             contextPrompt: contextPrompt,
             contextScreenshotDataURL: contextScreenshotDataURL,
             contextScreenshotStatus: contextScreenshotStatus,
-            postProcessingStatus: transcriptionRecoveryPlaceholderStatus,
+            postProcessingStatus: recoveryMode.placeholderStatus,
             debugStatus: "Transcription interrupted before completion",
             customVocabulary: customVocabulary,
             customSystemPrompt: customSystemPrompt,
@@ -222,7 +229,10 @@ struct PipelineHistoryItem: Identifiable, Codable {
     }
 
     func markInterruptedBeforeCompletion() -> PipelineHistoryItem {
-        PipelineHistoryItem(
+        let recoveryMode = RecoveredRecordingMode.placeholderMode(
+            for: postProcessingStatus
+        )
+        return PipelineHistoryItem(
             intent: intent,
             selectedText: selectedText,
             capturedSelection: capturedSelection,
@@ -240,12 +250,10 @@ struct PipelineHistoryItem: Identifiable, Codable {
             contextPrompt: contextPrompt,
             contextScreenshotDataURL: contextScreenshotDataURL,
             contextScreenshotStatus: contextScreenshotStatus,
-            postProcessingStatus: postProcessingStatus == Self.transcriptionRecoveryPlaceholderStatus
-                ? Self.recoveredRecordingStatus
-                : "Error: Interrupted before transcription completed",
-            debugStatus: postProcessingStatus == Self.transcriptionRecoveryPlaceholderStatus
-                ? "Recovered after an unexpected shutdown; transcription has not started"
-                : "Interrupted before completion",
+            postProcessingStatus: recoveryMode?.recoveredStatus
+                ?? "Error: Interrupted before transcription completed",
+            debugStatus: recoveryMode?.recoveredDebugStatus
+                ?? "Interrupted before completion",
             customVocabulary: customVocabulary,
             customSystemPrompt: customSystemPrompt,
             audioFileName: audioFileName,

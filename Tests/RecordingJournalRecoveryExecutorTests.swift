@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 
 @main
@@ -8,6 +9,12 @@ struct RecordingJournalRecoveryExecutorTests {
             try promotedMicrophoneArtifactIsReusedIdempotently()
             try systemAudioRecordingJournalIsRecoveredAndPromoted()
             try promotedSystemAudioArtifactIsReusedIdempotently()
+            try combinedRecordingJournalIsRecoveredWithAlignment()
+            try microphoneOnlyCombinedJournalIsRecoveredWithoutLeadingSilence()
+            try systemAudioOnlyCombinedJournalIsRecoveredWithoutLeadingSilence()
+            try unusableCombinedSourcesRemainManual()
+            try unexpectedCombinedSourceIOFailureIsPreserved()
+            try combinedPromotionRenameCrashWindowReusesSameInode()
             try manualRecoveryCandidateIsPreserved()
             print("RecordingJournalRecoveryExecutorTests passed")
         } catch {
@@ -20,6 +27,7 @@ struct RecordingJournalRecoveryExecutorTests {
         try withMicrophoneFixture { fixture in
             let result = try recoverCheckpointedJournal(fixture)
             try expectEqual(result.manifest.sourceMode, .microphone, "source mode")
+            try expectEqual(result.mode, .complete, "microphone recovery mode")
             try expectEqual(
                 result.manifest.sources[0].kind,
                 .microphone,
@@ -38,6 +46,7 @@ struct RecordingJournalRecoveryExecutorTests {
         try withSystemAudioFixture { fixture in
             let result = try recoverCheckpointedJournal(fixture)
             try expectEqual(result.manifest.sourceMode, .systemAudio, "source mode")
+            try expectEqual(result.mode, .complete, "System Audio recovery mode")
             try expectEqual(
                 result.manifest.sources[0].kind,
                 .systemAudio,
@@ -106,6 +115,192 @@ struct RecordingJournalRecoveryExecutorTests {
         return first
     }
 
+    private static func combinedRecordingJournalIsRecoveredWithAlignment() throws {
+        try withCombinedFixture { fixture in
+            try checkpointCombinedJournal(
+                fixture,
+                microphoneSamples: [1_000, 1_000],
+                microphoneTimestamp: fixture.anchor,
+                systemAudioSamples: [3_000, 3_000],
+                systemAudioTimestamp: fixture.anchor + 125_000
+            )
+
+            let artifact = try requireRecovered(
+                RecordingJournalRecoveryExecutor(store: fixture.store)
+                    .recoverAll()[0]
+            )
+
+            try expectEqual(artifact.mode, .complete, "combined recovery mode")
+            try expectEqual(
+                artifact.promotion.recoveryMode,
+                .complete,
+                "combined promotion mode"
+            )
+            try expectEqual(
+                try readPCM16Samples(from: artifact.audioURL),
+                [800, 800, 2_400, 2_400],
+                "combined aligned samples"
+            )
+            try expectEqual(artifact.manifest.state, .promoted, "combined promoted state")
+        }
+    }
+
+    private static func microphoneOnlyCombinedJournalIsRecoveredWithoutLeadingSilence() throws {
+        try withCombinedFixture { fixture in
+            try checkpointCombinedJournal(
+                fixture,
+                microphoneSamples: [123, -456, 789],
+                microphoneTimestamp: fixture.anchor + 500_000_000,
+                systemAudioSamples: [],
+                systemAudioTimestamp: fixture.anchor
+            )
+
+            let artifact = try requireRecovered(
+                RecordingJournalRecoveryExecutor(store: fixture.store)
+                    .recoverAll()[0]
+            )
+
+            try expectEqual(artifact.mode, .microphoneOnly, "microphone-only mode")
+            try expectEqual(
+                artifact.promotion.recoveryMode,
+                .microphoneOnly,
+                "microphone-only promotion mode"
+            )
+            try expectEqual(
+                try readPCM16Samples(from: artifact.audioURL),
+                [123, -456, 789],
+                "microphone-only samples"
+            )
+        }
+    }
+
+    private static func systemAudioOnlyCombinedJournalIsRecoveredWithoutLeadingSilence() throws {
+        try withCombinedFixture { fixture in
+            try checkpointCombinedJournal(
+                fixture,
+                microphoneSamples: [],
+                microphoneTimestamp: fixture.anchor,
+                systemAudioSamples: [321, -654],
+                systemAudioTimestamp: fixture.anchor + 750_000_000
+            )
+
+            let artifact = try requireRecovered(
+                RecordingJournalRecoveryExecutor(store: fixture.store)
+                    .recoverAll()[0]
+            )
+
+            try expectEqual(artifact.mode, .systemAudioOnly, "System Audio-only mode")
+            try expectEqual(
+                artifact.promotion.recoveryMode,
+                .systemAudioOnly,
+                "System Audio-only promotion mode"
+            )
+            try expectEqual(
+                try readPCM16Samples(from: artifact.audioURL),
+                [321, -654],
+                "System Audio-only samples"
+            )
+        }
+    }
+
+    private static func unusableCombinedSourcesRemainManual() throws {
+        try withCombinedFixture { fixture in
+            try checkpointCombinedJournal(
+                fixture,
+                microphoneSamples: [],
+                microphoneTimestamp: fixture.anchor,
+                systemAudioSamples: [],
+                systemAudioTimestamp: fixture.anchor
+            )
+            let directory = fixture.store.recordingDirectory(
+                recordingID: fixture.recordingID
+            )
+
+            let result = RecordingJournalRecoveryExecutor(store: fixture.store)
+                .recoverAll()[0]
+
+            guard case .manualRecoveryRequired = result else {
+                throw TestFailure("empty combined sources must remain manual, got \(result)")
+            }
+            guard FileManager.default.fileExists(atPath: directory.path) else {
+                throw TestFailure("manual combined journal must be preserved")
+            }
+        }
+    }
+
+    private static func unexpectedCombinedSourceIOFailureIsPreserved() throws {
+        try withCombinedFixture { fixture in
+            let sourceURLs = try checkpointCombinedJournal(
+                fixture,
+                microphoneSamples: [100, 200],
+                microphoneTimestamp: fixture.anchor,
+                systemAudioSamples: [300, 400],
+                systemAudioTimestamp: fixture.anchor
+            )
+            try FileManager.default.setAttributes(
+                [.immutable: true],
+                ofItemAtPath: sourceURLs.systemAudio.path
+            )
+            defer {
+                try? FileManager.default.setAttributes(
+                    [.immutable: false],
+                    ofItemAtPath: sourceURLs.systemAudio.path
+                )
+            }
+            let directory = fixture.store.recordingDirectory(
+                recordingID: fixture.recordingID
+            )
+
+            let result = RecordingJournalRecoveryExecutor(store: fixture.store)
+                .recoverAll()[0]
+
+            guard case .failed = result else {
+                throw TestFailure("unexpected combined I/O must fail, got \(result)")
+            }
+            guard FileManager.default.fileExists(atPath: directory.path),
+                  FileManager.default.fileExists(atPath: sourceURLs.microphone.path),
+                  FileManager.default.fileExists(atPath: sourceURLs.systemAudio.path) else {
+                throw TestFailure("failed combined recovery must preserve journal files")
+            }
+        }
+    }
+
+    private static func combinedPromotionRenameCrashWindowReusesSameInode() throws {
+        try withCombinedFixture { fixture in
+            try checkpointCombinedJournal(
+                fixture,
+                microphoneSamples: [100, 200],
+                microphoneTimestamp: fixture.anchor,
+                systemAudioSamples: [300, 400],
+                systemAudioTimestamp: fixture.anchor
+            )
+            _ = try fixture.store.transition(
+                recordingID: fixture.recordingID,
+                to: .recoverable
+            )
+            let manifestURL = fixture.store.recordingDirectory(
+                recordingID: fixture.recordingID
+            ).appendingPathComponent("manifest.json")
+            let prePromotionManifest = try Data(contentsOf: manifestURL)
+            let promoted = try CombinedRecordingArtifactFinalizer(
+                store: fixture.store,
+                mixdownService: AudioMixdownService()
+            ).finalizeAndPromote(recordingID: fixture.recordingID)
+            try prePromotionManifest.write(to: manifestURL, options: .atomic)
+            let inode = try inodeNumber(promoted.destinationURL)
+            let executor = RecordingJournalRecoveryExecutor(store: fixture.store)
+
+            let first = try requireRecovered(executor.recoverAll()[0])
+            let second = try requireRecovered(executor.recoverAll()[0])
+
+            try expectEqual(first.audioURL, promoted.destinationURL, "crash-window URL")
+            try expectEqual(second.audioURL, first.audioURL, "repeated crash-window URL")
+            try expectEqual(try inodeNumber(first.audioURL), inode, "first crash-window inode")
+            try expectEqual(try inodeNumber(second.audioURL), inode, "second crash-window inode")
+            try expectEqual(second.manifest.state, .promoted, "crash-window promoted state")
+        }
+    }
+
     private static func manualRecoveryCandidateIsPreserved() throws {
         try withFixture(
             sourceMode: .microphone,
@@ -144,6 +339,113 @@ struct RecordingJournalRecoveryExecutorTests {
             throw TestFailure("expected recovered artifact, got \(result)")
         }
         return artifact
+    }
+
+    @discardableResult
+    private static func checkpointCombinedJournal(
+        _ fixture: CombinedFixture,
+        microphoneSamples: [Int16],
+        microphoneTimestamp: UInt64,
+        systemAudioSamples: [Int16],
+        systemAudioTimestamp: UInt64
+    ) throws -> (microphone: URL, systemAudio: URL) {
+        let controller = try CombinedRecordingJournalController(
+            request: fixture.request,
+            store: fixture.store
+        )
+        if !microphoneSamples.isEmpty {
+            controller.microphoneSink.enqueue(
+                pcmData(microphoneSamples),
+                firstFrameMonotonicNanoseconds: microphoneTimestamp
+            )
+        }
+        if !systemAudioSamples.isEmpty {
+            controller.systemAudioSink.enqueue(
+                pcmData(systemAudioSamples),
+                firstFrameMonotonicNanoseconds: systemAudioTimestamp
+            )
+        }
+        try controller.checkpoint()
+        return (
+            try fixture.store.sourceURL(
+                recordingID: fixture.recordingID,
+                fileName: "microphone.wav.part"
+            ),
+            try fixture.store.sourceURL(
+                recordingID: fixture.recordingID,
+                fileName: "system-audio.wav.part"
+            )
+        )
+    }
+
+    private static func withCombinedFixture(
+        _ body: (CombinedFixture) throws -> Void
+    ) throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "quill-combined-recovery-executor-tests-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let recordingID = UUID()
+        let anchor: UInt64 = 1_000_000_000
+        let store = RecordingJournalStore(
+            audioDirectory: root.appendingPathComponent("audio", isDirectory: true)
+        )
+        let request = CombinedRecordingJournalCreateRequest(
+            recordingID: recordingID,
+            microphoneSourceID: UUID(),
+            systemAudioSourceID: UUID(),
+            segmentID: UUID(),
+            startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            monotonicAnchorNanoseconds: anchor,
+            pipeline: makePipelineSnapshot()
+        )
+        try body(CombinedFixture(
+            recordingID: recordingID,
+            anchor: anchor,
+            store: store,
+            request: request
+        ))
+    }
+
+    private static func pcmData(_ samples: [Int16]) -> Data {
+        var data = Data()
+        for sample in samples {
+            let value = UInt16(bitPattern: sample)
+            data.append(UInt8(value & 0x00FF))
+            data.append(UInt8(value >> 8))
+        }
+        return data
+    }
+
+    private static func readPCM16Samples(from url: URL) throws -> [Int16] {
+        let data = try Data(contentsOf: url)
+        guard data.count >= RecordingCanonicalWAV.headerByteCount else {
+            throw TestFailure("recovered WAV is too short")
+        }
+        let payload = data.dropFirst(RecordingCanonicalWAV.headerByteCount)
+        guard payload.count.isMultiple(of: 2) else {
+            throw TestFailure("recovered WAV has an odd PCM payload")
+        }
+        return stride(from: 0, to: payload.count, by: 2).map { index in
+            let lower = UInt16(payload[payload.startIndex + index])
+            let upper = UInt16(payload[payload.startIndex + index + 1]) << 8
+            return Int16(bitPattern: lower | upper)
+        }
+    }
+
+    private static func inodeNumber(_ url: URL) throws -> UInt64 {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        guard let number = attributes[.systemFileNumber] as? NSNumber else {
+            throw TestFailure("missing inode for \(url.path)")
+        }
+        return number.uint64Value
     }
 
     private static func withMicrophoneFixture(
@@ -251,6 +553,13 @@ struct RecordingJournalRecoveryExecutorTests {
         let recordingID: UUID
         let store: RecordingJournalStore
         let request: RecordingJournalCreateRequest
+    }
+
+    private struct CombinedFixture {
+        let recordingID: UUID
+        let anchor: UInt64
+        let store: RecordingJournalStore
+        let request: CombinedRecordingJournalCreateRequest
     }
 
     private struct TestFailure: Error, CustomStringConvertible {

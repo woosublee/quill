@@ -9556,6 +9556,70 @@
           }
         }
       }
+    },
+    "Microphone audio recovered": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Microphone audio recovered"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마이크 오디오 복구됨"
+          }
+        }
+      }
+    },
+    "System Audio recovered": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System Audio recovered"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 오디오 복구됨"
+          }
+        }
+      }
+    },
+    "System Audio could not be recovered. Microphone audio is available for playback or transcription.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System Audio could not be recovered. Microphone audio is available for playback or transcription."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 오디오는 복구하지 못했습니다. 마이크 오디오는 재생하거나 전사할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Microphone audio could not be recovered. System Audio is available for playback or transcription.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Microphone audio could not be recovered. System Audio is available for playback or transcription."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마이크 오디오는 복구하지 못했습니다. 시스템 오디오는 재생하거나 전사할 수 있습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

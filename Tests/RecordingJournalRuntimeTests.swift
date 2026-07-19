@@ -28,7 +28,8 @@ struct RecordingJournalRuntimeTests {
             try finalizerRejectsTruncatedCommittedPayload()
             try finalizerPreservesEmptyAndConflictingArtifacts()
             try discardedJournalIsNeverRecovered()
-            try scannerPreservesValidCombinedJournalForManualRecovery()
+            try scannerPlansCombinedLifecycleActions()
+            try scannerHandlesCombinedPermanentArtifactStates()
             try scannerDiagnosesEmptyCombinedSource()
             try scannerDiagnosesShortCombinedSource()
             try scannerDiagnosesOddCombinedTail()
@@ -795,51 +796,169 @@ struct RecordingJournalRuntimeTests {
         }
     }
 
-    private static func scannerPreservesValidCombinedJournalForManualRecovery() throws {
-        try withFixture { fixture in
-            let request = combinedRequest(fixture)
-            let session = try fixture.store.createCombined(request)
-            let microphoneWriter = try RecordingPCMJournalWriter(
-                session: session.microphoneSession,
-                store: fixture.store
-            )
-            let systemAudioWriter = try RecordingPCMJournalWriter(
-                session: session.systemAudioSession,
-                store: fixture.store
-            )
-            microphoneWriter.enqueue(Data([0x01, 0x00, 0x02, 0x00]))
-            systemAudioWriter.enqueue(Data([0x03, 0x00]))
-            let microphoneCommit = try microphoneWriter.drainAndCloseSnapshot()
-            let systemAudioCommit = try systemAudioWriter.drainAndCloseSnapshot()
-            _ = try fixture.store.recordCheckpoints(
-                recordingID: fixture.recordingID,
-                commitsBySourceID: [
-                    request.microphoneSourceID: microphoneCommit,
-                    request.systemAudioSourceID: systemAudioCommit
-                ]
-            )
+    private static func scannerPlansCombinedLifecycleActions() throws {
+        for state in [
+            RecordingJournalState.recording,
+            .stopping,
+            .recoverable
+        ] {
+            try withFixture { fixture in
+                let request = combinedRequest(fixture)
+                let session = try fixture.store.createCombined(request)
+                let microphoneWriter = try RecordingPCMJournalWriter(
+                    session: session.microphoneSession,
+                    store: fixture.store
+                )
+                let systemAudioWriter = try RecordingPCMJournalWriter(
+                    session: session.systemAudioSession,
+                    store: fixture.store
+                )
+                microphoneWriter.enqueue(Data([0x01, 0x00, 0x02, 0x00]))
+                systemAudioWriter.enqueue(Data([0x03, 0x00]))
+                let microphoneCommit = try microphoneWriter.drainAndCloseSnapshot()
+                let systemAudioCommit = try systemAudioWriter.drainAndCloseSnapshot()
+                _ = try fixture.store.recordCheckpoints(
+                    recordingID: fixture.recordingID,
+                    commitsBySourceID: [
+                        request.microphoneSourceID: microphoneCommit,
+                        request.systemAudioSourceID: systemAudioCommit
+                    ]
+                )
+                if state != .recording {
+                    _ = try fixture.store.transition(
+                        recordingID: fixture.recordingID,
+                        to: state
+                    )
+                }
 
-            let before = try snapshotTree(fixture.audioDirectory)
-            guard let candidate = InflightRecordingRecovery(
-                store: fixture.store
-            ).scan().first(where: {
-                $0.recordingID == fixture.recordingID
-            }) else {
-                throw TestFailure("missing combined recovery candidate")
+                let before = try snapshotTree(fixture.audioDirectory)
+                let candidate = try requireCandidate(
+                    recordingID: fixture.recordingID,
+                    store: fixture.store
+                )
+                let after = try snapshotTree(fixture.audioDirectory)
+
+                try expectEqual(
+                    candidate.action,
+                    .finalizeCombined,
+                    "combined \(state.rawValue) action"
+                )
+                try expectEqual(
+                    candidate.protectedPermanentFileName,
+                    fixture.recordingID.uuidString.lowercased() + ".wav",
+                    "combined protected permanent filename"
+                )
+                guard !candidate.diagnostics.contains(.combinedRecoveryPending) else {
+                    throw TestFailure("combined recovery must be executable")
+                }
+                try expectEqual(after, before, "combined scanner preservation")
             }
-            let after = try snapshotTree(fixture.audioDirectory)
+        }
+    }
 
-            try expectEqual(
-                candidate.action,
-                .manualRecoveryRequired,
-                "combined recovery action"
+    private static func scannerHandlesCombinedPermanentArtifactStates() throws {
+        try withFixture { fixture in
+            _ = try fixture.store.createCombined(combinedRequest(fixture))
+            let permanentURL = fixture.store.permanentURL(
+                recordingID: fixture.recordingID
             )
-            try expectEqual(
-                candidate.diagnostics,
-                [.combinedRecoveryPending],
-                "combined recovery diagnostic"
+            try writeCanonicalWAV(
+                samples: [1, 2],
+                to: permanentURL
             )
-            try expectEqual(after, before, "combined scanner preservation")
+            let promotion = try RecordingCanonicalWAV.validateFile(at: permanentURL)
+
+            var candidate = try requireCandidate(
+                recordingID: fixture.recordingID,
+                store: fixture.store
+            )
+            try expectEqual(candidate.action, .finalizeCombined, "combined rename-window action")
+            try expectEqual(candidate.promotion, promotion, "combined rename-window promotion")
+            try expectEqual(
+                candidate.protectedPermanentFileName,
+                promotion.fileName,
+                "combined rename-window protection"
+            )
+
+            _ = try fixture.store.transition(
+                recordingID: fixture.recordingID,
+                to: .stopping
+            )
+            _ = try fixture.store.transition(
+                recordingID: fixture.recordingID,
+                to: .promoted,
+                promotion: promotion
+            )
+            candidate = try requireCandidate(
+                recordingID: fixture.recordingID,
+                store: fixture.store
+            )
+            try expectEqual(candidate.action, .persistHistory, "combined promoted action")
+
+            _ = try fixture.store.transition(
+                recordingID: fixture.recordingID,
+                to: .historyStored,
+                historyItemID: fixture.recordingID
+            )
+            candidate = try requireCandidate(
+                recordingID: fixture.recordingID,
+                store: fixture.store
+            )
+            try expectEqual(candidate.action, .markFinalized, "combined history action")
+
+            _ = try fixture.store.transition(
+                recordingID: fixture.recordingID,
+                to: .finalized
+            )
+            candidate = try requireCandidate(
+                recordingID: fixture.recordingID,
+                store: fixture.store
+            )
+            try expectEqual(candidate.action, .cleanupEligible, "combined finalized action")
+        }
+
+        try withFixture { fixture in
+            _ = try fixture.store.createCombined(combinedRequest(fixture))
+            try Data(repeating: 0xCC, count: 80).write(
+                to: fixture.store.permanentURL(recordingID: fixture.recordingID)
+            )
+
+            let candidate = try requireCandidate(
+                recordingID: fixture.recordingID,
+                store: fixture.store
+            )
+            try expectEqual(candidate.action, .manualRecoveryRequired, "invalid combined promotion action")
+            guard candidate.diagnostics.contains(.promotionConflict) else {
+                throw TestFailure("invalid combined permanent WAV must conflict")
+            }
+        }
+
+        try withFixture { fixture in
+            _ = try fixture.store.createCombined(combinedRequest(fixture))
+            _ = try fixture.store.transition(
+                recordingID: fixture.recordingID,
+                to: .stopping
+            )
+            let promotion = RecordingPromotion(
+                fileName: fixture.recordingID.uuidString.lowercased() + ".wav",
+                dataByteCount: 4,
+                frameCount: 2,
+                recoveryMode: .complete
+            )
+            _ = try fixture.store.transition(
+                recordingID: fixture.recordingID,
+                to: .promoted,
+                promotion: promotion
+            )
+
+            let candidate = try requireCandidate(
+                recordingID: fixture.recordingID,
+                store: fixture.store
+            )
+            try expectEqual(candidate.action, .manualRecoveryRequired, "missing combined permanent action")
+            guard candidate.diagnostics.contains(.missingPermanentArtifact) else {
+                throw TestFailure("missing combined permanent WAV must be diagnosed")
+            }
         }
     }
 
@@ -868,6 +987,11 @@ struct RecordingJournalRuntimeTests {
                 throw TestFailure("missing empty combined candidate")
             }
 
+            try expectEqual(
+                candidate.action,
+                .finalizeCombined,
+                "empty combined action"
+            )
             guard candidate.diagnostics.contains(.emptySource) else {
                 throw TestFailure(
                     "empty combined diagnostics: \(candidate.diagnostics)"
@@ -894,6 +1018,11 @@ struct RecordingJournalRuntimeTests {
             let candidate = try requireCandidate(
                 recordingID: fixture.recordingID,
                 store: fixture.store
+            )
+            try expectEqual(
+                candidate.action,
+                .finalizeCombined,
+                "short combined action"
             )
             guard candidate.diagnostics.contains(.sourceTooShort) else {
                 throw TestFailure(
@@ -922,6 +1051,11 @@ struct RecordingJournalRuntimeTests {
                 recordingID: fixture.recordingID,
                 store: fixture.store
             )
+            try expectEqual(
+                candidate.action,
+                .finalizeCombined,
+                "odd combined action"
+            )
             guard candidate.diagnostics.contains(.oddTrailingByte) else {
                 throw TestFailure(
                     "odd combined diagnostics: \(candidate.diagnostics)"
@@ -948,6 +1082,11 @@ struct RecordingJournalRuntimeTests {
             let candidate = try requireCandidate(
                 recordingID: fixture.recordingID,
                 store: fixture.store
+            )
+            try expectEqual(
+                candidate.action,
+                .finalizeCombined,
+                "manifest-behind combined action"
             )
             guard candidate.diagnostics.contains(.manifestBehind) else {
                 throw TestFailure(
@@ -987,6 +1126,11 @@ struct RecordingJournalRuntimeTests {
             let candidate = try requireCandidate(
                 recordingID: fixture.recordingID,
                 store: fixture.store
+            )
+            try expectEqual(
+                candidate.action,
+                .finalizeCombined,
+                "truncated combined action"
             )
             guard candidate.diagnostics.contains(.sourceTruncated) else {
                 throw TestFailure(
@@ -1031,11 +1175,11 @@ struct RecordingJournalRuntimeTests {
 
             try expectEqual(
                 candidate.action,
-                .manualRecoveryRequired,
+                .finalizeCombined,
                 "degraded combined action"
             )
-            guard candidate.diagnostics.contains(.combinedRecoveryPending),
-                  candidate.diagnostics.contains(.missingSource) else {
+            guard candidate.diagnostics.contains(.missingSource),
+                  !candidate.diagnostics.contains(.combinedRecoveryPending) else {
                 throw TestFailure(
                     "degraded combined diagnostics: \(candidate.diagnostics)"
                 )
@@ -1345,6 +1489,23 @@ struct RecordingJournalRuntimeTests {
         defer { try? handle.close() }
         try handle.seekToEnd()
         try handle.write(contentsOf: data)
+    }
+
+    private static func writeCanonicalWAV(
+        samples: [Int16],
+        to url: URL
+    ) throws {
+        var payload = Data()
+        for sample in samples {
+            let value = UInt16(bitPattern: sample)
+            payload.append(UInt8(value & 0x00FF))
+            payload.append(UInt8(value >> 8))
+        }
+        var data = RecordingCanonicalWAV.header(
+            dataByteCount: UInt32(payload.count)
+        )
+        data.append(payload)
+        try data.write(to: url)
     }
 
     private static func overwriteHeader(with data: Data, at url: URL) throws {

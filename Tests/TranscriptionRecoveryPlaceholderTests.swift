@@ -4,6 +4,7 @@ import Foundation
 struct TranscriptionRecoveryPlaceholderTests {
     static func main() {
         testPlaceholderKeepsSavedAudioReferenceForRetryAfterInterruption()
+        testRecoveryModesPreserveStableStatusesAndAudio()
         testInterruptedPlaceholderBecomesRecoveredButKeepsAudioReference()
         testImportingItemIsIncompleteAndBecomesFailedButKeepsAudioReference()
         testLiveRecordingItemIsIncompleteAndBecomesFailedWithoutRetryAudio()
@@ -57,6 +58,60 @@ struct TranscriptionRecoveryPlaceholderTests {
         assert(item.contextAppName == "Notes")
         assert(item.contextBundleIdentifier == "com.apple.Notes")
         assert(item.contextWindowTitle == "Daily")
+    }
+
+    private static func testRecoveryModesPreserveStableStatusesAndAudio() {
+        let cases: [(RecoveredRecordingMode, String, String)] = [
+            (
+                .complete,
+                "transcription-interrupted",
+                "recording-recovered"
+            ),
+            (
+                .microphoneOnly,
+                "transcription-interrupted:microphone-only",
+                "recording-recovered:microphone-only"
+            ),
+            (
+                .systemAudioOnly,
+                "transcription-interrupted:system-audio-only",
+                "recording-recovered:system-audio-only"
+            )
+        ]
+        for (mode, placeholderStatus, recoveredStatus) in cases {
+            let item = PipelineHistoryItem.transcriptionRecoveryPlaceholder(
+                timestamp: Date(timeIntervalSince1970: 1_800_000_000),
+                intent: .dictation,
+                selectedText: nil,
+                capturedSelection: nil,
+                contextSummary: "",
+                contextSystemPrompt: nil,
+                contextPrompt: nil,
+                contextScreenshotDataURL: nil,
+                contextScreenshotStatus: "No screenshot",
+                systemPrompt: nil,
+                customVocabulary: "",
+                customSystemPrompt: "",
+                audioFileName: "recording.wav",
+                usedLocalTranscription: false,
+                usedContextCapture: false,
+                usedPostProcessing: false,
+                transcriptionLanguageCode: "auto",
+                localTranscriptionModelID: "local-model",
+                contextAppName: nil,
+                contextBundleIdentifier: nil,
+                contextWindowTitle: nil,
+                recoveryMode: mode
+            )
+
+            assert(item.postProcessingStatus == placeholderStatus)
+            assert(item.isIncompleteTranscription)
+            let recovered = item.markInterruptedBeforeCompletion()
+            assert(recovered.postProcessingStatus == recoveredStatus)
+            assert(recovered.isRecoveredRecording)
+            assert(recovered.recoveredRecordingMode == mode)
+            assert(recovered.audioFileName == "recording.wav")
+        }
     }
 
     private static func testImportingItemIsIncompleteAndBecomesFailedButKeepsAudioReference() {

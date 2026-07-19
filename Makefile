@@ -312,15 +312,15 @@ test: check-test-wiring $(SPARKLE_STAMP) $(LOCALIZATION_STAMP)
 	@/tmp/ShortcutCaptureKeyHandlingTests
 	@/tmp/ShortcutValidationMessagesTests
 	@/tmp/CalendarEventMatcherTests
-	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Tests/NoteTitleResolutionTests.swift -o /tmp/NoteTitleResolutionTests
+	@swiftc -parse-as-library Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Tests/NoteTitleResolutionTests.swift -o /tmp/NoteTitleResolutionTests
 	@/tmp/NoteTitleResolutionTests
-	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/MeetingSourcePayload.swift Tests/MeetingSourcePayloadTests.swift -o /tmp/MeetingSourcePayloadTests
+	@swiftc -parse-as-library Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/MeetingSourcePayload.swift Tests/MeetingSourcePayloadTests.swift -o /tmp/MeetingSourcePayloadTests
 	@/tmp/MeetingSourcePayloadTests
-	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Sources/NoteListRowDisplayData.swift Tests/NoteListRowDisplayDataTests.swift -o /tmp/NoteListRowDisplayDataTests
+	@swiftc -parse-as-library Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Sources/NoteListRowDisplayData.swift Tests/NoteListRowDisplayDataTests.swift -o /tmp/NoteListRowDisplayDataTests
 	@/tmp/NoteListRowDisplayDataTests
 	@swiftc -parse-as-library Tests/NoteTitleHorizontalScrollFieldTests.swift -o /tmp/NoteTitleHorizontalScrollFieldTests
 	@/tmp/NoteTitleHorizontalScrollFieldTests
-	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/LegacyNoteTitleMigration.swift Tests/LegacyNoteTitleMigrationTests.swift -o /tmp/LegacyNoteTitleMigrationTests
+	@swiftc -parse-as-library Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/LegacyNoteTitleMigration.swift Tests/LegacyNoteTitleMigrationTests.swift -o /tmp/LegacyNoteTitleMigrationTests
 	@/tmp/LegacyNoteTitleMigrationTests
 	@swiftc -parse-as-library Tests/ManualReleaseWorkflowTests.swift -o /tmp/ManualReleaseWorkflowTests
 	@/tmp/ManualReleaseWorkflowTests
@@ -340,30 +340,32 @@ test: check-test-wiring $(SPARKLE_STAMP) $(LOCALIZATION_STAMP)
 	@/tmp/SettingsLocalizationTests
 	@swiftc -parse-as-library Tests/ModelsSettingsUIContractTests.swift -o /tmp/ModelsSettingsUIContractTests
 	@/tmp/ModelsSettingsUIContractTests
-	@swiftc -parse-as-library Sources/RecordingJournalModels.swift Tests/RecordingJournalManifestTests.swift -o /tmp/RecordingJournalManifestTests
+	@swiftc -parse-as-library Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Tests/RecordingJournalManifestTests.swift -o /tmp/RecordingJournalManifestTests
 	@/tmp/RecordingJournalManifestTests
 	@swiftc -parse-as-library Sources/RecordingMonotonicClock.swift Tests/RecordingMonotonicClockTests.swift -o /tmp/RecordingMonotonicClockTests
 	@/tmp/RecordingMonotonicClockTests
-	@swiftc -parse-as-library Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/RecordingArtifactFinalizer.swift Sources/InflightRecordingRecovery.swift Sources/RecordingJournalRecoveryExecutor.swift Tests/RecordingJournalRuntimeTests.swift -o /tmp/RecordingJournalRuntimeTests
+	@swiftc -parse-as-library -framework AVFoundation Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/CombinedRecordingJournalController.swift Sources/RecordingArtifactFinalizer.swift Sources/AudioMixdownService.swift Sources/CombinedRecordingArtifactFinalizer.swift Sources/InflightRecordingRecovery.swift Sources/RecordingJournalRecoveryExecutor.swift Tests/RecordingJournalRuntimeTests.swift -o /tmp/RecordingJournalRuntimeTests
 	@/tmp/RecordingJournalRuntimeTests
-	@swiftc -parse-as-library Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/CombinedRecordingJournalController.swift Tests/CombinedRecordingJournalControllerTests.swift -o /tmp/CombinedRecordingJournalControllerTests
+	@swiftc -parse-as-library Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/CombinedRecordingJournalController.swift Tests/CombinedRecordingJournalControllerTests.swift -o /tmp/CombinedRecordingJournalControllerTests
 	@/tmp/CombinedRecordingJournalControllerTests
-	@swiftc -parse-as-library -framework AVFoundation Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/CombinedRecordingJournalController.swift Sources/RecordingArtifactFinalizer.swift Sources/AudioMixdownService.swift Sources/CombinedRecordingArtifactFinalizer.swift Tests/CombinedRecordingArtifactFinalizerTests.swift -o /tmp/CombinedRecordingArtifactFinalizerTests
+	@swiftc -parse-as-library -framework AVFoundation Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/CombinedRecordingJournalController.swift Sources/RecordingArtifactFinalizer.swift Sources/AudioMixdownService.swift Sources/CombinedRecordingArtifactFinalizer.swift Tests/CombinedRecordingArtifactFinalizerTests.swift -o /tmp/CombinedRecordingArtifactFinalizerTests
 	@/tmp/CombinedRecordingArtifactFinalizerTests
-	@swiftc -parse-as-library -framework AVFoundation Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/CombinedRecordingJournalController.swift Sources/RecordingArtifactFinalizer.swift Sources/AudioMixdownService.swift Sources/CombinedRecordingArtifactFinalizer.swift Tests/CombinedRecordingNormalStopIntegrationTests.swift -o /tmp/CombinedRecordingNormalStopIntegrationTests
+	@swiftc -parse-as-library -framework AVFoundation Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/CombinedRecordingJournalController.swift Sources/RecordingArtifactFinalizer.swift Sources/AudioMixdownService.swift Sources/CombinedRecordingArtifactFinalizer.swift Tests/CombinedRecordingNormalStopIntegrationTests.swift -o /tmp/CombinedRecordingNormalStopIntegrationTests
 	@/tmp/CombinedRecordingNormalStopIntegrationTests
 	@swiftc -parse-as-library -framework AVFoundation Sources/RecordingPCMBufferCopy.swift Tests/RecordingPCMBufferCopyTests.swift -o /tmp/RecordingPCMBufferCopyTests
 	@/tmp/RecordingPCMBufferCopyTests
 	@swiftc -parse-as-library Tests/AudioRecorderJournalIntegrationSourceTests.swift -o /tmp/AudioRecorderJournalIntegrationSourceTests
 	@/tmp/AudioRecorderJournalIntegrationSourceTests
-	@swiftc -parse-as-library -framework AVFoundation Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/RecordingArtifactFinalizer.swift Sources/InflightRecordingRecovery.swift Sources/RecordingJournalRecoveryExecutor.swift Sources/SingleSourceRecordingJournalController.swift Tests/SingleSourceRecordingJournalControllerTests.swift -o /tmp/SingleSourceRecordingJournalControllerTests
+	@swiftc -parse-as-library -framework AVFoundation Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/CombinedRecordingJournalController.swift Sources/RecordingArtifactFinalizer.swift Sources/AudioMixdownService.swift Sources/CombinedRecordingArtifactFinalizer.swift Sources/InflightRecordingRecovery.swift Sources/RecordingJournalRecoveryExecutor.swift Sources/SingleSourceRecordingJournalController.swift Tests/SingleSourceRecordingJournalControllerTests.swift -o /tmp/SingleSourceRecordingJournalControllerTests
 	@/tmp/SingleSourceRecordingJournalControllerTests
-	@swiftc -parse-as-library -framework AVFoundation Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/RecordingArtifactFinalizer.swift Sources/InflightRecordingRecovery.swift Sources/SingleSourceRecordingJournalController.swift Sources/RecordingJournalRecoveryExecutor.swift Tests/RecordingJournalRecoveryExecutorTests.swift -o /tmp/RecordingJournalRecoveryExecutorTests
+	@swiftc -parse-as-library -framework AVFoundation Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/CombinedRecordingJournalController.swift Sources/RecordingArtifactFinalizer.swift Sources/AudioMixdownService.swift Sources/CombinedRecordingArtifactFinalizer.swift Sources/InflightRecordingRecovery.swift Sources/SingleSourceRecordingJournalController.swift Sources/RecordingJournalRecoveryExecutor.swift Tests/RecordingJournalRecoveryExecutorTests.swift -o /tmp/RecordingJournalRecoveryExecutorTests
 	@/tmp/RecordingJournalRecoveryExecutorTests
-	@swiftc -parse-as-library -framework AVFoundation Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/RecordingArtifactFinalizer.swift Sources/InflightRecordingRecovery.swift Sources/SingleSourceRecordingJournalController.swift Sources/RecordingJournalRecoveryExecutor.swift Sources/RecordingRecoveryHistory.swift Tests/RecordingRecoveryHistoryTests.swift -o /tmp/RecordingRecoveryHistoryTests
+	@swiftc -parse-as-library -framework AVFoundation Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/CombinedRecordingJournalController.swift Sources/RecordingArtifactFinalizer.swift Sources/AudioMixdownService.swift Sources/CombinedRecordingArtifactFinalizer.swift Sources/InflightRecordingRecovery.swift Sources/SingleSourceRecordingJournalController.swift Sources/RecordingJournalRecoveryExecutor.swift Sources/RecordingRecoveryHistory.swift Tests/RecordingRecoveryHistoryTests.swift -o /tmp/RecordingRecoveryHistoryTests
 	@/tmp/RecordingRecoveryHistoryTests
 	@swiftc -parse-as-library Tests/AppStateRecordingJournalIntegrationSourceTests.swift -o /tmp/AppStateRecordingJournalIntegrationSourceTests
 	@/tmp/AppStateRecordingJournalIntegrationSourceTests
+	@swiftc -parse-as-library -framework AVFoundation Sources/RecoveredRecordingMode.swift Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Sources/RecordingJournalModels.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/CombinedRecordingJournalController.swift Sources/RecordingArtifactFinalizer.swift Sources/AudioMixdownService.swift Sources/CombinedRecordingArtifactFinalizer.swift Sources/InflightRecordingRecovery.swift Sources/RecordingJournalRecoveryExecutor.swift Sources/RecordingRecoveryHistory.swift Tests/CombinedRecordingStartupRecoveryIntegrationTests.swift -o /tmp/CombinedRecordingStartupRecoveryIntegrationTests
+	@/tmp/CombinedRecordingStartupRecoveryIntegrationTests
 	@swiftc -parse-as-library Tests/RecoveredRecordingNoteBrowserSourceTests.swift -o /tmp/RecoveredRecordingNoteBrowserSourceTests
 	@/tmp/RecoveredRecordingNoteBrowserSourceTests
 	@swiftc -parse-as-library Sources/InstructionExecutionDetector.swift Tests/InstructionExecutionDetectorTests.swift -o /tmp/InstructionExecutionDetectorTests
@@ -386,7 +388,7 @@ test: check-test-wiring $(SPARKLE_STAMP) $(LOCALIZATION_STAMP)
 	@/tmp/AudioWaveformHeightsTests
 	@swiftc -parse-as-library Tests/SystemAudioAppStateRoutingTests.swift -o /tmp/SystemAudioAppStateRoutingTests
 	@/tmp/SystemAudioAppStateRoutingTests
-	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Tests/PipelineHistoryCalendarMetadataTests.swift -o /tmp/PipelineHistoryCalendarMetadataTests
+	@swiftc -parse-as-library Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Tests/PipelineHistoryCalendarMetadataTests.swift -o /tmp/PipelineHistoryCalendarMetadataTests
 	@/tmp/PipelineHistoryCalendarMetadataTests
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/GoogleCalendarTokenStore.swift Sources/GoogleCalendarAuthService.swift Sources/GoogleCalendarService.swift Tests/GoogleCalendarServiceTests.swift -o /tmp/GoogleCalendarServiceTests
 	@/tmp/GoogleCalendarServiceTests
@@ -420,7 +422,7 @@ test: check-test-wiring $(SPARKLE_STAMP) $(LOCALIZATION_STAMP)
 	@/tmp/AppBuildTests
 	@swiftc -parse-as-library Sources/CriticalDictationActivityState.swift Tests/CriticalDictationActivityStateTests.swift -o /tmp/CriticalDictationActivityStateTests
 	@/tmp/CriticalDictationActivityStateTests
-	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Tests/TranscriptionRecoveryPlaceholderTests.swift -o /tmp/TranscriptionRecoveryPlaceholderTests
+	@swiftc -parse-as-library Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/CalendarIntegrationModels.swift Sources/PipelineHistoryItem.swift Tests/TranscriptionRecoveryPlaceholderTests.swift -o /tmp/TranscriptionRecoveryPlaceholderTests
 	@/tmp/TranscriptionRecoveryPlaceholderTests
 	@swiftc -parse-as-library Sources/MCPLocalAccessPolicy.swift Tests/MCPLocalAccessPolicyTests.swift -o /tmp/MCPLocalAccessPolicyTests
 	@/tmp/MCPLocalAccessPolicyTests

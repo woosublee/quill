@@ -1144,6 +1144,15 @@ private struct NoteDetailView: View {
 
     private var isError: Bool { item.postProcessingStatus.hasPrefix("Error:") }
     private var isRecoveredRecording: Bool { item.isRecoveredRecording }
+    private var recoveredRecordingMode: RecoveredRecordingMode {
+        item.recoveredRecordingMode ?? .complete
+    }
+    private var recoveryTitle: String {
+        localizedCatalogString(recoveredRecordingMode.titleLocalizationKey)
+    }
+    private var recoveryDescription: String {
+        localizedCatalogString(recoveredRecordingMode.descriptionLocalizationKey)
+    }
     private var isLiveRecording: Bool { item.postProcessingStatus == "live-recording" }
     private var canRetry: Bool { item.audioFileName != nil }
     private var displayContent: String { loadedContent ?? item.postProcessedTranscript }
@@ -1433,10 +1442,10 @@ private struct NoteDetailView: View {
                         .font(.system(size: 30, weight: .ultraLight))
                         .foregroundStyle(.orange.opacity(0.7))
                 }
-                Text("Recording interrupted")
+                Text(recoveryTitle)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.secondary)
-                Text("Recovered after an unexpected shutdown. Not yet transcribed.")
+                Text(recoveryDescription)
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)

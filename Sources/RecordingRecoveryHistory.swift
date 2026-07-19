@@ -8,6 +8,16 @@ struct RecordingRecoveryHistory {
         _ recovered: RecoveredRecordingArtifact,
         maxCount: Int
     ) throws -> [DeletedPipelineHistoryAssets] {
+        guard FileManager.default.fileExists(atPath: recovered.audioURL.path),
+              let physicalPromotion = try? RecordingCanonicalWAV.validateFile(
+                at: recovered.audioURL
+              ),
+              physicalPromotion.fileName == recovered.promotion.fileName,
+              physicalPromotion.dataByteCount == recovered.promotion.dataByteCount,
+              physicalPromotion.frameCount == recovered.promotion.frameCount else {
+            throw RecordingArtifactFinalizerError.sourceMissing
+        }
+
         let loadedManifest: RecordingJournalManifest
         do {
             loadedManifest = try journalStore.loadManifest(
@@ -89,7 +99,8 @@ struct RecordingRecoveryHistory {
                 ?? TranscriptionModel.default.id,
             contextAppName: nil,
             contextBundleIdentifier: nil,
-            contextWindowTitle: nil
+            contextWindowTitle: nil,
+            recoveryMode: recovered.mode
         )
     }
 
