@@ -11,6 +11,13 @@ struct CloudTranscriptionChunkingTests {
             try sourceIdentityHashesCanonicalWAVIncrementally()
             try sourceIdentitySupportsBuffersSmallerThanTheFile()
             try sourceIdentityRejectsInvalidReadBufferSize()
+            try plannerCoversExactCeilingInOneChunk()
+            try plannerCreatesContiguousChunksAndOneFrameRemainder()
+            try plannerRejectsCeilingWithoutOneFrameCapacity()
+            try plannerChoosesNearestQuietRunMidpoint()
+            try plannerFallsBackToNominalBoundaryWithoutSilence()
+            try plannerDoesNotSearchAfterNominalBoundary()
+            try plannerIsDeterministic()
             print("CloudTranscriptionChunkingTests passed")
         } catch {
             fputs("CloudTranscriptionChunkingTests failed: \(error)\n", stderr)
@@ -150,6 +157,209 @@ struct CloudTranscriptionChunkingTests {
         } catch CloudTranscriptionChunkingError.invalidReadBufferByteCount {
             // expected
         }
+    }
+
+    private static func plannerCoversExactCeilingInOneChunk() throws {
+        let samples = Array(repeating: Int16(2_000), count: 5_000)
+        let fixture = try makePlannerFixture(samples: samples)
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let multipart = plannerMultipartLayout
+        let ceiling = try encodedCeiling(frameCount: UInt64(samples.count), multipart: multipart)
+        let plan = try CloudTranscriptionChunkPlanner().plan(
+            fileURL: fixture.url,
+            source: fixture.identity,
+            wavLayout: fixture.layout,
+            multipart: multipart,
+            encodedUploadCeilingBytes: ceiling
+        )
+
+        try expectEqual(plan.chunks.count, 1, "exact ceiling chunk count")
+        try expectEqual(plan.chunks[0].startFrame, 0, "exact ceiling start")
+        try expectEqual(plan.chunks[0].endFrame, UInt64(samples.count), "exact ceiling end")
+        try expectEqual(plan.chunks[0].estimatedEncodedByteCount, ceiling, "exact ceiling size")
+        try plan.validate()
+    }
+
+    private static func plannerCreatesContiguousChunksAndOneFrameRemainder() throws {
+        let maximumChunkFrames: UInt64 = 5_000
+        let samples = Array(repeating: Int16(2_000), count: Int(maximumChunkFrames + 1))
+        let fixture = try makePlannerFixture(samples: samples)
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let multipart = plannerMultipartLayout
+        let ceiling = try encodedCeiling(frameCount: maximumChunkFrames, multipart: multipart)
+        let plan = try CloudTranscriptionChunkPlanner().plan(
+            fileURL: fixture.url,
+            source: fixture.identity,
+            wavLayout: fixture.layout,
+            multipart: multipart,
+            encodedUploadCeilingBytes: ceiling
+        )
+
+        try expectEqual(plan.chunks.count, 2, "one-frame remainder chunk count")
+        try expectEqual(plan.chunks[0].startFrame, 0, "first start")
+        try expectEqual(plan.chunks[0].endFrame, maximumChunkFrames, "first end")
+        try expectEqual(plan.chunks[1].startFrame, maximumChunkFrames, "remainder start")
+        try expectEqual(plan.chunks[1].endFrame, maximumChunkFrames + 1, "remainder end")
+        try plan.validate()
+        guard plan.chunks.allSatisfy({ $0.estimatedEncodedByteCount <= ceiling }) else {
+            throw TestFailure("every chunk must fit the encoded ceiling")
+        }
+    }
+
+    private static func plannerRejectsCeilingWithoutOneFrameCapacity() throws {
+        let fixture = try makePlannerFixture(samples: [1])
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let multipart = plannerMultipartLayout
+        let zeroFrameCeiling = try multipart.encodedByteCount(
+            audioDataByteCount: CanonicalPCM16WAV.headerByteCount,
+            fileName: CloudTranscriptionChunkPlanner.uploadFileName,
+            contentType: "audio/wav"
+        )
+        do {
+            _ = try CloudTranscriptionChunkPlanner().plan(
+                fileURL: fixture.url,
+                source: fixture.identity,
+                wavLayout: fixture.layout,
+                multipart: multipart,
+                encodedUploadCeilingBytes: zeroFrameCeiling
+            )
+            throw TestFailure("ceiling without one frame must fail")
+        } catch CloudTranscriptionChunkingError.encodedUploadCeilingTooSmall {
+            // expected
+        }
+    }
+
+    private static func plannerChoosesNearestQuietRunMidpoint() throws {
+        let nominalEnd = 8_000
+        var samples = Array(repeating: Int16(2_000), count: nominalEnd + 1_000)
+        let quietStart = 4_480
+        let quietEnd = quietStart + 3_200
+        for index in quietStart..<quietEnd {
+            samples[index] = 0
+        }
+        let fixture = try makePlannerFixture(samples: samples)
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let multipart = plannerMultipartLayout
+        let ceiling = try encodedCeiling(frameCount: UInt64(nominalEnd), multipart: multipart)
+        let plan = try CloudTranscriptionChunkPlanner().plan(
+            fileURL: fixture.url,
+            source: fixture.identity,
+            wavLayout: fixture.layout,
+            multipart: multipart,
+            encodedUploadCeilingBytes: ceiling
+        )
+
+        try expectEqual(plan.chunks[0].endFrame, UInt64((quietStart + quietEnd) / 2), "quiet midpoint")
+    }
+
+    private static func plannerFallsBackToNominalBoundaryWithoutSilence() throws {
+        let nominalEnd = 2_000
+        let fixture = try makePlannerFixture(
+            samples: Array(repeating: Int16(2_000), count: nominalEnd + 100)
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let multipart = plannerMultipartLayout
+        let ceiling = try encodedCeiling(frameCount: UInt64(nominalEnd), multipart: multipart)
+        let plan = try CloudTranscriptionChunkPlanner().plan(
+            fileURL: fixture.url,
+            source: fixture.identity,
+            wavLayout: fixture.layout,
+            multipart: multipart,
+            encodedUploadCeilingBytes: ceiling
+        )
+
+        try expectEqual(plan.chunks[0].endFrame, UInt64(nominalEnd), "short no-silence fallback")
+    }
+
+    private static func plannerDoesNotSearchAfterNominalBoundary() throws {
+        let nominalEnd = 5_000
+        var samples = Array(repeating: Int16(2_000), count: nominalEnd + 4_000)
+        for index in nominalEnd..<(nominalEnd + 3_200) {
+            samples[index] = 0
+        }
+        let fixture = try makePlannerFixture(samples: samples)
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let multipart = plannerMultipartLayout
+        let ceiling = try encodedCeiling(frameCount: UInt64(nominalEnd), multipart: multipart)
+        let plan = try CloudTranscriptionChunkPlanner().plan(
+            fileURL: fixture.url,
+            source: fixture.identity,
+            wavLayout: fixture.layout,
+            multipart: multipart,
+            encodedUploadCeilingBytes: ceiling
+        )
+
+        try expectEqual(plan.chunks[0].endFrame, UInt64(nominalEnd), "post-nominal silence ignored")
+    }
+
+    private static func plannerIsDeterministic() throws {
+        let fixture = try makePlannerFixture(
+            samples: Array(repeating: Int16(2_000), count: 12_345)
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let multipart = plannerMultipartLayout
+        let ceiling = try encodedCeiling(frameCount: 4_000, multipart: multipart)
+        let planner = CloudTranscriptionChunkPlanner()
+        let first = try planner.plan(
+            fileURL: fixture.url,
+            source: fixture.identity,
+            wavLayout: fixture.layout,
+            multipart: multipart,
+            encodedUploadCeilingBytes: ceiling
+        )
+        let second = try planner.plan(
+            fileURL: fixture.url,
+            source: fixture.identity,
+            wavLayout: fixture.layout,
+            multipart: multipart,
+            encodedUploadCeilingBytes: ceiling
+        )
+        try expectEqual(first, second, "deterministic plan")
+    }
+
+    private static var plannerMultipartLayout: CloudTranscriptionMultipartLayout {
+        CloudTranscriptionMultipartLayout(
+            model: "whisper-large-v3",
+            responseFormat: "verbose_json",
+            language: "en",
+            boundaryByteCount: 36
+        )
+    }
+
+    private static func encodedCeiling(
+        frameCount: UInt64,
+        multipart: CloudTranscriptionMultipartLayout
+    ) throws -> UInt64 {
+        try multipart.encodedByteCount(
+            audioDataByteCount: CanonicalPCM16WAV.headerByteCount
+                + frameCount * UInt64(CanonicalPCM16WAV.bytesPerFrame),
+            fileName: CloudTranscriptionChunkPlanner.uploadFileName,
+            contentType: "audio/wav"
+        )
+    }
+
+    private static func makePlannerFixture(
+        samples: [Int16]
+    ) throws -> (
+        url: URL,
+        layout: CanonicalPCM16WAVLayout,
+        identity: CloudTranscriptionSourceIdentity
+    ) {
+        var payload = Data()
+        payload.reserveCapacity(samples.count * 2)
+        for sample in samples {
+            let bits = UInt16(bitPattern: sample)
+            payload.append(UInt8(bits & 0xff))
+            payload.append(UInt8((bits >> 8) & 0xff))
+        }
+        let url = try writeCanonicalWAV(payload: payload)
+        let layout = try CanonicalPCM16WAV.validateFile(at: url)
+        let identity = try CloudTranscriptionSourceIdentityBuilder.make(
+            fileURL: url,
+            layout: layout,
+            readBufferByteCount: 257
+        )
+        return (url, layout, identity)
     }
 
     private static func makeMultipartBody(
