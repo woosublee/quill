@@ -8,6 +8,8 @@ struct RecordingRecoveryHistoryTests {
             try recoveredSystemAudioArtifactCreatesIdempotentRetryableHistory()
             try combinedRecoveryModesPersistIdempotently()
             try missingRecoveredAudioPreservesPromotedJournal()
+            try invalidRecoveredAudioReportsPromotionConflict()
+            try mismatchedRecoveredPromotionReportsPromotionConflict()
             try existingCompletedHistoryIsNotReplacedDuringJournalCleanup()
             print("RecordingRecoveryHistoryTests passed")
         } catch {
@@ -234,6 +236,84 @@ struct RecordingRecoveryHistoryTests {
             ) else {
                 throw TestFailure("missing audio inflight directory must remain")
             }
+        }
+    }
+
+    private static func invalidRecoveredAudioReportsPromotionConflict() throws {
+        try withCombinedRecoveredFixture(mode: .microphoneOnly) { fixture in
+            try Data(repeating: 0xCC, count: 80).write(
+                to: fixture.artifact.audioURL,
+                options: .atomic
+            )
+            try expectPersistenceFailure(
+                fixture: fixture,
+                expected: .promotionConflict,
+                label: "invalid recovered audio"
+            )
+        }
+    }
+
+    private static func mismatchedRecoveredPromotionReportsPromotionConflict() throws {
+        try withCombinedRecoveredFixture(mode: .microphoneOnly) { fixture in
+            let mismatched = RecoveredRecordingArtifact(
+                recordingID: fixture.artifact.recordingID,
+                audioURL: fixture.artifact.audioURL,
+                promotion: RecordingPromotion(
+                    fileName: fixture.artifact.promotion.fileName,
+                    dataByteCount: fixture.artifact.promotion.dataByteCount + 2,
+                    frameCount: fixture.artifact.promotion.frameCount + 1,
+                    recoveryMode: fixture.artifact.promotion.recoveryMode
+                ),
+                manifest: fixture.artifact.manifest,
+                mode: fixture.artifact.mode
+            )
+            try expectPersistenceFailure(
+                fixture: fixture,
+                recovered: mismatched,
+                expected: .promotionConflict,
+                label: "mismatched recovered promotion"
+            )
+        }
+    }
+
+    private static func expectPersistenceFailure(
+        fixture: CombinedRecoveredFixture,
+        recovered: RecoveredRecordingArtifact? = nil,
+        expected: RecordingArtifactFinalizerError,
+        label: String
+    ) throws {
+        let historyStore = PipelineHistoryStore(inMemory: true)
+        let bridge = RecordingRecoveryHistory(
+            journalStore: fixture.store,
+            historyStore: historyStore
+        )
+        do {
+            _ = try bridge.persist(
+                recovered ?? fixture.artifact,
+                maxCount: 50
+            )
+            throw TestFailure("\(label) must fail persistence")
+        } catch let error as RecordingArtifactFinalizerError {
+            try expectEqual(error, expected, "\(label) error")
+        }
+        try expectEqual(
+            try fixture.store.loadManifest(
+                recordingID: fixture.recordingID
+            ).state,
+            .promoted,
+            "\(label) manifest state"
+        )
+        try expectEqual(
+            historyStore.loadAllHistory().count,
+            0,
+            "\(label) history count"
+        )
+        guard FileManager.default.fileExists(
+            atPath: fixture.store.recordingDirectory(
+                recordingID: fixture.recordingID
+            ).path
+        ) else {
+            throw TestFailure("\(label) inflight directory must remain")
         }
     }
 
