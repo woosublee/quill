@@ -2914,42 +2914,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
               activeRecordingStorageFailureID == nil else {
             return
         }
-        activeRecordingStorageFailureID = sourceFailure.recordingID
         let physicalStopInProgress = isActiveInputSwitchPhysicalStopInProgress
-        detachSegmentedJournalSinks()
-        activeInputSwitchToken = nil
-        isActiveInputSwitchPhysicalStopInProgress = false
-        cancelPendingShortcutStart()
-        cancelRecordingInitializationTimer()
-        clearAudioRecorderCallbacks()
-        audioLevelCancellable?.cancel()
-        audioLevelCancellable = nil
-        contextCaptureTask?.cancel()
-        contextCaptureTask = nil
-        capturedContext = nil
-        liveTranscriber?.cancel()
-        liveTranscriber = nil
-        tearDownRealtimeService()
-        shortcutSessionController.reset()
-        activeRecordingTriggerMode = nil
-        currentSessionIntent = .dictation
-        activeRecordingStartedAt = nil
-        activeRecordingCalendarSnapshot = nil
-        isRecording = false
-        restoreAudioInterruptionIfNeeded()
-        syncCriticalDictationActivity()
-
-        let message = localizedCatalogString(
-            sourceFailure.failure.reason.overlayLocalizationKey
-        )
-        statusText = localizedCatalogString(
-            sourceFailure.failure.reason.titleLocalizationKey
-        )
-        errorMessage = message
-        overlayManager.showRecordingNotice(
-            message,
-            reminderFrame: meetingReminderOverlayManager.visibleOverlayFrame
-        )
+        prepareForRecordingJournalPersistenceFailure(sourceFailure)
         if physicalStopInProgress { return }
 
         let inputID = activeAudioInputID ?? selectedMicrophoneID
@@ -2979,6 +2945,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
             for url in temporaryURLs { try? FileManager.default.removeItem(at: url) }
             return
         }
+        prepareForRecordingJournalPersistenceFailure(sourceFailure)
+        finishRecordingAfterJournalPersistenceFailure(
+            controller: controller,
+            sourceFailure: sourceFailure,
+            temporaryURLs: temporaryURLs
+        )
+    }
+
+    @MainActor
+    private func prepareForRecordingJournalPersistenceFailure(
+        _ sourceFailure: RecordingJournalSourcePersistenceFailure
+    ) {
         activeRecordingStorageFailureID = sourceFailure.recordingID
         detachSegmentedJournalSinks()
         activeInputSwitchToken = nil
@@ -3002,6 +2980,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         isRecording = false
         restoreAudioInterruptionIfNeeded()
         syncCriticalDictationActivity()
+
         let message = localizedCatalogString(
             sourceFailure.failure.reason.overlayLocalizationKey
         )
@@ -3012,11 +2991,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         overlayManager.showRecordingNotice(
             message,
             reminderFrame: meetingReminderOverlayManager.visibleOverlayFrame
-        )
-        finishRecordingAfterJournalPersistenceFailure(
-            controller: controller,
-            sourceFailure: sourceFailure,
-            temporaryURLs: temporaryURLs
         )
     }
 
