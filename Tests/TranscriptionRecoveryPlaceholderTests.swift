@@ -76,6 +76,11 @@ struct TranscriptionRecoveryPlaceholderTests {
                 .systemAudioOnly,
                 "transcription-interrupted:system-audio-only",
                 "recording-recovered:system-audio-only"
+            ),
+            (
+                .partial,
+                "transcription-interrupted:partial",
+                "recording-recovered:partial"
             )
         ]
         for (mode, placeholderStatus, recoveredStatus) in cases {

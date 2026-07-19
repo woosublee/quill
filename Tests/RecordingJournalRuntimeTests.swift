@@ -7,6 +7,10 @@ struct RecordingJournalRuntimeTests {
         do {
             try createBuildsSingleSourceInflightLayout()
             try createCombinedBuildsTwoSourceInflightLayout()
+            try createSegmentedBuildsStoreOwnedFirstSegmentLayout()
+            try segmentedAppendIsOrderedAndIdempotent()
+            try segmentedAppendRecoversReservedFileCrashWindow()
+            try segmentedAppendRejectsConflictsAndPreservesExistingFiles()
             try duplicateCreateReusesExistingRecordingWithoutTruncation()
             try duplicateCombinedCreateReusesBothSourcesWithoutTruncation()
             try conflictingCreatePreservesExistingArtifact()
@@ -29,6 +33,7 @@ struct RecordingJournalRuntimeTests {
             try finalizerPreservesEmptyAndConflictingArtifacts()
             try discardedJournalIsNeverRecovered()
             try scannerPlansCombinedLifecycleActions()
+            try scannerPlansSegmentedLifecycleActions()
             try scannerHandlesCombinedPermanentArtifactStates()
             try scannerDiagnosesEmptyCombinedSource()
             try scannerDiagnosesShortCombinedSource()
@@ -118,6 +123,232 @@ struct RecordingJournalRuntimeTests {
                 Set([.microphone, .systemAudio]),
                 "combined source kinds"
             )
+        }
+    }
+
+    private static func createSegmentedBuildsStoreOwnedFirstSegmentLayout() throws {
+        try withFixture { fixture in
+            let request = segmentedRequest(
+                fixture,
+                sources: [
+                    RecordingJournalSegmentSourceRequest(
+                        id: fixture.sourceID,
+                        kind: .microphone
+                    ),
+                    RecordingJournalSegmentSourceRequest(
+                        id: fixture.systemAudioSourceID,
+                        kind: .systemAudio
+                    )
+                ]
+            )
+            let session = try fixture.store.createSegmented(request)
+            let manifest = try fixture.store.loadManifest(
+                recordingID: fixture.recordingID
+            )
+
+            try expectEqual(session.creationDisposition, .created, "segmented creation")
+            try expectEqual(manifest.sourceMode, .segmented, "segmented mode")
+            try expectEqual(manifest.generation, 1, "segmented initial generation")
+            try expectEqual(manifest.startedAt, request.startedAt, "segmented start")
+            try expectEqual(
+                manifest.monotonicAnchorNanoseconds,
+                request.monotonicAnchorNanoseconds,
+                "segmented anchor"
+            )
+            try expectEqual(manifest.pipeline, request.pipeline, "segmented pipeline")
+            try expectEqual(manifest.segments.map(\.sequence), [0], "first sequence")
+            try expectEqual(
+                session.sources.map { $0.session.sourceURL.lastPathComponent },
+                [
+                    "segment-0000-microphone.wav.part",
+                    "segment-0000-system-audio.wav.part"
+                ],
+                "segmented source filenames"
+            )
+            for source in session.sources {
+                let data = try Data(contentsOf: source.session.sourceURL)
+                try expectEqual(data.count, 44, "segmented reserved source size")
+                try expectPermissions(source.session.sourceURL, 0o600, "segmented source")
+            }
+            try expectPermissions(session.recordingDirectory, 0o700, "segmented directory")
+        }
+    }
+
+    private static func segmentedAppendIsOrderedAndIdempotent() throws {
+        try withFixture { fixture in
+            let first = try fixture.store.createSegmented(
+                segmentedRequest(
+                    fixture,
+                    sources: [RecordingJournalSegmentSourceRequest(
+                        id: fixture.sourceID,
+                        kind: .microphone
+                    )]
+                )
+            )
+            try appendRaw(Data([0x11, 0x22]), to: first.sources[0].session.sourceURL)
+            let secondSegmentID = UUID()
+            let secondSources = [
+                RecordingJournalSegmentSourceRequest(id: UUID(), kind: .microphone),
+                RecordingJournalSegmentSourceRequest(id: UUID(), kind: .systemAudio)
+            ]
+            let appended = try fixture.store.appendSegment(
+                recordingID: fixture.recordingID,
+                segmentID: secondSegmentID,
+                sequence: 1,
+                sources: secondSources
+            )
+            let afterAppend = try fixture.store.loadManifest(
+                recordingID: fixture.recordingID
+            )
+            let sourceBeforeRetry = try Data(contentsOf: first.sources[0].session.sourceURL)
+            let retried = try fixture.store.appendSegment(
+                recordingID: fixture.recordingID,
+                segmentID: secondSegmentID,
+                sequence: 1,
+                sources: secondSources
+            )
+            let afterRetry = try fixture.store.loadManifest(
+                recordingID: fixture.recordingID
+            )
+
+            try expectEqual(appended.creationDisposition, .created, "append disposition")
+            try expectEqual(retried.creationDisposition, .reused, "retry disposition")
+            try expectEqual(afterAppend.generation, 2, "append generation")
+            try expectEqual(afterRetry.generation, 2, "retry generation")
+            try expectEqual(afterRetry.segments.map(\.sequence), [0, 1], "append order")
+            try expectEqual(
+                afterRetry.segments[1].sourceIDs,
+                secondSources.map(\.id),
+                "appended source order"
+            )
+            try expectEqual(
+                try Data(contentsOf: first.sources[0].session.sourceURL),
+                sourceBeforeRetry,
+                "previous segment preservation"
+            )
+            try expectEqual(retried.sources, appended.sources, "retry source sessions")
+        }
+    }
+
+    private static func segmentedAppendRecoversReservedFileCrashWindow() throws {
+        try withFixture { fixture in
+            _ = try fixture.store.createSegmented(
+                segmentedRequest(
+                    fixture,
+                    sources: [RecordingJournalSegmentSourceRequest(
+                        id: fixture.sourceID,
+                        kind: .microphone
+                    )]
+                )
+            )
+            let nextSourceID = UUID()
+            let nextURL = try fixture.store.sourceURL(
+                recordingID: fixture.recordingID,
+                fileName: "segment-0001-system-audio.wav.part"
+            )
+            try RecordingCanonicalWAV.header(dataByteCount: 0).write(to: nextURL)
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: nextURL.path
+            )
+
+            let session = try fixture.store.appendSegment(
+                recordingID: fixture.recordingID,
+                segmentID: UUID(),
+                sequence: 1,
+                sources: [RecordingJournalSegmentSourceRequest(
+                    id: nextSourceID,
+                    kind: .systemAudio
+                )]
+            )
+
+            try expectEqual(session.creationDisposition, .created, "crash-window append")
+            try expectEqual(try fileSize(nextURL), 44, "reused reserved file")
+            try expectEqual(
+                try fixture.store.loadManifest(recordingID: fixture.recordingID)
+                    .segments.map(\.sequence),
+                [0, 1],
+                "crash-window manifest commit"
+            )
+        }
+    }
+
+    private static func segmentedAppendRejectsConflictsAndPreservesExistingFiles() throws {
+        try withFixture { fixture in
+            _ = try fixture.store.createSegmented(
+                segmentedRequest(
+                    fixture,
+                    sources: [RecordingJournalSegmentSourceRequest(
+                        id: fixture.sourceID,
+                        kind: .microphone
+                    )]
+                )
+            )
+            let manifestBefore = try Data(
+                contentsOf: fixture.store.manifestURL(recordingID: fixture.recordingID)
+            )
+            let payloadURL = try fixture.store.sourceURL(
+                recordingID: fixture.recordingID,
+                fileName: "segment-0001-system-audio.wav.part"
+            )
+            var payload = RecordingCanonicalWAV.header(dataByteCount: 0)
+            payload.append(contentsOf: [0x01, 0x00])
+            try payload.write(to: payloadURL)
+
+            do {
+                _ = try fixture.store.appendSegment(
+                    recordingID: fixture.recordingID,
+                    segmentID: UUID(),
+                    sequence: 1,
+                    sources: [RecordingJournalSegmentSourceRequest(
+                        id: UUID(),
+                        kind: .systemAudio
+                    )]
+                )
+                throw TestFailure("payload crash-window source must fail")
+            } catch RecordingJournalStoreError.incompleteExistingRecording {
+                // expected
+            }
+            try expectEqual(
+                try Data(contentsOf: fixture.store.manifestURL(recordingID: fixture.recordingID)),
+                manifestBefore,
+                "payload conflict manifest preservation"
+            )
+            try expectEqual(try Data(contentsOf: payloadURL), payload, "payload preservation")
+
+            do {
+                _ = try fixture.store.appendSegment(
+                    recordingID: fixture.recordingID,
+                    segmentID: UUID(),
+                    sequence: 2,
+                    sources: [RecordingJournalSegmentSourceRequest(
+                        id: UUID(),
+                        kind: .microphone
+                    )]
+                )
+                throw TestFailure("skipped segment sequence must fail")
+            } catch RecordingJournalStoreError.invalidSegmentSequence(expected: 1, actual: 2) {
+                // expected
+            }
+
+            _ = try fixture.store.transition(
+                recordingID: fixture.recordingID,
+                to: .stopping
+            )
+            do {
+                _ = try fixture.store.appendSegment(
+                    recordingID: fixture.recordingID,
+                    segmentID: UUID(),
+                    sequence: 1,
+                    sources: [RecordingJournalSegmentSourceRequest(
+                        id: UUID(),
+                        kind: .microphone
+                    )]
+                )
+                throw TestFailure("append after stopping must fail")
+            } catch RecordingJournalStoreError.invalidCheckpointState(.stopping) {
+                // expected
+            }
         }
     }
 
@@ -856,6 +1087,62 @@ struct RecordingJournalRuntimeTests {
         }
     }
 
+    private static func scannerPlansSegmentedLifecycleActions() throws {
+        for state in [
+            RecordingJournalState.recording,
+            .stopping,
+            .recoverable
+        ] {
+            try withFixture { fixture in
+                let session = try fixture.store.createSegmented(
+                    segmentedRequest(
+                        fixture,
+                        sources: [RecordingJournalSegmentSourceRequest(
+                            id: fixture.sourceID,
+                            kind: .microphone
+                        )]
+                    )
+                )
+                let writer = try RecordingPCMJournalWriter(
+                    session: session.sources[0].session,
+                    store: fixture.store
+                )
+                writer.enqueue(Data([0x01, 0x00]))
+                let commit = try writer.drainAndCloseSnapshot()
+                _ = try fixture.store.recordCheckpoint(
+                    recordingID: fixture.recordingID,
+                    sourceID: fixture.sourceID,
+                    commit: commit
+                )
+                if state != .recording {
+                    _ = try fixture.store.transition(
+                        recordingID: fixture.recordingID,
+                        to: state
+                    )
+                }
+
+                let before = try snapshotTree(fixture.audioDirectory)
+                let candidate = try requireCandidate(
+                    recordingID: fixture.recordingID,
+                    store: fixture.store
+                )
+                let after = try snapshotTree(fixture.audioDirectory)
+
+                try expectEqual(
+                    candidate.action,
+                    .finalizeSegmented,
+                    "segmented \(state.rawValue) action"
+                )
+                try expectEqual(
+                    candidate.protectedPermanentFileName,
+                    fixture.recordingID.uuidString.lowercased() + ".wav",
+                    "segmented protected permanent filename"
+                )
+                try expectEqual(after, before, "segmented scanner preservation")
+            }
+        }
+    }
+
     private static func scannerHandlesCombinedPermanentArtifactStates() throws {
         try withFixture { fixture in
             _ = try fixture.store.createCombined(combinedRequest(fixture))
@@ -1402,6 +1689,21 @@ struct RecordingJournalRuntimeTests {
         return candidate
     }
 
+    private static func segmentedRequest(
+        _ fixture: Fixture,
+        sources: [RecordingJournalSegmentSourceRequest]
+    ) -> SegmentedRecordingJournalCreateRequest {
+        SegmentedRecordingJournalCreateRequest(
+            recordingID: fixture.recordingID,
+            segmentID: fixture.segmentID,
+            startedAt: fixture.request.startedAt,
+            monotonicAnchorNanoseconds:
+                fixture.request.monotonicAnchorNanoseconds,
+            sources: sources,
+            pipeline: fixture.request.pipeline
+        )
+    }
+
     private static func combinedRequest(
         _ fixture: Fixture
     ) -> CombinedRecordingJournalCreateRequest {
@@ -1521,6 +1823,18 @@ struct RecordingJournalRuntimeTests {
             throw TestFailure("source is shorter than reserved WAV header")
         }
         return data.subdata(in: RecordingCanonicalWAV.headerByteCount..<data.count)
+    }
+
+    private static func expectPermissions(
+        _ url: URL,
+        _ expected: Int,
+        _ label: String
+    ) throws {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        guard let number = attributes[.posixPermissions] as? NSNumber else {
+            throw TestFailure("missing permissions for \(label)")
+        }
+        try expectEqual(number.intValue & 0o777, expected, "\(label) permissions")
     }
 
     private static func fileSize(_ url: URL) throws -> UInt64 {

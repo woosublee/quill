@@ -453,7 +453,7 @@ struct CombinedRecordingJournalControllerTests {
 
     private static func sourceSinkUsesAudioCallbackLockConvention() throws {
         let source = try String(
-            contentsOfFile: "Sources/CombinedRecordingJournalController.swift",
+            contentsOfFile: "Sources/RecordingJournalSourceSink.swift",
             encoding: .utf8
         )
         guard source.contains(

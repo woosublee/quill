@@ -276,6 +276,11 @@ struct NoteListRowDisplayDataTests {
                 .systemAudioOnly,
                 "System Audio recovered",
                 "Microphone audio could not be recovered. System Audio is available for playback or transcription."
+            ),
+            (
+                .partial,
+                "Some audio recovered",
+                "Some parts of this recording may be missing. The recovered audio is available for playback or transcription."
             )
         ]
         for (mode, title, preview) in cases {

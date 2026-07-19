@@ -4,6 +4,7 @@ enum InflightRecordingRecoveryAction: String, Equatable {
     case markRecoverable
     case finalizeSingleSource
     case finalizeCombined
+    case finalizeSegmented
     case reusePromotedArtifact
     case persistHistory
     case markFinalized
@@ -133,11 +134,19 @@ struct InflightRecordingRecovery {
                 diagnostics: [.recordingIDMismatch]
             )
         }
-        if manifest.sourceMode == .combined {
+        switch manifest.sourceMode {
+        case .combined:
             return scanCombinedManifest(
                 manifest,
                 directory: directory
             )
+        case .segmented:
+            return scanSegmentedManifest(
+                manifest,
+                directory: directory
+            )
+        case .microphone, .systemAudio:
+            break
         }
         guard manifest.sources.count == 1,
               manifest.segments.count == 1,
@@ -438,6 +447,123 @@ struct InflightRecordingRecovery {
                 recoverableDataByteCount: committedDataByteCount,
                 promotion: promotion,
                 protectedPermanentFileName: promotion?.fileName
+                    ?? manifest.recordingID.uuidString.lowercased() + ".wav",
+                diagnostics: diagnostics
+            )
+        case .promoted, .historyStored, .finalized:
+            guard let promotion = manifest.promotion else {
+                return manualCandidate(
+                    directory: directory,
+                    recordingID: manifest.recordingID,
+                    diagnostics: diagnostics.union([.missingPermanentArtifact])
+                )
+            }
+            return stateCandidate(
+                manifest: manifest,
+                directory: directory,
+                promotion: promotion,
+                diagnostics: diagnostics
+            )
+        }
+    }
+
+    private func scanSegmentedManifest(
+        _ manifest: RecordingJournalManifest,
+        directory: URL
+    ) -> InflightRecordingRecoveryCandidate {
+        let permanentURL = store.permanentURL(recordingID: manifest.recordingID)
+        let permanentExists = FileManager.default.fileExists(
+            atPath: permanentURL.path
+        )
+        let physicalPromotion = try? RecordingCanonicalWAV.validateFile(
+            at: permanentURL
+        )
+        if permanentExists, physicalPromotion == nil {
+            return manualCandidate(
+                directory: directory,
+                recordingID: manifest.recordingID,
+                diagnostics: [.promotionConflict]
+            )
+        }
+        if manifest.state == .promoted
+                || manifest.state == .historyStored
+                || manifest.state == .finalized {
+            guard let physicalPromotion,
+                  let storedPromotion = manifest.promotion else {
+                return manualCandidate(
+                    directory: directory,
+                    recordingID: manifest.recordingID,
+                    diagnostics: [.missingPermanentArtifact]
+                )
+            }
+            guard physicalPromotion.fileName == storedPromotion.fileName,
+                  physicalPromotion.dataByteCount == storedPromotion.dataByteCount,
+                  physicalPromotion.frameCount == storedPromotion.frameCount else {
+                return manualCandidate(
+                    directory: directory,
+                    recordingID: manifest.recordingID,
+                    diagnostics: [.promotionConflict]
+                )
+            }
+        }
+
+        var diagnostics: Set<InflightRecordingRecoveryDiagnostic> = []
+        var committedDataByteCount: UInt64 = 0
+        for source in manifest.sources {
+            let (total, overflow) = committedDataByteCount.addingReportingOverflow(
+                source.committedDataByteCount
+            )
+            committedDataByteCount = overflow ? UInt64.max : total
+            let sourceURL: URL
+            do {
+                sourceURL = try store.sourceURL(
+                    recordingID: manifest.recordingID,
+                    fileName: source.fileName
+                )
+            } catch {
+                diagnostics.insert(.unsafeSourceFileName)
+                continue
+            }
+            guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+                diagnostics.insert(.missingSource)
+                continue
+            }
+            guard let sourceSize = try? RecordingJournalDurability.fileSize(
+                at: sourceURL
+            ) else {
+                diagnostics.insert(.missingSource)
+                continue
+            }
+            guard sourceSize >= UInt64(RecordingCanonicalWAV.headerByteCount) else {
+                diagnostics.insert(.sourceTooShort)
+                continue
+            }
+            let actualPayload = sourceSize
+                - UInt64(RecordingCanonicalWAV.headerByteCount)
+            let frameSize = UInt64(RecordingPCMFormat.canonical.bytesPerFrame)
+            let evenPayload = actualPayload - (actualPayload % frameSize)
+            if actualPayload != evenPayload {
+                diagnostics.insert(.oddTrailingByte)
+            }
+            if evenPayload > source.committedDataByteCount {
+                diagnostics.insert(.manifestBehind)
+            } else if evenPayload < source.committedDataByteCount {
+                diagnostics.insert(.sourceTruncated)
+            }
+            if evenPayload == 0 {
+                diagnostics.insert(.emptySource)
+            }
+        }
+
+        switch manifest.state {
+        case .recording, .stopping, .recoverable:
+            return InflightRecordingRecoveryCandidate(
+                recordingID: manifest.recordingID,
+                recordingDirectory: directory,
+                action: .finalizeSegmented,
+                recoverableDataByteCount: committedDataByteCount,
+                promotion: physicalPromotion,
+                protectedPermanentFileName: physicalPromotion?.fileName
                     ?? manifest.recordingID.uuidString.lowercased() + ".wav",
                 diagnostics: diagnostics
             )

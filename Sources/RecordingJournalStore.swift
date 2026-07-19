@@ -8,6 +8,9 @@ enum RecordingJournalStoreError: Error, Equatable {
     case sourceNotFound(UUID)
     case checkpointRegression
     case invalidCheckpointState(RecordingJournalState)
+    case invalidSegmentSequence(expected: Int, actual: Int)
+    case invalidSegmentSourceShape
+    case conflictingExistingSegment(UUID)
     case invalidSourceFile
     case systemCall(String, Int32)
 }
@@ -31,6 +34,35 @@ struct RecordingJournalSession: Equatable {
     let recordingDirectory: URL
     let manifestURL: URL
     let sourceURL: URL
+}
+
+struct RecordingJournalSegmentSourceRequest: Equatable {
+    let id: UUID
+    let kind: RecordingJournalSourceKind
+}
+
+struct SegmentedRecordingJournalCreateRequest: Equatable {
+    let recordingID: UUID
+    let segmentID: UUID
+    let startedAt: Date
+    let monotonicAnchorNanoseconds: UInt64
+    let sources: [RecordingJournalSegmentSourceRequest]
+    let pipeline: RecordingPipelineSnapshot
+}
+
+struct RecordingJournalSegmentSourceSession: Equatable {
+    let kind: RecordingJournalSourceKind
+    let session: RecordingJournalSession
+}
+
+struct RecordingJournalSegmentSession: Equatable {
+    let recordingID: UUID
+    let segmentID: UUID
+    let sequence: Int
+    let recordingDirectory: URL
+    let manifestURL: URL
+    let sources: [RecordingJournalSegmentSourceSession]
+    let creationDisposition: RecordingJournalCreationDisposition
 }
 
 struct CombinedRecordingJournalCreateRequest: Equatable {
@@ -355,6 +387,236 @@ final class RecordingJournalStore {
         }
     }
 
+    func createSegmented(
+        _ request: SegmentedRecordingJournalCreateRequest
+    ) throws -> RecordingJournalSegmentSession {
+        try lock.withLock {
+            try validateSegmentSources(request.sources)
+            try ensureDirectory(audioDirectory, permissions: 0o700)
+            try ensureDirectory(inflightDirectory, permissions: 0o700)
+            let createdSession = segmentedSession(
+                recordingID: request.recordingID,
+                segmentID: request.segmentID,
+                sequence: 0,
+                sources: request.sources,
+                creationDisposition: .created
+            )
+
+            if fileManager.fileExists(atPath: createdSession.manifestURL.path) {
+                let manifest = try loadManifestUnlocked(
+                    recordingID: request.recordingID
+                )
+                guard manifestMatchesSegmentedCreateRequest(
+                    manifest,
+                    request: request
+                ) else {
+                    throw RecordingJournalStoreError.conflictingExistingRecording(
+                        request.recordingID
+                    )
+                }
+                return try validatedReusableSegmentSession(
+                    createdSession,
+                    manifest: manifest
+                )
+            }
+            if fileManager.fileExists(atPath: createdSession.recordingDirectory.path) {
+                throw RecordingJournalStoreError.incompleteExistingRecording(
+                    request.recordingID
+                )
+            }
+
+            try ensureDirectory(createdSession.recordingDirectory, permissions: 0o700)
+            var createdURLs: [URL] = []
+            do {
+                try RecordingJournalDurability.syncDirectory(inflightDirectory)
+                for source in createdSession.sources {
+                    try createReservedSource(at: source.session.sourceURL)
+                    createdURLs.append(source.session.sourceURL)
+                }
+                try RecordingJournalDurability.syncDirectory(
+                    createdSession.recordingDirectory
+                )
+                let manifest = RecordingJournalManifest(
+                    schemaVersion: 1,
+                    generation: 1,
+                    recordingID: request.recordingID,
+                    startedAt: request.startedAt,
+                    updatedAt: now(),
+                    monotonicAnchorNanoseconds:
+                        request.monotonicAnchorNanoseconds,
+                    state: .recording,
+                    sourceMode: .segmented,
+                    pcmFormat: .canonical,
+                    sources: zip(request.sources, createdSession.sources).map {
+                        sourceRequest, sourceSession in
+                        RecordingJournalSource(
+                            id: sourceRequest.id,
+                            kind: sourceRequest.kind,
+                            fileName: sourceSession.session.sourceURL.lastPathComponent,
+                            storageLayout: .reservedWAVHeader44,
+                            committedDataByteCount: 0,
+                            committedFrameCount: 0,
+                            firstCommittedFrameOffset: nil,
+                            segmentID: request.segmentID
+                        )
+                    },
+                    segments: [RecordingJournalSegment(
+                        id: request.segmentID,
+                        sequence: 0,
+                        sourceIDs: request.sources.map(\.id)
+                    )],
+                    pipeline: request.pipeline,
+                    promotion: nil,
+                    historyItemID: nil
+                )
+                try manifest.validate()
+                try writeManifestUnlocked(manifest, to: createdSession.manifestURL)
+                return createdSession
+            } catch {
+                for url in createdURLs {
+                    try? fileManager.removeItem(at: url)
+                }
+                try? fileManager.removeItem(at: createdSession.recordingDirectory)
+                try? RecordingJournalDurability.syncDirectory(inflightDirectory)
+                throw error
+            }
+        }
+    }
+
+    func appendSegment(
+        recordingID: UUID,
+        segmentID: UUID,
+        sequence: Int,
+        sources: [RecordingJournalSegmentSourceRequest]
+    ) throws -> RecordingJournalSegmentSession {
+        try lock.withLock {
+            try validateSegmentSources(sources)
+            var manifest = try loadManifestUnlocked(recordingID: recordingID)
+            guard manifest.sourceMode == .segmented else {
+                throw RecordingJournalStoreError.conflictingExistingRecording(
+                    recordingID
+                )
+            }
+            guard manifest.state == .recording else {
+                throw RecordingJournalStoreError.invalidCheckpointState(manifest.state)
+            }
+
+            if let existingSegment = manifest.segments.first(where: {
+                $0.sequence == sequence || $0.id == segmentID
+            }) {
+                guard existingSegment.sequence == sequence,
+                      existingSegment.id == segmentID else {
+                    throw RecordingJournalStoreError.conflictingExistingSegment(
+                        segmentID
+                    )
+                }
+                let requestedSourceIDs = sources.map(\.id)
+                guard existingSegment.sourceIDs == requestedSourceIDs,
+                      sources.allSatisfy({ request in
+                          manifest.sources.contains(where: {
+                              $0.id == request.id
+                                  && $0.kind == request.kind
+                                  && $0.segmentID == segmentID
+                                  && $0.fileName == segmentedSourceFileName(
+                                      sequence: sequence,
+                                      kind: request.kind
+                                  )
+                          })
+                      }) else {
+                    throw RecordingJournalStoreError.conflictingExistingSegment(
+                        segmentID
+                    )
+                }
+                let reused = segmentedSession(
+                    recordingID: recordingID,
+                    segmentID: segmentID,
+                    sequence: sequence,
+                    sources: sources,
+                    creationDisposition: .reused
+                )
+                return try validatedReusableSegmentSession(
+                    reused,
+                    manifest: manifest
+                )
+            }
+
+            let expectedSequence = manifest.segments.count
+            guard sequence == expectedSequence else {
+                throw RecordingJournalStoreError.invalidSegmentSequence(
+                    expected: expectedSequence,
+                    actual: sequence
+                )
+            }
+            let newSession = segmentedSession(
+                recordingID: recordingID,
+                segmentID: segmentID,
+                sequence: sequence,
+                sources: sources,
+                creationDisposition: .created
+            )
+            var createdURLs: [URL] = []
+            do {
+                for source in newSession.sources {
+                    let sourceURL = source.session.sourceURL
+                    if fileManager.fileExists(atPath: sourceURL.path) {
+                        guard try isEmptyReservedSource(at: sourceURL) else {
+                            throw RecordingJournalStoreError.incompleteExistingRecording(
+                                recordingID
+                            )
+                        }
+                    } else {
+                        try createReservedSource(at: sourceURL)
+                        createdURLs.append(sourceURL)
+                    }
+                }
+                try RecordingJournalDurability.syncDirectory(
+                    newSession.recordingDirectory
+                )
+                let newSources = zip(sources, newSession.sources).map {
+                    request, sourceSession in
+                    RecordingJournalSource(
+                        id: request.id,
+                        kind: request.kind,
+                        fileName: sourceSession.session.sourceURL.lastPathComponent,
+                        storageLayout: .reservedWAVHeader44,
+                        committedDataByteCount: 0,
+                        committedFrameCount: 0,
+                        firstCommittedFrameOffset: nil,
+                        segmentID: segmentID
+                    )
+                }
+                let (nextGeneration, overflow) =
+                    manifest.generation.addingReportingOverflow(1)
+                guard !overflow else {
+                    throw RecordingJournalError.invalidManifest(
+                        "Manifest generation overflow."
+                    )
+                }
+                manifest.sources.append(contentsOf: newSources)
+                manifest.segments.append(RecordingJournalSegment(
+                    id: segmentID,
+                    sequence: sequence,
+                    sourceIDs: sources.map(\.id)
+                ))
+                manifest.generation = nextGeneration
+                manifest.updatedAt = now()
+                try manifest.validate()
+                try writeManifestUnlocked(manifest, to: newSession.manifestURL)
+                return newSession
+            } catch {
+                for url in createdURLs {
+                    try? fileManager.removeItem(at: url)
+                }
+                if !createdURLs.isEmpty {
+                    try? RecordingJournalDurability.syncDirectory(
+                        newSession.recordingDirectory
+                    )
+                }
+                throw error
+            }
+        }
+    }
+
     func loadManifest(recordingID: UUID) throws -> RecordingJournalManifest {
         try lock.withLock {
             try loadManifestUnlocked(recordingID: recordingID)
@@ -597,6 +859,101 @@ final class RecordingJournalStore {
         )
     }
 
+    private func segmentedSession(
+        recordingID: UUID,
+        segmentID: UUID,
+        sequence: Int,
+        sources: [RecordingJournalSegmentSourceRequest],
+        creationDisposition: RecordingJournalCreationDisposition
+    ) -> RecordingJournalSegmentSession {
+        let sourceSessions = sources.map { source in
+            RecordingJournalSegmentSourceSession(
+                kind: source.kind,
+                session: session(
+                    recordingID: recordingID,
+                    sourceID: source.id,
+                    segmentID: segmentID,
+                    sourceFileName: segmentedSourceFileName(
+                        sequence: sequence,
+                        kind: source.kind
+                    )
+                )
+            )
+        }
+        let directory = recordingDirectory(recordingID: recordingID)
+        return RecordingJournalSegmentSession(
+            recordingID: recordingID,
+            segmentID: segmentID,
+            sequence: sequence,
+            recordingDirectory: directory,
+            manifestURL: directory.appendingPathComponent("manifest.json"),
+            sources: sourceSessions,
+            creationDisposition: creationDisposition
+        )
+    }
+
+    private func segmentedSourceFileName(
+        sequence: Int,
+        kind: RecordingJournalSourceKind
+    ) -> String {
+        let kindName = switch kind {
+        case .microphone: "microphone"
+        case .systemAudio: "system-audio"
+        }
+        return String(format: "segment-%04d-%@.wav.part", sequence, kindName)
+    }
+
+    private func validateSegmentSources(
+        _ sources: [RecordingJournalSegmentSourceRequest]
+    ) throws {
+        guard (1...2).contains(sources.count),
+              Set(sources.map(\.id)).count == sources.count,
+              Set(sources.map(\.kind)).count == sources.count else {
+            throw RecordingJournalStoreError.invalidSegmentSourceShape
+        }
+    }
+
+    private func isEmptyReservedSource(at url: URL) throws -> Bool {
+        let size = try RecordingJournalDurability.fileSize(at: url)
+        guard size == UInt64(RecordingCanonicalWAV.headerByteCount) else {
+            return false
+        }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let header = try handle.read(upToCount: RecordingCanonicalWAV.headerByteCount)
+            ?? Data()
+        return RecordingCanonicalWAV.dataByteCount(in: header) == 0
+    }
+
+    private func validatedReusableSegmentSession(
+        _ session: RecordingJournalSegmentSession,
+        manifest: RecordingJournalManifest
+    ) throws -> RecordingJournalSegmentSession {
+        guard session.sources.allSatisfy({ source in
+            fileManager.fileExists(atPath: source.session.sourceURL.path)
+                && manifest.sources.contains(where: {
+                    $0.id == source.session.sourceID
+                        && $0.kind == source.kind
+                        && $0.segmentID == session.segmentID
+                        && $0.fileName
+                            == source.session.sourceURL.lastPathComponent
+                })
+        }) else {
+            throw RecordingJournalStoreError.incompleteExistingRecording(
+                session.recordingID
+            )
+        }
+        return RecordingJournalSegmentSession(
+            recordingID: session.recordingID,
+            segmentID: session.segmentID,
+            sequence: session.sequence,
+            recordingDirectory: session.recordingDirectory,
+            manifestURL: session.manifestURL,
+            sources: session.sources,
+            creationDisposition: .reused
+        )
+    }
+
     private func combinedSession(
         request: CombinedRecordingJournalCreateRequest,
         creationDisposition: RecordingJournalCreationDisposition
@@ -714,6 +1071,39 @@ final class RecordingJournalStore {
             throw RecordingJournalStoreError.systemCall("rename manifest", errno)
         }
         try RecordingJournalDurability.syncDirectory(targetURL.deletingLastPathComponent())
+    }
+
+    private func manifestMatchesSegmentedCreateRequest(
+        _ manifest: RecordingJournalManifest,
+        request: SegmentedRecordingJournalCreateRequest
+    ) -> Bool {
+        guard manifest.recordingID == request.recordingID,
+              manifest.startedAt == request.startedAt,
+              manifest.monotonicAnchorNanoseconds
+                == request.monotonicAnchorNanoseconds,
+              manifest.sourceMode == .segmented,
+              manifest.pipeline == request.pipeline,
+              manifest.segments.count == 1,
+              manifest.sources.count == request.sources.count else {
+            return false
+        }
+        let segment = manifest.segments[0]
+        guard segment.id == request.segmentID,
+              segment.sequence == 0,
+              segment.sourceIDs == request.sources.map(\.id) else {
+            return false
+        }
+        return request.sources.allSatisfy { requested in
+            manifest.sources.contains(where: {
+                $0.id == requested.id
+                    && $0.kind == requested.kind
+                    && $0.segmentID == request.segmentID
+                    && $0.fileName == segmentedSourceFileName(
+                        sequence: 0,
+                        kind: requested.kind
+                    )
+            })
+        }
     }
 
     private func manifestMatchesCombinedRequest(

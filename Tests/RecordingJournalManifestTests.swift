@@ -8,7 +8,10 @@ struct RecordingJournalManifestTests {
             try manifestRoundTripPreservesStableMetadata()
             try legacyPromotionWithoutRecoveryModeDefaultsToComplete()
             try promotionRoundTripPreservesRecoveryMode()
+            try partialPromotionRoundTripPreservesRecoveryIssues()
             try combinedManifestAcceptsCanonicalShape()
+            try segmentedManifestAcceptsOrderedShape()
+            try segmentedManifestRejectsInvalidShapes()
             try legacySingleSourceManifestShapeRemainsValid()
             try manifestRejectsSourceModeShapeMismatch()
             try stateMachineAllowsOnlyDocumentedTransitions()
@@ -79,6 +82,12 @@ struct RecordingJournalManifestTests {
             .complete,
             "legacy resolved recovery mode"
         )
+        try expectEqual(decoded.promotion?.recoveryIssues, nil, "legacy recovery issues")
+        try expectEqual(
+            decoded.promotion?.resolvedRecoveryIssues,
+            [],
+            "legacy resolved recovery issues"
+        )
     }
 
     private static func promotionRoundTripPreservesRecoveryMode() throws {
@@ -115,6 +124,60 @@ struct RecordingJournalManifestTests {
         )
     }
 
+    private static func partialPromotionRoundTripPreservesRecoveryIssues() throws {
+        let issues = [
+            RecordingRecoveryIssue(
+                segmentSequence: 1,
+                sourceKind: .systemAudio,
+                reason: .sourceMissing
+            ),
+            RecordingRecoveryIssue(
+                segmentSequence: 2,
+                sourceKind: nil,
+                reason: .committedPayloadUnavailable
+            )
+        ]
+        var recording = try makeSegmentedManifest()
+        recording.state = .stopping
+        let promoted = try recording.transitioned(
+            to: .promoted,
+            promotion: RecordingPromotion(
+                fileName: recordingID.uuidString.lowercased() + ".wav",
+                dataByteCount: 8,
+                frameCount: 4,
+                recoveryMode: .partial,
+                recoveryIssues: issues
+            ),
+            now: fixedDate.addingTimeInterval(2)
+        )
+        let data = try RecordingJournalCoding.makeEncoder().encode(promoted)
+        let decoded = try RecordingJournalCoding.makeDecoder().decode(
+            RecordingJournalManifest.self,
+            from: data
+        )
+
+        try expectEqual(decoded.promotion?.recoveryMode, .partial, "partial mode")
+        try expectEqual(decoded.promotion?.recoveryIssues, issues, "partial issues")
+        try expectEqual(
+            decoded.promotion?.resolvedRecoveryIssues,
+            issues,
+            "resolved partial issues"
+        )
+
+        let legacyData = try RecordingJournalCoding.makeEncoder().encode(
+            try makeManifest()
+        )
+        let legacy = try RecordingJournalCoding.makeDecoder().decode(
+            RecordingJournalManifest.self,
+            from: legacyData
+        )
+        try expectEqual(
+            legacy.promotion?.resolvedRecoveryIssues ?? [],
+            [],
+            "legacy resolved recovery issues"
+        )
+    }
+
     private static func combinedManifestAcceptsCanonicalShape() throws {
         let manifest = try makeCombinedManifest()
 
@@ -131,6 +194,107 @@ struct RecordingJournalManifestTests {
             Set(manifest.sources.map(\.id)),
             "combined segment sources"
         )
+    }
+
+    private static func segmentedManifestAcceptsOrderedShape() throws {
+        let manifest = try makeSegmentedManifest()
+
+        try manifest.validate()
+        try expectEqual(manifest.sourceMode, .segmented, "segmented source mode")
+        try expectEqual(manifest.segments.map(\.sequence), [0, 1, 2], "segment order")
+        try expectEqual(
+            manifest.segments.map { segment in
+                Set(manifest.sources.filter { $0.segmentID == segment.id }.map(\.kind))
+            },
+            [Set([.microphone]), Set([.microphone, .systemAudio]), Set([.systemAudio])],
+            "segment source kinds"
+        )
+    }
+
+    private static func segmentedManifestRejectsInvalidShapes() throws {
+        var duplicateSequence = try makeSegmentedManifest()
+        duplicateSequence.segments[2] = RecordingJournalSegment(
+            id: duplicateSequence.segments[2].id,
+            sequence: 1,
+            sourceIDs: duplicateSequence.segments[2].sourceIDs
+        )
+        try expectInvalidManifest(duplicateSequence, "duplicate segment sequence")
+
+        var nonContiguousSequence = try makeSegmentedManifest()
+        nonContiguousSequence.segments[2] = RecordingJournalSegment(
+            id: nonContiguousSequence.segments[2].id,
+            sequence: 3,
+            sourceIDs: nonContiguousSequence.segments[2].sourceIDs
+        )
+        try expectInvalidManifest(nonContiguousSequence, "non-contiguous segment sequence")
+
+        var duplicateFilename = try makeSegmentedManifest()
+        duplicateFilename.sources[1].fileName = duplicateFilename.sources[0].fileName
+        try expectInvalidManifest(duplicateFilename, "duplicate segmented source filename")
+
+        var duplicateKind = try makeSegmentedManifest()
+        duplicateKind.sources[2] = replacingSource(
+            duplicateKind.sources[2],
+            kind: .microphone
+        )
+        try expectInvalidManifest(duplicateKind, "duplicate source kind in segment")
+
+        var mismatchedSegment = try makeSegmentedManifest()
+        mismatchedSegment.sources[1] = replacingSource(
+            mismatchedSegment.sources[1],
+            segmentID: mismatchedSegment.segments[0].id
+        )
+        try expectInvalidManifest(mismatchedSegment, "source segment mismatch")
+
+        var unknownSource = try makeSegmentedManifest()
+        unknownSource.segments[1] = RecordingJournalSegment(
+            id: unknownSource.segments[1].id,
+            sequence: unknownSource.segments[1].sequence,
+            sourceIDs: unknownSource.segments[1].sourceIDs + [UUID()]
+        )
+        try expectInvalidManifest(unknownSource, "unknown segmented source")
+
+        var unlistedSource = try makeSegmentedManifest()
+        unlistedSource.segments[1] = RecordingJournalSegment(
+            id: unlistedSource.segments[1].id,
+            sequence: unlistedSource.segments[1].sequence,
+            sourceIDs: [unlistedSource.segments[1].sourceIDs[0]]
+        )
+        try expectInvalidManifest(unlistedSource, "source listed by no segment")
+
+        var emptySources = try makeSegmentedManifest()
+        emptySources.sources = []
+        try expectInvalidManifest(emptySources, "empty segmented source list")
+
+        var absentIssueSequence = try makeSegmentedManifest()
+        absentIssueSequence.state = .promoted
+        absentIssueSequence.promotion = RecordingPromotion(
+            fileName: recordingID.uuidString.lowercased() + ".wav",
+            dataByteCount: 2,
+            frameCount: 1,
+            recoveryMode: .partial,
+            recoveryIssues: [RecordingRecoveryIssue(
+                segmentSequence: 3,
+                sourceKind: .microphone,
+                reason: .sourceMissing
+            )]
+        )
+        try expectInvalidManifest(absentIssueSequence, "absent recovery issue sequence")
+
+        var negativeIssueSequence = try makeSegmentedManifest()
+        negativeIssueSequence.state = .promoted
+        negativeIssueSequence.promotion = RecordingPromotion(
+            fileName: recordingID.uuidString.lowercased() + ".wav",
+            dataByteCount: 2,
+            frameCount: 1,
+            recoveryMode: .partial,
+            recoveryIssues: [RecordingRecoveryIssue(
+                segmentSequence: -1,
+                sourceKind: nil,
+                reason: .committedPayloadUnavailable
+            )]
+        )
+        try expectInvalidManifest(negativeIssueSequence, "negative recovery issue sequence")
     }
 
     private static func legacySingleSourceManifestShapeRemainsValid() throws {
@@ -497,6 +661,107 @@ struct RecordingJournalManifestTests {
             pipeline: try makeManifest().pipeline,
             promotion: nil,
             historyItemID: nil
+        )
+    }
+
+    private static func makeSegmentedManifest() throws -> RecordingJournalManifest {
+        let firstSegmentID = UUID(uuidString: "10000000-0000-0000-0000-000000000001")!
+        let secondSegmentID = UUID(uuidString: "10000000-0000-0000-0000-000000000002")!
+        let thirdSegmentID = UUID(uuidString: "10000000-0000-0000-0000-000000000003")!
+        let firstMicrophoneID = UUID(uuidString: "20000000-0000-0000-0000-000000000001")!
+        let secondMicrophoneID = UUID(uuidString: "20000000-0000-0000-0000-000000000002")!
+        let secondSystemAudioID = UUID(uuidString: "30000000-0000-0000-0000-000000000002")!
+        let thirdSystemAudioID = UUID(uuidString: "30000000-0000-0000-0000-000000000003")!
+        let sources = [
+            RecordingJournalSource(
+                id: firstMicrophoneID,
+                kind: .microphone,
+                fileName: "segment-0000-microphone.wav.part",
+                storageLayout: .reservedWAVHeader44,
+                committedDataByteCount: 0,
+                committedFrameCount: 0,
+                firstCommittedFrameOffset: nil,
+                segmentID: firstSegmentID
+            ),
+            RecordingJournalSource(
+                id: secondMicrophoneID,
+                kind: .microphone,
+                fileName: "segment-0001-microphone.wav.part",
+                storageLayout: .reservedWAVHeader44,
+                committedDataByteCount: 0,
+                committedFrameCount: 0,
+                firstCommittedFrameOffset: nil,
+                segmentID: secondSegmentID
+            ),
+            RecordingJournalSource(
+                id: secondSystemAudioID,
+                kind: .systemAudio,
+                fileName: "segment-0001-system-audio.wav.part",
+                storageLayout: .reservedWAVHeader44,
+                committedDataByteCount: 0,
+                committedFrameCount: 0,
+                firstCommittedFrameOffset: nil,
+                segmentID: secondSegmentID
+            ),
+            RecordingJournalSource(
+                id: thirdSystemAudioID,
+                kind: .systemAudio,
+                fileName: "segment-0002-system-audio.wav.part",
+                storageLayout: .reservedWAVHeader44,
+                committedDataByteCount: 0,
+                committedFrameCount: 0,
+                firstCommittedFrameOffset: nil,
+                segmentID: thirdSegmentID
+            )
+        ]
+        return RecordingJournalManifest(
+            schemaVersion: 1,
+            generation: 1,
+            recordingID: recordingID,
+            startedAt: fixedDate,
+            updatedAt: fixedDate,
+            monotonicAnchorNanoseconds: 123_456,
+            state: .recording,
+            sourceMode: .segmented,
+            pcmFormat: .canonical,
+            sources: sources,
+            segments: [
+                RecordingJournalSegment(
+                    id: firstSegmentID,
+                    sequence: 0,
+                    sourceIDs: [firstMicrophoneID]
+                ),
+                RecordingJournalSegment(
+                    id: secondSegmentID,
+                    sequence: 1,
+                    sourceIDs: [secondMicrophoneID, secondSystemAudioID]
+                ),
+                RecordingJournalSegment(
+                    id: thirdSegmentID,
+                    sequence: 2,
+                    sourceIDs: [thirdSystemAudioID]
+                )
+            ],
+            pipeline: try makeManifest().pipeline,
+            promotion: nil,
+            historyItemID: nil
+        )
+    }
+
+    private static func replacingSource(
+        _ source: RecordingJournalSource,
+        kind: RecordingJournalSourceKind? = nil,
+        segmentID: UUID? = nil
+    ) -> RecordingJournalSource {
+        RecordingJournalSource(
+            id: source.id,
+            kind: kind ?? source.kind,
+            fileName: source.fileName,
+            storageLayout: source.storageLayout,
+            committedDataByteCount: source.committedDataByteCount,
+            committedFrameCount: source.committedFrameCount,
+            firstCommittedFrameOffset: source.firstCommittedFrameOffset,
+            segmentID: segmentID ?? source.segmentID
         )
     }
 

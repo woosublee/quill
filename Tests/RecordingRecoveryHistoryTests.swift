@@ -7,6 +7,7 @@ struct RecordingRecoveryHistoryTests {
             try recoveredMicrophoneArtifactCreatesIdempotentRetryableHistory()
             try recoveredSystemAudioArtifactCreatesIdempotentRetryableHistory()
             try combinedRecoveryModesPersistIdempotently()
+            try partialSegmentedRecoveryPersistsIdempotently()
             try missingRecoveredAudioPreservesPromotedJournal()
             try invalidRecoveredAudioReportsPromotionConflict()
             try mismatchedRecoveredPromotionReportsPromotionConflict()
@@ -153,7 +154,11 @@ struct RecordingRecoveryHistoryTests {
     }
 
     private static func combinedRecoveryModesPersistIdempotently() throws {
-        for mode in RecoveredRecordingMode.allCases {
+        for mode in [
+            RecoveredRecordingMode.complete,
+            .microphoneOnly,
+            .systemAudioOnly
+        ] {
             try withCombinedRecoveredFixture(mode: mode) { fixture in
                 let historyStore = PipelineHistoryStore(inMemory: true)
                 let bridge = RecordingRecoveryHistory(
@@ -198,6 +203,84 @@ struct RecordingRecoveryHistoryTests {
                     throw TestFailure("\(mode) inflight directory must be removed")
                 }
             }
+        }
+    }
+
+    private static func partialSegmentedRecoveryPersistsIdempotently() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "quill-partial-history-tests-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let recordingID = UUID()
+        let store = RecordingJournalStore(
+            audioDirectory: root.appendingPathComponent("audio", isDirectory: true)
+        )
+        let controller = try SegmentedRecordingJournalController(
+            request: SegmentedRecordingJournalCreateRequest(
+                recordingID: recordingID,
+                segmentID: UUID(),
+                startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+                monotonicAnchorNanoseconds: 100,
+                sources: [RecordingJournalSegmentSourceRequest(
+                    id: UUID(),
+                    kind: .microphone
+                )],
+                pipeline: makeCombinedPipelineSnapshot()
+            ),
+            store: store
+        )
+        controller.activeSegment.microphoneSink?.enqueue(Data([0x01, 0x00]))
+        let damagedSourceID = UUID()
+        let next = try controller.switchSegment(
+            segmentID: UUID(),
+            sources: [RecordingJournalSegmentSourceRequest(
+                id: damagedSourceID,
+                kind: .systemAudio
+            )]
+        )
+        next.systemAudioSink?.enqueue(Data([0x02, 0x00]))
+        try controller.stopAndClose()
+        let source = try store.loadManifest(recordingID: recordingID)
+            .sources.first { $0.id == damagedSourceID }!
+        try FileManager.default.removeItem(at: try store.sourceURL(
+            recordingID: recordingID,
+            fileName: source.fileName
+        ))
+        let artifact = try requireRecovered(
+            RecordingJournalRecoveryExecutor(store: store).recoverAll()[0]
+        )
+        try expectEqual(artifact.mode, .partial, "partial artifact mode")
+
+        let historyStore = PipelineHistoryStore(inMemory: true)
+        let bridge = RecordingRecoveryHistory(
+            journalStore: store,
+            historyStore: historyStore
+        )
+        _ = try bridge.persist(artifact, maxCount: 50)
+        _ = try bridge.persist(artifact, maxCount: 50)
+
+        var items = historyStore.loadAllHistory()
+        try expectEqual(items.count, 1, "partial history count")
+        try expectEqual(
+            items[0].postProcessingStatus,
+            RecoveredRecordingMode.partial.placeholderStatus,
+            "partial placeholder status"
+        )
+        try historyStore.update(items[0].markInterruptedBeforeCompletion())
+        items = historyStore.loadAllHistory()
+        try expectEqual(
+            items[0].recoveredRecordingMode,
+            .partial,
+            "partial persisted mode"
+        )
+        guard !FileManager.default.fileExists(
+            atPath: store.recordingDirectory(recordingID: recordingID).path
+        ) else {
+            throw TestFailure("partial history must remove inflight directory")
         }
     }
 
@@ -456,6 +539,8 @@ struct RecordingRecoveryHistoryTests {
                 Data([0x03, 0x00, 0x04, 0x00]),
                 firstFrameMonotonicNanoseconds: anchor
             )
+        case .partial:
+            throw TestFailure("partial mode requires a segmented fixture")
         }
         _ = try controller.stopAndClose()
         let artifact = try requireRecovered(

@@ -9620,6 +9620,70 @@
           }
         }
       }
+    },
+    "Some audio recovered": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some audio recovered"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 오디오 복구됨"
+          }
+        }
+      }
+    },
+    "Some parts of this recording may be missing. The recovered audio is available for playback or transcription.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some parts of this recording may be missing. The recovered audio is available for playback or transcription."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 녹음의 일부가 누락되었을 수 있습니다. 복구된 오디오는 재생하거나 전사할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Failed to switch audio input. Saving the recorded audio.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to switch audio input. Saving the recorded audio."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오 입력을 전환하지 못했습니다. 지금까지 녹음한 오디오를 저장합니다."
+          }
+        }
+      }
+    },
+    "Audio was preserved for recovery.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio was preserved for recovery."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구할 수 있도록 오디오를 보존했습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

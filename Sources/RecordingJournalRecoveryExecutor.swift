@@ -62,6 +62,27 @@ struct RecordingJournalRecoveryExecutor {
                     return .manualRecoveryRequired(candidate)
                 }
 
+            case .finalizeSegmented:
+                let manifest = try store.loadManifest(recordingID: recordingID)
+                if manifest.state == .recording {
+                    _ = try store.transition(
+                        recordingID: recordingID,
+                        to: .recoverable
+                    )
+                }
+                do {
+                    let artifact = try SegmentedRecordingArtifactFinalizer(
+                        store: store,
+                        mixdownService: AudioMixdownService()
+                    ).finalizeAndPromote(recordingID: recordingID)
+                    return try recordPromotion(
+                        recordingID: recordingID,
+                        promotion: artifact.promotion
+                    )
+                } catch SegmentedRecordingArtifactFinalizerError.noRecoverableSegments {
+                    return .manualRecoveryRequired(candidate)
+                }
+
             case .reusePromotedArtifact:
                 let promotion = try candidate.promotion
                     ?? RecordingCanonicalWAV.validateFile(

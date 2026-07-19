@@ -16,7 +16,11 @@ struct CombinedRecordingStartupRecoveryIntegrationTests {
     }
 
     private static func repeatedLaunchRecoversCompleteAndDegradedJournalsOnce() throws {
-        for mode in RecoveredRecordingMode.allCases {
+        for mode in [
+            RecoveredRecordingMode.complete,
+            .microphoneOnly,
+            .systemAudioOnly
+        ] {
             try withFixture(mode: mode) { fixture in
                 try runRecoveryLaunch(
                     journalStore: fixture.journalStore,
@@ -226,6 +230,8 @@ struct CombinedRecordingStartupRecoveryIntegrationTests {
                 pcmData([300, 400]),
                 firstFrameMonotonicNanoseconds: anchor + 500_000_000
             )
+        case .partial:
+            throw TestFailure("partial recovery requires a segmented fixture")
         }
         try controller.checkpoint()
         if persistBeforeLaunch {

@@ -4,6 +4,7 @@ enum RecoveredRecordingMode: String, Codable, Equatable, CaseIterable {
     case complete
     case microphoneOnly = "microphone-only"
     case systemAudioOnly = "system-audio-only"
+    case partial
 }
 
 extension RecoveredRecordingMode {
@@ -14,6 +15,8 @@ extension RecoveredRecordingMode {
             return "transcription-interrupted:microphone-only"
         case .systemAudioOnly:
             return "transcription-interrupted:system-audio-only"
+        case .partial:
+            return "transcription-interrupted:partial"
         }
     }
 
@@ -24,6 +27,8 @@ extension RecoveredRecordingMode {
             return "recording-recovered:microphone-only"
         case .systemAudioOnly:
             return "recording-recovered:system-audio-only"
+        case .partial:
+            return "recording-recovered:partial"
         }
     }
 
@@ -35,6 +40,8 @@ extension RecoveredRecordingMode {
             return "Recovered microphone audio after an unexpected shutdown; System Audio was unavailable; transcription has not started"
         case .systemAudioOnly:
             return "Recovered System Audio after an unexpected shutdown; microphone audio was unavailable; transcription has not started"
+        case .partial:
+            return "Recovered part of a recording after an unexpected shutdown; some audio may be missing; transcription has not started"
         }
     }
 
@@ -51,6 +58,7 @@ extension RecoveredRecordingMode {
         case .complete: return "Recording interrupted"
         case .microphoneOnly: return "Microphone audio recovered"
         case .systemAudioOnly: return "System Audio recovered"
+        case .partial: return "Some audio recovered"
         }
     }
 
@@ -62,6 +70,8 @@ extension RecoveredRecordingMode {
             return "System Audio could not be recovered. Microphone audio is available for playback or transcription."
         case .systemAudioOnly:
             return "Microphone audio could not be recovered. System Audio is available for playback or transcription."
+        case .partial:
+            return "Some parts of this recording may be missing. The recovered audio is available for playback or transcription."
         }
     }
 }
@@ -69,5 +79,9 @@ extension RecoveredRecordingMode {
 extension RecordingPromotion {
     var resolvedRecoveryMode: RecoveredRecordingMode {
         recoveryMode ?? .complete
+    }
+
+    var resolvedRecoveryIssues: [RecordingRecoveryIssue] {
+        recoveryIssues ?? []
     }
 }

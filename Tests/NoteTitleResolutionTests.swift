@@ -67,7 +67,8 @@ struct NoteTitleResolutionTests {
         let cases: [(RecoveredRecordingMode, String)] = [
             (.complete, "Recording interrupted"),
             (.microphoneOnly, "Microphone audio recovered"),
-            (.systemAudioOnly, "System Audio recovered")
+            (.systemAudioOnly, "System Audio recovered"),
+            (.partial, "Some audio recovered")
         ]
         for (mode, expected) in cases {
             let recovered = item(
