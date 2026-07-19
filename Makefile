@@ -344,7 +344,7 @@ test: check-test-wiring $(SPARKLE_STAMP) $(LOCALIZATION_STAMP)
 	@/tmp/CanonicalPCM16WAVTests
 	@swiftc -parse-as-library Sources/CanonicalPCM16WAV.swift Sources/CloudTranscriptionChunking.swift Tests/CloudTranscriptionChunkingTests.swift -o /tmp/CloudTranscriptionChunkingTests
 	@/tmp/CloudTranscriptionChunkingTests
-	@swiftc -parse-as-library Sources/CloudTranscriptionCore.swift Tests/CloudTranscriptionCoreTests.swift -o /tmp/CloudTranscriptionCoreTests
+	@swiftc -parse-as-library Sources/CanonicalPCM16WAV.swift Sources/CloudTranscriptionChunking.swift Sources/CloudTranscriptionCore.swift Tests/CloudTranscriptionCoreTests.swift -o /tmp/CloudTranscriptionCoreTests
 	@/tmp/CloudTranscriptionCoreTests
 	@swiftc -parse-as-library Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/LocalizedStringLookup.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Tests/RecordingJournalFailureTests.swift -o /tmp/RecordingJournalFailureTests
 	@/tmp/RecordingJournalFailureTests

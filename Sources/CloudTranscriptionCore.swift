@@ -42,6 +42,68 @@ struct CloudTranscriptionRetryDecision: Equatable, Sendable {
     let category: CloudTranscriptionFailureCategory
 }
 
+struct CloudTranscriptionConfiguration: Equatable, Sendable {
+    let model: String
+    let language: String?
+    let responseFormat: String
+    let encodedUploadCeilingBytes: UInt64
+    let minimumAttemptTimeoutSeconds: TimeInterval
+    let maximumAttemptTimeoutSeconds: TimeInterval
+    let maximumAttempts: Int
+}
+
+struct CloudTranscriptionJobIdentity: Codable, Equatable, Sendable {
+    let providerID: String
+    let model: String
+    let language: String?
+    let responseFormat: String
+    let source: CloudTranscriptionSourceIdentity
+    let planID: String
+}
+
+struct CloudTranscriptionCheckpoint: Codable, Equatable, Sendable {
+    let identity: CloudTranscriptionJobIdentity
+    let completedRawTranscripts: [String]
+}
+
+enum CloudTranscriptionProgress: Equatable, Sendable {
+    case planned(completed: Int, total: Int)
+    case uploading(index: Int, total: Int, attempt: Int)
+    case completed(total: Int)
+}
+
+protocol CloudTranscriptionCheckpointStore: Sendable {
+    func loadCompatible(
+        identity: CloudTranscriptionJobIdentity
+    ) async throws -> CloudTranscriptionCheckpoint?
+    func save(_ checkpoint: CloudTranscriptionCheckpoint) async throws
+    func recordFailure(
+        category: CloudTranscriptionFailureCategory
+    ) async throws
+}
+
+actor InMemoryCloudTranscriptionCheckpointStore: CloudTranscriptionCheckpointStore {
+    private var checkpoint: CloudTranscriptionCheckpoint?
+    private(set) var failureCategory: CloudTranscriptionFailureCategory?
+
+    func loadCompatible(
+        identity: CloudTranscriptionJobIdentity
+    ) async throws -> CloudTranscriptionCheckpoint? {
+        guard checkpoint?.identity == identity else { return nil }
+        return checkpoint
+    }
+
+    func save(_ checkpoint: CloudTranscriptionCheckpoint) async throws {
+        self.checkpoint = checkpoint
+    }
+
+    func recordFailure(
+        category: CloudTranscriptionFailureCategory
+    ) async throws {
+        failureCategory = category
+    }
+}
+
 struct CloudTranscriptionRetryPolicy: Sendable {
     let maximumAttempts: Int
     let jitter: @Sendable (Int) -> TimeInterval
@@ -162,5 +224,110 @@ struct CloudTranscriptionRetryPolicy: Sendable {
         default:
             return false
         }
+    }
+}
+
+struct CloudTranscriptionCore: Sendable {
+    let configuration: CloudTranscriptionConfiguration
+    let materializer: CloudTranscriptionChunkMaterializer
+    let retryPolicy: CloudTranscriptionRetryPolicy
+    let sleep: @Sendable (TimeInterval) async throws -> Void
+
+    func transcribe(
+        sourceURL: URL,
+        sourceLayout: CanonicalPCM16WAVLayout,
+        sourceIdentity: CloudTranscriptionSourceIdentity,
+        plan: CloudTranscriptionChunkPlan,
+        identity: CloudTranscriptionJobIdentity,
+        multipart: CloudTranscriptionMultipartLayout,
+        checkpointStore: any CloudTranscriptionCheckpointStore,
+        request: @escaping @Sendable (URL, TimeInterval) async throws -> String,
+        progress: @escaping @Sendable (CloudTranscriptionProgress) -> Void
+    ) async throws -> String {
+        try plan.validate()
+        guard identity.source == sourceIdentity,
+              identity.model == configuration.model,
+              identity.language == configuration.language,
+              identity.responseFormat == configuration.responseFormat,
+              identity.planID == plan.planID,
+              plan.encodedUploadCeilingBytes
+                == configuration.encodedUploadCeilingBytes else {
+            throw CloudTranscriptionChunkingError.invalidChunkPlan
+        }
+
+        let loadedCheckpoint = try await checkpointStore.loadCompatible(
+            identity: identity
+        )
+        var completedRawTranscripts = loadedCheckpoint?.completedRawTranscripts ?? []
+        guard completedRawTranscripts.count <= plan.chunks.count else {
+            throw CloudTranscriptionChunkingError.invalidChunkPlan
+        }
+        completedRawTranscripts = completedRawTranscripts.map(normalizedText)
+        progress(.planned(
+            completed: completedRawTranscripts.count,
+            total: plan.chunks.count
+        ))
+
+        for chunk in plan.chunks.dropFirst(completedRawTranscripts.count) {
+            var completedAttemptCount = 0
+            while true {
+                try Task.checkCancellation()
+                completedAttemptCount += 1
+                progress(.uploading(
+                    index: chunk.index,
+                    total: plan.chunks.count,
+                    attempt: completedAttemptCount
+                ))
+                let materialized = try materializer.materialize(
+                    sourceURL: sourceURL,
+                    sourceLayout: sourceLayout,
+                    chunk: chunk,
+                    multipart: multipart
+                )
+                do {
+                    defer { materialized.cleanup() }
+                    let timeout = retryPolicy.attemptTimeout(
+                        encodedByteCount: materialized.encodedByteCount,
+                        minimum: configuration.minimumAttemptTimeoutSeconds,
+                        maximum: configuration.maximumAttemptTimeoutSeconds
+                    )
+                    let rawTranscript = try await request(
+                        materialized.fileURL,
+                        timeout
+                    )
+                    completedRawTranscripts.append(normalizedText(rawTranscript))
+                    try await checkpointStore.save(
+                        CloudTranscriptionCheckpoint(
+                            identity: identity,
+                            completedRawTranscripts: completedRawTranscripts
+                        )
+                    )
+                    break
+                } catch {
+                    let decision = retryPolicy.decision(
+                        for: error,
+                        completedAttemptCount: completedAttemptCount
+                    )
+                    guard decision.shouldRetry else {
+                        try await checkpointStore.recordFailure(
+                            category: decision.category
+                        )
+                        throw error
+                    }
+                    if let delaySeconds = decision.delaySeconds {
+                        try await sleep(delaySeconds)
+                    }
+                }
+            }
+        }
+
+        progress(.completed(total: plan.chunks.count))
+        return normalizedText(completedRawTranscripts.joined(separator: " "))
+    }
+
+    private func normalizedText(_ text: String) -> String {
+        text
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
     }
 }
