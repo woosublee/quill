@@ -18,6 +18,10 @@ struct CloudTranscriptionChunkingTests {
             try plannerFallsBackToNominalBoundaryWithoutSilence()
             try plannerDoesNotSearchAfterNominalBoundary()
             try plannerIsDeterministic()
+            try materializerCopiesExactFrameRanges()
+            try materializerUsesBoundedBufferForLargeChunk()
+            try materializerCleanupRemovesAttemptDirectory()
+            try materializerRejectsShortSourceReadAndCleansPartialOutput()
             print("CloudTranscriptionChunkingTests passed")
         } catch {
             fputs("CloudTranscriptionChunkingTests failed: \(error)\n", stderr)
@@ -315,6 +319,176 @@ struct CloudTranscriptionChunkingTests {
             encodedUploadCeilingBytes: ceiling
         )
         try expectEqual(first, second, "deterministic plan")
+    }
+
+    private static func materializerCopiesExactFrameRanges() throws {
+        let samples = (0..<20).map { Int16($0 - 10) }
+        let fixture = try makePlannerFixture(samples: samples)
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: fixture.url)
+            try? FileManager.default.removeItem(at: temporaryRoot)
+        }
+        let materializer = CloudTranscriptionChunkMaterializer(
+            temporaryRoot: temporaryRoot,
+            copyBufferByteCount: 5
+        )
+        let ranges: [(UInt64, UInt64)] = [(0, 5), (5, 13), (13, 20)]
+        var combined: [Int16] = []
+        for (index, range) in ranges.enumerated() {
+            let frameCount = range.1 - range.0
+            let chunk = CloudTranscriptionChunk(
+                index: index,
+                startFrame: range.0,
+                endFrame: range.1,
+                estimatedEncodedByteCount: try encodedCeiling(
+                    frameCount: frameCount,
+                    multipart: plannerMultipartLayout
+                )
+            )
+            let output = try materializer.materialize(
+                sourceURL: fixture.url,
+                sourceLayout: fixture.layout,
+                chunk: chunk,
+                multipart: plannerMultipartLayout
+            )
+            let layout = try CanonicalPCM16WAV.validateFile(at: output.fileURL)
+            try expectEqual(layout.frameCount, frameCount, "materialized frame count")
+            combined += try readCanonicalSamples(from: output.fileURL)
+            output.cleanup()
+        }
+        try expectEqual(combined, samples, "materialized ranges exact coverage")
+    }
+
+    private static func materializerUsesBoundedBufferForLargeChunk() throws {
+        let samples = Array(repeating: Int16(123), count: 50_000)
+        let fixture = try makePlannerFixture(samples: samples)
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: fixture.url)
+            try? FileManager.default.removeItem(at: temporaryRoot)
+        }
+        let materializer = CloudTranscriptionChunkMaterializer(
+            temporaryRoot: temporaryRoot,
+            copyBufferByteCount: 17
+        )
+        let chunk = CloudTranscriptionChunk(
+            index: 0,
+            startFrame: 0,
+            endFrame: UInt64(samples.count),
+            estimatedEncodedByteCount: try encodedCeiling(
+                frameCount: UInt64(samples.count),
+                multipart: plannerMultipartLayout
+            )
+        )
+        let output = try materializer.materialize(
+            sourceURL: fixture.url,
+            sourceLayout: fixture.layout,
+            chunk: chunk,
+            multipart: plannerMultipartLayout
+        )
+        defer { output.cleanup() }
+        try expectEqual(
+            try CanonicalPCM16WAV.validateFile(at: output.fileURL).frameCount,
+            UInt64(samples.count),
+            "large bounded materialization"
+        )
+    }
+
+    private static func materializerCleanupRemovesAttemptDirectory() throws {
+        let fixture = try makePlannerFixture(samples: [1, 2, 3])
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: fixture.url)
+            try? FileManager.default.removeItem(at: temporaryRoot)
+        }
+        let output = try CloudTranscriptionChunkMaterializer(
+            temporaryRoot: temporaryRoot,
+            copyBufferByteCount: 2
+        ).materialize(
+            sourceURL: fixture.url,
+            sourceLayout: fixture.layout,
+            chunk: CloudTranscriptionChunk(
+                index: 0,
+                startFrame: 0,
+                endFrame: 3,
+                estimatedEncodedByteCount: try encodedCeiling(
+                    frameCount: 3,
+                    multipart: plannerMultipartLayout
+                )
+            ),
+            multipart: plannerMultipartLayout
+        )
+        let attemptDirectory = output.fileURL.deletingLastPathComponent()
+        guard FileManager.default.fileExists(atPath: attemptDirectory.path) else {
+            throw TestFailure("attempt directory must exist before cleanup")
+        }
+        output.cleanup()
+        guard !FileManager.default.fileExists(atPath: attemptDirectory.path) else {
+            throw TestFailure("cleanup must remove the attempt directory")
+        }
+    }
+
+    private static func materializerRejectsShortSourceReadAndCleansPartialOutput() throws {
+        let fixture = try makePlannerFixture(samples: [1, 2, 3, 4])
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: fixture.url)
+            try? FileManager.default.removeItem(at: temporaryRoot)
+        }
+        let handle = try FileHandle(forWritingTo: fixture.url)
+        try handle.truncate(atOffset: CanonicalPCM16WAV.headerByteCount + 4)
+        try handle.close()
+        do {
+            _ = try CloudTranscriptionChunkMaterializer(
+                temporaryRoot: temporaryRoot,
+                copyBufferByteCount: 3
+            ).materialize(
+                sourceURL: fixture.url,
+                sourceLayout: fixture.layout,
+                chunk: CloudTranscriptionChunk(
+                    index: 0,
+                    startFrame: 0,
+                    endFrame: 4,
+                    estimatedEncodedByteCount: try encodedCeiling(
+                        frameCount: 4,
+                        multipart: plannerMultipartLayout
+                    )
+                ),
+                multipart: plannerMultipartLayout
+            )
+            throw TestFailure("short source read must fail")
+        } catch CloudTranscriptionChunkingError.shortSourceRead {
+            // expected
+        }
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: temporaryRoot,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        try expectEqual(contents.count, 0, "partial attempt cleanup")
+    }
+
+    private static func readCanonicalSamples(from url: URL) throws -> [Int16] {
+        let layout = try CanonicalPCM16WAV.validateFile(at: url)
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        try handle.seek(toOffset: layout.dataOffset)
+        let data = try handle.read(upToCount: Int(layout.dataByteCount)) ?? Data()
+        guard data.count == Int(layout.dataByteCount) else {
+            throw TestFailure("missing materialized PCM data")
+        }
+        var samples: [Int16] = []
+        var offset = 0
+        while offset < data.count {
+            let bits = UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8)
+            samples.append(Int16(bitPattern: bits))
+            offset += 2
+        }
+        return samples
     }
 
     private static var plannerMultipartLayout: CloudTranscriptionMultipartLayout {

@@ -369,6 +369,111 @@ struct CloudTranscriptionChunkPlanner {
     }
 }
 
+struct CloudTranscriptionMaterializedChunk: Sendable {
+    let fileURL: URL
+    let encodedByteCount: UInt64
+    let cleanup: @Sendable () -> Void
+}
+
+struct CloudTranscriptionChunkMaterializer: Sendable {
+    let temporaryRoot: URL
+    let copyBufferByteCount: Int
+
+    func materialize(
+        sourceURL: URL,
+        sourceLayout: CanonicalPCM16WAVLayout,
+        chunk: CloudTranscriptionChunk,
+        multipart: CloudTranscriptionMultipartLayout
+    ) throws -> CloudTranscriptionMaterializedChunk {
+        guard copyBufferByteCount > 0 else {
+            throw CloudTranscriptionChunkingError.invalidReadBufferByteCount
+        }
+        guard chunk.startFrame < chunk.endFrame,
+              chunk.endFrame <= sourceLayout.frameCount else {
+            throw CloudTranscriptionChunkingError.invalidChunkPlan
+        }
+
+        let fileManager = FileManager.default
+        try fileManager.createDirectory(
+            at: temporaryRoot,
+            withIntermediateDirectories: true
+        )
+        let attemptDirectory = temporaryRoot.appendingPathComponent(
+            UUID().uuidString,
+            isDirectory: true
+        )
+        try fileManager.createDirectory(
+            at: attemptDirectory,
+            withIntermediateDirectories: false
+        )
+        var shouldCleanup = true
+        defer {
+            if shouldCleanup {
+                try? fileManager.removeItem(at: attemptDirectory)
+            }
+        }
+
+        let fileURL = attemptDirectory.appendingPathComponent(
+            CloudTranscriptionChunkPlanner.uploadFileName
+        )
+        let frameCount = chunk.endFrame - chunk.startFrame
+        let dataByteCount = try CanonicalPCM16WAV.dataByteCount(
+            forFrameCount: frameCount
+        )
+        try CanonicalPCM16WAV.header(dataByteCount: dataByteCount).write(
+            to: fileURL,
+            options: .atomic
+        )
+        let sourceHandle = try FileHandle(forReadingFrom: sourceURL)
+        defer { try? sourceHandle.close() }
+        let outputHandle = try FileHandle(forWritingTo: fileURL)
+        defer { try? outputHandle.close() }
+        try sourceHandle.seek(
+            toOffset: sourceLayout.dataOffset
+                + chunk.startFrame * UInt64(CanonicalPCM16WAV.bytesPerFrame)
+        )
+        try outputHandle.seekToEnd()
+
+        var remainingByteCount = UInt64(dataByteCount)
+        while remainingByteCount > 0 {
+            try Task.checkCancellation()
+            let requestedByteCount = Int(min(
+                UInt64(copyBufferByteCount),
+                remainingByteCount
+            ))
+            guard let data = try sourceHandle.read(upToCount: requestedByteCount),
+                  data.count == requestedByteCount else {
+                throw CloudTranscriptionChunkingError.shortSourceRead
+            }
+            try outputHandle.write(contentsOf: data)
+            remainingByteCount -= UInt64(data.count)
+        }
+        try outputHandle.synchronize()
+        let outputLayout = try CanonicalPCM16WAV.validateFile(at: fileURL)
+        guard outputLayout.dataByteCount == UInt64(dataByteCount),
+              outputLayout.frameCount == frameCount else {
+            throw CloudTranscriptionChunkingError.materializedChunkMismatch
+        }
+        let encodedByteCount = try multipart.encodedByteCount(
+            audioDataByteCount: outputLayout.dataOffset + outputLayout.dataByteCount,
+            fileName: CloudTranscriptionChunkPlanner.uploadFileName,
+            contentType: "audio/wav"
+        )
+        guard encodedByteCount == chunk.estimatedEncodedByteCount else {
+            throw CloudTranscriptionChunkingError.materializedChunkMismatch
+        }
+
+        shouldCleanup = false
+        return CloudTranscriptionMaterializedChunk(
+            fileURL: fileURL,
+            encodedByteCount: encodedByteCount,
+            cleanup: {
+                try? FileManager.default.removeItem(at: attemptDirectory)
+            }
+        )
+    }
+}
+
 enum CloudTranscriptionChunkingError: Error, Equatable {
     case invalidBoundaryByteCount
     case invalidReadBufferByteCount
@@ -378,4 +483,5 @@ enum CloudTranscriptionChunkingError: Error, Equatable {
     case encodedUploadCeilingTooSmall
     case invalidChunkPlan
     case shortSourceRead
+    case materializedChunkMismatch
 }
