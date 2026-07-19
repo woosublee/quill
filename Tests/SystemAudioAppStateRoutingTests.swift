@@ -16,7 +16,7 @@ struct SystemAudioAppStateRoutingTests {
         precondition(source.contains("return systemDefaultAndSystemAudioRecorder.$audioLevel.eraseToAnyPublisher()"))
         precondition(source.contains("systemDefaultAndSystemAudioRecorder.startRecording()"))
         precondition(source.contains("systemDefaultAndSystemAudioRecorder.stopRecordingSources"))
-        precondition(source.contains("systemDefaultAndSystemAudioRecorder.cancelRecording { [weak self] in"))
+        precondition(source.contains("systemDefaultAndSystemAudioRecorder.cancelRecording(completion: completion)"))
         precondition(source.contains("AudioInputDevice.isMicrophoneOnly(audioInputID)"))
         precondition(source.contains("private func ensureSystemDefaultAndSystemAudioAccess() async -> Bool"))
         precondition(source.contains("let supportsLiveTranscription = !AudioInputDevice.isSystemDefaultAndSystemAudio(audioInputID)"))

@@ -42,6 +42,7 @@ enum RecordingAudioSourceMode: String, Codable, Equatable {
     case microphone
     case systemAudio
     case combined
+    case segmented
 }
 
 enum RecordingJournalSourceKind: String, Codable, Equatable {
@@ -51,6 +52,19 @@ enum RecordingJournalSourceKind: String, Codable, Equatable {
 
 enum RecordingJournalStorageLayout: String, Codable, Equatable {
     case reservedWAVHeader44
+}
+
+enum RecordingRecoveryIssueReason: String, Codable, Equatable {
+    case noCommittedAudio
+    case sourceMissing
+    case sourceTooShort
+    case committedPayloadUnavailable
+}
+
+struct RecordingRecoveryIssue: Codable, Equatable {
+    let segmentSequence: Int
+    let sourceKind: RecordingJournalSourceKind?
+    let reason: RecordingRecoveryIssueReason
 }
 
 struct RecordingJournalSource: Codable, Equatable {
@@ -140,17 +154,20 @@ struct RecordingPromotion: Codable, Equatable {
     let dataByteCount: UInt64
     let frameCount: UInt64
     let recoveryMode: RecoveredRecordingMode?
+    let recoveryIssues: [RecordingRecoveryIssue]?
 
     init(
         fileName: String,
         dataByteCount: UInt64,
         frameCount: UInt64,
-        recoveryMode: RecoveredRecordingMode? = nil
+        recoveryMode: RecoveredRecordingMode? = nil,
+        recoveryIssues: [RecordingRecoveryIssue]? = nil
     ) {
         self.fileName = fileName
         self.dataByteCount = dataByteCount
         self.frameCount = frameCount
         self.recoveryMode = recoveryMode
+        self.recoveryIssues = recoveryIssues
     }
 }
 
@@ -165,7 +182,7 @@ struct RecordingJournalManifest: Codable, Equatable {
     let sourceMode: RecordingAudioSourceMode
     let pcmFormat: RecordingPCMFormat
     var sources: [RecordingJournalSource]
-    let segments: [RecordingJournalSegment]
+    var segments: [RecordingJournalSegment]
     let pipeline: RecordingPipelineSnapshot
     var promotion: RecordingPromotion?
     var historyItemID: UUID?
@@ -203,10 +220,10 @@ struct RecordingJournalManifest: Codable, Equatable {
                 "Source identifiers must be unique."
             )
         }
-        if sourceMode == .combined {
+        if sourceMode == .combined || sourceMode == .segmented {
             guard Set(sources.map(\.fileName)).count == sources.count else {
                 throw RecordingJournalError.invalidManifest(
-                    "Combined source filenames must be unique."
+                    "Multi-source filenames must be unique."
                 )
             }
         }
@@ -217,6 +234,14 @@ struct RecordingJournalManifest: Codable, Equatable {
         guard Set(segments.map(\.sequence)).count == segments.count,
               segments.map(\.sequence).allSatisfy({ $0 >= 0 }) else {
             throw RecordingJournalError.invalidManifest("Segment sequence values must be unique and nonnegative.")
+        }
+        if sourceMode == .segmented {
+            let orderedSequences = segments.sorted { $0.sequence < $1.sequence }.map(\.sequence)
+            guard orderedSequences == Array(0..<segments.count) else {
+                throw RecordingJournalError.invalidManifest(
+                    "Segmented recording sequences must be contiguous from zero."
+                )
+            }
         }
 
         for source in sources {
@@ -241,6 +266,32 @@ struct RecordingJournalManifest: Codable, Equatable {
                     "The combined recording segment must reference every source exactly once."
                 )
             }
+        } else if sourceMode == .segmented {
+            let sourcesByID = Dictionary(uniqueKeysWithValues: sources.map { ($0.id, $0) })
+            var referencedSourceIDs = Set<UUID>()
+            for segment in segments {
+                let segmentSourceIDs = Set(segment.sourceIDs)
+                guard (1...2).contains(segment.sourceIDs.count),
+                      segmentSourceIDs.count == segment.sourceIDs.count,
+                      segment.sourceIDs.allSatisfy(sourceIDs.contains) else {
+                    throw RecordingJournalError.invalidManifest(
+                        "Segmented segments require one or two unique known sources."
+                    )
+                }
+                let segmentSources = segment.sourceIDs.compactMap { sourcesByID[$0] }
+                guard Set(segmentSources.map(\.kind)).count == segmentSources.count,
+                      segmentSources.allSatisfy({ $0.segmentID == segment.id }) else {
+                    throw RecordingJournalError.invalidManifest(
+                        "Segmented source kinds and segment ownership must be unique."
+                    )
+                }
+                referencedSourceIDs.formUnion(segmentSourceIDs)
+            }
+            guard referencedSourceIDs == sourceIDs else {
+                throw RecordingJournalError.invalidManifest(
+                    "Every segmented source must belong to exactly one segment."
+                )
+            }
         } else {
             for segment in segments {
                 guard !segment.sourceIDs.isEmpty,
@@ -259,6 +310,14 @@ struct RecordingJournalManifest: Codable, Equatable {
             )
             guard !overflow, promotion.dataByteCount == expectedBytes else {
                 throw RecordingJournalError.invalidManifest("Promotion byte and frame counts disagree.")
+            }
+            let segmentSequences = Set(segments.map(\.sequence))
+            guard promotion.resolvedRecoveryIssues.allSatisfy({
+                $0.segmentSequence >= 0 && segmentSequences.contains($0.segmentSequence)
+            }) else {
+                throw RecordingJournalError.invalidManifest(
+                    "Recovery issues must reference an existing segment sequence."
+                )
             }
         }
         if state == .promoted || state == .historyStored || state == .finalized {

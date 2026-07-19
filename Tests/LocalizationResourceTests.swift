@@ -39,6 +39,25 @@ struct LocalizationResourceTests {
         assert(continueKorean == "계속")
         assert(settingsKorean == "설정...")
         assert(startDictatingKorean == "받아쓰기 시작")
+        let partialTitleEntry = strings["Some audio recovered"]
+            as? [String: Any]
+        let partialTitleLocalizations = partialTitleEntry?["localizations"]
+            as? [String: Any]
+        let partialTitle = partialTitleLocalizations?["ko"] as? [String: Any]
+        let partialTitleUnit = partialTitle?["stringUnit"] as? [String: Any]
+        let partialDescriptionEntry = strings[
+            "Some parts of this recording may be missing. The recovered audio is available for playback or transcription."
+        ] as? [String: Any]
+        let partialDescriptionLocalizations = partialDescriptionEntry?["localizations"]
+            as? [String: Any]
+        let partialDescription = partialDescriptionLocalizations?["ko"]
+            as? [String: Any]
+        let partialDescriptionUnit = partialDescription?["stringUnit"] as? [String: Any]
+        assert(partialTitleUnit?["value"] as? String == "일부 오디오 복구됨")
+        assert(
+            partialDescriptionUnit?["value"] as? String
+                == "이 녹음의 일부가 누락되었을 수 있습니다. 복구된 오디오는 재생하거나 전사할 수 있습니다."
+        )
 
         for language in ["en", "ko"] {
             let infoURL = root.appendingPathComponent("Resources/Localization/\(language).lproj/InfoPlist.strings")

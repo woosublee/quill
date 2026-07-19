@@ -20,11 +20,12 @@ enum CombinedRecordingArtifactMode: Equatable {
 }
 
 private extension RecoveredRecordingMode {
-    var combinedArtifactMode: CombinedRecordingArtifactMode {
+    var combinedArtifactMode: CombinedRecordingArtifactMode? {
         switch self {
         case .complete: return .combined
         case .microphoneOnly: return .microphoneOnly
         case .systemAudioOnly: return .systemAudioOnly
+        case .partial: return nil
         }
     }
 }
@@ -53,11 +54,14 @@ struct CombinedRecordingArtifactFinalizer {
                   validated.frameCount == promotion.frameCount else {
                 throw RecordingArtifactFinalizerError.promotionConflict
             }
+            guard let mode = promotion.resolvedRecoveryMode.combinedArtifactMode else {
+                throw CombinedRecordingArtifactFinalizerError.unsupportedManifestShape
+            }
             return FinalizedCombinedRecordingArtifact(
                 recordingID: recordingID,
                 destinationURL: destinationURL,
                 promotion: promotion,
-                mode: promotion.resolvedRecoveryMode.combinedArtifactMode
+                mode: mode
             )
         }
         guard manifest.state == .stopping || manifest.state == .recoverable else {

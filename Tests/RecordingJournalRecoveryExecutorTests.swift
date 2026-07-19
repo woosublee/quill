@@ -15,6 +15,9 @@ struct RecordingJournalRecoveryExecutorTests {
             try unusableCombinedSourcesRemainManual()
             try unexpectedCombinedSourceIOFailureIsPreserved()
             try combinedPromotionRenameCrashWindowReusesSameInode()
+            try segmentedRecordingJournalIsRecoveredCompletely()
+            try damagedSegmentedJournalIsRecoveredPartially()
+            try unusableSegmentedJournalRemainsManual()
             try manualRecoveryCandidateIsPreserved()
             print("RecordingJournalRecoveryExecutorTests passed")
         } catch {
@@ -301,6 +304,98 @@ struct RecordingJournalRecoveryExecutorTests {
         }
     }
 
+    private static func segmentedRecordingJournalIsRecoveredCompletely() throws {
+        try withSegmentedFixture { fixture in
+            let controller = try fixture.makeController()
+            controller.activeSegment.microphoneSink?.enqueue(pcmData([1, 2]))
+            let next = try controller.switchSegment(
+                segmentID: UUID(),
+                sources: [RecordingJournalSegmentSourceRequest(
+                    id: UUID(),
+                    kind: .systemAudio
+                )]
+            )
+            next.systemAudioSink?.enqueue(pcmData([3, 4]))
+            try controller.checkpoint()
+
+            let artifact = try requireRecovered(
+                RecordingJournalRecoveryExecutor(store: fixture.store)
+                    .recoverAll()[0]
+            )
+
+            try expectEqual(artifact.mode, .complete, "segmented complete mode")
+            try expectEqual(
+                try readPCM16Samples(from: artifact.audioURL),
+                [1, 2, 3, 4],
+                "segmented complete samples"
+            )
+        }
+    }
+
+    private static func damagedSegmentedJournalIsRecoveredPartially() throws {
+        try withSegmentedFixture { fixture in
+            let controller = try fixture.makeController()
+            controller.activeSegment.microphoneSink?.enqueue(pcmData([1, 2]))
+            let damagedSourceID = UUID()
+            let next = try controller.switchSegment(
+                segmentID: UUID(),
+                sources: [RecordingJournalSegmentSourceRequest(
+                    id: damagedSourceID,
+                    kind: .systemAudio
+                )]
+            )
+            next.systemAudioSink?.enqueue(pcmData([3, 4]))
+            try controller.checkpoint()
+            let manifest = try fixture.store.loadManifest(recordingID: fixture.recordingID)
+            let source = manifest.sources.first { $0.id == damagedSourceID }!
+            try FileManager.default.removeItem(at: try fixture.store.sourceURL(
+                recordingID: fixture.recordingID,
+                fileName: source.fileName
+            ))
+
+            let artifact = try requireRecovered(
+                RecordingJournalRecoveryExecutor(store: fixture.store)
+                    .recoverAll()[0]
+            )
+
+            try expectEqual(artifact.mode, .partial, "segmented partial mode")
+            try expectEqual(
+                artifact.promotion.resolvedRecoveryIssues,
+                [RecordingRecoveryIssue(
+                    segmentSequence: 1,
+                    sourceKind: .systemAudio,
+                    reason: .sourceMissing
+                )],
+                "segmented partial issues"
+            )
+            try expectEqual(
+                try readPCM16Samples(from: artifact.audioURL),
+                [1, 2],
+                "segmented partial samples"
+            )
+        }
+    }
+
+    private static func unusableSegmentedJournalRemainsManual() throws {
+        try withSegmentedFixture { fixture in
+            let controller = try fixture.makeController()
+            try controller.checkpoint()
+            let directory = fixture.store.recordingDirectory(
+                recordingID: fixture.recordingID
+            )
+
+            let result = RecordingJournalRecoveryExecutor(store: fixture.store)
+                .recoverAll()[0]
+
+            guard case .manualRecoveryRequired = result else {
+                throw TestFailure("empty segmented journal must remain manual")
+            }
+            guard FileManager.default.fileExists(atPath: directory.path) else {
+                throw TestFailure("manual segmented journal must be preserved")
+            }
+        }
+    }
+
     private static func manualRecoveryCandidateIsPreserved() throws {
         try withFixture(
             sourceMode: .microphone,
@@ -411,6 +506,31 @@ struct RecordingJournalRecoveryExecutorTests {
             anchor: anchor,
             store: store,
             request: request
+        ))
+    }
+
+    private static func withSegmentedFixture(
+        _ body: (SegmentedFixture) throws -> Void
+    ) throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "quill-segmented-recovery-executor-tests-\(UUID().uuidString)",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: root,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let recordingID = UUID()
+        let store = RecordingJournalStore(
+            audioDirectory: root.appendingPathComponent("audio", isDirectory: true)
+        )
+        try body(SegmentedFixture(
+            recordingID: recordingID,
+            store: store,
+            anchor: 1_000_000_000
         ))
     }
 
@@ -560,6 +680,29 @@ struct RecordingJournalRecoveryExecutorTests {
         let anchor: UInt64
         let store: RecordingJournalStore
         let request: CombinedRecordingJournalCreateRequest
+    }
+
+    private struct SegmentedFixture {
+        let recordingID: UUID
+        let store: RecordingJournalStore
+        let anchor: UInt64
+
+        func makeController() throws -> SegmentedRecordingJournalController {
+            try SegmentedRecordingJournalController(
+                request: SegmentedRecordingJournalCreateRequest(
+                    recordingID: recordingID,
+                    segmentID: UUID(),
+                    startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+                    monotonicAnchorNanoseconds: anchor,
+                    sources: [RecordingJournalSegmentSourceRequest(
+                        id: UUID(),
+                        kind: .microphone
+                    )],
+                    pipeline: makePipelineSnapshot()
+                ),
+                store: store
+            )
+        }
     }
 
     private struct TestFailure: Error, CustomStringConvertible {

@@ -1,6 +1,21 @@
 import AVFoundation
 import Foundation
 
+struct AudioMixdownSource: Equatable {
+    let url: URL
+    let frameOffset: UInt64
+}
+
+struct AudioMixdownSegment: Equatable {
+    let microphone: AudioMixdownSource?
+    let systemAudio: AudioMixdownSource?
+}
+
+struct AudioMixdownAssembly: Equatable {
+    let dataByteCount: UInt64
+    let frameCount: UInt64
+}
+
 public struct AudioMixdownService {
     /// Per-source headroom applied before summing the two streams. Summing two
     /// full-scale signals would overflow, so each is attenuated to leave room.
@@ -27,75 +42,145 @@ public struct AudioMixdownService {
         systemAudioURL: URL,
         systemAudioFrameOffset: UInt64
     ) throws -> URL {
-        let microphoneScan = try scanSamples(at: microphoneURL)
-        let systemAudioScan = try scanSamples(at: systemAudioURL)
-        let earliestOffset = min(
-            microphoneFrameOffset,
-            systemAudioFrameOffset
-        )
-        let normalizedMicrophoneOffset = microphoneFrameOffset - earliestOffset
-        let normalizedSystemAudioOffset = systemAudioFrameOffset - earliestOffset
-        let microphoneEndFrame = try alignedEndFrame(
-            offset: normalizedMicrophoneOffset,
-            frameCount: microphoneScan.frameCount
-        )
-        let systemAudioEndFrame = try alignedEndFrame(
-            offset: normalizedSystemAudioOffset,
-            frameCount: systemAudioScan.frameCount
-        )
-        let outputFrameCount = max(microphoneEndFrame, systemAudioEndFrame)
-        let outputDataByteCount = try validatedOutputDataByteCount(
-            frameCount: outputFrameCount
-        )
-        let systemGain = systemAudioGain(
-            microphoneStatistics: microphoneScan.statistics,
-            systemAudioStatistics: systemAudioScan.statistics
-        )
-
         let outputURL = temporaryWAVURL()
-        do {
-            try writeStreamingMix(
-                microphoneURL: microphoneURL,
-                microphoneFrameOffset: normalizedMicrophoneOffset,
-                systemAudioURL: systemAudioURL,
-                systemAudioFrameOffset: normalizedSystemAudioOffset,
-                outputURL: outputURL,
-                outputFrameCount: outputFrameCount,
-                outputDataByteCount: outputDataByteCount,
-                systemGain: systemGain
-            )
-            try validateOutput(
-                at: outputURL,
-                expectedFrameCount: outputFrameCount
-            )
-            return outputURL
-        } catch {
-            try? FileManager.default.removeItem(at: outputURL)
-            throw error
-        }
+        _ = try assemble(
+            [AudioMixdownSegment(
+                microphone: AudioMixdownSource(
+                    url: microphoneURL,
+                    frameOffset: microphoneFrameOffset
+                ),
+                systemAudio: AudioMixdownSource(
+                    url: systemAudioURL,
+                    frameOffset: systemAudioFrameOffset
+                )
+            )],
+            outputURL: outputURL
+        )
+        return outputURL
     }
 
     public func materialize(
         sourceURL: URL,
         frameOffset: UInt64
     ) throws -> URL {
-        _ = frameOffset
-        let scan = try scanSamples(at: sourceURL)
-        let outputDataByteCount = try validatedOutputDataByteCount(
-            frameCount: scan.frameCount
-        )
         let outputURL = temporaryWAVURL()
+        _ = try assemble(
+            [AudioMixdownSegment(
+                microphone: AudioMixdownSource(
+                    url: sourceURL,
+                    frameOffset: frameOffset
+                ),
+                systemAudio: nil
+            )],
+            outputURL: outputURL
+        )
+        return outputURL
+    }
+
+    func assemble(
+        _ segments: [AudioMixdownSegment],
+        outputURL: URL
+    ) throws -> AudioMixdownAssembly {
+        guard !segments.isEmpty else {
+            throw AudioMixdownServiceError.noSegmentsToConcatenate
+        }
+
+        var plans: [AudioMixdownRenderPlan] = []
+        plans.reserveCapacity(segments.count)
+        var totalFrameCount: UInt64 = 0
+        for segment in segments {
+            let plan: AudioMixdownRenderPlan
+            switch (segment.microphone, segment.systemAudio) {
+            case (nil, nil):
+                throw AudioMixdownServiceError.emptySegment
+            case (.some(let source), nil), (nil, .some(let source)):
+                let scan = try scanSamples(at: source.url)
+                plan = .source(url: source.url, frameCount: scan.frameCount)
+            case (.some(let microphone), .some(let systemAudio)):
+                let microphoneScan = try scanSamples(at: microphone.url)
+                let systemAudioScan = try scanSamples(at: systemAudio.url)
+                let earliestOffset = min(
+                    microphone.frameOffset,
+                    systemAudio.frameOffset
+                )
+                let microphoneOffset = microphone.frameOffset - earliestOffset
+                let systemAudioOffset = systemAudio.frameOffset - earliestOffset
+                let microphoneEndFrame = try alignedEndFrame(
+                    offset: microphoneOffset,
+                    frameCount: microphoneScan.frameCount
+                )
+                let systemAudioEndFrame = try alignedEndFrame(
+                    offset: systemAudioOffset,
+                    frameCount: systemAudioScan.frameCount
+                )
+                plan = .mix(
+                    microphoneURL: microphone.url,
+                    microphoneFrameOffset: microphoneOffset,
+                    systemAudioURL: systemAudio.url,
+                    systemAudioFrameOffset: systemAudioOffset,
+                    frameCount: max(microphoneEndFrame, systemAudioEndFrame),
+                    systemGain: systemAudioGain(
+                        microphoneStatistics: microphoneScan.statistics,
+                        systemAudioStatistics: systemAudioScan.statistics
+                    )
+                )
+            }
+            let (nextFrameCount, overflow) = totalFrameCount.addingReportingOverflow(
+                plan.frameCount
+            )
+            guard !overflow else {
+                throw AudioMixdownServiceError.outputTooLarge
+            }
+            totalFrameCount = nextFrameCount
+            plans.append(plan)
+        }
+        let outputDataByteCount = try validatedOutputDataByteCount(
+            frameCount: totalFrameCount
+        )
+
         do {
-            try writeStreamingSource(
-                sourceURL: sourceURL,
-                outputURL: outputURL,
-                outputDataByteCount: outputDataByteCount
+            try wavHeader(dataByteCount: 0).write(to: outputURL, options: .atomic)
+            let outputHandle = try FileHandle(forWritingTo: outputURL)
+            defer { try? outputHandle.close() }
+            try outputHandle.seekToEnd()
+            for plan in plans {
+                switch plan {
+                case .source(let url, _):
+                    try writeStreamingSource(
+                        sourceURL: url,
+                        outputHandle: outputHandle
+                    )
+                case .mix(
+                    let microphoneURL,
+                    let microphoneFrameOffset,
+                    let systemAudioURL,
+                    let systemAudioFrameOffset,
+                    let frameCount,
+                    let systemGain
+                ):
+                    try writeStreamingMix(
+                        microphoneURL: microphoneURL,
+                        microphoneFrameOffset: microphoneFrameOffset,
+                        systemAudioURL: systemAudioURL,
+                        systemAudioFrameOffset: systemAudioFrameOffset,
+                        outputHandle: outputHandle,
+                        outputFrameCount: frameCount,
+                        systemGain: systemGain
+                    )
+                }
+            }
+            try outputHandle.seek(toOffset: 0)
+            try outputHandle.write(
+                contentsOf: wavHeader(dataByteCount: outputDataByteCount)
             )
             try validateOutput(
                 at: outputURL,
-                expectedFrameCount: scan.frameCount
+                expectedFrameCount: totalFrameCount
             )
-            return outputURL
+            return AudioMixdownAssembly(
+                dataByteCount: UInt64(outputDataByteCount),
+                frameCount: totalFrameCount
+            )
         } catch {
             try? FileManager.default.removeItem(at: outputURL)
             throw error
@@ -103,40 +188,18 @@ public struct AudioMixdownService {
     }
 
     /// Concatenates 16 kHz mono 16-bit PCM WAV segments end to end into a single
-    /// WAV file, preserving order. Used to stitch recording segments captured
-    /// across a mid-recording input switch into one continuous file.
+    /// WAV file, preserving order.
     public func concatenate(_ segmentURLs: [URL]) throws -> URL {
-        guard !segmentURLs.isEmpty else {
-            throw AudioMixdownServiceError.noSegmentsToConcatenate
-        }
-
-        let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("wav")
-
-        // Stream each segment's raw PCM bytes straight to disk after a placeholder
-        // header, then patch the sizes. This avoids decoding/re-encoding every
-        // sample and holding the whole recording in memory.
-        try wavHeader(dataByteCount: 0).write(to: outputURL, options: .atomic)
-        var totalDataBytes = 0
-        do {
-            let handle = try FileHandle(forWritingTo: outputURL)
-            defer { try? handle.close() }
-            try handle.seekToEnd()
-            for url in segmentURLs {
-                let pcm = try pcmDataChunk(from: url)
-                try handle.write(contentsOf: pcm)
-                totalDataBytes += pcm.count
-            }
-            // Patch the RIFF chunk size (offset 4) and data chunk size (offset 40).
-            try handle.seek(toOffset: 4)
-            try handle.write(contentsOf: uint32LEData(UInt32(36 + totalDataBytes)))
-            try handle.seek(toOffset: 40)
-            try handle.write(contentsOf: uint32LEData(UInt32(totalDataBytes)))
-        } catch {
-            try? FileManager.default.removeItem(at: outputURL)
-            throw error
-        }
+        let outputURL = temporaryWAVURL()
+        _ = try assemble(
+            segmentURLs.map {
+                AudioMixdownSegment(
+                    microphone: AudioMixdownSource(url: $0, frameOffset: 0),
+                    systemAudio: nil
+                )
+            },
+            outputURL: outputURL
+        )
         return outputURL
     }
 
@@ -163,9 +226,8 @@ public struct AudioMixdownService {
         microphoneFrameOffset: UInt64,
         systemAudioURL: URL,
         systemAudioFrameOffset: UInt64,
-        outputURL: URL,
+        outputHandle: FileHandle,
         outputFrameCount: UInt64,
-        outputDataByteCount: UInt32,
         systemGain: Float
     ) throws {
         var microphoneReader = try AlignedPCM16WAVReader(
@@ -178,11 +240,6 @@ public struct AudioMixdownService {
             leadingFrameCount: systemAudioFrameOffset
         )
         defer { try? systemAudioReader.close() }
-
-        try wavHeader(dataByteCount: 0).write(to: outputURL, options: .atomic)
-        let outputHandle = try FileHandle(forWritingTo: outputURL)
-        defer { try? outputHandle.close() }
-        try outputHandle.seekToEnd()
 
         var remainingOutputFrames = outputFrameCount
         while remainingOutputFrames > 0 {
@@ -216,25 +273,14 @@ public struct AudioMixdownService {
             try outputHandle.write(contentsOf: outputData)
             remainingOutputFrames -= UInt64(frameCount)
         }
-
-        try outputHandle.seek(toOffset: 0)
-        try outputHandle.write(
-            contentsOf: wavHeader(dataByteCount: outputDataByteCount)
-        )
     }
 
     private func writeStreamingSource(
         sourceURL: URL,
-        outputURL: URL,
-        outputDataByteCount: UInt32
+        outputHandle: FileHandle
     ) throws {
         var reader = try StreamingPCM16WAVReader(url: sourceURL)
         defer { try? reader.close() }
-
-        try wavHeader(dataByteCount: 0).write(to: outputURL, options: .atomic)
-        let outputHandle = try FileHandle(forWritingTo: outputURL)
-        defer { try? outputHandle.close() }
-        try outputHandle.seekToEnd()
 
         while true {
             let samples = try reader.readChunk(
@@ -244,11 +290,6 @@ public struct AudioMixdownService {
             let outputData = samples.withUnsafeBufferPointer { Data(buffer: $0) }
             try outputHandle.write(contentsOf: outputData)
         }
-
-        try outputHandle.seek(toOffset: 0)
-        try outputHandle.write(
-            contentsOf: wavHeader(dataByteCount: outputDataByteCount)
-        )
     }
 
     private func temporaryWAVURL() -> URL {
@@ -329,60 +370,6 @@ public struct AudioMixdownService {
         Int16(max(Int(Int16.min), min(Int(Int16.max), sample)))
     }
 
-    /// Parses a 16 kHz mono 16-bit PCM WAV and returns just its `data` chunk
-    /// bytes (0-based copy), validating the format. Used by the existing input
-    /// switching concatenation path until segment recovery is implemented.
-    private func pcmDataChunk(from url: URL) throws -> Data {
-        let data = try Data(contentsOf: url)
-        guard data.count >= 44 else {
-            throw AudioMixdownServiceError.invalidWAVFile
-        }
-        guard String(bytes: data[0..<4], encoding: .ascii) == "RIFF",
-              String(bytes: data[8..<12], encoding: .ascii) == "WAVE" else {
-            throw AudioMixdownServiceError.invalidWAVFile
-        }
-
-        var offset = 12
-        var audioFormat: UInt16?
-        var channelCount: UInt16?
-        var sampleRate: UInt32?
-        var bitsPerSample: UInt16?
-        var sampleData: Data?
-
-        while offset + 8 <= data.count {
-            let chunkID = String(bytes: data[offset..<(offset + 4)], encoding: .ascii)
-            let chunkSize = Int(data.readUInt32LE(at: offset + 4))
-            let chunkStart = offset + 8
-            let chunkEnd = chunkStart + chunkSize
-            guard chunkEnd <= data.count else {
-                throw AudioMixdownServiceError.invalidWAVFile
-            }
-
-            if chunkID == "fmt " {
-                guard chunkSize >= 16 else {
-                    throw AudioMixdownServiceError.invalidWAVFile
-                }
-                audioFormat = data.readUInt16LE(at: chunkStart)
-                channelCount = data.readUInt16LE(at: chunkStart + 2)
-                sampleRate = data.readUInt32LE(at: chunkStart + 4)
-                bitsPerSample = data.readUInt16LE(at: chunkStart + 14)
-            } else if chunkID == "data" {
-                sampleData = data[chunkStart..<chunkEnd]
-            }
-
-            offset = chunkEnd + (chunkSize % 2)
-        }
-
-        guard audioFormat == 1,
-              channelCount == 1,
-              sampleRate == 16_000,
-              bitsPerSample == 16,
-              let sampleData else {
-            throw AudioMixdownServiceError.unsupportedWAVFormat
-        }
-        return Data(sampleData)
-    }
-
     /// 44-byte canonical header for 16 kHz mono 16-bit PCM WAV.
     private func wavHeader(dataByteCount: UInt32) -> Data {
         var data = Data()
@@ -402,10 +389,29 @@ public struct AudioMixdownService {
         return data
     }
 
-    private func uint32LEData(_ value: UInt32) -> Data {
-        var data = Data()
-        data.appendUInt32LE(value)
-        return data
+}
+
+private enum AudioMixdownRenderPlan {
+    case source(
+        url: URL,
+        frameCount: UInt64
+    )
+    case mix(
+        microphoneURL: URL,
+        microphoneFrameOffset: UInt64,
+        systemAudioURL: URL,
+        systemAudioFrameOffset: UInt64,
+        frameCount: UInt64,
+        systemGain: Float
+    )
+
+    var frameCount: UInt64 {
+        switch self {
+        case .source(_, let frameCount):
+            return frameCount
+        case .mix(_, _, _, _, let frameCount, _):
+            return frameCount
+        }
     }
 }
 
@@ -626,6 +632,7 @@ enum AudioMixdownServiceError: Error {
     case invalidWAVFile
     case unsupportedWAVFormat
     case noSegmentsToConcatenate
+    case emptySegment
     case outputTooLarge
 }
 

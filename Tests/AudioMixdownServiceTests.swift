@@ -22,6 +22,9 @@ struct AudioMixdownServiceTests {
             try rejectsTruncatedPayload()
             try rejectsOddBytePCM16Payload()
             try mixPathAvoidsDurationSizedMaterialization()
+            try assemblesMixedSegmentsInManifestOrder()
+            try assemblyRejectsEmptyInputs()
+            try assemblyStreamsAcrossSegmentChunkBoundaries()
             try concatenatesSegmentsInOrder()
             try concatenateWithSingleSegmentReturnsSameSamples()
             try concatenateOutputIs16kHzMonoInt16InTempDir()
@@ -398,8 +401,11 @@ struct AudioMixdownServiceTests {
         guard !source.contains("private func readSamples(from url: URL) throws -> [Int16]") else {
             throw TestFailure("production mixdown should not retain a full-source [Int16] decoder")
         }
-        guard countOccurrences(of: "Data(contentsOf:", in: source) == 1 else {
-            throw TestFailure("only the unchanged concatenate path may use Data(contentsOf:)")
+        guard countOccurrences(of: "Data(contentsOf:", in: source) == 0 else {
+            throw TestFailure("mixdown must not read a complete WAV with Data(contentsOf:)")
+        }
+        guard !source.contains("pcmDataChunk(from:") else {
+            throw TestFailure("mixdown must not retain the full-file concatenation helper")
         }
         guard source.contains("private static let streamingFrameCount = 4_096") else {
             throw TestFailure("aligned mix must preserve fixed 4,096-frame streaming")
@@ -420,6 +426,136 @@ struct AudioMixdownServiceTests {
                 "degraded materialization should not serialize each sample individually"
             )
         }
+    }
+
+    private static func assemblesMixedSegmentsInManifestOrder() throws {
+        let firstMicrophone = try writeTinyWAV(samples: [1, 2])
+        let secondMicrophone = try writeTinyWAV(samples: [1_000, 1_000])
+        let secondSystemAudio = try writeTinyWAV(samples: [3_000, 3_000])
+        let thirdSystemAudio = try writeTinyWAV(samples: [7, 8, 9])
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+        defer {
+            for url in [
+                firstMicrophone,
+                secondMicrophone,
+                secondSystemAudio,
+                thirdSystemAudio,
+                outputURL
+            ] {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+
+        let assembly = try AudioMixdownService().assemble(
+            [
+                AudioMixdownSegment(
+                    microphone: AudioMixdownSource(
+                        url: firstMicrophone,
+                        frameOffset: 99
+                    ),
+                    systemAudio: nil
+                ),
+                AudioMixdownSegment(
+                    microphone: AudioMixdownSource(
+                        url: secondMicrophone,
+                        frameOffset: 10
+                    ),
+                    systemAudio: AudioMixdownSource(
+                        url: secondSystemAudio,
+                        frameOffset: 11
+                    )
+                ),
+                AudioMixdownSegment(
+                    microphone: nil,
+                    systemAudio: AudioMixdownSource(
+                        url: thirdSystemAudio,
+                        frameOffset: 999
+                    )
+                )
+            ],
+            outputURL: outputURL
+        )
+
+        try expectEqual(assembly.frameCount, 8, "assembly frame count")
+        try expectEqual(assembly.dataByteCount, 16, "assembly byte count")
+        try expectEqual(
+            try readSamples(from: outputURL),
+            [1, 2, 800, 3_200, 2_400, 7, 8, 9],
+            "ordered mixed assembly"
+        )
+    }
+
+    private static func assemblyRejectsEmptyInputs() throws {
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+
+        do {
+            _ = try AudioMixdownService().assemble([], outputURL: outputURL)
+            throw TestFailure("empty assembly must fail")
+        } catch AudioMixdownServiceError.noSegmentsToConcatenate {
+            // expected
+        }
+
+        do {
+            _ = try AudioMixdownService().assemble(
+                [AudioMixdownSegment(microphone: nil, systemAudio: nil)],
+                outputURL: outputURL
+            )
+            throw TestFailure("empty segment must fail")
+        } catch AudioMixdownServiceError.emptySegment {
+            // expected
+        }
+    }
+
+    private static func assemblyStreamsAcrossSegmentChunkBoundaries() throws {
+        let frameCount = 4_097
+        let first = try writeRepeatedSampleWAV(sample: 10, frameCount: frameCount)
+        let second = try writeRepeatedSampleWAV(sample: 20, frameCount: frameCount)
+        let third = try writeRepeatedSampleWAV(sample: 30, frameCount: frameCount)
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+        defer {
+            for url in [first, second, third, outputURL] {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+
+        let result = try AudioMixdownService().assemble(
+            [first, second, third].map {
+                AudioMixdownSegment(
+                    microphone: AudioMixdownSource(url: $0, frameOffset: 0),
+                    systemAudio: nil
+                )
+            },
+            outputURL: outputURL
+        )
+
+        try expectEqual(result.frameCount, UInt64(frameCount * 3), "chunk assembly frames")
+        try expectEqual(
+            try readCanonicalSample(from: outputURL, atFrame: 4_095),
+            10,
+            "first segment before chunk boundary"
+        )
+        try expectEqual(
+            try readCanonicalSample(from: outputURL, atFrame: 4_096),
+            10,
+            "first segment after chunk boundary"
+        )
+        try expectEqual(
+            try readCanonicalSample(from: outputURL, atFrame: frameCount),
+            20,
+            "second segment start"
+        )
+        try expectEqual(
+            try readCanonicalSample(from: outputURL, atFrame: frameCount * 2),
+            30,
+            "third segment start"
+        )
     }
 
     private static func concatenatesSegmentsInOrder() throws {

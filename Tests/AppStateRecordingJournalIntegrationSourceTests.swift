@@ -9,33 +9,22 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         )
 
         precondition(source.contains("private let recordingJournalStore: RecordingJournalStore"))
-        precondition(source.contains("private var activeSingleSourceJournalController: SingleSourceRecordingJournalController?"))
-        precondition(source.contains("private var activeCombinedJournalController: CombinedRecordingJournalController?"))
+        precondition(source.contains("private var activeSegmentedJournalController: SegmentedRecordingJournalController?"))
         precondition(source.contains("private var activeRecordingID: UUID?"))
+        precondition(source.contains("private var activeInputSwitchToken: UUID?"))
+        precondition(!source.contains("recordingSegmentURLs"))
+        precondition(!source.contains("didSwitchInputDuringRecording"))
+        precondition(!source.contains("stitchedRecordingURL"))
+        precondition(!source.contains("discardRecordingSegments"))
+        precondition(!source.contains("activeSingleSourceJournalController"))
+        precondition(!source.contains("activeCombinedJournalController"))
+        precondition(!source.contains("makeActiveSingleSourceJournalController"))
+        precondition(!source.contains("makeActiveCombinedJournalController"))
+
         precondition(source.contains("recoverRecordingJournalsBeforeHistoryLoad"))
         precondition(source.contains("RecordingJournalRecoveryExecutor("))
-        precondition(source.contains("executor.recoverAll()"))
         precondition(source.contains("RecordingRecoveryHistory("))
         precondition(source.contains("guard fileName != \"inflight\" else { continue }"))
-        precondition(source.contains("protectedInflightAudioFileNames"))
-        precondition(source.contains("!protectedInflightAudioFileNames.contains(fileName)"))
-        precondition(source.contains("audioRecorder.normalizedPCM16Sink = controller.sink"))
-        precondition(source.contains("systemAudioRecorder.normalizedPCM16Sink = controller.sink"))
-        precondition(source.contains("controller.startCheckpointing"))
-        precondition(source.contains("finishActiveSingleSourceJournal"))
-        precondition(source.contains("discardActiveSingleSourceJournal"))
-        precondition(source.contains("preserveActiveSingleSourceJournalForRecovery"))
-        precondition(source.contains("savedAudioFileForStoppedRecording"))
-        precondition(source.contains("pipelineHistoryStore.upsert("))
-        precondition(source.contains("discardRecordingJournalAfterSuccessfulTranscription"))
-        precondition(source.contains("recordingJournalID(forAudioFileName:"))
-        precondition(source.contains("let entryID = existingID ?? (journalRecordingID ?? UUID())"))
-        precondition(source.contains("if !isJournalAudioFile {"))
-        precondition(source.contains("completePromotedRecordingJournal("))
-        precondition(source.contains("recordingID: journalRecordingID"))
-        precondition(source.contains("recoverableJournalID"))
-        precondition(source.contains("recordingID: recoverableJournalID"))
-
         let startupRecoveryBody = try functionBody(
             named: "recoverRecordingJournalsBeforeHistoryLoad",
             in: source
@@ -51,139 +40,103 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         ] {
             precondition(!startupRecoveryBody.contains(forbidden))
         }
-        let initializerBody = try body(
-            startingWith: "init()",
-            in: source
-        )
-        let initializerRecovery = try requiredRange(
+        let initializerBody = try body(startingWith: "init()", in: source)
+        let recoveryRange = try requiredRange(
             of: "recoverRecordingJournalsBeforeHistoryLoad(",
             in: initializerBody
         )
-        let initializerHistoryLoad = try requiredRange(
+        let historyRange = try requiredRange(
             of: "pipelineHistoryStore.loadAllHistory()",
             in: initializerBody
         )
-        precondition(initializerRecovery.lowerBound < initializerHistoryLoad.lowerBound)
+        precondition(recoveryRange.lowerBound < historyRange.lowerBound)
 
-        let beginBody = try functionBody(named: "beginRecording", in: source)
-        precondition(beginBody.contains("AudioInputDevice.isSingleSource(audioInputID)"))
-        precondition(beginBody.contains("AudioInputDevice.isSystemDefaultAndSystemAudio(audioInputID)"))
+        let startBody = try functionBody(named: "startSelectedAudioRecorder", in: source)
+        precondition(startBody.contains("makeActiveSegmentedJournalController(inputID: inputID)"))
+        precondition(startBody.contains("attachSegmentedJournalSinks("))
+        precondition(startBody.contains("startPhysicalAudioRecorder(inputID: inputID)"))
+        precondition(startBody.contains("controller.startCheckpointing"))
+        precondition(!startBody.contains("SingleSourceRecordingJournalController"))
+        precondition(!startBody.contains("CombinedRecordingJournalController"))
 
-        let startBody = try functionBody(
-            named: "startSelectedAudioRecorder",
-            in: source
-        )
-        precondition(startBody.contains("makeActiveSingleSourceJournalController("))
-        precondition(startBody.contains("makeActiveCombinedJournalController()"))
-        precondition(startBody.contains("audioRecorder.normalizedPCM16Sink = combinedController.microphoneSink"))
-        precondition(startBody.contains("systemAudioRecorder.normalizedPCM16Sink = combinedController.systemAudioSink"))
-        precondition(startBody.contains("let startResult = try await systemDefaultAndSystemAudioRecorder.startRecording()"))
-        precondition(startBody.contains("if !startResult.microphoneStarted"))
-        precondition(startBody.contains("if !startResult.systemAudioStarted"))
-        precondition(startBody.contains("combinedController.startCheckpointing"))
-        precondition(startBody.contains("systemDefaultAndSystemAudioRecorder.cancelRecording { [weak self] in"))
-        precondition(startBody.contains("self?.discardCombinedJournal(combinedController)"))
-        precondition(startBody.contains("inputID: inputID"))
-        precondition(startBody.contains("try await systemAudioRecorder.startRecording()"))
-        precondition(startBody.contains("try audioRecorder.startRecording(deviceUID: inputID)"))
-        precondition(startBody.contains("discardSingleSourceJournal(controller)"))
-        precondition(!startBody.contains("try? controller.discard()"))
         let makeControllerBody = try functionBody(
-            named: "makeActiveSingleSourceJournalController",
+            named: "makeActiveSegmentedJournalController",
             in: source
         )
-        precondition(makeControllerBody.contains("sourceMode = .systemAudio"))
-        precondition(makeControllerBody.contains("sourceKind = .systemAudio"))
-        precondition(makeControllerBody.contains("sourceFileName = \"system-audio.wav.part\""))
+        precondition(makeControllerBody.contains("sourceMode: .segmented") == false)
+        precondition(makeControllerBody.contains("SegmentedRecordingJournalCreateRequest("))
+        precondition(makeControllerBody.contains("journalSourceRequests(for: inputID)"))
+        precondition(makeControllerBody.contains("recordingPipelineSnapshot()"))
 
-        let stopBody = try functionBody(
-            named: "stopActiveAudioRecorder",
-            in: source
-        )
-        precondition(stopBody.contains("systemDefaultAndSystemAudioRecorder.stopRecordingSources"))
-        precondition(stopBody.contains("detachCombinedJournalSinks()"))
-        precondition(stopBody.contains("finishStoppedCombinedRecording"))
-        precondition(stopBody.contains("systemAudioRecorder.normalizedPCM16Sink = nil"))
-        precondition(stopBody.contains("audioRecorder.normalizedPCM16Sink = nil"))
-        precondition(stopBody.contains("finishStoppedSingleSourceRecording"))
-        let finishStoppedBody = try functionBody(
-            named: "finishStoppedSingleSourceRecording",
-            in: source
-        )
-        precondition(finishStoppedBody.contains("detachActiveSingleSourceJournalForFinish"))
-        precondition(finishStoppedBody.contains("recordingJournalFinalizationQueue.async"))
-        precondition(finishStoppedBody.contains("finishActiveSingleSourceJournal"))
-        precondition(finishStoppedBody.contains("DispatchQueue.main.async"))
-        let finishCombinedBody = try functionBody(
-            named: "finishStoppedCombinedRecording",
-            in: source
-        )
-        precondition(finishCombinedBody.contains("recordingJournalFinalizationQueue.async"))
-        precondition(finishCombinedBody.contains("controller.stopAndClose()"))
-        precondition(finishCombinedBody.contains("CombinedRecordingArtifactFinalizer("))
-        precondition(finishCombinedBody.contains("finalizeAndPromote"))
-        precondition(finishCombinedBody.contains("temporaryCombinedFallback"))
-        precondition(finishCombinedBody.contains("recoverableJournalID: controller.recordingID"))
-        precondition(!finishCombinedBody.contains(".mix("))
+        let switchBody = try functionBody(named: "switchActiveRecordingInput", in: source)
+        precondition(switchBody.contains("activeInputSwitchToken = switchToken"))
+        let stopRange = try requiredRange(of: "stopPhysicalAudioRecorder(", in: switchBody)
+        let switchRange = try requiredRange(of: "controller.switchSegment(", in: switchBody)
+        let startRange = try requiredRange(of: "startPhysicalAudioRecorder(inputID: newInputID)", in: switchBody)
+        precondition(stopRange.lowerBound < switchRange.lowerBound)
+        precondition(switchRange.lowerBound < startRange.lowerBound)
+        precondition(!switchBody.contains("discardSingleSourceJournal"))
+        precondition(!switchBody.contains("removeInflightRecording"))
 
-        let cancelBody = try functionBody(
-            named: "cancelActiveAudioRecorder",
+        let stopBody = try functionBody(named: "stopActiveAudioRecorder", in: source)
+        precondition(stopBody.contains("stopPhysicalAudioRecorder("))
+        precondition(stopBody.contains("detachSegmentedJournalSinks()"))
+        precondition(stopBody.contains("finishStoppedSegmentedRecording("))
+
+        let finishBody = try functionBody(
+            named: "finishStoppedSegmentedRecording",
             in: source
         )
-        precondition(cancelBody.contains("systemDefaultAndSystemAudioRecorder.cancelRecording { [weak self] in"))
-        precondition(cancelBody.contains("self?.discardActiveCombinedJournal()"))
-        precondition(cancelBody.contains("systemAudioRecorder.normalizedPCM16Sink = nil"))
-        precondition(cancelBody.contains("systemAudioRecorder.cancelRecording { [weak self] in"))
-        precondition(cancelBody.contains("self?.discardActiveSingleSourceJournal()"))
-        precondition(cancelBody.contains("audioRecorder.normalizedPCM16Sink = nil"))
-        let discardBody = try functionBody(
-            named: "discardActiveSingleSourceJournal",
-            in: source
+        precondition(finishBody.contains("recordingJournalFinalizationQueue.async"))
+        precondition(finishBody.contains("controller.stopAndClose()"))
+        precondition(finishBody.contains("SegmentedRecordingArtifactFinalizer("))
+        precondition(finishBody.contains("case .complete:"))
+        precondition(finishBody.contains("case .partial:"))
+        precondition(finishBody.contains(".recoveredWithoutTranscription"))
+        precondition(!finishBody.contains("temporaryCombinedFallback"))
+
+        let stopAndTranscribeBody = try functionBody(named: "stopAndTranscribe", in: source)
+        precondition(stopAndTranscribeBody.contains("case .transcribable("))
+        precondition(stopAndTranscribeBody.contains("case .recoveredWithoutTranscription(let recovered):"))
+        precondition(stopAndTranscribeBody.contains("persistRecoveredRecordingWithoutTranscription("))
+        precondition(stopAndTranscribeBody.contains("case .preservedForRecovery("))
+        precondition(stopAndTranscribeBody.contains("case .empty:"))
+        let partialBody = try switchCaseBody(
+            startingWith: "case .recoveredWithoutTranscription(let recovered):",
+            endingBefore: "case .preservedForRecovery",
+            in: stopAndTranscribeBody
         )
-        precondition(discardBody.contains("discardSingleSourceJournal"))
-        precondition(!discardBody.contains("try? controller?.discard()"))
+        precondition(!partialBody.contains("TranscriptionService"))
+        precondition(!partialBody.contains("resolveRawTranscript"))
+        precondition(!partialBody.contains("PostProcessingService"))
+
+        let cancelBody = try functionBody(named: "cancelActiveAudioRecorder", in: source)
+        precondition(cancelBody.contains("detachSegmentedJournalSinks()"))
+        precondition(cancelBody.contains("discardActiveSegmentedJournal()"))
 
         let preserveBody = try functionBody(
-            named: "preserveActiveSingleSourceJournalForRecovery",
+            named: "preserveActiveSegmentedJournalForRecovery",
             in: source
         )
-        precondition(preserveBody.contains("audioRecorder.normalizedPCM16Sink = nil"))
-        precondition(preserveBody.contains("systemAudioRecorder.normalizedPCM16Sink = nil"))
-        precondition(preserveBody.contains("controller?.preserveForRecovery()"))
-        let preserveCombinedBody = try functionBody(
-            named: "preserveActiveCombinedJournalForRecovery",
-            in: source
-        )
-        precondition(preserveCombinedBody.contains("detachCombinedJournalSinks()"))
-        precondition(preserveCombinedBody.contains("systemDefaultAndSystemAudioRecorder.stopRecordingSources"))
-        precondition(preserveCombinedBody.contains("controller.preserveForRecovery()"))
-
-        let switchBody = try functionBody(
-            named: "switchActiveRecordingInput",
-            in: source
-        )
-        precondition(
-            switchBody.contains(
-                "let journalToDiscardAfterDrain = detachActiveSingleSourceJournalForDiscard()"
-            )
-        )
-        precondition(
-            switchBody.contains(
-                "self?.discardSingleSourceJournal(journalToDiscardAfterDrain)"
-            )
-        )
-        precondition(!switchBody.contains("try? journalToDiscardAfterDrain?.discard()"))
-        let stopRange = try requiredRange(of: "stopActiveAudioRecorder", in: switchBody)
-        let discardRange = try requiredRange(
-            of: "self?.discardSingleSourceJournal(journalToDiscardAfterDrain)",
-            in: switchBody
-        )
-        precondition(stopRange.lowerBound < discardRange.lowerBound)
-
-        let sweepBody = try functionBody(named: "sweepOrphanStoredFiles", in: source)
-        precondition(sweepBody.contains("guard fileName != \"inflight\" else { continue }"))
+        precondition(preserveBody.contains("detachSegmentedJournalSinks()"))
+        precondition(preserveBody.contains("controller.preserveForRecovery()"))
 
         print("AppStateRecordingJournalIntegrationSourceTests passed")
+    }
+
+    private static func switchCaseBody(
+        startingWith start: String,
+        endingBefore end: String,
+        in text: String
+    ) throws -> String {
+        guard let startRange = text.range(of: start),
+              let endRange = text.range(
+                of: end,
+                range: startRange.upperBound..<text.endIndex
+              ) else {
+            throw TestFailure("missing switch case boundary")
+        }
+        return String(text[startRange.upperBound..<endRange.lowerBound])
     }
 
     private static func requiredRange(
@@ -213,12 +166,7 @@ struct AppStateRecordingJournalIntegrationSourceTests {
               let openBrace = text[signatureRange.upperBound...].firstIndex(of: "{") else {
             throw TestFailure("missing function \(name)")
         }
-
-        do {
-            return try body(after: openBrace, in: text)
-        } catch {
-            throw TestFailure("unterminated function \(name)")
-        }
+        return try body(after: openBrace, in: text)
     }
 
     private static func body(
