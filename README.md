@@ -108,6 +108,8 @@ Notes:
 
 Quill does not operate a server that stores your transcripts, audio recordings, calendar data, OAuth tokens, or app history. App data is stored locally on your Mac unless you choose to send data to a configured transcription or AI provider.
 
+If Quill closes unexpectedly during a recording, recoverable audio may remain in local application storage. Recovered or partial recordings remain local until you retry transcription or delete them. Startup recovery does not automatically transcribe or upload recovered audio. If you choose **Retry Transcription**, Quill uses the local or provider-based transcription path you selected in Settings.
+
 If you connect Google Calendar, Quill requests read-only access and uses selected calendar events only for local meeting-related workflows such as note title suggestions and recording reminders.
 
 ## Credits
