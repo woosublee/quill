@@ -346,7 +346,7 @@ test: check-test-wiring $(SPARKLE_STAMP) $(LOCALIZATION_STAMP)
 	@/tmp/CloudTranscriptionChunkingTests
 	@swiftc -parse-as-library Sources/CanonicalPCM16WAV.swift Sources/CloudTranscriptionChunking.swift Sources/CloudTranscriptionCore.swift Tests/CloudTranscriptionCoreTests.swift -o /tmp/CloudTranscriptionCoreTests
 	@/tmp/CloudTranscriptionCoreTests
-	@swiftc -parse-as-library Sources/CanonicalPCM16WAV.swift Sources/CloudTranscriptionChunking.swift Sources/CloudTranscriptionCore.swift Sources/CloudTranscriptionJobStore.swift Tests/CloudTranscriptionJobStoreTests.swift -o /tmp/CloudTranscriptionJobStoreTests
+	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/LocalizedStringLookup.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/TranscriptionModel.swift Sources/CanonicalPCM16WAV.swift Sources/CloudTranscriptionChunking.swift Sources/CloudTranscriptionCore.swift Sources/PipelineHistoryItem.swift Sources/CloudTranscriptionJobStore.swift Tests/CloudTranscriptionJobStoreTests.swift -o /tmp/CloudTranscriptionJobStoreTests
 	@/tmp/CloudTranscriptionJobStoreTests
 	@swiftc -parse-as-library Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/LocalizedStringLookup.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Tests/RecordingJournalFailureTests.swift -o /tmp/RecordingJournalFailureTests
 	@/tmp/RecordingJournalFailureTests
