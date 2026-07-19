@@ -9,6 +9,24 @@ enum CombinedRecordingArtifactMode: Equatable {
     case combined
     case microphoneOnly
     case systemAudioOnly
+
+    var recoveredRecordingMode: RecoveredRecordingMode {
+        switch self {
+        case .combined: return .complete
+        case .microphoneOnly: return .microphoneOnly
+        case .systemAudioOnly: return .systemAudioOnly
+        }
+    }
+}
+
+private extension RecoveredRecordingMode {
+    var combinedArtifactMode: CombinedRecordingArtifactMode {
+        switch self {
+        case .complete: return .combined
+        case .microphoneOnly: return .microphoneOnly
+        case .systemAudioOnly: return .systemAudioOnly
+        }
+    }
 }
 
 struct FinalizedCombinedRecordingArtifact: Equatable {
@@ -30,17 +48,16 @@ struct CombinedRecordingArtifactFinalizer {
            let promotion = manifest.promotion {
             let destinationURL = store.permanentURL(recordingID: recordingID)
             let validated = try RecordingCanonicalWAV.validateFile(at: destinationURL)
-            guard validated == promotion else {
+            guard validated.fileName == promotion.fileName,
+                  validated.dataByteCount == promotion.dataByteCount,
+                  validated.frameCount == promotion.frameCount else {
                 throw RecordingArtifactFinalizerError.promotionConflict
             }
             return FinalizedCombinedRecordingArtifact(
                 recordingID: recordingID,
                 destinationURL: destinationURL,
                 promotion: promotion,
-                mode: try artifactMode(
-                    recordingID: recordingID,
-                    manifest: manifest
-                )
+                mode: promotion.resolvedRecoveryMode.combinedArtifactMode
             )
         }
         guard manifest.state == .stopping || manifest.state == .recoverable else {
@@ -110,7 +127,13 @@ struct CombinedRecordingArtifactFinalizer {
             frameCount: validated.frameCount,
             removedTrailingData: false
         )
-        let promotion = try sourceFinalizer.promote(artifact)
+        let physicalPromotion = try sourceFinalizer.promote(artifact)
+        let promotion = RecordingPromotion(
+            fileName: physicalPromotion.fileName,
+            dataByteCount: physicalPromotion.dataByteCount,
+            frameCount: physicalPromotion.frameCount,
+            recoveryMode: mode.recoveredRecordingMode
+        )
         _ = try store.transition(
             recordingID: recordingID,
             to: .promoted,
@@ -122,40 +145,6 @@ struct CombinedRecordingArtifactFinalizer {
             promotion: promotion,
             mode: mode
         )
-    }
-
-    private func artifactMode(
-        recordingID: UUID,
-        manifest: RecordingJournalManifest
-    ) throws -> CombinedRecordingArtifactMode {
-        let sourceFinalizer = RecordingArtifactFinalizer(store: store)
-        let microphone: FinalizedRecordingJournalSource?
-        if let source = manifest.sources.first(where: { $0.kind == .microphone }) {
-            microphone = try finalizeUsableSource(
-                sourceFinalizer: sourceFinalizer,
-                recordingID: recordingID,
-                source: source
-            )
-        } else {
-            microphone = nil
-        }
-        let systemAudio: FinalizedRecordingJournalSource?
-        if let source = manifest.sources.first(where: { $0.kind == .systemAudio }) {
-            systemAudio = try finalizeUsableSource(
-                sourceFinalizer: sourceFinalizer,
-                recordingID: recordingID,
-                source: source
-            )
-        } else {
-            systemAudio = nil
-        }
-        switch (microphone, systemAudio) {
-        case (.some, .some): return .combined
-        case (.some, .none): return .microphoneOnly
-        case (.none, .some): return .systemAudioOnly
-        case (.none, .none):
-            throw CombinedRecordingArtifactFinalizerError.noRecoverableSources
-        }
     }
 
     private func finalizeUsableSource(

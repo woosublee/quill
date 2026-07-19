@@ -10,6 +10,7 @@ struct NoteTitleResolutionTests {
         testTranscribingFallbackWinsOverFailedEmptyContent()
         testAppliedCalendarTitleKeepsWinningWhileTranscribing()
         testCalendarAppliedTitleIncludesRecordingDate()
+        testRecoveredRecordingTitlesNameAvailableSource()
         print("NoteTitleResolutionTests passed")
     }
 
@@ -60,6 +61,22 @@ struct NoteTitleResolutionTests {
             recordingStartedAt: recordingStartedAt
         )
         assert(title == "2025-05-05 Team Standup")
+    }
+
+    private static func testRecoveredRecordingTitlesNameAvailableSource() {
+        let cases: [(RecoveredRecordingMode, String)] = [
+            (.complete, "Recording interrupted"),
+            (.microphoneOnly, "Microphone audio recovered"),
+            (.systemAudioOnly, "System Audio recovered")
+        ]
+        for (mode, expected) in cases {
+            let recovered = item(
+                transcript: "",
+                calendarMatch: nil,
+                postProcessingStatus: mode.recoveredStatus
+            )
+            assert(NoteTitleResolver.displayTitle(for: recovered) == expected)
+        }
     }
 
     private static func item(

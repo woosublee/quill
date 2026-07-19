@@ -3,6 +3,7 @@ import Foundation
 enum InflightRecordingRecoveryAction: String, Equatable {
     case markRecoverable
     case finalizeSingleSource
+    case finalizeCombined
     case reusePromotedArtifact
     case persistHistory
     case markFinalized
@@ -334,11 +335,48 @@ struct InflightRecordingRecovery {
         _ manifest: RecordingJournalManifest,
         directory: URL
     ) -> InflightRecordingRecoveryCandidate {
-        var diagnostics: Set<InflightRecordingRecoveryDiagnostic> = [
-            .combinedRecoveryPending
-        ]
+        let permanentURL = store.permanentURL(recordingID: manifest.recordingID)
+        let permanentExists = FileManager.default.fileExists(
+            atPath: permanentURL.path
+        )
+        let physicalPromotion = try? RecordingCanonicalWAV.validateFile(
+            at: permanentURL
+        )
+        if permanentExists, physicalPromotion == nil {
+            return manualCandidate(
+                directory: directory,
+                recordingID: manifest.recordingID,
+                diagnostics: [.promotionConflict]
+            )
+        }
+        if manifest.state == .promoted
+                || manifest.state == .historyStored
+                || manifest.state == .finalized {
+            guard let physicalPromotion,
+                  let storedPromotion = manifest.promotion else {
+                return manualCandidate(
+                    directory: directory,
+                    recordingID: manifest.recordingID,
+                    diagnostics: [.missingPermanentArtifact]
+                )
+            }
+            guard physicalPromotion.fileName == storedPromotion.fileName,
+                  physicalPromotion.dataByteCount == storedPromotion.dataByteCount,
+                  physicalPromotion.frameCount == storedPromotion.frameCount else {
+                return manualCandidate(
+                    directory: directory,
+                    recordingID: manifest.recordingID,
+                    diagnostics: [.promotionConflict]
+                )
+            }
+        }
 
+        var diagnostics: Set<InflightRecordingRecoveryDiagnostic> = []
+        var committedDataByteCount: UInt64 = 0
         for source in manifest.sources {
+            committedDataByteCount = committedDataByteCount.addingReportingOverflow(
+                source.committedDataByteCount
+            ).partialValue
             let sourceURL: URL
             do {
                 sourceURL = try store.sourceURL(
@@ -390,11 +428,34 @@ struct InflightRecordingRecovery {
             }
         }
 
-        return manualCandidate(
-            directory: directory,
-            recordingID: manifest.recordingID,
-            diagnostics: diagnostics
-        )
+        switch manifest.state {
+        case .recording, .stopping, .recoverable:
+            let promotion = physicalPromotion
+            return InflightRecordingRecoveryCandidate(
+                recordingID: manifest.recordingID,
+                recordingDirectory: directory,
+                action: .finalizeCombined,
+                recoverableDataByteCount: committedDataByteCount,
+                promotion: promotion,
+                protectedPermanentFileName: promotion?.fileName
+                    ?? manifest.recordingID.uuidString.lowercased() + ".wav",
+                diagnostics: diagnostics
+            )
+        case .promoted, .historyStored, .finalized:
+            guard let promotion = manifest.promotion else {
+                return manualCandidate(
+                    directory: directory,
+                    recordingID: manifest.recordingID,
+                    diagnostics: diagnostics.union([.missingPermanentArtifact])
+                )
+            }
+            return stateCandidate(
+                manifest: manifest,
+                directory: directory,
+                promotion: promotion,
+                diagnostics: diagnostics
+            )
+        }
     }
 
     private func stateCandidate(

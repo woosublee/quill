@@ -30,7 +30,8 @@ enum NoteTitleResolver {
             if isTranscribing { return "Transcribing..." }
             if item.postProcessingStatus.hasPrefix("Error:") { return "Transcription failed" }
             if item.isRecoveredRecording {
-                return localizedCatalogString("Recording interrupted")
+                let mode = item.recoveredRecordingMode ?? .complete
+                return localizedCatalogString(mode.titleLocalizationKey)
             }
             if item.postProcessingStatus == "live-recording" { return "Recording..." }
             if item.postProcessingStatus == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus || item.postProcessingStatus == "importing" { return "Transcribing..." }

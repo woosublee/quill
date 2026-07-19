@@ -6,6 +6,8 @@ struct RecordingJournalManifestTests {
         do {
             try canonicalFormatMatchesRecorderContract()
             try manifestRoundTripPreservesStableMetadata()
+            try legacyPromotionWithoutRecoveryModeDefaultsToComplete()
+            try promotionRoundTripPreservesRecoveryMode()
             try combinedManifestAcceptsCanonicalShape()
             try legacySingleSourceManifestShapeRemainsValid()
             try manifestRejectsSourceModeShapeMismatch()
@@ -44,6 +46,73 @@ struct RecordingJournalManifestTests {
 
         try expectEqual(decoded, manifest, "manifest round trip")
         try decoded.validate()
+    }
+
+    private static func legacyPromotionWithoutRecoveryModeDefaultsToComplete() throws {
+        let recording = try makeManifest()
+        let stopping = try recording.transitioned(
+            to: .stopping,
+            now: fixedDate.addingTimeInterval(1)
+        )
+        let promoted = try stopping.transitioned(
+            to: .promoted,
+            promotion: RecordingPromotion(
+                fileName: recordingID.uuidString.lowercased() + ".wav",
+                dataByteCount: 8,
+                frameCount: 4
+            ),
+            now: fixedDate.addingTimeInterval(2)
+        )
+        let data = try RecordingJournalCoding.makeEncoder().encode(promoted)
+        let json = String(decoding: data, as: UTF8.self)
+        guard !json.contains("recoveryMode") else {
+            throw TestFailure("legacy nil recovery mode must be omitted from schema-v1 JSON")
+        }
+        let decoded = try RecordingJournalCoding.makeDecoder().decode(
+            RecordingJournalManifest.self,
+            from: data
+        )
+
+        try expectEqual(decoded.promotion?.recoveryMode, nil, "legacy recovery mode")
+        try expectEqual(
+            decoded.promotion?.resolvedRecoveryMode,
+            .complete,
+            "legacy resolved recovery mode"
+        )
+    }
+
+    private static func promotionRoundTripPreservesRecoveryMode() throws {
+        let recording = try makeManifest()
+        let stopping = try recording.transitioned(
+            to: .stopping,
+            now: fixedDate.addingTimeInterval(1)
+        )
+        let promoted = try stopping.transitioned(
+            to: .promoted,
+            promotion: RecordingPromotion(
+                fileName: recordingID.uuidString.lowercased() + ".wav",
+                dataByteCount: 8,
+                frameCount: 4,
+                recoveryMode: .microphoneOnly
+            ),
+            now: fixedDate.addingTimeInterval(2)
+        )
+        let data = try RecordingJournalCoding.makeEncoder().encode(promoted)
+        let decoded = try RecordingJournalCoding.makeDecoder().decode(
+            RecordingJournalManifest.self,
+            from: data
+        )
+
+        try expectEqual(
+            decoded.promotion?.recoveryMode,
+            .microphoneOnly,
+            "round-trip recovery mode"
+        )
+        try expectEqual(
+            decoded.promotion?.resolvedRecoveryMode,
+            .microphoneOnly,
+            "round-trip resolved recovery mode"
+        )
     }
 
     private static func combinedManifestAcceptsCanonicalShape() throws {
