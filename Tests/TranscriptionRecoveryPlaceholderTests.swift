@@ -9,6 +9,7 @@ struct TranscriptionRecoveryPlaceholderTests {
         testInterruptedPlaceholderBecomesRecoveredButKeepsAudioReference()
         testImportingItemIsIncompleteAndBecomesFailedButKeepsAudioReference()
         testLiveRecordingItemIsIncompleteAndBecomesFailedWithoutRetryAudio()
+        testCloudTranscribingStatusIsTypedAndIncomplete()
         testCompletedItemIsNotIncomplete()
         print("TranscriptionRecoveryPlaceholderTests passed")
     }
@@ -211,10 +212,22 @@ struct TranscriptionRecoveryPlaceholderTests {
         assert(interrupted.debugStatus == "Interrupted before completion")
     }
 
+    private static func testCloudTranscribingStatusIsTypedAndIncomplete() {
+        let item = makeHistoryItem(
+            postProcessingStatus: PipelineHistoryItem.cloudTranscribingStatus,
+            audioFileName: "recording.wav"
+        )
+
+        assert(item.machineStatus == .cloudTranscribing)
+        assert(item.isIncompleteTranscription)
+        assert(!item.postProcessingStatus.hasPrefix("Error:"))
+    }
+
     private static func testCompletedItemIsNotIncomplete() {
         let item = makeHistoryItem(postProcessingStatus: "Post-processing succeeded", audioFileName: "recording.wav")
 
         assert(!item.isIncompleteTranscription)
+        assert(item.machineStatus == .completed)
     }
 
     private static func makeHistoryItem(postProcessingStatus: String, audioFileName: String?) -> PipelineHistoryItem {

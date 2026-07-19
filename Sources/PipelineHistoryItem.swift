@@ -6,11 +6,39 @@ enum PipelineHistoryItemIntent: String, Codable {
     case commandManual = "command:manual"
 }
 
+enum PipelineHistoryMachineStatus: Equatable {
+    case importing
+    case liveRecording
+    case cloudTranscribing
+    case recovered(RecoveredRecordingContext)
+    case failed(String)
+    case completed
+}
+
 struct PipelineHistoryItem: Identifiable, Codable {
     static let transcriptionRecoveryPlaceholderStatus =
         RecoveredRecordingMode.complete.placeholderStatus
     static let recoveredRecordingStatus =
         RecoveredRecordingMode.complete.recoveredStatus
+    static let cloudTranscribingStatus = "cloud-transcribing"
+
+    var machineStatus: PipelineHistoryMachineStatus {
+        if postProcessingStatus == "importing" { return .importing }
+        if postProcessingStatus == "live-recording" { return .liveRecording }
+        if postProcessingStatus == Self.cloudTranscribingStatus {
+            return .cloudTranscribing
+        }
+        if let context = recoveredRecordingContext {
+            return .recovered(context)
+        }
+        if postProcessingStatus.hasPrefix("Error:") {
+            return .failed(
+                String(postProcessingStatus.dropFirst("Error:".count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        return .completed
+    }
 
     var recoveredRecordingContext: RecoveredRecordingContext? {
         RecoveredRecordingContext.recoveredContext(for: postProcessingStatus)
@@ -32,6 +60,7 @@ struct PipelineHistoryItem: Identifiable, Codable {
         RecoveredRecordingContext.placeholderContext(for: postProcessingStatus) != nil
             || postProcessingStatus == "importing"
             || postProcessingStatus == "live-recording"
+            || postProcessingStatus == Self.cloudTranscribingStatus
     }
 
     let intent: PipelineHistoryItemIntent

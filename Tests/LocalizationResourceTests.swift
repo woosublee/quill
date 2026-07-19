@@ -39,6 +39,24 @@ struct LocalizationResourceTests {
         assert(continueKorean == "계속")
         assert(settingsKorean == "설정...")
         assert(startDictatingKorean == "받아쓰기 시작")
+        let cloudProgressEnglish = try localizedValue(
+            key: "Transcribing %d of %d…",
+            language: "en",
+            root: root
+        )
+        let cloudProgressKorean = try localizedValue(
+            key: "Transcribing %d of %d…",
+            language: "ko",
+            root: root
+        )
+        let cloudResumeKorean = try localizedValue(
+            key: "Resuming cloud transcription…",
+            language: "ko",
+            root: root
+        )
+        assert(cloudProgressEnglish == "Transcribing %d of %d…")
+        assert(cloudProgressKorean == "%d/%d 청크 전사 중…")
+        assert(cloudResumeKorean == "클라우드 전사 재개 중…")
         let partialTitleEntry = strings["Some audio recovered"]
             as? [String: Any]
         let partialTitleLocalizations = partialTitleEntry?["localizations"]

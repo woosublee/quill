@@ -1490,6 +1490,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var isRecording = false
     @Published var isTranscribing = false
     @Published var retryingItemIDs: Set<UUID> = []
+    @Published private(set) var cloudTranscriptionProgressByHistoryID:
+        [UUID: CloudTranscriptionDisplayProgress] = [:]
     @Published var lastTranscript: String = ""
     @Published var errorMessage: String?
     @Published var statusText: String = localizedCatalogString("Ready")
