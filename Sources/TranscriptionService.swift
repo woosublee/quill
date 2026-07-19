@@ -469,8 +469,7 @@ class TranscriptionService {
                 responseFormat: transcriptionResponseFormat,
                 encodedUploadCeilingBytes: cloudDependencies.encodedUploadCeilingBytes,
                 minimumAttemptTimeoutSeconds: transcriptionTimeoutSeconds,
-                maximumAttemptTimeoutSeconds: 300,
-                maximumAttempts: 3
+                maximumAttemptTimeoutSeconds: 300
             ),
             materializer: CloudTranscriptionChunkMaterializer(
                 temporaryRoot: cloudDependencies.temporaryRoot,

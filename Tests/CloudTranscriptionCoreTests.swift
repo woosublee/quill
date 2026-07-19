@@ -15,6 +15,7 @@ struct CloudTranscriptionCoreTests {
             try await coordinatorResumesCompatibleCheckpointPrefix()
             try await checkpointFailureSuppressesTheNextRequest()
             try await terminalFailureSuppressesLaterChunks()
+            try await materializationFailureRecordsLocalIOAndSuppressesRequest()
             try await cancellationCleansMaterializedChunk()
             print("CloudTranscriptionCoreTests passed")
         } catch {
@@ -342,6 +343,41 @@ struct CloudTranscriptionCoreTests {
         try expectEqual(await store.failures(), [.authentication], "terminal failure category")
     }
 
+    private static func materializationFailureRecordsLocalIOAndSuppressesRequest() async throws {
+        let fixture = try makeCoordinatorFixture()
+        defer { fixture.cleanup() }
+        let requests = IntegerRecorder()
+        let store = TestCheckpointStore()
+        let failingMaterializer = CloudTranscriptionChunkMaterializer(
+            temporaryRoot: fixture.temporaryRoot,
+            copyBufferByteCount: 3,
+            closeOutput: { _ in throw TestMaterializationError.closeFailed }
+        )
+        do {
+            _ = try await makeCore(
+                materializer: failingMaterializer
+            ).transcribe(
+                sourceURL: fixture.sourceURL,
+                sourceLayout: fixture.sourceLayout,
+                sourceIdentity: fixture.sourceIdentity,
+                plan: fixture.plan,
+                identity: fixture.identity,
+                multipart: fixture.multipart,
+                checkpointStore: store,
+                request: { url, _ in
+                    await requests.append(try chunkIndex(from: url))
+                    return "unexpected"
+                },
+                progress: { _ in }
+            )
+            throw TestFailure("materialization failure must stop the job")
+        } catch TestMaterializationError.closeFailed {
+            // expected
+        }
+        try expectEqual(await requests.values(), [], "materialization failure request count")
+        try expectEqual(await store.failures(), [.localIO], "materialization failure category")
+    }
+
     private static func cancellationCleansMaterializedChunk() async throws {
         let fixture = try makeCoordinatorFixture()
         defer { fixture.cleanup() }
@@ -376,6 +412,19 @@ struct CloudTranscriptionCoreTests {
         temporaryRoot: URL,
         sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { _ in }
     ) -> CloudTranscriptionCore {
+        makeCore(
+            materializer: CloudTranscriptionChunkMaterializer(
+                temporaryRoot: temporaryRoot,
+                copyBufferByteCount: 3
+            ),
+            sleep: sleep
+        )
+    }
+
+    private static func makeCore(
+        materializer: CloudTranscriptionChunkMaterializer,
+        sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { _ in }
+    ) -> CloudTranscriptionCore {
         CloudTranscriptionCore(
             configuration: CloudTranscriptionConfiguration(
                 model: "whisper-large-v3",
@@ -383,13 +432,9 @@ struct CloudTranscriptionCoreTests {
                 responseFormat: "verbose_json",
                 encodedUploadCeilingBytes: 1_000_000,
                 minimumAttemptTimeoutSeconds: 20,
-                maximumAttemptTimeoutSeconds: 300,
-                maximumAttempts: 3
+                maximumAttemptTimeoutSeconds: 300
             ),
-            materializer: CloudTranscriptionChunkMaterializer(
-                temporaryRoot: temporaryRoot,
-                copyBufferByteCount: 3
-            ),
+            materializer: materializer,
             retryPolicy: CloudTranscriptionRetryPolicy(
                 maximumAttempts: 3,
                 jitter: { _ in 0 }
@@ -553,6 +598,10 @@ private actor AttemptRecorder {
 
 private enum TestStoreError: Error {
     case saveFailed
+}
+
+private enum TestMaterializationError: Error {
+    case closeFailed
 }
 
 private actor TestCheckpointStore: CloudTranscriptionCheckpointStore {

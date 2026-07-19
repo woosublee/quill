@@ -51,7 +51,6 @@ struct CloudTranscriptionConfiguration: Equatable, Sendable {
     let encodedUploadCeilingBytes: UInt64
     let minimumAttemptTimeoutSeconds: TimeInterval
     let maximumAttemptTimeoutSeconds: TimeInterval
-    let maximumAttempts: Int
 }
 
 struct CloudTranscriptionJobIdentity: Codable, Equatable, Sendable {
@@ -288,13 +287,13 @@ struct CloudTranscriptionCore: Sendable {
                     total: plan.chunks.count,
                     attempt: completedAttemptCount
                 ))
-                let materialized = try materializer.materialize(
-                    sourceURL: sourceURL,
-                    sourceLayout: sourceLayout,
-                    chunk: chunk,
-                    multipart: multipart
-                )
                 do {
+                    let materialized = try materializer.materialize(
+                        sourceURL: sourceURL,
+                        sourceLayout: sourceLayout,
+                        chunk: chunk,
+                        multipart: multipart
+                    )
                     defer { materialized.cleanup() }
                     let timeout = retryPolicy.attemptTimeout(
                         encodedByteCount: materialized.encodedByteCount,

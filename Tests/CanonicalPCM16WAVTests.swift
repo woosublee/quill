@@ -5,6 +5,7 @@ struct CanonicalPCM16WAVTests {
     static func main() {
         do {
             try canonicalHeaderRoundTrips()
+            try parsesCanonicalHeaderFromNonzeroIndexDataSlice()
             try rejectsNonCanonicalFormatFields()
             try rejectsInvalidChunkLayout()
             try rejectsEmptyAndMisalignedAudio()
@@ -29,6 +30,28 @@ struct CanonicalPCM16WAVTests {
                 frameCount: 4
             ),
             "canonical layout"
+        )
+    }
+
+    private static func parsesCanonicalHeaderFromNonzeroIndexDataSlice() throws {
+        let header = CanonicalPCM16WAV.header(dataByteCount: 8)
+        var container = Data(repeating: 0xaa, count: 7)
+        container.append(header)
+        container.append(Data(repeating: 0xbb, count: 3))
+        let slice = container[7..<(7 + header.count)]
+        guard slice.startIndex == 7 else {
+            throw TestFailure("fixture must preserve a nonzero start index")
+        }
+
+        try expectEqual(
+            CanonicalPCM16WAV.declaredDataByteCount(in: slice),
+            8,
+            "sliced declared byte count"
+        )
+        try expectEqual(
+            try CanonicalPCM16WAV.parseHeader(slice).frameCount,
+            4,
+            "sliced frame count"
         )
     }
 

@@ -22,6 +22,7 @@ struct CloudTranscriptionChunkingTests {
             try materializerUsesBoundedBufferForLargeChunk()
             try materializerCleanupRemovesAttemptDirectory()
             try materializerRejectsShortSourceReadAndCleansPartialOutput()
+            try materializerPropagatesOutputCloseFailureAndCleansPartialOutput()
             print("CloudTranscriptionChunkingTests passed")
         } catch {
             fputs("CloudTranscriptionChunkingTests failed: \(error)\n", stderr)
@@ -472,6 +473,44 @@ struct CloudTranscriptionChunkingTests {
         try expectEqual(contents.count, 0, "partial attempt cleanup")
     }
 
+    private static func materializerPropagatesOutputCloseFailureAndCleansPartialOutput() throws {
+        let fixture = try makePlannerFixture(samples: [1, 2, 3, 4])
+        let temporaryRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: fixture.url)
+            try? FileManager.default.removeItem(at: temporaryRoot)
+        }
+        do {
+            _ = try CloudTranscriptionChunkMaterializer(
+                temporaryRoot: temporaryRoot,
+                copyBufferByteCount: 3,
+                closeOutput: { _ in throw TestCloseError.failed }
+            ).materialize(
+                sourceURL: fixture.url,
+                sourceLayout: fixture.layout,
+                chunk: CloudTranscriptionChunk(
+                    index: 0,
+                    startFrame: 0,
+                    endFrame: 4,
+                    estimatedEncodedByteCount: try encodedCeiling(
+                        frameCount: 4,
+                        multipart: plannerMultipartLayout
+                    )
+                ),
+                multipart: plannerMultipartLayout
+            )
+            throw TestFailure("output close failure must propagate")
+        } catch TestCloseError.failed {
+            // expected
+        }
+        let contents = (try? FileManager.default.contentsOfDirectory(
+            at: temporaryRoot,
+            includingPropertiesForKeys: nil
+        )) ?? []
+        try expectEqual(contents.count, 0, "close failure attempt cleanup")
+    }
+
     private static func readCanonicalSamples(from url: URL) throws -> [Int16] {
         let layout = try CanonicalPCM16WAV.validateFile(at: url)
         let handle = try FileHandle(forReadingFrom: url)
@@ -590,6 +629,10 @@ struct CloudTranscriptionChunkingTests {
             throw TestFailure("\(label): expected \(expected), got \(actual)")
         }
     }
+}
+
+private enum TestCloseError: Error {
+    case failed
 }
 
 private struct TestFailure: Error, CustomStringConvertible {

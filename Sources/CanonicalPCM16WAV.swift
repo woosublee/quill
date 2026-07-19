@@ -44,10 +44,11 @@ enum CanonicalPCM16WAV {
     }
 
     static func declaredDataByteCount(in data: Data) -> UInt32? {
-        guard data.count >= Int(headerByteCount),
-              String(bytes: data[0..<4], encoding: .ascii) == "RIFF",
-              String(bytes: data[8..<12], encoding: .ascii) == "WAVE",
-              String(bytes: data[12..<16], encoding: .ascii) == "fmt ",
+        guard data.count >= Int(headerByteCount) else { return nil }
+        let start = data.startIndex
+        guard String(bytes: data[start..<(start + 4)], encoding: .ascii) == "RIFF",
+              String(bytes: data[(start + 8)..<(start + 12)], encoding: .ascii) == "WAVE",
+              String(bytes: data[(start + 12)..<(start + 16)], encoding: .ascii) == "fmt ",
               data.readUInt32LE(at: 16) == 16,
               data.readUInt16LE(at: 20) == 1,
               data.readUInt16LE(at: 22) == channelCount,
@@ -55,7 +56,7 @@ enum CanonicalPCM16WAV {
               data.readUInt32LE(at: 28) == sampleRate * UInt32(bytesPerFrame),
               data.readUInt16LE(at: 32) == bytesPerFrame,
               data.readUInt16LE(at: 34) == bitsPerSample,
-              String(bytes: data[36..<40], encoding: .ascii) == "data" else {
+              String(bytes: data[(start + 36)..<(start + 40)], encoding: .ascii) == "data" else {
             return nil
         }
 
@@ -124,13 +125,15 @@ private extension Data {
     }
 
     func readUInt16LE(at offset: Int) -> UInt16 {
-        UInt16(self[offset]) | (UInt16(self[offset + 1]) << 8)
+        let base = startIndex + offset
+        return UInt16(self[base]) | (UInt16(self[base + 1]) << 8)
     }
 
     func readUInt32LE(at offset: Int) -> UInt32 {
-        UInt32(self[offset])
-            | (UInt32(self[offset + 1]) << 8)
-            | (UInt32(self[offset + 2]) << 16)
-            | (UInt32(self[offset + 3]) << 24)
+        let base = startIndex + offset
+        return UInt32(self[base])
+            | (UInt32(self[base + 1]) << 8)
+            | (UInt32(self[base + 2]) << 16)
+            | (UInt32(self[base + 3]) << 24)
     }
 }

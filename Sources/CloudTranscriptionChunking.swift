@@ -378,6 +378,19 @@ struct CloudTranscriptionMaterializedChunk: Sendable {
 struct CloudTranscriptionChunkMaterializer: Sendable {
     let temporaryRoot: URL
     let copyBufferByteCount: Int
+    let closeOutput: @Sendable (FileHandle) throws -> Void
+
+    init(
+        temporaryRoot: URL,
+        copyBufferByteCount: Int,
+        closeOutput: @escaping @Sendable (FileHandle) throws -> Void = { handle in
+            try handle.close()
+        }
+    ) {
+        self.temporaryRoot = temporaryRoot
+        self.copyBufferByteCount = copyBufferByteCount
+        self.closeOutput = closeOutput
+    }
 
     func materialize(
         sourceURL: URL,
@@ -427,7 +440,12 @@ struct CloudTranscriptionChunkMaterializer: Sendable {
         let sourceHandle = try FileHandle(forReadingFrom: sourceURL)
         defer { try? sourceHandle.close() }
         let outputHandle = try FileHandle(forWritingTo: fileURL)
-        defer { try? outputHandle.close() }
+        var outputHandleOpen = true
+        defer {
+            if outputHandleOpen {
+                try? outputHandle.close()
+            }
+        }
         try sourceHandle.seek(
             toOffset: sourceLayout.dataOffset
                 + chunk.startFrame * UInt64(CanonicalPCM16WAV.bytesPerFrame)
@@ -449,6 +467,8 @@ struct CloudTranscriptionChunkMaterializer: Sendable {
             remainingByteCount -= UInt64(data.count)
         }
         try outputHandle.synchronize()
+        try closeOutput(outputHandle)
+        outputHandleOpen = false
         let outputLayout = try CanonicalPCM16WAV.validateFile(at: fileURL)
         guard outputLayout.dataByteCount == UInt64(dataByteCount),
               outputLayout.frameCount == frameCount else {
