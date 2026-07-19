@@ -877,6 +877,42 @@ class TranscriptionService {
     }
 }
 
+extension TranscriptionExecutionSnapshot {
+    func makeTranscriptionService(
+        cloudDependencies: CloudTranscriptionDependencies = .live
+    ) throws -> TranscriptionService {
+        switch self {
+        case .cloud(let cloud, _):
+            let dependencies = CloudTranscriptionDependencies(
+                encodedUploadCeilingBytes: cloud.encodedUploadCeilingBytes,
+                upload: cloudDependencies.upload,
+                checkpointStore: cloudDependencies.checkpointStore,
+                progress: cloudDependencies.progress,
+                temporaryRoot: cloudDependencies.temporaryRoot,
+                sleep: cloudDependencies.sleep
+            )
+            return try TranscriptionService(
+                apiKey: cloud.apiKey,
+                baseURL: cloud.baseURL.absoluteString,
+                useLocalTranscription: false,
+                transcriptionModel: cloud.model,
+                language: cloud.language,
+                cloudDependencies: dependencies
+            )
+        case .local(let local, _):
+            return try TranscriptionService(
+                apiKey: "",
+                useLocalTranscription: true,
+                localWhisperPath: local.localWhisperPath,
+                useLegacyMlxWhisper: local.useLegacyMlxWhisper,
+                transcriptionLanguage: local.language,
+                localTranscriptionModel: local.model,
+                cloudDependencies: cloudDependencies
+            )
+        }
+    }
+}
+
 enum TranscriptionError: LocalizedError {
     case invalidBaseURL(String)
     case uploadFailed(String)
