@@ -9,6 +9,7 @@ struct TranscriptionServiceCloudChunkingTests {
             try await largeCanonicalWAVUsesSequentialBoundedChunks()
             try await retryableHTTPFailureRetriesCurrentChunkOnly()
             try await terminalProviderFailuresUseFriendlyMessages()
+            try await invalidSuccessfulResponseUsesExistingFriendlyFailure()
             print("TranscriptionServiceCloudChunkingTests passed")
         } catch {
             fputs("TranscriptionServiceCloudChunkingTests failed: \(error)\n", stderr)
@@ -153,6 +154,30 @@ struct TranscriptionServiceCloudChunkingTests {
         }
     }
 
+    private static func invalidSuccessfulResponseUsesExistingFriendlyFailure() async throws {
+        let multipart = testMultipartLayout
+        let ceiling = try multipart.encodedByteCount(
+            audioDataByteCount: CanonicalPCM16WAV.headerByteCount + 4,
+            fileName: CloudTranscriptionChunkPlanner.uploadFileName,
+            contentType: "audio/wav"
+        )
+        let url = try writeCanonicalWAV(samples: [1, 1, 2, 2])
+        defer { try? FileManager.default.removeItem(at: url) }
+        let recorder = UploadRecorder(results: [.rawSuccess("")])
+        let service = try makeService(
+            ceiling: ceiling,
+            recorder: recorder,
+            checkpointStore: CountingCheckpointStore()
+        )
+        do {
+            _ = try await service.transcribe(fileURL: url)
+            throw TestFailure("invalid successful response must fail")
+        } catch TranscriptionError.pollFailed(let message) {
+            try expectEqual(message, "Invalid response", "invalid success friendly failure")
+        }
+        try expectEqual(await recorder.uploads().count, 1, "invalid success must not retry")
+    }
+
     private static func makeService(
         ceiling: UInt64,
         recorder: UploadRecorder,
@@ -267,6 +292,7 @@ private actor UploadRecorder {
 
     enum ScriptedResult: Sendable {
         case success(String)
+        case rawSuccess(String)
         case http(status: Int, body: String)
     }
 
@@ -297,6 +323,9 @@ private actor UploadRecorder {
         case .success(let text):
             status = 200
             responseData = try JSONSerialization.data(withJSONObject: ["text": text])
+        case .rawSuccess(let body):
+            status = 200
+            responseData = Data(body.utf8)
         case .http(let httpStatus, let body):
             status = httpStatus
             responseData = Data(body.utf8)

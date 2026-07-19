@@ -1,5 +1,7 @@
 import Foundation
 
+struct CloudTranscriptionInvalidResponseFailure: Error, Equatable, Sendable {}
+
 struct CloudTranscriptionHTTPFailure: Error, Equatable, Sendable {
     let statusCode: Int
     let retryAfterSeconds: TimeInterval?
@@ -167,8 +169,13 @@ struct CloudTranscriptionRetryPolicy: Sendable {
         if error is CancellationError {
             return .cancelled
         }
+        if error is CloudTranscriptionInvalidResponseFailure {
+            return .invalidResponse
+        }
         if let urlError = error as? URLError {
             switch urlError.code {
+            case .cancelled:
+                return .cancelled
             case .timedOut,
                  .networkConnectionLost,
                  .notConnectedToInternet,
@@ -181,6 +188,9 @@ struct CloudTranscriptionRetryPolicy: Sendable {
             }
         }
         if let failure = error as? CloudTranscriptionHTTPFailure {
+            if failure.statusCode == 200 {
+                return .invalidResponse
+            }
             let safeCode = failure.providerCode?.lowercased()
             let safeType = failure.providerType?.lowercased()
             if safeCode == "insufficient_quota" || safeType == "insufficient_quota" {

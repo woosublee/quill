@@ -56,6 +56,13 @@ struct CloudTranscriptionCoreTests {
         )
         try expectEqual(cancelled.shouldRetry, false, "cancellation terminal")
         try expectEqual(cancelled.category, .cancelled, "cancellation category")
+
+        let cancelledURLRequest = policy.decision(
+            for: URLError(.cancelled),
+            completedAttemptCount: 1
+        )
+        try expectEqual(cancelledURLRequest.shouldRetry, false, "cancelled URL request terminal")
+        try expectEqual(cancelledURLRequest.category, .cancelled, "cancelled URL request category")
     }
 
     private static func classifiesHTTPFailures() throws {

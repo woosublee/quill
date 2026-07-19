@@ -502,6 +502,8 @@ class TranscriptionService {
                 status: failure.statusCode,
                 host: baseURL.host
             ))
+        } catch is CloudTranscriptionInvalidResponseFailure {
+            throw TranscriptionError.pollFailed("Invalid response")
         }
     }
 
@@ -598,7 +600,7 @@ class TranscriptionService {
             return try parseTranscript(from: data)
         } catch {
             if useStructuredHTTPFailure {
-                throw CloudTranscriptionHTTPFailure(statusCode: 200)
+                throw CloudTranscriptionInvalidResponseFailure()
             }
             throw error
         }
