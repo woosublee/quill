@@ -331,6 +331,24 @@ final class CloudTranscriptionJobStore: @unchecked Sendable {
         CloudTranscriptionJobCheckpointAdapter(store: self, session: session)
     }
 
+    func checkpointStore(
+        session: CloudTranscriptionJobSession,
+        completionPolicy: CloudTranscriptionCompletionPolicy
+    ) -> any CloudTranscriptionCheckpointStore {
+        CloudTranscriptionPreparingCheckpointAdapter(
+            store: self,
+            session: session,
+            completionPolicy: completionPolicy
+        )
+    }
+
+    func deleteCompletedJob(
+        historyID: UUID,
+        session: CloudTranscriptionJobSession
+    ) throws {
+        try delete(historyID: historyID, session: session)
+    }
+
     func reconcile(
         history: [PipelineHistoryItem],
         audioRoot: URL
@@ -406,6 +424,42 @@ final class CloudTranscriptionJobStore: @unchecked Sendable {
             ) {
                 try fileManager.removeItem(at: url)
             }
+        }
+    }
+
+    fileprivate func prepareIfNeeded(
+        identity: CloudTranscriptionJobIdentity,
+        plan: CloudTranscriptionChunkPlan,
+        completionPolicy: CloudTranscriptionCompletionPolicy,
+        session: CloudTranscriptionJobSession
+    ) throws {
+        try lock.withCloudTranscriptionJobLock {
+            try requireActiveSession(session, historyID: session.historyID)
+            if let record = try loadUnlocked(historyID: session.historyID) {
+                guard record.identity == identity,
+                      record.plan == plan,
+                      record.completionPolicy == completionPolicy else {
+                    throw CloudTranscriptionJobStoreError.identityMismatch
+                }
+                return
+            }
+            try ensureJobsDirectory()
+            let timestamp = now()
+            let record = CloudTranscriptionJobRecord(
+                schemaVersion: CloudTranscriptionJobRecord.currentSchemaVersion,
+                historyID: session.historyID,
+                createdAt: timestamp,
+                updatedAt: timestamp,
+                phase: .transcribing,
+                identity: identity,
+                plan: plan,
+                completedChunks: [],
+                firstIncompleteChunkIndex: 0,
+                lastFailure: nil,
+                completionPolicy: completionPolicy
+            )
+            try record.validate(fileNameID: record.historyID)
+            try write(record)
         }
     }
 
@@ -552,6 +606,43 @@ final class CloudTranscriptionJobStore: @unchecked Sendable {
 
     private static func normalizedText(_ text: String) -> String {
         text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+}
+
+private struct CloudTranscriptionPreparingCheckpointAdapter:
+    CloudTranscriptionCheckpointStore,
+    CloudTranscriptionCheckpointPreparing,
+    Sendable {
+    let store: CloudTranscriptionJobStore
+    let session: CloudTranscriptionJobSession
+    let completionPolicy: CloudTranscriptionCompletionPolicy
+
+    func prepare(
+        identity: CloudTranscriptionJobIdentity,
+        plan: CloudTranscriptionChunkPlan
+    ) async throws {
+        try store.prepareIfNeeded(
+            identity: identity,
+            plan: plan,
+            completionPolicy: completionPolicy,
+            session: session
+        )
+    }
+
+    func loadCompatible(
+        identity: CloudTranscriptionJobIdentity
+    ) async throws -> CloudTranscriptionCheckpoint? {
+        try store.loadCompatible(identity: identity, session: session)
+    }
+
+    func save(_ checkpoint: CloudTranscriptionCheckpoint) async throws {
+        try store.save(checkpoint, session: session)
+    }
+
+    func recordFailure(
+        category: CloudTranscriptionFailureCategory
+    ) async throws {
+        try store.recordFailure(category: category, session: session)
     }
 }
 

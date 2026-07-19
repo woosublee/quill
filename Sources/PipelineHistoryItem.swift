@@ -191,7 +191,8 @@ struct PipelineHistoryItem: Identifiable, Codable {
         contextBundleIdentifier: String?,
         contextWindowTitle: String?,
         recoveryMode: RecoveredRecordingMode = .complete,
-        interruptionReason: RecordingInterruptionReason? = nil
+        interruptionReason: RecordingInterruptionReason? = nil,
+        postProcessingStatusOverride: String? = nil
     ) -> PipelineHistoryItem {
         let recoveryContext = RecoveredRecordingContext(
             mode: recoveryMode,
@@ -215,7 +216,8 @@ struct PipelineHistoryItem: Identifiable, Codable {
             contextPrompt: contextPrompt,
             contextScreenshotDataURL: contextScreenshotDataURL,
             contextScreenshotStatus: contextScreenshotStatus,
-            postProcessingStatus: recoveryContext.placeholderStatus,
+            postProcessingStatus: postProcessingStatusOverride
+                ?? recoveryContext.placeholderStatus,
             debugStatus: "Transcription interrupted before completion",
             customVocabulary: customVocabulary,
             customSystemPrompt: customSystemPrompt,

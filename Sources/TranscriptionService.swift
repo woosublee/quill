@@ -6,6 +6,13 @@ import os.log
 
 private let transcriptionLog = OSLog(subsystem: "com.woosublee.quill", category: "Transcription")
 
+struct CloudTranscriptionExecutionContext: Sendable {
+    let historyID: UUID
+    let session: CloudTranscriptionJobSession
+    let checkpointStore: any CloudTranscriptionCheckpointStore
+    let progress: @Sendable (CloudTranscriptionProgress) -> Void
+}
+
 struct CloudTranscriptionDependencies: Sendable {
     let encodedUploadCeilingBytes: UInt64
     let upload: @Sendable (URLRequest, Data) async throws -> (Data, URLResponse)
@@ -53,6 +60,7 @@ class TranscriptionService {
     private let transcriptionModel: String
     private let language: String?
     private let cloudDependencies: CloudTranscriptionDependencies
+    private let cloudExecutionContext: CloudTranscriptionExecutionContext?
     private var transcriptionResponseFormat: String {
         Self.responseFormat(forModel: transcriptionModel)
     }
@@ -72,7 +80,8 @@ class TranscriptionService {
         localTranscriptionModel: TranscriptionModel = .default,
         transcriptionModel: String = AppState.defaultTranscriptionModel,
         language: String? = nil,
-        cloudDependencies: CloudTranscriptionDependencies = .live
+        cloudDependencies: CloudTranscriptionDependencies = .live,
+        cloudExecutionContext: CloudTranscriptionExecutionContext? = nil
     ) throws {
         self.apiKey = apiKey
         self.baseURL = try Self.normalizedBaseURL(from: baseURL)
@@ -88,6 +97,7 @@ class TranscriptionService {
             ? trimmedLanguage
             : transcriptionLanguage.whisperArgument
         self.cloudDependencies = cloudDependencies
+        self.cloudExecutionContext = cloudExecutionContext
     }
 
     static func responseFormat(forModel model: String) -> String {
@@ -478,6 +488,10 @@ class TranscriptionService {
             retryPolicy: retryPolicy,
             sleep: cloudDependencies.sleep
         )
+        let checkpointStore = cloudExecutionContext?.checkpointStore
+            ?? cloudDependencies.checkpointStore
+        let progress = cloudExecutionContext?.progress
+            ?? cloudDependencies.progress
         do {
             return try await core.transcribe(
                 sourceURL: fileURL,
@@ -486,7 +500,7 @@ class TranscriptionService {
                 plan: plan,
                 identity: identity,
                 multipart: multipart,
-                checkpointStore: cloudDependencies.checkpointStore,
+                checkpointStore: checkpointStore,
                 request: { [self] chunkURL, timeoutSeconds in
                     try await transcribeCloudFile(
                         fileURL: chunkURL,
@@ -494,7 +508,7 @@ class TranscriptionService {
                         useStructuredHTTPFailure: true
                     )
                 },
-                progress: cloudDependencies.progress
+                progress: progress
             )
         } catch let failure as CloudTranscriptionHTTPFailure {
             throw TranscriptionError.submissionFailed(Self.friendlyHTTPMessage(
