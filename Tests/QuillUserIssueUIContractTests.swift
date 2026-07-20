@@ -63,6 +63,19 @@ struct QuillUserIssueUIContractTests {
         try expect(source.contains("QuillUserIssueView("), "Settings uses shared issue renderer")
         try expect(!source.contains("systemTestError = error.localizedDescription"), "System prompt test hides raw errors")
         try expect(source.contains("systemTestIssue = service.userIssue(for: error).record"), "System prompt test uses service mapping")
+        let systemTestIssueView = block(
+            source,
+            from: "if let issue = systemTestIssue {",
+            to: "if let output = systemTestOutput {"
+        )
+        try expect(
+            systemTestIssueView.contains("action: issue.recoveryAction == .retryTranscription"),
+            "System prompt test only renders a working retry action"
+        )
+        try expect(
+            systemTestIssueView.contains(": nil"),
+            "System prompt test hides unsupported recovery actions"
+        )
     }
 
     private static func testRunLogSanitizesMachineStatuses(_ source: String) throws {

@@ -2539,11 +2539,9 @@ struct ModelsSettingsView: View {
                     QuillUserIssueView(
                         presentation: issue.presentation(),
                         style: .inline,
-                        action: {
-                            if issue.recoveryAction == .retryTranscription {
-                                runSystemPromptTest()
-                            }
-                        }
+                        action: issue.recoveryAction == .retryTranscription
+                            ? { runSystemPromptTest() }
+                            : nil
                     )
                 }
 

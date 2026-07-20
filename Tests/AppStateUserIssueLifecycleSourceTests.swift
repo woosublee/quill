@@ -47,19 +47,19 @@ struct AppStateUserIssueLifecycleSourceTests {
         )
 
         try expect(
-            recordingFlow.components(separatedBy: "let issue = self.userIssue(").count >= 2,
+            recordingFlow.components(separatedBy: "let issue = self.userIssue(").count >= 3,
             "live and file recording failures use the common issue classifier"
         )
         try expect(
-            recordingFlow.components(separatedBy: "processingStatus: issue.persistedStatus").count >= 2,
+            recordingFlow.components(separatedBy: "processingStatus: issue.persistedStatus").count >= 3,
             "recording failures persist v1 records"
         )
         try expect(
-            recordingFlow.components(separatedBy: "issue.record.presentation().compactMessage").count >= 2,
+            recordingFlow.components(separatedBy: "issue.record.presentation().compactMessage").count >= 3,
             "recording overlay uses compact localized issue copy"
         )
         try expect(
-            recordingFlow.components(separatedBy: "lastPostProcessingStatus = issue.persistedStatus").count >= 2,
+            recordingFlow.components(separatedBy: "lastPostProcessingStatus = issue.persistedStatus").count >= 3,
             "last run status keeps the same machine record"
         )
     }
