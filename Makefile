@@ -29,6 +29,7 @@ WHISPER_CPP_DIR = .build/checkouts/whisper.cpp
 WHISPER_HELPER = $(WHISPER_CPP_DIR)/build/bin/whisper-cli
 WHISPER_STAMP = $(BUILD_DIR)/.whisper-helper
 WHISPER_BUILD_SETTINGS = $(BUILD_DIR)/.whisper-build-settings
+WHISPER_VERIFY_SCRIPT = BuildSupport/WhisperRuntime/verify-whisper-helper.sh
 empty :=
 space := $(empty) $(empty)
 APP_EXECUTABLE = $(MACOS_DIR)/$(APP_NAME)
@@ -54,7 +55,7 @@ ICON_ICNS = Resources/AppIcon.icns
 endif
 
 # Usage: make install CODESIGN_IDENTITY="Apple Development: you@example.com (TEAMID)"
-.PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test localization-bundle-test print-app-version print-build-number print-build-tag print-version-metadata FORCE /tmp/LocalizationResourceTests
+.PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test localization-bundle-test native-whisper-helper-test print-app-version print-build-number print-build-tag print-version-metadata FORCE /tmp/LocalizationResourceTests
 
 all: $(APP_EXECUTABLE_TARGET)
 
@@ -78,10 +79,14 @@ $(WHISPER_BUILD_SETTINGS): FORCE
 	@printf '%s\n%s\n%s\n' "$(WHISPER_CPP_REPO)" "$(WHISPER_CPP_VERSION)" "$(ARCH)" > "$@.tmp"
 	@if [ ! -f "$@" ] || ! cmp -s "$@.tmp" "$@"; then mv "$@.tmp" "$@"; else rm "$@.tmp"; fi
 
-$(WHISPER_STAMP): BuildSupport/WhisperRuntime/build-whisper.cpp.sh $(WHISPER_BUILD_SETTINGS)
+$(WHISPER_STAMP): BuildSupport/WhisperRuntime/build-whisper.cpp.sh $(WHISPER_VERIFY_SCRIPT) $(WHISPER_BUILD_SETTINGS)
 	@BuildSupport/WhisperRuntime/build-whisper.cpp.sh "$(WHISPER_CPP_REPO)" "$(WHISPER_CPP_VERSION)" "$(WHISPER_CPP_DIR)" "$(ARCH)"
 	@mkdir -p "$(BUILD_DIR)"
 	@printf '%s\n' "$(WHISPER_HELPER)" > "$@"
+
+native-whisper-helper-test: $(WHISPER_STAMP)
+	@helper="$$(cat "$(WHISPER_STAMP)")"; \
+		$(WHISPER_VERIFY_SCRIPT) "$$helper" "$(ARCH)"
 
 $(LOCALIZATION_STAMP): $(LOCALIZATION_CATALOG) $(LOCALIZATION_INFO_DIR)/en.lproj/InfoPlist.strings $(LOCALIZATION_INFO_DIR)/ko.lproj/InfoPlist.strings
 	@rm -rf "$(LOCALIZATION_BUILD_DIR)"
@@ -324,6 +329,8 @@ test: check-test-wiring $(SPARKLE_STAMP) $(LOCALIZATION_STAMP)
 	@/tmp/LegacyNoteTitleMigrationTests
 	@swiftc -parse-as-library Tests/ManualReleaseWorkflowTests.swift -o /tmp/ManualReleaseWorkflowTests
 	@/tmp/ManualReleaseWorkflowTests
+	@swiftc -parse-as-library Tests/NativeWhisperBuildContractTests.swift -o /tmp/NativeWhisperBuildContractTests
+	@/tmp/NativeWhisperBuildContractTests
 	@framework="$$(cat "$(SPARKLE_STAMP)")"; framework_parent="$$(dirname "$$framework")"; swiftc -parse-as-library -F "$$framework_parent" -framework Sparkle -Xlinker -rpath -Xlinker "$$framework_parent" Sources/LocalizedStringLookup.swift Sources/LocalizedUserMessage.swift Sources/UpdateManager.swift Tests/UpdateManagerSafetyTests.swift -o /tmp/UpdateManagerSafetyTests
 	@/tmp/UpdateManagerSafetyTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Tests/LocalizedStringLookupTests.swift -o /tmp/LocalizedStringLookupTests

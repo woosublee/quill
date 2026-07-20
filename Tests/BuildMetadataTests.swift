@@ -49,7 +49,7 @@ struct BuildMetadataTests {
     private static func testMakefilePrintsVersionMetadata() throws {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
 
-        assertContains(makefile, ".PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test localization-bundle-test print-app-version print-build-number print-build-tag print-version-metadata FORCE /tmp/LocalizationResourceTests")
+        assertContains(makefile, ".PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test localization-bundle-test native-whisper-helper-test print-app-version print-build-number print-build-tag print-version-metadata FORCE /tmp/LocalizationResourceTests")
         assertContains(makefile, "print-app-version:")
         assertContains(makefile, "print-build-number:")
         assertContains(makefile, "print-build-tag:")
