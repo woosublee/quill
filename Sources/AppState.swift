@@ -211,6 +211,10 @@ private struct RetrySnapshot {
     let useLegacyMlxWhisper: Bool
     let transcriptionModel: String
     let cloudExecutionContext: CloudTranscriptionExecutionContext?
+
+    var requiresCloudExecution: Bool {
+        !useLocalTranscription
+    }
 }
 
 private struct TranscriptCommandParsingResult {
@@ -3966,6 +3970,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         preserveExactWording: configuration.preserveExactWording
                     )
                     try Task.checkCancellation()
+                    guard isCurrentCloudTranscriptionExecution(
+                        historyID: noteID,
+                        context: cloudExecutionContext,
+                        requiresCloudExecution: !configuration.useLocalTranscription
+                    ) else {
+                        self.finishTranscriptionJob(jobID)
+                        return
+                    }
                     let processingStatus = Self.statusMessage(
                         for: result.outcome,
                         parsedTranscript: parsedTranscript
@@ -3995,17 +4007,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     )
                     self.finishTranscriptionJob(jobID)
                 } catch is CancellationError {
+                    guard isCurrentCloudTranscriptionExecution(
+                        historyID: noteID,
+                        context: cloudExecutionContext,
+                        requiresCloudExecution: !configuration.useLocalTranscription
+                    ) else {
+                        self.finishTranscriptionJob(jobID)
+                        return
+                    }
                     self.finishCloudTranscriptionJob(
                         historyID: noteID,
                         context: cloudExecutionContext
                     )
                     self.finishTranscriptionJob(jobID)
                 } catch {
-                    guard !Task.isCancelled else {
-                        self.finishCloudTranscriptionJob(
+                    guard !Task.isCancelled,
+                          isCurrentCloudTranscriptionExecution(
                             historyID: noteID,
-                            context: cloudExecutionContext
-                        )
+                            context: cloudExecutionContext,
+                            requiresCloudExecution: !configuration.useLocalTranscription
+                          ) else {
                         self.finishTranscriptionJob(jobID)
                         return
                     }
@@ -4035,6 +4056,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             }
             self.updateTranscriptionJob(jobID) { $0.task = task }
+            self.installCloudTranscriptionTask(
+                task,
+                historyID: noteID,
+                context: cloudExecutionContext
+            )
         }
     }
 
@@ -4060,7 +4086,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
         )
 
-        Task { [weak self] in
+        let task = Task { [weak self] in
             guard let self else { return }
 
             let updatedItem: PipelineHistoryItem
@@ -4112,6 +4138,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
 
             await MainActor.run {
+                guard self.isCurrentCloudTranscriptionExecution(
+                    historyID: snapshot.item.id,
+                    context: snapshot.cloudExecutionContext,
+                    requiresCloudExecution: snapshot.requiresCloudExecution
+                ) else {
+                    self.retryingItemIDs.remove(snapshot.item.id)
+                    return
+                }
                 do {
                     try self.pipelineHistoryStore.update(updatedItem)
                     self.pipelineHistory = self.pipelineHistoryStore.loadAllHistory()
@@ -4144,6 +4178,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 self.retryingItemIDs.remove(snapshot.item.id)
             }
         }
+        installCloudTranscriptionTask(
+            task,
+            historyID: snapshot.item.id,
+            context: snapshot.cloudExecutionContext
+        )
     }
 
     @MainActor
@@ -6367,6 +6406,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 historyID: historyID,
                 useLocalTranscription: settings.useLocalTranscription
             )
+            guard isCurrentCloudTranscriptionExecution(
+                historyID: historyID,
+                context: cloudContext,
+                requiresCloudExecution: !settings.useLocalTranscription
+            ) else {
+                finishTranscriptionJob(jobID, overlayID: overlayID)
+                return
+            }
             let historySaved = recordPipelineHistoryEntry(
                 jobID: jobID,
                 rawTranscript: completion.rawTranscript,
@@ -6789,6 +6836,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         )
                     }
                     try Task.checkCancellation()
+                    let isCurrentCloudExecution = await MainActor.run {
+                        self.isCurrentCloudTranscriptionExecution(
+                            historyID: cloudHistoryID,
+                            context: cloudExecutionContext,
+                            requiresCloudExecution: !capturedUseLocalTranscription
+                        )
+                    }
+                    guard isCurrentCloudExecution else { return }
                     await MainActor.run {
                         self.bootstrapLastTranscriptForPasteAgain(rawTranscript, pressEnterCommandEnabled: capturedPressEnterCommandEnabled)
                     }
@@ -6832,6 +6887,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     )
                     let calendarMatch = await self.calendarMatchForHistoryItem(jobID: jobID)
                     await MainActor.run {
+                        guard self.isCurrentCloudTranscriptionExecution(
+                            historyID: cloudHistoryID,
+                            context: cloudExecutionContext,
+                            requiresCloudExecution: !capturedUseLocalTranscription
+                        ) else {
+                            self.finishTranscriptionJob(
+                                jobID,
+                                overlayID: myOverlayID
+                            )
+                            return
+                        }
                         self.finishCloudTranscriptionJob(
                             historyID: cloudHistoryID,
                             context: cloudExecutionContext
@@ -6877,6 +6943,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             }
             self.updateTranscriptionJob(jobID) { $0.task = task }
+            self.installCloudTranscriptionTask(
+                task,
+                historyID: cloudHistoryID,
+                context: cloudExecutionContext
+            )
         }
     }
 
@@ -7077,6 +7148,33 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    private func installCloudTranscriptionTask(
+        _ task: Task<Void, Never>,
+        historyID: UUID,
+        context: CloudTranscriptionExecutionContext?
+    ) {
+        guard let context else { return }
+        cloudTranscriptionHistoryCoordinator.install(
+            task: task,
+            historyID: historyID,
+            session: context.session
+        )
+    }
+
+    @MainActor
+    private func isCurrentCloudTranscriptionExecution(
+        historyID: UUID,
+        context: CloudTranscriptionExecutionContext?,
+        requiresCloudExecution: Bool
+    ) -> Bool {
+        guard let context else { return !requiresCloudExecution }
+        return cloudTranscriptionHistoryCoordinator.isActive(
+            historyID: historyID,
+            session: context.session
+        )
+    }
+
+    @MainActor
     private func prepareCloudTranscriptionJob(
         historyID: UUID,
         useLocalTranscription: Bool,
@@ -7265,7 +7363,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         context: CloudTranscriptionExecutionContext?,
         historySaved: Bool
     ) {
-        guard let context else { return }
+        guard let context,
+              isCurrentCloudTranscriptionExecution(
+                historyID: historyID,
+                context: context,
+                requiresCloudExecution: true
+              ) else {
+            return
+        }
         defer {
             finishCloudTranscriptionJob(
                 historyID: historyID,
@@ -7296,7 +7401,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         historyID: UUID,
         context: CloudTranscriptionExecutionContext?
     ) {
-        guard let context else { return }
+        guard let context,
+              isCurrentCloudTranscriptionExecution(
+                historyID: historyID,
+                context: context,
+                requiresCloudExecution: true
+              ) else {
+            return
+        }
         cloudTranscriptionHistoryCoordinator.finish(
             historyID: historyID,
             session: context.session

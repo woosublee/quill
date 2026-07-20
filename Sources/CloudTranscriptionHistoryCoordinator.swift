@@ -127,6 +127,13 @@ final class CloudTranscriptionHistoryCoordinator {
         activeSessions[historyID]
     }
 
+    func isActive(
+        historyID: UUID,
+        session: CloudTranscriptionJobSession
+    ) -> Bool {
+        activeSessions[historyID] == session
+    }
+
     func context(
         historyID: UUID,
         store: CloudTranscriptionJobStore

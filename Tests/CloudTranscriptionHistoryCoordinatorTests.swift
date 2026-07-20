@@ -8,6 +8,7 @@ struct CloudTranscriptionHistoryCoordinatorTests {
             try replacementCancelsOldTaskAndRejectsOldSession()
             try duplicateInstallForSameSessionKeepsOriginalTask()
             try staleProgressAndFinishCannotReplaceCurrentState()
+            try activeSessionCheckRejectsReplacedAndCancelledSessions()
             try cancellationInvalidatesSessionAndClearsProgress()
             try cancelAllInvalidatesEverySession()
             try await cleanupAssetsCancelInvalidateAndRejectLateCheckpoint()
@@ -153,6 +154,40 @@ struct CloudTranscriptionHistoryCoordinatorTests {
         coordinator.cancelAndInvalidate(
             historyID: record.historyID,
             store: fixture.store
+        )
+    }
+
+    @MainActor
+    private static func activeSessionCheckRejectsReplacedAndCancelledSessions() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let coordinator = CloudTranscriptionHistoryCoordinator()
+        let record = makeRecord()
+        let sessionA = fixture.store.beginSession(historyID: record.historyID)
+        coordinator.activate(historyID: record.historyID, session: sessionA)
+        try expect(
+            coordinator.isActive(historyID: record.historyID, session: sessionA),
+            "current session is active"
+        )
+
+        let sessionB = fixture.store.beginSession(historyID: record.historyID)
+        coordinator.activate(historyID: record.historyID, session: sessionB)
+        try expect(
+            !coordinator.isActive(historyID: record.historyID, session: sessionA),
+            "replaced session is inactive"
+        )
+        try expect(
+            coordinator.isActive(historyID: record.historyID, session: sessionB),
+            "replacement session is active"
+        )
+
+        coordinator.cancelAndInvalidate(
+            historyID: record.historyID,
+            store: fixture.store
+        )
+        try expect(
+            !coordinator.isActive(historyID: record.historyID, session: sessionB),
+            "cancelled session is inactive"
         )
     }
 

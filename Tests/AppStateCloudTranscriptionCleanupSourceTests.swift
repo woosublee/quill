@@ -13,6 +13,8 @@ struct AppStateCloudTranscriptionCleanupSourceTests {
         try verifiesClearUsesCommonCleanup(source)
         try verifiesTrimmedAssetsUseCommonCleanup(source)
         try verifiesIncompatibleRetryInvalidatesBeforeReplacement(source)
+        try verifiesActiveCloudTasksAreInstalled(source)
+        try verifiesLateCloudCallbacksCannotWriteHistory(source)
         print("AppStateCloudTranscriptionCleanupSourceTests passed")
     }
 
@@ -127,6 +129,129 @@ struct AppStateCloudTranscriptionCleanupSourceTests {
             ],
             in: retry,
             label: "incompatible retry invalidates old runtime before replacement"
+        )
+    }
+
+    private static func verifiesActiveCloudTasksAreInstalled(
+        _ source: String
+    ) throws {
+        let importFlow = block(
+            source,
+            from: "func importAudioFile(_ fileURL: URL, choice: TranscriptionBackendChoice)",
+            to: "func retryTranscription(item: PipelineHistoryItem)"
+        )
+        try expectOrdered(
+            [
+                "let task = Task",
+                "installCloudTranscriptionTask(",
+                "context: cloudExecutionContext"
+            ],
+            in: importFlow,
+            label: "initial import cloud task installation"
+        )
+
+        let recordingFlow = block(
+            source,
+            from: "private func stopAndTranscribe()",
+            to: "private func scheduleCloudTranscriptionAutoResume("
+        )
+        try expectOrdered(
+            [
+                "let task = Task",
+                "installCloudTranscriptionTask(",
+                "context: cloudExecutionContext"
+            ],
+            in: recordingFlow,
+            label: "initial recording cloud task installation"
+        )
+
+        let retryFlow = block(
+            source,
+            from: "func retryTranscription(item: PipelineHistoryItem)",
+            to: "private func copyRetryTranscriptToPasteboardIfNeeded"
+        )
+        try expectOrdered(
+            [
+                "let task = Task",
+                "installCloudTranscriptionTask(",
+                "context: snapshot.cloudExecutionContext"
+            ],
+            in: retryFlow,
+            label: "retry cloud task installation"
+        )
+    }
+
+    private static func verifiesLateCloudCallbacksCannotWriteHistory(
+        _ source: String
+    ) throws {
+        let importFlow = block(
+            source,
+            from: "func importAudioFile(_ fileURL: URL, choice: TranscriptionBackendChoice)",
+            to: "func retryTranscription(item: PipelineHistoryItem)"
+        )
+        try expect(
+            importFlow.components(
+                separatedBy: "guard isCurrentCloudTranscriptionExecution("
+            ).count >= 3,
+            "import success and failure callbacks require the active cloud session"
+        )
+        try expect(
+            importFlow.components(
+                separatedBy: "requiresCloudExecution: !configuration.useLocalTranscription"
+            ).count >= 3,
+            "import cloud callbacks reject a missing invalidated context"
+        )
+
+        let recordingFlow = block(
+            source,
+            from: "private func stopAndTranscribe()",
+            to: "private func scheduleCloudTranscriptionAutoResume("
+        )
+        try expect(
+            recordingFlow.components(
+                separatedBy: "isCurrentCloudTranscriptionExecution("
+            ).count >= 3,
+            "recording success and failure callbacks require the active cloud session"
+        )
+        try expect(
+            recordingFlow.components(
+                separatedBy: "requiresCloudExecution: !capturedUseLocalTranscription"
+            ).count >= 2,
+            "recording cloud callbacks reject a missing invalidated context"
+        )
+
+        let retryFlow = block(
+            source,
+            from: "func retryTranscription(item: PipelineHistoryItem)",
+            to: "private func copyRetryTranscriptToPasteboardIfNeeded"
+        )
+        try expect(
+            retryFlow.contains("guard self.isCurrentCloudTranscriptionExecution("),
+            "retry callbacks require the active cloud session"
+        )
+        try expect(
+            retryFlow.contains("requiresCloudExecution: snapshot.requiresCloudExecution"),
+            "retry cloud callbacks reject a missing invalidated context"
+        )
+
+        let completion = block(
+            source,
+            from: "private func completeCloudTranscriptionHistory(",
+            to: "private func finishCloudTranscriptionJob("
+        )
+        try expect(
+            completion.contains("isCurrentCloudTranscriptionExecution("),
+            "late completion cannot delete a newer cloud job"
+        )
+
+        let finish = block(
+            source,
+            from: "private func finishCloudTranscriptionJob(",
+            to: "// 라이브 전사 시작 시 Note Browser"
+        )
+        try expect(
+            finish.contains("isCurrentCloudTranscriptionExecution("),
+            "late finish cannot invalidate a newer cloud session"
         )
     }
 
