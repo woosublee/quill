@@ -17,6 +17,7 @@ struct AppStateCloudTranscriptionIntegrationSourceTests {
         try verifiesRecordingPlaceholderPrecedesCloudExecution(appState)
         try verifiesHistoryCommitPrecedesSidecarDeletion(appState)
         try verifiesPartialCloudTextStaysOutOfHistory(appState)
+        try verifiesExplicitRetryPolicy(appState)
         print("AppStateCloudTranscriptionIntegrationSourceTests passed")
     }
 
@@ -156,6 +157,47 @@ struct AppStateCloudTranscriptionIntegrationSourceTests {
                 "cloudTranscriptionProgressByHistoryID[historyID] = displayProgress"
             ),
             "progress callback updates only the dynamic map"
+        )
+    }
+
+    private static func verifiesExplicitRetryPolicy(_ source: String) throws {
+        let retrySnapshot = block(
+            source,
+            from: "private func makeRetrySnapshot(for item: PipelineHistoryItem)",
+            to: "private func makeRetryHistoryItem("
+        )
+        try expect(
+            retrySnapshot.contains("options.explicitRetryChoice"),
+            "retry uses the explicitly selected backend without fallback"
+        )
+        try expect(
+            !retrySnapshot.contains("options.defaultChoice"),
+            "retry never silently selects a different backend"
+        )
+        try expect(
+            retrySnapshot.contains("CanonicalPCM16WAV.validateFile(at: audioURL)"),
+            "oversized cloud retry is allowed only for strict canonical WAV"
+        )
+        try expect(
+            retrySnapshot.contains("execution = .local("),
+            "local retry snapshots the full-source local execution"
+        )
+        try expect(
+            retrySnapshot.contains("execution = .cloud("),
+            "cloud retry snapshots the selected provider execution"
+        )
+        let retryFlow = block(
+            source,
+            from: "func retryTranscription(item: PipelineHistoryItem)",
+            to: "private func copyRetryTranscriptToPasteboardIfNeeded"
+        )
+        try expect(
+            retryFlow.contains("snapshot.execution\n                    .makeTranscriptionService("),
+            "retry service is built only from the immutable snapshot"
+        )
+        try expect(
+            retryFlow.contains("completeCloudTranscriptionHistory("),
+            "successful cloud or local retry clears sidecar after history save"
         )
     }
 

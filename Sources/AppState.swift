@@ -192,6 +192,8 @@ private struct RetrySnapshot {
     let audioURL: URL
     let restoredContext: AppContext
     let restoredIntent: SessionIntent
+    let transcriptionChoice: TranscriptionBackendChoice
+    let execution: TranscriptionExecutionSnapshot
     let transcriptionLanguage: TranscriptionLanguage
     let localTranscriptionModel: TranscriptionModel
     let useLocalTranscription: Bool
@@ -203,6 +205,7 @@ private struct RetrySnapshot {
     let localWhisperPath: String?
     let useLegacyMlxWhisper: Bool
     let transcriptionModel: String
+    let cloudExecutionContext: CloudTranscriptionExecutionContext?
 }
 
 private struct TranscriptCommandParsingResult {
@@ -3986,16 +3989,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let updatedItem: PipelineHistoryItem
             let retrySucceeded: Bool
             do {
-                let transcriptionService = try TranscriptionService(
-                    apiKey: resolvedTranscriptionAPIKey,
-                    baseURL: resolvedTranscriptionBaseURL,
-                    useLocalTranscription: snapshot.useLocalTranscription,
-                    localWhisperPath: snapshot.localWhisperPath,
-                    useLegacyMlxWhisper: snapshot.useLegacyMlxWhisper,
-                    transcriptionLanguage: snapshot.transcriptionLanguage,
-                    localTranscriptionModel: snapshot.localTranscriptionModel,
-                    transcriptionModel: snapshot.transcriptionModel
-                )
+                let transcriptionService = try snapshot.execution
+                    .makeTranscriptionService(
+                        cloudExecutionContext: snapshot.cloudExecutionContext
+                    )
                 let rawTranscript = try await transcriptionService.transcribe(fileURL: snapshot.audioURL)
                 let parsedTranscript = Self.parseTranscriptCommands(
                     from: rawTranscript,
@@ -4042,10 +4039,30 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     try self.pipelineHistoryStore.update(updatedItem)
                     self.pipelineHistory = self.pipelineHistoryStore.loadAllHistory()
                     if retrySucceeded {
+                        if snapshot.useLocalTranscription,
+                           let cloudContext = snapshot.cloudExecutionContext {
+                            self.completeCloudTranscriptionHistory(
+                                historyID: snapshot.item.id,
+                                context: cloudContext,
+                                historySaved: true
+                            )
+                        } else if !snapshot.useLocalTranscription {
+                            self.completeCloudTranscriptionHistory(
+                                historyID: snapshot.item.id,
+                                context: snapshot.cloudExecutionContext,
+                                historySaved: true
+                            )
+                        }
                         self.copyRetryTranscriptToPasteboardIfNeeded(updatedItem.postProcessedTranscript)
                     }
                 } catch {
                     self.errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Failed to save retry result"), providerDetail: error.localizedDescription)
+                }
+                if !retrySucceeded {
+                    self.finishCloudTranscriptionJob(
+                        historyID: snapshot.item.id,
+                        context: snapshot.cloudExecutionContext
+                    )
                 }
                 self.retryingItemIDs.remove(snapshot.item.id)
             }
@@ -4071,21 +4088,72 @@ final class AppState: ObservableObject, @unchecked Sendable {
             throw TranscriptionError.submissionFailed("Audio file not found for retry.")
         }
 
+        let currentChoice = currentNoteBrowserTranscriptionChoice
+        let allowsOversizedCanonicalCloud = audioURL.pathExtension.lowercased()
+            == "wav"
+            && (try? CanonicalPCM16WAV.validateFile(at: audioURL)) != nil
         let options = AudioImportOptions(
             fileExtension: audioURL.pathExtension,
-            currentChoice: currentNoteBrowserTranscriptionChoice,
+            currentChoice: currentChoice,
             apiStandardModelID: resolvedStandardTranscriptionModelID,
             fileSizeBytes: Self.fileSizeBytes(for: audioURL),
             hasAPIKey: hasTranscriptionAPIKey,
             hasNativeLocalWhisperModel: hasNativeLocalWhisperModel,
             legacyLocalWhisperModels: installedLegacyLocalWhisperModels,
             nativeWhisperModelID: NativeWhisperModelCatalog.recommended.id,
-            nativeWhisperDisplayName: NativeWhisperModelCatalog.recommended.displayName
+            nativeWhisperDisplayName: NativeWhisperModelCatalog.recommended.displayName,
+            allowsOversizedCanonicalCloud: allowsOversizedCanonicalCloud
         )
-        guard let retryChoice = options.defaultChoice else {
-            throw TranscriptionError.submissionFailed("No transcription method is available. Configure an API key or install a Local Whisper model, then try again.")
+        guard let retryChoice = options.explicitRetryChoice else {
+            let reason = options.displayRows.first(where: {
+                $0.choice == currentChoice
+            })?.unavailableReason
+                ?? "Selected transcription method is unavailable."
+            throw TranscriptionError.submissionFailed(reason)
         }
         let configuration = audioImportConfiguration(for: retryChoice)
+        let completionSnapshot = TranscriptionCompletionSnapshot(
+            postProcessingEnabled: item.usedPostProcessing,
+            preserveExactWording: preserveExactWording,
+            outputLanguage: outputLanguage,
+            pressEnterCommandEnabled: isPressEnterVoiceCommandEnabled
+        )
+        let execution: TranscriptionExecutionSnapshot
+        let cloudExecutionContext: CloudTranscriptionExecutionContext?
+        if configuration.useLocalTranscription {
+            execution = .local(
+                LocalTranscriptionExecutionSnapshot(
+                    model: configuration.localTranscriptionModel,
+                    localWhisperPath: localWhisperPath.isEmpty
+                        ? nil
+                        : localWhisperPath,
+                    useLegacyMlxWhisper: configuration.useLegacyMlxWhisper,
+                    language: TranscriptionLanguage.find(
+                        code: item.transcriptionLanguageCode
+                    )
+                ),
+                completionSnapshot
+            )
+            cloudExecutionContext = prepareLocalRetryContext(
+                historyID: item.id
+            )
+        } else {
+            let cloud = try CloudTranscriptionExecutionSnapshot(
+                baseURL: resolvedTranscriptionBaseURL,
+                apiKey: resolvedTranscriptionAPIKey,
+                model: configuration.transcriptionModel,
+                language: TranscriptionLanguage.find(
+                    code: item.transcriptionLanguageCode
+                ).whisperArgument,
+                encodedUploadCeilingBytes: 20_000_000
+            )
+            execution = .cloud(cloud, completionSnapshot)
+            cloudExecutionContext = prepareCloudRetryContext(
+                historyID: item.id,
+                snapshot: cloud,
+                completion: completionSnapshot
+            )
+        }
 
         return RetrySnapshot(
             item: item,
@@ -4103,6 +4171,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 screenshotError: nil
             ),
             restoredIntent: SessionIntent.fromPersisted(intent: item.intent, selectedText: item.selectedText),
+            transcriptionChoice: retryChoice,
+            execution: execution,
             transcriptionLanguage: TranscriptionLanguage.find(code: item.transcriptionLanguageCode),
             localTranscriptionModel: configuration.localTranscriptionModel,
             useLocalTranscription: configuration.useLocalTranscription,
@@ -4113,7 +4183,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             preserveExactWording: preserveExactWording,
             localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath,
             useLegacyMlxWhisper: configuration.useLegacyMlxWhisper,
-            transcriptionModel: configuration.transcriptionModel
+            transcriptionModel: configuration.transcriptionModel,
+            cloudExecutionContext: cloudExecutionContext
         )
     }
 
@@ -6775,6 +6846,100 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return cloudTranscriptionHistoryCoordinator.context(
             historyID: historyID,
             store: cloudTranscriptionJobStore
+        )
+    }
+
+    @MainActor
+    private func prepareLocalRetryContext(
+        historyID: UUID
+    ) -> CloudTranscriptionExecutionContext? {
+        guard (try? cloudTranscriptionJobStore.load(historyID: historyID)) != nil else {
+            return nil
+        }
+        let session = cloudTranscriptionJobStore.beginSession(
+            historyID: historyID
+        )
+        cloudTranscriptionHistoryCoordinator.activate(
+            historyID: historyID,
+            session: session
+        )
+        return CloudTranscriptionExecutionContext(
+            historyID: historyID,
+            session: session,
+            checkpointStore: cloudTranscriptionJobStore.checkpointStore(
+                session: session
+            ),
+            progress: { _ in }
+        )
+    }
+
+    @MainActor
+    private func prepareCloudRetryContext(
+        historyID: UUID,
+        snapshot: CloudTranscriptionExecutionSnapshot,
+        completion: TranscriptionCompletionSnapshot
+    ) -> CloudTranscriptionExecutionContext {
+        let existingRecord = try? cloudTranscriptionJobStore.load(
+            historyID: historyID
+        )
+        let sameCloudIdentity = existingRecord.map {
+            $0.identity.providerID == snapshot.providerID
+                && $0.identity.model == snapshot.model
+                && $0.identity.language == snapshot.language
+                && $0.identity.responseFormat == snapshot.responseFormat
+                && $0.plan.encodedUploadCeilingBytes
+                    == snapshot.encodedUploadCeilingBytes
+        } ?? false
+        let previousSession = cloudTranscriptionHistoryCoordinator.activeSession(
+            historyID: historyID
+        )
+        let session = cloudTranscriptionJobStore.beginSession(
+            historyID: historyID
+        )
+        if existingRecord != nil, !sameCloudIdentity {
+            let staleSession = previousSession ?? CloudTranscriptionJobSession(
+                historyID: historyID,
+                token: UUID()
+            )
+            try? cloudTranscriptionJobStore.replaceForIncompatibleRetry(
+                historyID: historyID,
+                oldSession: staleSession,
+                newSession: session
+            )
+        }
+        return makeCloudExecutionContext(
+            historyID: historyID,
+            session: session,
+            completion: completion
+        )
+    }
+
+    @MainActor
+    private func makeCloudExecutionContext(
+        historyID: UUID,
+        session: CloudTranscriptionJobSession,
+        completion: TranscriptionCompletionSnapshot
+    ) -> CloudTranscriptionExecutionContext {
+        cloudTranscriptionHistoryCoordinator.activate(
+            historyID: historyID,
+            session: session
+        )
+        return CloudTranscriptionExecutionContext(
+            historyID: historyID,
+            session: session,
+            checkpointStore: cloudTranscriptionJobStore.checkpointStore(
+                session: session,
+                completionPolicy: completion.cloudJobPolicy
+            ),
+            progress: { [weak self] progress in
+                Task { @MainActor [weak self] in
+                    self?.updateCloudTranscriptionProgress(
+                        progress,
+                        historyID: historyID,
+                        session: session
+                    )
+                }
+            }
         )
     }
 

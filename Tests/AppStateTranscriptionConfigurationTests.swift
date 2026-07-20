@@ -766,7 +766,8 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(importBody.contains("let transcriptionService = try configuration.makeTranscriptionService("))
         precondition(importBody.contains("cloudExecutionContext: cloudExecutionContext"))
         precondition(source.contains("self.useLegacyMlxWhisper = transcriptionConfiguration.useLegacyMlxWhisper"))
-        precondition(retryBody.contains("useLegacyMlxWhisper: snapshot.useLegacyMlxWhisper,"))
+        precondition(retryBody.contains("snapshot.execution\n                    .makeTranscriptionService("))
+        precondition(retryBody.contains("cloudExecutionContext: snapshot.cloudExecutionContext"))
         precondition(stoppedRecordingBody.contains("let capturedUseLegacyMlxWhisper = useLegacyMlxWhisper"))
         precondition(stoppedRecordingBody.contains("useLegacyMlxWhisper: capturedUseLegacyMlxWhisper,"))
     }

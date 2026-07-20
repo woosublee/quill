@@ -1,5 +1,24 @@
 import Foundation
 
+struct CloudTranscriptionLocalRetryRunner {
+    let store: CloudTranscriptionJobStore
+    let historyID: UUID
+    let session: CloudTranscriptionJobSession
+
+    func run(
+        sourceURL: URL,
+        transcribe: (URL) throws -> String,
+        saveHistory: (String) throws -> Void
+    ) throws {
+        let transcript = try transcribe(sourceURL)
+        try saveHistory(transcript)
+        try store.deleteCompletedJob(
+            historyID: historyID,
+            session: session
+        )
+    }
+}
+
 struct CloudTranscriptionHistoryCommitter {
     let store: CloudTranscriptionJobStore
     let session: CloudTranscriptionJobSession

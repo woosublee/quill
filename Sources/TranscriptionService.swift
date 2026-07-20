@@ -893,7 +893,8 @@ class TranscriptionService {
 
 extension TranscriptionExecutionSnapshot {
     func makeTranscriptionService(
-        cloudDependencies: CloudTranscriptionDependencies = .live
+        cloudDependencies: CloudTranscriptionDependencies = .live,
+        cloudExecutionContext: CloudTranscriptionExecutionContext? = nil
     ) throws -> TranscriptionService {
         switch self {
         case .cloud(let cloud, _):
@@ -911,7 +912,8 @@ extension TranscriptionExecutionSnapshot {
                 useLocalTranscription: false,
                 transcriptionModel: cloud.model,
                 language: cloud.language,
-                cloudDependencies: dependencies
+                cloudDependencies: dependencies,
+                cloudExecutionContext: cloudExecutionContext
             )
         case .local(let local, _):
             return try TranscriptionService(
@@ -921,7 +923,8 @@ extension TranscriptionExecutionSnapshot {
                 useLegacyMlxWhisper: local.useLegacyMlxWhisper,
                 transcriptionLanguage: local.language,
                 localTranscriptionModel: local.model,
-                cloudDependencies: cloudDependencies
+                cloudDependencies: cloudDependencies,
+                cloudExecutionContext: nil
             )
         }
     }

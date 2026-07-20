@@ -349,6 +349,26 @@ final class CloudTranscriptionJobStore: @unchecked Sendable {
         try delete(historyID: historyID, session: session)
     }
 
+    func replaceForIncompatibleRetry(
+        historyID: UUID,
+        oldSession: CloudTranscriptionJobSession,
+        newSession: CloudTranscriptionJobSession
+    ) throws {
+        try lock.withCloudTranscriptionJobLock {
+            guard oldSession != newSession,
+                  oldSession.historyID == historyID,
+                  newSession.historyID == historyID,
+                  activeTokens[historyID] == newSession.token else {
+                throw CloudTranscriptionJobStoreError.staleSession
+            }
+            let url = recordURL(historyID: historyID)
+            if fileManager.fileExists(atPath: url.path) {
+                try fileManager.removeItem(at: url)
+                try atomicWriteOperations.syncDirectory(jobsDirectory)
+            }
+        }
+    }
+
     func reconcile(
         history: [PipelineHistoryItem],
         audioRoot: URL
