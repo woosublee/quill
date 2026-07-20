@@ -273,11 +273,11 @@ struct NativeWhisperBuildContractTests {
         return ProcessResult(
             status: process.terminationStatus,
             stdout: String(
-                data: stdout.fileHandleForReading.readDataToEndOfFile(),
+                data: try stdout.fileHandleForReading.readToEnd() ?? Data(),
                 encoding: .utf8
             ) ?? "",
             stderr: String(
-                data: stderr.fileHandleForReading.readDataToEndOfFile(),
+                data: try stderr.fileHandleForReading.readToEnd() ?? Data(),
                 encoding: .utf8
             ) ?? ""
         )
