@@ -1,7 +1,7 @@
 import Foundation
 
 enum PostProcessingError: LocalizedError {
-    case requestFailed(Int, String)
+    case requestFailed(statusCode: Int, providerCode: String?)
     case rateLimited(model: String, retryAfter: TimeInterval)
     case invalidResponse(String)
     case invalidInput(String)
@@ -11,21 +11,68 @@ enum PostProcessingError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .requestFailed(let statusCode, let details):
-            "Post-processing failed with status \(statusCode): \(details)"
+        case .requestFailed(let statusCode, let providerCode):
+            if let providerCode {
+                return "Post-processing failed with status \(statusCode) (\(providerCode))"
+            }
+            return "Post-processing failed with status \(statusCode)"
         case .rateLimited(let model, let retryAfter):
-            "Model \(model) rate-limited — retry in \(Int(retryAfter))s"
+            return "Model \(model) rate-limited — retry in \(Int(retryAfter))s"
         case .invalidResponse(let details):
-            "Invalid post-processing response: \(details)"
+            return "Invalid post-processing response: \(details)"
         case .invalidInput(let details):
-            "Invalid post-processing input: \(details)"
+            return "Invalid post-processing input: \(details)"
         case .emptyOutput:
-            "Post-processing returned empty output"
+            return "Post-processing returned empty output"
         case .requestTimedOut(let seconds):
-            "Post-processing timed out after \(Int(seconds))s"
+            return "Post-processing timed out after \(Int(seconds))s"
         case .suspectedInstructionExecution:
-            "Post-processing output looked like it answered the transcript instead of cleaning it"
+            return "Post-processing output looked like it answered the transcript instead of cleaning it"
         }
+    }
+
+    func userIssue(
+        providerHost: String?,
+        modelID: String
+    ) -> QuillUserIssueError {
+        let code: QuillUserIssueCode
+        switch self {
+        case .requestFailed(let statusCode, _):
+            switch statusCode {
+            case 400, 404, 415, 422:
+                code = .providerConfigurationInvalid
+            case 401, 403:
+                code = .authenticationFailed
+            case 429:
+                code = .postProcessingRateLimited
+            default:
+                code = .postProcessingFailed
+            }
+        case .rateLimited:
+            code = .postProcessingRateLimited
+        case .suspectedInstructionExecution:
+            code = .postProcessingGuardFallback
+        case .invalidResponse, .invalidInput, .emptyOutput, .requestTimedOut:
+            code = .postProcessingFailed
+        }
+        let statusCode: Int?
+        if case .requestFailed(let status, _) = self {
+            statusCode = status
+        } else {
+            statusCode = nil
+        }
+        return QuillUserIssueError(
+            record: QuillUserIssueRecord(
+                code: code,
+                severity: .warning,
+                context: QuillUserIssueContext(
+                    httpStatus: statusCode,
+                    providerHost: providerHost,
+                    modelID: modelID
+                )
+            ),
+            privateDiagnostic: localizedDescription
+        )
     }
 }
 
@@ -42,6 +89,30 @@ struct PostProcessingResult {
 }
 
 final class PostProcessingService {
+    static func safeProviderErrorCode(from data: Data) -> String? {
+        let object = (try? JSONSerialization.jsonObject(with: data))
+            as? [String: Any]
+        let providerError = object?["error"] as? [String: Any]
+        for key in ["code", "type"] {
+            guard let value = providerError?[key] as? String else { continue }
+            let sanitized = value.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            guard !sanitized.isEmpty,
+                  sanitized.count <= 128,
+                  sanitized.unicodeScalars.allSatisfy({ scalar in
+                      CharacterSet.alphanumerics.contains(scalar)
+                          || scalar == "_"
+                          || scalar == "-"
+                          || scalar == "."
+                  }) else {
+                continue
+            }
+            return sanitized
+        }
+        return nil
+    }
+
     static let defaultSystemPrompt = """
 You are a literal dictation cleanup layer for short messages, email replies, prompts, and commands.
 
@@ -163,6 +234,30 @@ Behavior:
         self.preferredModel = preferredModel.trimmingCharacters(in: .whitespacesAndNewlines)
         self.preferredFallbackModel = preferredFallbackModel.trimmingCharacters(in: .whitespacesAndNewlines)
         self.instructionExecutionGuardEnabled = instructionExecutionGuardEnabled
+    }
+
+    func userIssue(for error: Error) -> QuillUserIssueError {
+        if let issue = error as? QuillUserIssueError {
+            return issue
+        }
+        if let postProcessingError = error as? PostProcessingError {
+            return postProcessingError.userIssue(
+                providerHost: URL(string: baseURL)?.host,
+                modelID: resolvedPrimaryModel()
+            )
+        }
+        let nsError = error as NSError
+        return QuillUserIssueError(
+            record: QuillUserIssueRecord(
+                code: .postProcessingFailed,
+                severity: .warning,
+                context: QuillUserIssueContext(
+                    providerHost: URL(string: baseURL)?.host,
+                    modelID: resolvedPrimaryModel()
+                )
+            ),
+            privateDiagnostic: "\(nsError.domain) \(nsError.code)"
+        )
     }
 
     func postProcess(
@@ -623,8 +718,10 @@ Model: \(model)
                 )
                 throw PostProcessingError.rateLimited(model: model, retryAfter: cooldown.seconds)
             }
-            let message = String(data: data, encoding: .utf8) ?? ""
-            throw PostProcessingError.requestFailed(httpResponse.statusCode, message)
+            throw PostProcessingError.requestFailed(
+                statusCode: httpResponse.statusCode,
+                providerCode: Self.safeProviderErrorCode(from: data)
+            )
         }
 
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -767,8 +864,10 @@ Model: \(model)
                 )
                 throw PostProcessingError.rateLimited(model: model, retryAfter: cooldown.seconds)
             }
-            let message = String(data: data, encoding: .utf8) ?? ""
-            throw PostProcessingError.requestFailed(httpResponse.statusCode, message)
+            throw PostProcessingError.requestFailed(
+                statusCode: httpResponse.statusCode,
+                providerCode: Self.safeProviderErrorCode(from: data)
+            )
         }
 
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -963,8 +1062,10 @@ Model: \(model)
                 )
                 throw PostProcessingError.rateLimited(model: model, retryAfter: cooldown.seconds)
             }
-            let message = String(data: data, encoding: .utf8) ?? ""
-            throw PostProcessingError.requestFailed(httpResponse.statusCode, message)
+            throw PostProcessingError.requestFailed(
+                statusCode: httpResponse.statusCode,
+                providerCode: Self.safeProviderErrorCode(from: data)
+            )
         }
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let choices = json["choices"] as? [[String: Any]],

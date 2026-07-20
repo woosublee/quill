@@ -21,7 +21,7 @@ struct AppStateTranscriptionConfigurationTests {
         try testExecutionSnapshotKeepsLocalServiceConfigurationImmutable()
         testTranscriptionResponseFormatUsesVerboseJSONForKnownWhisperModels()
         testTranscriptionResponseFormatUsesJSONForOtherModels()
-        testTranscriptionHTTP400UsesConfigurationGuidance()
+        testTranscriptionHTTP400UsesConfigurationIssue()
         testQwen36ModelConfiguration()
         testQwen36ContextReasoningIsStripped()
         testContextSummaryPreservesNonReasoningModelOutput()
@@ -222,12 +222,17 @@ struct AppStateTranscriptionConfigurationTests {
         }
     }
 
-    private static func testTranscriptionHTTP400UsesConfigurationGuidance() {
-        let message = TranscriptionService.friendlyHTTPMessage(status: 400, host: "api.example.com")
+    private static func testTranscriptionHTTP400UsesConfigurationIssue() {
+        let issue = QuillUserIssueError.cloudHTTP(
+            status: 400,
+            providerHost: "api.example.com",
+            modelID: "provider/model"
+        )
 
-        assert(message.contains("HTTP 400"))
-        assert(message.contains("model name"))
-        assert(message.contains("Base URL"))
+        assert(issue.record.code == .providerConfigurationInvalid)
+        assert(issue.record.context.httpStatus == 400)
+        assert(issue.record.context.providerHost == "api.example.com")
+        assert(issue.record.context.modelID == "provider/model")
     }
 
     private static func testQwen36ModelConfiguration() {
@@ -780,7 +785,7 @@ struct AppStateTranscriptionConfigurationTests {
             to: "    // Run mlx_whisper locally"
         )
         guard let preflightRange = nativeBody.range(of: "try runtime.validateRunnerAndModel(modelURL: modelURL)"),
-              let conversionRange = nativeBody.range(of: "let preparedAudio = try await AudioImportConversionService().prepareForNativeWhisper(fileURL)") else {
+              let conversionRange = nativeBody.range(of: "preparedAudio = try await AudioImportConversionService()") else {
             preconditionFailure("Expected native Whisper preflight before audio conversion")
         }
 

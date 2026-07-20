@@ -820,6 +820,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var nativeWhisperInstallProgress = NativeWhisperDownloadProgress(downloadedBytes: 0, totalBytes: NativeWhisperModelCatalog.recommended.approximateBytes)
     @Published private(set) var isInstallingNativeWhisper = false
     @Published private(set) var nativeWhisperInstallError: String?
+    @Published private(set) var nativeWhisperInstallIssue: QuillUserIssueRecord?
     private var nativeWhisperInstallTask: NativeWhisperInstallTask?
     private var nativeWhisperInstallCancellationMessage: String?
 
@@ -1029,6 +1030,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard !isInstallingNativeWhisper else { return }
         let model = NativeWhisperModelCatalog.recommended
         nativeWhisperInstallError = nil
+        nativeWhisperInstallIssue = nil
         nativeWhisperInstallCancellationMessage = nil
         isInstallingNativeWhisper = true
         nativeWhisperInstallProgress = NativeWhisperDownloadProgress(downloadedBytes: 0, totalBytes: model.approximateBytes)
@@ -1052,7 +1054,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             self.nativeWhisperInstallError = self.nativeWhisperInstallCancellationMessage
                             self.nativeWhisperInstallCancellationMessage = nil
                         default:
-                            self.nativeWhisperInstallError = error.localizedDescription
+                            self.nativeWhisperInstallIssue = QuillUserIssueRecord(
+                                code: .localModelMissing,
+                                context: QuillUserIssueContext(
+                                    modelID: model.id,
+                                    localBackend: "Native Whisper"
+                                )
+                            )
                         }
                     }
                 }
@@ -1093,8 +1101,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
         do {
             try NativeWhisperModelStore().deleteModel(.recommended)
             nativeWhisperInstallError = nil
+            nativeWhisperInstallIssue = nil
         } catch {
-            nativeWhisperInstallError = error.localizedDescription
+            nativeWhisperInstallIssue = QuillUserIssueRecord(
+                code: .localModelMissing,
+                context: QuillUserIssueContext(
+                    modelID: NativeWhisperModelCatalog.recommended.id,
+                    localBackend: "Native Whisper"
+                )
+            )
         }
         refreshNativeWhisperInstallStatus()
     }
@@ -3646,7 +3661,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard activeInputSwitchToken == switchToken, isRecording else { return }
         activeInputSwitchToken = nil
         isActiveInputSwitchPhysicalStopInProgress = false
-        errorMessage = formattedRecordingStartError(error)
+        let issue = userIssue(
+            for: error,
+            fallbackCode: .recordingInputFailed
+        )
+        errorMessage = issue.record.presentation().compactMessage
         overlayManager.showRecordingNotice(
             localizedCatalogString("Failed to switch audio input. Saving the recorded audio."),
             reminderFrame: meetingReminderOverlayManager.visibleOverlayFrame
@@ -3905,7 +3924,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             } catch {
                 Self.deleteAudioFile(savedAudioFile.fileName)
-                self.errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to save imported audio note"), providerDetail: error.localizedDescription)
+                let issue = self.userIssue(for: error)
+                self.errorMessage = issue.record.presentation().compactMessage
                 return
             }
 
@@ -3978,10 +3998,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.finishTranscriptionJob(jobID)
                         return
                     }
-                    let processingStatus = Self.statusMessage(
-                        for: result.outcome,
-                        parsedTranscript: parsedTranscript
-                    )
+                    let processingStatus = result.userIssueRecord?.persistedStatus
+                        ?? Self.statusMessage(
+                            for: result.outcome,
+                            parsedTranscript: parsedTranscript
+                        )
                     let historySaved = self.recordPipelineHistoryEntry(
                         jobID: jobID,
                         rawTranscript: parsedTranscript.transcript,
@@ -4021,6 +4042,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     )
                     self.finishTranscriptionJob(jobID)
                 } catch {
+                    let issue = self.userIssue(
+                        for: error,
+                        fallbackCode: configuration.useLocalTranscription
+                            ? .localTranscriptionFailed
+                            : .providerConfigurationInvalid,
+                        modelID: configuration.useLocalTranscription
+                            ? configuration.localTranscriptionModel.id
+                            : configuration.transcriptionModel
+                    )
                     guard !Task.isCancelled,
                           isCurrentCloudTranscriptionExecution(
                             historyID: noteID,
@@ -4041,7 +4071,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         postProcessingPrompt: "",
                         systemPrompt: configuration.systemPrompt,
                         context: importedContext,
-                        processingStatus: "Error: \(error.localizedDescription)",
+                        processingStatus: issue.persistedStatus,
                         intent: .dictation,
                         audioFileName: savedAudioFile.fileName,
                         useLocalTranscriptionOverride: configuration.useLocalTranscription,
@@ -4072,7 +4102,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         do {
             snapshot = try makeRetrySnapshot(for: item)
         } catch {
-            errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to prepare retry"), providerDetail: error.localizedDescription)
+            let issue = userIssue(
+                for: error,
+                fallbackCode: .audioUnreadable
+            )
+            errorMessage = issue.record.presentation().compactMessage
             return
         }
 
@@ -4117,21 +4151,31 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     rawTranscript: parsedTranscript.transcript,
                     postProcessedTranscript: result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines),
                     postProcessingPrompt: result.prompt,
-                    postProcessingStatus: Self.statusMessage(
-                        for: result.outcome,
-                        parsedTranscript: parsedTranscript,
-                        isRetry: true
-                    ),
+                    postProcessingStatus: result.userIssueRecord?.persistedStatus
+                        ?? Self.statusMessage(
+                            for: result.outcome,
+                            parsedTranscript: parsedTranscript,
+                            isRetry: true
+                        ),
                     debugStatus: "Retried"
                 )
                 retrySucceeded = true
             } catch {
+                let issue = self.userIssue(
+                    for: error,
+                    fallbackCode: snapshot.useLocalTranscription
+                        ? .localTranscriptionFailed
+                        : .providerConfigurationInvalid,
+                    modelID: snapshot.useLocalTranscription
+                        ? snapshot.localTranscriptionModel.id
+                        : snapshot.transcriptionModel
+                )
                 updatedItem = self.makeRetryHistoryItem(
                     from: snapshot,
                     rawTranscript: snapshot.item.rawTranscript,
                     postProcessedTranscript: snapshot.item.postProcessedTranscript,
                     postProcessingPrompt: snapshot.item.postProcessingPrompt,
-                    postProcessingStatus: "Error: \(error.localizedDescription)",
+                    postProcessingStatus: issue.persistedStatus,
                     debugStatus: "Retry failed"
                 )
                 retrySucceeded = false
@@ -4167,7 +4211,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.copyRetryTranscriptToPasteboardIfNeeded(updatedItem.postProcessedTranscript)
                     }
                 } catch {
-                    self.errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Failed to save retry result"), providerDetail: error.localizedDescription)
+                    let issue = self.userIssue(for: error)
+                    self.errorMessage = issue.record.presentation().compactMessage
                 }
                 if !retrySucceeded {
                     self.finishCloudTranscriptionJob(
@@ -4403,6 +4448,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     func openMicrophoneSettings() {
         openPrivacySettingsPane("Privacy_Microphone")
+    }
+
+    func openSpeechRecognitionSettings() {
+        openPrivacySettingsPane("Privacy_SpeechRecognition")
     }
 
     func requestMicrophoneAccess(completion: @escaping (Bool) -> Void) {
@@ -5982,60 +6031,46 @@ final class AppState: ObservableObject, @unchecked Sendable {
         activeRecordingTriggerMode = nil
         currentSessionIntent = .dictation
         shortcutSessionController.reset()
-        errorMessage = formattedRecordingStartError(error)
+        let issue = userIssue(
+            for: error,
+            fallbackCode: .recordingInputFailed
+        )
+        errorMessage = issue.record.presentation().compactMessage
         statusText = localizedCatalogString("Error")
         dismissTranscribingOverlay()
         refreshAvailableMicrophonesIfNeeded()
     }
 
-    private func formattedRecordingStartError(_ error: Error) -> String {
-        if let recorderError = error as? AudioRecorderError {
-            return LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Failed to start recording"), providerDetail: recorderError.localizedDescription)
+    private func userIssue(
+        for error: Error,
+        fallbackCode: QuillUserIssueCode = .unknown,
+        localBackend: String? = nil,
+        modelID: String? = nil
+    ) -> QuillUserIssueError {
+        if let issue = error as? QuillUserIssueError {
+            return issue
         }
-
-        let lower = error.localizedDescription.lowercased()
-        if lower.contains("operation couldn't be completed") || lower.contains("operation could not be completed") {
-            return localizedCatalogString("Failed to start recording: Audio input error. Verify microphone access is granted and a working mic is selected in System Settings > Sound > Input.")
-        }
-
-        let nsError = error as NSError
-        if nsError.domain == NSOSStatusErrorDomain {
-            return String(format: localizedCatalogString("Failed to start recording (audio subsystem error %@). Check microphone permissions and selected input device."), String(nsError.code))
-        }
-
-        return LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Failed to start recording"), providerDetail: error.localizedDescription)
-    }
-
-    /// Turn a transcription failure into a concise, user-facing message,
-    /// classifying by the locale-independent `URLError.Code` rather than the
-    /// system's English description (which varies across releases and locales).
-    private func formattedTranscriptionError(_ error: Error) -> String {
         if let code = Self.urlErrorCode(in: error) {
-            switch code {
-            case .notConnectedToInternet, .networkConnectionLost,
-                 .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
-                return localizedCatalogString("No internet — check connection")
-            case .timedOut:
-                return NetworkMonitor.shared.isOnline
-                    ? localizedCatalogString("Request timed out — try again")
-                    : localizedCatalogString("No internet — check connection")
-            default:
-                break
-            }
+            return QuillUserIssueError.cloudTransport(
+                URLError(code),
+                providerHost: URL(string: resolvedTranscriptionBaseURL)?.host,
+                modelID: modelID ?? resolvedStandardTranscriptionModelID
+            )
         }
-
-        let lower = error.localizedDescription.lowercased()
-        if lower.contains("timed out") || lower.contains("timeout") {
-            return NetworkMonitor.shared.isOnline
-                ? localizedCatalogString("Request timed out — try again")
-                : localizedCatalogString("No internet — check connection")
-        }
-        if lower.contains("offline") || lower.contains("internet connection")
-            || lower.contains("not connected") || lower.contains("network")
-            || lower.contains("cannot find host") {
-            return localizedCatalogString("No internet — check connection")
-        }
-        return error.localizedDescription
+        let nsError = error as NSError
+        return QuillUserIssueError(
+            record: QuillUserIssueRecord(
+                code: fallbackCode,
+                context: QuillUserIssueContext(
+                    providerHost: localBackend == nil
+                        ? URL(string: resolvedTranscriptionBaseURL)?.host
+                        : nil,
+                    modelID: modelID,
+                    localBackend: localBackend
+                )
+            ),
+            privateDiagnostic: "\(nsError.domain) \(nsError.code)"
+        )
     }
 
     /// Find a `URLError.Code` anywhere in the error's underlying-error chain,
@@ -6209,11 +6244,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
         outputLanguage: String,
         postProcessingEnabled: Bool,
         preserveExactWording: Bool
-    ) async -> (finalTranscript: String, outcome: TranscriptProcessingOutcome, prompt: String) {
+    ) async -> (
+        finalTranscript: String,
+        outcome: TranscriptProcessingOutcome,
+        prompt: String,
+        userIssueRecord: QuillUserIssueRecord?
+    ) {
         let trimmedRawTranscript = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedRawTranscript.isEmpty else {
-            return ("", .skippedEmptyRawTranscript, "")
+            return ("", .skippedEmptyRawTranscript, "", nil)
         }
 
         if case .command(let invocation, let selectedText) = intent {
@@ -6228,26 +6268,37 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 let outcome: TranscriptProcessingOutcome = result.skippedDueToCooldown
                     ? .commandModeSkippedCooldown(invocation: invocation)
                     : .commandModeSucceeded(invocation: invocation)
-                return (result.transcript, outcome, result.prompt)
+                return (result.transcript, outcome, result.prompt, nil)
             } catch {
-                os_log(.error, log: recordingLog, "Edit mode failed: %{public}@", error.localizedDescription)
-                return (selectedText, .commandModeFailedFallback(invocation: invocation), "")
+                let issue = postProcessingService.userIssue(for: error)
+                os_log(
+                    .error,
+                    log: recordingLog,
+                    "Edit mode failed: %{private}@",
+                    issue.privateDiagnostic
+                )
+                return (
+                    selectedText,
+                    .commandModeFailedFallback(invocation: invocation),
+                    "",
+                    issue.record
+                )
             }
         }
 
         if let macro = findMatchingMacro(for: trimmedRawTranscript) {
             os_log(.info, log: recordingLog, "Voice macro triggered: %{public}@", macro.command)
-            return (macro.payload, .voiceMacro(command: macro.command), "")
+            return (macro.payload, .voiceMacro(command: macro.command), "", nil)
         }
 
         if !postProcessingEnabled {
-            return (rawTranscript, .postProcessingDisabled, "")
+            return (rawTranscript, .postProcessingDisabled, "", nil)
         }
 
         if preserveExactWording {
             let targetLanguage = outputLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !targetLanguage.isEmpty else {
-                return (trimmedRawTranscript, .preservedExactWording, "")
+                return (trimmedRawTranscript, .preservedExactWording, "", nil)
             }
             do {
                 let result = try await postProcessingService.translateVerbatim(
@@ -6257,10 +6308,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 let outcome: TranscriptProcessingOutcome = result.skippedDueToCooldown
                     ? .postProcessingSkippedCooldown
                     : .preservedExactWordingTranslated
-                return (result.transcript, outcome, result.prompt)
+                return (result.transcript, outcome, result.prompt, nil)
             } catch {
-                os_log(.error, log: recordingLog, "Literal translation failed: %{public}@", error.localizedDescription)
-                return (trimmedRawTranscript, .preservedExactWordingTranslationFailedFallback, "")
+                let issue = postProcessingService.userIssue(for: error)
+                os_log(
+                    .error,
+                    log: recordingLog,
+                    "Literal translation failed: %{private}@",
+                    issue.privateDiagnostic
+                )
+                return (
+                    trimmedRawTranscript,
+                    .preservedExactWordingTranslationFailedFallback,
+                    "",
+                    issue.record
+                )
             }
         }
 
@@ -6275,10 +6337,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let outcome: TranscriptProcessingOutcome = result.skippedDueToCooldown
                 ? .postProcessingSkippedCooldown
                 : .postProcessingSucceeded
-            return (result.transcript, outcome, result.prompt)
+            return (result.transcript, outcome, result.prompt, nil)
         } catch {
-            os_log(.error, log: recordingLog, "Post-processing failed: %{public}@", error.localizedDescription)
-            return (trimmedRawTranscript, .postProcessingFailedFallback, "")
+            let issue = postProcessingService.userIssue(for: error)
+            os_log(
+                .error,
+                log: recordingLog,
+                "Post-processing failed: %{private}@",
+                issue.privateDiagnostic
+            )
+            return (
+                trimmedRawTranscript,
+                .postProcessingFailedFallback,
+                "",
+                issue.record
+            )
         }
     }
 
@@ -6365,10 +6438,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             preserveExactWording: preserveExactWording
         )
         try Task.checkCancellation()
-        let processingStatus = Self.statusMessage(
-            for: result.outcome,
-            parsedTranscript: parsedTranscript
-        )
+        let processingStatus = result.userIssueRecord?.persistedStatus
+            ?? Self.statusMessage(
+                for: result.outcome,
+                parsedTranscript: parsedTranscript
+            )
         let outcomeWasPostProcessingFailedFallback: Bool
         switch result.outcome {
         case .postProcessingFailedFallback, .preservedExactWordingTranslationFailedFallback:
@@ -6656,6 +6730,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.finishTranscriptionJob(jobID, overlayID: myOverlayID)
                     }
                 } catch {
+                    let issue = self.userIssue(
+                        for: error,
+                        fallbackCode: .localTranscriptionFailed,
+                        localBackend: "Apple Speech",
+                        modelID: capturedSettings.localTranscriptionModel.id
+                    )
                     let resolvedContext = await self.resolveStoppedRecordingContext(
                         sessionContext: sessionContext,
                         inFlightContextTask: inFlightContextTask
@@ -6675,7 +6755,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             postProcessingPrompt: "",
                             systemPrompt: Self.resolvedSystemPrompt(capturedSettings.customSystemPrompt),
                             context: resolvedContext,
-                            processingStatus: "Error: \(error.localizedDescription)",
+                            processingStatus: issue.persistedStatus,
                             intent: sessionIntent,
                             audioFileName: errorAudioFile?.fileName,
                             useLocalTranscriptionOverride: capturedSettings.useLocalTranscription,
@@ -6692,14 +6772,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             self.finishTranscriptionJob(jobID, overlayID: myOverlayID)
                             return
                         }
-                        let userFacingErrorMessage = self.formattedTranscriptionError(error)
-                        self.errorMessage = userFacingErrorMessage
+                        let compactMessage = issue.record.presentation().compactMessage
+                        self.errorMessage = compactMessage
                         self.statusText = localizedCatalogString("Error")
-                        self.overlayManager.showError(userFacingErrorMessage)
+                        self.overlayManager.showError(compactMessage)
                         self.lastPostProcessedTranscript = ""
                         self.lastRawTranscript = ""
                         self.lastContextSummary = ""
-                        self.lastPostProcessingStatus = "Error: \(error.localizedDescription)"
+                        self.lastPostProcessingStatus = issue.persistedStatus
                         self.lastPostProcessingPrompt = ""
                         self.lastContextScreenshotDataURL = resolvedContext.screenshotDataURL
                         self.lastContextScreenshotStatus = resolvedContext.screenshotError
@@ -6881,6 +6961,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.finishTranscriptionJob(jobID, overlayID: myOverlayID)
                     }
                 } catch {
+                    let issue = self.userIssue(
+                        for: error,
+                        fallbackCode: capturedUseLocalTranscription
+                            ? .localTranscriptionFailed
+                            : .providerConfigurationInvalid,
+                        modelID: capturedUseLocalTranscription
+                            ? capturedLocalTranscriptionModel.id
+                            : capturedTranscriptionModel
+                    )
                     let resolvedContext = await self.resolveStoppedRecordingContext(
                         sessionContext: sessionContext,
                         inFlightContextTask: inFlightContextTask
@@ -6909,7 +6998,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             postProcessingPrompt: "",
                             systemPrompt: Self.resolvedSystemPrompt(capturedSettings.customSystemPrompt),
                             context: resolvedContext,
-                            processingStatus: "Error: \(error.localizedDescription)",
+                            processingStatus: issue.persistedStatus,
                             intent: sessionIntent,
                             audioFileName: savedAudioFile?.fileName,
                             useLocalTranscriptionOverride: capturedSettings.useLocalTranscription,
@@ -6926,14 +7015,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             self.finishTranscriptionJob(jobID, overlayID: myOverlayID)
                             return
                         }
-                        let userFacingErrorMessage = self.formattedTranscriptionError(error)
-                        self.errorMessage = userFacingErrorMessage
+                        let compactMessage = issue.record.presentation().compactMessage
+                        self.errorMessage = compactMessage
                         self.statusText = localizedCatalogString("Error")
-                        self.overlayManager.showError(userFacingErrorMessage)
+                        self.overlayManager.showError(compactMessage)
                         self.lastPostProcessedTranscript = ""
                         self.lastRawTranscript = ""
                         self.lastContextSummary = ""
-                        self.lastPostProcessingStatus = "Error: \(error.localizedDescription)"
+                        self.lastPostProcessingStatus = issue.persistedStatus
                         self.lastPostProcessingPrompt = ""
                         self.lastContextScreenshotDataURL = resolvedContext.screenshotDataURL
                         self.lastContextScreenshotStatus = resolvedContext.screenshotError
@@ -7119,11 +7208,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     rawTranscript: parsed.transcript,
                     postProcessedTranscript: result.finalTranscript,
                     postProcessingPrompt: result.prompt,
-                    postProcessingStatus: Self.statusMessage(
-                        for: result.outcome,
-                        parsedTranscript: parsed,
-                        isRetry: true
-                    ),
+                    postProcessingStatus: result.userIssueRecord?.persistedStatus
+                        ?? Self.statusMessage(
+                            for: result.outcome,
+                            parsedTranscript: parsed,
+                            isRetry: true
+                        ),
                     debugStatus: "Resumed after relaunch"
                 )
                 try pipelineHistoryStore.update(updated)
@@ -7890,7 +7980,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             } else if let transcriptFileName {
                 Self.deleteTranscriptFile(transcriptFileName)
             }
-            errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to save run history entry"), providerDetail: error.localizedDescription)
+            let issue = self.userIssue(for: error)
+            errorMessage = issue.record.presentation().compactMessage
         }
 
         // MCP notification

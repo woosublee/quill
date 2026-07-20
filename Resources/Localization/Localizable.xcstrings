@@ -9908,6 +9908,1302 @@
           }
         }
       }
+    },
+    "No network connection": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No network connection"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네트워크 연결 없음"
+          }
+        }
+      }
+    },
+    "Quill could not reach the transcription service because this Mac appears to be offline.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill could not reach the transcription service because this Mac appears to be offline."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac이 오프라인 상태인 것으로 보여 Quill이 전사 서비스에 연결하지 못했습니다."
+          }
+        }
+      }
+    },
+    "Check your internet connection, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check your internet connection, then try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인터넷 연결을 확인한 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Transcription timed out": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription timed out"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 시간 초과"
+          }
+        }
+      }
+    },
+    "The transcription service did not respond in time.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The transcription service did not respond in time."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 서비스가 제한 시간 안에 응답하지 않았습니다."
+          }
+        }
+      }
+    },
+    "Try again. If this keeps happening, check the provider status or choose another configured model.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try again. If this keeps happening, check the provider status or choose another configured model."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 시도하세요. 문제가 계속되면 제공자 상태를 확인하거나 설정된 다른 모델을 선택하세요."
+          }
+        }
+      }
+    },
+    "Transcription is temporarily limited": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription is temporarily limited"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사가 일시적으로 제한됨"
+          }
+        }
+      }
+    },
+    "The provider is receiving too many requests right now.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The provider is receiving too many requests right now."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 제공자가 너무 많은 요청을 받고 있습니다."
+          }
+        }
+      }
+    },
+    "Wait a moment, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wait a moment, then try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠시 기다린 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Provider sign-in needs attention": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider sign-in needs attention"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제공자 인증 확인 필요"
+          }
+        }
+      }
+    },
+    "Quill could not authenticate with the selected provider.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill could not authenticate with the selected provider."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill이 선택한 제공자에 인증하지 못했습니다."
+          }
+        }
+      }
+    },
+    "Check the API key or account connection in Models settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the API key or account connection in Models settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델 설정에서 API 키 또는 계정 연결을 확인하세요."
+          }
+        }
+      }
+    },
+    "Provider quota reached": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider quota reached"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제공자 할당량 소진"
+          }
+        }
+      }
+    },
+    "The selected provider account has no remaining quota or billing access.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected provider account has no remaining quota or billing access."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 제공자 계정에 남은 할당량이 없거나 결제 권한을 사용할 수 없습니다."
+          }
+        }
+      }
+    },
+    "Review the provider account, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review the provider account, then try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제공자 계정을 확인한 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Transcription service unavailable": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription service unavailable"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 서비스를 사용할 수 없음"
+          }
+        }
+      }
+    },
+    "The selected provider is temporarily unavailable.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected provider is temporarily unavailable."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 제공자를 일시적으로 사용할 수 없습니다."
+          }
+        }
+      }
+    },
+    "Try again later or choose another configured provider.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try again later or choose another configured provider."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나중에 다시 시도하거나 설정된 다른 제공자를 선택하세요."
+          }
+        }
+      }
+    },
+    "Provider setup needs attention": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider setup needs attention"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제공자 설정 확인 필요"
+          }
+        }
+      }
+    },
+    "The selected provider or model is not configured correctly.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected provider or model is not configured correctly."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 제공자 또는 모델이 올바르게 설정되지 않았습니다."
+          }
+        }
+      }
+    },
+    "Review the provider and model in Models settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review the provider and model in Models settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델 설정에서 제공자와 모델을 확인하세요."
+          }
+        }
+      }
+    },
+    "Recording is too large": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording is too large"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음이 너무 큼"
+          }
+        }
+      }
+    },
+    "The provider cannot accept this recording in one request.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The provider cannot accept this recording in one request."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제공자가 이 녹음을 한 번의 요청으로 처리할 수 없습니다."
+          }
+        }
+      }
+    },
+    "Choose a supported provider or shorten the recording, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a supported provider or shorten the recording, then try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지원되는 제공자를 선택하거나 녹음을 줄인 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Transcription response could not be read": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription response could not be read"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 응답을 읽을 수 없음"
+          }
+        }
+      }
+    },
+    "The provider returned a response Quill could not use.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The provider returned a response Quill could not use."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제공자가 Quill에서 사용할 수 없는 응답을 반환했습니다."
+          }
+        }
+      }
+    },
+    "Try again. If it continues, check the provider configuration.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try again. If it continues, check the provider configuration."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 시도하세요. 문제가 계속되면 제공자 설정을 확인하세요."
+          }
+        }
+      }
+    },
+    "Audio could not be read": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio could not be read"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오를 읽을 수 없음"
+          }
+        }
+      }
+    },
+    "Quill cannot access the saved recording.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill cannot access the saved recording."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill이 저장된 녹음에 접근할 수 없습니다."
+          }
+        }
+      }
+    },
+    "Make sure the recording still exists and is readable, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make sure the recording still exists and is readable, then try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음이 존재하고 읽을 수 있는지 확인한 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Audio could not be prepared": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio could not be prepared"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오를 준비할 수 없음"
+          }
+        }
+      }
+    },
+    "Quill could not convert the recording for transcription.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill could not convert the recording for transcription."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill이 전사를 위해 녹음을 변환하지 못했습니다."
+          }
+        }
+      }
+    },
+    "Try again. If it continues, use a different audio file.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try again. If it continues, use a different audio file."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 시도하세요. 문제가 계속되면 다른 오디오 파일을 사용하세요."
+          }
+        }
+      }
+    },
+    "Local transcription is not ready": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local transcription is not ready"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 전사가 준비되지 않음"
+          }
+        }
+      }
+    },
+    "The local transcription helper is unavailable.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The local transcription helper is unavailable."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 전사 도우미를 사용할 수 없습니다."
+          }
+        }
+      }
+    },
+    "Open Models settings and repair the local transcription setup.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Models settings and repair the local transcription setup."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델 설정을 열어 로컬 전사 구성을 복구하세요."
+          }
+        }
+      }
+    },
+    "Local model is missing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local model is missing"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 모델이 없음"
+          }
+        }
+      }
+    },
+    "The selected local transcription model is not installed.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected local transcription model is not installed."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 로컬 전사 모델이 설치되어 있지 않습니다."
+          }
+        }
+      }
+    },
+    "Open Models settings to install or select a model.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Models settings to install or select a model."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델 설정을 열어 모델을 설치하거나 선택하세요."
+          }
+        }
+      }
+    },
+    "Local transcription dependency is missing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local transcription dependency is missing"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 전사 구성 요소가 없음"
+          }
+        }
+      }
+    },
+    "A required local transcription component is unavailable.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A required local transcription component is unavailable."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필요한 로컬 전사 구성 요소를 사용할 수 없습니다."
+          }
+        }
+      }
+    },
+    "Local transcription failed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local transcription failed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 전사 실패"
+          }
+        }
+      }
+    },
+    "The local transcription process could not complete.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The local transcription process could not complete."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 전사 프로세스를 완료하지 못했습니다."
+          }
+        }
+      }
+    },
+    "Try again or choose another configured transcription model.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try again or choose another configured transcription model."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 시도하거나 설정된 다른 전사 모델을 선택하세요."
+          }
+        }
+      }
+    },
+    "Microphone access is required": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Microphone access is required"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마이크 접근 권한 필요"
+          }
+        }
+      }
+    },
+    "Quill cannot record microphone audio without permission.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill cannot record microphone audio without permission."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마이크 권한이 없으면 Quill이 마이크 오디오를 녹음할 수 없습니다."
+          }
+        }
+      }
+    },
+    "Allow microphone access in System Settings, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow microphone access in System Settings, then try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정에서 마이크 접근을 허용한 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Speech Recognition access is required": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speech Recognition access is required"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성 인식 접근 권한 필요"
+          }
+        }
+      }
+    },
+    "Apple Speech transcription cannot run without permission.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Speech transcription cannot run without permission."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "권한이 없으면 Apple Speech 전사를 실행할 수 없습니다."
+          }
+        }
+      }
+    },
+    "Allow Speech Recognition access in System Settings, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Speech Recognition access in System Settings, then try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정에서 음성 인식 접근을 허용한 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Screen Recording access is required": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen Recording access is required"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 기록 접근 권한 필요"
+          }
+        }
+      }
+    },
+    "Quill cannot capture system audio or visual context without permission.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill cannot capture system audio or visual context without permission."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "권한이 없으면 Quill이 시스템 오디오 또는 시각적 맥락을 캡처할 수 없습니다."
+          }
+        }
+      }
+    },
+    "Allow Screen Recording access in System Settings, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Screen Recording access in System Settings, then try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정에서 화면 기록 접근을 허용한 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Recording input failed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording input failed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 입력 실패"
+          }
+        }
+      }
+    },
+    "Quill could not continue receiving audio.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill could not continue receiving audio."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill이 오디오 입력을 계속 받을 수 없었습니다."
+          }
+        }
+      }
+    },
+    "Check the selected input and permissions, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the selected input and permissions, then try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 입력과 권한을 확인한 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Transcript cleanup was skipped": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcript cleanup was skipped"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사문 정리를 건너뜀"
+          }
+        }
+      }
+    },
+    "Quill kept the original transcript because cleanup could not complete.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill kept the original transcript because cleanup could not complete."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정리를 완료하지 못해 Quill이 원본 전사문을 유지했습니다."
+          }
+        }
+      }
+    },
+    "You can use the transcript as-is or try cleanup again later.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can use the transcript as-is or try cleanup again later."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사문을 그대로 사용하거나 나중에 정리를 다시 시도할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Transcript cleanup is temporarily limited": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcript cleanup is temporarily limited"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사문 정리가 일시적으로 제한됨"
+          }
+        }
+      }
+    },
+    "Quill kept the original transcript because the model is rate-limited.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill kept the original transcript because the model is rate-limited."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델의 요청이 제한되어 Quill이 원본 전사문을 유지했습니다."
+          }
+        }
+      }
+    },
+    "Wait a moment and try cleanup again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wait a moment and try cleanup again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠시 기다린 후 정리를 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Original transcript kept": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original transcript kept"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원본 전사문 유지됨"
+          }
+        }
+      }
+    },
+    "Quill detected that cleanup may have changed the intended meaning.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill detected that cleanup may have changed the intended meaning."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정리 과정에서 의도한 의미가 바뀌었을 수 있어 Quill이 원본을 유지했습니다."
+          }
+        }
+      }
+    },
+    "Review the original transcript before using it.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review the original transcript before using it."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용하기 전에 원본 전사문을 확인하세요."
+          }
+        }
+      }
+    },
+    "Quill could not complete this transcription.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill could not complete this transcription."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill이 이 전사를 완료하지 못했습니다."
+          }
+        }
+      }
+    },
+    "Try again. If it continues, review your transcription settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try again. If it continues, review your transcription settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 시도하세요. 문제가 계속되면 전사 설정을 확인하세요."
+          }
+        }
+      }
+    },
+    "This older history item does not include a safe error category.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This older history item does not include a safe error category."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 형식의 기록에는 안전한 오류 분류가 포함되어 있지 않습니다."
+          }
+        }
+      }
+    },
+    "Try the transcription again to get updated guidance.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try the transcription again to get updated guidance."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트된 안내를 받으려면 전사를 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "HTTP status": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP status"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTTP 상태"
+          }
+        }
+      }
+    },
+    "Provider": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제공자"
+          }
+        }
+      }
+    },
+    "Local backend": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local backend"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 백엔드"
+          }
+        }
+      }
+    },
+    "Process exit code": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Process exit code"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로세스 종료 코드"
+          }
+        }
+      }
+    },
+    "Retry attempts exhausted": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry attempts exhausted"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재시도 횟수 소진"
+          }
+        }
+      }
+    },
+    "Yes": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yes"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예"
+          }
+        }
+      }
+    },
+    "No": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아니요"
+          }
+        }
+      }
+    },
+    "Open Models Settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Models Settings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델 설정 열기"
+          }
+        }
+      }
+    },
+    "Open Provider Settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Provider Settings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제공자 설정 열기"
+          }
+        }
+      }
+    },
+    "Open Microphone Settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Microphone Settings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마이크 설정 열기"
+          }
+        }
+      }
+    },
+    "Open Speech Recognition Settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Speech Recognition Settings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성 인식 설정 열기"
+          }
+        }
+      }
+    },
+    "Open Screen Recording Settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Screen Recording Settings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 기록 설정 열기"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -111,7 +111,7 @@ struct ModelsSettingsUIContractTests {
             "Delete Model",
             "deleteCache()",
             "onDeleted()",
-            "errorMessage"
+            "QuillUserIssueView"
         ] {
             precondition(legacy.contains(expected), "Missing Legacy lifecycle UI: \(expected)")
         }

@@ -11,7 +11,7 @@ enum PipelineHistoryMachineStatus: Equatable {
     case liveRecording
     case cloudTranscribing
     case recovered(RecoveredRecordingContext)
-    case failed(String)
+    case failed(QuillUserIssueRecord)
     case completed
 }
 
@@ -31,13 +31,29 @@ struct PipelineHistoryItem: Identifiable, Codable {
         if let context = recoveredRecordingContext {
             return .recovered(context)
         }
-        if postProcessingStatus.hasPrefix("Error:") {
-            return .failed(
-                String(postProcessingStatus.dropFirst("Error:".count))
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-            )
+        if let userIssueRecord, userIssueRecord.severity == .error {
+            return .failed(userIssueRecord)
         }
         return .completed
+    }
+
+    var userIssueRecord: QuillUserIssueRecord? {
+        if postProcessingStatus.hasPrefix("user-issue:") {
+            return (try? QuillUserIssueRecord.decodePersistedStatus(
+                postProcessingStatus
+            )) ?? QuillUserIssueRecord(code: .unknown)
+        }
+        if postProcessingStatus.hasPrefix("Error:") {
+            return QuillUserIssueRecord(code: .legacy)
+        }
+        return nil
+    }
+
+    func userIssuePresentation(
+        language: String = preferredLocalizedStringLanguage(),
+        bundle: Bundle = .main
+    ) -> QuillUserIssuePresentation? {
+        userIssueRecord?.presentation(language: language, bundle: bundle)
     }
 
     var recoveredRecordingContext: RecoveredRecordingContext? {

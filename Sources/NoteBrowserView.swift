@@ -1183,7 +1183,21 @@ private struct NoteDetailView: View {
         recoveredRecordingContext.localizedDescription()
     }
     private var isLiveRecording: Bool { item.postProcessingStatus == "live-recording" }
-    private var canRetry: Bool { item.audioFileName != nil }
+    private var issuePresentation: QuillUserIssuePresentation? {
+        item.userIssuePresentation()
+    }
+    private var warningPresentation: QuillUserIssuePresentation? {
+        guard let issuePresentation,
+              issuePresentation.severity == .warning else {
+            return nil
+        }
+        return issuePresentation
+    }
+    private var canRetry: Bool {
+        guard item.audioFileName != nil else { return false }
+        return issuePresentation?.recoveryAction == .retryTranscription
+            || issuePresentation == nil
+    }
     private var displayContent: String { loadedContent ?? item.postProcessedTranscript }
 
     private var suggestedCalendarTitle: String? {
@@ -1454,9 +1468,24 @@ private struct NoteDetailView: View {
             } else if displayContent.isEmpty {
                 emptyContentState
             } else {
-                NoteTextView(text: displayContent, bottomPadding: 36) { edited in
-                    loadedContent = edited
-                    appState.updateTranscript(id: item.id, text: edited)
+                VStack(spacing: 0) {
+                    if let warningPresentation {
+                        QuillUserIssueView(
+                            presentation: warningPresentation,
+                            style: .warningBanner,
+                            action: {
+                                performRecoveryAction(
+                                    warningPresentation.recoveryAction
+                                )
+                            }
+                        )
+                        .padding(.horizontal, 40)
+                        .padding(.top, 16)
+                    }
+                    NoteTextView(text: displayContent, bottomPadding: 36) { edited in
+                        loadedContent = edited
+                        appState.updateTranscript(id: item.id, text: edited)
+                    }
                 }
             }
         }
@@ -1490,22 +1519,17 @@ private struct NoteDetailView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 60)
             } else if isError {
-                ZStack {
-                    Circle()
-                        .fill(Color.red.opacity(0.06))
-                        .frame(width: 80, height: 80)
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.system(size: 30, weight: .ultraLight))
-                        .foregroundStyle(.red.opacity(0.6))
-                }
-                Text("Transcription failed")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                Text(item.postProcessingStatus.replacingOccurrences(of: "Error: ", with: ""))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.tertiary)
-                    .multilineTextAlignment(.center)
+                if let issuePresentation {
+                    QuillUserIssueView(
+                        presentation: issuePresentation,
+                        action: {
+                            performRecoveryAction(
+                                issuePresentation.recoveryAction
+                            )
+                        }
+                    )
                     .padding(.horizontal, 60)
+                }
             } else {
                 ZStack {
                     Circle()
@@ -1651,6 +1675,24 @@ private struct NoteDetailView: View {
                 text = raw
             }
             await MainActor.run { loadedContent = text }
+        }
+    }
+
+    private func performRecoveryAction(_ action: QuillUserRecoveryAction) {
+        switch action {
+        case .retryTranscription:
+            retryTranscription()
+        case .openModelsSettings, .openProviderSettings:
+            appState.selectedSettingsTab = .models
+            NotificationCenter.default.post(name: .showSettings, object: nil)
+        case .openMicrophoneSettings:
+            appState.openMicrophoneSettings()
+        case .openSpeechRecognitionSettings:
+            appState.openSpeechRecognitionSettings()
+        case .openScreenRecordingSettings:
+            appState.openScreenCaptureSettings()
+        case .none:
+            break
         }
     }
 

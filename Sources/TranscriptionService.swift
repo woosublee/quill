@@ -100,6 +100,17 @@ class TranscriptionService {
         return modelsSupportingVerboseJSON.contains(normalizedModel) ? "verbose_json" : "json"
     }
 
+    static func appleSpeechAuthorizationIssue(
+        for status: SFSpeechRecognizerAuthorizationStatus
+    ) -> QuillUserIssueError? {
+        guard status != .authorized else { return nil }
+        return QuillUserIssueError.local(
+            code: .speechRecognitionPermissionDenied,
+            backend: "Apple Speech",
+            diagnostic: "SFSpeechRecognizer authorization status \(status.rawValue)"
+        )
+    }
+
     // Validate API key by hitting a lightweight endpoint
     static func validateAPIKey(_ key: String, baseURL: String = AppState.defaultAPIBaseURL) async -> Bool {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -124,6 +135,18 @@ class TranscriptionService {
 
     // Upload audio file, submit for transcription, poll until done, return text
     func transcribe(fileURL: URL) async throws -> String {
+        do {
+            return try await performTranscription(fileURL: fileURL)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let issue as QuillUserIssueError {
+            throw issue
+        } catch {
+            throw classifiedIssue(for: error)
+        }
+    }
+
+    private func performTranscription(fileURL: URL) async throws -> String {
         guard !Task.isCancelled else {
             throw CancellationError()
         }
@@ -193,6 +216,101 @@ class TranscriptionService {
         }
     }
 
+    private func classifiedIssue(for error: Error) -> QuillUserIssueError {
+        if let urlError = error as? URLError {
+            return QuillUserIssueError.cloudTransport(
+                urlError,
+                providerHost: baseURL.host,
+                modelID: transcriptionModel
+            )
+        }
+        if let transcriptionError = error as? TranscriptionError {
+            switch transcriptionError {
+            case .transcriptionTimedOut:
+                if useLocalTranscription {
+                    return QuillUserIssueError.local(
+                        code: .localTranscriptionFailed,
+                        backend: localBackendName,
+                        modelID: localTranscriptionModel.id,
+                        diagnostic: transcriptionError.localizedDescription
+                    )
+                }
+                return QuillUserIssueError.cloudTransport(
+                    transcriptionError,
+                    timedOut: true,
+                    providerHost: baseURL.host,
+                    modelID: transcriptionModel
+                )
+            case .invalidBaseURL:
+                return QuillUserIssueError(
+                    record: QuillUserIssueRecord(
+                        code: .providerConfigurationInvalid,
+                        context: QuillUserIssueContext(
+                            providerHost: baseURL.host,
+                            modelID: transcriptionModel
+                        )
+                    ),
+                    privateDiagnostic: transcriptionError.localizedDescription
+                )
+            case .audioPreparationFailed:
+                return QuillUserIssueError.local(
+                    code: .audioPreparationFailed,
+                    backend: localBackendName,
+                    modelID: useLocalTranscription
+                        ? localTranscriptionModel.id
+                        : transcriptionModel,
+                    diagnostic: transcriptionError.localizedDescription
+                )
+            case .pollFailed:
+                if !useLocalTranscription {
+                    return QuillUserIssueError(
+                        record: QuillUserIssueRecord(
+                            code: .invalidProviderResponse,
+                            context: QuillUserIssueContext(
+                                providerHost: baseURL.host,
+                                modelID: transcriptionModel
+                            )
+                        ),
+                        privateDiagnostic: transcriptionError.localizedDescription
+                    )
+                }
+            case .uploadFailed, .submissionFailed, .transcriptionFailed:
+                break
+            }
+        }
+        if useLocalTranscription {
+            return QuillUserIssueError.local(
+                code: .localTranscriptionFailed,
+                backend: localBackendName,
+                modelID: localTranscriptionModel.id,
+                diagnostic: error.localizedDescription
+            )
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain {
+            return QuillUserIssueError(
+                record: QuillUserIssueRecord(
+                    code: .audioUnreadable,
+                    context: QuillUserIssueContext(
+                        providerHost: baseURL.host,
+                        modelID: transcriptionModel
+                    )
+                ),
+                privateDiagnostic: "\(nsError.domain) \(nsError.code)"
+            )
+        }
+        return QuillUserIssueError.cloudTransport(
+            error,
+            providerHost: baseURL.host,
+            modelID: transcriptionModel
+        )
+    }
+
+    private var localBackendName: String {
+        if localTranscriptionModel.isAppleSpeech { return "Apple Speech" }
+        return useLegacyMlxWhisper ? "Legacy mlx-whisper" : "Native Whisper"
+    }
+
     // Run local transcription: Apple Speech, native Whisper, or legacy mlx_whisper
     private func transcribeAudioLocally(fileURL: URL) async throws -> String {
         if localTranscriptionModel.isAppleSpeech {
@@ -208,14 +326,36 @@ class TranscriptionService {
         let model = NativeWhisperModelCatalog.recommended
         let store = NativeWhisperModelStore()
         guard store.installStatus(for: model) == .ready else {
-            throw TranscriptionError.submissionFailed("Local Whisper is not installed yet. Install the recommended model to use local transcription.")
+            throw QuillUserIssueError.local(
+                code: .localModelMissing,
+                backend: "Native Whisper",
+                modelID: model.id,
+                diagnostic: "Recommended Native Whisper model is not installed"
+            )
         }
         let runtime = NativeWhisperRuntime()
         let modelURL = store.modelURL(for: model)
         do {
             try runtime.validateRunnerAndModel(modelURL: modelURL)
-            let preparedAudio = try await AudioImportConversionService().prepareForNativeWhisper(fileURL)
-            defer { preparedAudio.cleanup() }
+        } catch let error as NativeWhisperRuntimeError {
+            throw error.userIssue(modelID: model.id)
+        }
+
+        let preparedAudio: PreparedNativeWhisperAudio
+        do {
+            preparedAudio = try await AudioImportConversionService()
+                .prepareForNativeWhisper(fileURL)
+        } catch {
+            throw QuillUserIssueError.local(
+                code: .audioPreparationFailed,
+                backend: "Native Whisper",
+                modelID: model.id,
+                diagnostic: error.localizedDescription
+            )
+        }
+        defer { preparedAudio.cleanup() }
+
+        do {
             let transcript = try await runtime.transcribe(
                 audioURL: preparedAudio.fileURL,
                 modelURL: modelURL,
@@ -223,8 +363,7 @@ class TranscriptionService {
             )
             return normalizedTranscriptText(transcript)
         } catch let error as NativeWhisperRuntimeError {
-            let userMessage = error.localizedDescription
-            throw TranscriptionError.submissionFailed("\(userMessage)\n\nDetails: \(error.technicalDetails)")
+            throw error.userIssue(modelID: model.id)
         }
     }
 
@@ -232,13 +371,17 @@ class TranscriptionService {
         let authStatus = await withCheckedContinuation { (continuation: CheckedContinuation<SFSpeechRecognizerAuthorizationStatus, Never>) in
             SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
         }
-        guard authStatus == .authorized else {
-            throw TranscriptionError.submissionFailed("Speech recognition permission denied. Enable it in System Settings > Privacy & Security > Speech Recognition.")
+        if let issue = Self.appleSpeechAuthorizationIssue(for: authStatus) {
+            throw issue
         }
 
         let locale = transcriptionLanguage.sfSpeechLocale
         guard let recognizer = SFSpeechRecognizer(locale: locale), recognizer.isAvailable else {
-            throw TranscriptionError.submissionFailed("Apple Speech Recognizer not available for locale '\(locale.identifier)'")
+            throw QuillUserIssueError.local(
+                code: .localTranscriptionFailed,
+                backend: "Apple Speech",
+                diagnostic: "Recognizer unavailable for locale \(locale.identifier)"
+            )
         }
 
         let request = SFSpeechURLRecognitionRequest(url: fileURL)
@@ -252,7 +395,12 @@ class TranscriptionService {
                 guard !resumed else { return }
                 if let error = error {
                     resumed = true
-                    continuation.resume(throwing: TranscriptionError.transcriptionFailed(error.localizedDescription))
+                    let nsError = error as NSError
+                    continuation.resume(throwing: QuillUserIssueError.local(
+                        code: .localTranscriptionFailed,
+                        backend: "Apple Speech",
+                        diagnostic: "\(nsError.domain) \(nsError.code)"
+                    ))
                     return
                 }
                 if let result = result, result.isFinal {
@@ -306,7 +454,13 @@ class TranscriptionService {
             do {
                 try process.run()
             } catch {
-                throw TranscriptionError.submissionFailed("mlx_whisper not found at \(whisperBin). Install with: pipx install mlx-whisper")
+                let nsError = error as NSError
+                throw QuillUserIssueError.local(
+                    code: .localRuntimeMissing,
+                    backend: "Legacy mlx-whisper",
+                    modelID: localTranscriptionModel.id,
+                    diagnostic: "Runtime \(whisperBin): \(nsError.domain) \(nsError.code)"
+                )
             }
 
             let stdoutReader = Task.detached(priority: .userInitiated) {
@@ -356,15 +510,25 @@ class TranscriptionService {
             }
 
             if stderrText.contains("No such file or directory: 'ffmpeg'") {
-                throw TranscriptionError.submissionFailed("ffmpeg not found. Install ffmpeg and try local transcription again.")
+                throw QuillUserIssueError.local(
+                    code: .localDependencyMissing,
+                    backend: "Legacy mlx-whisper",
+                    modelID: localTranscriptionModel.id,
+                    processExitCode: process.terminationStatus,
+                    diagnostic: summarizedOutput(stderrText)
+                )
             }
 
             guard process.terminationStatus == 0 else {
                 let summarizedStderr = summarizedOutput(stderrText)
                 let summarizedStdout = summarizedOutput(stdoutText)
                 let detail = !summarizedStderr.isEmpty ? summarizedStderr : summarizedStdout
-                throw TranscriptionError.submissionFailed(
-                    "mlx_whisper failed (exit \(process.terminationStatus), json files: \(jsonFiles.count) [\(jsonFileSummary())]). \(detail)"
+                throw QuillUserIssueError.local(
+                    code: .localTranscriptionFailed,
+                    backend: "Legacy mlx-whisper",
+                    modelID: localTranscriptionModel.id,
+                    processExitCode: process.terminationStatus,
+                    diagnostic: "json files: \(jsonFiles.count) [\(jsonFileSummary())] \(detail)"
                 )
             }
 
@@ -388,31 +552,19 @@ class TranscriptionService {
             guard outputFile != nil,
                   let json = parsedJSONObject,
                   let text = parsedText else {
-                let summarizedStderr = summarizedOutput(stderrText)
-                let summarizedStdout = summarizedOutput(stdoutText)
-                let summarizedJSON = summarizedJSON(at: outputFile)
-                if !summarizedJSON.isEmpty {
-                    let stderrSuffix = summarizedStderr.isEmpty ? "" : " stderr: \(summarizedStderr)"
-                    throw TranscriptionError.submissionFailed(
-                        "mlx_whisper produced unusable output (json files: \(jsonFiles.count) [\(jsonFileSummary())]). json: \(summarizedJSON)\(stderrSuffix)"
-                    )
-                }
-                if !summarizedStderr.isEmpty {
-                    throw TranscriptionError.submissionFailed(
-                        "mlx_whisper produced unusable output (json files: \(jsonFiles.count) [\(jsonFileSummary())]). stderr: \(summarizedStderr)"
-                    )
-                }
-                if stdoutText.contains("Skipping ") {
-                    throw TranscriptionError.submissionFailed(
-                        "mlx_whisper skipped transcription (json files: \(jsonFiles.count) [\(jsonFileSummary())]). stdout: \(summarizedStdout)"
-                    )
-                }
-                if !summarizedStdout.isEmpty {
-                    throw TranscriptionError.pollFailed(
-                        "mlx_whisper produced no usable output (json files: \(jsonFiles.count) [\(jsonFileSummary())]). stdout: \(summarizedStdout)"
-                    )
-                }
-                throw TranscriptionError.pollFailed("mlx_whisper produced no usable output (json files: \(jsonFiles.count) [\(jsonFileSummary())])")
+                let details = [
+                    "json files: \(jsonFiles.count) [\(jsonFileSummary())]",
+                    summarizedJSON(at: outputFile),
+                    summarizedOutput(stderrText),
+                    summarizedOutput(stdoutText)
+                ].filter { !$0.isEmpty }.joined(separator: " | ")
+                throw QuillUserIssueError.local(
+                    code: .localTranscriptionFailed,
+                    backend: "Legacy mlx-whisper",
+                    modelID: localTranscriptionModel.id,
+                    processExitCode: process.terminationStatus,
+                    diagnostic: details
+                )
             }
 
             if self.isHallucination(text: text, json: json) {
@@ -509,12 +661,24 @@ class TranscriptionService {
                 progress: progress
             )
         } catch let failure as CloudTranscriptionHTTPFailure {
-            throw TranscriptionError.submissionFailed(Self.friendlyHTTPMessage(
+            throw QuillUserIssueError.cloudHTTP(
                 status: failure.statusCode,
-                host: baseURL.host
-            ))
+                providerCode: failure.providerCode,
+                providerType: failure.providerType,
+                providerHost: baseURL.host,
+                modelID: transcriptionModel
+            )
         } catch is CloudTranscriptionInvalidResponseFailure {
-            throw TranscriptionError.pollFailed("Invalid response")
+            throw QuillUserIssueError(
+                record: QuillUserIssueRecord(
+                    code: .invalidProviderResponse,
+                    context: QuillUserIssueContext(
+                        providerHost: baseURL.host,
+                        modelID: transcriptionModel
+                    )
+                ),
+                privateDiagnostic: "Cloud transcription returned an invalid response"
+            )
         }
     }
 
@@ -565,12 +729,11 @@ class TranscriptionService {
             os_log(
                 .error,
                 log: transcriptionLog,
-                "URLSession upload failed for %{public}@ (bytes=%{public}lld): domain=%{public}@ code=%ld desc=%{public}@",
+                "URLSession upload failed for %{private}@ (bytes=%{public}lld): domain=%{public}@ code=%ld",
                 fileURL.lastPathComponent,
                 fileSizeBytes(for: fileURL),
                 nsError.domain,
-                nsError.code,
-                error.localizedDescription
+                nsError.code
             )
             throw error
         }
@@ -586,7 +749,16 @@ class TranscriptionService {
             if useStructuredHTTPFailure {
                 throw CloudTranscriptionHTTPFailure(statusCode: 0)
             }
-            throw TranscriptionError.submissionFailed("No response from server")
+            throw QuillUserIssueError(
+                record: QuillUserIssueRecord(
+                    code: .invalidProviderResponse,
+                    context: QuillUserIssueContext(
+                        providerHost: baseURL.host,
+                        modelID: transcriptionModel
+                    )
+                ),
+                privateDiagnostic: "Cloud transcription returned no HTTP response"
+            )
         }
 
         guard httpResponse.statusCode == 200 else {
@@ -598,13 +770,20 @@ class TranscriptionService {
                 fileURL.lastPathComponent,
                 fileSizeBytes(for: fileURL)
             )
+            let failure = structuredHTTPFailure(
+                data: data,
+                response: httpResponse
+            )
             if useStructuredHTTPFailure {
-                throw structuredHTTPFailure(data: data, response: httpResponse)
+                throw failure
             }
-            throw TranscriptionError.submissionFailed(Self.friendlyHTTPMessage(
-                status: httpResponse.statusCode,
-                host: baseURL.host
-            ))
+            throw QuillUserIssueError.cloudHTTP(
+                status: failure.statusCode,
+                providerCode: failure.providerCode,
+                providerType: failure.providerType,
+                providerHost: baseURL.host,
+                modelID: transcriptionModel
+            )
         }
 
         do {
@@ -718,28 +897,6 @@ class TranscriptionService {
         append("--\(boundary)--\r\n")
 
         return body
-    }
-
-    static func friendlyHTTPMessage(status: Int, host: String?) -> String {
-        let provider = host ?? "the provider"
-        switch status {
-        case 400:
-            return "Provider rejected the request (HTTP 400). Check your model name and Base URL in Settings."
-        case 401:
-            return "Invalid API key for \(provider). Open Settings to fix it."
-        case 403:
-            return "Key lacks permission for this endpoint at \(provider) (HTTP 403). Check the key's scopes."
-        case 404:
-            return "Endpoint not found at \(provider) (HTTP 404). Base URL is likely wrong for this provider."
-        case 413:
-            return "Audio file too large for \(provider) (HTTP 413). Try a shorter recording."
-        case 429:
-            return "Rate limit reached at \(provider) (HTTP 429). Wait a moment and try again."
-        case 500..<600:
-            return "Provider error at \(provider) (HTTP \(status)). Try again in a moment."
-        default:
-            return "Request failed at \(provider) (HTTP \(status))."
-        }
     }
 
     private static func sanitizeNonFiniteJSONNumbers(_ json: String) -> String {

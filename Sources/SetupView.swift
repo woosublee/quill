@@ -102,7 +102,7 @@ struct SetupView: View {
     @State private var testSystemDefaultAndSystemAudioRecorder: SystemDefaultAndSystemAudioRecorder? = nil
     @State private var testAudioLevel: Float = 0.0
     @State private var testTranscript: String = ""
-    @State private var testError: String? = nil
+    @State private var testIssue: QuillUserIssueRecord? = nil
     @State private var testAudioLevelCancellable: AnyCancellable? = nil
     @State private var testMicPulsing = false
     @State private var holdShortcutValidationMessage: String?
@@ -194,7 +194,7 @@ struct SetupView: View {
                                         }
                                     }
                                     .keyboardShortcut(.defaultAction)
-                                    .disabled(testPhase != .done || testTranscript.isEmpty || testError != nil)
+                                    .disabled(testPhase != .done || testTranscript.isEmpty || testIssue != nil)
                                 }
                             } else {
                                 Button("Continue") {
@@ -1012,19 +1012,22 @@ struct SetupView: View {
 
                 case .done:
                     VStack(spacing: 16) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 60))
-                            .foregroundStyle(.green)
+                        if testIssue == nil {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 60))
+                                .foregroundStyle(.green)
+                        }
 
-                        if let error = testError {
-                            Text("Something went wrong")
-                                .font(.title2)
-                                .fontWeight(.semibold)
-
-                            Text(error)
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
+                        if let issue = testIssue {
+                            QuillUserIssueView(
+                                presentation: issue.presentation(),
+                                action: {
+                                    performSetupRecoveryAction(
+                                        issue.recoveryAction
+                                    )
+                                }
+                            )
+                            .padding(.horizontal, 24)
 
                             Text(retryShortcutPrompt)
                                 .font(.callout)
@@ -1136,7 +1139,7 @@ struct SetupView: View {
         case .screenRecording, .notifications:
             return true
         case .testTranscription:
-            return testPhase == .done && !testTranscript.isEmpty && testError == nil
+            return testPhase == .done && !testTranscript.isEmpty && testIssue == nil
         default:
             return true
         }
@@ -1370,7 +1373,7 @@ struct SetupView: View {
                 toggle: appState.toggleShortcut
             ), startDelay: appState.shortcutStartDelay)
         } catch {
-            testError = error.localizedDescription
+            testIssue = setupIssue(for: error).record
             testPhase = .done
         }
     }
@@ -1388,7 +1391,7 @@ struct SetupView: View {
             testAudioRecorder = recorder
             testSystemAudioRecorder = nil
             testSystemDefaultAndSystemAudioRecorder = nil
-            testError = nil
+            testIssue = nil
             testAudioLevelCancellable = recorder.$audioLevel
                 .receive(on: DispatchQueue.main)
                 .sink { level in
@@ -1413,7 +1416,7 @@ struct SetupView: View {
         testAudioRecorder = nil
         testSystemAudioRecorder = recorder
         testSystemDefaultAndSystemAudioRecorder = nil
-        testError = nil
+        testIssue = nil
         testAudioLevelCancellable = recorder.$audioLevel
             .receive(on: DispatchQueue.main)
             .sink { level in
@@ -1457,7 +1460,7 @@ struct SetupView: View {
         testAudioRecorder = nil
         testSystemAudioRecorder = nil
         testSystemDefaultAndSystemAudioRecorder = recorder
-        testError = nil
+        testIssue = nil
         testAudioLevelCancellable = recorder.$audioLevel
             .receive(on: DispatchQueue.main)
             .sink { level in
@@ -1493,7 +1496,10 @@ struct SetupView: View {
         testAudioRecorder = nil
         testSystemAudioRecorder = nil
         testSystemDefaultAndSystemAudioRecorder = nil
-        testError = error.localizedDescription
+        testIssue = setupIssue(
+            for: error,
+            fallbackCode: .recordingInputFailed
+        ).record
         withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
             testPhase = .done
         }
@@ -1508,7 +1514,10 @@ struct SetupView: View {
             testAudioRecorder = nil
             testSystemAudioRecorder = nil
             testSystemDefaultAndSystemAudioRecorder = nil
-            testError = error.localizedDescription
+            testIssue = setupIssue(
+                for: error,
+                fallbackCode: .recordingInputFailed
+            ).record
             withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                 testPhase = .done
             }
@@ -1523,8 +1532,8 @@ struct SetupView: View {
                 testAudioRecorder = nil
                 testSystemAudioRecorder = nil
                 testSystemDefaultAndSystemAudioRecorder = nil
-                if testError == nil {
-                    testError = String(localized: "No audio file was created.")
+                if testIssue == nil {
+                    testIssue = QuillUserIssueRecord(code: .audioUnreadable)
                 }
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                     testPhase = .done
@@ -1554,7 +1563,7 @@ struct SetupView: View {
                     testAudioRecorder = nil
                     testSystemAudioRecorder = nil
                     testSystemDefaultAndSystemAudioRecorder = nil
-                    testError = error.localizedDescription
+                    testIssue = setupIssue(for: error).record
                     withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
                         testPhase = .done
                     }
@@ -1563,6 +1572,42 @@ struct SetupView: View {
             await MainActor.run {
                 cleanup()
             }
+        }
+    }
+
+    private func setupIssue(
+        for error: Error,
+        fallbackCode: QuillUserIssueCode = .unknown
+    ) -> QuillUserIssueError {
+        if let issue = error as? QuillUserIssueError {
+            return issue
+        }
+        let nsError = error as NSError
+        return QuillUserIssueError(
+            record: QuillUserIssueRecord(code: fallbackCode),
+            privateDiagnostic: "\(nsError.domain) \(nsError.code)"
+        )
+    }
+
+    private func performSetupRecoveryAction(
+        _ action: QuillUserRecoveryAction
+    ) {
+        switch action {
+        case .retryTranscription:
+            resetTest()
+        case .openProviderSettings:
+            showingProviderSettingsSheet = true
+        case .openModelsSettings:
+            appState.selectedSettingsTab = .models
+            NotificationCenter.default.post(name: .showSettings, object: nil)
+        case .openMicrophoneSettings:
+            appState.openMicrophoneSettings()
+        case .openSpeechRecognitionSettings:
+            appState.openSpeechRecognitionSettings()
+        case .openScreenRecordingSettings:
+            appState.openScreenCaptureSettings()
+        case .none:
+            break
         }
     }
 
@@ -1596,7 +1641,7 @@ struct SetupView: View {
     private func resetTest() {
         testPhase = .idle
         testTranscript = ""
-        testError = nil
+        testIssue = nil
         testMicPulsing = true
         clearTestRecordingState()
         testHotkeyHarness.resetSession()

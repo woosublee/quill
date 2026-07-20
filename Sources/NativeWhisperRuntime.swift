@@ -31,6 +31,35 @@ enum NativeWhisperRuntimeError: LocalizedError, Equatable {
         case .noTranscript(let output): return "No transcript. Output: \(output)"
         }
     }
+
+    func userIssue(modelID: String) -> QuillUserIssueError {
+        let code: QuillUserIssueCode
+        let processExitCode: Int32?
+        switch self {
+        case .runnerNotFound:
+            code = .localRuntimeMissing
+            processExitCode = nil
+        case .modelNotFound:
+            code = .localModelMissing
+            processExitCode = nil
+        case .audioNotReadable:
+            code = .audioUnreadable
+            processExitCode = nil
+        case .processFailed(let exitCode, _):
+            code = .localTranscriptionFailed
+            processExitCode = exitCode
+        case .noTranscript:
+            code = .localTranscriptionFailed
+            processExitCode = nil
+        }
+        return QuillUserIssueError.local(
+            code: code,
+            backend: "Native Whisper",
+            modelID: modelID,
+            processExitCode: processExitCode,
+            diagnostic: technicalDetails
+        )
+    }
 }
 
 struct NativeWhisperRuntime {

@@ -13,7 +13,12 @@ enum NoteTitleResolver {
         "\(calendarTitleDateFormatter.string(from: recordingStartedAt)) \(suggestedTitle)"
     }
 
-    static func displayTitle(for item: PipelineHistoryItem, isTranscribing: Bool = false) -> String {
+    static func displayTitle(
+        for item: PipelineHistoryItem,
+        isTranscribing: Bool = false,
+        language: String = preferredLocalizedStringLanguage(),
+        bundle: Bundle = .main
+    ) -> String {
         if let customTitle = item.customTitle {
             let trimmed = customTitle.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty { return trimmed }
@@ -21,16 +26,39 @@ enum NoteTitleResolver {
         if let applied = item.calendarMatch?.appliedTitle {
             return applied
         }
-        return automaticTitle(for: item, isTranscribing: isTranscribing)
+        return automaticTitle(
+            for: item,
+            isTranscribing: isTranscribing,
+            language: language,
+            bundle: bundle
+        )
     }
 
-    static func automaticTitle(for item: PipelineHistoryItem, isTranscribing: Bool = false) -> String {
+    static func automaticTitle(
+        for item: PipelineHistoryItem,
+        isTranscribing: Bool = false,
+        language: String = preferredLocalizedStringLanguage(),
+        bundle: Bundle = .main
+    ) -> String {
         let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         if content.isEmpty {
             if isTranscribing { return "Transcribing..." }
-            if item.postProcessingStatus.hasPrefix("Error:") { return "Transcription failed" }
+            if case .failed = item.machineStatus {
+                return item.userIssuePresentation(
+                    language: language,
+                    bundle: bundle
+                )?.title ?? localizedCatalogString(
+                    "Transcription failed",
+                    language: language,
+                    bundle: bundle
+                )
+            }
             if let context = item.recoveredRecordingContext {
-                return localizedCatalogString(context.titleLocalizationKey)
+                return localizedCatalogString(
+                    context.titleLocalizationKey,
+                    language: language,
+                    bundle: bundle
+                )
             }
             if item.postProcessingStatus == "live-recording" { return "Recording..." }
             if item.postProcessingStatus == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus || item.postProcessingStatus == "importing" { return "Transcribing..." }
