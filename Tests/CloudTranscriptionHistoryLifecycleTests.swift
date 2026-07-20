@@ -10,6 +10,8 @@ struct CloudTranscriptionHistoryLifecycleTests {
             try await sameCloudRetryReusesCompletedPrefix()
             try await differentCloudRetryStartsFromFirstChunk()
             try await localRetryIgnoresCloudCheckpointAndPreservesItOnFailure()
+            try startupReconciliationResumesOnlyExactCompatibleJobs()
+            try await repeatedRelaunchResumesFromFirstIncompleteChunk()
             print("CloudTranscriptionHistoryLifecycleTests passed")
         } catch {
             fputs("CloudTranscriptionHistoryLifecycleTests failed: \(error)\n", stderr)
@@ -348,6 +350,251 @@ struct CloudTranscriptionHistoryLifecycleTests {
         )
     }
 
+    private static func startupReconciliationResumesOnlyExactCompatibleJobs() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let compatibleID = UUID()
+        let terminalID = UUID()
+        let providerMismatchID = UUID()
+        let languageMismatchID = UUID()
+        let records = try [
+            makeStoredRecord(
+                historyID: compatibleID,
+                fileURL: fixture.audioURL,
+                phase: .interrupted
+            ),
+            makeStoredRecord(
+                historyID: terminalID,
+                fileURL: fixture.audioURL,
+                phase: .failed
+            ),
+            makeStoredRecord(
+                historyID: providerMismatchID,
+                fileURL: fixture.audioURL,
+                phase: .transcribing,
+                providerID: String(repeating: "c", count: 64)
+            ),
+            makeStoredRecord(
+                historyID: languageMismatchID,
+                fileURL: fixture.audioURL,
+                phase: .transcribing,
+                language: "ko"
+            )
+        ]
+        for record in records {
+            let session = fixture.store.beginSession(historyID: record.historyID)
+            try fixture.store.create(record, session: session)
+        }
+        let history = records.map {
+            makePlaceholder(
+                historyID: $0.historyID,
+                audioFileName: fixture.audioURL.lastPathComponent
+            )
+        }
+        let runtime = try CloudTranscriptionExecutionSnapshot(
+            baseURL: "https://provider.example/v1",
+            apiKey: "runtime-key",
+            model: "whisper-large-v3",
+            language: "en",
+            encodedUploadCeilingBytes: fixture.ceiling
+        )
+        let reconciler = CloudTranscriptionStartupReconciler(
+            store: fixture.store,
+            audioRoot: fixture.audioURL.deletingLastPathComponent()
+        )
+
+        let result = reconciler.reconcile(
+            history: history,
+            runtime: runtime
+        )
+
+        try expectEqual(
+            result.resumable.map(\.historyID),
+            [compatibleID],
+            "only exact interrupted job auto-resumes"
+        )
+        try expectEqual(
+            Set(result.waitingForRetry.map(\.historyID)),
+            Set([terminalID, providerMismatchID, languageMismatchID]),
+            "terminal and incompatible jobs wait for explicit retry"
+        )
+        let withoutKey = try CloudTranscriptionExecutionSnapshot(
+            baseURL: "https://provider.example/v1",
+            apiKey: "   ",
+            model: "whisper-large-v3",
+            language: "en",
+            encodedUploadCeilingBytes: fixture.ceiling
+        )
+        let noKeyResult = reconciler.reconcile(
+            history: history,
+            runtime: withoutKey
+        )
+        try expect(noKeyResult.resumable.isEmpty, "missing API key disables auto-resume")
+        try expectEqual(
+            Set(noKeyResult.waitingForRetry.map(\.historyID)),
+            Set(records.map(\.historyID)),
+            "missing API key preserves every sidecar for retry"
+        )
+    }
+
+    private static func repeatedRelaunchResumesFromFirstIncompleteChunk() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let historyID = UUID()
+
+        let processAStore = fixture.makeStore()
+        let sessionA = processAStore.beginSession(historyID: historyID)
+        let recorderA = LifecycleUploadRecorder(
+            store: processAStore,
+            historyID: historyID,
+            results: ["zero", "one", "two"],
+            failAfterUploadCount: 1
+        )
+        let serviceA = try makeService(
+            fixture: fixture.withStore(processAStore),
+            historyID: historyID,
+            session: sessionA,
+            recorder: recorderA,
+            progress: ProgressRecorder()
+        )
+        do {
+            _ = try await serviceA.transcribe(fileURL: fixture.audioURL)
+            throw TestFailure("process A must be interrupted")
+        } catch TestProviderError.interrupted {
+            // expected
+        }
+
+        let processBStore = fixture.makeStore()
+        let sessionB = processBStore.beginSession(historyID: historyID)
+        let recorderB = LifecycleUploadRecorder(
+            store: processBStore,
+            historyID: historyID,
+            results: ["one", "two"],
+            failAfterUploadCount: 1
+        )
+        let serviceB = try makeService(
+            fixture: fixture.withStore(processBStore),
+            historyID: historyID,
+            session: sessionB,
+            recorder: recorderB,
+            progress: ProgressRecorder()
+        )
+        do {
+            _ = try await serviceB.transcribe(fileURL: fixture.audioURL)
+            throw TestFailure("process B must be interrupted")
+        } catch TestProviderError.interrupted {
+            // expected
+        }
+        try expectEqual(
+            try await recorderB.chunkMarkers(),
+            [2],
+            "process B resumes at second chunk"
+        )
+
+        let processCStore = fixture.makeStore()
+        let sessionC = processCStore.beginSession(historyID: historyID)
+        let recorderC = LifecycleUploadRecorder(
+            store: processCStore,
+            historyID: historyID,
+            results: ["two"]
+        )
+        let serviceC = try makeService(
+            fixture: fixture.withStore(processCStore),
+            historyID: historyID,
+            session: sessionC,
+            recorder: recorderC,
+            progress: ProgressRecorder()
+        )
+        let transcript = try await serviceC.transcribe(fileURL: fixture.audioURL)
+
+        try expectEqual(transcript, "zero one two", "repeated relaunch transcript")
+        try expectEqual(
+            try await recorderC.chunkMarkers(),
+            [3],
+            "process C resumes at final chunk"
+        )
+        try expectEqual(
+            try processCStore.load(historyID: historyID)?.completedChunks.count,
+            3,
+            "one sidecar retains one contiguous prefix"
+        )
+        try expect(
+            FileManager.default.fileExists(atPath: fixture.audioURL.path),
+            "one permanent WAV survives every relaunch"
+        )
+    }
+
+    private static func makeStoredRecord(
+        historyID: UUID,
+        fileURL: URL,
+        phase: CloudTranscriptionJobPhase,
+        providerID: String? = nil,
+        language: String? = "en"
+    ) throws -> CloudTranscriptionJobRecord {
+        let layout = try CanonicalPCM16WAV.validateFile(at: fileURL)
+        let source = try CloudTranscriptionSourceIdentityBuilder.make(
+            fileURL: fileURL,
+            layout: layout,
+            readBufferByteCount: 3
+        )
+        let multipart = CloudTranscriptionMultipartLayout(
+            model: "whisper-large-v3",
+            responseFormat: "verbose_json",
+            language: language,
+            boundaryByteCount: 36
+        )
+        let ceiling = try multipart.encodedByteCount(
+            audioDataByteCount: CanonicalPCM16WAV.headerByteCount + 4,
+            fileName: CloudTranscriptionChunkPlanner.uploadFileName,
+            contentType: "audio/wav"
+        )
+        let plan = try CloudTranscriptionChunkPlanner().plan(
+            fileURL: fileURL,
+            source: source,
+            wavLayout: layout,
+            multipart: multipart,
+            encodedUploadCeilingBytes: ceiling
+        )
+        let runtime = try CloudTranscriptionExecutionSnapshot(
+            baseURL: "https://provider.example/v1",
+            apiKey: "runtime-key",
+            model: "whisper-large-v3",
+            language: language,
+            encodedUploadCeilingBytes: ceiling
+        )
+        return CloudTranscriptionJobRecord(
+            schemaVersion: CloudTranscriptionJobRecord.currentSchemaVersion,
+            historyID: historyID,
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            updatedAt: Date(timeIntervalSince1970: 2_000),
+            phase: phase,
+            identity: CloudTranscriptionJobIdentity(
+                providerID: providerID ?? runtime.providerID,
+                model: runtime.model,
+                language: runtime.language,
+                responseFormat: runtime.responseFormat,
+                source: source,
+                planID: plan.planID
+            ),
+            plan: plan,
+            completedChunks: [],
+            firstIncompleteChunkIndex: 0,
+            lastFailure: phase == .failed
+                ? CloudTranscriptionStoredFailure(
+                    category: .authentication,
+                    httpStatus: 401,
+                    retryAfterSeconds: nil
+                )
+                : nil,
+            completionPolicy: CloudTranscriptionCompletionPolicy(
+                postProcessingEnabled: true,
+                preserveExactWording: false,
+                outputLanguage: "en",
+                pressEnterCommandEnabled: false
+            )
+        )
+    }
+
     private static func makeService(
         fixture: LifecycleFixture,
         historyID: UUID,
@@ -487,6 +734,24 @@ private struct LifecycleFixture {
     let temporaryRoot: URL
     let ceiling: UInt64
     let store: CloudTranscriptionJobStore
+
+    func makeStore() -> CloudTranscriptionJobStore {
+        CloudTranscriptionJobStore(
+            jobsDirectory: root.appendingPathComponent("jobs", isDirectory: true),
+            temporaryRoot: temporaryRoot,
+            now: { Date(timeIntervalSince1970: 2_000) }
+        )
+    }
+
+    func withStore(_ store: CloudTranscriptionJobStore) -> LifecycleFixture {
+        LifecycleFixture(
+            root: root,
+            audioURL: audioURL,
+            temporaryRoot: temporaryRoot,
+            ceiling: ceiling,
+            store: store
+        )
+    }
 
     func cleanup() {
         try? FileManager.default.removeItem(at: root)

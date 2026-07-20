@@ -272,6 +272,14 @@ struct PipelineHistoryItem: Identifiable, Codable {
         )
     }
 
+    func normalizedAfterProcessInterruption() -> PipelineHistoryItem {
+        guard postProcessingStatus != Self.cloudTranscribingStatus,
+              isIncompleteTranscription else {
+            return self
+        }
+        return markInterruptedBeforeCompletion()
+    }
+
     func markInterruptedBeforeCompletion() -> PipelineHistoryItem {
         let recoveryContext = RecoveredRecordingContext.placeholderContext(
             for: postProcessingStatus

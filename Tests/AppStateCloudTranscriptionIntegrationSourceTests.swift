@@ -18,6 +18,8 @@ struct AppStateCloudTranscriptionIntegrationSourceTests {
         try verifiesHistoryCommitPrecedesSidecarDeletion(appState)
         try verifiesPartialCloudTextStaysOutOfHistory(appState)
         try verifiesExplicitRetryPolicy(appState)
+        try verifiesStartupReconciliationOrder(appState)
+        try verifiesStartupResumeIsHistoryOnly(appState)
         print("AppStateCloudTranscriptionIntegrationSourceTests passed")
     }
 
@@ -199,6 +201,88 @@ struct AppStateCloudTranscriptionIntegrationSourceTests {
             retryFlow.contains("completeCloudTranscriptionHistory("),
             "successful cloud or local retry clears sidecar after history save"
         )
+    }
+
+    private static func verifiesStartupReconciliationOrder(_ source: String) throws {
+        let initializer = block(
+            source,
+            from: "init() {",
+            to: "private static func loadShortcutConfiguration"
+        )
+        try expectOrdered(
+            [
+                "recoverRecordingJournalsBeforeHistoryLoad(",
+                "pipelineHistoryStore.trim(",
+                "cloudTranscriptionJobStore.reconcile(",
+                "sweepOrphanStoredFiles(",
+                "scheduleCloudTranscriptionAutoResume("
+            ],
+            in: initializer,
+            label: "startup recording/history/cloud/sweep/deferred resume order"
+        )
+        let recordingRecovery = block(
+            source,
+            from: "private static func recoverRecordingJournalsBeforeHistoryLoad(",
+            to: "private static func protectedInflightAudioFileNames("
+        )
+        for forbidden in [
+            "TranscriptionService(",
+            "cloudTranscriptionJobStore",
+            "URLSession",
+            "upload("
+        ] {
+            try expect(
+                !recordingRecovery.contains(forbidden),
+                "recording startup recovery remains network-free: \(forbidden)"
+            )
+        }
+        try expect(
+            source.contains("item.normalizedAfterProcessInterruption()"),
+            "AppState delegates interruption normalization to the typed history item"
+        )
+        let historyItemSource = try String(
+            contentsOfFile: "Sources/PipelineHistoryItem.swift",
+            encoding: .utf8
+        )
+        try expect(
+            historyItemSource.contains(
+                "guard postProcessingStatus != Self.cloudTranscribingStatus"
+            ),
+            "cloud-transcribing rows are excluded from generic interruption normalization"
+        )
+    }
+
+    private static func verifiesStartupResumeIsHistoryOnly(_ source: String) throws {
+        let autoResume = block(
+            source,
+            from: "private func scheduleCloudTranscriptionAutoResume(",
+            to: "private func resumeCloudTranscriptionAfterLaunch("
+        )
+        try expect(autoResume.contains("Task { @MainActor"), "auto-resume is deferred until initialization finishes")
+        try expect(
+            autoResume.contains("completionDelivery: .historyOnly"),
+            "startup resume uses history-only completion delivery"
+        )
+        let resume = block(
+            source,
+            from: "private func resumeCloudTranscriptionAfterLaunch(",
+            to: "private func prepareCloudTranscriptionJob("
+        )
+        try expect(
+            resume.contains("guard completionDelivery == .historyOnly"),
+            "resume helper enforces history-only delivery"
+        )
+        for forbidden in [
+            "writeDictationStringToPasteboard",
+            "pasteAtCursor",
+            "shouldPressEnterAfterPaste",
+            "copyRetryTranscriptToPasteboardIfNeeded"
+        ] {
+            try expect(
+                !resume.contains(forbidden),
+                "startup resume never performs interactive delivery: \(forbidden)"
+            )
+        }
     }
 
     private static func block(

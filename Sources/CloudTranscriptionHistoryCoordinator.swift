@@ -1,5 +1,51 @@
 import Foundation
 
+struct CloudTranscriptionStartupReconciliation: Equatable, Sendable {
+    let resumable: [CloudTranscriptionJobRecord]
+    let waitingForRetry: [CloudTranscriptionJobRecord]
+    let invalid: [UUID]
+}
+
+struct CloudTranscriptionStartupReconciler {
+    let store: CloudTranscriptionJobStore
+    let audioRoot: URL
+
+    func reconcile(
+        history: [PipelineHistoryItem],
+        runtime: CloudTranscriptionExecutionSnapshot
+    ) -> CloudTranscriptionStartupReconciliation {
+        let base = store.reconcile(history: history, audioRoot: audioRoot)
+        let hasAPIKey = !runtime.apiKey.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ).isEmpty
+        var resumable: [CloudTranscriptionJobRecord] = []
+        var waitingForRetry = base.waitingForRetry
+        for record in base.resumable {
+            let compatible = hasAPIKey
+                && record.identity.providerID == runtime.providerID
+                && record.identity.model == runtime.model
+                && record.identity.language == runtime.language
+                && record.identity.responseFormat == runtime.responseFormat
+                && record.plan.algorithmVersion
+                    == CloudTranscriptionChunkPlan.currentAlgorithmVersion
+                && record.plan.encodedUploadCeilingBytes
+                    == runtime.encodedUploadCeilingBytes
+            if compatible {
+                resumable.append(record)
+            } else {
+                waitingForRetry.append(record)
+            }
+        }
+        return CloudTranscriptionStartupReconciliation(
+            resumable: resumable,
+            waitingForRetry: waitingForRetry.sorted {
+                $0.createdAt < $1.createdAt
+            },
+            invalid: base.invalid
+        )
+    }
+}
+
 struct CloudTranscriptionLocalRetryRunner {
     let store: CloudTranscriptionJobStore
     let historyID: UUID
