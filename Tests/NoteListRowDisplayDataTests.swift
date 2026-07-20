@@ -18,8 +18,8 @@ struct NoteListRowDisplayDataTests {
         testUsesItemCustomTitleAndContentPreview()
         testDropsAutomaticTitleFromPreview()
         testWhitespaceOnlyCustomTitleDoesNotForceContentPreview()
-        testFailurePreviewUsesErrorMessage()
-        testFailurePreviewHandlesMissingSpaceAfterPrefix()
+        testLegacyFailurePreviewUsesSafeMessage()
+        testLegacyFailurePreviewHandlesMissingSpaceAfterPrefix()
         testRecoveredRecordingUsesFriendlyStatusAndPreview()
         testDegradedRecoveredRecordingNamesAvailableSource()
         testStorageInterruptionPreviewCombinesCauseAndMode()
@@ -232,7 +232,7 @@ struct NoteListRowDisplayDataTests {
         assert(data.preview == "Details continue here", "Unexpected preview: \(data.preview)")
     }
 
-    private static func testFailurePreviewUsesErrorMessage() {
+    private static func testLegacyFailurePreviewUsesSafeMessage() {
         let item = historyItem(
             transcript: "Ignored transcript",
             postProcessingStatus: "Error: Network unavailable"
@@ -241,10 +241,11 @@ struct NoteListRowDisplayDataTests {
         let data = NoteListRowDisplayData(item: item, retryingIDs: [])
 
         assert(data.status == .fail)
-        assert(data.preview == "Network unavailable")
+        assert(data.preview == "This older history item does not include a safe error category.")
+        assert(!data.preview.contains("Network unavailable"))
     }
 
-    private static func testFailurePreviewHandlesMissingSpaceAfterPrefix() {
+    private static func testLegacyFailurePreviewHandlesMissingSpaceAfterPrefix() {
         let item = historyItem(
             transcript: "Ignored transcript",
             postProcessingStatus: "Error:Network unavailable"
@@ -253,7 +254,11 @@ struct NoteListRowDisplayDataTests {
         let data = NoteListRowDisplayData(item: item, retryingIDs: [])
 
         assert(data.status == .fail)
-        assert(data.preview == "Network unavailable", "Unexpected failure preview: \(data.preview)")
+        assert(
+            data.preview == "This older history item does not include a safe error category.",
+            "Unexpected failure preview: \(data.preview)"
+        )
+        assert(!data.preview.contains("Network unavailable"))
     }
 
     private static func testRecoveredRecordingUsesFriendlyStatusAndPreview() {

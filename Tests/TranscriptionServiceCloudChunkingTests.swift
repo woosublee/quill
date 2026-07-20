@@ -8,8 +8,9 @@ struct TranscriptionServiceCloudChunkingTests {
             try await smallMP3UsesExistingSingleRequestPath()
             try await largeCanonicalWAVUsesSequentialBoundedChunks()
             try await retryableHTTPFailureRetriesCurrentChunkOnly()
-            try await terminalProviderFailuresUseFriendlyMessages()
-            try await invalidSuccessfulResponseUsesExistingFriendlyFailure()
+            try await terminalProviderFailuresUseStableIssueRecords()
+            try await networkAndTimeoutFailuresUseStableIssueCodes()
+            try await invalidSuccessfulResponseUsesStableIssueRecord()
             print("TranscriptionServiceCloudChunkingTests passed")
         } catch {
             fputs("TranscriptionServiceCloudChunkingTests failed: \(error)\n", stderr)
@@ -121,10 +122,10 @@ struct TranscriptionServiceCloudChunkingTests {
         try expectEqual(markers, [1, 1, 2], "503 retries current chunk only")
     }
 
-    private static func terminalProviderFailuresUseFriendlyMessages() async throws {
-        for (status, providerCode, forbidden) in [
-            (429, "insufficient_quota", "secret quota detail"),
-            (413, nil, "secret payload detail")
+    private static func terminalProviderFailuresUseStableIssueRecords() async throws {
+        for (status, providerCode, expectedCode, forbidden) in [
+            (429, "insufficient_quota", QuillUserIssueCode.quotaExceeded, "secret quota detail"),
+            (413, nil, QuillUserIssueCode.audioFileTooLarge, "secret payload detail")
         ] {
             let multipart = testMultipartLayout
             let ceiling = try multipart.encodedByteCount(
@@ -144,17 +145,49 @@ struct TranscriptionServiceCloudChunkingTests {
             do {
                 _ = try await service.transcribe(fileURL: url)
                 throw TestFailure("HTTP \(status) must fail")
-            } catch TranscriptionError.submissionFailed(let message) {
-                try expectContains(message, "HTTP \(status)", "friendly HTTP \(status)")
-                guard !message.contains(forbidden) else {
-                    throw TestFailure("friendly error must not expose provider body")
+            } catch let issue as QuillUserIssueError {
+                try expectEqual(issue.record.code, expectedCode, "stable HTTP \(status) code")
+                try expectEqual(issue.record.context.httpStatus, status, "safe HTTP status")
+                try expectEqual(issue.record.context.providerHost, "provider.example", "safe provider host")
+                try expectEqual(issue.record.context.modelID, "whisper-large-v3", "safe model ID")
+                let payload = try issue.record.encodedStatus()
+                guard !payload.contains(forbidden),
+                      !issue.record.presentation().body.contains(forbidden) else {
+                    throw TestFailure("user issue must not expose provider body")
                 }
             }
             try expectEqual(await recorder.uploads().count, 1, "terminal HTTP \(status) upload count")
         }
     }
 
-    private static func invalidSuccessfulResponseUsesExistingFriendlyFailure() async throws {
+    private static func networkAndTimeoutFailuresUseStableIssueCodes() async throws {
+        for (urlCode, expectedCode) in [
+            (URLError.notConnectedToInternet, QuillUserIssueCode.networkUnavailable),
+            (URLError.timedOut, QuillUserIssueCode.requestTimedOut)
+        ] {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension("mp3")
+            try Data(repeating: 0x44, count: 128).write(to: url)
+            defer { try? FileManager.default.removeItem(at: url) }
+            let recorder = UploadRecorder(results: [.urlError(urlCode)])
+            let service = try makeService(
+                ceiling: 10_000,
+                recorder: recorder,
+                checkpointStore: CountingCheckpointStore()
+            )
+
+            do {
+                _ = try await service.transcribe(fileURL: url)
+                throw TestFailure("URL error \(urlCode) must fail")
+            } catch let issue as QuillUserIssueError {
+                try expectEqual(issue.record.code, expectedCode, "stable URL error code")
+                try expectEqual(issue.record.context.providerHost, "provider.example", "URL error provider host")
+            }
+        }
+    }
+
+    private static func invalidSuccessfulResponseUsesStableIssueRecord() async throws {
         let multipart = testMultipartLayout
         let ceiling = try multipart.encodedByteCount(
             audioDataByteCount: CanonicalPCM16WAV.headerByteCount + 4,
@@ -172,8 +205,8 @@ struct TranscriptionServiceCloudChunkingTests {
         do {
             _ = try await service.transcribe(fileURL: url)
             throw TestFailure("invalid successful response must fail")
-        } catch TranscriptionError.pollFailed(let message) {
-            try expectEqual(message, "Invalid response", "invalid success friendly failure")
+        } catch let issue as QuillUserIssueError {
+            try expectEqual(issue.record.code, .invalidProviderResponse, "invalid response code")
         }
         try expectEqual(await recorder.uploads().count, 1, "invalid success must not retry")
     }
@@ -294,6 +327,7 @@ private actor UploadRecorder {
         case success(String)
         case rawSuccess(String)
         case http(status: Int, body: String)
+        case urlError(URLError.Code)
     }
 
     private var results: [ScriptedResult]
@@ -320,6 +354,8 @@ private actor UploadRecorder {
         let status: Int
         let responseData: Data
         switch result {
+        case .urlError(let code):
+            throw URLError(code)
         case .success(let text):
             status = 200
             responseData = try JSONSerialization.data(withJSONObject: ["text": text])

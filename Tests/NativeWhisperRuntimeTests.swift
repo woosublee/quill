@@ -11,6 +11,7 @@ struct NativeWhisperRuntimeTests {
         try await testRuntimeRejectsMissingAudio()
         try testRuntimePreflightsRunnerAndModel()
         try await testRuntimeReportsNonZeroExitWithTailDetails()
+        try testRuntimeErrorsMapToSafeUserIssues()
         try await testRuntimeTerminatesHelperOnCancellation()
         print("NativeWhisperRuntimeTests passed")
     }
@@ -173,6 +174,30 @@ struct NativeWhisperRuntimeTests {
             }
             assert(exitCode == 7)
             assert(output.contains("final cause"))
+        }
+    }
+
+    private static func testRuntimeErrorsMapToSafeUserIssues() throws {
+        let path = "/Users/example/private/model.bin"
+        let output = "STDERR_MARKER sk-secret-api-key"
+        let cases: [(NativeWhisperRuntimeError, QuillUserIssueCode, Int32?)] = [
+            (.runnerNotFound(path), .localRuntimeMissing, nil),
+            (.modelNotFound(path), .localModelMissing, nil),
+            (.audioNotReadable(path), .audioUnreadable, nil),
+            (.processFailed(exitCode: 7, output: output), .localTranscriptionFailed, 7),
+            (.noTranscript(output: output), .localTranscriptionFailed, nil)
+        ]
+
+        for (runtimeError, expectedCode, expectedExitCode) in cases {
+            let issue = runtimeError.userIssue(modelID: "ggml-large-v3-turbo")
+            assert(issue.record.code == expectedCode)
+            assert(issue.record.context.localBackend == "Native Whisper")
+            assert(issue.record.context.modelID == "ggml-large-v3-turbo")
+            assert(issue.record.context.processExitCode == expectedExitCode)
+            let persisted = try issue.record.encodedStatus()
+            assert(!persisted.contains(path))
+            assert(!persisted.contains(output))
+            assert(issue.privateDiagnostic.contains(runtimeError.technicalDetails))
         }
     }
 

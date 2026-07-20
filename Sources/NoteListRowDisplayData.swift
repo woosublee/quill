@@ -76,6 +76,8 @@ struct NoteListRowDisplayData: Equatable {
         retryingIDs: Set<UUID>,
         cloudProgress: CloudTranscriptionDisplayProgress? = nil,
         locale: Locale = .current,
+        localizationLanguage: String = preferredLocalizedStringLanguage(),
+        localizationBundle: Bundle = .main,
         localization: (
             _ key: String,
             _ arguments: [CVarArg]
@@ -93,7 +95,9 @@ struct NoteListRowDisplayData: Equatable {
         let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayTitle = NoteTitleResolver.displayTitle(
             for: item,
-            isTranscribing: status == .transcribing
+            isTranscribing: status == .transcribing,
+            language: localizationLanguage,
+            bundle: localizationBundle
         )
 
         self.id = item.id
@@ -107,6 +111,8 @@ struct NoteListRowDisplayData: Equatable {
             customTitle: customTitle,
             displayTitle: displayTitle,
             cloudProgress: cloudProgress,
+            localizationLanguage: localizationLanguage,
+            localizationBundle: localizationBundle,
             localization: localization
         )
     }
@@ -118,14 +124,22 @@ struct NoteListRowDisplayData: Equatable {
         customTitle: String?,
         displayTitle: String,
         cloudProgress: CloudTranscriptionDisplayProgress?,
+        localizationLanguage: String,
+        localizationBundle: Bundle,
         localization: (
             _ key: String,
             _ arguments: [CVarArg]
         ) -> String
     ) -> String {
         if status == .fail {
-            return String(item.postProcessingStatus.dropFirst("Error:".count))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return item.userIssuePresentation(
+                language: localizationLanguage,
+                bundle: localizationBundle
+            )?.body ?? localizedCatalogString(
+                "Quill could not complete this transcription.",
+                language: localizationLanguage,
+                bundle: localizationBundle
+            )
         }
         if status == .recovered {
             return item.recoveredRecordingContext?.localizedDescription() ?? ""

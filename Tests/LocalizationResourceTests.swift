@@ -267,9 +267,9 @@ struct LocalizationResourceTests {
         let appState = try String(contentsOf: root.appendingPathComponent("Sources/AppState.swift"), encoding: .utf8)
         let helper = try String(contentsOf: root.appendingPathComponent("Sources/LocalizedUserMessage.swift"), encoding: .utf8)
         let requiredPrefixes = [
-            "Unable to clear run history", "Unable to delete run history entry", "Failed to save note title",
-            "Failed to save transcript edit", "Unable to save imported audio note", "Unable to prepare retry",
-            "Failed to save retry result", "Unable to save recovery entry", "Unable to save run history entry"
+            "Unable to clear run history", "Unable to delete run history entry",
+            "Failed to save note title", "Failed to save transcript edit",
+            "Unable to save recovery entry"
         ]
         for key in requiredPrefixes {
             assert(appState.contains("localizedCatalogString(\"\(key)\")"), "Missing Task 5 localized error prefix: \(key)")

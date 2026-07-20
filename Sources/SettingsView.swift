@@ -1528,7 +1528,7 @@ struct ModelsSettingsView: View {
     @FocusState private var transcriptionAPIURLFocused: Bool
     @FocusState private var transcriptionAPIKeyFocused: Bool
     @State private var isValidatingKey = false
-    @State private var keyValidationError: String?
+    @State private var keyValidationIssue: QuillUserIssueRecord?
     @State private var customVocabularyInput: String = ""
     @State private var advancedProviderSettingsExpanded = false
 
@@ -1539,7 +1539,7 @@ struct ModelsSettingsView: View {
     @State private var systemTestInput: String = "Um, so I was like, thinking we should uh, refactor the authentication module, you know?"
     @State private var systemTestRunning = false
     @State private var systemTestOutput: String? = nil
-    @State private var systemTestError: String? = nil
+    @State private var systemTestIssue: QuillUserIssueRecord? = nil
     @State private var systemTestPrompt: String? = nil
     @State private var contextTestRunning = false
     @State private var contextTestOutput: String? = nil
@@ -1638,7 +1638,7 @@ struct ModelsSettingsView: View {
                     .font(.system(.body, design: .monospaced))
                     .disabled(isValidatingKey)
                     .onChange(of: apiKeyInput) { _ in
-                        keyValidationError = nil
+                        keyValidationIssue = nil
                     }
 
                 Button(isValidatingKey ? "Validating..." : "Save") {
@@ -1689,10 +1689,11 @@ struct ModelsSettingsView: View {
                     .font(.caption)
             }
 
-            if let error = keyValidationError {
-                Label(error, systemImage: "xmark.circle.fill")
-                    .foregroundStyle(.red)
-                    .font(.caption)
+            if let issue = keyValidationIssue {
+                QuillUserIssueView(
+                    presentation: issue.presentation(),
+                    style: .inline
+                )
             }
         }
     }
@@ -2360,7 +2361,7 @@ struct ModelsSettingsView: View {
 
     private func validateAndSaveKey() {
         let key = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        keyValidationError = nil
+        keyValidationIssue = nil
         if key.isEmpty {
             appState.apiKey = ""
             isValidatingKey = false
@@ -2380,7 +2381,12 @@ struct ModelsSettingsView: View {
                 if valid {
                     appState.apiKey = key
                 } else {
-                    keyValidationError = "Validation failed. Please check your API key and provider settings, then try again."
+                    keyValidationIssue = QuillUserIssueRecord(
+                        code: .authenticationFailed,
+                        context: QuillUserIssueContext(
+                            providerHost: URL(string: baseURL)?.host
+                        )
+                    )
                 }
             }
         }
@@ -2529,10 +2535,14 @@ struct ModelsSettingsView: View {
                         .foregroundStyle(.orange)
                 }
 
-                if let error = systemTestError {
-                    Label(error, systemImage: "xmark.circle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                if let issue = systemTestIssue {
+                    QuillUserIssueView(
+                        presentation: issue.presentation(),
+                        style: .inline,
+                        action: issue.recoveryAction == .retryTranscription
+                            ? { runSystemPromptTest() }
+                            : nil
+                    )
                 }
 
                 if let output = systemTestOutput {
@@ -2564,7 +2574,7 @@ struct ModelsSettingsView: View {
     private func runSystemPromptTest() {
         systemTestRunning = true
         systemTestOutput = nil
-        systemTestError = nil
+        systemTestIssue = nil
         systemTestPrompt = nil
 
         let service = PostProcessingService(
@@ -2606,7 +2616,7 @@ struct ModelsSettingsView: View {
                 }
             } catch {
                 await MainActor.run {
-                    systemTestError = error.localizedDescription
+                    systemTestIssue = service.userIssue(for: error).record
                     systemTestRunning = false
                 }
             }
@@ -3433,7 +3443,16 @@ struct RunLogEntryView: View {
     @State private var copiedCleanedTranscriptResetWorkItem: DispatchWorkItem?
 
     private var isError: Bool {
-        item.postProcessingStatus.hasPrefix("Error:")
+        if case .failed = item.machineStatus { return true }
+        return false
+    }
+
+    private var isWarning: Bool {
+        item.userIssueRecord?.severity == .warning
+    }
+
+    private var displayPostProcessingStatus: String {
+        item.userIssuePresentation()?.body ?? item.postProcessingStatus
     }
 
     private var copyableTranscript: String {
@@ -3756,9 +3775,9 @@ struct RunLogEntryView: View {
                                 title: "Post-Process",
                                 content: {
                                     VStack(alignment: .leading, spacing: 6) {
-                                        Text(item.postProcessingStatus)
+                                        Text(displayPostProcessingStatus)
                                             .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(isWarning ? .orange : .secondary)
 
                                         if let prompt = item.postProcessingPrompt, !prompt.isEmpty {
                                             Button {
@@ -4240,10 +4259,15 @@ struct NativeWhisperModelRowView: View {
                 actionView
             }
 
-            if let errorMessage = appState.nativeWhisperInstallError {
+            if let issue = appState.nativeWhisperInstallIssue {
+                QuillUserIssueView(
+                    presentation: issue.presentation(),
+                    style: .inline
+                )
+            } else if let errorMessage = appState.nativeWhisperInstallError {
                 Label(errorMessage, systemImage: "xmark.circle.fill")
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -4400,7 +4424,7 @@ struct ModelRowView: View {
     @State private var downloadProgress = TranscriptionModel.DownloadProgress(downloadedBytes: 0, totalBytes: nil)
     @State private var downloadWasCancelled = false
     @State private var isHoveringDownloadProgress = false
-    @State private var errorMessage: String?
+    @State private var issue: QuillUserIssueRecord?
     @State private var showDeleteConfirmation = false
 
     private var isBusy: Bool {
@@ -4436,11 +4460,11 @@ struct ModelRowView: View {
                 modelActionView
             }
 
-            if let errorMessage {
-                Label(errorMessage, systemImage: "xmark.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
+            if let issue {
+                QuillUserIssueView(
+                    presentation: issue.presentation(),
+                    style: .inline
+                )
             }
         }
         .padding(8)
@@ -4585,7 +4609,7 @@ struct ModelRowView: View {
     }
 
     private func downloadModel() {
-        errorMessage = nil
+        issue = nil
         downloadWasCancelled = false
         downloadProgress = model.downloadProgress()
         isDownloading = true
@@ -4599,8 +4623,14 @@ struct ModelRowView: View {
                 isDownloading = false
                 refreshInstallState()
                 guard !downloadWasCancelled else { return }
-                if case .failure(let error) = result {
-                    errorMessage = error.localizedDescription
+                if case .failure = result {
+                    issue = QuillUserIssueRecord(
+                        code: .localModelMissing,
+                        context: QuillUserIssueContext(
+                            modelID: model.id,
+                            localBackend: "Legacy mlx-whisper"
+                        )
+                    )
                 }
             }
         )
@@ -4621,7 +4651,7 @@ struct ModelRowView: View {
     }
 
     private func deleteModelCache() {
-        errorMessage = nil
+        issue = nil
         isDeleting = true
         let selectedModel = model
         Task.detached(priority: .utility) {
@@ -4636,7 +4666,13 @@ struct ModelRowView: View {
                 await MainActor.run {
                     isDeleting = false
                     refreshInstallState()
-                    errorMessage = error.localizedDescription
+                    issue = QuillUserIssueRecord(
+                        code: .localModelMissing,
+                        context: QuillUserIssueContext(
+                            modelID: model.id,
+                            localBackend: "Legacy mlx-whisper"
+                        )
+                    )
                 }
             }
         }

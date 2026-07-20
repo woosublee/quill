@@ -209,8 +209,12 @@ struct CloudTranscriptionHistoryLifecycleTests {
         do {
             _ = try await firstService.transcribe(fileURL: fixture.audioURL)
             throw TestFailure("first attempt must stop after one checkpoint")
-        } catch TestProviderError.interrupted {
-            // expected
+        } catch let issue as QuillUserIssueError {
+            try expectEqual(
+                issue.record.code,
+                .providerUnavailable,
+                "interrupted provider issue"
+            )
         }
         try expectEqual(
             try fixture.store.load(historyID: historyID)?.completedChunks
@@ -265,8 +269,12 @@ struct CloudTranscriptionHistoryLifecycleTests {
         do {
             _ = try await oldService.transcribe(fileURL: fixture.audioURL)
             throw TestFailure("old cloud attempt must stop")
-        } catch TestProviderError.interrupted {
-            // expected
+        } catch let issue as QuillUserIssueError {
+            try expectEqual(
+                issue.record.code,
+                .providerUnavailable,
+                "interrupted provider issue"
+            )
         }
 
         let newSession = fixture.store.beginSession(historyID: historyID)
@@ -337,8 +345,12 @@ struct CloudTranscriptionHistoryLifecycleTests {
         do {
             _ = try await service.transcribe(fileURL: fixture.audioURL)
             throw TestFailure("cloud preparation must stop")
-        } catch TestProviderError.interrupted {
-            // expected
+        } catch let issue as QuillUserIssueError {
+            try expectEqual(
+                issue.record.code,
+                .providerUnavailable,
+                "interrupted provider issue"
+            )
         }
         let beforeLocal = try fixture.store.load(historyID: historyID)
 
@@ -497,8 +509,12 @@ struct CloudTranscriptionHistoryLifecycleTests {
         do {
             _ = try await serviceA.transcribe(fileURL: fixture.audioURL)
             throw TestFailure("process A must be interrupted")
-        } catch TestProviderError.interrupted {
-            // expected
+        } catch let issue as QuillUserIssueError {
+            try expectEqual(
+                issue.record.code,
+                .providerUnavailable,
+                "interrupted provider issue"
+            )
         }
 
         let processBStore = fixture.makeStore()
@@ -519,8 +535,12 @@ struct CloudTranscriptionHistoryLifecycleTests {
         do {
             _ = try await serviceB.transcribe(fileURL: fixture.audioURL)
             throw TestFailure("process B must be interrupted")
-        } catch TestProviderError.interrupted {
-            // expected
+        } catch let issue as QuillUserIssueError {
+            try expectEqual(
+                issue.record.code,
+                .providerUnavailable,
+                "interrupted provider issue"
+            )
         }
         try expectEqual(
             try await recorderB.chunkMarkers(),
