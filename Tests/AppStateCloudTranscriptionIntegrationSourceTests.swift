@@ -213,6 +213,7 @@ struct AppStateCloudTranscriptionIntegrationSourceTests {
             [
                 "recoverRecordingJournalsBeforeHistoryLoad(",
                 "pipelineHistoryStore.trim(",
+                "cloudTranscriptionJobStore.invalidateSession(",
                 "cloudTranscriptionJobStore.reconcile(",
                 "sweepOrphanStoredFiles(",
                 "scheduleCloudTranscriptionAutoResume("

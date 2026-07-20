@@ -1827,7 +1827,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
             print("Failed to trim pipeline history during init: \(error)")
         }
         for removedAssets in removedStoredFiles {
+            cloudTranscriptionJobStore.invalidateSession(
+                historyID: removedAssets.historyID
+            )
             Self.deleteStoredFiles(removedAssets)
+            try? cloudTranscriptionJobStore.delete(
+                historyID: removedAssets.historyID,
+                session: nil
+            )
         }
         var savedHistory = Self.markInterruptedRecoveryPlaceholders(
             in: pipelineHistoryStore.loadAllHistory(),
@@ -2679,6 +2686,25 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }.value
     }
 
+    @MainActor
+    private func cleanupDeletedPipelineHistoryAssets(
+        _ assets: DeletedPipelineHistoryAssets
+    ) {
+        cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
+            historyID: assets.historyID,
+            store: cloudTranscriptionJobStore
+        )
+        cloudTranscriptionProgressByHistoryID.removeValue(
+            forKey: assets.historyID
+        )
+        retryingItemIDs.remove(assets.historyID)
+        Self.deleteStoredFiles(assets)
+        try? cloudTranscriptionJobStore.delete(
+            historyID: assets.historyID,
+            session: nil
+        )
+    }
+
     private static func deleteAudioFile(_ fileName: String) {
         let fileURL = audioStorageDirectory().appendingPathComponent(fileName)
         try? FileManager.default.removeItem(at: fileURL)
@@ -3109,7 +3135,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 currentRecordingLiveNoteID = nil
                 pipelineHistory.removeAll { $0.id == liveNoteID }
                 if let deletedAssets = try? pipelineHistoryStore.delete(id: liveNoteID) {
-                    Self.deleteStoredFiles(deletedAssets)
+                    cleanupDeletedPipelineHistoryAssets(deletedAssets)
                 }
             }
             do {
@@ -3118,7 +3144,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     historyStore: pipelineHistoryStore
                 ).persist(recovered, maxCount: maxPipelineHistoryCount)
                 for assets in removedAssets {
-                    Self.deleteStoredFiles(assets)
+                    cleanupDeletedPipelineHistoryAssets(assets)
                 }
                 if let item = pipelineHistoryStore.loadAllHistory().first(where: {
                     $0.id == recovered.recordingID
@@ -3679,11 +3705,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
     }
 
+    @MainActor
     func clearPipelineHistory() {
+        let historyIDs = pipelineHistory.map(\.id)
+        for historyID in historyIDs {
+            cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
+                historyID: historyID,
+                store: cloudTranscriptionJobStore
+            )
+        }
         do {
-            let removedStoredFiles = try pipelineHistoryStore.clearAll()
+            let removedStoredFiles = try pipelineHistoryStore.clearAll(
+                beforeDeleting: { assets in
+                    for asset in assets {
+                        cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
+                            historyID: asset.historyID,
+                            store: cloudTranscriptionJobStore
+                        )
+                    }
+                }
+            )
             for removedAssets in removedStoredFiles {
-                Self.deleteStoredFiles(removedAssets)
+                cleanupDeletedPipelineHistoryAssets(removedAssets)
             }
             pipelineHistory = []
         } catch {
@@ -3691,11 +3734,24 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    @MainActor
     func deleteHistoryEntry(id: UUID) {
         guard let index = pipelineHistory.firstIndex(where: { $0.id == id }) else { return }
+        cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
+            historyID: id,
+            store: cloudTranscriptionJobStore
+        )
         do {
-            if let deletedAssets = try pipelineHistoryStore.delete(id: id) {
-                Self.deleteStoredFiles(deletedAssets)
+            if let deletedAssets = try pipelineHistoryStore.delete(
+                id: id,
+                beforeDeleting: { assets in
+                    cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
+                        historyID: assets.historyID,
+                        store: cloudTranscriptionJobStore
+                    )
+                }
+            ) {
+                cleanupDeletedPipelineHistoryAssets(deletedAssets)
             }
             pipelineHistory.remove(at: index)
         } catch {
@@ -3841,7 +3897,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             do {
                 let removedStoredFiles = try self.appendPipelineHistoryItem(placeholder)
                 for removedAssets in removedStoredFiles {
-                    Self.deleteStoredFiles(removedAssets)
+                    cleanupDeletedPipelineHistoryAssets(removedAssets)
                 }
             } catch {
                 Self.deleteAudioFile(savedAudioFile.fileName)
@@ -5005,14 +5061,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
             currentRecordingLiveNoteID = nil
             pipelineHistory.removeAll { $0.id == id }
             if let deletedAssets = try? pipelineHistoryStore.delete(id: id) {
-                Self.deleteStoredFiles(deletedAssets)
+                cleanupDeletedPipelineHistoryAssets(deletedAssets)
             }
         }
         if let job = foregroundTranscriptionJob(), let id = job.liveNoteID {
             updateTranscriptionJob(job.id) { $0.liveNoteID = nil }
             pipelineHistory.removeAll { $0.id == id }
             if let deletedAssets = try? pipelineHistoryStore.delete(id: id) {
-                Self.deleteStoredFiles(deletedAssets)
+                cleanupDeletedPipelineHistoryAssets(deletedAssets)
             }
         }
         audioLevelCancellable?.cancel()
@@ -5063,7 +5119,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         if let liveNoteID = job.liveNoteID {
             pipelineHistory.removeAll { $0.id == liveNoteID }
             if let deletedAssets = try? pipelineHistoryStore.delete(id: liveNoteID) {
-                Self.deleteStoredFiles(deletedAssets)
+                cleanupDeletedPipelineHistoryAssets(deletedAssets)
             }
         }
         finishTranscriptionJob(job.id)
@@ -5873,7 +5929,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             currentRecordingLiveNoteID = nil
             pipelineHistory.removeAll { $0.id == liveNoteID }
             if let deletedAssets = try? pipelineHistoryStore.delete(id: liveNoteID) {
-                Self.deleteStoredFiles(deletedAssets)
+                cleanupDeletedPipelineHistoryAssets(deletedAssets)
             }
         }
         tearDownRealtimeService()
@@ -7107,14 +7163,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 && $0.plan.encodedUploadCeilingBytes
                     == snapshot.encodedUploadCeilingBytes
         } ?? false
-        let previousSession = cloudTranscriptionHistoryCoordinator.activeSession(
-            historyID: historyID
-        )
+        if existingRecord != nil, !sameCloudIdentity {
+            cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
+                historyID: historyID,
+                store: cloudTranscriptionJobStore
+            )
+            cloudTranscriptionProgressByHistoryID.removeValue(
+                forKey: historyID
+            )
+        }
         let session = cloudTranscriptionJobStore.beginSession(
             historyID: historyID
         )
         if existingRecord != nil, !sameCloudIdentity {
-            let staleSession = previousSession ?? CloudTranscriptionJobSession(
+            let staleSession = CloudTranscriptionJobSession(
                 historyID: historyID,
                 token: UUID()
             )
@@ -7273,7 +7335,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         do {
             let removed = try pipelineHistoryStore.append(entry, maxCount: maxPipelineHistoryCount)
             for removedAssets in removed {
-                Self.deleteStoredFiles(removedAssets)
+                cleanupDeletedPipelineHistoryAssets(removedAssets)
             }
             pipelineHistory = pipelineHistoryStore.loadAllHistory()
         } catch {
@@ -7364,7 +7426,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 historyStore: pipelineHistoryStore
             ).persist(recovered, maxCount: maxPipelineHistoryCount)
             for assets in removedAssets {
-                Self.deleteStoredFiles(assets)
+                cleanupDeletedPipelineHistoryAssets(assets)
             }
             if let item = pipelineHistoryStore.loadAllHistory().first(where: {
                 $0.id == recovered.recordingID
@@ -7448,7 +7510,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 requiresDurableStore: true
             )
             for removedAssets in removedStoredFiles {
-                Self.deleteStoredFiles(removedAssets)
+                cleanupDeletedPipelineHistoryAssets(removedAssets)
             }
             updatePipelineHistoryItem(item)
             updateTranscriptionJob(jobID) {
@@ -7697,7 +7759,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             } else {
                 let removedStoredFiles = try appendPipelineHistoryItem(entry)
                 for removedAssets in removedStoredFiles {
-                    Self.deleteStoredFiles(removedAssets)
+                    cleanupDeletedPipelineHistoryAssets(removedAssets)
                 }
             }
             updatePipelineHistoryItem(entry)

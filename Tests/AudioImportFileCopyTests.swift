@@ -58,7 +58,10 @@ struct AudioImportFileCopyTests {
         assertContains(source, "func makePostProcessingService() -> PostProcessingService")
         assertContains(source, "func makeTranscriptionService() throws -> TranscriptionService")
         assertContains(importBody, "let configuration = AudioImportTaskConfiguration(")
-        assertContains(importBody, "let transcriptionService = try configuration.makeTranscriptionService()")
+        assertContains(
+            importBody,
+            "let transcriptionService = try configuration.makeTranscriptionService(\n                        cloudExecutionContext: cloudExecutionContext"
+        )
         assertContains(importBody, "postProcessingService: configuration.makePostProcessingService()")
         assertDoesNotContain(importBody, "let capturedApiKey")
         assertDoesNotContain(importBody, "let capturedCustomVocabulary")

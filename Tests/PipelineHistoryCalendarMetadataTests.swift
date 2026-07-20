@@ -10,8 +10,101 @@ struct PipelineHistoryCalendarMetadataTests {
         try testCustomTitlePersistsThroughPipelineHistoryStore()
         try testCalendarMetadataPersistsThroughPipelineHistoryStore()
         try testUpsertKeepsOneRowAndUpdatesAllFields()
+        try testDeletedAssetsIncludeHistoryIDForDeleteClearAndTrim()
         testGoogleCalendarConnectionMetadataBuildsConnectedState()
         print("PipelineHistoryCalendarMetadataTests passed")
+    }
+
+    private static func testDeletedAssetsIncludeHistoryIDForDeleteClearAndTrim() throws {
+        let deleteStore = PipelineHistoryStore(inMemory: true)
+        let deleteItem = historyItemForAssetTest(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 3),
+            audioFileName: "delete.wav",
+            transcriptFileName: "delete.txt"
+        )
+        _ = try deleteStore.append(deleteItem, maxCount: 10)
+        var deleteCallbackIDs: [UUID] = []
+        let deleted = try deleteStore.delete(
+            id: deleteItem.id,
+            beforeDeleting: { deleteCallbackIDs = [$0.historyID] }
+        )
+        assert(deleteCallbackIDs == [deleteItem.id])
+        assert(deleted?.historyID == deleteItem.id)
+        assert(deleted?.audioFileName == "delete.wav")
+        assert(deleted?.transcriptFileName == "delete.txt")
+
+        let clearStore = PipelineHistoryStore(inMemory: true)
+        let clearItems = [
+            historyItemForAssetTest(
+                id: UUID(),
+                timestamp: Date(timeIntervalSince1970: 2),
+                audioFileName: "clear-a.wav",
+                transcriptFileName: nil
+            ),
+            historyItemForAssetTest(
+                id: UUID(),
+                timestamp: Date(timeIntervalSince1970: 1),
+                audioFileName: "clear-b.wav",
+                transcriptFileName: "clear-b.txt"
+            )
+        ]
+        for item in clearItems {
+            _ = try clearStore.append(item, maxCount: 10)
+        }
+        var clearCallbackIDs: [UUID] = []
+        let cleared = try clearStore.clearAll(
+            beforeDeleting: { clearCallbackIDs = $0.map(\.historyID) }
+        )
+        assert(Set(clearCallbackIDs) == Set(clearItems.map(\.id)))
+        assert(Set(cleared.map(\.historyID)) == Set(clearItems.map(\.id)))
+
+        let trimStore = PipelineHistoryStore(inMemory: true)
+        let newest = historyItemForAssetTest(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 3),
+            audioFileName: "new.wav",
+            transcriptFileName: nil
+        )
+        let oldest = historyItemForAssetTest(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 1),
+            audioFileName: "old.wav",
+            transcriptFileName: "old.txt"
+        )
+        _ = try trimStore.append(oldest, maxCount: 10)
+        _ = try trimStore.append(newest, maxCount: 10)
+        var trimCallbackIDs: [UUID] = []
+        let trimmed = try trimStore.trim(
+            to: 1,
+            beforeDeleting: { trimCallbackIDs = $0.map(\.historyID) }
+        )
+        assert(trimCallbackIDs == [oldest.id])
+        assert(trimmed.map(\.historyID) == [oldest.id])
+        assert(trimStore.loadAllHistory().map(\.id) == [newest.id])
+    }
+
+    private static func historyItemForAssetTest(
+        id: UUID,
+        timestamp: Date,
+        audioFileName: String?,
+        transcriptFileName: String?
+    ) -> PipelineHistoryItem {
+        PipelineHistoryItem(
+            id: id,
+            timestamp: timestamp,
+            rawTranscript: "raw",
+            postProcessedTranscript: "processed",
+            postProcessingPrompt: nil,
+            contextSummary: "",
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "",
+            postProcessingStatus: "Post-processing succeeded",
+            debugStatus: "Done",
+            customVocabulary: "",
+            audioFileName: audioFileName,
+            transcriptFileName: transcriptFileName
+        )
     }
 
     private static func testGoogleCalendarConnectionMetadataBuildsConnectedState() {

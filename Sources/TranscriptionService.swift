@@ -6,13 +6,6 @@ import os.log
 
 private let transcriptionLog = OSLog(subsystem: "com.woosublee.quill", category: "Transcription")
 
-struct CloudTranscriptionExecutionContext: Sendable {
-    let historyID: UUID
-    let session: CloudTranscriptionJobSession
-    let checkpointStore: any CloudTranscriptionCheckpointStore
-    let progress: @Sendable (CloudTranscriptionProgress) -> Void
-}
-
 struct CloudTranscriptionDependencies: Sendable {
     let encodedUploadCeilingBytes: UInt64
     let upload: @Sendable (URLRequest, Data) async throws -> (Data, URLResponse)

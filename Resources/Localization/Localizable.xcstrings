@@ -7871,6 +7871,22 @@
         }
       }
     },
+    "Unable to finish cloud transcription": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to finish cloud transcription"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 전사를 완료할 수 없음"
+          }
+        }
+      }
+    },
     "%@\n\nQuill requires Screen Recording permission to capture screenshots for context-aware transcription.\n\nGo to System Settings > Privacy & Security > Screen Recording and enable Quill.": {
       "localizations": {
         "en": {

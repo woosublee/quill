@@ -10,6 +10,7 @@ struct CloudTranscriptionHistoryCoordinatorTests {
             try staleProgressAndFinishCannotReplaceCurrentState()
             try cancellationInvalidatesSessionAndClearsProgress()
             try cancelAllInvalidatesEverySession()
+            try await cleanupAssetsCancelInvalidateAndRejectLateCheckpoint()
             print("CloudTranscriptionHistoryCoordinatorTests passed")
         } catch {
             fputs("CloudTranscriptionHistoryCoordinatorTests failed: \(error)\n", stderr)
@@ -250,6 +251,52 @@ struct CloudTranscriptionHistoryCoordinatorTests {
             } catch CloudTranscriptionJobStoreError.staleSession {
                 // expected
             }
+        }
+    }
+
+    @MainActor
+    private static func cleanupAssetsCancelInvalidateAndRejectLateCheckpoint() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let coordinator = CloudTranscriptionHistoryCoordinator()
+        let record = makeRecord()
+        let session = fixture.store.beginSession(historyID: record.historyID)
+        try fixture.store.create(record, session: session)
+        let checkpoint = fixture.store.checkpointStore(session: session)
+        let task = suspendedTask()
+        coordinator.install(
+            task: task,
+            historyID: record.historyID,
+            session: session
+        )
+        coordinator.updateProgress(
+            CloudTranscriptionDisplayProgress(
+                completedChunkCount: 0,
+                totalChunkCount: 2,
+                activeAttempt: 1
+            ),
+            historyID: record.historyID,
+            session: session
+        )
+
+        coordinator.cancelAndInvalidate(
+            historyID: record.historyID,
+            store: fixture.store
+        )
+        try fixture.store.delete(historyID: record.historyID, session: nil)
+
+        try expect(task.isCancelled, "asset cleanup cancels active provider task")
+        try expect(coordinator.progress[record.historyID] == nil, "asset cleanup removes progress")
+        let storedRecord = try fixture.store.load(historyID: record.historyID)
+        try expect(storedRecord == nil, "asset cleanup removes sidecar")
+        do {
+            try await checkpoint.save(CloudTranscriptionCheckpoint(
+                identity: record.identity,
+                completedRawTranscripts: ["late"]
+            ))
+            throw TestFailure("late checkpoint must not recreate cleaned job")
+        } catch CloudTranscriptionJobStoreError.staleSession {
+            // expected
         }
     }
 
