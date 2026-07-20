@@ -5,6 +5,7 @@ struct CloudTranscriptionHistoryLifecycleTests {
     static func main() async {
         do {
             try await durableRecordExistsBeforeFirstProviderRequest()
+            try await durableProviderIdentityUsesSnapshotURLNormalization()
             try await chunkCheckpointNeverPublishesPartialHistoryText()
             try await assembledRecordSurvivesUntilHistoryCommitSucceeds()
             try await sameCloudRetryReusesCompletedPrefix()
@@ -50,9 +51,45 @@ struct CloudTranscriptionHistoryLifecycleTests {
         try expectEqual(record?.completedChunks.map(\.normalizedRawText), ["zero", "one", "two"], "durable raw chunk prefix")
         try expectEqual(record?.firstIncompleteChunkIndex, 3, "assembled first incomplete index")
         try expectEqual(
-            await progress.values().first,
+            progress.values().first,
             .planned(completed: 0, total: 3),
             "progress begins after durable preparation"
+        )
+    }
+
+    private static func durableProviderIdentityUsesSnapshotURLNormalization() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let historyID = UUID()
+        let session = fixture.store.beginSession(historyID: historyID)
+        let recorder = LifecycleUploadRecorder(
+            store: fixture.store,
+            historyID: historyID,
+            results: ["zero", "one", "two"]
+        )
+        let service = try makeService(
+            fixture: fixture,
+            historyID: historyID,
+            session: session,
+            recorder: recorder,
+            progress: ProgressRecorder(),
+            baseURL: "HTTPS://Provider.Example:443/v1/"
+        )
+        let snapshot = try CloudTranscriptionExecutionSnapshot(
+            baseURL: "https://provider.example/v1",
+            apiKey: "test-key",
+            model: "whisper-large-v3",
+            language: "en",
+            encodedUploadCeilingBytes: fixture.ceiling
+        )
+
+        _ = try await service.transcribe(fileURL: fixture.audioURL)
+
+        let record = try fixture.store.load(historyID: historyID)
+        try expectEqual(
+            record?.identity.providerID,
+            snapshot.providerID,
+            "durable provider identity uses snapshot URL normalization"
         )
     }
 
@@ -635,7 +672,7 @@ struct CloudTranscriptionHistoryLifecycleTests {
                 session: session,
                 checkpointStore: checkpointStore,
                 progress: { value in
-                    Task { await progress.append(value) }
+                    progress.append(value)
                 }
             )
         )
@@ -838,14 +875,21 @@ private actor LifecycleUploadRecorder {
     }
 }
 
-private actor ProgressRecorder {
+private final class ProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
     private var recorded: [CloudTranscriptionProgress] = []
 
     func append(_ value: CloudTranscriptionProgress) {
+        lock.lock()
+        defer { lock.unlock() }
         recorded.append(value)
     }
 
-    func values() -> [CloudTranscriptionProgress] { recorded }
+    func values() -> [CloudTranscriptionProgress] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
 }
 
 private actor HistoryRecorder {

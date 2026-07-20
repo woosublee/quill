@@ -77,7 +77,9 @@ class TranscriptionService {
         cloudExecutionContext: CloudTranscriptionExecutionContext? = nil
     ) throws {
         self.apiKey = apiKey
-        self.baseURL = try Self.normalizedBaseURL(from: baseURL)
+        self.baseURL = try CloudTranscriptionExecutionSnapshot.normalizedBaseURL(
+            from: baseURL
+        )
         self.useLocalTranscription = useLocalTranscription
         self.localWhisperPath = localWhisperPath
         self.useLegacyMlxWhisper = useLegacyMlxWhisper
@@ -102,7 +104,10 @@ class TranscriptionService {
     static func validateAPIKey(_ key: String, baseURL: String = AppState.defaultAPIBaseURL) async -> Bool {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        guard let baseURL = try? normalizedBaseURL(from: baseURL) else { return false }
+        guard let baseURL = try? CloudTranscriptionExecutionSnapshot
+            .normalizedBaseURL(from: baseURL) else {
+            return false
+        }
 
         var request = URLRequest(url: baseURL.appendingPathComponent("models"))
         request.timeoutInterval = 10
@@ -753,42 +758,6 @@ class TranscriptionService {
             return TranscriptionError.transcriptionTimedOut(timeoutSeconds)
         }
         return error
-    }
-
-    private static func normalizedBaseURL(from baseURL: String) throws -> URL {
-        let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            throw TranscriptionError.invalidBaseURL("Provider URL is empty.")
-        }
-
-        guard var components = URLComponents(string: trimmed) else {
-            throw TranscriptionError.invalidBaseURL("Provider URL is malformed.")
-        }
-
-        guard let scheme = components.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
-            throw TranscriptionError.invalidBaseURL("Provider URL must use http or https.")
-        }
-
-        guard let host = components.host, !host.isEmpty else {
-            throw TranscriptionError.invalidBaseURL("Provider URL must include a host.")
-        }
-
-        components.scheme = scheme
-        if components.path == "/" {
-            components.path = ""
-        } else {
-            components.path = components.path.replacingOccurrences(
-                of: "/+$",
-                with: "",
-                options: .regularExpression
-            )
-        }
-
-        guard let normalizedURL = components.url else {
-            throw TranscriptionError.invalidBaseURL("Provider URL is malformed.")
-        }
-
-        return normalizedURL
     }
 
     // Whisper-large-v3 hallucinates common short phrases on silence/background

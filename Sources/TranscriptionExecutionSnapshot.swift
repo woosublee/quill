@@ -59,7 +59,7 @@ struct CloudTranscriptionExecutionSnapshot: Sendable {
         self.encodedUploadCeilingBytes = encodedUploadCeilingBytes
     }
 
-    private static func normalizedBaseURL(from value: String) throws -> URL {
+    static func normalizedBaseURL(from value: String) throws -> URL {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard var components = URLComponents(string: trimmed) else {
             throw CloudTranscriptionProviderIdentityError.invalidURL
