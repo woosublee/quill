@@ -8,6 +8,24 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.25] - 2026-07-21
+
+### Added
+
+- Added durable recording journals and startup recovery for microphone, system-audio, and combined recordings, including sessions that switch audio inputs or encounter storage failures.
+- Added automatic chunking, retry/backoff, and durable resume for oversized or interrupted cloud transcriptions.
+
+### Improved
+
+- Streamed combined-audio mixdown with bounded memory so long recordings no longer require loading entire source files at once.
+- Built the bundled Native Whisper helper with an explicit embedded Metal contract on Apple Silicon.
+- Replaced raw transcription and post-processing errors with safe, localized guidance and contextual recovery actions across Note Browser, Setup, Settings, and recording surfaces.
+
+### Fixed
+
+- Preserved recoverable audio and history state across crashes, force-quits, interrupted input switches, and low-storage failures.
+- Kept original transcripts available when post-processing fails while presenting the failure as a warning instead of marking the note as failed.
+
 ## [0.1.24] - 2026-07-18
 
 ### Improved
