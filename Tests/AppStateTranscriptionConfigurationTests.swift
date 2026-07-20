@@ -5,10 +5,20 @@ import Foundation
 @main
 struct AppStateTranscriptionConfigurationTests {
     static func main() async throws {
+        let originalNativeWhisperInstallStatusProvider =
+            AppState.nativeWhisperInstallStatusProvider
+        AppState.nativeWhisperInstallStatusProvider = { _ in .notInstalled }
+        defer {
+            AppState.nativeWhisperInstallStatusProvider =
+                originalNativeWhisperInstallStatusProvider
+        }
+
         try testMakeTranscriptionServiceUsesLocalConfiguration()
         try testMakeTranscriptionServiceMapsEmptyLocalWhisperPathToNil()
         try testMakeTranscriptionServiceDefaultsLegacyMlxWhisperOff()
         try testMakeTranscriptionServicePassesLegacyMlxWhisperToggle()
+        try testExecutionSnapshotKeepsCloudServiceConfigurationImmutable()
+        try testExecutionSnapshotKeepsLocalServiceConfigurationImmutable()
         testTranscriptionResponseFormatUsesVerboseJSONForKnownWhisperModels()
         testTranscriptionResponseFormatUsesJSONForOtherModels()
         testTranscriptionHTTP400UsesConfigurationGuidance()
@@ -138,6 +148,7 @@ struct AppStateTranscriptionConfigurationTests {
     private static func testMakeTranscriptionServicePassesLegacyMlxWhisperToggle() throws {
         resetDefaults()
         let appState = AppState()
+        appState.isRecording = true
         appState.useLocalTranscription = true
         appState.useLegacyMlxWhisper = true
 
@@ -145,6 +156,58 @@ struct AppStateTranscriptionConfigurationTests {
         let configuration = mirroredTranscriptionConfiguration(service)
 
         assert(configuration.useLegacyMlxWhisper == true)
+    }
+
+    private static func testExecutionSnapshotKeepsCloudServiceConfigurationImmutable() throws {
+        let cloud = try CloudTranscriptionExecutionSnapshot(
+            baseURL: "https://original.example.com/openai/v1/",
+            apiKey: "original-key",
+            model: "whisper-large-v3",
+            language: "ko",
+            encodedUploadCeilingBytes: 19_000_000
+        )
+        let completion = TranscriptionCompletionSnapshot(
+            postProcessingEnabled: true,
+            preserveExactWording: false,
+            outputLanguage: "ko",
+            pressEnterCommandEnabled: false
+        )
+        let snapshot = TranscriptionExecutionSnapshot.cloud(cloud, completion)
+
+        let service = try snapshot.makeTranscriptionService()
+        let configuration = mirroredCompleteTranscriptionConfiguration(service)
+
+        assert(configuration.apiKey == "original-key")
+        assert(configuration.baseURL == "https://original.example.com/openai/v1")
+        assert(!configuration.useLocalTranscription)
+        assert(configuration.transcriptionModel == "whisper-large-v3")
+        assert(configuration.language == "ko")
+        assert(configuration.encodedUploadCeilingBytes == 19_000_000)
+    }
+
+    private static func testExecutionSnapshotKeepsLocalServiceConfigurationImmutable() throws {
+        let local = LocalTranscriptionExecutionSnapshot(
+            model: .find(id: "mlx-community/whisper-large-v3-turbo"),
+            localWhisperPath: "/tmp/original-mlx-whisper",
+            useLegacyMlxWhisper: true,
+            language: .find(code: "ja")
+        )
+        let completion = TranscriptionCompletionSnapshot(
+            postProcessingEnabled: false,
+            preserveExactWording: true,
+            outputLanguage: "ja",
+            pressEnterCommandEnabled: true
+        )
+        let snapshot = TranscriptionExecutionSnapshot.local(local, completion)
+
+        let service = try snapshot.makeTranscriptionService()
+        let configuration = mirroredCompleteTranscriptionConfiguration(service)
+
+        assert(configuration.useLocalTranscription)
+        assert(configuration.localTranscriptionModelID == "mlx-community/whisper-large-v3-turbo")
+        assert(configuration.localWhisperPath == "/tmp/original-mlx-whisper")
+        assert(configuration.useLegacyMlxWhisper)
+        assert(configuration.transcriptionLanguageCode == "ja")
     }
 
     private static func testTranscriptionResponseFormatUsesVerboseJSONForKnownWhisperModels() {
@@ -700,9 +763,11 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(source.contains("useLegacyMlxWhisper: useLegacyMlxWhisper,"))
         precondition(importBody.contains("func importAudioFile(_ fileURL: URL, choice: TranscriptionBackendChoice)"))
         precondition(importBody.contains("transcriptionConfiguration: audioImportConfiguration(for: choice)"))
-        precondition(importBody.contains("let transcriptionService = try configuration.makeTranscriptionService()"))
+        precondition(importBody.contains("let transcriptionService = try configuration.makeTranscriptionService("))
+        precondition(importBody.contains("cloudExecutionContext: cloudExecutionContext"))
         precondition(source.contains("self.useLegacyMlxWhisper = transcriptionConfiguration.useLegacyMlxWhisper"))
-        precondition(retryBody.contains("useLegacyMlxWhisper: snapshot.useLegacyMlxWhisper,"))
+        precondition(retryBody.contains("snapshot.execution\n                    .makeTranscriptionService("))
+        precondition(retryBody.contains("cloudExecutionContext: snapshot.cloudExecutionContext"))
         precondition(stoppedRecordingBody.contains("let capturedUseLegacyMlxWhisper = useLegacyMlxWhisper"))
         precondition(stoppedRecordingBody.contains("useLegacyMlxWhisper: capturedUseLegacyMlxWhisper,"))
     }
@@ -1653,6 +1718,39 @@ struct AppStateTranscriptionConfigurationTests {
             preconditionFailure("Expected source block from \(startMarker) to \(endMarker)")
         }
         return String(source[start.lowerBound..<end.lowerBound])
+    }
+
+    private static func mirroredCompleteTranscriptionConfiguration(
+        _ service: TranscriptionService
+    ) -> (
+        apiKey: String,
+        baseURL: String,
+        useLocalTranscription: Bool,
+        localTranscriptionModelID: String,
+        transcriptionLanguageCode: String,
+        localWhisperPath: String?,
+        useLegacyMlxWhisper: Bool,
+        transcriptionModel: String,
+        language: String?,
+        encodedUploadCeilingBytes: UInt64
+    ) {
+        let mirror = Mirror(reflecting: service)
+        let dependencies = mirror.descendant("cloudDependencies")
+            as? CloudTranscriptionDependencies
+        return (
+            mirror.descendant("apiKey") as? String ?? "",
+            (mirror.descendant("baseURL") as? URL)?.absoluteString ?? "",
+            mirror.descendant("useLocalTranscription") as? Bool ?? false,
+            (mirror.descendant("localTranscriptionModel") as? TranscriptionModel)?.id
+                ?? "",
+            (mirror.descendant("transcriptionLanguage") as? TranscriptionLanguage)?.code
+                ?? "",
+            mirror.descendant("localWhisperPath") as? String,
+            mirror.descendant("useLegacyMlxWhisper") as? Bool ?? false,
+            mirror.descendant("transcriptionModel") as? String ?? "",
+            mirror.descendant("language") as? String,
+            dependencies?.encodedUploadCeilingBytes ?? 0
+        )
     }
 
     private static func mirroredTranscriptionConfiguration(_ service: TranscriptionService) -> (

@@ -53,6 +53,7 @@ class TranscriptionService {
     private let transcriptionModel: String
     private let language: String?
     private let cloudDependencies: CloudTranscriptionDependencies
+    private let cloudExecutionContext: CloudTranscriptionExecutionContext?
     private var transcriptionResponseFormat: String {
         Self.responseFormat(forModel: transcriptionModel)
     }
@@ -72,10 +73,13 @@ class TranscriptionService {
         localTranscriptionModel: TranscriptionModel = .default,
         transcriptionModel: String = AppState.defaultTranscriptionModel,
         language: String? = nil,
-        cloudDependencies: CloudTranscriptionDependencies = .live
+        cloudDependencies: CloudTranscriptionDependencies = .live,
+        cloudExecutionContext: CloudTranscriptionExecutionContext? = nil
     ) throws {
         self.apiKey = apiKey
-        self.baseURL = try Self.normalizedBaseURL(from: baseURL)
+        self.baseURL = try CloudTranscriptionExecutionSnapshot.normalizedBaseURL(
+            from: baseURL
+        )
         self.useLocalTranscription = useLocalTranscription
         self.localWhisperPath = localWhisperPath
         self.useLegacyMlxWhisper = useLegacyMlxWhisper
@@ -88,6 +92,7 @@ class TranscriptionService {
             ? trimmedLanguage
             : transcriptionLanguage.whisperArgument
         self.cloudDependencies = cloudDependencies
+        self.cloudExecutionContext = cloudExecutionContext
     }
 
     static func responseFormat(forModel model: String) -> String {
@@ -99,7 +104,10 @@ class TranscriptionService {
     static func validateAPIKey(_ key: String, baseURL: String = AppState.defaultAPIBaseURL) async -> Bool {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        guard let baseURL = try? normalizedBaseURL(from: baseURL) else { return false }
+        guard let baseURL = try? CloudTranscriptionExecutionSnapshot
+            .normalizedBaseURL(from: baseURL) else {
+            return false
+        }
 
         var request = URLRequest(url: baseURL.appendingPathComponent("models"))
         request.timeoutInterval = 10
@@ -478,6 +486,10 @@ class TranscriptionService {
             retryPolicy: retryPolicy,
             sleep: cloudDependencies.sleep
         )
+        let checkpointStore = cloudExecutionContext?.checkpointStore
+            ?? cloudDependencies.checkpointStore
+        let progress = cloudExecutionContext?.progress
+            ?? cloudDependencies.progress
         do {
             return try await core.transcribe(
                 sourceURL: fileURL,
@@ -486,7 +498,7 @@ class TranscriptionService {
                 plan: plan,
                 identity: identity,
                 multipart: multipart,
-                checkpointStore: cloudDependencies.checkpointStore,
+                checkpointStore: checkpointStore,
                 request: { [self] chunkURL, timeoutSeconds in
                     try await transcribeCloudFile(
                         fileURL: chunkURL,
@@ -494,7 +506,7 @@ class TranscriptionService {
                         useStructuredHTTPFailure: true
                     )
                 },
-                progress: cloudDependencies.progress
+                progress: progress
             )
         } catch let failure as CloudTranscriptionHTTPFailure {
             throw TranscriptionError.submissionFailed(Self.friendlyHTTPMessage(
@@ -748,42 +760,6 @@ class TranscriptionService {
         return error
     }
 
-    private static func normalizedBaseURL(from baseURL: String) throws -> URL {
-        let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            throw TranscriptionError.invalidBaseURL("Provider URL is empty.")
-        }
-
-        guard var components = URLComponents(string: trimmed) else {
-            throw TranscriptionError.invalidBaseURL("Provider URL is malformed.")
-        }
-
-        guard let scheme = components.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
-            throw TranscriptionError.invalidBaseURL("Provider URL must use http or https.")
-        }
-
-        guard let host = components.host, !host.isEmpty else {
-            throw TranscriptionError.invalidBaseURL("Provider URL must include a host.")
-        }
-
-        components.scheme = scheme
-        if components.path == "/" {
-            components.path = ""
-        } else {
-            components.path = components.path.replacingOccurrences(
-                of: "/+$",
-                with: "",
-                options: .regularExpression
-            )
-        }
-
-        guard let normalizedURL = components.url else {
-            throw TranscriptionError.invalidBaseURL("Provider URL is malformed.")
-        }
-
-        return normalizedURL
-    }
-
     // Whisper-large-v3 hallucinates common short phrases on silence/background
     // noise. Drop them when whisper itself reports a high no_speech_prob.
     // Add a new (phrase, minNoSpeechProb) pair here to filter more hallucinations.
@@ -874,6 +850,45 @@ class TranscriptionService {
         let normalized = collapsedWhitespace.trimmingCharacters(in: .whitespacesAndNewlines)
         let contentOnly = normalized.trimmingCharacters(in: CharacterSet.punctuationCharacters.union(.whitespacesAndNewlines))
         return contentOnly.isEmpty ? "" : normalized
+    }
+}
+
+extension TranscriptionExecutionSnapshot {
+    func makeTranscriptionService(
+        cloudDependencies: CloudTranscriptionDependencies = .live,
+        cloudExecutionContext: CloudTranscriptionExecutionContext? = nil
+    ) throws -> TranscriptionService {
+        switch self {
+        case .cloud(let cloud, _):
+            let dependencies = CloudTranscriptionDependencies(
+                encodedUploadCeilingBytes: cloud.encodedUploadCeilingBytes,
+                upload: cloudDependencies.upload,
+                checkpointStore: cloudDependencies.checkpointStore,
+                progress: cloudDependencies.progress,
+                temporaryRoot: cloudDependencies.temporaryRoot,
+                sleep: cloudDependencies.sleep
+            )
+            return try TranscriptionService(
+                apiKey: cloud.apiKey,
+                baseURL: cloud.baseURL.absoluteString,
+                useLocalTranscription: false,
+                transcriptionModel: cloud.model,
+                language: cloud.language,
+                cloudDependencies: dependencies,
+                cloudExecutionContext: cloudExecutionContext
+            )
+        case .local(let local, _):
+            return try TranscriptionService(
+                apiKey: "",
+                useLocalTranscription: true,
+                localWhisperPath: local.localWhisperPath,
+                useLegacyMlxWhisper: local.useLegacyMlxWhisper,
+                transcriptionLanguage: local.language,
+                localTranscriptionModel: local.model,
+                cloudDependencies: cloudDependencies,
+                cloudExecutionContext: nil
+            )
+        }
     }
 }
 

@@ -24,6 +24,9 @@ struct NoteListRowDisplayDataTests {
         testDegradedRecoveredRecordingNamesAvailableSource()
         testStorageInterruptionPreviewCombinesCauseAndMode()
         testTranscribingTitleAndEmptyPreview()
+        testCloudChunkProgressDisplaysActiveChunk()
+        testRestoredCloudProgressDisplaysWaitingCopy()
+        testCloudProgressCopyLocalizesInKorean()
         testRetryingItemHidesExistingPreview()
         print("NoteListRowDisplayDataTests passed")
     }
@@ -340,6 +343,87 @@ struct NoteListRowDisplayDataTests {
         assert(data.status == .transcribing)
         assert(data.displayTitle == "Transcribing...")
         assert(data.preview.isEmpty)
+    }
+
+    private static func testCloudChunkProgressDisplaysActiveChunk() {
+        let id = UUID()
+        let item = historyItem(
+            id: id,
+            transcript: "",
+            postProcessingStatus: PipelineHistoryItem.cloudTranscribingStatus
+        )
+        let progress = CloudTranscriptionDisplayProgress(
+            completedChunkCount: 2,
+            totalChunkCount: 7,
+            activeAttempt: 1
+        )
+
+        let data = NoteListRowDisplayData(
+            item: item,
+            retryingIDs: [],
+            cloudProgress: progress,
+            localization: { key, arguments in
+                key == "Transcribing %d of %d…"
+                    ? String(format: key, arguments: arguments)
+                    : key
+            }
+        )
+
+        assert(data.status == .transcribing)
+        assert(data.displayTitle == "Transcribing...")
+        assert(data.preview == "Transcribing 3 of 7…", "Unexpected progress: \(data.preview)")
+    }
+
+    private static func testRestoredCloudProgressDisplaysWaitingCopy() {
+        let item = historyItem(
+            transcript: "",
+            postProcessingStatus: PipelineHistoryItem.cloudTranscribingStatus
+        )
+        let progress = CloudTranscriptionDisplayProgress(
+            completedChunkCount: 2,
+            totalChunkCount: 7,
+            activeAttempt: nil
+        )
+
+        let data = NoteListRowDisplayData(
+            item: item,
+            retryingIDs: [],
+            cloudProgress: progress,
+            localization: { key, _ in key }
+        )
+
+        assert(data.preview == "Resuming cloud transcription…")
+    }
+
+    private static func testCloudProgressCopyLocalizesInKorean() {
+        let item = historyItem(
+            transcript: "",
+            postProcessingStatus: PipelineHistoryItem.cloudTranscribingStatus
+        )
+        let progress = CloudTranscriptionDisplayProgress(
+            completedChunkCount: 2,
+            totalChunkCount: 7,
+            activeAttempt: 2
+        )
+        let translations = [
+            "Transcribing %d of %d…": "%d/%d 청크 전사 중…",
+            "Resuming cloud transcription…": "클라우드 전사 재개 중…"
+        ]
+
+        let data = NoteListRowDisplayData(
+            item: item,
+            retryingIDs: [],
+            cloudProgress: progress,
+            localization: { key, arguments in
+                String(
+                    format: translations[key] ?? key,
+                    locale: Locale(identifier: "ko"),
+                    arguments: arguments
+                )
+            }
+        )
+
+        assert(data.preview == "3/7 청크 전사 중…")
     }
 
     private static func testRetryingItemHidesExistingPreview() {

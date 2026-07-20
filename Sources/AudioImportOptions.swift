@@ -150,6 +150,7 @@ struct AudioImportOptions {
     let legacyLocalWhisperModels: [TranscriptionModel]
     let nativeWhisperModelID: String
     let nativeWhisperDisplayName: String
+    let allowsOversizedCanonicalCloud: Bool
 
     init(
         fileExtension: String,
@@ -160,7 +161,8 @@ struct AudioImportOptions {
         hasNativeLocalWhisperModel: Bool = true,
         legacyLocalWhisperModels: [TranscriptionModel] = [],
         nativeWhisperModelID: String = Self.fallbackNativeWhisperModelID,
-        nativeWhisperDisplayName: String = Self.fallbackNativeWhisperDisplayName
+        nativeWhisperDisplayName: String = Self.fallbackNativeWhisperDisplayName,
+        allowsOversizedCanonicalCloud: Bool = false
     ) {
         self.fileExtension = fileExtension
         self.currentChoice = currentChoice
@@ -171,6 +173,7 @@ struct AudioImportOptions {
         self.legacyLocalWhisperModels = legacyLocalWhisperModels
         self.nativeWhisperModelID = nativeWhisperModelID
         self.nativeWhisperDisplayName = nativeWhisperDisplayName
+        self.allowsOversizedCanonicalCloud = allowsOversizedCanonicalCloud
     }
 
     init(
@@ -209,6 +212,10 @@ struct AudioImportOptions {
 
     var supportedChoices: [TranscriptionBackendChoice] {
         displayRows.filter(\.isAvailable).map(\.choice)
+    }
+
+    var explicitRetryChoice: TranscriptionBackendChoice? {
+        supportedChoices.contains(currentChoice) ? currentChoice : nil
     }
 
     var defaultChoice: TranscriptionBackendChoice? {
@@ -265,7 +272,11 @@ struct AudioImportOptions {
     }
 
     private var isWithinAPIUploadLimit: Bool {
-        fileSizeBytes.map { $0 <= Self.apiUploadLimitBytes } ?? true
+        fileSizeBytes.map { size in
+            size <= Self.apiUploadLimitBytes
+                || (allowsOversizedCanonicalCloud
+                    && normalizedExtension == "wav")
+        } ?? true
     }
 
     private var apiStandardDisplay: TranscriptionChoiceDisplay {

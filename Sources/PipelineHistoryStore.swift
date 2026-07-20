@@ -2,6 +2,7 @@ import Foundation
 import CoreData
 
 struct DeletedPipelineHistoryAssets {
+    let historyID: UUID
     let audioFileName: String?
     let transcriptFileName: String?
 }
@@ -153,7 +154,10 @@ final class PipelineHistoryStore {
         if let thrownError { throw thrownError }
     }
 
-    func delete(id: UUID) throws -> DeletedPipelineHistoryAssets? {
+    func delete(
+        id: UUID,
+        beforeDeleting: (DeletedPipelineHistoryAssets) -> Void = { _ in }
+    ) throws -> DeletedPipelineHistoryAssets? {
         guard isStoreLoaded else { return nil }
 
         var deletedAssets: DeletedPipelineHistoryAssets?
@@ -163,7 +167,9 @@ final class PipelineHistoryStore {
                 let request = pipelineHistoryRequest()
                 request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
                 guard let entity = try container.viewContext.fetch(request).first else { return }
-                deletedAssets = Self.deletedAssets(from: entity)
+                let assets = Self.deletedAssets(from: entity)
+                beforeDeleting(assets)
+                deletedAssets = assets
                 container.viewContext.delete(entity)
                 try saveContext()
             } catch {
@@ -174,7 +180,9 @@ final class PipelineHistoryStore {
         return deletedAssets
     }
 
-    func clearAll() throws -> [DeletedPipelineHistoryAssets] {
+    func clearAll(
+        beforeDeleting: ([DeletedPipelineHistoryAssets]) -> Void = { _ in }
+    ) throws -> [DeletedPipelineHistoryAssets] {
         guard isStoreLoaded else { return [] }
 
         var deletedAssets: [DeletedPipelineHistoryAssets] = []
@@ -185,6 +193,7 @@ final class PipelineHistoryStore {
                 request.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
                 guard let entities = try? container.viewContext.fetch(request) else { return }
                 deletedAssets = entities.map(Self.deletedAssets(from:))
+                beforeDeleting(deletedAssets)
                 for entity in entities {
                     container.viewContext.delete(entity)
                 }
@@ -197,10 +206,13 @@ final class PipelineHistoryStore {
         return deletedAssets
     }
 
-    func trim(to maxCount: Int) throws -> [DeletedPipelineHistoryAssets] {
+    func trim(
+        to maxCount: Int,
+        beforeDeleting: ([DeletedPipelineHistoryAssets]) -> Void = { _ in }
+    ) throws -> [DeletedPipelineHistoryAssets] {
         guard isStoreLoaded else { return [] }
         guard maxCount > 0 else {
-            let deletedAssets = try clearAll()
+            let deletedAssets = try clearAll(beforeDeleting: beforeDeleting)
             return deletedAssets
         }
 
@@ -213,6 +225,7 @@ final class PipelineHistoryStore {
                 guard let entities = try? container.viewContext.fetch(request), entities.count > maxCount else { return }
                 let dropped = entities[maxCount...]
                 deletedAssets = dropped.map(Self.deletedAssets(from:))
+                beforeDeleting(deletedAssets)
                 for entity in dropped {
                     container.viewContext.delete(entity)
                 }
@@ -296,6 +309,7 @@ final class PipelineHistoryStore {
 
     private static func deletedAssets(from entity: PipelineHistoryEntry) -> DeletedPipelineHistoryAssets {
         DeletedPipelineHistoryAssets(
+            historyID: entity.id,
             audioFileName: entity.audioFileName,
             transcriptFileName: entity.transcriptFileName
         )

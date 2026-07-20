@@ -24,6 +24,10 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains(".foregroundStyle(.orange.opacity(0.7))"))
         precondition(source.contains("if isRecoveredRecording {"))
         precondition(source.contains("} else if isError {"))
+        precondition(source.contains("appState.cloudTranscriptionProgressByHistoryID[item.id]"))
+        precondition(source.contains("cloudProgress: appState.cloudTranscriptionProgressByHistoryID[item.id]"))
+        precondition(source.contains("if isCloudTranscribing {"))
+        precondition(source.contains("Text(cloudProgressText)"))
 
         print("RecoveredRecordingNoteBrowserSourceTests passed")
     }

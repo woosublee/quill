@@ -16,6 +16,9 @@ struct AudioImportOptionsTests {
         testLocalWhisperStillEnabledAboveTwentyFiveMegabytes()
         testWebMDisablesNativeButAllowsInstalledLegacyImport()
         testNativeAndLegacyRowsAreShownTogether()
+        testRetryKeepsExplicitAPIChoiceWhenCanonicalWAVIsOversized()
+        testRetryDoesNotFallBackWhenExplicitAPIChoiceIsUnavailable()
+        testRetryUsesExplicitLocalChoiceWithoutCloudFallback()
         print("AudioImportOptionsTests passed")
     }
 
@@ -30,7 +33,8 @@ struct AudioImportOptionsTests {
         fileSizeBytes: Int64? = nil,
         hasAPIKey: Bool = true,
         hasNativeLocalWhisperModel: Bool = true,
-        legacyLocalWhisperModels: [TranscriptionModel] = []
+        legacyLocalWhisperModels: [TranscriptionModel] = [],
+        allowsOversizedCanonicalCloud: Bool = false
     ) -> AudioImportOptions {
         AudioImportOptions(
             fileExtension: fileExtension,
@@ -39,7 +43,8 @@ struct AudioImportOptionsTests {
             fileSizeBytes: fileSizeBytes,
             hasAPIKey: hasAPIKey,
             hasNativeLocalWhisperModel: hasNativeLocalWhisperModel,
-            legacyLocalWhisperModels: legacyLocalWhisperModels
+            legacyLocalWhisperModels: legacyLocalWhisperModels,
+            allowsOversizedCanonicalCloud: allowsOversizedCanonicalCloud
         )
     }
 
@@ -160,5 +165,49 @@ struct AudioImportOptionsTests {
         assert(options.displayRows.contains { $0.choice == nativeChoice })
         assert(options.displayRows.contains { $0.choice == .legacyMlxWhisper(model: legacyTurbo) })
         assert(options.displayRows.contains { $0.choice == .legacyMlxWhisper(model: legacyMedium) })
+    }
+
+    private static func testRetryKeepsExplicitAPIChoiceWhenCanonicalWAVIsOversized() {
+        let options = makeOptions(
+            fileExtension: "wav",
+            currentChoice: apiChoice,
+            fileSizeBytes: AudioImportOptions.apiUploadLimitBytes + 1,
+            hasAPIKey: true,
+            hasNativeLocalWhisperModel: true,
+            allowsOversizedCanonicalCloud: true
+        )
+
+        assert(options.explicitRetryChoice == apiChoice)
+        assert(options.supportedChoices.contains(apiChoice))
+    }
+
+    private static func testRetryDoesNotFallBackWhenExplicitAPIChoiceIsUnavailable() {
+        let missingKey = makeOptions(
+            currentChoice: apiChoice,
+            hasAPIKey: false,
+            hasNativeLocalWhisperModel: true
+        )
+        let nonCanonicalOversized = makeOptions(
+            fileExtension: "mp3",
+            currentChoice: apiChoice,
+            fileSizeBytes: AudioImportOptions.apiUploadLimitBytes + 1,
+            hasAPIKey: true,
+            hasNativeLocalWhisperModel: true
+        )
+
+        assert(missingKey.defaultChoice == nativeChoice)
+        assert(missingKey.explicitRetryChoice == nil)
+        assert(nonCanonicalOversized.defaultChoice == nativeChoice)
+        assert(nonCanonicalOversized.explicitRetryChoice == nil)
+    }
+
+    private static func testRetryUsesExplicitLocalChoiceWithoutCloudFallback() {
+        let options = makeOptions(
+            currentChoice: nativeChoice,
+            hasAPIKey: true,
+            hasNativeLocalWhisperModel: true
+        )
+
+        assert(options.explicitRetryChoice == nativeChoice)
     }
 }

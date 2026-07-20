@@ -677,7 +677,8 @@ struct NoteBrowserView: View {
                             NoteListRow(
                                 displayData: NoteListRowDisplayData(
                                     item: item,
-                                    retryingIDs: appState.retryingItemIDs
+                                    retryingIDs: appState.retryingItemIDs,
+                                    cloudProgress: appState.cloudTranscriptionProgressByHistoryID[item.id]
                                 ),
                                 isSelected: selectedItemID == item.id
                             )
@@ -1142,7 +1143,32 @@ private struct NoteDetailView: View {
     @State private var titleDebounceTimer: Timer?
     @State private var showDeleteConfirmation = false
 
-    private var isError: Bool { item.postProcessingStatus.hasPrefix("Error:") }
+    private var isError: Bool {
+        if case .failed = item.machineStatus { return true }
+        return false
+    }
+    private var isCloudTranscribing: Bool {
+        item.machineStatus == .cloudTranscribing
+    }
+    private var cloudProgress: CloudTranscriptionDisplayProgress? {
+        appState.cloudTranscriptionProgressByHistoryID[item.id]
+    }
+    private var cloudProgressText: String {
+        guard let cloudProgress else {
+            return localizedCatalogString("Resuming cloud transcription…")
+        }
+        guard cloudProgress.activeAttempt != nil else {
+            return localizedCatalogString("Resuming cloud transcription…")
+        }
+        return localizedCatalogFormat(
+            "Transcribing %d of %d…",
+            min(
+                cloudProgress.completedChunkCount + 1,
+                cloudProgress.totalChunkCount
+            ),
+            cloudProgress.totalChunkCount
+        )
+    }
     private var isRecoveredRecording: Bool { item.isRecoveredRecording }
     private var recoveredRecordingContext: RecoveredRecordingContext {
         item.recoveredRecordingContext ?? RecoveredRecordingContext(
@@ -1332,6 +1358,10 @@ private struct NoteDetailView: View {
     private var noteStateIndicator: some View {
         if isLiveRecording {
             LiveRecordingBadge()
+        } else if isCloudTranscribing {
+            ProgressView()
+                .controlSize(.mini)
+                .help(cloudProgressText)
         } else if isRecoveredRecording {
             Image(systemName: "arrow.clockwise.circle")
                 .font(.system(size: 10, weight: .medium))
@@ -1436,7 +1466,13 @@ private struct NoteDetailView: View {
     private var emptyContentState: some View {
         VStack(spacing: 14) {
             Spacer()
-            if isRecoveredRecording {
+            if isCloudTranscribing {
+                ProgressView()
+                    .controlSize(.regular)
+                Text(cloudProgressText)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            } else if isRecoveredRecording {
                 ZStack {
                     Circle()
                         .fill(Color.orange.opacity(0.08))

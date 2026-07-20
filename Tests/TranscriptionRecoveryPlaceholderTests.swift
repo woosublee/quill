@@ -9,6 +9,8 @@ struct TranscriptionRecoveryPlaceholderTests {
         testInterruptedPlaceholderBecomesRecoveredButKeepsAudioReference()
         testImportingItemIsIncompleteAndBecomesFailedButKeepsAudioReference()
         testLiveRecordingItemIsIncompleteAndBecomesFailedWithoutRetryAudio()
+        testCloudTranscribingStatusIsTypedAndIncomplete()
+        testCloudTranscribingPlaceholderIsNotNormalizedBeforeReconciliation()
         testCompletedItemIsNotIncomplete()
         print("TranscriptionRecoveryPlaceholderTests passed")
     }
@@ -211,10 +213,35 @@ struct TranscriptionRecoveryPlaceholderTests {
         assert(interrupted.debugStatus == "Interrupted before completion")
     }
 
+    private static func testCloudTranscribingStatusIsTypedAndIncomplete() {
+        let item = makeHistoryItem(
+            postProcessingStatus: PipelineHistoryItem.cloudTranscribingStatus,
+            audioFileName: "recording.wav"
+        )
+
+        assert(item.machineStatus == .cloudTranscribing)
+        assert(item.isIncompleteTranscription)
+        assert(!item.postProcessingStatus.hasPrefix("Error:"))
+    }
+
+    private static func testCloudTranscribingPlaceholderIsNotNormalizedBeforeReconciliation() {
+        let item = makeHistoryItem(
+            postProcessingStatus: PipelineHistoryItem.cloudTranscribingStatus,
+            audioFileName: "recording.wav"
+        )
+
+        let normalized = item.normalizedAfterProcessInterruption()
+
+        assert(normalized.postProcessingStatus == PipelineHistoryItem.cloudTranscribingStatus)
+        assert(normalized.id == item.id)
+        assert(normalized.audioFileName == item.audioFileName)
+    }
+
     private static func testCompletedItemIsNotIncomplete() {
         let item = makeHistoryItem(postProcessingStatus: "Post-processing succeeded", audioFileName: "recording.wav")
 
         assert(!item.isIncompleteTranscription)
+        assert(item.machineStatus == .completed)
     }
 
     private static func makeHistoryItem(postProcessingStatus: String, audioFileName: String?) -> PipelineHistoryItem {

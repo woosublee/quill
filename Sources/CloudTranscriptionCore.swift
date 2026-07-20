@@ -83,6 +83,13 @@ protocol CloudTranscriptionCheckpointStore: Sendable {
     ) async throws
 }
 
+protocol CloudTranscriptionCheckpointPreparing: Sendable {
+    func prepare(
+        identity: CloudTranscriptionJobIdentity,
+        plan: CloudTranscriptionChunkPlan
+    ) async throws
+}
+
 actor InMemoryCloudTranscriptionCheckpointStore: CloudTranscriptionCheckpointStore {
     private var checkpoint: CloudTranscriptionCheckpoint?
     private(set) var failureCategory: CloudTranscriptionFailureCategory?
@@ -264,6 +271,10 @@ struct CloudTranscriptionCore: Sendable {
             throw CloudTranscriptionChunkingError.invalidChunkPlan
         }
 
+        if let preparingStore = checkpointStore
+            as? any CloudTranscriptionCheckpointPreparing {
+            try await preparingStore.prepare(identity: identity, plan: plan)
+        }
         let loadedCheckpoint = try await checkpointStore.loadCompatible(
             identity: identity
         )

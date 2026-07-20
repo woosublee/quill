@@ -4,14 +4,29 @@ enum TranscriptStatus: Equatable {
     case done, recording, transcribing, recovered, fail
 }
 
+struct CloudTranscriptionDisplayProgress: Equatable, Sendable {
+    let completedChunkCount: Int
+    let totalChunkCount: Int
+    let activeAttempt: Int?
+}
+
 func transcriptStatus(for item: PipelineHistoryItem, retrying: Set<UUID>) -> TranscriptStatus {
     if retrying.contains(item.id) { return .transcribing }
-    if item.postProcessingStatus == "live-recording" { return .recording }
-    if item.postProcessingStatus == "importing" { return .transcribing }
-    if item.isRecoveredRecording { return .recovered }
-    if item.postProcessingStatus == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus { return .transcribing }
-    if item.postProcessingStatus.hasPrefix("Error:") { return .fail }
-    return .done
+    switch item.machineStatus {
+    case .liveRecording:
+        return .recording
+    case .importing, .cloudTranscribing:
+        return .transcribing
+    case .recovered:
+        return .recovered
+    case .failed:
+        return .fail
+    case .completed:
+        return item.postProcessingStatus
+            == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus
+            ? .transcribing
+            : .done
+    }
 }
 
 enum NoteTimestampFormatter {
@@ -56,7 +71,22 @@ struct NoteListRowDisplayData: Equatable {
     let displayTitle: String
     let preview: String
 
-    init(item: PipelineHistoryItem, retryingIDs: Set<UUID>, locale: Locale = .current) {
+    init(
+        item: PipelineHistoryItem,
+        retryingIDs: Set<UUID>,
+        cloudProgress: CloudTranscriptionDisplayProgress? = nil,
+        locale: Locale = .current,
+        localization: (
+            _ key: String,
+            _ arguments: [CVarArg]
+        ) -> String = { key, arguments in
+            String(
+                format: localizedCatalogString(key),
+                locale: .current,
+                arguments: arguments
+            )
+        }
+    ) {
         let status = transcriptStatus(for: item, retrying: retryingIDs)
         let trimmedCustomTitle = item.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
         let customTitle = trimmedCustomTitle?.isEmpty == true ? nil : trimmedCustomTitle
@@ -75,7 +105,9 @@ struct NoteListRowDisplayData: Equatable {
             status: status,
             content: content,
             customTitle: customTitle,
-            displayTitle: displayTitle
+            displayTitle: displayTitle,
+            cloudProgress: cloudProgress,
+            localization: localization
         )
     }
 
@@ -84,7 +116,12 @@ struct NoteListRowDisplayData: Equatable {
         status: TranscriptStatus,
         content: String,
         customTitle: String?,
-        displayTitle: String
+        displayTitle: String,
+        cloudProgress: CloudTranscriptionDisplayProgress?,
+        localization: (
+            _ key: String,
+            _ arguments: [CVarArg]
+        ) -> String
     ) -> String {
         if status == .fail {
             return String(item.postProcessingStatus.dropFirst("Error:".count))
@@ -94,7 +131,21 @@ struct NoteListRowDisplayData: Equatable {
             return item.recoveredRecordingContext?.localizedDescription() ?? ""
         }
         if status == .transcribing {
-            return ""
+            guard item.machineStatus == .cloudTranscribing,
+                  let cloudProgress else {
+                return ""
+            }
+            guard cloudProgress.activeAttempt != nil else {
+                return localization("Resuming cloud transcription…", [])
+            }
+            let activeChunkNumber = min(
+                cloudProgress.completedChunkCount + 1,
+                cloudProgress.totalChunkCount
+            )
+            return localization(
+                "Transcribing %d of %d…",
+                [activeChunkNumber, cloudProgress.totalChunkCount]
+            )
         }
         if customTitle != nil || item.calendarMatch?.appliedTitle != nil {
             return String(content.prefix(100))
