@@ -1811,7 +1811,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let disableAutoPaste = UserDefaults.standard.bool(forKey: disableAutoPasteStorageKey)
         let disablePostProcessing = UserDefaults.standard.bool(forKey: disablePostProcessingStorageKey)
         let preserveExactWording = UserDefaults.standard.bool(forKey: preserveExactWordingStorageKey)
-        let noteBrowserEnabled = UserDefaults.standard.bool(forKey: noteBrowserEnabledStorageKey)
+        let noteBrowserEnabled = UserDefaults.standard.object(forKey: noteBrowserEnabledStorageKey) == nil
+            ? true
+            : UserDefaults.standard.bool(forKey: noteBrowserEnabledStorageKey)
         let transcriptionLanguage = TranscriptionLanguage.find(
             code: UserDefaults.standard.string(forKey: transcriptionLanguageStorageKey) ?? "ko"
         )
