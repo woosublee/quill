@@ -165,6 +165,10 @@ enum NoteFileExporter {
                 failures.append(
                     NoteFileExportFailure(item: item, reason: .sourceMissing)
                 )
+            } catch ExportWriteError.destinationExists {
+                failures.append(
+                    NoteFileExportFailure(item: item, reason: .destinationExists)
+                )
             } catch {
                 failures.append(
                     NoteFileExportFailure(item: item, reason: .writeFailed)
@@ -178,8 +182,9 @@ enum NoteFileExporter {
         )
     }
 
-    private enum ExportWriteError: Error {
+    enum ExportWriteError: Error, Equatable {
         case sourceMissing
+        case destinationExists
     }
 
     private static func installData(
@@ -212,13 +217,15 @@ enum NoteFileExporter {
         )
     }
 
-    private static func installPreparedFile(
+    static func installPreparedFile(
         _ prepared: URL,
         at destination: URL,
         replaceExisting: Bool
     ) throws {
         if FileManager.default.fileExists(atPath: destination.path) {
-            guard replaceExisting else { return }
+            guard replaceExisting else {
+                throw ExportWriteError.destinationExists
+            }
             _ = try FileManager.default.replaceItemAt(
                 destination,
                 withItemAt: prepared

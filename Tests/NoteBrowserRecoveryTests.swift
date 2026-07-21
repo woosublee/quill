@@ -99,6 +99,7 @@ struct NoteBrowserRecoveryTests {
         precondition(presentation.title == "Ready to retry transcription")
         precondition(presentation.detailsRows.isEmpty)
         precondition(presentation.recoveryAction == .retryTranscription)
+        precondition(presentation.severity == .warning)
     }
 
     private static func testMissingAudioKeepsGenericIssuePresentation() {

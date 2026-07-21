@@ -141,10 +141,18 @@ struct NoteFileExportView: View {
                 Button("Cancel") { onDismiss() }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button(saveButtonTitle) { prepareSave() }
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!canSave || isSaving)
+                Button(action: { prepareSave() }) {
+                    HStack(spacing: 6) {
+                        if isSaving {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Text(saveButtonTitle)
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .disabled(!canSave || isSaving)
             }
         }
         .padding(24)
@@ -263,8 +271,10 @@ struct NoteFileExportView: View {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.prompt = String(localized: "Choose")
-        panel.message = String(localized: "Choose a folder for the exported files.")
+        panel.prompt = localizedCatalogString("Choose")
+        panel.message = localizedCatalogString(
+            "Choose a folder for the exported files."
+        )
         panel.directoryURL = destinationDirectory
         if panel.runModal() == .OK, let url = panel.url {
             destinationDirectory = url

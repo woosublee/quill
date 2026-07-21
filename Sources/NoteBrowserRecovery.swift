@@ -67,7 +67,7 @@ enum NoteBrowserRecoveryPresentation {
                 ),
                 detailsRows: [],
                 recoveryAction: .retryTranscription,
-                severity: original.severity
+                severity: .warning
             )
         case .needsModelSetup:
             return QuillUserIssuePresentation(

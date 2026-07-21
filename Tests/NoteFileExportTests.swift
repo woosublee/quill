@@ -7,6 +7,7 @@ struct NoteFileExportTests {
         try testDestinationNamesPreserveAudioExtension()
         try testExportsTranscriptAndAudio()
         try testConflictDoesNotOverwriteWithoutConsent()
+        try testPreparedFileReportsLateConflict()
         try testReplaceOverwritesExistingFile()
         try testPartialFailureKeepsSuccessfulTranscript()
         print("NoteFileExportTests passed")
@@ -98,6 +99,28 @@ struct NoteFileExportTests {
             NoteFileExportFailure(item: .transcript, reason: .destinationExists)
         ])
         precondition(existingContent == "old")
+    }
+
+    private static func testPreparedFileReportsLateConflict() throws {
+        let root = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let prepared = root.appendingPathComponent("prepared.tmp")
+        let destination = root.appendingPathComponent("Meeting.txt")
+        try "new".write(to: prepared, atomically: true, encoding: .utf8)
+        try "old".write(to: destination, atomically: true, encoding: .utf8)
+
+        do {
+            try NoteFileExporter.installPreparedFile(
+                prepared,
+                at: destination,
+                replaceExisting: false
+            )
+            preconditionFailure("Expected a late destination conflict")
+        } catch let error as NoteFileExporter.ExportWriteError {
+            precondition(error == .destinationExists)
+        }
+        let destinationContent = try String(contentsOf: destination, encoding: .utf8)
+        precondition(destinationContent == "old")
     }
 
     private static func testReplaceOverwritesExistingFile() throws {
