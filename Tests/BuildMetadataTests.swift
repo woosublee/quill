@@ -10,6 +10,7 @@ struct BuildMetadataTests {
         try testMakefileCopiesSelectedIconToBundleIconName()
         try testMakefileBundlesLocalizationResources()
         try testMakefileBuildsAppBundleForLocalizationValidation()
+        try testTranscriptionShardBuildsLocalizationResources()
         try testTestsWorkflowRunsRequiredChecksInParallel()
         try testMakefileStripsExtendedAttributesDuringCodesignStaging()
         try testMakefileStripsExtendedAttributesDuringDmgStaging()
@@ -117,6 +118,15 @@ struct BuildMetadataTests {
         assertDoesNotContain(makefile, "/tmp/LocalizationResourceTests")
         assertDoesNotContain(makefile, "Quill Localization Test.app")
         assertDoesNotContain(makefile, "PlaceholderFixtures.strings")
+    }
+
+    private static func testTranscriptionShardBuildsLocalizationResources() throws {
+        let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
+
+        assertContains(
+            makefile,
+            "_test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP)"
+        )
     }
 
     private static func testTestsWorkflowRunsRequiredChecksInParallel() throws {
