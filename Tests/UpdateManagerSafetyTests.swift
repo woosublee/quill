@@ -100,7 +100,7 @@ struct UpdateManagerSafetyTests {
         let setupView = try String(contentsOfFile: "Sources/SetupView.swift", encoding: .utf8)
         let settingsView = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
 
-        let setupWelcomeStep = extract(setupView, from: "var welcomeStep: some View", to: "var apiKeyStep: some View")
+        let setupWelcomeStep = extract(setupView, from: "var welcomeStep: some View", to: "var processingStep: some View")
         let settingsHeader = extract(
             settingsView,
             from: "Image(nsImage: NSApp.applicationIconImage)",

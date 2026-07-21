@@ -82,36 +82,13 @@ struct SystemAudioAppStateRoutingTests {
             "System Default + System Audio error text should describe both required permissions"
         )
 
-        precondition(setupSource.contains("@State private var testSystemAudioRecorder: SystemAudioRecorder? = nil"))
-        precondition(setupSource.contains("@State private var testSystemDefaultAndSystemAudioRecorder: SystemDefaultAndSystemAudioRecorder? = nil"))
-        precondition(setupSource.contains("case idle, starting, recording"))
-        precondition(setupSource.contains("Picker(\"Input:\""))
-        precondition(setupSource.contains("AudioInputDevice.isSystemDefaultAndSystemAudio(appState.selectedMicrophoneID)"))
-        precondition(setupSource.contains("startSystemDefaultAndSystemAudioTestRecording()"))
-        precondition(setupSource.contains("AudioInputDevice.isSystemAudio(appState.selectedMicrophoneID)"))
-        precondition(setupSource.contains("let microphoneRecorder = AudioRecorder()"))
-        precondition(setupSource.contains("let systemAudioRecorder = SystemAudioRecorder()"))
-        precondition(setupSource.contains("let recorder = SystemAudioRecorder()"))
-        precondition(setupSource.contains("let recorder = SystemDefaultAndSystemAudioRecorder("))
-        precondition(setupSource.contains("try await recorder.startRecording()"))
-        precondition(setupSource.contains("testSystemAudioRecorder = recorder"))
-        precondition(setupSource.contains("testSystemAudioRecorder?.stopRecording"))
-        precondition(setupSource.contains("testSystemDefaultAndSystemAudioRecorder?.stopRecording"))
-        precondition(setupSource.contains("testPhase == .starting"))
-        precondition(setupSource.contains("guard testPhase == .starting else { return }"))
-        precondition(setupSource.contains("testSystemAudioRecorder?.cancelRecording()"))
-        precondition(setupSource.contains("testSystemAudioRecorder?.cleanup()"))
-        precondition(setupSource.contains("testSystemDefaultAndSystemAudioRecorder?.cancelRecording()"))
-        precondition(setupSource.contains("testSystemDefaultAndSystemAudioRecorder = nil"))
-        precondition(setupSource.contains("private func clearTestRecordingState()"))
-        precondition(setupSource.contains("testAudioLevelCancellable?.cancel()\n        testAudioLevelCancellable = nil\n        testAudioLevel = 0.0\n        testHotkeyHarness.isTranscribing = false"))
-        precondition(countOccurrences(of: "clearTestRecordingState()", in: setupSource) >= 2)
+        precondition(!setupSource.contains("testSystemAudioRecorder"))
+        precondition(!setupSource.contains("testSystemDefaultAndSystemAudioRecorder"))
+        precondition(!setupSource.contains("Picker(\"Input:\""))
+        precondition(!setupSource.contains("startSystemDefaultAndSystemAudioTestRecording()"))
+        precondition(!setupSource.contains("testTranscriptionStep"))
 
         print("SystemAudioAppStateRoutingTests passed")
-    }
-
-    private static func countOccurrences(of needle: String, in text: String) -> Int {
-        text.components(separatedBy: needle).count - 1
     }
 
     private static func functionBody(named name: String, in text: String) throws -> String {

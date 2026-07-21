@@ -39,6 +39,40 @@ struct LocalizationResourceTests {
         assert(continueKorean == "계속")
         assert(settingsKorean == "설정...")
         assert(startDictatingKorean == "받아쓰기 시작")
+
+        let onboardingKorean: [String: String] = [
+            "Meet Quill": "Quill을 만나보세요",
+            "Choose how Quill works": "Quill의 작동 방식을 선택하세요",
+            "On this Mac": "이 Mac에서",
+            "Allow Quill to work": "Quill이 작동하도록 허용하세요",
+            "Choose your shortcut": "단축키를 선택하세요",
+            "You're ready": "준비가 완료되었습니다",
+            "Processing": "처리",
+            "Shortcut": "단축키",
+            "Optional permissions": "선택 권한",
+            "The download continues in the background while Quill is running.":
+                "Quill이 실행되는 동안 다운로드가 백그라운드에서 계속됩니다.",
+            "Whisper will become active when the download finishes.":
+                "다운로드가 끝나면 Whisper가 활성화됩니다.",
+            "Download continues in the background. Select Whisper after installation.":
+                "다운로드가 백그라운드에서 계속됩니다. 설치 후 Whisper를 선택하세요.",
+            "Enable at least one recording shortcut to continue.":
+                "계속하려면 녹음 단축키를 하나 이상 활성화하세요.",
+            "Hold to Talk": "길게 눌러 말하기",
+            "Tap to Toggle": "눌러서 전환",
+            "Quit while Local Whisper is downloading?":
+                "Local Whisper를 다운로드하는 중에 종료할까요?",
+            "Quill will cancel the download and delete the partial file if you quit now.":
+                "지금 종료하면 Quill이 다운로드를 취소하고 partial 파일을 삭제합니다.",
+            "Quit and Cancel Download": "종료하고 다운로드 취소"
+        ]
+        for (key, expected) in onboardingKorean {
+            let english = try localizedValue(key: key, language: "en", root: root)
+            let korean = try localizedValue(key: key, language: "ko", root: root)
+            assert(english == key)
+            assert(korean == expected)
+        }
+
         let cloudProgressEnglish = try localizedValue(
             key: "Transcribing %d of %d…",
             language: "en",

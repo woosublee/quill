@@ -71,6 +71,12 @@ struct AppStateTranscriptionConfigurationTests {
         try testAudioImportSheetUsesChoiceDisplayRows()
         await testNoteBrowserTranscriptionChoiceDisplayIncludesResolvedModels()
         try testNoteBrowserTranscriptionChoiceSetterUpdatesLocalBackend()
+        await testNativeWhisperInstallLeavesAppleActiveUntilCompletion()
+        await testNativeWhisperInstallAutoSelectsOnSuccess()
+        await testExplicitBackendChoiceCancelsAutoSelectionOnly()
+        await testNativeWhisperCancellationClearsAutoSelection()
+        await testSetupProcessingPresetsPreserveProviderConfiguration()
+        try testSetupProcessingPresetUsesExistingChoiceSetter()
         try testNormalizationGuardsStayInsideMainActorIsolation()
         await testAPITranscriptionModesRequireResolvedAPIKey()
         try testSettingsModelFirstTranscriptionUsesExistingChoiceSetter()
@@ -963,6 +969,242 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(legacyBranch.contains("update(\\AppState.localTranscriptionModel, to: model)"))
         precondition(legacyBranch.contains("update(\\AppState.useLegacyMlxWhisper, to: true)"))
         precondition(legacyBranch.contains("update(\\AppState.showLegacyMlxWhisperOptions, to: true)"))
+    }
+
+    private final class NativeWhisperInstallHarness: @unchecked Sendable {
+        var progress: ((NativeWhisperDownloadProgress) -> Void)?
+        var completion: ((Result<Void, NativeWhisperInstallerError>) -> Void)?
+        private(set) var task = NativeWhisperInstallTask()
+
+        func start(
+            model: NativeWhisperModel,
+            progress: @escaping (NativeWhisperDownloadProgress) -> Void,
+            completion: @escaping (Result<Void, NativeWhisperInstallerError>) -> Void
+        ) -> NativeWhisperInstallTask {
+            self.progress = progress
+            self.completion = completion
+            return task
+        }
+    }
+
+    private static func testNativeWhisperInstallLeavesAppleActiveUntilCompletion() async {
+        resetDefaults()
+        let harness = NativeWhisperInstallHarness()
+        let originalStarter = AppState.nativeWhisperInstallStarter
+        let originalStatus = AppState.nativeWhisperInstallStatusProvider
+        AppState.nativeWhisperInstallStarter = harness.start
+        AppState.nativeWhisperInstallStatusProvider = { _ in .notInstalled }
+        defer {
+            AppState.nativeWhisperInstallStarter = originalStarter
+            AppState.nativeWhisperInstallStatusProvider = originalStatus
+        }
+
+        await MainActor.run {
+            let appState = AppState()
+            appState.setNoteBrowserTranscriptionChoice(.appleLive)
+            appState.installNativeWhisperModel(autoSelectWhenReady: true)
+
+            precondition(appState.currentNoteBrowserTranscriptionChoice == .appleLive)
+            precondition(appState.willAutoSelectNativeWhisperWhenReady)
+            precondition(appState.isInstallingNativeWhisper)
+        }
+    }
+
+    private static func testNativeWhisperInstallAutoSelectsOnSuccess() async {
+        resetDefaults()
+        let harness = NativeWhisperInstallHarness()
+        let originalStarter = AppState.nativeWhisperInstallStarter
+        let originalStatus = AppState.nativeWhisperInstallStatusProvider
+        AppState.nativeWhisperInstallStarter = harness.start
+        AppState.nativeWhisperInstallStatusProvider = { _ in .notInstalled }
+        defer {
+            AppState.nativeWhisperInstallStarter = originalStarter
+            AppState.nativeWhisperInstallStatusProvider = originalStatus
+        }
+
+        let appState = await MainActor.run { () -> AppState in
+            let appState = AppState()
+            appState.setNoteBrowserTranscriptionChoice(.appleLive)
+            appState.installNativeWhisperModel(autoSelectWhenReady: true)
+            return appState
+        }
+
+        AppState.nativeWhisperInstallStatusProvider = { _ in .ready }
+        harness.completion?(.success(()))
+        await waitUntil { !appState.isInstallingNativeWhisper }
+
+        await MainActor.run {
+            precondition(
+                appState.currentNoteBrowserTranscriptionChoice
+                    == .nativeWhisper(modelID: NativeWhisperModelCatalog.recommended.id)
+            )
+            precondition(!appState.willAutoSelectNativeWhisperWhenReady)
+        }
+    }
+
+    private static func testExplicitBackendChoiceCancelsAutoSelectionOnly() async {
+        resetDefaults()
+        let harness = NativeWhisperInstallHarness()
+        let originalStarter = AppState.nativeWhisperInstallStarter
+        let originalStatus = AppState.nativeWhisperInstallStatusProvider
+        AppState.nativeWhisperInstallStarter = harness.start
+        AppState.nativeWhisperInstallStatusProvider = { _ in .notInstalled }
+        defer {
+            AppState.nativeWhisperInstallStarter = originalStarter
+            AppState.nativeWhisperInstallStatusProvider = originalStatus
+        }
+
+        let appState = await MainActor.run { () -> AppState in
+            let appState = AppState()
+            appState.apiKey = "test-api-key"
+            appState.setNoteBrowserTranscriptionChoice(.appleLive)
+            appState.installNativeWhisperModel(autoSelectWhenReady: true)
+            appState.cancelNativeWhisperAutoSelection()
+            appState.setNoteBrowserTranscriptionChoice(.apiStandard(modelID: "custom-model"))
+
+            precondition(appState.isInstallingNativeWhisper)
+            precondition(!appState.willAutoSelectNativeWhisperWhenReady)
+            return appState
+        }
+
+        AppState.nativeWhisperInstallStatusProvider = { _ in .ready }
+        harness.completion?(.success(()))
+        await waitUntil { !appState.isInstallingNativeWhisper }
+
+        await MainActor.run {
+            precondition(
+                appState.currentNoteBrowserTranscriptionChoice
+                    == .apiStandard(modelID: "custom-model")
+            )
+            precondition(!appState.willAutoSelectNativeWhisperWhenReady)
+        }
+    }
+
+    private static func testNativeWhisperCancellationClearsAutoSelection() async {
+        resetDefaults()
+        let harness = NativeWhisperInstallHarness()
+        let originalStarter = AppState.nativeWhisperInstallStarter
+        let originalStatus = AppState.nativeWhisperInstallStatusProvider
+        AppState.nativeWhisperInstallStarter = harness.start
+        AppState.nativeWhisperInstallStatusProvider = { _ in .notInstalled }
+        defer {
+            AppState.nativeWhisperInstallStarter = originalStarter
+            AppState.nativeWhisperInstallStatusProvider = originalStatus
+        }
+
+        await MainActor.run {
+            let appState = AppState()
+            appState.setNoteBrowserTranscriptionChoice(.appleLive)
+            appState.installNativeWhisperModel(autoSelectWhenReady: true)
+            precondition(appState.willAutoSelectNativeWhisperWhenReady)
+
+            appState.cancelNativeWhisperInstall()
+
+            precondition(!appState.willAutoSelectNativeWhisperWhenReady)
+            precondition(appState.nativeWhisperInstallProgress.isCancelled)
+        }
+    }
+
+    private static func testSetupProcessingPresetsPreserveProviderConfiguration() async {
+        resetDefaults()
+        let originalProvider = AppState.nativeWhisperInstallStatusProvider
+        AppState.nativeWhisperInstallStatusProvider = { _ in .ready }
+        defer { AppState.nativeWhisperInstallStatusProvider = originalProvider }
+
+        await MainActor.run {
+            let appState = AppState()
+            appState.apiKey = "shared-api-key"
+            appState.apiBaseURL = "https://provider.example.com/openai/v1"
+            appState.transcriptionAPIKey = "transcription-override"
+            appState.transcriptionAPIURL = "https://transcription.example.com/v1"
+            appState.transcriptionModel = "custom-transcription-model"
+            appState.postProcessingModel = "custom-post-processing-model"
+            appState.postProcessingFallbackModel = "custom-fallback-model"
+            appState.contextModel = "custom-context-model"
+            appState.customVocabulary = "preserve this"
+            appState.holdShortcut = .disabled
+
+            let expectedProviderState = (
+                apiKey: appState.apiKey,
+                apiBaseURL: appState.apiBaseURL,
+                transcriptionAPIKey: appState.transcriptionAPIKey,
+                transcriptionAPIURL: appState.transcriptionAPIURL,
+                transcriptionModel: appState.transcriptionModel,
+                postProcessingModel: appState.postProcessingModel,
+                postProcessingFallbackModel: appState.postProcessingFallbackModel,
+                contextModel: appState.contextModel,
+                customVocabulary: appState.customVocabulary,
+                holdShortcut: appState.holdShortcut
+            )
+
+            appState.applySetupProcessingPreset(.localAppleSpeech)
+            precondition(appState.currentNoteBrowserTranscriptionChoice == .appleLive)
+            precondition(appState.disablePostProcessing)
+            precondition(appState.disableContextCapture)
+            assertProviderState(appState, equals: expectedProviderState)
+
+            appState.applySetupProcessingPreset(.localNativeWhisper)
+            precondition(
+                appState.currentNoteBrowserTranscriptionChoice
+                    == .nativeWhisper(modelID: NativeWhisperModelCatalog.recommended.id)
+            )
+            precondition(appState.disablePostProcessing)
+            precondition(appState.disableContextCapture)
+            assertProviderState(appState, equals: expectedProviderState)
+
+            appState.applySetupProcessingPreset(.apiStandard)
+            precondition(
+                appState.currentNoteBrowserTranscriptionChoice
+                    == .apiStandard(modelID: "custom-transcription-model")
+            )
+            precondition(!appState.disablePostProcessing)
+            precondition(!appState.disableContextCapture)
+            assertProviderState(appState, equals: expectedProviderState)
+        }
+    }
+
+    private static func assertProviderState(
+        _ appState: AppState,
+        equals expected: (
+            apiKey: String,
+            apiBaseURL: String,
+            transcriptionAPIKey: String,
+            transcriptionAPIURL: String,
+            transcriptionModel: String,
+            postProcessingModel: String,
+            postProcessingFallbackModel: String,
+            contextModel: String,
+            customVocabulary: String,
+            holdShortcut: ShortcutBinding
+        )
+    ) {
+        precondition(appState.apiKey == expected.apiKey)
+        precondition(appState.apiBaseURL == expected.apiBaseURL)
+        precondition(appState.transcriptionAPIKey == expected.transcriptionAPIKey)
+        precondition(appState.transcriptionAPIURL == expected.transcriptionAPIURL)
+        precondition(appState.transcriptionModel == expected.transcriptionModel)
+        precondition(appState.postProcessingModel == expected.postProcessingModel)
+        precondition(appState.postProcessingFallbackModel == expected.postProcessingFallbackModel)
+        precondition(appState.contextModel == expected.contextModel)
+        precondition(appState.customVocabulary == expected.customVocabulary)
+        precondition(appState.holdShortcut == expected.holdShortcut)
+    }
+
+    private static func testSetupProcessingPresetUsesExistingChoiceSetter() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let body = sourceBlock(
+            in: source,
+            from: "func applySetupProcessingPreset(_ preset: SetupFlow.ProcessingPreset)",
+            to: "\n\n    private func scheduleNoteBrowserTranscriptionModeNormalizationForSelectedInput()"
+        )
+
+        precondition(body.contains("setNoteBrowserTranscriptionChoice(.appleLive)"))
+        precondition(body.contains("setNoteBrowserTranscriptionChoice("))
+        precondition(body.contains(".nativeWhisper(modelID: NativeWhisperModelCatalog.recommended.id)"))
+        precondition(body.contains(".apiStandard(modelID: transcriptionModel)"))
+        precondition(!body.contains("apiKey = \"\""))
+        precondition(!body.contains("transcriptionAPIKey = \"\""))
+        precondition(!body.contains("transcriptionAPIURL = \"\""))
     }
 
     private static func testNormalizationGuardsStayInsideMainActorIsolation() throws {

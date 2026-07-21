@@ -329,6 +329,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
     static var nativeWhisperInstallStatusProvider: (NativeWhisperModel) -> NativeWhisperInstallStatus = { model in
         NativeWhisperModelStore().installStatus(for: model)
     }
+    static var nativeWhisperInstallStarter: (
+        NativeWhisperModel,
+        @escaping (NativeWhisperDownloadProgress) -> Void,
+        @escaping (Result<Void, NativeWhisperInstallerError>) -> Void
+    ) -> NativeWhisperInstallTask = { model, progress, completion in
+        NativeWhisperInstaller().install(
+            model: model,
+            progress: progress,
+            completion: completion
+        )
+    }
 
     private struct TranscriptionJob {
         let id: UUID
@@ -821,8 +832,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var isInstallingNativeWhisper = false
     @Published private(set) var nativeWhisperInstallError: String?
     @Published private(set) var nativeWhisperInstallIssue: QuillUserIssueRecord?
+    @Published private(set) var pendingNativeWhisperAutoSelectionModelID: String?
     private var nativeWhisperInstallTask: NativeWhisperInstallTask?
     private var nativeWhisperInstallCancellationMessage: String?
+
+    var willAutoSelectNativeWhisperWhenReady: Bool {
+        pendingNativeWhisperAutoSelectionModelID != nil
+    }
 
     @MainActor
     var noteBrowserTranscriptionModeLabel: String {
@@ -1026,68 +1042,75 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
-    func installNativeWhisperModel() {
+    func installNativeWhisperModel(autoSelectWhenReady: Bool = true) {
         guard !isInstallingNativeWhisper else { return }
         let model = NativeWhisperModelCatalog.recommended
+        if autoSelectWhenReady {
+            pendingNativeWhisperAutoSelectionModelID = model.id
+        }
         nativeWhisperInstallError = nil
         nativeWhisperInstallIssue = nil
         nativeWhisperInstallCancellationMessage = nil
         isInstallingNativeWhisper = true
         nativeWhisperInstallProgress = NativeWhisperDownloadProgress(downloadedBytes: 0, totalBytes: model.approximateBytes)
-        let installer = NativeWhisperInstaller()
-        nativeWhisperInstallTask = installer.install(
-            model: model,
-            progress: { [weak self] progress in
+        nativeWhisperInstallTask = Self.nativeWhisperInstallStarter(
+            model,
+            { [weak self] progress in
                 DispatchQueue.main.async {
                     self?.nativeWhisperInstallProgress = progress
                 }
             },
-            completion: { [weak self] result in
+            { [weak self] result in
                 DispatchQueue.main.async {
-                    guard let self else { return }
-                    self.nativeWhisperInstallTask = nil
-                    self.isInstallingNativeWhisper = false
-                    self.refreshNativeWhisperInstallStatus()
-                    if case .failure(let error) = result {
-                        switch error {
-                        case .cancelled:
-                            self.nativeWhisperInstallError = self.nativeWhisperInstallCancellationMessage
-                            self.nativeWhisperInstallCancellationMessage = nil
-                        default:
-                            self.nativeWhisperInstallIssue = QuillUserIssueRecord(
-                                code: .localModelMissing,
-                                context: QuillUserIssueContext(
-                                    modelID: model.id,
-                                    localBackend: "Native Whisper"
-                                )
-                            )
-                        }
-                    }
+                    self?.finishNativeWhisperInstall(model: model, result: result)
                 }
             }
         )
     }
 
     @MainActor
+    private func finishNativeWhisperInstall(
+        model: NativeWhisperModel,
+        result: Result<Void, NativeWhisperInstallerError>
+    ) {
+        nativeWhisperInstallTask = nil
+        isInstallingNativeWhisper = false
+        refreshNativeWhisperInstallStatus()
+
+        switch result {
+        case .success:
+            if pendingNativeWhisperAutoSelectionModelID == model.id {
+                setNoteBrowserTranscriptionChoice(.nativeWhisper(modelID: model.id))
+            }
+            pendingNativeWhisperAutoSelectionModelID = nil
+        case .failure(.cancelled):
+            pendingNativeWhisperAutoSelectionModelID = nil
+            nativeWhisperInstallError = nativeWhisperInstallCancellationMessage
+            nativeWhisperInstallCancellationMessage = nil
+        case .failure:
+            pendingNativeWhisperAutoSelectionModelID = nil
+            nativeWhisperInstallIssue = QuillUserIssueRecord(
+                code: .localModelMissing,
+                context: QuillUserIssueContext(
+                    modelID: model.id,
+                    localBackend: "Native Whisper"
+                )
+            )
+        }
+    }
+
+    @MainActor
+    func cancelNativeWhisperAutoSelection() {
+        pendingNativeWhisperAutoSelectionModelID = nil
+    }
+
+    @MainActor
     func cancelNativeWhisperInstall() {
+        pendingNativeWhisperAutoSelectionModelID = nil
         nativeWhisperInstallCancellationMessage = nil
         nativeWhisperInstallTask?.cancel()
         let model = NativeWhisperModelCatalog.recommended
         try? NativeWhisperModelStore().deletePartialModel(model)
-        nativeWhisperInstallProgress = NativeWhisperDownloadProgress(
-            downloadedBytes: nativeWhisperInstallProgress.downloadedBytes,
-            totalBytes: nativeWhisperInstallProgress.totalBytes,
-            isCancelled: true
-        )
-        refreshNativeWhisperInstallStatus()
-    }
-
-    @MainActor
-    func cancelNativeWhisperInstallForSettingsClose() {
-        guard isInstallingNativeWhisper else { return }
-        nativeWhisperInstallCancellationMessage = "Local Whisper download was canceled because Settings was closed. Start the install again when you're ready."
-        nativeWhisperInstallTask?.cancel()
-        try? NativeWhisperModelStore().deletePartialModel(.recommended)
         nativeWhisperInstallProgress = NativeWhisperDownloadProgress(
             downloadedBytes: nativeWhisperInstallProgress.downloadedBytes,
             totalBytes: nativeWhisperInstallProgress.totalBytes,
@@ -1185,6 +1208,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func setNoteBrowserTranscriptionChoice(_ choice: TranscriptionBackendChoice) {
         applyNoteBrowserTranscriptionChoice(normalizedNoteBrowserTranscriptionChoice(choice))
+    }
+
+    @MainActor
+    func applySetupProcessingPreset(_ preset: SetupFlow.ProcessingPreset) {
+        switch preset {
+        case .localAppleSpeech:
+            setNoteBrowserTranscriptionChoice(.appleLive)
+            disablePostProcessing = true
+            disableContextCapture = true
+        case .localNativeWhisper:
+            setNoteBrowserTranscriptionChoice(
+                .nativeWhisper(modelID: NativeWhisperModelCatalog.recommended.id)
+            )
+            disablePostProcessing = true
+            disableContextCapture = true
+        case .apiStandard:
+            setNoteBrowserTranscriptionChoice(
+                .apiStandard(modelID: transcriptionModel)
+            )
+            disablePostProcessing = false
+            disableContextCapture = false
+        }
     }
 
     private func scheduleNoteBrowserTranscriptionModeNormalizationForSelectedInput() {
@@ -1619,6 +1664,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var isCalendarRecordingReminderSchedulerActive = false
     private var hasShownScreenshotPermissionAlert = false
     private var isEscapeCancelAlertPresented = false
+    private var isNativeWhisperQuitAlertPresented = false
     private var shouldTerminateAfterTranscription = false
     private var audioDeviceObservers: [NSObjectProtocol] = []
     private var needsMicrophoneRefreshAfterRecording = false
@@ -5088,6 +5134,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         return .terminateLater
+    }
+
+    @MainActor
+    func requestTerminationWhileNativeWhisperInstalling() -> NSApplication.TerminateReply {
+        guard isInstallingNativeWhisper else { return .terminateNow }
+        guard !isNativeWhisperQuitAlertPresented else { return .terminateCancel }
+
+        let alert = NSAlert()
+        alert.messageText = localizedCatalogString("Quit while Local Whisper is downloading?")
+        alert.informativeText = localizedCatalogString("Quill will cancel the download and delete the partial file if you quit now.")
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: localizedCatalogString("Quit and Cancel Download"))
+        alert.addButton(withTitle: localizedCatalogString("Cancel"))
+        alert.icon = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)
+
+        isNativeWhisperQuitAlertPresented = true
+        let response = alert.runModal()
+        isNativeWhisperQuitAlertPresented = false
+
+        guard response == .alertFirstButtonReturn else { return .terminateCancel }
+        cancelNativeWhisperInstall()
+        return .terminateNow
     }
 
     private var shouldConfirmEscapeCancellation: Bool {
