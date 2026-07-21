@@ -1,245 +1,121 @@
-import SwiftUI
+import AppKit
 import AVFoundation
-import Combine
-import Foundation
-import ServiceManagement
+import SwiftUI
 import UserNotifications
-
-private struct SetupProviderSettingsSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Binding var apiBaseURLInput: String
-    @Binding var transcriptionAPIURLInput: String
-    @Binding var transcriptionAPIKeyInput: String
-
-    var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Advanced Provider Settings")
-                    .font(.title2.weight(.semibold))
-                Text("Use these fields when pointing Quill at another OpenAI-compatible provider or when you need custom model IDs.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(20)
-
-            Divider()
-
-            ScrollView {
-                ProviderSettingsFields(
-                    apiBaseURLInput: $apiBaseURLInput,
-                    transcriptionAPIURLInput: $transcriptionAPIURLInput,
-                    transcriptionAPIKeyInput: $transcriptionAPIKeyInput,
-                    showsModelDescription: true,
-                    showsTranscriptionLanguage: true
-                )
-                .padding(20)
-            }
-
-            Divider()
-
-            HStack {
-                Spacer()
-                Button("Done") {
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-            .padding(16)
-        }
-        .frame(width: 560, height: 520)
-    }
-}
 
 struct SetupView: View {
     var onComplete: @MainActor () -> Void
-    @EnvironmentObject var appState: AppState
-    @Environment(\.openURL) private var openURL
-    private let upstreamRepoURL = URL(string: "https://github.com/zachlatta/freeflow")!
+
+    @EnvironmentObject private var appState: AppState
+
     private enum SetupStep: Int, CaseIterable {
         case welcome = 0
-        case apiKey
-        case micPermission
-        case speechRecognition
-        case accessibility
-        case screenRecording
-        case notifications
-        case holdShortcut
-        case toggleShortcut
-        case copyAgainShortcut
-        case commandMode
-        case overlayStyle
-        case vocabulary
-        case launchAtLogin
-        case testTranscription
+        case processing
+        case permissions
+        case shortcut
         case ready
     }
 
     @State private var currentStep = SetupStep.welcome
+    @State private var processingLocation: SetupFlow.ProcessingLocation?
+    @State private var localModel = SetupFlow.LocalModel.default
+    @State private var apiKeyInput = ""
+    @State private var validatedAPIKey: String?
+    @State private var isValidatingKey = false
+    @State private var keyValidationError: String?
     @State private var micPermissionGranted = false
     @State private var accessibilityGranted = false
     @State private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
-    @State private var apiKeyInput: String = ""
-    @State private var apiBaseURLInput: String = ""
-    @State private var transcriptionAPIURLInput: String = ""
-    @State private var transcriptionAPIKeyInput: String = ""
-    @State private var isValidatingKey = false
-    @State private var keyValidationError: String?
-    @State private var showingProviderSettingsSheet = false
-    @State private var accessibilityTimer: Timer?
-    @State private var screenRecordingTimer: Timer?
-    @State private var customVocabularyInput: String = ""
-    @StateObject private var githubCache = GitHubMetadataCache.shared
-
-    // Test transcription state
-    private enum TestPhase: Equatable {
-        case idle, starting, recording, transcribing, done
-    }
-    @State private var testPhase: TestPhase = .idle
-    @State private var testAudioRecorder: AudioRecorder? = nil
-    @State private var testSystemAudioRecorder: SystemAudioRecorder? = nil
-    @State private var testSystemDefaultAndSystemAudioRecorder: SystemDefaultAndSystemAudioRecorder? = nil
-    @State private var testAudioLevel: Float = 0.0
-    @State private var testTranscript: String = ""
-    @State private var testIssue: QuillUserIssueRecord? = nil
-    @State private var testAudioLevelCancellable: AnyCancellable? = nil
-    @State private var testMicPulsing = false
+    @State private var permissionTimer: Timer?
     @State private var holdShortcutValidationMessage: String?
-    @State private var toggleShortcutValidationMessage: String?
-    @State private var copyAgainShortcutValidationMessage: String?
     @State private var isCapturingHoldShortcut = false
+    @State private var toggleShortcutValidationMessage: String?
     @State private var isCapturingToggleShortcut = false
-    @State private var isCapturingCopyAgainShortcut = false
-    @StateObject private var testHotkeyHarness = SetupTestHotkeyHarness()
 
-    private let totalSteps: [SetupStep] = SetupStep.allCases
     private var isCapturingShortcut: Bool {
-        isCapturingHoldShortcut || isCapturingToggleShortcut || isCapturingCopyAgainShortcut
+        isCapturingHoldShortcut || isCapturingToggleShortcut
     }
 
-    private var setupMicrophoneSelection: Binding<String> {
-        Binding(
-            get: {
-                appState.selectedMicrophoneID.isEmpty ? AudioInputDevice.defaultMicrophoneID : appState.selectedMicrophoneID
-            },
-            set: { appState.selectedMicrophoneID = $0 }
+    private var selectedPreset: SetupFlow.ProcessingPreset? {
+        SetupFlow.processingPreset(
+            location: processingLocation,
+            localModel: localModel
         )
+    }
+
+    private var trimmedAPIKey: String {
+        apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isAPIKeyValidated: Bool {
+        !trimmedAPIKey.isEmpty && validatedAPIKey == trimmedAPIKey
+    }
+
+    private var notificationAuthorizationGranted: Bool {
+        SetupFlow.isNotificationAuthorizationGranted(notificationAuthorizationStatus)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            currentStepView
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.horizontal, 40)
-                .padding(.vertical, 32)
+            GeometryReader { geometry in
+                ScrollView {
+                    currentStepView
+                        .frame(maxWidth: 560)
+                        .frame(maxWidth: .infinity)
+                        .frame(
+                            minHeight: currentStep == .welcome ? max(0, geometry.size.height - 64) : 0,
+                            alignment: .top
+                        )
+                        .padding(.horizontal, 32)
+                        .padding(.vertical, 32)
+                }
+            }
 
             Divider()
 
             ZStack {
                 stepIndicator
 
-                HStack(alignment: .center) {
-                    Group {
-                        if currentStep != .welcome {
-                            Button("Back") {
-                                keyValidationError = nil
-                                withAnimation {
-                                    currentStep = previousStep(currentStep)
-                                }
+                HStack {
+                    if currentStep != .welcome {
+                        Button("Back") {
+                            keyValidationError = nil
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                currentStep = previousStep(currentStep)
                             }
-                            .disabled(isValidatingKey)
                         }
+                        .disabled(isValidatingKey)
                     }
 
                     Spacer()
 
-                    Group {
-                        if currentStep != .ready {
-                            if currentStep == .apiKey {
-                                HStack {
-                                    Button(SetupFlow.localOnlySkipButtonTitle) {
-                                        skipAPIKeyForLocalOnly()
-                                    }
-                                    .buttonStyle(.plain)
-                                    .foregroundStyle(.secondary)
-                                    .disabled(isValidatingKey)
-
-                                    Button(isValidatingKey ? "Validating..." : "Continue") {
-                                        validateAndContinue()
-                                    }
-                                    .keyboardShortcut(.defaultAction)
-                                    .disabled(apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isValidatingKey)
-                                }
-                            } else if currentStep == .vocabulary {
-                                Button("Continue") {
-                                    saveCustomVocabularyAndContinue()
-                                }
-                                .keyboardShortcut(.defaultAction)
-                            } else if currentStep == .testTranscription {
-                                HStack(spacing: 10) {
-                                    Button("Skip") {
-                                        stopTestHotkeyMonitoring()
-                                        withAnimation {
-                                            currentStep = nextStep(currentStep)
-                                        }
-                                    }
-                                    .buttonStyle(.plain)
-                                    .foregroundStyle(.secondary)
-
-                                    Button("Continue") {
-                                        stopTestHotkeyMonitoring()
-                                        withAnimation {
-                                            currentStep = nextStep(currentStep)
-                                        }
-                                    }
-                                    .keyboardShortcut(.defaultAction)
-                                    .disabled(testPhase != .done || testTranscript.isEmpty || testIssue != nil)
-                                }
-                            } else {
-                                Button("Continue") {
-                                    withAnimation {
-                                        currentStep = nextStep(currentStep)
-                                    }
-                                }
-                                .keyboardShortcut(.defaultAction)
-                                .disabled(!canContinueFromCurrentStep)
-                            }
-                        } else {
-                            Button("Get Started") {
-                                onComplete()
-                            }
-                            .keyboardShortcut(.defaultAction)
-                        }
+                    Button(primaryButtonTitle) {
+                        performPrimaryAction()
                     }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!canContinueFromCurrentStep)
                 }
             }
-            .padding(20)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 18)
             .background(Color(nsColor: .windowBackgroundColor))
         }
-        .frame(width: 520, height: 680)
+        .frame(minWidth: 560, minHeight: 600)
         .onAppear {
             apiKeyInput = appState.apiKey
-            apiBaseURLInput = appState.apiBaseURL
-            transcriptionAPIURLInput = appState.transcriptionAPIURL
-            transcriptionAPIKeyInput = appState.transcriptionAPIKey
-            customVocabularyInput = appState.customVocabulary
-            checkMicPermission()
-            checkAccessibility()
-            refreshNotificationAuthorizationStatus()
+            appState.refreshNativeWhisperInstallStatus()
+            refreshPermissionStatuses()
         }
         .onDisappear {
-            accessibilityTimer?.invalidate()
-            screenRecordingTimer?.invalidate()
+            permissionTimer?.invalidate()
             appState.resumeHotkeyMonitoringAfterShortcutCapture()
         }
-        .sheet(isPresented: $showingProviderSettingsSheet) {
-            SetupProviderSettingsSheet(
-                apiBaseURLInput: $apiBaseURLInput,
-                transcriptionAPIURLInput: $transcriptionAPIURLInput,
-                transcriptionAPIKeyInput: $transcriptionAPIKeyInput
-            )
-                .environmentObject(appState)
+        .onChange(of: currentStep) { step in
+            if step == .permissions {
+                startPermissionPolling()
+            } else {
+                permissionTimer?.invalidate()
+            }
         }
         .onChange(of: isCapturingShortcut) { isCapturing in
             if isCapturing {
@@ -248,8 +124,16 @@ struct SetupView: View {
                 appState.resumeHotkeyMonitoringAfterShortcutCapture()
             }
         }
+        .onChange(of: appState.nativeWhisperInstallStatus) { status in
+            handleNativeWhisperStatusChange(status)
+        }
+        .onChange(of: appState.isInstallingNativeWhisper) { isInstalling in
+            if !isInstalling {
+                handleNativeWhisperStatusChange(appState.nativeWhisperInstallStatus)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            refreshNotificationAuthorizationStatus()
+            refreshPermissionStatuses()
         }
     }
 
@@ -258,1033 +142,745 @@ struct SetupView: View {
         switch currentStep {
         case .welcome:
             welcomeStep
-        case .apiKey:
-            apiKeyStep
-        case .micPermission:
-            micPermissionStep
-        case .speechRecognition:
-            speechRecognitionStep
-        case .accessibility:
-            accessibilityStep
-        case .screenRecording:
-            screenRecordingStep
-        case .notifications:
-            notificationsStep
-        case .holdShortcut:
-            holdShortcutStep
-        case .toggleShortcut:
-            toggleShortcutStep
-        case .copyAgainShortcut:
-            copyAgainShortcutStep
-        case .commandMode:
-            commandModeStep
-        case .overlayStyle:
-            overlayStyleStep
-        case .vocabulary:
-            vocabularyStep
-        case .launchAtLogin:
-            launchAtLoginStep
-        case .testTranscription:
-            testTranscriptionStep
+        case .processing:
+            processingStep
+        case .permissions:
+            permissionsStep
+        case .shortcut:
+            shortcutStep
         case .ready:
             readyStep
         }
     }
 
-    // MARK: - Steps
-
     var welcomeStep: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 22) {
+            Spacer(minLength: 20)
+
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 128, height: 128)
+                .frame(width: 112, height: 112)
+                .accessibilityHidden(true)
 
-            VStack(spacing: 6) {
-                Text("Welcome to \(Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Quill")")
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
+            VStack(spacing: 10) {
+                Text("Meet Quill")
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
 
-                Text("Dictate text anywhere on your Mac.\nHold to talk or tap to toggle dictation.")
+                Text("Turn speech and meetings into notes — from anywhere on your Mac.")
+                    .font(.title3)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-
-        }
-    }
-
-    var apiKeyStep: some View {
-        VStack {
-            Spacer(minLength: 0)
-
-            VStack(spacing: 20) {
-                Image(systemName: "key.fill")
-                    .font(.system(size: 60))
-                    .foregroundStyle(.blue)
-
-                Text("API Key")
-                    .font(.title)
-                    .fontWeight(.bold)
-
-                Text("Add an API key for cloud transcription, AI cleanup, context-aware output, and Edit Mode. If you only want local transcription right now, skip this step and configure an API provider later in Settings.")
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                VStack(alignment: .leading, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Using Groq?")
-                            .font(.subheadline.weight(.semibold))
-                        VStack(alignment: .leading, spacing: 2) {
-                            instructionRow(number: "1", text: "Go to [console.groq.com/keys](https://console.groq.com/keys)")
-                            instructionRow(number: "2", text: "Create a free account (if you don't have one)")
-                            instructionRow(number: "3", text: "Click **Create API Key** and copy it")
-                        }
-                    }
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.blue.opacity(0.06))
-                    )
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("API Key")
-                            .font(.headline)
-                        SecureField("Paste your API key (optional for local-only)", text: $apiKeyInput)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(.body, design: .monospaced))
-                            .disabled(isValidatingKey)
-                            .onChange(of: apiKeyInput) { _ in
-                                keyValidationError = nil
-                            }
-
-                        if let error = keyValidationError {
-                            Label(error, systemImage: "xmark.circle.fill")
-                                .foregroundStyle(.red)
-                                .font(.caption)
-                        }
-                    }
-
-                    Button {
-                        showingProviderSettingsSheet = true
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "slider.horizontal.3")
-                                .foregroundStyle(.secondary)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Advanced Provider Settings")
-                                    .foregroundStyle(.primary)
-                                Text("Base URL and model IDs")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Image(systemName: "arrow.up.right.square")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.55))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 8)
-                }
-            }
-            .frame(maxWidth: 440)
-
-            Spacer(minLength: 0)
+            Spacer(minLength: 20)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    var micPermissionStep: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "mic.fill")
-                .font(.system(size: 60))
-                .foregroundStyle(.blue)
+    var processingStep: some View {
+        VStack(spacing: 24) {
+            stepHeader(
+                icon: "waveform.and.magnifyingglass",
+                title: "Choose how Quill works",
+                description: "Select where your audio is processed. You can configure each feature independently later in Settings."
+            )
 
-            Text("Microphone Access")
-                .font(.title)
-                .fontWeight(.bold)
-
-            Text("Quill needs access to your microphone to record audio for transcription.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack {
-                Image(systemName: "mic.fill")
-                    .frame(width: 24)
-                    .foregroundStyle(.blue)
-                Text("Microphone")
-                Spacer()
-                if micPermissionGranted {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                    Text("Granted")
-                        .foregroundStyle(.green)
-                } else {
-                    Button("Grant Access") {
-                        requestMicPermission()
-                    }
-                }
+            HStack(spacing: 12) {
+                processingChoiceCard(
+                    location: .onThisMac,
+                    icon: "desktopcomputer",
+                    title: "On this Mac",
+                    detail: "Private · Works offline · No API key"
+                )
+                processingChoiceCard(
+                    location: .apiProvider,
+                    icon: "cloud.fill",
+                    title: "API Provider",
+                    detail: "No model download · AI features available"
+                )
             }
-            .padding(12)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .cornerRadius(8)
 
+            if processingLocation == .onThisMac {
+                localProcessingDetails
+                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+            } else if processingLocation == .apiProvider {
+                apiProcessingDetails
+                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+            }
         }
+        .animation(.spring(response: 0.35, dampingFraction: 1.0), value: processingLocation)
     }
 
-    var speechRecognitionStep: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "waveform.badge.mic")
-                .font(.system(size: 60))
-                .foregroundStyle(.blue)
+    private var localProcessingDetails: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Transcription model")
+                .font(.subheadline.weight(.semibold))
 
-            Text("Speech Recognition")
-                .font(.title)
-                .fontWeight(.bold)
-
-            Text("Apple Live transcription needs Speech Recognition permission in addition to microphone access.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack {
-                Image(systemName: "waveform.badge.mic")
-                    .frame(width: 24)
-                    .foregroundStyle(.blue)
-                Text("Speech Recognition")
-                Spacer()
-                if appState.hasSpeechRecognitionPermission {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                    Text("Granted")
-                        .foregroundStyle(.green)
-                } else {
-                    Button("Grant Access") {
-                        appState.requestSpeechRecognitionAccess()
-                    }
-                }
-            }
-            .padding(12)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .cornerRadius(8)
-        }
-        .onAppear {
-            appState.refreshSpeechRecognitionAuthorizationStatus()
-        }
-    }
-
-    var accessibilityStep: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "hand.raised.fill")
-                .font(.system(size: 60))
-                .foregroundStyle(.blue)
-
-            Text("Accessibility Access")
-                .font(.title)
-                .fontWeight(.bold)
-
-            Text("Quill needs Accessibility access to paste transcribed text into your apps.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack {
-                Image(systemName: "hand.raised.fill")
-                    .frame(width: 24)
-                    .foregroundStyle(.blue)
-                Text("Accessibility")
-                Spacer()
-                if accessibilityGranted {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                    Text("Granted")
-                        .foregroundStyle(.green)
-                } else {
-                    Button("Open Settings") {
-                        requestAccessibility()
-                    }
-                }
-            }
-            .padding(12)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .cornerRadius(8)
-
-        }
-        .onAppear {
-            startAccessibilityPolling()
-        }
-        .onDisappear {
-            accessibilityTimer?.invalidate()
-        }
-    }
-
-    var screenRecordingStep: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "camera.viewfinder")
-                .font(.system(size: 60))
-                .foregroundStyle(.blue)
-
-            Text("Screen Recording")
-                .font(.title)
-                .fontWeight(.bold)
-
-            Text("Quill intelligently adapts the transcription to the current app you're working in (ex. spelling names in an email correctly).")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text("It needs this permission to see which app you're working in and any in-progress work. Nothing is stored on Quill's servers (Quill doesn't have servers).")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .font(.callout)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text("This permission is optional. You can skip and grant it later in Settings if needed.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.orange)
-                .font(.callout)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack {
-                Image(systemName: "camera.viewfinder")
-                    .frame(width: 24)
-                    .foregroundStyle(.blue)
-                Text("Screen Recording")
-                Spacer()
-                if appState.hasScreenRecordingPermission {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                    Text("Granted")
-                        .foregroundStyle(.green)
-                } else {
-                    Button("Grant Access") {
-                        appState.requestScreenCapturePermission()
-                    }
-                }
-            }
-            .padding(12)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .cornerRadius(8)
-
-        }
-        .onAppear {
-            startScreenRecordingPolling()
-        }
-        .onDisappear {
-            screenRecordingTimer?.invalidate()
-        }
-    }
-
-    var notificationsStep: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "bell.badge.fill")
-                .font(.system(size: 60))
-                .foregroundStyle(.blue)
-
-            Text("Notifications")
-                .font(.title)
-                .fontWeight(.bold)
-
-            Text("Quill can show calendar recording reminders before meetings so you can start recording from the notification.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Text("This permission is optional. You can skip it now and enable notifications later in Settings.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.orange)
-                .font(.callout)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack {
-                Image(systemName: "bell.fill")
-                    .frame(width: 24)
-                    .foregroundStyle(.blue)
-                Text("Notifications")
-                Spacer()
-                if notificationAuthorizationGranted {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                    Text("Granted")
-                        .foregroundStyle(.green)
-                } else {
-                    Button(SetupFlow.notificationPermissionActionTitle(for: notificationAuthorizationStatus)) {
-                        if notificationAuthorizationStatus == .denied {
-                            openNotificationSettings()
-                        } else {
-                            requestNotificationPermission()
+            VStack(spacing: 8) {
+                Button {
+                    selectAppleSpeech()
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: localModel == .appleSpeech ? "largecircle.fill.circle" : "circle")
+                            .foregroundStyle(localModel == .appleSpeech ? Color.accentColor : .secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Apple Speech")
+                                .font(.callout.weight(localModel == .appleSpeech ? .semibold : .regular))
+                            Text("Built in · Start instantly")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
+                        Spacer()
+                        Label("Ready", systemImage: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.green)
                     }
-                }
-            }
-            .padding(12)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .cornerRadius(8)
-        }
-        .onAppear {
-            refreshNotificationAuthorizationStatus()
-        }
-    }
-
-    var holdShortcutStep: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "keyboard.fill")
-                .font(.system(size: 60))
-                .foregroundStyle(.blue)
-
-            Text("Hold to Talk Shortcut")
-                .font(.title)
-                .fontWeight(.bold)
-
-            Text("Choose the shortcut you want to hold while speaking.\nRelease it to stop unless you latch into tap mode later, or disable hold-to-talk entirely.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            ShortcutRoleSection(
-                role: .hold,
-                selection: appState.holdShortcut,
-                validationMessage: holdShortcutValidationMessage,
-                isCapturing: $isCapturingHoldShortcut,
-                onSelect: { binding in
-                    holdShortcutValidationMessage = appState.setShortcut(binding, for: .hold)
-                }
-            )
-                .padding(.top, 10)
-
-            if appState.holdShortcut.usesFnKey {
-                Text("Tip: If Fn opens Emoji picker, go to System Settings > Keyboard and change \"Press fn key to\" to \"Do Nothing\".")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .multilineTextAlignment(.center)
-            }
-
-        }
-    }
-
-    var toggleShortcutStep: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "switch.2")
-                .font(.system(size: 60))
-                .foregroundStyle(.blue)
-
-            Text("Tap to Toggle Shortcut")
-                .font(.title)
-                .fontWeight(.bold)
-
-            Text("Choose the shortcut you want to tap once to start dictating and tap again to stop.\nIf this shortcut becomes active while you are holding the hold shortcut, Quill latches into tap mode. You can also disable tap-to-toggle entirely.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            ShortcutRoleSection(
-                role: .toggle,
-                selection: appState.toggleShortcut,
-                validationMessage: toggleShortcutValidationMessage,
-                isCapturing: $isCapturingToggleShortcut,
-                onSelect: { binding in
-                    toggleShortcutValidationMessage = appState.setShortcut(binding, for: .toggle)
-                }
-            )
-                .padding(.top, 10)
-
-            if appState.toggleShortcut.usesFnKey {
-                Text("Tip: If Fn opens Emoji picker, go to System Settings > Keyboard and change \"Press fn key to\" to \"Do Nothing\".")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .multilineTextAlignment(.center)
-            }
-
-        }
-    }
-
-    var copyAgainShortcutStep: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "doc.on.clipboard")
-                .font(.system(size: 60))
-                .foregroundStyle(.blue)
-
-            Text("Paste Again Shortcut")
-                .font(.title)
-                .fontWeight(.bold)
-
-            Text("Optional. Choose a shortcut to paste your last transcript again into the active text field, without opening the menu bar. Leave disabled if you do not want one.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            ShortcutRoleSection(
-                role: .copyAgain,
-                selection: appState.copyAgainShortcut,
-                validationMessage: copyAgainShortcutValidationMessage,
-                isCapturing: $isCapturingCopyAgainShortcut,
-                onSelect: { binding in
-                    copyAgainShortcutValidationMessage = appState.setShortcut(binding, for: .copyAgain)
-                }
-            )
-                .padding(.top, 10)
-
-            if appState.copyAgainShortcut.usesFnKey {
-                Text("Tip: If Fn opens Emoji picker, go to System Settings > Keyboard and change \"Press fn key to\" to \"Do Nothing\".")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .multilineTextAlignment(.center)
-            }
-        }
-    }
-
-    var vocabularyStep: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "text.book.closed.fill")
-                .font(.system(size: 60))
-                .foregroundStyle(.blue)
-
-            Text("Custom Vocabulary")
-                .font(.title)
-                .fontWeight(.bold)
-
-            Text("Add words and phrases that should be preserved in post-processing.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Vocabulary")
-                    .font(.headline)
-
-                TextEditor(text: $customVocabularyInput)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 130)
+                    .padding(12)
+                    .background(
+                        localModel == .appleSpeech
+                            ? Color.accentColor.opacity(0.08)
+                            : Color(nsColor: .controlBackgroundColor)
+                    )
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-                    )
-
-                Text("Separate entries with commas, new lines, or semicolons.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-        }
-    }
-
-    var commandModeStep: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "pencil")
-                .font(.system(size: 60))
-                .foregroundStyle(.blue)
-
-            Text("Edit Mode")
-                .font(.title)
-                .fontWeight(.bold)
-
-            Text("Transform selected text with a spoken instruction instead of dictating over it.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            VStack(alignment: .leading, spacing: 14) {
-                Toggle("Enable Edit Mode", isOn: Binding(
-                    get: { appState.isCommandModeEnabled },
-                    set: { newValue in
-                        _ = appState.setCommandModeEnabled(newValue)
-                    }
-                ))
-
-                Picker("Invocation Style", selection: Binding(
-                    get: { appState.commandModeStyle },
-                    set: { newValue in
-                        _ = appState.setCommandModeStyle(newValue)
-                    }
-                )) {
-                    ForEach(CommandModeStyle.allCases) { style in
-                        Text(style.title).tag(style)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .disabled(!appState.isCommandModeEnabled)
-
-                Group {
-                    switch appState.commandModeStyle {
-                    case .automatic:
-                        Text("Automatic mode uses your normal dictation shortcut. If text is selected, Quill transforms that selection instead of dictating new text.")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    case .manual:
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Manual mode only triggers when you hold an extra modifier together with your normal dictation shortcut.")
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-
-                            Picker("Extra Modifier", selection: Binding(
-                                get: { appState.commandModeManualModifier },
-                                set: { newValue in
-                                    _ = appState.setCommandModeManualModifier(newValue)
-                                }
-                            )) {
-                                ForEach(CommandModeManualModifier.allCases) { modifier in
-                                    Text(modifier.title).tag(modifier)
-                                }
-                            }
-                            .disabled(!appState.isCommandModeEnabled || appState.commandModeStyle != .manual)
-                        }
-                    }
-                }
-                .opacity(appState.isCommandModeEnabled ? 1 : 0.5)
-
-                if let validationMessage = appState.commandModeManualModifierValidationMessage {
-                    Label(validationMessage, systemImage: "xmark.circle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .cornerRadius(10)
-        }
-    }
-
-    var overlayStyleStep: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "rectangle.topthird.inset.filled")
-                .font(.system(size: 60))
-                .foregroundStyle(.blue)
-
-            Text("Recording overlay style")
-                .font(.title)
-                .fontWeight(.bold)
-
-            Text("Choose how Quill shows recording status while you dictate. You can change this later in Settings.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            VStack(spacing: 10) {
-                OverlayLayoutOptionRow(
-                    title: "Notch-side menu-bar overlay",
-                    subtitle: "Shows recording status beside the camera notch when supported, without covering app tabs or toolbars.",
-                    layout: .notchSides,
-                    selection: $appState.recordingOverlayLayout
-                )
-                OverlayLayoutOptionRow(
-                    title: "Centered drop-down pill",
-                    subtitle: "Shows a single centered pill below the menu bar. More visible, but it can cover a thin strip of the active app.",
-                    layout: .centered,
-                    selection: $appState.recordingOverlayLayout
-                )
-            }
-            .padding(.top, 6)
-        }
-    }
-
-    var launchAtLoginStep: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "sunrise.fill")
-                .font(.system(size: 60))
-                .foregroundStyle(.blue)
-
-            Text("Launch at Login")
-                .font(.title)
-                .fontWeight(.bold)
-
-            Text("Start Quill automatically when you log in so it's always ready.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack {
-                Image(systemName: "sunrise.fill")
-                    .frame(width: 24)
-                    .foregroundStyle(.blue)
-                Toggle("Launch Quill at login", isOn: $appState.launchAtLogin)
-            }
-            .padding(12)
-            .background(Color(nsColor: .controlBackgroundColor))
-            .cornerRadius(8)
-
-        }
-    }
-
-    var testTranscriptionStep: some View {
-        VStack(spacing: 20) {
-            // Input picker
-            VStack(spacing: 4) {
-                Picker("Input:", selection: setupMicrophoneSelection) {
-                    Text("System Default").tag(AudioInputDevice.defaultMicrophoneID)
-                    Text("System Audio").tag(AudioInputDevice.systemAudioID)
-                    Text("System Default + System Audio").tag(AudioInputDevice.systemDefaultAndSystemAudioID)
-                    ForEach(appState.availableMicrophones) { device in
-                        Text(device.name).tag(device.uid)
-                    }
-                }
-                .frame(maxWidth: 340)
-
-                Text("You can change this later in the menu bar or settings.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-
-            Spacer()
-
-            Group {
-                switch testPhase {
-                case .idle:
-                    VStack(spacing: 20) {
-                        Image(systemName: "mic.fill")
-                            .font(.system(size: 60))
-                            .foregroundStyle(.blue)
-                            .scaleEffect(testMicPulsing ? 1.15 : 1.0)
-                            .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: testMicPulsing)
-
-                        Text("Let's Try It Out!")
-                            .font(.title)
-                            .fontWeight(.bold)
-
-                        Text(testShortcutPrompt)
-                            .font(.headline)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
-                            .background(Color.blue.opacity(0.1))
-                            .cornerRadius(10)
-
-                        Text("Say anything — a sentence or two is perfect.")
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-
-                case .starting:
-                    VStack(spacing: 20) {
-                        InlineTranscribingDots()
-
-                        Text("Starting...")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-                    }
-
-                case .recording:
-                    VStack(spacing: 20) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.blue.opacity(0.65))
-                                .frame(width: 100, height: 100)
-
-                            Circle()
-                                .stroke(Color.blue.opacity(0.8), lineWidth: 3)
-                                .frame(width: 100, height: 100)
-                                .shadow(color: .blue.opacity(0.5), radius: 10)
-
-                            WaveformView(audioLevel: testAudioLevel)
-                        }
-
-                        Text("Listening...")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.blue)
-                    }
-
-                case .transcribing:
-                    VStack(spacing: 20) {
-                        InlineTranscribingDots()
-
-                        Text("Transcribing...")
-                            .font(.title2)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.secondary)
-                    }
-
-                case .done:
-                    VStack(spacing: 16) {
-                        if testIssue == nil {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 60))
-                                .foregroundStyle(.green)
-                        }
-
-                        if let issue = testIssue {
-                            QuillUserIssueView(
-                                presentation: issue.presentation(),
-                                action: {
-                                    performSetupRecoveryAction(
-                                        issue.recoveryAction
-                                    )
-                                }
+                            .stroke(
+                                localModel == .appleSpeech
+                                    ? Color.accentColor.opacity(0.3)
+                                    : Color.clear,
+                                lineWidth: 1
                             )
-                            .padding(.horizontal, 24)
+                    )
+                    .cornerRadius(8)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
 
-                            Text(retryShortcutPrompt)
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        } else if testTranscript.isEmpty {
-                            Text("No speech detected")
-                                .font(.title2)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.secondary)
-
-                            Text(retryShortcutPrompt)
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text("Perfect — Quill is ready to go.")
-                                .font(.title2)
-                                .fontWeight(.semibold)
-
-                            Text(testTranscript)
-                                .font(.body)
-                                .padding(12)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color(nsColor: .controlBackgroundColor))
-                                .cornerRadius(10)
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
-
-                            Text(retryShortcutPrompt)
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        }
+                NativeWhisperModelRowView(
+                    isSelected: localModel == .nativeWhisper,
+                    onSelect: {
+                        localModel = .nativeWhisper
+                    },
+                    onDownloadStarted: {
+                        processingLocation = .onThisMac
+                        localModel = .appleSpeech
                     }
+                )
+                .environmentObject(appState)
+            }
+
+            Label(
+                "Transcription runs locally. AI cleanup and context-aware output stay off until compatible local models are configured.",
+                systemImage: "info.circle"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.accentColor.opacity(0.07))
+            .cornerRadius(8)
+        }
+        .padding(16)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .cornerRadius(12)
+    }
+
+    private var apiProcessingDetails: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("API Key")
+                .font(.subheadline.weight(.semibold))
+
+            HStack(spacing: 8) {
+                SecureField("Enter your Groq API key", text: $apiKeyInput)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.body, design: .monospaced))
+                    .disabled(isValidatingKey)
+                    .onChange(of: apiKeyInput) { _ in
+                        validatedAPIKey = nil
+                        keyValidationError = nil
+                    }
+
+                Button(isValidatingKey ? "Validating..." : "Validate") {
+                    validateAPIKey()
+                }
+                .disabled(trimmedAPIKey.isEmpty || isValidatingKey)
+            }
+
+            apiValidationStatus
+        }
+        .padding(16)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .cornerRadius(12)
+    }
+
+    @ViewBuilder
+    private var apiValidationStatus: some View {
+        if isValidatingKey {
+            Label("Validating provider access…", systemImage: "arrow.triangle.2.circlepath")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else if isAPIKeyValidated {
+            Label(
+                "API key validated. Cloud transcription and AI features are ready.",
+                systemImage: "checkmark.circle.fill"
+            )
+            .font(.caption)
+            .foregroundStyle(.green)
+        } else if let keyValidationError {
+            Label(keyValidationError, systemImage: "xmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            Text("Uses Quill's default Groq configuration. Advanced providers remain in Settings.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func selectProcessingLocation(_ location: SetupFlow.ProcessingLocation) {
+        processingLocation = location
+        if location == .apiProvider {
+            appState.cancelNativeWhisperAutoSelection()
+        }
+    }
+
+    private func selectAppleSpeech() {
+        localModel = .appleSpeech
+        appState.cancelNativeWhisperAutoSelection()
+    }
+
+    var permissionsStep: some View {
+        VStack(spacing: 24) {
+            stepHeader(
+                icon: "checkmark.shield.fill",
+                title: "Allow Quill to work",
+                description: "Required permissions unlock dictation. Optional permissions can be skipped and enabled later."
+            )
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Required")
+                    .font(.headline)
+
+                permissionRow(
+                    title: "Microphone",
+                    description: "Record your voice for transcription.",
+                    icon: "mic.fill",
+                    granted: micPermissionGranted,
+                    actionTitle: String(localized: "Grant Access"),
+                    action: requestMicrophonePermission
+                )
+
+                permissionRow(
+                    title: "Accessibility",
+                    description: "Paste transcribed text into your apps.",
+                    icon: "hand.raised.fill",
+                    granted: accessibilityGranted,
+                    actionTitle: String(localized: "Open Settings"),
+                    action: appState.openAccessibilitySettings
+                )
+
+                if selectedPreset == .localAppleSpeech {
+                    permissionRow(
+                        title: "Speech Recognition",
+                        description: "Required by Apple Speech for live transcription.",
+                        icon: "waveform.badge.mic",
+                        granted: appState.hasSpeechRecognitionPermission,
+                        actionTitle: String(localized: "Grant Access"),
+                        action: { appState.requestSpeechRecognitionAccess() }
+                    )
                 }
             }
-            .transition(.opacity)
-            .id(testPhase)
 
-            Spacer()
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Text("Optional")
+                        .font(.headline)
+                    Text("Can be enabled later")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                permissionRow(
+                    title: "Screen Recording",
+                    description: "Adds screen context and enables System Audio when you choose it.",
+                    icon: "camera.viewfinder",
+                    granted: appState.hasScreenRecordingPermission,
+                    actionTitle: String(localized: "Grant Access"),
+                    action: appState.requestScreenCapturePermission
+                )
+
+                permissionRow(
+                    title: "Notifications",
+                    description: "Shows calendar recording reminders before meetings.",
+                    icon: "bell.fill",
+                    granted: notificationAuthorizationGranted,
+                    actionTitle: SetupFlow.notificationPermissionActionTitle(
+                        for: notificationAuthorizationStatus
+                    ),
+                    action: handleNotificationPermissionAction
+                )
+            }
         }
         .onAppear {
-            appState.refreshAvailableMicrophones()
-            testMicPulsing = true
-            startTestHotkeyMonitoring()
+            refreshPermissionStatuses()
+            startPermissionPolling()
         }
         .onDisappear {
-            stopTestHotkeyMonitoring()
+            permissionTimer?.invalidate()
+        }
+    }
+
+    var shortcutStep: some View {
+        VStack(spacing: 24) {
+            stepHeader(
+                icon: "keyboard.fill",
+                title: "Choose your shortcut",
+                description: "Choose how you want to start and stop recording. You can change these shortcuts later in Settings."
+            )
+
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 16) {
+                    ShortcutRoleSection(
+                        role: .hold,
+                        selection: appState.holdShortcut,
+                        validationMessage: holdShortcutValidationMessage,
+                        isCapturing: $isCapturingHoldShortcut,
+                        onSelect: { binding in
+                            holdShortcutValidationMessage = appState.setShortcut(binding, for: .hold)
+                        }
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Divider()
+
+                    ShortcutRoleSection(
+                        role: .toggle,
+                        selection: appState.toggleShortcut,
+                        validationMessage: toggleShortcutValidationMessage,
+                        isCapturing: $isCapturingToggleShortcut,
+                        onSelect: { binding in
+                            toggleShortcutValidationMessage = appState.setShortcut(binding, for: .toggle)
+                        }
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                if appState.holdShortcut.usesFnKey || appState.toggleShortcut.usesFnKey {
+                    Text("Tip: If Fn opens Emoji picker, go to System Settings > Keyboard and change \"Press fn key to\" to \"Do Nothing\".")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(18)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.65))
+            .cornerRadius(12)
+
+            if !appState.hasEnabledHoldShortcut && !appState.hasEnabledToggleShortcut {
+                Label(
+                    "Enable at least one recording shortcut to continue.",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+            }
+
+            Label(
+                "Paste Again, Recording Cancel, and other shortcuts remain available in Settings.",
+                systemImage: "command"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     var readyStep: some View {
-        VStack(spacing: 20) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 60))
-                .foregroundStyle(.green)
+        VStack(spacing: 24) {
+            stepHeader(
+                icon: "checkmark.circle.fill",
+                title: "You're ready",
+                description: "Use either recording shortcut anywhere on your Mac to start your first recording."
+            )
 
-            Text("You're All Set!")
-                .font(.title)
-                .fontWeight(.bold)
-
-            Text("Quill lives in your menu bar.")
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(spacing: 10) {
+                summaryRow(
+                    icon: "waveform",
+                    title: "Processing",
+                    detail: processingSummary
+                )
                 if appState.hasEnabledHoldShortcut {
-                    HowToRow(icon: "keyboard", text: localizedCatalogFormat("Hold %@ to record", appState.holdShortcut.displayName))
+                    summaryRow(
+                        icon: "keyboard",
+                        title: "Hold to Talk",
+                        detail: localizedCatalogFormat(
+                            "Hold %@ to record",
+                            appState.holdShortcut.displayName
+                        )
+                    )
                 }
                 if appState.hasEnabledToggleShortcut {
-                    HowToRow(icon: "switch.2", text: localizedCatalogFormat("Tap %@ to start and stop", appState.toggleShortcut.displayName))
-                }
-                if appState.hasEnabledHoldShortcut && appState.hasEnabledToggleShortcut {
-                    HowToRow(icon: "arrow.triangle.branch", text: String(localized: "While holding, press the toggle shortcut to latch on"))
-                }
-                if appState.isCommandModeEnabled {
-                    switch appState.commandModeStyle {
-                    case .automatic:
-                        HowToRow(icon: "wand.and.stars", text: String(localized: "With text selected, your normal shortcut transforms the selection"))
-                    case .manual:
-                        HowToRow(
-                            icon: "wand.and.stars",
-                            text: localizedCatalogFormat("Hold %@ with your normal shortcut to transform selected text", appState.commandModeManualModifier.title)
+                    summaryRow(
+                        icon: "switch.2",
+                        title: "Tap to Toggle",
+                        detail: localizedCatalogFormat(
+                            "Tap %@ to start and stop",
+                            appState.toggleShortcut.displayName
                         )
-                    }
+                    )
                 }
-                HowToRow(icon: "doc.on.clipboard", text: String(localized: "Text is typed at your cursor & copied"))
+                summaryRow(
+                    icon: "circle.dashed",
+                    title: "Optional permissions",
+                    detail: optionalPermissionsSummary
+                )
             }
-            .padding(.top, 10)
-
         }
     }
 
-    var stepIndicator: some View {
+    private func stepHeader(
+        icon: String,
+        title: LocalizedStringKey,
+        description: LocalizedStringKey
+    ) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 42, weight: .medium))
+                .foregroundStyle(.tint)
+                .accessibilityHidden(true)
+
+            Text(title)
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+                .multilineTextAlignment(.center)
+
+            Text(description)
+                .font(.callout)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func processingChoiceCard(
+        location: SetupFlow.ProcessingLocation,
+        icon: String,
+        title: LocalizedStringKey,
+        detail: LocalizedStringKey
+    ) -> some View {
+        let isSelected = processingLocation == location
+        return Button {
+            selectProcessingLocation(location)
+        } label: {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Image(systemName: icon)
+                        .font(.title2)
+                        .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                    Spacer()
+                    Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                        .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                }
+
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, minHeight: 110, alignment: .topLeading)
+            .padding(16)
+            .background(isSelected ? Color.accentColor.opacity(0.08) : Color(nsColor: .controlBackgroundColor))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(
+                        isSelected ? Color.accentColor : Color.primary.opacity(0.08),
+                        lineWidth: isSelected ? 1.5 : 1
+                    )
+            )
+            .cornerRadius(12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(isSelected ? Text("Selected") : Text("Not selected"))
+    }
+
+    private func permissionRow(
+        title: LocalizedStringKey,
+        description: LocalizedStringKey,
+        icon: String,
+        granted: Bool,
+        actionTitle: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .frame(width: 24)
+                .foregroundStyle(.tint)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 12)
+
+            if granted {
+                Label("Granted", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            } else {
+                Button(actionTitle, action: action)
+                    .controlSize(.small)
+            }
+        }
+        .padding(12)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(9)
+    }
+
+    private func summaryRow(
+        icon: String,
+        title: LocalizedStringKey,
+        detail: String
+    ) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon)
+                .frame(width: 28)
+                .font(.title3)
+                .foregroundStyle(.tint)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(10)
+    }
+
+    private var stepIndicator: some View {
         HStack(spacing: 8) {
-            ForEach(totalSteps, id: \.rawValue) { step in
+            ForEach(SetupStep.allCases, id: \.rawValue) { step in
                 Circle()
-                    .fill(step == currentStep ? Color.blue : Color.gray.opacity(0.3))
+                    .fill(step == currentStep ? Color.accentColor : Color.secondary.opacity(0.25))
                     .frame(width: 8, height: 8)
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            Text(
+                localizedCatalogFormat(
+                    "Step %d of %d",
+                    currentStep.rawValue + 1,
+                    SetupStep.allCases.count
+                )
+            )
+        )
+    }
+
+    private var primaryButtonTitle: LocalizedStringKey {
+        currentStep == .ready ? "Get Started" : "Continue"
     }
 
     private var canContinueFromCurrentStep: Bool {
         switch currentStep {
-        case .micPermission:
-            return micPermissionGranted
-        case .speechRecognition:
-            return appState.hasSpeechRecognitionPermission
-        case .accessibility:
-            return accessibilityGranted
-        case .screenRecording, .notifications:
-            return true
-        case .testTranscription:
-            return testPhase == .done && !testTranscript.isEmpty && testIssue == nil
-        default:
-            return true
-        }
-    }
-
-    private var testShortcutPrompt: String {
-        switch (appState.hasEnabledHoldShortcut, appState.hasEnabledToggleShortcut) {
-        case (true, true):
-            return localizedCatalogFormat("Hold %@ or tap %@", appState.holdShortcut.displayName, appState.toggleShortcut.displayName)
-        case (true, false):
-            return localizedCatalogFormat("Hold %@", appState.holdShortcut.displayName)
-        case (false, true):
-            return localizedCatalogFormat("Tap %@", appState.toggleShortcut.displayName)
-        case (false, false):
-            return String(localized: "Use Start Dictating from the menu bar")
-        }
-    }
-
-    private var retryShortcutPrompt: String {
-        localizedCatalogFormat("%@ to try again", testShortcutPrompt)
-    }
-
-    // MARK: - Helpers
-
-    private func instructionRow(number: String, text: LocalizedStringKey) -> some View {
-        HStack(alignment: .top, spacing: 6) {
-            Text(number + ".")
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 16, alignment: .trailing)
-            Text(text)
-                .font(.subheadline)
-                .tint(.blue)
-        }
-    }
-
-    // MARK: - Actions
-
-    func validateAndContinue() {
-        let key = apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        let baseURL = apiBaseURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedBaseURL = baseURL.isEmpty ? AppState.defaultAPIBaseURL : baseURL
-        appState.apiBaseURL = resolvedBaseURL
-        isValidatingKey = true
-        keyValidationError = nil
-
-        Task {
-            let valid = await TranscriptionService.validateAPIKey(key, baseURL: resolvedBaseURL)
-            await MainActor.run {
-                isValidatingKey = false
-                if valid {
-                    appState.apiKey = key
-                    withAnimation {
-                        currentStep = nextStep(currentStep)
-                    }
-                } else {
-                    keyValidationError = String(localized: "Validation failed. Please check your API key and provider settings, then try again.")
-                }
+        case .welcome, .ready:
+            return !isValidatingKey
+        case .shortcut:
+            return !isCapturingShortcut
+                && (appState.hasEnabledHoldShortcut || appState.hasEnabledToggleShortcut)
+        case .processing:
+            guard let selectedPreset else { return false }
+            switch selectedPreset {
+            case .localAppleSpeech:
+                return true
+            case .localNativeWhisper:
+                return appState.nativeWhisperInstallStatus == .ready
+                    && !appState.isInstallingNativeWhisper
+            case .apiStandard:
+                return isAPIKeyValidated && !isValidatingKey
+            }
+        case .permissions:
+            guard let selectedPreset else { return false }
+            return SetupFlow.requiredPermissions(for: selectedPreset).allSatisfy {
+                permissionGranted($0)
             }
         }
     }
 
-    func skipAPIKeyForLocalOnly() {
-        let skipState = SetupFlow.localOnlySkipState()
-        appState.apiKey = skipState.apiKey
-        appState.transcriptionAPIKey = skipState.transcriptionAPIKey
-        appState.transcriptionAPIURL = skipState.transcriptionAPIURL
-        apiKeyInput = skipState.apiKey
-        transcriptionAPIKeyInput = skipState.transcriptionAPIKey
-        transcriptionAPIURLInput = skipState.transcriptionAPIURL
-        appState.useLocalTranscription = skipState.useLocalTranscription
-        appState.localTranscriptionModel = .find(id: skipState.localTranscriptionModelID)
-        appState.disablePostProcessing = skipState.disablePostProcessing
-        appState.disableContextCapture = skipState.disableContextCapture
-        appState.realtimeStreamingEnabled = skipState.realtimeStreamingEnabled
-        _ = appState.setCommandModeEnabled(skipState.isCommandModeEnabled)
-        keyValidationError = nil
-        withAnimation {
-            currentStep = nextStep(currentStep)
+    private var processingSummary: String {
+        switch selectedPreset {
+        case .localAppleSpeech:
+            if appState.willAutoSelectNativeWhisperWhenReady {
+                return localizedCatalogString(
+                    "On this Mac · Apple Speech · Whisper is downloading and will become active when ready."
+                )
+            }
+            return localizedCatalogString("On this Mac · Apple Speech")
+        case .localNativeWhisper:
+            return localizedCatalogFormat(
+                "On this Mac · %@",
+                NativeWhisperModelCatalog.recommended.displayName
+            )
+        case .apiStandard:
+            return localizedCatalogString("API Provider · Standard")
+        case nil:
+            return localizedCatalogString("Choose a processing option")
         }
     }
 
-    func saveCustomVocabularyAndContinue() {
-        appState.customVocabulary = customVocabularyInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        withAnimation {
+    private var optionalPermissionsSummary: String {
+        switch (appState.hasScreenRecordingPermission, notificationAuthorizationGranted) {
+        case (true, true):
+            return localizedCatalogString("Screen Recording and Notifications are enabled.")
+        case (true, false):
+            return localizedCatalogString("Screen Recording is enabled. Notifications can be added later.")
+        case (false, true):
+            return localizedCatalogString("Notifications are enabled. Screen Recording can be added later.")
+        case (false, false):
+            return localizedCatalogString("Screen Recording and Notifications can be enabled later.")
+        }
+    }
+
+    private func performPrimaryAction() {
+        if currentStep == .ready {
+            onComplete()
+            return
+        }
+
+        if currentStep == .processing, let selectedPreset {
+            appState.applySetupProcessingPreset(selectedPreset)
+        }
+
+        withAnimation(.easeInOut(duration: 0.2)) {
             currentStep = nextStep(currentStep)
         }
     }
 
     private func previousStep(_ step: SetupStep) -> SetupStep {
-        let previous = SetupStep(rawValue: step.rawValue - 1)
-        return previous ?? .welcome
+        SetupStep(rawValue: step.rawValue - 1) ?? .welcome
     }
 
     private func nextStep(_ step: SetupStep) -> SetupStep {
-        let next = SetupStep(rawValue: step.rawValue + 1)
-        return next ?? .ready
+        SetupStep(rawValue: step.rawValue + 1) ?? .ready
     }
 
-    func checkMicPermission() {
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized:
-            micPermissionGranted = true
-        default:
-            break
+    private func validateAPIKey() {
+        let key = trimmedAPIKey
+        guard !key.isEmpty else { return }
+
+        isValidatingKey = true
+        validatedAPIKey = nil
+        keyValidationError = nil
+        let baseURL = appState.apiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedBaseURL = baseURL.isEmpty ? AppState.defaultAPIBaseURL : baseURL
+
+        Task {
+            let valid = await TranscriptionService.validateAPIKey(
+                key,
+                baseURL: resolvedBaseURL
+            )
+            await MainActor.run {
+                isValidatingKey = false
+                if valid {
+                    appState.apiKey = key
+                    validatedAPIKey = key
+                } else {
+                    keyValidationError = String(
+                        localized: "Validation failed. Please check your API key and try again."
+                    )
+                }
+            }
         }
     }
 
-    func requestMicPermission() {
+    private func handleNativeWhisperStatusChange(_ status: NativeWhisperInstallStatus) {
+        if status == .ready,
+           case .nativeWhisper = appState.currentNoteBrowserTranscriptionChoice {
+            processingLocation = .onThisMac
+            localModel = .nativeWhisper
+            return
+        }
+
+        if status != .ready,
+           !appState.isInstallingNativeWhisper,
+           localModel == .nativeWhisper {
+            localModel = .appleSpeech
+        }
+    }
+
+    private func permissionGranted(_ permission: SetupFlow.Permission) -> Bool {
+        switch permission {
+        case .microphone:
+            return micPermissionGranted
+        case .accessibility:
+            return accessibilityGranted
+        case .speechRecognition:
+            return appState.hasSpeechRecognitionPermission
+        }
+    }
+
+    private func refreshPermissionStatuses() {
+        refreshPolledPermissionStatuses()
+        refreshNotificationAuthorizationStatus()
+    }
+
+    private func refreshPolledPermissionStatuses() {
+        micPermissionGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        accessibilityGranted = AXIsProcessTrusted()
+        appState.refreshSpeechRecognitionAuthorizationStatus()
+        let screenGranted = CGPreflightScreenCaptureAccess()
+        if appState.hasScreenRecordingPermission != screenGranted {
+            appState.hasScreenRecordingPermission = screenGranted
+        }
+    }
+
+    private func startPermissionPolling() {
+        permissionTimer?.invalidate()
+        permissionTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            DispatchQueue.main.async {
+                refreshPolledPermissionStatuses()
+            }
+        }
+    }
+
+    private func requestMicrophonePermission() {
         appState.requestMicrophoneAccess { granted in
             micPermissionGranted = granted
         }
     }
 
-    func checkAccessibility() {
-        accessibilityGranted = AXIsProcessTrusted()
-    }
-
-    func startAccessibilityPolling() {
-        accessibilityTimer?.invalidate()
-        accessibilityTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            DispatchQueue.main.async {
-                checkAccessibility()
+    private func handleNotificationPermissionAction() {
+        if notificationAuthorizationStatus == .denied {
+            if let url = URL(
+                string: "x-apple.systempreferences:com.apple.preference.notifications"
+            ) {
+                NSWorkspace.shared.open(url)
             }
-        }
-    }
-
-    func requestAccessibility() {
-        appState.openAccessibilitySettings()
-    }
-
-    private var notificationAuthorizationGranted: Bool {
-        SetupFlow.isNotificationAuthorizationGranted(notificationAuthorizationStatus)
-    }
-
-    private func requestNotificationPermission() {
-        Task {
-            _ = await AppNotificationManager.shared.requestAuthorization()
-            refreshNotificationAuthorizationStatus()
-        }
-    }
-
-    private func openNotificationSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
-            NSWorkspace.shared.open(url)
+        } else {
+            Task {
+                _ = await AppNotificationManager.shared.requestAuthorization()
+                refreshNotificationAuthorizationStatus()
+            }
         }
     }
 
@@ -1294,517 +890,6 @@ struct SetupView: View {
             await MainActor.run {
                 notificationAuthorizationStatus = settings.authorizationStatus
             }
-        }
-    }
-
-    func startScreenRecordingPolling() {
-        screenRecordingTimer?.invalidate()
-        screenRecordingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            DispatchQueue.main.async {
-                appState.hasScreenRecordingPermission = CGPreflightScreenCaptureAccess()
-            }
-        }
-    }
-
-    // MARK: - Test Transcription
-
-    private func startTestHotkeyMonitoring() {
-        testHotkeyHarness.onAction = { action in
-            switch action {
-            case .start:
-                guard testPhase == .idle || testPhase == .done else { return }
-                if testPhase == .done {
-                    resetTest()
-                }
-                if AudioInputDevice.isSystemDefaultAndSystemAudio(appState.selectedMicrophoneID) {
-                    startSystemDefaultAndSystemAudioTestRecording()
-                } else if AudioInputDevice.isSystemAudio(appState.selectedMicrophoneID) {
-                    startSystemAudioTestRecording()
-                } else {
-                    startMicrophoneTestRecording()
-                }
-
-            case .stop:
-                guard (testPhase == .starting || testPhase == .recording), testAudioRecorder != nil || testSystemAudioRecorder != nil || testSystemDefaultAndSystemAudioRecorder != nil else { return }
-                if testPhase == .starting {
-                    testSystemAudioRecorder?.cancelRecording()
-                    testSystemDefaultAndSystemAudioRecorder?.cancelRecording()
-                    resetTest()
-                    return
-                }
-                testAudioLevelCancellable?.cancel()
-                testAudioLevelCancellable = nil
-                testAudioLevel = 0.0
-                testHotkeyHarness.isTranscribing = true
-
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                    testPhase = .transcribing
-                }
-                if let recorder = testAudioRecorder {
-                    recorder.stopRecording { url in
-                        finishTestRecording(url) {
-                            recorder.cleanup()
-                        }
-                    }
-                } else if testSystemAudioRecorder != nil {
-                    let recorder = testSystemAudioRecorder
-                    testSystemAudioRecorder?.stopRecording { url in
-                        finishTestRecording(url) {
-                            recorder?.cleanup()
-                        }
-                    }
-                } else {
-                    let recorder = testSystemDefaultAndSystemAudioRecorder
-                    testSystemDefaultAndSystemAudioRecorder?.stopRecording { url in
-                        finishTestRecording(url) {
-                            recorder?.cleanup()
-                        }
-                    }
-                }
-
-            case .switchedToToggle:
-                break
-            }
-        }
-
-        do {
-            try testHotkeyHarness.start(configuration: ShortcutConfiguration(
-                hold: appState.holdShortcut,
-                toggle: appState.toggleShortcut
-            ), startDelay: appState.shortcutStartDelay)
-        } catch {
-            testIssue = setupIssue(for: error).record
-            testPhase = .done
-        }
-    }
-
-    private func startMicrophoneTestRecording() {
-        do {
-            let recorder = AudioRecorder()
-            recorder.onRecordingFailure = { [weak recorder] error in
-                guard let recorder else { return }
-                handleTestRecordingFailure(error) {
-                    recorder.cleanup()
-                }
-            }
-            try recorder.startRecording(deviceUID: appState.selectedMicrophoneID)
-            testAudioRecorder = recorder
-            testSystemAudioRecorder = nil
-            testSystemDefaultAndSystemAudioRecorder = nil
-            testIssue = nil
-            testAudioLevelCancellable = recorder.$audioLevel
-                .receive(on: DispatchQueue.main)
-                .sink { level in
-                    testAudioLevel = level
-                }
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                testPhase = .recording
-            }
-        } catch {
-            handleTestStartFailure(error)
-        }
-    }
-
-    private func startSystemAudioTestRecording() {
-        let recorder = SystemAudioRecorder()
-        recorder.onRecordingFailure = { [weak recorder] error in
-            guard let recorder else { return }
-            handleTestRecordingFailure(error) {
-                recorder.cleanup()
-            }
-        }
-        testAudioRecorder = nil
-        testSystemAudioRecorder = recorder
-        testSystemDefaultAndSystemAudioRecorder = nil
-        testIssue = nil
-        testAudioLevelCancellable = recorder.$audioLevel
-            .receive(on: DispatchQueue.main)
-            .sink { level in
-                testAudioLevel = level
-            }
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            testPhase = .starting
-        }
-        Task {
-            do {
-                _ = try await recorder.startRecording()
-                await MainActor.run {
-                    guard testPhase == .starting else { return }
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                        testPhase = .recording
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    guard testPhase == .starting else { return }
-                    handleTestStartFailure(error)
-                    recorder.cleanup()
-                }
-            }
-        }
-    }
-
-    private func startSystemDefaultAndSystemAudioTestRecording() {
-        let microphoneRecorder = AudioRecorder()
-        let systemAudioRecorder = SystemAudioRecorder()
-        let recorder = SystemDefaultAndSystemAudioRecorder(
-            microphoneRecorder: microphoneRecorder,
-            systemAudioRecorder: systemAudioRecorder
-        )
-        recorder.onRecordingFailure = { [weak recorder] error in
-            guard let recorder else { return }
-            handleTestRecordingFailure(error) {
-                recorder.cleanup()
-            }
-        }
-        testAudioRecorder = nil
-        testSystemAudioRecorder = nil
-        testSystemDefaultAndSystemAudioRecorder = recorder
-        testIssue = nil
-        testAudioLevelCancellable = recorder.$audioLevel
-            .receive(on: DispatchQueue.main)
-            .sink { level in
-                testAudioLevel = level
-            }
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            testPhase = .starting
-        }
-        Task {
-            do {
-                _ = try await recorder.startRecording()
-                await MainActor.run {
-                    guard testPhase == .starting else { return }
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                        testPhase = .recording
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    guard testPhase == .starting else { return }
-                    handleTestStartFailure(error)
-                    recorder.cleanup()
-                }
-            }
-        }
-    }
-
-    private func handleTestStartFailure(_ error: Error) {
-        testHotkeyHarness.resetSession()
-        testAudioLevelCancellable?.cancel()
-        testAudioLevelCancellable = nil
-        testAudioLevel = 0.0
-        testAudioRecorder = nil
-        testSystemAudioRecorder = nil
-        testSystemDefaultAndSystemAudioRecorder = nil
-        testIssue = setupIssue(
-            for: error,
-            fallbackCode: .recordingInputFailed
-        ).record
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            testPhase = .done
-        }
-    }
-
-    private func handleTestRecordingFailure(_ error: Error, cleanup: @escaping @MainActor () -> Void) {
-        Task { @MainActor in
-            testAudioLevelCancellable?.cancel()
-            testAudioLevelCancellable = nil
-            testAudioLevel = 0.0
-            testHotkeyHarness.isTranscribing = false
-            testAudioRecorder = nil
-            testSystemAudioRecorder = nil
-            testSystemDefaultAndSystemAudioRecorder = nil
-            testIssue = setupIssue(
-                for: error,
-                fallbackCode: .recordingInputFailed
-            ).record
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                testPhase = .done
-            }
-            cleanup()
-        }
-    }
-
-    private func finishTestRecording(_ url: URL?, cleanup: @escaping @MainActor () -> Void) {
-        guard let url else {
-            Task { @MainActor in
-                testHotkeyHarness.isTranscribing = false
-                testAudioRecorder = nil
-                testSystemAudioRecorder = nil
-                testSystemDefaultAndSystemAudioRecorder = nil
-                if testIssue == nil {
-                    testIssue = QuillUserIssueRecord(code: .audioUnreadable)
-                }
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                    testPhase = .done
-                }
-                cleanup()
-            }
-            return
-        }
-
-        Task {
-            do {
-                let service = try appState.makeTranscriptionService()
-                let transcript = try await service.transcribe(fileURL: url)
-                await MainActor.run {
-                    testHotkeyHarness.isTranscribing = false
-                    testAudioRecorder = nil
-                    testSystemAudioRecorder = nil
-                    testSystemDefaultAndSystemAudioRecorder = nil
-                    testTranscript = transcript
-                    withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
-                        testPhase = .done
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    testHotkeyHarness.isTranscribing = false
-                    testAudioRecorder = nil
-                    testSystemAudioRecorder = nil
-                    testSystemDefaultAndSystemAudioRecorder = nil
-                    testIssue = setupIssue(for: error).record
-                    withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
-                        testPhase = .done
-                    }
-                }
-            }
-            await MainActor.run {
-                cleanup()
-            }
-        }
-    }
-
-    private func setupIssue(
-        for error: Error,
-        fallbackCode: QuillUserIssueCode = .unknown
-    ) -> QuillUserIssueError {
-        if let issue = error as? QuillUserIssueError {
-            return issue
-        }
-        let nsError = error as NSError
-        return QuillUserIssueError(
-            record: QuillUserIssueRecord(code: fallbackCode),
-            privateDiagnostic: "\(nsError.domain) \(nsError.code)"
-        )
-    }
-
-    private func performSetupRecoveryAction(
-        _ action: QuillUserRecoveryAction
-    ) {
-        switch action {
-        case .retryTranscription:
-            resetTest()
-        case .openProviderSettings:
-            showingProviderSettingsSheet = true
-        case .openModelsSettings:
-            appState.selectedSettingsTab = .models
-            NotificationCenter.default.post(name: .showSettings, object: nil)
-        case .openMicrophoneSettings:
-            appState.openMicrophoneSettings()
-        case .openSpeechRecognitionSettings:
-            appState.openSpeechRecognitionSettings()
-        case .openScreenRecordingSettings:
-            appState.openScreenCaptureSettings()
-        case .none:
-            break
-        }
-    }
-
-    private func clearTestRecordingState() {
-        testAudioLevelCancellable?.cancel()
-        testAudioLevelCancellable = nil
-        testAudioLevel = 0.0
-        testHotkeyHarness.isTranscribing = false
-    }
-
-    private func cancelTestRecorders() {
-        if let recorder = testAudioRecorder, recorder.isRecording {
-            recorder.cancelRecording()
-        }
-        testSystemAudioRecorder?.cancelRecording()
-        testSystemAudioRecorder?.cleanup()
-        if let recorder = testSystemDefaultAndSystemAudioRecorder {
-            recorder.cancelRecording()
-            recorder.cleanup()
-        }
-        testAudioRecorder = nil
-        testSystemAudioRecorder = nil
-        testSystemDefaultAndSystemAudioRecorder = nil
-    }
-
-    private func stopTestHotkeyMonitoring() {
-        testHotkeyHarness.stop()
-        resetTest()
-    }
-
-    private func resetTest() {
-        testPhase = .idle
-        testTranscript = ""
-        testIssue = nil
-        testMicPulsing = true
-        clearTestRecordingState()
-        testHotkeyHarness.resetSession()
-        cancelTestRecorders()
-    }
-
-}
-
-struct GitHubRepoInfo: Decodable {
-    let stargazersCount: Int
-
-    private enum CodingKeys: String, CodingKey {
-        case stargazersCount = "stargazers_count"
-    }
-}
-
-struct GitHubStarRecord: Decodable, Identifiable {
-    let user: GitHubStarUser
-
-    var id: Int {
-        user.id
-    }
-}
-
-struct GitHubStarUser: Decodable {
-    let id: Int
-    let login: String
-    let avatarUrl: URL
-    let htmlUrl: URL
-
-    /// Avatar URL resized to 44px (2x for 22pt display) for efficient loading
-    var avatarThumbnailUrl: URL {
-        // GitHub avatar URLs already have query params, so append with &
-        let separator = avatarUrl.absoluteString.contains("?") ? "&" : "?"
-        return URL(string: avatarUrl.absoluteString + "\(separator)s=44") ?? avatarUrl
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id
-        case login
-        case avatarUrl = "avatar_url"
-        case htmlUrl = "html_url"
-    }
-}
-
-struct GitHubContributor: Decodable, Identifiable {
-    let id: Int
-    let login: String
-    let avatarUrl: URL
-    let htmlUrl: URL
-
-    var avatarThumbnailUrl: URL {
-        let separator = avatarUrl.absoluteString.contains("?") ? "&" : "?"
-        return URL(string: avatarUrl.absoluteString + "\(separator)s=44") ?? avatarUrl
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id
-        case login
-        case avatarUrl = "avatar_url"
-        case htmlUrl = "html_url"
-    }
-}
-
-@MainActor
-class GitHubMetadataCache: ObservableObject {
-    static let shared = GitHubMetadataCache()
-
-    @Published var starCount: Int?
-    @Published var recentStargazers: [GitHubStarRecord] = []
-    @Published var recentContributors: [GitHubContributor] = []
-    @Published var isLoading = true
-
-    private var lastFetchDate: Date?
-    private let cacheDuration: TimeInterval = 5 * 60 // 5 minutes
-    private let repoAPIURL = URL(string: "https://api.github.com/repos/zachlatta/freeflow")!
-
-    private init() {}
-
-    func fetchIfNeeded() async {
-        if let lastFetch = lastFetchDate, Date().timeIntervalSince(lastFetch) < cacheDuration {
-            return
-        }
-
-        isLoading = true
-
-        do {
-            let repoResult = try await URLSession.shared.data(from: repoAPIURL)
-            guard let repoHTTP = repoResult.1 as? HTTPURLResponse,
-                  (200..<300).contains(repoHTTP.statusCode) else {
-                throw URLError(.badServerResponse)
-            }
-            let count = try JSONDecoder().decode(GitHubRepoInfo.self, from: repoResult.0).stargazersCount
-
-            var recent: [GitHubStarRecord] = []
-            if count > 0 {
-                let perPage = 100
-                let lastPage = max(1, Int(ceil(Double(count) / Double(perPage))))
-                let stargazersURL = URL(string: "https://api.github.com/repos/zachlatta/freeflow/stargazers?per_page=\(perPage)&page=\(lastPage)")!
-                var request = URLRequest(url: stargazersURL)
-                request.setValue("application/vnd.github.v3.star+json", forHTTPHeaderField: "Accept")
-                let starredResult = try await URLSession.shared.data(for: request)
-                if let starredHTTP = starredResult.1 as? HTTPURLResponse,
-                   (200..<300).contains(starredHTTP.statusCode) {
-                    let all = try JSONDecoder().decode([GitHubStarRecord].self, from: starredResult.0)
-                    recent = Array(all.suffix(15).reversed())
-                }
-            }
-
-            var contributors: [GitHubContributor] = []
-            let contributorsURL = URL(string: "https://api.github.com/repos/zachlatta/freeflow/contributors?per_page=15")!
-            do {
-                let contributorsResult = try await URLSession.shared.data(from: contributorsURL)
-                if let contribHTTP = contributorsResult.1 as? HTTPURLResponse,
-                   (200..<300).contains(contribHTTP.statusCode) {
-                    contributors = try JSONDecoder().decode([GitHubContributor].self, from: contributorsResult.0)
-                }
-            } catch {
-                contributors = []
-            }
-
-            starCount = count
-            recentStargazers = recent
-            recentContributors = contributors
-            isLoading = false
-            lastFetchDate = Date()
-        } catch {
-            isLoading = false
-        }
-    }
-}
-
-private struct InlineTranscribingDots: View {
-    @State private var activeDot = 0
-    let timer = Timer.publish(every: 0.4, on: .main, in: .common).autoconnect()
-
-    var body: some View {
-        HStack(spacing: 8) {
-            ForEach(0..<3, id: \.self) { index in
-                Circle()
-                    .fill(Color.blue.opacity(activeDot == index ? 1.0 : 0.3))
-                    .frame(width: 12, height: 12)
-                    .scaleEffect(activeDot == index ? 1.3 : 1.0)
-                    .animation(.easeInOut(duration: 0.3), value: activeDot)
-            }
-        }
-        .onReceive(timer) { _ in
-            activeDot = (activeDot + 1) % 3
-        }
-    }
-}
-
-struct HowToRow: View {
-    let icon: String
-    let text: String
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .frame(width: 24)
-                .foregroundStyle(.blue)
-            Text(text)
-                .foregroundStyle(.secondary)
         }
     }
 }

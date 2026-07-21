@@ -1,32 +1,55 @@
 import UserNotifications
 
 enum SetupFlow {
-    static let localOnlySkipButtonTitle = String(localized: "Skip")
-
-    struct LocalOnlySkipState: Equatable {
-        let useLocalTranscription: Bool
-        let localTranscriptionModelID: String
-        let apiKey: String
-        let transcriptionAPIKey: String
-        let transcriptionAPIURL: String
-        let disablePostProcessing: Bool
-        let disableContextCapture: Bool
-        let realtimeStreamingEnabled: Bool
-        let isCommandModeEnabled: Bool
+    enum ProcessingLocation: Equatable {
+        case onThisMac
+        case apiProvider
     }
 
-    static func localOnlySkipState() -> LocalOnlySkipState {
-        LocalOnlySkipState(
-            useLocalTranscription: true,
-            localTranscriptionModelID: "apple-speech",
-            apiKey: "",
-            transcriptionAPIKey: "",
-            transcriptionAPIURL: "",
-            disablePostProcessing: true,
-            disableContextCapture: true,
-            realtimeStreamingEnabled: false,
-            isCommandModeEnabled: false
-        )
+    enum LocalModel: Equatable {
+        case appleSpeech
+        case nativeWhisper
+
+        static let `default`: LocalModel = .appleSpeech
+    }
+
+    enum ProcessingPreset: Equatable {
+        case localAppleSpeech
+        case localNativeWhisper
+        case apiStandard
+    }
+
+    enum Permission: Hashable {
+        case microphone
+        case accessibility
+        case speechRecognition
+    }
+
+    static func processingPreset(
+        location: ProcessingLocation?,
+        localModel: LocalModel
+    ) -> ProcessingPreset? {
+        switch location {
+        case .onThisMac:
+            switch localModel {
+            case .appleSpeech:
+                return .localAppleSpeech
+            case .nativeWhisper:
+                return .localNativeWhisper
+            }
+        case .apiProvider:
+            return .apiStandard
+        case nil:
+            return nil
+        }
+    }
+
+    static func requiredPermissions(for preset: ProcessingPreset) -> Set<Permission> {
+        var permissions: Set<Permission> = [.microphone, .accessibility]
+        if preset == .localAppleSpeech {
+            permissions.insert(.speechRecognition)
+        }
+        return permissions
     }
 
     static func isNotificationAuthorizationGranted(_ status: UNAuthorizationStatus) -> Bool {

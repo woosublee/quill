@@ -1,6 +1,230 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Validate": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Validate"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인"
+          }
+        }
+      }
+    },
+    "Choose how you want to start and stop recording. You can change these shortcuts later in Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose how you want to start and stop recording. You can change these shortcuts later in Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음을 시작하고 멈추는 방법을 선택하세요. 이 단축키는 나중에 설정에서 바꿀 수 있습니다."
+          }
+        }
+      }
+    },
+    "Paste Again, Recording Cancel, and other shortcuts remain available in Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste Again, Recording Cancel, and other shortcuts remain available in Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 붙여넣기, 녹음 취소 등 다른 단축키는 설정에서 계속 사용할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Enable at least one recording shortcut to continue.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable at least one recording shortcut to continue."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계속하려면 녹음 단축키를 하나 이상 활성화하세요."
+          }
+        }
+      }
+    },
+    "Hold to Talk": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold to Talk"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "길게 눌러 말하기"
+          }
+        }
+      }
+    },
+    "Tap to Toggle": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to Toggle"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "눌러서 전환"
+          }
+        }
+      }
+    },
+    "Use either recording shortcut anywhere on your Mac to start your first recording.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use either recording shortcut anywhere on your Mac to start your first recording."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 어디서든 두 녹음 단축키 중 하나를 사용해 첫 녹음을 시작하세요."
+          }
+        }
+      }
+    },
+    "On this Mac · Apple Speech · Whisper is downloading and will become active when ready.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On this Mac · Apple Speech · Whisper is downloading and will become active when ready."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 · Apple Speech · Whisper가 다운로드 중이며 준비되면 활성화됩니다."
+          }
+        }
+      }
+    },
+    "Whisper will become active when the download finishes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whisper will become active when the download finishes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드가 끝나면 Whisper가 활성화됩니다."
+          }
+        }
+      }
+    },
+    "Download continues in the background. Select Whisper after installation.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download continues in the background. Select Whisper after installation."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드가 백그라운드에서 계속됩니다. 설치 후 Whisper를 선택하세요."
+          }
+        }
+      }
+    },
+    "The download continues in the background while Quill is running.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The download continues in the background while Quill is running."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill이 실행되는 동안 다운로드가 백그라운드에서 계속됩니다."
+          }
+        }
+      }
+    },
+    "Quit while Local Whisper is downloading?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit while Local Whisper is downloading?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Whisper를 다운로드하는 중에 종료할까요?"
+          }
+        }
+      }
+    },
+    "Quill will cancel the download and delete the partial file if you quit now.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill will cancel the download and delete the partial file if you quit now."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 종료하면 Quill이 다운로드를 취소하고 partial 파일을 삭제합니다."
+          }
+        }
+      }
+    },
+    "Quit and Cancel Download": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit and Cancel Download"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종료하고 다운로드 취소"
+          }
+        }
+      }
+    },
     "Add a custom model ID when it is not listed in the main Model menu.": {
       "localizations": {
         "en": {
@@ -11201,6 +11425,758 @@
           "stringUnit": {
             "state": "translated",
             "value": "화면 기록 설정 열기"
+          }
+        }
+      }
+    },
+    "Meet Quill": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meet Quill"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill을 만나보세요"
+          }
+        }
+      }
+    },
+    "Turn speech and meetings into notes — from anywhere on your Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn speech and meetings into notes — from anywhere on your Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 어디서나 음성과 회의를 노트로 바꿔 보세요."
+          }
+        }
+      }
+    },
+    "Choose how Quill works": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose how Quill works"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill의 작동 방식을 선택하세요"
+          }
+        }
+      }
+    },
+    "Select where your audio is processed. You can configure each feature independently later in Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select where your audio is processed. You can configure each feature independently later in Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오를 처리할 위치를 선택하세요. 설정에서 각 기능을 나중에 개별적으로 구성할 수 있습니다."
+          }
+        }
+      }
+    },
+    "On this Mac": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On this Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서"
+          }
+        }
+      }
+    },
+    "Private · Works offline · No API key": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Private · Works offline · No API key"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비공개 · 오프라인 사용 · API 키 불필요"
+          }
+        }
+      }
+    },
+    "No model download · AI features available": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No model download · AI features available"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델 다운로드 불필요 · AI 기능 사용 가능"
+          }
+        }
+      }
+    },
+    "Transcription model": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription model"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 모델"
+          }
+        }
+      }
+    },
+    "Apple Speech": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Speech"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple 음성 인식"
+          }
+        }
+      }
+    },
+    "Built in · Start instantly": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Built in · Start instantly"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내장 · 바로 시작"
+          }
+        }
+      }
+    },
+    "Transcription runs locally. AI cleanup and context-aware output stay off until compatible local models are configured.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription runs locally. AI cleanup and context-aware output stay off until compatible local models are configured."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사는 로컬에서 처리됩니다. 호환되는 로컬 모델을 구성하기 전까지 AI 정리와 컨텍스트 기반 출력은 꺼져 있습니다."
+          }
+        }
+      }
+    },
+    "API key validated. Cloud transcription and AI features are ready.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API key validated. Cloud transcription and AI features are ready."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 키가 확인되었습니다. 클라우드 전사와 AI 기능을 사용할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Validating provider access…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Validating provider access…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제공업체 연결 확인 중…"
+          }
+        }
+      }
+    },
+    "Uses Quill's default Groq configuration. Advanced providers remain in Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses Quill's default Groq configuration. Advanced providers remain in Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill의 기본 Groq 구성을 사용합니다. 고급 제공업체 설정은 설정에서 변경할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Validation failed. Please check your API key and try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Validation failed. Please check your API key and try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 키를 확인할 수 없습니다. API 키를 확인한 후 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Allow Quill to work": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Quill to work"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill이 작동하도록 허용하세요"
+          }
+        }
+      }
+    },
+    "Required permissions unlock dictation. Optional permissions can be skipped and enabled later.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Required permissions unlock dictation. Optional permissions can be skipped and enabled later."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필수 권한은 받아쓰기에 필요합니다. 선택 권한은 건너뛰고 나중에 활성화할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Required": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Required"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필수"
+          }
+        }
+      }
+    },
+    "Record your voice for transcription.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record your voice for transcription."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사를 위해 음성을 녹음합니다."
+          }
+        }
+      }
+    },
+    "Paste transcribed text into your apps.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste transcribed text into your apps."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사한 텍스트를 앱에 붙여 넣습니다."
+          }
+        }
+      }
+    },
+    "Required by Apple Speech for live transcription.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Required by Apple Speech for live transcription."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Speech 실시간 전사에 필요합니다."
+          }
+        }
+      }
+    },
+    "Optional": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택"
+          }
+        }
+      }
+    },
+    "Can be enabled later": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can be enabled later"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나중에 활성화 가능"
+          }
+        }
+      }
+    },
+    "Adds screen context and enables System Audio when you choose it.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adds screen context and enables System Audio when you choose it."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필요할 때 화면 컨텍스트를 추가하고 시스템 오디오를 사용할 수 있게 합니다."
+          }
+        }
+      }
+    },
+    "Shows calendar recording reminders before meetings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows calendar recording reminders before meetings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "회의 전에 캘린더 녹음 알림을 표시합니다."
+          }
+        }
+      }
+    },
+    "Choose your shortcut": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose your shortcut"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단축키를 선택하세요"
+          }
+        }
+      }
+    },
+    "Hold the shortcut while you speak. More shortcut options are available later in Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold the shortcut while you speak. More shortcut options are available later in Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "말하는 동안 단축키를 길게 누르세요. 다른 단축키 옵션은 나중에 설정에서 변경할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Toggle dictation remains Cmd+Fn. Paste Again, Recording Cancel, and other shortcuts remain available in Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle dictation remains Cmd+Fn. Paste Again, Recording Cancel, and other shortcuts remain available in Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "토글 받아쓰기는 Cmd+Fn으로 유지됩니다. 다시 붙여넣기, 녹음 취소 및 다른 단축키는 설정에서 변경할 수 있습니다."
+          }
+        }
+      }
+    },
+    "You're ready": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You're ready"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "준비가 완료되었습니다"
+          }
+        }
+      }
+    },
+    "Use your hold shortcut anywhere on your Mac to start your first recording.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use your hold shortcut anywhere on your Mac to start your first recording."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac 어디서나 길게 누르기 단축키로 첫 녹음을 시작하세요."
+          }
+        }
+      }
+    },
+    "Optional permissions": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional permissions"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택 권한"
+          }
+        }
+      }
+    },
+    "On this Mac · Apple Speech": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On this Mac · Apple Speech"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 · Apple 음성 인식"
+          }
+        }
+      }
+    },
+    "On this Mac · %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On this Mac · %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 · %@"
+          }
+        }
+      }
+    },
+    "API Provider · Standard": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API Provider · Standard"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 제공업체 · 표준"
+          }
+        }
+      }
+    },
+    "Choose a processing option": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a processing option"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "처리 방식을 선택하세요"
+          }
+        }
+      }
+    },
+    "Hold-to-talk is disabled": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold-to-talk is disabled"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "길게 눌러 말하기가 꺼져 있습니다"
+          }
+        }
+      }
+    },
+    "Screen Recording and Notifications are enabled.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen Recording and Notifications are enabled."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 기록과 알림이 활성화되어 있습니다."
+          }
+        }
+      }
+    },
+    "Screen Recording is enabled. Notifications can be added later.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen Recording is enabled. Notifications can be added later."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 기록이 활성화되어 있습니다. 알림은 나중에 추가할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Notifications are enabled. Screen Recording can be added later.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications are enabled. Screen Recording can be added later."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림이 활성화되어 있습니다. 화면 기록은 나중에 추가할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Screen Recording and Notifications can be enabled later.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen Recording and Notifications can be enabled later."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 기록과 알림은 나중에 활성화할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Step %d of %d": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step %d of %d"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d / %d단계"
+          }
+        }
+      }
+    },
+    "Closing Setup will cancel the model download and remove the partial file.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing Setup will cancel the model download and remove the partial file."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 도우미를 닫으면 모델 다운로드가 취소되고 일부 다운로드 파일이 삭제됩니다."
+          }
+        }
+      }
+    },
+    "Keep Setup Open": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Setup Open"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 도우미 계속 열기"
+          }
+        }
+      }
+    },
+    "Local Whisper download was canceled because Settings was closed. Start the install again when you're ready.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Whisper download was canceled because Settings was closed. Start the install again when you're ready."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 창이 닫혀 로컬 Whisper 다운로드가 취소되었습니다. 준비가 되면 설치를 다시 시작하세요."
+          }
+        }
+      }
+    },
+    "Local Whisper download was canceled because Setup was closed. Start the install again when you're ready.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Whisper download was canceled because Setup was closed. Start the install again when you're ready."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 도우미가 닫혀 로컬 Whisper 다운로드가 취소되었습니다. 준비가 되면 설치를 다시 시작하세요."
+          }
+        }
+      }
+    },
+    "Processing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processing"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "처리"
+          }
+        }
+      }
+    },
+    "Shortcut": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shortcut"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단축키"
           }
         }
       }

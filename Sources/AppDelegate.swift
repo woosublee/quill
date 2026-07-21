@@ -5,7 +5,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     let appState = AppState()
     var setupWindow: NSWindow?
     private var settingsWindow: NSWindow?
-    private lazy var settingsWindowDelegate = SettingsWindowDelegate(appState: appState)
     private var noteBrowserWindow: NSWindow?
     private var mcpServer: MCPServer?
     private var shouldRestoreAfterSetupWindowClose = false
@@ -116,7 +115,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        appState.requestTerminationWhileRecording()
+        let recordingReply = appState.requestTerminationWhileRecording()
+        guard recordingReply == .terminateNow else { return recordingReply }
+        return appState.requestTerminationWhileNativeWhisperInstalling()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -267,7 +268,6 @@ private func showNoteBrowserWindow() {
         window.title = AppName.displayName
         window.contentView = hostingView
         window.isReleasedWhenClosed = false
-        window.delegate = settingsWindowDelegate
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -294,8 +294,8 @@ private func showNoteBrowserWindow() {
         .environmentObject(appState)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 680),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            contentRect: NSRect(x: 0, y: 0, width: 780, height: 720),
+            styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -303,7 +303,7 @@ private func showNoteBrowserWindow() {
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = true
         window.contentView = NSHostingView(rootView: setupView)
-        window.minSize = NSSize(width: 520, height: 680)
+        window.minSize = NSSize(width: 620, height: 600)
         window.center()
         window.makeKeyAndOrderFront(nil)
         window.isReleasedWhenClosed = false
@@ -344,32 +344,5 @@ private func showNoteBrowserWindow() {
         } catch {
             print("[MCP] Failed to start server: \(error)")
         }
-    }
-}
-
-private final class SettingsWindowDelegate: NSObject, NSWindowDelegate {
-    private let appState: AppState
-
-    init(appState: AppState) {
-        self.appState = appState
-    }
-
-    @MainActor
-    func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard appState.isInstallingNativeWhisper else { return true }
-
-        let alert = NSAlert()
-        alert.messageText = localizedCatalogString("Local Whisper Download in Progress")
-        alert.informativeText = localizedCatalogString(
-            "Closing Settings will cancel the model download and remove the partial file."
-        )
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: localizedCatalogString("Keep Settings Open"))
-        alert.addButton(withTitle: localizedCatalogString("Close and Cancel Download"))
-        alert.buttons.last?.hasDestructiveAction = true
-
-        guard alert.runModal() == .alertSecondButtonReturn else { return false }
-        appState.cancelNativeWhisperInstallForSettingsClose()
-        return true
     }
 }

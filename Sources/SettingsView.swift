@@ -409,9 +409,6 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .onDisappear {
-            appState.cancelNativeWhisperInstallForSettingsClose()
-        }
     }
 }
 
@@ -1516,7 +1513,6 @@ struct ModelsSettingsView: View {
     @State private var transcriptionAPIKeyInput: String = ""
     @State private var transcriptionModelDraft = ""
     @State private var pendingNativeModelID: String?
-    @State private var nativeInstallAutoSelectModelID: String?
     @State private var showRealtimeTranscriptionOption = false
     @State private var realtimeStreamingModelDraft = ""
     @State private var postProcessingModelDraft = ""
@@ -1611,14 +1607,6 @@ struct ModelsSettingsView: View {
             guard !isEditingTranscriptionModel else { return }
             let draft = customStandardAPIModelDraft(for: value)
             if transcriptionModelDraft != draft { transcriptionModelDraft = draft }
-        }
-        .onChange(of: appState.nativeWhisperInstallStatus) { status in
-            guard status == .ready,
-                  let modelID = nativeInstallAutoSelectModelID,
-                  pendingNativeModelID == modelID,
-                  appState.selectedSettingsTab == .models else { return }
-            appState.setNoteBrowserTranscriptionChoice(.nativeWhisper(modelID: modelID))
-            nativeInstallAutoSelectModelID = nil
         }
     }
 
@@ -1762,12 +1750,12 @@ struct ModelsSettingsView: View {
         case .nativeWhisper(let modelID):
             pendingNativeModelID = modelID
             if appState.isNoteBrowserTranscriptionChoiceAvailable(choice) {
-                nativeInstallAutoSelectModelID = nil
+                appState.cancelNativeWhisperAutoSelection()
                 appState.setNoteBrowserTranscriptionChoice(choice)
             }
         case .apiStandard, .apiRealtime, .legacyMlxWhisper, .appleLive:
             pendingNativeModelID = nil
-            nativeInstallAutoSelectModelID = nil
+            appState.cancelNativeWhisperAutoSelection()
             appState.setNoteBrowserTranscriptionChoice(choice)
         }
     }
@@ -1870,13 +1858,10 @@ struct ModelsSettingsView: View {
                     onSelect: {
                         handleTranscriptionChoiceSelection(.nativeWhisper(modelID: model.id))
                     },
-                    showsSelectionControl: false,
-                    onDownloadStarted: {
-                        nativeInstallAutoSelectModelID = model.id
-                    }
+                    showsSelectionControl: false
                 )
 
-                Text("If you close Settings while the model is downloading, Quill cancels the download and removes the partial file.")
+                Text("The download continues in the background while Quill is running.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -4257,6 +4242,17 @@ struct NativeWhisperModelRowView: View {
                 }
 
                 actionView
+            }
+
+            if appState.isInstallingNativeWhisper {
+                Text(
+                    appState.willAutoSelectNativeWhisperWhenReady
+                        ? localizedCatalogString("Whisper will become active when the download finishes.")
+                        : localizedCatalogString("Download continues in the background. Select Whisper after installation.")
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             if let issue = appState.nativeWhisperInstallIssue {

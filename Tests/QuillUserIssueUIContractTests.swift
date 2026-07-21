@@ -11,7 +11,7 @@ struct QuillUserIssueUIContractTests {
 
         try testSharedRenderer(issueView)
         try testNoteBrowserUsesStructuredErrorAndWarningUI(noteBrowser)
-        try testSetupTestUsesStructuredIssue(setup)
+        try testSetupOmitsRequiredTranscriptionTest(setup)
         try testSettingsTestsUseStructuredIssues(settings)
         try testRunLogSanitizesMachineStatuses(settings)
         try testRecoveryActionsUseExistingRoutes(noteBrowser, appState)
@@ -45,16 +45,10 @@ struct QuillUserIssueUIContractTests {
         )
     }
 
-    private static func testSetupTestUsesStructuredIssue(_ source: String) throws {
-        try expect(source.contains("@State private var testIssue: QuillUserIssueRecord?"), "Setup stores a test issue record")
-        try expect(source.contains("QuillUserIssueView("), "Setup uses shared issue renderer")
-        let testFlow = block(
-            source,
-            from: "// Test transcription state",
-            to: "private func clearTestRecordingState()"
-        )
-        try expect(!testFlow.contains("testError = error.localizedDescription"), "Setup test hides raw localized errors")
-        try expect(testFlow.contains("testIssue = setupIssue(for: error).record"), "Setup classifies test errors")
+    private static func testSetupOmitsRequiredTranscriptionTest(_ source: String) throws {
+        try expect(!source.contains("testTranscriptionStep"), "Setup omits the required transcription test screen")
+        try expect(!source.contains("@State private var testIssue"), "Setup does not retain test transcription issue state")
+        try expect(!source.contains("makeTranscriptionService()"), "Setup completion does not require a transcription request")
     }
 
     private static func testSettingsTestsUseStructuredIssues(_ source: String) throws {

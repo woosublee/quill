@@ -3,36 +3,59 @@ import UserNotifications
 
 @main
 struct SetupFlowTests {
-    static func main() {
-        testLocalOnlySkipButtonTitleIsShort()
-        testLocalOnlySkipStateUsesAppleSpeech()
-        testLocalOnlySkipStateClearsCloudCredentials()
+    static func main() throws {
+        testProcessingStartsWithoutSelection()
+        testLocalDefaultsToAppleSpeech()
+        testRequiredPermissionsAdaptToPreset()
         testNotificationAuthorizationGrantedStates()
         testNotificationActionTitles()
+        try testSetupContainsExactlyFiveScrollableSteps()
+        try testSetupWindowIsResizable()
+        try testNativeWhisperDownloadDoesNotLockProcessing()
+        try testShortcutStepConfiguresHoldAndToggle()
         print("SetupFlowTests passed")
     }
 
-    private static func testLocalOnlySkipButtonTitleIsShort() {
-        assert(SetupFlow.localOnlySkipButtonTitle == "Skip")
+    private static func testProcessingStartsWithoutSelection() {
+        assert(
+            SetupFlow.processingPreset(
+                location: nil,
+                localModel: .appleSpeech
+            ) == nil
+        )
     }
 
-    private static func testLocalOnlySkipStateUsesAppleSpeech() {
-        let state = SetupFlow.localOnlySkipState()
-
-        assert(state.useLocalTranscription)
-        assert(state.localTranscriptionModelID == "apple-speech")
-        assert(state.disablePostProcessing)
-        assert(state.disableContextCapture)
-        assert(!state.realtimeStreamingEnabled)
-        assert(!state.isCommandModeEnabled)
+    private static func testLocalDefaultsToAppleSpeech() {
+        assert(SetupFlow.LocalModel.default == .appleSpeech)
+        assert(
+            SetupFlow.processingPreset(
+                location: .onThisMac,
+                localModel: .default
+            ) == .localAppleSpeech
+        )
+        assert(
+            SetupFlow.processingPreset(
+                location: .onThisMac,
+                localModel: .nativeWhisper
+            ) == .localNativeWhisper
+        )
+        assert(
+            SetupFlow.processingPreset(
+                location: .apiProvider,
+                localModel: .appleSpeech
+            ) == .apiStandard
+        )
     }
 
-    private static func testLocalOnlySkipStateClearsCloudCredentials() {
-        let state = SetupFlow.localOnlySkipState()
+    private static func testRequiredPermissionsAdaptToPreset() {
+        let common: Set<SetupFlow.Permission> = [.microphone, .accessibility]
 
-        assert(state.apiKey.isEmpty)
-        assert(state.transcriptionAPIKey.isEmpty)
-        assert(state.transcriptionAPIURL.isEmpty)
+        assert(
+            SetupFlow.requiredPermissions(for: .localAppleSpeech)
+                == common.union([.speechRecognition])
+        )
+        assert(SetupFlow.requiredPermissions(for: .localNativeWhisper) == common)
+        assert(SetupFlow.requiredPermissions(for: .apiStandard) == common)
     }
 
     private static func testNotificationAuthorizationGrantedStates() {
@@ -45,5 +68,107 @@ struct SetupFlowTests {
     private static func testNotificationActionTitles() {
         assert(SetupFlow.notificationPermissionActionTitle(for: .notDetermined) == "Grant Access")
         assert(SetupFlow.notificationPermissionActionTitle(for: .denied) == "Open Settings")
+    }
+
+    private static func testSetupContainsExactlyFiveScrollableSteps() throws {
+        let source = try String(contentsOfFile: "Sources/SetupView.swift", encoding: .utf8)
+        let stepBlock = sourceBlock(
+            in: source,
+            from: "private enum SetupStep",
+            to: "\n\n    @State"
+        )
+
+        for expected in ["welcome", "processing", "permissions", "shortcut", "ready"] {
+            assert(stepBlock.contains("case \(expected)"), "Missing setup step: \(expected)")
+        }
+        for removed in [
+            "apiKey", "micPermission", "speechRecognition", "accessibility",
+            "screenRecording", "notifications", "holdShortcut", "toggleShortcut",
+            "copyAgainShortcut", "commandMode", "overlayStyle", "vocabulary",
+            "launchAtLogin", "testTranscription"
+        ] {
+            assert(!stepBlock.contains("case \(removed)"), "Legacy setup step remains: \(removed)")
+        }
+        assert(stepBlock.components(separatedBy: "case ").count - 1 == 5)
+        assert(source.contains("ScrollView"))
+        assert(!source.contains("skipAPIKeyForLocalOnly"))
+        assert(!source.contains("SetupProviderSettingsSheet"))
+        assert(!source.contains("testTranscriptionStep"))
+    }
+
+    private static func testSetupWindowIsResizable() throws {
+        let source = try String(contentsOfFile: "Sources/AppDelegate.swift", encoding: .utf8)
+        let setupWindow = sourceBlock(
+            in: source,
+            from: "func showSetupWindow()",
+            to: "\n\n    @MainActor\n    func completeSetup()"
+        )
+
+        assert(setupWindow.contains("width: 780, height: 720"))
+        assert(setupWindow.contains(".resizable"))
+        assert(setupWindow.contains("window.minSize = NSSize(width: 620, height: 600)"))
+        assert(!setupWindow.contains("window.delegate = setupWindowDelegate"))
+        assert(!source.contains("private final class SetupWindowDelegate"))
+        assert(!source.contains("cancelNativeWhisperInstallForSetupClose()"))
+    }
+
+    private static func testNativeWhisperDownloadDoesNotLockProcessing() throws {
+        let source = try String(contentsOfFile: "Sources/SetupView.swift", encoding: .utf8)
+        let processing = sourceBlock(
+            in: source,
+            from: "var processingStep: some View",
+            to: "\n    var permissionsStep: some View"
+        )
+        let continueGate = sourceBlock(
+            in: source,
+            from: "private var canContinueFromCurrentStep: Bool",
+            to: "\n    private var processingSummary"
+        )
+
+        assert(!processing.contains("guard !appState.isInstallingNativeWhisper"))
+        assert(!processing.contains(".disabled(appState.isInstallingNativeWhisper)"))
+        assert(processing.contains("appState.cancelNativeWhisperAutoSelection()"))
+        assert(processing.contains("localModel = .appleSpeech"))
+        assert(continueGate.contains("case .localAppleSpeech:\n                return true"))
+        assert(!continueGate.contains("return !appState.isInstallingNativeWhisper"))
+        assert(source.contains("Whisper is downloading and will become active when ready."))
+    }
+
+    private static func testShortcutStepConfiguresHoldAndToggle() throws {
+        let source = try String(contentsOfFile: "Sources/SetupView.swift", encoding: .utf8)
+        let shortcut = sourceBlock(
+            in: source,
+            from: "var shortcutStep: some View",
+            to: "\n    var readyStep: some View"
+        )
+        let gate = sourceBlock(
+            in: source,
+            from: "private var canContinueFromCurrentStep: Bool",
+            to: "\n    private var processingSummary"
+        )
+
+        assert(shortcut.contains("role: .hold"))
+        assert(shortcut.contains("role: .toggle"))
+        assert(shortcut.contains("appState.setShortcut(binding, for: .hold)"))
+        assert(shortcut.contains("appState.setShortcut(binding, for: .toggle)"))
+        assert(shortcut.contains("Enable at least one recording shortcut to continue."))
+        assert(!shortcut.contains("role: .copyAgain"))
+        assert(!shortcut.contains("RecordingCancelShortcutSection"))
+        assert(gate.contains("appState.hasEnabledHoldShortcut || appState.hasEnabledToggleShortcut"))
+
+        assert(source.contains("Hold %@ to record"))
+        assert(source.contains("Tap %@ to start and stop"))
+    }
+
+    private static func sourceBlock(
+        in source: String,
+        from startMarker: String,
+        to endMarker: String
+    ) -> String {
+        guard let start = source.range(of: startMarker),
+              let end = source.range(of: endMarker, range: start.upperBound..<source.endIndex) else {
+            preconditionFailure("Expected source block from \(startMarker) to \(endMarker)")
+        }
+        return String(source[start.lowerBound..<end.lowerBound])
     }
 }

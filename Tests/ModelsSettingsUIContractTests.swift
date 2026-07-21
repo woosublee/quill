@@ -19,7 +19,7 @@ struct ModelsSettingsUIContractTests {
         testCloudAPIReadinessPresentation(settings)
         try testTranscriptionUsesNativePickerAndExistingChoiceAPI(settings)
         testNativeDropdownUsesPendingContextualManagement(settings)
-        testNativeManagementRegressionGuards(settings: settings, appDelegate: appDelegate)
+        testNativeManagementRegressionGuards(settings: settings, appDelegate: appDelegate, appState: appState)
         testReviewRegressionGuards(settings)
         testPostProcessingUsesExplicitSwitchAndExistingState(settings)
         testContextUsesExplicitSwitchAndExistingState(settings)
@@ -251,20 +251,20 @@ struct ModelsSettingsUIContractTests {
         )
 
         precondition(models.contains("@State private var pendingNativeModelID: String?"))
-        precondition(models.contains("@State private var nativeInstallAutoSelectModelID: String?"))
+        precondition(!models.contains("@State private var nativeInstallAutoSelectModelID: String?"))
         precondition(models.contains("NativeWhisperModelCatalog.all.map"))
         precondition(models.contains("handleTranscriptionChoiceSelection($0)"))
         precondition(models.contains("pendingNativeModelID = modelID"))
         precondition(models.contains("appState.isNoteBrowserTranscriptionChoiceAvailable(choice)"))
+        precondition(models.contains("appState.cancelNativeWhisperAutoSelection()"))
         precondition(models.contains("private var managedNativeModel: NativeWhisperModel?"))
         precondition(models.contains("private func transcriptionChoiceMenuLabel(_ display: TranscriptionChoiceDisplay) -> String"))
         precondition(models.contains("Download required"))
         precondition(models.contains("Downloading..."))
         precondition(transcription.contains("NativeWhisperModelRowView("))
-        precondition(transcription.contains("onDownloadStarted:"))
-        precondition(transcription.contains("nativeInstallAutoSelectModelID = model.id"))
-        precondition(models.contains(".onChange(of: appState.nativeWhisperInstallStatus)"))
-        precondition(models.contains("appState.selectedSettingsTab == .models"))
+        precondition(!transcription.contains("onDownloadStarted:"))
+        precondition(!transcription.contains("nativeInstallAutoSelectModelID = model.id"))
+        precondition(!models.contains(".onChange(of: appState.nativeWhisperInstallStatus)"))
         precondition(!legacyDetails.contains("NativeWhisperModelRowView("))
         precondition(legacyDetails.contains("DisclosureGroup(\"Advanced Legacy mlx-whisper\")"))
         precondition(legacyDetails.contains("isOn: $appState.showLegacyMlxWhisperOptions"))
@@ -276,7 +276,8 @@ struct ModelsSettingsUIContractTests {
 
     private static func testNativeManagementRegressionGuards(
         settings: String,
-        appDelegate: String
+        appDelegate: String,
+        appState: String
     ) {
         let models = block(
             in: settings,
@@ -298,13 +299,27 @@ struct ModelsSettingsUIContractTests {
         precondition(models.contains("case .nativeWhisper(let modelID):"))
         precondition(models.contains("pendingNativeModelID = modelID"))
         precondition(!nativeRow.contains("refreshNativeWhisperInstallStatus()"))
-        precondition(appDelegate.contains("NSWindowDelegate"))
-        precondition(appDelegate.contains("func windowShouldClose(_ sender: NSWindow) -> Bool"))
-        precondition(appDelegate.contains("appState.isInstallingNativeWhisper"))
-        precondition(appDelegate.contains("cancelNativeWhisperInstallForSettingsClose()"))
-        precondition(appDelegate.contains("Keep Settings Open"))
-        precondition(appDelegate.contains("Close and Cancel Download"))
-        precondition(settingsWindow.contains("window.delegate ="))
+        precondition(!settings.contains("cancelNativeWhisperInstallForSettingsClose()"))
+        precondition(!appDelegate.contains("private final class SettingsWindowDelegate"))
+        precondition(!appDelegate.contains("private final class SetupWindowDelegate"))
+        precondition(!settingsWindow.contains("window.delegate = settingsWindowDelegate"))
+        precondition(
+            models.contains(
+                "The download continues in the background while Quill is running."
+            )
+        )
+        precondition(!appDelegate.contains("cancelNativeWhisperInstallForSettingsClose()"))
+        precondition(!appDelegate.contains("cancelNativeWhisperInstallForSetupClose()"))
+        precondition(appDelegate.contains("appState.requestTerminationWhileNativeWhisperInstalling()"))
+        precondition(appState.contains("func requestTerminationWhileNativeWhisperInstalling() -> NSApplication.TerminateReply"))
+        precondition(appState.contains("Quit while Local Whisper is downloading?"))
+
+        precondition(nativeRow.contains("appState.cancelNativeWhisperInstall()"))
+        precondition(nativeRow.contains("appState.willAutoSelectNativeWhisperWhenReady"))
+        precondition(nativeRow.contains("Whisper will become active when the download finishes."))
+        precondition(nativeRow.contains("Download continues in the background."))
+        precondition(!models.contains("@State private var nativeInstallAutoSelectModelID"))
+        precondition(models.contains("appState.cancelNativeWhisperAutoSelection()"))
     }
 
     private static func testReviewRegressionGuards(_ source: String) {
