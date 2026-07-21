@@ -38,7 +38,13 @@ struct NoteBrowserRecoveryTests {
             retryAvailability: .needsModelSetup
         )
         let presentation = NoteBrowserRecoveryPresentation.presentation(
-            for: QuillUserIssueRecord(code: .localModelMissing),
+            for: QuillUserIssueRecord(
+                code: .localModelMissing,
+                context: QuillUserIssueContext(
+                    modelID: "removed-model",
+                    localBackend: "native-whisper"
+                )
+            ),
             actionState: state,
             language: "en",
             bundle: .main
@@ -47,6 +53,7 @@ struct NoteBrowserRecoveryTests {
         precondition(presentation.title == "Set up a model for retranscription")
         precondition(presentation.body == "Your recording is safely stored.")
         precondition(presentation.suggestion.isEmpty)
+        precondition(presentation.detailsRows.isEmpty)
         precondition(presentation.recoveryAction == .openModelsSettings)
     }
 
@@ -66,6 +73,7 @@ struct NoteBrowserRecoveryTests {
         precondition(presentation.title == "Choose a model for retranscription")
         precondition(presentation.body == "Your recording is safely stored.")
         precondition(presentation.suggestion.isEmpty)
+        precondition(presentation.detailsRows.isEmpty)
         precondition(presentation.recoveryAction == .openModelsSettings)
     }
 
@@ -76,13 +84,20 @@ struct NoteBrowserRecoveryTests {
             retryAvailability: .ready
         )
         let presentation = NoteBrowserRecoveryPresentation.presentation(
-            for: QuillUserIssueRecord(code: .localModelMissing),
+            for: QuillUserIssueRecord(
+                code: .localModelMissing,
+                context: QuillUserIssueContext(
+                    modelID: "removed-model",
+                    localBackend: "native-whisper"
+                )
+            ),
             actionState: state,
             language: "en",
             bundle: .main
         )
 
         precondition(presentation.title == "Ready to retry transcription")
+        precondition(presentation.detailsRows.isEmpty)
         precondition(presentation.recoveryAction == .retryTranscription)
     }
 

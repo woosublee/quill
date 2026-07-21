@@ -65,7 +65,7 @@ enum NoteBrowserRecoveryPresentation {
                     language: language,
                     bundle: bundle
                 ),
-                detailsRows: original.detailsRows,
+                detailsRows: [],
                 recoveryAction: .retryTranscription,
                 severity: original.severity
             )
@@ -87,7 +87,7 @@ enum NoteBrowserRecoveryPresentation {
                     language: language,
                     bundle: bundle
                 ),
-                detailsRows: original.detailsRows,
+                detailsRows: [],
                 recoveryAction: .openModelsSettings,
                 severity: original.severity
             )
@@ -109,7 +109,7 @@ enum NoteBrowserRecoveryPresentation {
                     language: language,
                     bundle: bundle
                 ),
-                detailsRows: original.detailsRows,
+                detailsRows: [],
                 recoveryAction: .openModelsSettings,
                 severity: original.severity
             )
