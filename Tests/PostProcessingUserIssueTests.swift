@@ -1,6 +1,8 @@
 import Foundation
 
+#if !QUILL_GROUPED_TEST_RUNNER
 @main
+#endif
 struct PostProcessingUserIssueTests {
     static func main() throws {
         try testPostProcessingErrorsMapToWarningRecords()
