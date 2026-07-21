@@ -112,6 +112,10 @@ struct AppStateTranscriptionConfigurationTests {
         await testGoogleCalendarHealthCheckRunsForConnectedMetadataWithoutSelectedCalendars()
         await testGoogleCalendarRefreshMarksTemporaryFailureWhenCalendarListFails()
         await testGoogleCalendarRefreshMarksHealthyWhenCalendarListLoads()
+        await testRetryAvailabilityRequiresStoredAudio()
+        await testRetryAvailabilityRequiresModelSetup()
+        await testRetryAvailabilityRequiresModelSelection()
+        await testRetryAvailabilityAcceptsConfiguredAPIStandard()
         print("AppStateTranscriptionConfigurationTests passed")
     }
 
@@ -1965,6 +1969,90 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(snapshot.usedContextCapture)
         precondition(!snapshot.usedPostProcessing)
         precondition(snapshot.preserveExactWording)
+    }
+
+    private static func testRetryAvailabilityRequiresStoredAudio() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = AppState()
+            let item = retryHistoryItem(audioFileName: nil)
+            precondition(appState.noteBrowserStoredAudioURL(for: item) == nil)
+            precondition(appState.noteBrowserRetryAvailability(for: item) == .noAudio)
+        }
+    }
+
+    private static func testRetryAvailabilityRequiresModelSetup() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = AppState()
+            let fileName = "retry-model-setup-\(UUID().uuidString).wav"
+            let audioURL = AppState.audioStorageDirectory().appendingPathComponent(fileName)
+            try! Data([0]).write(to: audioURL)
+            defer { try? FileManager.default.removeItem(at: audioURL) }
+            let item = retryHistoryItem(audioFileName: fileName)
+
+            appState.useLocalTranscription = true
+            appState.realtimeStreamingEnabled = false
+            appState.useLegacyMlxWhisper = false
+            appState.localTranscriptionModel = .find(
+                id: "mlx-community/whisper-large-v3-turbo"
+            )
+            precondition(appState.currentNoteBrowserTranscriptionChoice.mode == .localWhisper)
+            precondition(appState.noteBrowserRetryAvailability(for: item) == .needsModelSetup)
+        }
+    }
+
+    private static func testRetryAvailabilityRequiresModelSelection() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = AppState()
+            appState.apiKey = "test-api-key"
+            appState.setNoteBrowserTranscriptionChoice(.appleLive)
+            let fileName = "retry-model-selection-\(UUID().uuidString).wav"
+            let audioURL = AppState.audioStorageDirectory().appendingPathComponent(fileName)
+            try! Data([0]).write(to: audioURL)
+            defer { try? FileManager.default.removeItem(at: audioURL) }
+            let item = retryHistoryItem(audioFileName: fileName)
+
+            precondition(appState.currentNoteBrowserTranscriptionChoice == .appleLive)
+            precondition(appState.noteBrowserRetryAvailability(for: item) == .needsModelSelection)
+        }
+    }
+
+    private static func testRetryAvailabilityAcceptsConfiguredAPIStandard() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = AppState()
+            appState.apiKey = "test-api-key"
+            appState.setNoteBrowserTranscriptionChoice(
+                .apiStandard(modelID: "whisper-large-v3")
+            )
+            let fileName = "retry-ready-\(UUID().uuidString).wav"
+            let audioURL = AppState.audioStorageDirectory().appendingPathComponent(fileName)
+            try! Data([0]).write(to: audioURL)
+            defer { try? FileManager.default.removeItem(at: audioURL) }
+            let item = retryHistoryItem(audioFileName: fileName)
+
+            precondition(appState.noteBrowserStoredAudioURL(for: item) == audioURL)
+            precondition(appState.noteBrowserRetryAvailability(for: item) == .ready)
+        }
+    }
+
+    private static func retryHistoryItem(audioFileName: String?) -> PipelineHistoryItem {
+        PipelineHistoryItem(
+            timestamp: Date(timeIntervalSince1970: 1),
+            rawTranscript: "",
+            postProcessedTranscript: "",
+            postProcessingPrompt: nil,
+            contextSummary: "",
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: QuillUserIssueRecord(code: .localModelMissing).persistedStatus,
+            debugStatus: "Failed",
+            customVocabulary: "",
+            audioFileName: audioFileName,
+            usedLocalTranscription: true
+        )
     }
 
     private static func resetDefaults() {

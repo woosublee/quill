@@ -38,10 +38,12 @@ struct QuillUserIssueView: View {
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
 
-            Text(presentation.suggestion)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+            if !presentation.suggestion.isEmpty {
+                Text(presentation.suggestion)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
 
             detailsView
             actionButton
@@ -87,10 +89,12 @@ struct QuillUserIssueView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(presentation.suggestion)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            if !presentation.suggestion.isEmpty {
+                Text(presentation.suggestion)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             detailsView
             actionButton
         }
