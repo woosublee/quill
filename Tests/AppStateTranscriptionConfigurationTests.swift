@@ -32,6 +32,8 @@ struct AppStateTranscriptionConfigurationTests {
         testPostProcessingCooldownDispositionDefaultsToProcessed()
         testPostProcessingCooldownDispositionCanBeMarkedSkipped()
         testPreserveExactWordingDefaultsOffAndPersists()
+        testNoteBrowserDefaultsOnWhenPreferenceIsMissing()
+        testNoteBrowserPreservesExplicitOptOut()
         testVerbatimTranslationPromptAndSanitizer()
         testVerbatimTranslationRejectsOutputThatSanitizesToEmpty()
         try testPreserveExactWordingSettingsAndPipelineWiring()
@@ -325,6 +327,25 @@ struct AppStateTranscriptionConfigurationTests {
         assert(!appState.preserveExactWording)
         appState.preserveExactWording = true
         assert(defaults.bool(forKey: "preserve_exact_wording"))
+    }
+
+    private static func testNoteBrowserDefaultsOnWhenPreferenceIsMissing() {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+
+        assert(defaults.object(forKey: "note_browser_enabled") == nil)
+        assert(AppState().noteBrowserEnabled)
+    }
+
+    private static func testNoteBrowserPreservesExplicitOptOut() {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        let appState = AppState()
+
+        appState.noteBrowserEnabled = false
+
+        assert(defaults.object(forKey: "note_browser_enabled") as? Bool == false)
+        assert(!AppState().noteBrowserEnabled)
     }
 
     private static func testVerbatimTranslationPromptAndSanitizer() {
@@ -1695,6 +1716,7 @@ struct AppStateTranscriptionConfigurationTests {
         defaults.removeObject(forKey: "transcription_language")
         defaults.removeObject(forKey: "context_model")
         defaults.removeObject(forKey: "preserve_exact_wording")
+        defaults.removeObject(forKey: "note_browser_enabled")
         defaults.removeObject(forKey: "selected_microphone_id")
         defaults.removeObject(forKey: "realtime_streaming_enabled")
         defaults.removeObject(forKey: "hold_shortcut")
