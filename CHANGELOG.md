@@ -8,6 +8,19 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.26] - 2026-07-22
+
+### Added
+
+- Added a retranscription recovery flow to Note Browser: saved recordings keep a visible retry entry point even when the currently selected transcription backend can't retry, with clear guidance to set up or switch to a supported model.
+- Added a generic file export flow to Note Browser: save transcript text (as `.txt` or `.md`) and the original recording audio to any folder, remembering the last destination and confirming before replacing existing files.
+- Enabled Note Browser by default for new installs.
+
+### Improved
+
+- Rebuilt onboarding as a streamlined 5-step wizard (Welcome, Processing, Permissions, Shortcut, Ready), running Native Whisper installs in the background instead of blocking setup navigation.
+- Kept the existing Obsidian and Gemini export flow available from Note Browser's more-actions menu alongside the new file export.
+
 ## [0.1.25] - 2026-07-21
 
 ### Added
