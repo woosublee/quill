@@ -1137,7 +1137,8 @@ private struct NoteDetailView: View {
     @EnvironmentObject var appState: AppState
     @State private var loadedContent: String?
     @State private var isCopied = false
-    @State private var showExportSheet = false
+    @State private var showFileExportSheet = false
+    @State private var showObsidianExportSheet = false
     @State private var toastMessage: String?
     @State private var toastID: UUID?
     @State private var titleDraft = ""
@@ -1256,12 +1257,28 @@ private struct NoteDetailView: View {
                 loadedContent = newValue
             }
         }
-        .sheet(isPresented: $showExportSheet) {
+        .sheet(isPresented: $showFileExportSheet) {
+            NoteFileExportView(
+                source: NoteFileExportSource(
+                    transcript: displayContent,
+                    audioURL: storedAudioURL
+                ),
+                suggestedBaseName: NoteFileExportNaming.suggestedBaseName(
+                    preferredTitle: item.customTitle
+                        ?? item.calendarMatch?.appliedTitle,
+                    transcript: displayContent,
+                    timestamp: item.timestamp
+                ),
+                onDismiss: { showFileExportSheet = false },
+                onSaved: { showToast($0) }
+            )
+        }
+        .sheet(isPresented: $showObsidianExportSheet) {
             ObsidianExportSheet(
                 item: item,
                 content: displayContent,
                 customTitle: item.customTitle,
-                onDismiss: { showExportSheet = false }
+                onDismiss: { showObsidianExportSheet = false }
             )
         }
         .onReceive(appState.$retryingItemIDs) { ids in
@@ -1613,17 +1630,39 @@ private struct NoteDetailView: View {
                     : "No transcript text to copy."
             )
 
-            // Share (Obsidian export)
+            // Save transcript text and recording files
             toolbarButton(
-                action: { showExportSheet = true },
+                action: { showFileExportSheet = true },
                 label: {
-                    Image(systemName: "square.and.arrow.up")
+                    Image(systemName: "square.and.arrow.down")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(Color.primary)
+                        .accessibilityLabel(Text("Save Files"))
+                        .foregroundStyle(
+                            actionState.canSaveFiles
+                                ? Color.primary
+                                : Color.secondary
+                        )
                 },
-                disabled: displayContent.isEmpty,
-                help: "Export to Obsidian"
+                disabled: !actionState.canSaveFiles,
+                help: "Save Files"
             )
+
+            Menu {
+                Button("Export to Obsidian") {
+                    showObsidianExportSheet = true
+                }
+                .disabled(!actionState.hasTranscriptText)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 13, weight: .medium))
+                    .accessibilityLabel(Text("More Actions"))
+                    .frame(width: 36, height: 36)
+                    .contentShape(Circle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("More Actions")
 
             toolbarDivider
 
