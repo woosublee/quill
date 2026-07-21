@@ -1,6 +1,8 @@
 import Foundation
 
+#if !QUILL_GROUPED_TEST_RUNNER
 @main
+#endif
 struct TranscriptionServiceCloudChunkingTests {
     static func main() async {
         do {

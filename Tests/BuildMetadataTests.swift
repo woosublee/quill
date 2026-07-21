@@ -10,7 +10,7 @@ struct BuildMetadataTests {
         try testMakefileCopiesSelectedIconToBundleIconName()
         try testMakefileBundlesLocalizationResources()
         try testMakefileBuildsAppBundleForLocalizationValidation()
-        try testTestsWorkflowValidatesLocalizationBundle()
+        try testTestsWorkflowRunsRequiredChecksInParallel()
         try testMakefileStripsExtendedAttributesDuringCodesignStaging()
         try testMakefileStripsExtendedAttributesDuringDmgStaging()
         try testMakefileCreatesDmgWithoutFinderMetadata()
@@ -49,7 +49,13 @@ struct BuildMetadataTests {
     private static func testMakefilePrintsVersionMetadata() throws {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
 
-        assertContains(makefile, ".PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test localization-bundle-test native-whisper-helper-test print-app-version print-build-number print-build-tag print-version-metadata FORCE /tmp/LocalizationResourceTests")
+        for target in [
+            "check-test-wiring", "test", "test-core", "test-recording", "test-transcription",
+            "localization-bundle-test", "native-whisper-helper-test", "print-version-metadata"
+        ] {
+            assertContains(makefile, "\n\(target):")
+        }
+        assertContains(makefile, "TEST_BUILD_DIR = $(BUILD_DIR)/tests")
         assertContains(makefile, "print-app-version:")
         assertContains(makefile, "print-build-number:")
         assertContains(makefile, "print-build-tag:")
@@ -103,16 +109,29 @@ struct BuildMetadataTests {
     private static func testMakefileBuildsAppBundleForLocalizationValidation() throws {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
 
-        assertContains(makefile, "localization-bundle-test: /tmp/LocalizationResourceTests $(APP_EXECUTABLE_TARGET)")
-        assertContains(makefile, #"/tmp/LocalizationResourceTests --bundle "$(APP_BUNDLE)""#)
+        assertContains(
+            makefile,
+            "localization-bundle-test: $(TEST_BUILD_DIR)/LocalizationResourceTests $(APP_EXECUTABLE_TARGET)"
+        )
+        assertContains(makefile, #"$(TEST_BUILD_DIR)/LocalizationResourceTests --bundle "$(APP_BUNDLE)""#)
+        assertDoesNotContain(makefile, "/tmp/LocalizationResourceTests")
         assertDoesNotContain(makefile, "Quill Localization Test.app")
         assertDoesNotContain(makefile, "PlaceholderFixtures.strings")
     }
 
-    private static func testTestsWorkflowValidatesLocalizationBundle() throws {
+    private static func testTestsWorkflowRunsRequiredChecksInParallel() throws {
         let workflow = try String(contentsOfFile: ".github/workflows/tests.yml", encoding: .utf8)
 
+        for target in ["test-core", "test-recording", "test-transcription"] {
+            assertContains(workflow, "target: \(target)")
+        }
+        assertContains(workflow, "fail-fast: false")
         assertContains(workflow, "make localization-bundle-test CODESIGN_IDENTITY=-")
+        assertContains(workflow, "timeout-minutes: 25")
+        assertContains(workflow, "tests:\n    name: Tests")
+        assertContains(workflow, "if: ${{ always() }}")
+        assertContains(workflow, "TEST_SHARDS_RESULT: ${{ needs.test-shards.result }}")
+        assertContains(workflow, "LOCALIZATION_RESULT: ${{ needs.localization.result }}")
     }
 
     private static func testMakefileStripsExtendedAttributesDuringCodesignStaging() throws {

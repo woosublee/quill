@@ -14,10 +14,20 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
-    name: Tests
+  test-shards:
+    name: ${{ matrix.name }}
     runs-on: macos-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Core tests
+            target: test-core
+          - name: Recording tests
+            target: test-recording
+          - name: Transcription tests
+            target: test-transcription
 
     steps:
       - name: Check out repository
@@ -37,8 +47,49 @@ jobs:
           path: .build
           key: spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
 
-      - name: Run tests
-        run: make test
+      - name: Run ${{ matrix.name }}
+        run: make ${{ matrix.target }}
+
+  localization:
+    name: Localization bundle
+    runs-on: macos-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode and show toolchain
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app
+          xcodebuild -version
+          swift --version
+
+      - name: Restore SwiftPM build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.0.0
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
 
       - name: Validate app localization bundle
         run: make localization-bundle-test CODESIGN_IDENTITY=-
+
+  tests:
+    name: Tests
+    if: ${{ always() }}
+    needs:
+      - test-shards
+      - localization
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Require every test group
+        env:
+          TEST_SHARDS_RESULT: ${{ needs.test-shards.result }}
+          LOCALIZATION_RESULT: ${{ needs.localization.result }}
+        run: |
+          test "$TEST_SHARDS_RESULT" = "success"
+          test "$LOCALIZATION_RESULT" = "success"

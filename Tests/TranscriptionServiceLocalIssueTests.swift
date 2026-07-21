@@ -1,7 +1,9 @@
 import Foundation
 import Speech
 
+#if !QUILL_GROUPED_TEST_RUNNER
 @main
+#endif
 struct TranscriptionServiceLocalIssueTests {
     static func main() async throws {
         try await testMissingLegacyRuntimeUsesStableSafeIssue()

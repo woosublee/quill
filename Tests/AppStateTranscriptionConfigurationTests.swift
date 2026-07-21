@@ -2,7 +2,9 @@ import Combine
 import Darwin
 import Foundation
 
+#if !QUILL_GROUPED_TEST_RUNNER
 @main
+#endif
 struct AppStateTranscriptionConfigurationTests {
     static func main() async throws {
         let originalNativeWhisperInstallStatusProvider =

@@ -1,6 +1,8 @@
 import Foundation
 
+#if !QUILL_GROUPED_TEST_RUNNER
 @main
+#endif
 struct AudioImportFileCopyTests {
     static func main() async throws {
         try await testOffMainCopyPreservesExtensionAndContents()
