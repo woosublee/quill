@@ -46,10 +46,7 @@ struct NoteBrowserRecoveryTests {
 
         precondition(presentation.title == "Set up a model for retranscription")
         precondition(presentation.body == "Your recording is safely stored.")
-        precondition(
-            presentation.suggestion
-                == "Install Local Whisper or configure API Standard in Models settings, then choose Retry Transcription."
-        )
+        precondition(presentation.suggestion.isEmpty)
         precondition(presentation.recoveryAction == .openModelsSettings)
     }
 
@@ -68,10 +65,7 @@ struct NoteBrowserRecoveryTests {
 
         precondition(presentation.title == "Choose a model for retranscription")
         precondition(presentation.body == "Your recording is safely stored.")
-        precondition(
-            presentation.suggestion
-                == "For saved recordings, choose Local Whisper or API Standard in Models settings, then choose Retry Transcription."
-        )
+        precondition(presentation.suggestion.isEmpty)
         precondition(presentation.recoveryAction == .openModelsSettings)
     }
 

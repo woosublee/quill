@@ -81,11 +81,7 @@ enum NoteBrowserRecoveryPresentation {
                     language: language,
                     bundle: bundle
                 ),
-                suggestion: localizedCatalogString(
-                    "Install Local Whisper or configure API Standard in Models settings, then choose Retry Transcription.",
-                    language: language,
-                    bundle: bundle
-                ),
+                suggestion: "",
                 compactMessage: localizedCatalogString(
                     "Set up a model for retranscription",
                     language: language,
@@ -107,11 +103,7 @@ enum NoteBrowserRecoveryPresentation {
                     language: language,
                     bundle: bundle
                 ),
-                suggestion: localizedCatalogString(
-                    "For saved recordings, choose Local Whisper or API Standard in Models settings, then choose Retry Transcription.",
-                    language: language,
-                    bundle: bundle
-                ),
+                suggestion: "",
                 compactMessage: localizedCatalogString(
                     "Choose a model for retranscription",
                     language: language,

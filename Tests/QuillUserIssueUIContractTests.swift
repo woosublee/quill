@@ -31,6 +31,10 @@ struct QuillUserIssueUIContractTests {
         ] {
             try expect(source.contains(marker), "shared issue renderer contains \(marker)")
         }
+        try expect(
+            source.contains("if !presentation.suggestion.isEmpty"),
+            "shared issue renderer omits empty recovery suggestions"
+        )
     }
 
     private static func testNoteBrowserUsesStructuredErrorAndWarningUI(

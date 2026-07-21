@@ -12645,22 +12645,6 @@
         }
       }
     },
-    "For saved recordings, choose Local Whisper or API Standard in Models settings, then choose Retry Transcription.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "For saved recordings, choose Local Whisper or API Standard in Models settings, then choose Retry Transcription."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "저장된 녹음을 재전사하려면 모델 설정에서 Local Whisper 또는 API Standard를 선택한 다음 재전사 버튼을 눌러 주세요."
-          }
-        }
-      }
-    },
     "Set up a model for retranscription": {
       "localizations": {
         "en": {
@@ -12673,22 +12657,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "재전사를 위한 모델을 준비해 주세요"
-          }
-        }
-      }
-    },
-    "Install Local Whisper or configure API Standard in Models settings, then choose Retry Transcription.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Install Local Whisper or configure API Standard in Models settings, then choose Retry Transcription."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모델 설정에서 Local Whisper를 설치하거나 API Standard를 설정한 다음 재전사 버튼을 눌러 주세요."
           }
         }
       }
