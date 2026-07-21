@@ -396,6 +396,8 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/QuillUserIssueTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/QuillUserIssue.swift Sources/NoteBrowserRecovery.swift Tests/NoteBrowserRecoveryTests.swift -o $(TEST_BUILD_DIR)/NoteBrowserRecoveryTests
 	@$(TEST_BUILD_DIR)/NoteBrowserRecoveryTests
+	@swiftc -parse-as-library Sources/NoteFileExport.swift Tests/NoteFileExportTests.swift -o $(TEST_BUILD_DIR)/NoteFileExportTests
+	@$(TEST_BUILD_DIR)/NoteFileExportTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/OverlayDisplayCopy.swift Tests/OverlayDisplayCopyTests.swift -o $(TEST_BUILD_DIR)/OverlayDisplayCopyTests
 	@$(TEST_BUILD_DIR)/OverlayDisplayCopyTests
 	@swiftc -parse-as-library Tests/BuildMetadataTests.swift -o $(TEST_BUILD_DIR)/BuildMetadataTests
