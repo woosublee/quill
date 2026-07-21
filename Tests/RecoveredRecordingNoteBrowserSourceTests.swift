@@ -17,7 +17,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("recoveredRecordingContext.localizedDescription()"))
         precondition(source.contains("Text(recoveryTitle)"))
         precondition(source.contains("Text(recoveryDescription)"))
-        precondition(source.contains("NoteAudioPlayerView(audioURL: audioURL)"))
+        precondition(source.contains("NoteAudioPlayerView(audioURL: storedAudioURL)"))
         precondition(source.contains("appState.retryTranscription(item: item)"))
         precondition(source.contains("appState.deleteHistoryEntry(id: id)"))
         precondition(source.contains("Image(systemName: \"arrow.clockwise.circle\")"))
@@ -28,6 +28,10 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("cloudProgress: appState.cloudTranscriptionProgressByHistoryID[item.id]"))
         precondition(source.contains("if isCloudTranscribing {"))
         precondition(source.contains("Text(cloudProgressText)"))
+        precondition(source.contains("actionState.showsRetryButton"))
+        precondition(source.contains("NoteFileExportView("))
+        precondition(source.contains("Image(systemName: \"square.and.arrow.down\")"))
+        precondition(source.contains("Image(systemName: \"ellipsis\")"))
 
         print("RecoveredRecordingNoteBrowserSourceTests passed")
     }

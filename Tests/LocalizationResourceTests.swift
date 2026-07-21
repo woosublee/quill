@@ -174,8 +174,58 @@ struct LocalizationResourceTests {
         assert(noteBrowserSource.contains("} else {\n                        Text(vaultPath)"))
         assert(strings["Obsidian Vault Folder"] != nil)
 
+        let noteBrowserKeys = [
+            "A retranscription-capable model is required",
+            "Your recording is safely stored.",
+            "Install or select a local or API transcription model in Models settings. Apple Live does not support retranscribing saved recordings.",
+            "No retranscription-capable model is currently available.",
+            "Ready to retry transcription",
+            "Choose Retry Transcription to try again.",
+            "No transcript text to copy.",
+            "Save Files",
+            "Choose what to save and where.",
+            "Items to Save",
+            "Transcript Text",
+            "Recording File",
+            "No transcript text is available.",
+            "The saved recording file could not be found.",
+            "Text Format",
+            "Plain Text (.txt)",
+            "Markdown (.md)",
+            "File Name",
+            "Save Location",
+            "Choose a folder for the exported files.",
+            "The previous save folder is unavailable. Choose another folder.",
+            "Save 2 Files",
+            "Save File",
+            "Replace Existing Files?",
+            "Replace",
+            "Saved 2 files.",
+            "Recording file saved.",
+            "Transcript text saved.",
+            "The transcript text could not be saved.",
+            "The recording file could not be saved.",
+            "Export to Obsidian",
+            "More Actions"
+        ]
+        for key in noteBrowserKeys {
+            let localizations = (strings[key] as? [String: Any])?["localizations"]
+                as? [String: Any]
+            for language in ["en", "ko"] {
+                let value = (((localizations?[language] as? [String: Any])?["stringUnit"]
+                    as? [String: Any])?["value"] as? String) ?? ""
+                assert(!value.isEmpty, "Missing \(language) Note Browser key: \(key)")
+            }
+        }
+
         let hangulPattern = try NSRegularExpression(pattern: "[가-힣]")
-        let sourceFiles = ["Sources/NoteBrowserView.swift", "Sources/NoteListRowDisplayData.swift"]
+        let sourceFiles = [
+            "Sources/NoteBrowserView.swift",
+            "Sources/NoteListRowDisplayData.swift",
+            "Sources/NoteBrowserRecovery.swift",
+            "Sources/NoteFileExport.swift",
+            "Sources/NoteFileExportView.swift"
+        ]
         for sourceFile in sourceFiles {
             let source = try String(contentsOf: root.appendingPathComponent(sourceFile), encoding: .utf8)
             let lines = source.components(separatedBy: .newlines)
