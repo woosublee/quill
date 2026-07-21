@@ -6,6 +6,8 @@ struct BuildMetadataTests {
         try testMakefileStampsLocalBuildMetadata()
         try testMakefilePrintsVersionMetadata()
         try testBuildSettingsTrackCodesignIdentity()
+        try testGroupedTestArchitectureRespectsBuildOverride()
+        try testAppStateRunnerRequiresIsolatedHome()
         try testMakefileSeparatesDevRunFromInstallBuild()
         try testMakefileCopiesSelectedIconToBundleIconName()
         try testMakefileBundlesLocalizationResources()
@@ -74,6 +76,20 @@ struct BuildMetadataTests {
         assertContains(makefile, "CODESIGN_IDENTITY ?= Quill")
         assertContains(makefile, "$(CODESIGN_IDENTITY)")
         assertContains(makefile, "$(BUILD_TAG)\" \"$(GOOGLE_CALENDAR_OAUTH_CLIENT_ID)\" \"$(GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET)\" \"$(CODESIGN_IDENTITY)")
+    }
+
+    private static func testGroupedTestArchitectureRespectsBuildOverride() throws {
+        let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
+
+        assertContains(makefile, "TEST_ARCH = $(if $(filter universal,$(ARCH)),$(shell uname -m),$(ARCH))")
+        assertContains(makefile, "-target $(TEST_ARCH)-apple-macosx13.0")
+        assertDoesNotContain(makefile, "-target $(shell uname -m)-apple-macosx13.0")
+    }
+
+    private static func testAppStateRunnerRequiresIsolatedHome() throws {
+        let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
+
+        assertContains(makefile, "test -n \"$$isolated_home\" || exit 1")
     }
 
     private static func testMakefileSeparatesDevRunFromInstallBuild() throws {

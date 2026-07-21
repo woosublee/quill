@@ -56,6 +56,7 @@ FULL_SOURCE_TRANSCRIPTION_RUNNER = $(TEST_BUILD_DIR)/FullSourceTranscriptionTest
 FULL_SOURCE_APP_STATE_RUNNER = $(TEST_BUILD_DIR)/FullSourceAppStateTestRunner
 RUN_TIMED_TARGET = start=$$(date +%s); status=0; $(MAKE) --no-print-directory $(1) || status=$$?; end=$$(date +%s); printf '[timing] shard=%s seconds=%s status=%s\n' "$(2)" "$$((end - start))" "$$status"; exit "$$status"
 ARCH ?= $(shell uname -m)
+TEST_ARCH = $(if $(filter universal,$(ARCH)),$(shell uname -m),$(ARCH))
 
 # Pick the icon source based on which bundle we are building. Dev builds get
 # a distinct hammer-on-waveform icon so a developer's dock shows at a glance
@@ -338,10 +339,10 @@ $(TEST_BUILD_DIR)/LocalizationResourceTests: Tests/LocalizationResourceTests.swi
 	@swiftc -parse-as-library Tests/LocalizationResourceTests.swift -o "$@"
 
 $(FULL_SOURCE_TRANSCRIPTION_RUNNER): $(filter-out Sources/App.swift,$(SOURCES)) $(FULL_SOURCE_TRANSCRIPTION_TESTS) Tests/FullSourceTranscriptionTestRunner.swift Makefile $(SPARKLE_STAMP) | $(TEST_BUILD_DIR)
-	@framework="$$(cat "$(SPARKLE_STAMP)")"; framework_parent="$$(dirname "$$framework")"; swiftc -parse-as-library -D QUILL_GROUPED_TEST_RUNNER -F "$$framework_parent" -framework Sparkle -Xlinker -rpath -Xlinker "$$framework_parent" -target $(shell uname -m)-apple-macosx13.0 $(filter-out Sources/App.swift,$(SOURCES)) $(FULL_SOURCE_TRANSCRIPTION_TESTS) Tests/FullSourceTranscriptionTestRunner.swift -o "$@"
+	@framework="$$(cat "$(SPARKLE_STAMP)")"; framework_parent="$$(dirname "$$framework")"; swiftc -parse-as-library -D QUILL_GROUPED_TEST_RUNNER -F "$$framework_parent" -framework Sparkle -Xlinker -rpath -Xlinker "$$framework_parent" -target $(TEST_ARCH)-apple-macosx13.0 $(filter-out Sources/App.swift,$(SOURCES)) $(FULL_SOURCE_TRANSCRIPTION_TESTS) Tests/FullSourceTranscriptionTestRunner.swift -o "$@"
 
 $(FULL_SOURCE_APP_STATE_RUNNER): $(filter-out Sources/App.swift,$(SOURCES)) $(FULL_SOURCE_APP_STATE_TESTS) Tests/FullSourceAppStateTestRunner.swift Makefile $(SPARKLE_STAMP) | $(TEST_BUILD_DIR)
-	@framework="$$(cat "$(SPARKLE_STAMP)")"; framework_parent="$$(dirname "$$framework")"; swiftc -parse-as-library -D QUILL_GROUPED_TEST_RUNNER -F "$$framework_parent" -framework Sparkle -Xlinker -rpath -Xlinker "$$framework_parent" -target $(shell uname -m)-apple-macosx13.0 $(filter-out Sources/App.swift,$(SOURCES)) $(FULL_SOURCE_APP_STATE_TESTS) Tests/FullSourceAppStateTestRunner.swift -o "$@"
+	@framework="$$(cat "$(SPARKLE_STAMP)")"; framework_parent="$$(dirname "$$framework")"; swiftc -parse-as-library -D QUILL_GROUPED_TEST_RUNNER -F "$$framework_parent" -framework Sparkle -Xlinker -rpath -Xlinker "$$framework_parent" -target $(TEST_ARCH)-apple-macosx13.0 $(filter-out Sources/App.swift,$(SOURCES)) $(FULL_SOURCE_APP_STATE_TESTS) Tests/FullSourceAppStateTestRunner.swift -o "$@"
 
 localization-bundle-test: $(TEST_BUILD_DIR)/LocalizationResourceTests $(APP_EXECUTABLE_TARGET)
 	@$(TEST_BUILD_DIR)/LocalizationResourceTests --bundle "$(APP_BUNDLE)"
@@ -525,6 +526,7 @@ _test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSC
 		exit "$$status"
 	@start="$$(date +%s)"; status=0; \
 		isolated_home="$$(mktemp -d /tmp/quill-app-state-tests.XXXXXX)"; \
+		test -n "$$isolated_home" || exit 1; \
 		trap 'rm -rf "$$isolated_home"' EXIT; \
 		mkdir -p "$$isolated_home/tmp"; \
 		CFFIXED_USER_HOME="$$isolated_home" TMPDIR="$$isolated_home/tmp" $(FULL_SOURCE_APP_STATE_RUNNER) || status=$$?; \
