@@ -163,6 +163,11 @@ struct AppStateCloudTranscriptionIntegrationSourceTests {
     }
 
     private static func verifiesExplicitRetryPolicy(_ source: String) throws {
+        let retryOptions = block(
+            source,
+            from: "private func retryOptions(for audioURL: URL)",
+            to: "func retryTranscription(item: PipelineHistoryItem)"
+        )
         let retrySnapshot = block(
             source,
             from: "private func makeRetrySnapshot(for item: PipelineHistoryItem)",
@@ -177,7 +182,7 @@ struct AppStateCloudTranscriptionIntegrationSourceTests {
             "retry never silently selects a different backend"
         )
         try expect(
-            retrySnapshot.contains("CanonicalPCM16WAV.validateFile(at: audioURL)"),
+            retryOptions.contains("CanonicalPCM16WAV.validateFile(at: audioURL)"),
             "oversized cloud retry is allowed only for strict canonical WAV"
         )
         try expect(

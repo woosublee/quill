@@ -4143,6 +4143,45 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    func noteBrowserStoredAudioURL(for item: PipelineHistoryItem) -> URL? {
+        guard let audioFileName = item.audioFileName else { return nil }
+        let audioURL = Self.audioStorageDirectory().appendingPathComponent(audioFileName)
+        guard FileManager.default.fileExists(atPath: audioURL.path) else { return nil }
+        return audioURL
+    }
+
+    @MainActor
+    func noteBrowserRetryAvailability(
+        for item: PipelineHistoryItem
+    ) -> NoteBrowserRetryAvailability {
+        guard let audioURL = noteBrowserStoredAudioURL(for: item) else {
+            return .noAudio
+        }
+        return retryOptions(for: audioURL).explicitRetryChoice == nil
+            ? .unavailable
+            : .ready
+    }
+
+    @MainActor
+    private func retryOptions(for audioURL: URL) -> AudioImportOptions {
+        let allowsOversizedCanonicalCloud = audioURL.pathExtension.lowercased()
+            == "wav"
+            && (try? CanonicalPCM16WAV.validateFile(at: audioURL)) != nil
+        return AudioImportOptions(
+            fileExtension: audioURL.pathExtension,
+            currentChoice: currentNoteBrowserTranscriptionChoice,
+            apiStandardModelID: resolvedStandardTranscriptionModelID,
+            fileSizeBytes: Self.fileSizeBytes(for: audioURL),
+            hasAPIKey: hasTranscriptionAPIKey,
+            hasNativeLocalWhisperModel: hasNativeLocalWhisperModel,
+            legacyLocalWhisperModels: installedLegacyLocalWhisperModels,
+            nativeWhisperModelID: NativeWhisperModelCatalog.recommended.id,
+            nativeWhisperDisplayName: NativeWhisperModelCatalog.recommended.displayName,
+            allowsOversizedCanonicalCloud: allowsOversizedCanonicalCloud
+        )
+    }
+
+    @MainActor
     func retryTranscription(item: PipelineHistoryItem) {
         guard !retryingItemIDs.contains(item.id) else { return }
 
@@ -4288,34 +4327,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func makeRetrySnapshot(for item: PipelineHistoryItem) throws -> RetrySnapshot {
-        guard let audioFileName = item.audioFileName else {
-            throw TranscriptionError.submissionFailed("Audio file not found for retry.")
+        guard let audioURL = noteBrowserStoredAudioURL(for: item) else {
+            throw TranscriptionError.submissionFailed(
+                "Audio file not found for retry."
+            )
         }
 
-        let audioURL = Self.audioStorageDirectory().appendingPathComponent(audioFileName)
-        guard FileManager.default.fileExists(atPath: audioURL.path) else {
-            throw TranscriptionError.submissionFailed("Audio file not found for retry.")
-        }
-
-        let currentChoice = currentNoteBrowserTranscriptionChoice
-        let allowsOversizedCanonicalCloud = audioURL.pathExtension.lowercased()
-            == "wav"
-            && (try? CanonicalPCM16WAV.validateFile(at: audioURL)) != nil
-        let options = AudioImportOptions(
-            fileExtension: audioURL.pathExtension,
-            currentChoice: currentChoice,
-            apiStandardModelID: resolvedStandardTranscriptionModelID,
-            fileSizeBytes: Self.fileSizeBytes(for: audioURL),
-            hasAPIKey: hasTranscriptionAPIKey,
-            hasNativeLocalWhisperModel: hasNativeLocalWhisperModel,
-            legacyLocalWhisperModels: installedLegacyLocalWhisperModels,
-            nativeWhisperModelID: NativeWhisperModelCatalog.recommended.id,
-            nativeWhisperDisplayName: NativeWhisperModelCatalog.recommended.displayName,
-            allowsOversizedCanonicalCloud: allowsOversizedCanonicalCloud
-        )
+        let options = retryOptions(for: audioURL)
         guard let retryChoice = options.explicitRetryChoice else {
             let reason = options.displayRows.first(where: {
-                $0.choice == currentChoice
+                $0.choice == currentNoteBrowserTranscriptionChoice
             })?.unavailableReason
                 ?? "Selected transcription method is unavailable."
             throw TranscriptionError.submissionFailed(reason)
