@@ -4,7 +4,8 @@ import Foundation
 struct NoteBrowserRecoveryTests {
     static func main() throws {
         testActionStateSeparatesAssetsFromRetryReadiness()
-        testUnavailableMissingModelOpensSettings()
+        testModelSetupPresentationOpensSettings()
+        testModelSelectionPresentationOpensSettings()
         testReadyMissingModelSwitchesToRetry()
         testMissingAudioKeepsGenericIssuePresentation()
         print("NoteBrowserRecoveryTests passed")
@@ -14,7 +15,7 @@ struct NoteBrowserRecoveryTests {
         let unavailable = NoteBrowserActionState(
             hasStoredAudio: true,
             transcript: "",
-            retryAvailability: .unavailable
+            retryAvailability: .needsModelSetup
         )
         precondition(unavailable.showsRetryButton)
         precondition(!unavailable.canCopy)
@@ -30,11 +31,11 @@ struct NoteBrowserRecoveryTests {
         precondition(transcriptOnly.canSaveFiles)
     }
 
-    private static func testUnavailableMissingModelOpensSettings() {
+    private static func testModelSetupPresentationOpensSettings() {
         let state = NoteBrowserActionState(
             hasStoredAudio: true,
             transcript: "",
-            retryAvailability: .unavailable
+            retryAvailability: .needsModelSetup
         )
         let presentation = NoteBrowserRecoveryPresentation.presentation(
             for: QuillUserIssueRecord(code: .localModelMissing),
@@ -43,8 +44,34 @@ struct NoteBrowserRecoveryTests {
             bundle: .main
         )
 
-        precondition(presentation.title == "A retranscription-capable model is required")
+        precondition(presentation.title == "Set up a model for retranscription")
         precondition(presentation.body == "Your recording is safely stored.")
+        precondition(
+            presentation.suggestion
+                == "Install Local Whisper or configure API Standard in Models settings, then choose Retry Transcription."
+        )
+        precondition(presentation.recoveryAction == .openModelsSettings)
+    }
+
+    private static func testModelSelectionPresentationOpensSettings() {
+        let state = NoteBrowserActionState(
+            hasStoredAudio: true,
+            transcript: "",
+            retryAvailability: .needsModelSelection
+        )
+        let presentation = NoteBrowserRecoveryPresentation.presentation(
+            for: QuillUserIssueRecord(code: .localModelMissing),
+            actionState: state,
+            language: "en",
+            bundle: .main
+        )
+
+        precondition(presentation.title == "Choose a model for retranscription")
+        precondition(presentation.body == "Your recording is safely stored.")
+        precondition(
+            presentation.suggestion
+                == "For saved recordings, choose Local Whisper or API Standard in Models settings, then choose Retry Transcription."
+        )
         precondition(presentation.recoveryAction == .openModelsSettings)
     }
 

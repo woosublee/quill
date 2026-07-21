@@ -1249,22 +1249,6 @@
         }
       }
     },
-    "No retranscription-capable model is currently available.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No retranscription-capable model is currently available."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "현재 재전사할 수 있는 모델이 없습니다."
-          }
-        }
-      }
-    },
     "No transcript text to copy.": {
       "localizations": {
         "en": {
@@ -12245,22 +12229,6 @@
         }
       }
     },
-    "A retranscription-capable model is required": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A retranscription-capable model is required"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "재전사 가능한 모델이 필요합니다"
-          }
-        }
-      }
-    },
     "Your recording is safely stored.": {
       "localizations": {
         "en": {
@@ -12273,22 +12241,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "녹음 파일은 안전하게 보관되어 있습니다."
-          }
-        }
-      }
-    },
-    "Install or select a local or API transcription model in Models settings. Apple Live does not support retranscribing saved recordings.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Install or select a local or API transcription model in Models settings. Apple Live does not support retranscribing saved recordings."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "모델 설정에서 로컬 또는 API 전사 모델을 설치하거나 선택하세요. Apple Live는 저장된 녹음의 재전사를 지원하지 않습니다."
           }
         }
       }
@@ -12673,6 +12625,102 @@
           "stringUnit": {
             "state": "translated",
             "value": "녹음 파일을 저장하지 못했습니다."
+          }
+        }
+      }
+    },
+    "Choose a model for retranscription": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a model for retranscription"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재전사를 위해 모델을 선택해 주세요"
+          }
+        }
+      }
+    },
+    "For saved recordings, choose Local Whisper or API Standard in Models settings, then choose Retry Transcription.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "For saved recordings, choose Local Whisper or API Standard in Models settings, then choose Retry Transcription."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장된 녹음을 재전사하려면 모델 설정에서 Local Whisper 또는 API Standard를 선택한 다음 재전사 버튼을 눌러 주세요."
+          }
+        }
+      }
+    },
+    "Set up a model for retranscription": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up a model for retranscription"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재전사를 위한 모델을 준비해 주세요"
+          }
+        }
+      }
+    },
+    "Install Local Whisper or configure API Standard in Models settings, then choose Retry Transcription.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install Local Whisper or configure API Standard in Models settings, then choose Retry Transcription."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델 설정에서 Local Whisper를 설치하거나 API Standard를 설정한 다음 재전사 버튼을 눌러 주세요."
+          }
+        }
+      }
+    },
+    "Choose Local Whisper or API Standard to retry this recording.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose Local Whisper or API Standard to retry this recording."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재전사를 위해 Local Whisper 또는 API Standard로 변경해 주세요."
+          }
+        }
+      }
+    },
+    "Set up Local Whisper or API Standard to retry this recording.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up Local Whisper or API Standard to retry this recording."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재전사를 위해 Local Whisper를 설치하거나 API Standard를 설정해 주세요."
           }
         }
       }

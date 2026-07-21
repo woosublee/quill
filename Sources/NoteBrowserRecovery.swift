@@ -2,7 +2,8 @@ import Foundation
 
 enum NoteBrowserRetryAvailability: Equatable {
     case noAudio
-    case unavailable
+    case needsModelSetup
+    case needsModelSelection
     case ready
 }
 
@@ -68,10 +69,10 @@ enum NoteBrowserRecoveryPresentation {
                 recoveryAction: .retryTranscription,
                 severity: original.severity
             )
-        case .unavailable:
+        case .needsModelSetup:
             return QuillUserIssuePresentation(
                 title: localizedCatalogString(
-                    "A retranscription-capable model is required",
+                    "Set up a model for retranscription",
                     language: language,
                     bundle: bundle
                 ),
@@ -81,12 +82,38 @@ enum NoteBrowserRecoveryPresentation {
                     bundle: bundle
                 ),
                 suggestion: localizedCatalogString(
-                    "Install or select a local or API transcription model in Models settings. Apple Live does not support retranscribing saved recordings.",
+                    "Install Local Whisper or configure API Standard in Models settings, then choose Retry Transcription.",
                     language: language,
                     bundle: bundle
                 ),
                 compactMessage: localizedCatalogString(
-                    "A retranscription-capable model is required",
+                    "Set up a model for retranscription",
+                    language: language,
+                    bundle: bundle
+                ),
+                detailsRows: original.detailsRows,
+                recoveryAction: .openModelsSettings,
+                severity: original.severity
+            )
+        case .needsModelSelection:
+            return QuillUserIssuePresentation(
+                title: localizedCatalogString(
+                    "Choose a model for retranscription",
+                    language: language,
+                    bundle: bundle
+                ),
+                body: localizedCatalogString(
+                    "Your recording is safely stored.",
+                    language: language,
+                    bundle: bundle
+                ),
+                suggestion: localizedCatalogString(
+                    "For saved recordings, choose Local Whisper or API Standard in Models settings, then choose Retry Transcription.",
+                    language: language,
+                    bundle: bundle
+                ),
+                compactMessage: localizedCatalogString(
+                    "Choose a model for retranscription",
                     language: language,
                     bundle: bundle
                 ),

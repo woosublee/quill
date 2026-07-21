@@ -1768,10 +1768,16 @@ private struct NoteDetailView: View {
         switch retryAvailability {
         case .ready:
             appState.retryTranscription(item: item)
-        case .unavailable:
+        case .needsModelSelection:
             showToast(
                 localizedCatalogString(
-                    "No retranscription-capable model is currently available."
+                    "Choose Local Whisper or API Standard to retry this recording."
+                )
+            )
+        case .needsModelSetup:
+            showToast(
+                localizedCatalogString(
+                    "Set up Local Whisper or API Standard to retry this recording."
                 )
             )
         case .noAudio:

@@ -65,8 +65,12 @@ struct QuillUserIssueUIContractTests {
             "retry visibility no longer depends on the issue primary action"
         )
         try expect(
-            source.contains("No retranscription-capable model is currently available."),
-            "unavailable retry reports a focused toast"
+            source.contains("Choose Local Whisper or API Standard to retry this recording."),
+            "retry with an unsupported selection guides model selection"
+        )
+        try expect(
+            source.contains("Set up Local Whisper or API Standard to retry this recording."),
+            "retry without a prepared backend guides model setup"
         )
         try expect(
             source.contains("NoteBrowserToastView("),

@@ -113,7 +113,8 @@ struct AppStateTranscriptionConfigurationTests {
         await testGoogleCalendarRefreshMarksTemporaryFailureWhenCalendarListFails()
         await testGoogleCalendarRefreshMarksHealthyWhenCalendarListLoads()
         await testRetryAvailabilityRequiresStoredAudio()
-        await testRetryAvailabilityRejectsUnavailableBackends()
+        await testRetryAvailabilityRequiresModelSetup()
+        await testRetryAvailabilityRequiresModelSelection()
         await testRetryAvailabilityAcceptsConfiguredAPIStandard()
         print("AppStateTranscriptionConfigurationTests passed")
     }
@@ -1980,11 +1981,11 @@ struct AppStateTranscriptionConfigurationTests {
         }
     }
 
-    private static func testRetryAvailabilityRejectsUnavailableBackends() async {
+    private static func testRetryAvailabilityRequiresModelSetup() async {
         resetDefaults()
         await MainActor.run {
             let appState = AppState()
-            let fileName = "retry-unavailable-\(UUID().uuidString).wav"
+            let fileName = "retry-model-setup-\(UUID().uuidString).wav"
             let audioURL = AppState.audioStorageDirectory().appendingPathComponent(fileName)
             try! Data([0]).write(to: audioURL)
             defer { try? FileManager.default.removeItem(at: audioURL) }
@@ -1997,11 +1998,24 @@ struct AppStateTranscriptionConfigurationTests {
                 id: "mlx-community/whisper-large-v3-turbo"
             )
             precondition(appState.currentNoteBrowserTranscriptionChoice.mode == .localWhisper)
-            precondition(appState.noteBrowserRetryAvailability(for: item) == .unavailable)
+            precondition(appState.noteBrowserRetryAvailability(for: item) == .needsModelSetup)
+        }
+    }
 
+    private static func testRetryAvailabilityRequiresModelSelection() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = AppState()
+            appState.apiKey = "test-api-key"
             appState.setNoteBrowserTranscriptionChoice(.appleLive)
+            let fileName = "retry-model-selection-\(UUID().uuidString).wav"
+            let audioURL = AppState.audioStorageDirectory().appendingPathComponent(fileName)
+            try! Data([0]).write(to: audioURL)
+            defer { try? FileManager.default.removeItem(at: audioURL) }
+            let item = retryHistoryItem(audioFileName: fileName)
+
             precondition(appState.currentNoteBrowserTranscriptionChoice == .appleLive)
-            precondition(appState.noteBrowserRetryAvailability(for: item) == .unavailable)
+            precondition(appState.noteBrowserRetryAvailability(for: item) == .needsModelSelection)
         }
     }
 

@@ -175,10 +175,13 @@ struct LocalizationResourceTests {
         assert(strings["Obsidian Vault Folder"] != nil)
 
         let noteBrowserKeys = [
-            "A retranscription-capable model is required",
+            "Choose a model for retranscription",
+            "For saved recordings, choose Local Whisper or API Standard in Models settings, then choose Retry Transcription.",
+            "Set up a model for retranscription",
+            "Install Local Whisper or configure API Standard in Models settings, then choose Retry Transcription.",
+            "Choose Local Whisper or API Standard to retry this recording.",
+            "Set up Local Whisper or API Standard to retry this recording.",
             "Your recording is safely stored.",
-            "Install or select a local or API transcription model in Models settings. Apple Live does not support retranscribing saved recordings.",
-            "No retranscription-capable model is currently available.",
             "Ready to retry transcription",
             "Choose Retry Transcription to try again.",
             "No transcript text to copy.",

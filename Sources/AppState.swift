@@ -4157,9 +4157,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard let audioURL = noteBrowserStoredAudioURL(for: item) else {
             return .noAudio
         }
-        return retryOptions(for: audioURL).explicitRetryChoice == nil
-            ? .unavailable
-            : .ready
+        let options = retryOptions(for: audioURL)
+        if options.explicitRetryChoice != nil {
+            return .ready
+        }
+        return options.supportedChoices.isEmpty
+            ? .needsModelSetup
+            : .needsModelSelection
     }
 
     @MainActor
