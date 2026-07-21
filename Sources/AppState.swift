@@ -1043,11 +1043,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func installNativeWhisperModel(autoSelectWhenReady: Bool = true) {
-        guard !isInstallingNativeWhisper else { return }
         let model = NativeWhisperModelCatalog.recommended
         if autoSelectWhenReady {
             pendingNativeWhisperAutoSelectionModelID = model.id
         }
+        guard !isInstallingNativeWhisper else { return }
         nativeWhisperInstallError = nil
         nativeWhisperInstallIssue = nil
         nativeWhisperInstallCancellationMessage = nil

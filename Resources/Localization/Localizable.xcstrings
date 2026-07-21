@@ -1,6 +1,22 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Validate": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Validate"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인"
+          }
+        }
+      }
+    },
     "Choose how you want to start and stop recording. You can change these shortcuts later in Settings.": {
       "localizations": {
         "en": {

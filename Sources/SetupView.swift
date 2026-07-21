@@ -848,7 +848,10 @@ struct SetupView: View {
         micPermissionGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         accessibilityGranted = AXIsProcessTrusted()
         appState.refreshSpeechRecognitionAuthorizationStatus()
-        appState.hasScreenRecordingPermission = CGPreflightScreenCaptureAccess()
+        let screenGranted = CGPreflightScreenCaptureAccess()
+        if appState.hasScreenRecordingPermission != screenGranted {
+            appState.hasScreenRecordingPermission = screenGranted
+        }
     }
 
     private func startPermissionPolling() {

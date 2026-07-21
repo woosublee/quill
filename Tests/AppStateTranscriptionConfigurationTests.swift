@@ -72,6 +72,7 @@ struct AppStateTranscriptionConfigurationTests {
         await testNoteBrowserTranscriptionChoiceDisplayIncludesResolvedModels()
         try testNoteBrowserTranscriptionChoiceSetterUpdatesLocalBackend()
         await testNativeWhisperInstallLeavesAppleActiveUntilCompletion()
+        await testInstallCallWhileAlreadyInstallingStillArmsAutoSelection()
         await testNativeWhisperInstallAutoSelectsOnSuccess()
         await testExplicitBackendChoiceCancelsAutoSelectionOnly()
         await testNativeWhisperCancellationClearsAutoSelection()
@@ -1007,6 +1008,33 @@ struct AppStateTranscriptionConfigurationTests {
             precondition(appState.currentNoteBrowserTranscriptionChoice == .appleLive)
             precondition(appState.willAutoSelectNativeWhisperWhenReady)
             precondition(appState.isInstallingNativeWhisper)
+        }
+    }
+
+    private static func testInstallCallWhileAlreadyInstallingStillArmsAutoSelection() async {
+        resetDefaults()
+        let harness = NativeWhisperInstallHarness()
+        let originalStarter = AppState.nativeWhisperInstallStarter
+        let originalStatus = AppState.nativeWhisperInstallStatusProvider
+        AppState.nativeWhisperInstallStarter = harness.start
+        AppState.nativeWhisperInstallStatusProvider = { _ in .notInstalled }
+        defer {
+            AppState.nativeWhisperInstallStarter = originalStarter
+            AppState.nativeWhisperInstallStatusProvider = originalStatus
+        }
+
+        await MainActor.run {
+            let appState = AppState()
+            appState.setNoteBrowserTranscriptionChoice(.appleLive)
+            appState.installNativeWhisperModel(autoSelectWhenReady: false)
+            appState.cancelNativeWhisperAutoSelection()
+            precondition(appState.isInstallingNativeWhisper)
+            precondition(!appState.willAutoSelectNativeWhisperWhenReady)
+
+            appState.installNativeWhisperModel(autoSelectWhenReady: true)
+
+            precondition(appState.isInstallingNativeWhisper)
+            precondition(appState.willAutoSelectNativeWhisperWhenReady)
         }
     }
 
