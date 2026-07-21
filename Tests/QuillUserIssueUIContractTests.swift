@@ -11,6 +11,7 @@ struct QuillUserIssueUIContractTests {
 
         try testSharedRenderer(issueView)
         try testNoteBrowserUsesStructuredErrorAndWarningUI(noteBrowser)
+        try testNoteBrowserSeparatesRecoveryAndRetryCapability(noteBrowser)
         try testSetupOmitsRequiredTranscriptionTest(setup)
         try testSettingsTestsUseStructuredIssues(settings)
         try testRunLogSanitizesMachineStatuses(settings)
@@ -35,13 +36,49 @@ struct QuillUserIssueUIContractTests {
     private static func testNoteBrowserUsesStructuredErrorAndWarningUI(
         _ source: String
     ) throws {
-        try expect(source.contains("item.userIssuePresentation()"), "Note Browser resolves current-locale issue presentation")
+        try expect(
+            source.contains("NoteBrowserRecoveryPresentation.presentation("),
+            "Note Browser resolves contextual current-locale issue presentation"
+        )
         try expect(source.contains("QuillUserIssueView("), "Note Browser uses shared issue renderer")
         try expect(source.contains("style: .warningBanner"), "completed warning uses a compact banner")
         try expect(source.contains("performRecoveryAction("), "Note Browser routes contextual recovery")
         try expect(
             !source.contains("Text(item.postProcessingStatus.replacingOccurrences"),
             "Note Browser never renders persisted raw status"
+        )
+    }
+
+    private static func testNoteBrowserSeparatesRecoveryAndRetryCapability(
+        _ source: String
+    ) throws {
+        try expect(
+            source.contains("NoteBrowserRecoveryPresentation.presentation("),
+            "Note Browser builds contextual recovery presentation"
+        )
+        try expect(
+            source.contains("actionState.showsRetryButton"),
+            "stored audio keeps retry visible independently from issue action"
+        )
+        try expect(
+            !source.contains("issuePresentation?.recoveryAction == .retryTranscription"),
+            "retry visibility no longer depends on the issue primary action"
+        )
+        try expect(
+            source.contains("No retranscription-capable model is currently available."),
+            "unavailable retry reports a focused toast"
+        )
+        try expect(
+            source.contains("NoteBrowserToastView("),
+            "Note Browser renders a pill-anchored toast"
+        )
+        try expect(
+            source.contains(".opacity(disabled ? 0.35 : 1)"),
+            "disabled toolbar actions are visually distinct"
+        )
+        try expect(
+            source.contains("No transcript text to copy."),
+            "disabled copy explains why it is unavailable"
         )
     }
 

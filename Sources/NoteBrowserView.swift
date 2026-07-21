@@ -1138,6 +1138,8 @@ private struct NoteDetailView: View {
     @State private var loadedContent: String?
     @State private var isCopied = false
     @State private var showExportSheet = false
+    @State private var toastMessage: String?
+    @State private var toastID: UUID?
     @State private var titleDraft = ""
     @State private var isRetrying = false
     @State private var titleDebounceTimer: Timer?
@@ -1183,8 +1185,29 @@ private struct NoteDetailView: View {
         recoveredRecordingContext.localizedDescription()
     }
     private var isLiveRecording: Bool { item.postProcessingStatus == "live-recording" }
+    private var displayContent: String {
+        loadedContent ?? item.postProcessedTranscript
+    }
+    private var storedAudioURL: URL? {
+        appState.noteBrowserStoredAudioURL(for: item)
+    }
+    private var retryAvailability: NoteBrowserRetryAvailability {
+        appState.noteBrowserRetryAvailability(for: item)
+    }
+    private var actionState: NoteBrowserActionState {
+        NoteBrowserActionState(
+            hasStoredAudio: storedAudioURL != nil,
+            transcript: displayContent,
+            retryAvailability: retryAvailability
+        )
+    }
     private var issuePresentation: QuillUserIssuePresentation? {
-        item.userIssuePresentation()
+        item.userIssueRecord.map {
+            NoteBrowserRecoveryPresentation.presentation(
+                for: $0,
+                actionState: actionState
+            )
+        }
     }
     private var warningPresentation: QuillUserIssuePresentation? {
         guard let issuePresentation,
@@ -1193,12 +1216,6 @@ private struct NoteDetailView: View {
         }
         return issuePresentation
     }
-    private var canRetry: Bool {
-        guard item.audioFileName != nil else { return false }
-        return issuePresentation?.recoveryAction == .retryTranscription
-            || issuePresentation == nil
-    }
-    private var displayContent: String { loadedContent ?? item.postProcessedTranscript }
 
     private var suggestedCalendarTitle: String? {
         guard item.customTitle == nil,
@@ -1223,6 +1240,13 @@ private struct NoteDetailView: View {
                 contentArea
             }
             floatingToolbar
+            if let toastMessage {
+                NoteBrowserToastView(message: toastMessage)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 72)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(101)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .textBackgroundColor))
@@ -1316,13 +1340,10 @@ private struct NoteDetailView: View {
                 .padding(.top, 2)
             }
 
-            // Show the audio player only when an audio file exists
-            if let audioFileName = item.audioFileName {
-                let audioURL = AppState.audioStorageDirectory().appendingPathComponent(audioFileName)
-                if FileManager.default.fileExists(atPath: audioURL.path) {
-                    NoteAudioPlayerView(audioURL: audioURL)
-                        .padding(.top, 4)
-                }
+            // Show the audio player only when the stored audio file exists
+            if let storedAudioURL {
+                NoteAudioPlayerView(audioURL: storedAudioURL)
+                    .padding(.top, 4)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1552,7 +1573,7 @@ private struct NoteDetailView: View {
 
     private var floatingToolbar: some View {
         HStack(spacing: 2) {
-            if canRetry {
+            if actionState.showsRetryButton {
                 toolbarButton(
                     action: { retryTranscription() },
                     label: {
@@ -1578,10 +1599,18 @@ private struct NoteDetailView: View {
                 label: {
                     Image(systemName: isCopied ? "checkmark" : "doc.on.doc")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(isCopied ? Color.accentColor : Color.primary)
+                        .foregroundStyle(
+                            isCopied
+                                ? Color.accentColor
+                                : actionState.canCopy
+                                    ? Color.primary
+                                    : Color.secondary
+                        )
                 },
-                disabled: displayContent.isEmpty,
-                help: "Copy content"
+                disabled: !actionState.canCopy,
+                help: actionState.canCopy
+                    ? "Copy content"
+                    : "No transcript text to copy."
             )
 
             // Share (Obsidian export)
@@ -1697,7 +1726,41 @@ private struct NoteDetailView: View {
     }
 
     private func retryTranscription() {
-        appState.retryTranscription(item: item)
+        switch retryAvailability {
+        case .ready:
+            appState.retryTranscription(item: item)
+        case .unavailable:
+            showToast(
+                localizedCatalogString(
+                    "No retranscription-capable model is currently available."
+                )
+            )
+        case .noAudio:
+            break
+        }
+    }
+
+    private func showToast(_ message: String) {
+        let id = UUID()
+        toastID = id
+        withAnimation(.easeOut(duration: 0.16)) {
+            toastMessage = message
+        }
+        NSAccessibility.post(
+            element: NSApplication.shared,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: message,
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue
+            ]
+        )
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            guard toastID == id else { return }
+            withAnimation(.easeIn(duration: 0.16)) {
+                toastMessage = nil
+                toastID = nil
+            }
+        }
     }
 
     private func copyContent() {
@@ -2029,6 +2092,26 @@ private struct ToolbarButtonStyle: ButtonStyle {
     }
 }
 
+private struct NoteBrowserToastView: View {
+    let message: String
+
+    var body: some View {
+        Text(message)
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .lineLimit(3)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(Color.black.opacity(0.92))
+            )
+            .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+            .accessibilityLabel(Text(message))
+    }
+}
+
 private struct ToolbarIconButton<Label: View>: View {
     let action: () -> Void
     let disabled: Bool
@@ -2041,6 +2124,7 @@ private struct ToolbarIconButton<Label: View>: View {
         Button(action: action) {
             label()
                 .frame(width: 36, height: 36)
+                .opacity(disabled ? 0.35 : 1)
                 .contentShape(Circle())
         }
         .buttonStyle(ToolbarButtonStyle(isHovered: isHovered))
@@ -2049,7 +2133,7 @@ private struct ToolbarIconButton<Label: View>: View {
         .contentShape(Circle())
         .allowsHitTesting(true)
         .onHover { hovering in
-            isHovered = hovering
+            isHovered = hovering && !disabled
         }
         .overrideCursor(.arrow)
     }

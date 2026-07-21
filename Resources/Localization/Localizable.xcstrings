@@ -1217,6 +1217,38 @@
         }
       }
     },
+    "No retranscription-capable model is currently available.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No retranscription-capable model is currently available."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 재전사할 수 있는 모델이 없습니다."
+          }
+        }
+      }
+    },
+    "No transcript text to copy.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No transcript text to copy."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복사할 전사 텍스트가 없습니다."
+          }
+        }
+      }
+    },
     "No content": {
       "localizations": {
         "en": {
