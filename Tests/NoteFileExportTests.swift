@@ -116,8 +116,8 @@ struct NoteFileExportTests {
                 replaceExisting: false
             )
             preconditionFailure("Expected a late destination conflict")
-        } catch let error as NoteFileExporter.ExportWriteError {
-            precondition(error == .destinationExists)
+        } catch NoteFileExporter.ExportWriteError.destinationExists {
+            // Expected.
         }
         let destinationContent = try String(contentsOf: destination, encoding: .utf8)
         precondition(destinationContent == "old")
