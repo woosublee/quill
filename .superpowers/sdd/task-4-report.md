@@ -28,3 +28,14 @@
 
 ## Concerns
 - No blocking concerns. The injected downloader is synchronous by contract, so cancellation of a custom downloader depends on that downloader observing `LocalAIInstallTask`; the built-in URLSession downloader installs a cancellation handler for its active request.
+
+## Review Fix Report
+- Added cancellation checks around every validation, immediately before package commit, before and after every artifact installation, and at the final pre-commit boundary. A cancellation observed while committing rolls the package back and returns `.cancelled` when rollback succeeds.
+- Wrapped each installer-side injected download call in `defer { task.setCancellationHandler(nil) }`, preventing a completed or failed artifact from retaining a stale cancellation handler.
+- Reworked package commit lifecycle: commit failures invoke recovery without deleting backups before each final is restored; failed recovery preserves any still-needed backups and reports recovery detail. Backup deletion now runs only after a successful commit as best-effort cleanup, so cleanup failure preserves the new valid package (and may retain backups for later cleanup).
+- Corrected the simulated move failure to use `(source, destination)` and asserted it occurs at the second artifact installation.
+- Added deterministic coverage for cancellation during validation, cancellation after the second artifact is installed, stale downloader-handler cleanup, actual second-install failure rollback, and backup-cleanup failure preserving the new package.
+
+### Review Fix Verification
+- `swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/LocalAIModel.swift Sources/LocalAIInstaller.swift Tests/LocalAIInstallerTests.swift -o /tmp/LocalAIInstallerTests && /tmp/LocalAIInstallerTests`: passed.
+- `make check-test-wiring && make test-transcription`: passed. Existing CoreData duplicate entity-description warnings were emitted; all test commands exited successfully.

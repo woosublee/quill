@@ -11,7 +11,11 @@ struct LocalAIInstallerTests {
         try testConcurrentInstallForSameModelIsRejected()
         try testConcurrentInstallsForDifferentModelsBothSucceed()
         try testInvalidArtifactPreservesEntireExistingPackage()
+        try testCancellationDuringValidationPreservesExistingPackage()
+        try testCancellationAfterSecondArtifactInstallRollsBackPackage()
+        try testDownloaderCancellationHandlerIsClearedAfterCompletion()
         try testMoveFailureRollsBackEntireExistingPackage()
+        try testBackupCleanupFailurePreservesNewPackage()
         print("LocalAIInstallerTests passed")
     }
 
@@ -219,10 +223,10 @@ struct LocalAIInstallerTests {
         }
         let finalPaths = Set(model.artifacts.map { store.artifactURL(for: $0).path })
         var replacements = 0
-        let operations = LocalAIInstallerFileOperations.default.replacing { destination, source in
+        let operations = LocalAIInstallerFileOperations.default.replacing { source, destination in
             replacements += 1
-            if replacements == 2 { throw TestFailure("simulated replacement failure") }
-            _ = try FileManager.default.replaceItemAt(destination, withItemAt: source, backupItemName: nil, options: [])
+            if replacements == 2 { throw TestFailure("simulated second install failure") }
+            try FileManager.default.moveItem(at: source, to: destination)
         }
         let completion = CompletionWaiter<Void, LocalAIInstallerError>()
         let installer = LocalAIInstaller(store: store, fileOperations: operations) { source, destination, _, _ in
@@ -232,6 +236,7 @@ struct LocalAIInstallerTests {
         _ = installer.install(model: model, progress: { _ in }) { completion.complete($0) }
 
         guard case .failure(.moveFailed) = try completion.wait() else { throw TestFailure("move failure should be reported") }
+        assert(replacements == 2)
         for (artifact, old) in zip(model.artifacts, oldContents) {
             let installed = try Data(contentsOf: store.artifactURL(for: artifact))
             assert(installed == old)
@@ -240,6 +245,140 @@ struct LocalAIInstallerTests {
         let names = try FileManager.default.contentsOfDirectory(atPath: store.modelsDirectory.path)
         assert(!names.contains { $0.contains(".backup-") })
         assert(finalPaths.allSatisfy { FileManager.default.fileExists(atPath: $0) })
+    }
+
+    private static func testCancellationDuringValidationPreservesExistingPackage() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let oldContents = [Data(repeating: 20, count: 12), Data(repeating: 21, count: 13)]
+        let newContents = [Data(repeating: 22, count: 12), Data(repeating: 23, count: 13)]
+        let model = testModel(id: "validation-cancel", contents: newContents)
+        let store = LocalAIModelStore(rootDirectory: root)
+        try write(oldContents, for: model, to: store)
+        let validationStarted = DispatchSemaphore(value: 0)
+        let allowValidation = DispatchSemaphore(value: 0)
+        let completion = CompletionWaiter<Void, LocalAIInstallerError>()
+        let installer = LocalAIInstaller(
+            store: store,
+            validation: LocalAIInstallerValidation { artifact, url in
+                validationStarted.signal()
+                _ = allowValidation.wait(timeout: .now() + 2)
+                return store.validationError(for: artifact, at: url)
+            }
+        ) { source, destination, _, _ in
+            try newContents[artifactIndex(source)].write(to: destination)
+        }
+        let task = installer.install(model: model, progress: { _ in }) { completion.complete($0) }
+        guard validationStarted.wait(timeout: .now() + 2) == .success else { throw TestFailure("validation did not start") }
+
+        task.cancel()
+        allowValidation.signal()
+
+        assertFailed(try completion.wait(), .cancelled)
+        try assertPackage(oldContents, for: model, in: store)
+    }
+
+    private static func testCancellationAfterSecondArtifactInstallRollsBackPackage() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let oldContents = [Data(repeating: 24, count: 12), Data(repeating: 25, count: 13)]
+        let newContents = [Data(repeating: 26, count: 12), Data(repeating: 27, count: 13)]
+        let model = testModel(id: "commit-cancel", contents: newContents)
+        let store = LocalAIModelStore(rootDirectory: root)
+        try write(oldContents, for: model, to: store)
+        let secondInstalled = DispatchSemaphore(value: 0)
+        let allowCommit = DispatchSemaphore(value: 0)
+        let operations = LocalAIInstallerFileOperations.default.replacing { source, destination in
+            try FileManager.default.moveItem(at: source, to: destination)
+            if destination == store.artifactURL(for: model.artifacts[1]) {
+                secondInstalled.signal()
+                _ = allowCommit.wait(timeout: .now() + 2)
+            }
+        }
+        let completion = CompletionWaiter<Void, LocalAIInstallerError>()
+        let installer = LocalAIInstaller(store: store, fileOperations: operations) { source, destination, _, _ in
+            try newContents[artifactIndex(source)].write(to: destination)
+        }
+        let task = installer.install(model: model, progress: { _ in }) { completion.complete($0) }
+        guard secondInstalled.wait(timeout: .now() + 2) == .success else { throw TestFailure("second artifact was not installed") }
+
+        task.cancel()
+        allowCommit.signal()
+
+        assertFailed(try completion.wait(), .cancelled)
+        try assertPackage(oldContents, for: model, in: store)
+    }
+
+    private static func testDownloaderCancellationHandlerIsClearedAfterCompletion() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let contents = [Data(repeating: 28, count: 12)]
+        let model = testModel(id: "handler-cleanup", contents: contents)
+        let store = LocalAIModelStore(rootDirectory: root)
+        let completion = CompletionWaiter<Void, LocalAIInstallerError>()
+        var handlerCalls = 0
+        let lock = NSLock()
+        let installer = LocalAIInstaller(store: store) { _, destination, _, task in
+            task.setCancellationHandler {
+                lock.lock()
+                handlerCalls += 1
+                lock.unlock()
+            }
+            try contents[0].write(to: destination)
+        }
+        let task = installer.install(model: model, progress: { _ in }) { completion.complete($0) }
+
+        assertSucceeded(try completion.wait())
+        task.cancel()
+        lock.lock()
+        let calls = handlerCalls
+        lock.unlock()
+        assert(calls == 0)
+    }
+
+    private static func testBackupCleanupFailurePreservesNewPackage() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let oldContents = [Data(repeating: 29, count: 12), Data(repeating: 30, count: 13)]
+        let newContents = [Data(repeating: 31, count: 12), Data(repeating: 32, count: 13)]
+        let model = testModel(id: "backup-cleanup", contents: newContents)
+        let store = LocalAIModelStore(rootDirectory: root)
+        try write(oldContents, for: model, to: store)
+        let base = LocalAIInstallerFileOperations.default
+        let operations = LocalAIInstallerFileOperations(
+            moveItem: base.moveItem,
+            removeItem: { url in
+                if url.lastPathComponent.contains(".backup-") { throw TestFailure("simulated backup cleanup failure") }
+                try base.removeItem(url)
+            },
+            installPartial: base.installPartial
+        )
+        let completion = CompletionWaiter<Void, LocalAIInstallerError>()
+        let installer = LocalAIInstaller(store: store, fileOperations: operations) { source, destination, _, _ in
+            try newContents[artifactIndex(source)].write(to: destination)
+        }
+
+        _ = installer.install(model: model, progress: { _ in }) { completion.complete($0) }
+
+        assertSucceeded(try completion.wait())
+        try assertPackage(newContents, for: model, in: store)
+        let names = try FileManager.default.contentsOfDirectory(atPath: store.modelsDirectory.path)
+        assert(names.contains { $0.contains(".backup-") })
+    }
+
+    private static func write(_ contents: [Data], for model: LocalAIModel, to store: LocalAIModelStore) throws {
+        try store.ensureModelsDirectoryExists()
+        for (artifact, data) in zip(model.artifacts, contents) {
+            try data.write(to: store.artifactURL(for: artifact))
+        }
+    }
+
+    private static func assertPackage(_ expected: [Data], for model: LocalAIModel, in store: LocalAIModelStore) throws {
+        for (artifact, data) in zip(model.artifacts, expected) {
+            let installed = try Data(contentsOf: store.artifactURL(for: artifact))
+            assert(installed == data)
+            assert(!FileManager.default.fileExists(atPath: store.partialArtifactURL(for: artifact).path))
+        }
     }
 
     private static func artifactIndex(_ source: URL) -> Int {
