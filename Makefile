@@ -208,12 +208,19 @@ endif
 		chmod 755 "$(RESOURCES)/whisper/whisper-cli"
 	@mkdir -p "$(RESOURCES)/llama"
 	@llama_helper="$$(cat "$(LLAMA_STAMP)")"; \
+		llama_license="$(LLAMA_CPP_DIR)/LICENSE"; \
 		if [ -z "$$llama_helper" ] || [ ! -x "$$llama_helper" ]; then \
 			echo "Missing llama.cpp helper at $$llama_helper" >&2; \
 			exit 1; \
 		fi; \
+		if [ ! -s "$$llama_license" ]; then \
+			echo "Missing or empty llama.cpp LICENSE at $$llama_license" >&2; \
+			exit 1; \
+		fi; \
 		cp "$$llama_helper" "$(RESOURCES)/llama/llama-server"; \
-		chmod 755 "$(RESOURCES)/llama/llama-server"
+		chmod 755 "$(RESOURCES)/llama/llama-server"; \
+		cp "$$llama_license" "$(RESOURCES)/llama/LICENSE"; \
+		test -s "$(RESOURCES)/llama/LICENSE"
 	@xattr -cr "$(APP_BUNDLE)"
 	@rm -rf "$(BUILD_DIR)/codesign-staging"
 	@mkdir -p "$(BUILD_DIR)/codesign-staging"

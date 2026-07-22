@@ -11,7 +11,10 @@ struct LocalAIModelStoreTests {
         try testCompletedArtifactWithMissingSiblingReportsPartial()
         try testCompletedAndPartialArtifactsReportSummedProgress()
         try testInvalidArtifactsReportCorruptWithArtifactFilename()
-        try testDeleteRemovesOnlySelectedPackageArtifacts()
+        try testInterruptedReplacementRestoresScopedBackupPackageIdempotently()
+        try testValidPackageCleansOnlyRecognizedScopedBackups()
+        try testDeleteRemovesOnlySelectedPackageArtifactsAndBackups()
+        try testDanglingOfficialEntriesAreReportedAndRemoved()
         try testDeleteMissingPackageSucceeds()
         try testCatalogModelsHaveIndependentStorage()
         print("LocalAIModelStoreTests passed")
@@ -100,32 +103,152 @@ struct LocalAIModelStoreTests {
         assertCorrupt(store.installStatus(for: model), containing: model.artifacts[1].expectedFileName, and: "too small")
     }
 
-    private static func testDeleteRemovesOnlySelectedPackageArtifacts() throws {
+    private static func testInterruptedReplacementRestoresScopedBackupPackageIdempotently() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = LocalAIModelStore(rootDirectory: root)
+        let oldContents = [Data(repeating: 4, count: 16), Data(repeating: 5, count: 20)]
+        let model = testModel(id: "recover-selected", data: oldContents)
+        let otherContents = [Data(repeating: 6, count: 16), Data(repeating: 7, count: 20)]
+        let otherModel = testModel(id: "recover-other", data: otherContents)
+        let token = UUID().uuidString
+        let otherToken = UUID().uuidString
+        try store.ensureModelsDirectoryExists()
+
+        try oldContents[0].write(to: store.backupArtifactURL(for: model.artifacts[0], token: token))
+        try Data(repeating: 9, count: 3).write(to: store.artifactURL(for: model.artifacts[0]))
+        try oldContents[1].write(to: store.artifactURL(for: model.artifacts[1]))
+        try Data(repeating: 8, count: 4).write(to: store.partialArtifactURL(for: model.artifacts[1]))
+
+        for (artifact, contents) in zip(otherModel.artifacts, otherContents) {
+            try contents.write(to: store.backupArtifactURL(for: artifact, token: otherToken))
+        }
+        let unrelated = store.modelsDirectory.appendingPathComponent("recover-selected-not-an-artifact.backup-\(token)")
+        try Data([1, 2, 3]).write(to: unrelated)
+
+        try store.recoverInterruptedReplacement(for: model)
+        try store.recoverInterruptedReplacement(for: model)
+
+        assert(store.installStatus(for: model) == .ready)
+        for (artifact, contents) in zip(model.artifacts, oldContents) {
+            let restored = try Data(contentsOf: store.artifactURL(for: artifact))
+            assert(restored == contents)
+            assert(!directoryEntryExists(at: store.backupArtifactURL(for: artifact, token: token)))
+        }
+        for artifact in otherModel.artifacts {
+            assert(directoryEntryExists(at: store.backupArtifactURL(for: artifact, token: otherToken)))
+        }
+        assert(directoryEntryExists(at: unrelated))
+    }
+
+    private static func testValidPackageCleansOnlyRecognizedScopedBackups() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = LocalAIModelStore(rootDirectory: root)
+        let contents = [Data(repeating: 10, count: 16), Data(repeating: 11, count: 20)]
+        let model = testModel(id: "cleanup-selected", data: contents)
+        let otherModel = testModel(id: "cleanup-other")
+        let token = UUID().uuidString
+        let otherToken = UUID().uuidString
+        try writeFinalArtifacts(contents, for: model, to: store)
+        for artifact in model.artifacts {
+            try Data([4]).write(to: store.backupArtifactURL(for: artifact, token: token))
+        }
+        for artifact in otherModel.artifacts {
+            try Data([5]).write(to: store.backupArtifactURL(for: artifact, token: otherToken))
+        }
+        let similarButUnrecognized = store.modelsDirectory.appendingPathComponent(
+            "\(model.artifacts[0].expectedFileName).backup-not-a-uuid"
+        )
+        try Data([6]).write(to: similarButUnrecognized)
+
+        try store.recoverInterruptedReplacement(for: model)
+
+        assert(store.installStatus(for: model) == .ready)
+        for artifact in model.artifacts {
+            assert(!directoryEntryExists(at: store.backupArtifactURL(for: artifact, token: token)))
+        }
+        for artifact in otherModel.artifacts {
+            assert(directoryEntryExists(at: store.backupArtifactURL(for: artifact, token: otherToken)))
+        }
+        assert(directoryEntryExists(at: similarButUnrecognized))
+    }
+
+    private static func testDeleteRemovesOnlySelectedPackageArtifactsAndBackups() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let store = LocalAIModelStore(rootDirectory: root)
         let selected = testModel(id: "selected")
         let other = testModel(id: "other")
+        let selectedToken = UUID().uuidString
+        let otherToken = UUID().uuidString
         try store.ensureModelsDirectoryExists()
         for artifact in selected.artifacts {
             FileManager.default.createFile(atPath: store.artifactURL(for: artifact).path, contents: Data([1]))
             FileManager.default.createFile(atPath: store.partialArtifactURL(for: artifact).path, contents: Data([1]))
+            FileManager.default.createFile(
+                atPath: store.backupArtifactURL(for: artifact, token: selectedToken).path,
+                contents: Data([1])
+            )
         }
         for artifact in other.artifacts {
             FileManager.default.createFile(atPath: store.artifactURL(for: artifact).path, contents: Data([2]))
             FileManager.default.createFile(atPath: store.partialArtifactURL(for: artifact).path, contents: Data([2]))
+            FileManager.default.createFile(
+                atPath: store.backupArtifactURL(for: artifact, token: otherToken).path,
+                contents: Data([2])
+            )
         }
 
         try store.deleteModel(selected)
 
         for artifact in selected.artifacts {
-            assert(!FileManager.default.fileExists(atPath: store.artifactURL(for: artifact).path))
-            assert(!FileManager.default.fileExists(atPath: store.partialArtifactURL(for: artifact).path))
+            assert(!directoryEntryExists(at: store.artifactURL(for: artifact)))
+            assert(!directoryEntryExists(at: store.partialArtifactURL(for: artifact)))
+            assert(!directoryEntryExists(at: store.backupArtifactURL(for: artifact, token: selectedToken)))
         }
         for artifact in other.artifacts {
-            assert(FileManager.default.fileExists(atPath: store.artifactURL(for: artifact).path))
-            assert(FileManager.default.fileExists(atPath: store.partialArtifactURL(for: artifact).path))
+            assert(directoryEntryExists(at: store.artifactURL(for: artifact)))
+            assert(directoryEntryExists(at: store.partialArtifactURL(for: artifact)))
+            assert(directoryEntryExists(at: store.backupArtifactURL(for: artifact, token: otherToken)))
         }
+    }
+
+    private static func testDanglingOfficialEntriesAreReportedAndRemoved() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = LocalAIModelStore(rootDirectory: root)
+        let model = testModel(id: "dangling")
+        let token = UUID().uuidString
+        try store.ensureModelsDirectoryExists()
+        let missingTarget = root.appendingPathComponent("missing-target")
+        try FileManager.default.createSymbolicLink(
+            at: store.artifactURL(for: model.artifacts[0]),
+            withDestinationURL: missingTarget
+        )
+        try FileManager.default.createSymbolicLink(
+            at: store.partialArtifactURL(for: model.artifacts[1]),
+            withDestinationURL: missingTarget
+        )
+        try FileManager.default.createSymbolicLink(
+            at: store.backupArtifactURL(for: model.artifacts[0], token: token),
+            withDestinationURL: missingTarget
+        )
+        let unrelated = store.modelsDirectory.appendingPathComponent("unrelated-link")
+        try FileManager.default.createSymbolicLink(at: unrelated, withDestinationURL: missingTarget)
+
+        assertCorrupt(
+            store.installStatus(for: model),
+            containing: model.artifacts[0].expectedFileName,
+            and: "not a regular file"
+        )
+
+        try store.deleteModel(model)
+
+        assert(!directoryEntryExists(at: store.artifactURL(for: model.artifacts[0])))
+        assert(!directoryEntryExists(at: store.partialArtifactURL(for: model.artifacts[1])))
+        assert(!directoryEntryExists(at: store.backupArtifactURL(for: model.artifacts[0], token: token)))
+        assert(directoryEntryExists(at: unrelated))
     }
 
     private static func testDeleteMissingPackageSucceeds() throws {
@@ -185,6 +308,11 @@ struct LocalAIModelStoreTests {
 
     private static func sha256HexDigest(for data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func directoryEntryExists(at url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.path)
+            || (try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)) != nil
     }
 
     private static func temporaryRoot() -> URL {

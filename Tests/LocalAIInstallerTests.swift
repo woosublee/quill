@@ -15,7 +15,9 @@ struct LocalAIInstallerTests {
         try testCancellationAfterSecondArtifactInstallRollsBackPackage()
         try testDownloaderCancellationHandlerIsClearedAfterCompletion()
         try testMoveFailureRollsBackEntireExistingPackage()
-        try testBackupCleanupFailurePreservesNewPackage()
+        try testInstallRecoversInterruptedReplacementBeforeDownload()
+        try testBackupCleanupFailureReturnsFailureAndRetryConverges()
+        try testDanglingOfficialEntriesCanBeReinstalled()
         print("LocalAIInstallerTests passed")
     }
 
@@ -336,11 +338,41 @@ struct LocalAIInstallerTests {
         assert(calls == 0)
     }
 
-    private static func testBackupCleanupFailurePreservesNewPackage() throws {
+    private static func testInstallRecoversInterruptedReplacementBeforeDownload() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let oldContents = [Data(repeating: 29, count: 12), Data(repeating: 30, count: 13)]
-        let newContents = [Data(repeating: 31, count: 12), Data(repeating: 32, count: 13)]
+        let contents = [Data(repeating: 29, count: 12), Data(repeating: 30, count: 13)]
+        let model = testModel(id: "preinstall-recovery", contents: contents)
+        let store = LocalAIModelStore(rootDirectory: root)
+        let token = UUID().uuidString
+        try store.ensureModelsDirectoryExists()
+        for (artifact, data) in zip(model.artifacts, contents) {
+            try data.write(to: store.backupArtifactURL(for: artifact, token: token))
+        }
+        try Data([99]).write(to: store.artifactURL(for: model.artifacts[0]))
+        let sawRecoveredPackage = LockedValue(false)
+        let completion = CompletionWaiter<Void, LocalAIInstallerError>()
+        let installer = LocalAIInstaller(store: store) { source, destination, _, _ in
+            if store.installStatus(for: model) == .ready {
+                sawRecoveredPackage.set(true)
+            }
+            try contents[artifactIndex(source)].write(to: destination)
+        }
+
+        _ = installer.install(model: model, progress: { _ in }) { completion.complete($0) }
+
+        assertSucceeded(try completion.wait())
+        assert(sawRecoveredPackage.value)
+        try assertPackage(contents, for: model, in: store)
+        let names = try FileManager.default.contentsOfDirectory(atPath: store.modelsDirectory.path)
+        assert(!names.contains { $0.contains(".backup-") })
+    }
+
+    private static func testBackupCleanupFailureReturnsFailureAndRetryConverges() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let oldContents = [Data(repeating: 31, count: 12), Data(repeating: 32, count: 13)]
+        let newContents = [Data(repeating: 33, count: 12), Data(repeating: 34, count: 13)]
         let model = testModel(id: "backup-cleanup", contents: newContents)
         let store = LocalAIModelStore(rootDirectory: root)
         try write(oldContents, for: model, to: store)
@@ -353,17 +385,57 @@ struct LocalAIInstallerTests {
             },
             installPartial: base.installPartial
         )
-        let completion = CompletionWaiter<Void, LocalAIInstallerError>()
-        let installer = LocalAIInstaller(store: store, fileOperations: operations) { source, destination, _, _ in
+        let firstCompletion = CompletionWaiter<Void, LocalAIInstallerError>()
+        let firstInstaller = LocalAIInstaller(store: store, fileOperations: operations) { source, destination, _, _ in
             try newContents[artifactIndex(source)].write(to: destination)
+        }
+
+        _ = firstInstaller.install(model: model, progress: { _ in }) { firstCompletion.complete($0) }
+
+        guard case .failure(.moveFailed) = try firstCompletion.wait() else {
+            throw TestFailure("backup cleanup failure should be observable as moveFailed")
+        }
+        try assertPackage(newContents, for: model, in: store)
+        var names = try FileManager.default.contentsOfDirectory(atPath: store.modelsDirectory.path)
+        assert(names.contains { $0.contains(".backup-") })
+
+        let retryCompletion = CompletionWaiter<Void, LocalAIInstallerError>()
+        let retryInstaller = LocalAIInstaller(store: store) { source, destination, _, _ in
+            try newContents[artifactIndex(source)].write(to: destination)
+        }
+        _ = retryInstaller.install(model: model, progress: { _ in }) { retryCompletion.complete($0) }
+
+        assertSucceeded(try retryCompletion.wait())
+        try assertPackage(newContents, for: model, in: store)
+        names = try FileManager.default.contentsOfDirectory(atPath: store.modelsDirectory.path)
+        assert(!names.contains { $0.contains(".backup-") })
+    }
+
+    private static func testDanglingOfficialEntriesCanBeReinstalled() throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let contents = [Data(repeating: 35, count: 12), Data(repeating: 36, count: 13)]
+        let model = testModel(id: "dangling-reinstall", contents: contents)
+        let store = LocalAIModelStore(rootDirectory: root)
+        try store.ensureModelsDirectoryExists()
+        let missingTarget = root.appendingPathComponent("missing-target")
+        try FileManager.default.createSymbolicLink(
+            at: store.artifactURL(for: model.artifacts[0]),
+            withDestinationURL: missingTarget
+        )
+        try FileManager.default.createSymbolicLink(
+            at: store.partialArtifactURL(for: model.artifacts[1]),
+            withDestinationURL: missingTarget
+        )
+        let completion = CompletionWaiter<Void, LocalAIInstallerError>()
+        let installer = LocalAIInstaller(store: store) { source, destination, _, _ in
+            try contents[artifactIndex(source)].write(to: destination)
         }
 
         _ = installer.install(model: model, progress: { _ in }) { completion.complete($0) }
 
         assertSucceeded(try completion.wait())
-        try assertPackage(newContents, for: model, in: store)
-        let names = try FileManager.default.contentsOfDirectory(atPath: store.modelsDirectory.path)
-        assert(names.contains { $0.contains(".backup-") })
+        try assertPackage(contents, for: model, in: store)
     }
 
     private static func write(_ contents: [Data], for model: LocalAIModel, to store: LocalAIModelStore) throws {
@@ -417,6 +489,27 @@ struct LocalAIInstallerTests {
 
     private static func temporaryRoot() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("quill-local-ai-installer-tests-\(UUID().uuidString)", isDirectory: true)
+    }
+}
+
+private final class LockedValue<Value> {
+    private let lock = NSLock()
+    private var storedValue: Value
+
+    init(_ value: Value) {
+        storedValue = value
+    }
+
+    var value: Value {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedValue
+    }
+
+    func set(_ value: Value) {
+        lock.lock()
+        storedValue = value
+        lock.unlock()
     }
 }
 

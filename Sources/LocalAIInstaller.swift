@@ -64,16 +64,35 @@ struct LocalAIInstallerValidation {
 struct LocalAIInstallerFileOperations {
     let moveItem: (URL, URL) throws -> Void
     let removeItem: (URL) throws -> Void
+    let copyItem: (URL, URL) throws -> Void
     let installPartial: (URL, URL) throws -> Void
+
+    init(
+        moveItem: @escaping (URL, URL) throws -> Void,
+        removeItem: @escaping (URL) throws -> Void,
+        copyItem: @escaping (URL, URL) throws -> Void = { try FileManager.default.copyItem(at: $0, to: $1) },
+        installPartial: @escaping (URL, URL) throws -> Void
+    ) {
+        self.moveItem = moveItem
+        self.removeItem = removeItem
+        self.copyItem = copyItem
+        self.installPartial = installPartial
+    }
 
     static let `default` = LocalAIInstallerFileOperations(
         moveItem: { try FileManager.default.moveItem(at: $0, to: $1) },
         removeItem: { try FileManager.default.removeItem(at: $0) },
+        copyItem: { try FileManager.default.copyItem(at: $0, to: $1) },
         installPartial: { source, destination in try FileManager.default.moveItem(at: source, to: destination) }
     )
 
     func replacing(_ installPartial: @escaping (URL, URL) throws -> Void) -> LocalAIInstallerFileOperations {
-        LocalAIInstallerFileOperations(moveItem: moveItem, removeItem: removeItem, installPartial: installPartial)
+        LocalAIInstallerFileOperations(
+            moveItem: moveItem,
+            removeItem: removeItem,
+            copyItem: copyItem,
+            installPartial: installPartial
+        )
     }
 }
 
@@ -151,6 +170,17 @@ struct LocalAIInstaller {
     ) -> Result<Void, LocalAIInstallerError> {
         do {
             try store.ensureModelsDirectoryExists()
+            do {
+                try store.recoverInterruptedReplacement(
+                    for: model,
+                    copyItem: fileOperations.copyItem,
+                    removeItem: fileOperations.removeItem
+                )
+            } catch {
+                throw LocalAIInstallerError.moveFailed(
+                    "Could not recover an interrupted replacement: \(error.localizedDescription)"
+                )
+            }
             try store.deletePartialModel(model)
             var completedBytes: Int64 = 0
 
@@ -209,13 +239,13 @@ struct LocalAIInstaller {
     private func replacePackage(_ model: LocalAIModel, task: LocalAIInstallTask) throws {
         let token = UUID().uuidString
         let finals = model.artifacts.map { store.artifactURL(for: $0) }
-        let backups = finals.map { $0.appendingPathExtension("backup-\(token)") }
+        let backups = model.artifacts.map { store.backupArtifactURL(for: $0, token: token) }
         var backedUp: [(final: URL, backup: URL)] = []
         var installed: [URL] = []
 
         do {
             try checkCancellation(task)
-            for (final, backup) in zip(finals, backups) where FileManager.default.fileExists(atPath: final.path) {
+            for (final, backup) in zip(finals, backups) where directoryEntryExists(at: final) {
                 try fileOperations.moveItem(final, backup)
                 backedUp.append((final, backup))
             }
@@ -237,20 +267,26 @@ struct LocalAIInstaller {
             throw LocalAIInstallerError.moveFailed(error.localizedDescription)
         }
 
-        cleanupBackupsBestEffort(backedUp)
+        do {
+            try store.cleanupBackups(for: model, removeItem: fileOperations.removeItem)
+        } catch {
+            throw LocalAIInstallerError.moveFailed(
+                "Installed model package, but could not remove transaction backups: \(error.localizedDescription)"
+            )
+        }
     }
 
     private func rollback(installed: [URL], backups: [(final: URL, backup: URL)]) -> String? {
         var failures: [String] = []
-        for final in installed.reversed() where FileManager.default.fileExists(atPath: final.path) {
+        for final in installed.reversed() where directoryEntryExists(at: final) {
             do {
                 try fileOperations.removeItem(final)
             } catch {
                 failures.append("remove \(final.lastPathComponent): \(error.localizedDescription)")
             }
         }
-        for (final, backup) in backups.reversed() where FileManager.default.fileExists(atPath: backup.path) {
-            guard !FileManager.default.fileExists(atPath: final.path) else {
+        for (final, backup) in backups.reversed() where directoryEntryExists(at: backup) {
+            guard !directoryEntryExists(at: final) else {
                 failures.append("restore \(final.lastPathComponent): replacement still exists")
                 continue
             }
@@ -263,10 +299,9 @@ struct LocalAIInstaller {
         return failures.isEmpty ? nil : failures.joined(separator: "; ")
     }
 
-    private func cleanupBackupsBestEffort(_ backups: [(final: URL, backup: URL)]) {
-        for (_, backup) in backups where FileManager.default.fileExists(atPath: backup.path) {
-            try? fileOperations.removeItem(backup)
-        }
+    private func directoryEntryExists(at url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.path)
+            || (try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)) != nil
     }
 
     private func cleanupPartials(for model: LocalAIModel) {

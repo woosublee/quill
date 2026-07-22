@@ -76,6 +76,17 @@ enum LocalAIInstallStatus: Equatable {
     case corrupt(String)
 }
 
+enum LocalAIModelStoreError: LocalizedError, Equatable {
+    case recoveryFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case let .recoveryFailed(detail):
+            return detail
+        }
+    }
+}
+
 struct LocalAIDownloadProgress: Equatable {
     let downloadedBytes: Int64
     let totalBytes: Int64?
@@ -138,6 +149,13 @@ struct LocalAIModelStore {
         modelsDirectory.appendingPathComponent("\(artifact.expectedFileName).download", isDirectory: false)
     }
 
+    func backupArtifactURL(for artifact: LocalAIModelArtifact, token: String) -> URL {
+        modelsDirectory.appendingPathComponent(
+            "\(artifact.expectedFileName).backup-\(token)",
+            isDirectory: false
+        )
+    }
+
     func modelURL(for model: LocalAIModel) -> URL {
         artifactURL(for: model.primaryArtifact)
     }
@@ -148,7 +166,7 @@ struct LocalAIModelStore {
 
         for artifact in model.artifacts {
             let finalURL = artifactURL(for: artifact)
-            if fileManager.fileExists(atPath: finalURL.path) {
+            if directoryEntryExists(at: finalURL) {
                 hasArtifact = true
                 if let error = validationError(for: artifact, at: finalURL) {
                     return .corrupt("\(artifact.expectedFileName): \(error)")
@@ -158,14 +176,14 @@ struct LocalAIModelStore {
             }
 
             let partialURL = partialArtifactURL(for: artifact)
-            if fileManager.fileExists(atPath: partialURL.path) {
+            if directoryEntryExists(at: partialURL) {
                 hasArtifact = true
                 downloadedBytes += fileSize(at: partialURL)
             }
         }
 
         guard hasArtifact else { return .notInstalled }
-        guard model.artifacts.allSatisfy({ fileManager.fileExists(atPath: artifactURL(for: $0).path) }) else {
+        guard model.artifacts.allSatisfy({ directoryEntryExists(at: artifactURL(for: $0)) }) else {
             return .partial(downloadedBytes: downloadedBytes, expectedBytes: model.approximateBytes)
         }
         return .ready
@@ -175,11 +193,86 @@ struct LocalAIModelStore {
         try fileManager.createDirectory(at: modelsDirectory, withIntermediateDirectories: true)
     }
 
+    func recoverInterruptedReplacement(for model: LocalAIModel) throws {
+        try recoverInterruptedReplacement(
+            for: model,
+            copyItem: { try fileManager.copyItem(at: $0, to: $1) },
+            removeItem: { try fileManager.removeItem(at: $0) }
+        )
+    }
+
+    func recoverInterruptedReplacement(
+        for model: LocalAIModel,
+        copyItem: (URL, URL) throws -> Void,
+        removeItem: (URL) throws -> Void
+    ) throws {
+        let transactions = try backupTransactions(for: model)
+        guard !transactions.isEmpty else { return }
+
+        if installStatus(for: model) == .ready {
+            try cleanupBackups(for: model, removeItem: removeItem)
+            return
+        }
+
+        let candidates = transactions.compactMap { token, artifactsByName -> (String, [String: URL], Date)? in
+            guard model.artifacts.allSatisfy({ artifact in
+                if validationError(for: artifact, at: artifactURL(for: artifact)) == nil {
+                    return true
+                }
+                guard let backup = artifactsByName[artifact.expectedFileName] else { return false }
+                return validationError(for: artifact, at: backup) == nil
+            }) else { return nil }
+            let latestDate = artifactsByName.values.compactMap {
+                try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+            }.max() ?? .distantPast
+            return (token, artifactsByName, latestDate)
+        }
+        guard let selected = candidates.max(by: { lhs, rhs in
+            if lhs.2 == rhs.2 { return lhs.0 < rhs.0 }
+            return lhs.2 < rhs.2
+        }) else {
+            return
+        }
+
+        for artifact in model.artifacts {
+            let finalURL = artifactURL(for: artifact)
+            if validationError(for: artifact, at: finalURL) == nil { continue }
+            try removeIfPresent(finalURL, using: removeItem)
+            guard let backupURL = selected.1[artifact.expectedFileName] else {
+                throw LocalAIModelStoreError.recoveryFailed(
+                    "Missing backup for \(artifact.expectedFileName) in transaction \(selected.0)."
+                )
+            }
+            try copyItem(backupURL, finalURL)
+        }
+
+        guard installStatus(for: model) == .ready else {
+            throw LocalAIModelStoreError.recoveryFailed(
+                "Recovered package for model \(model.id) did not pass validation."
+            )
+        }
+        try cleanupBackups(for: model, removeItem: removeItem)
+    }
+
+    func cleanupBackups(for model: LocalAIModel) throws {
+        try cleanupBackups(for: model) { try fileManager.removeItem(at: $0) }
+    }
+
+    func cleanupBackups(
+        for model: LocalAIModel,
+        removeItem: (URL) throws -> Void
+    ) throws {
+        for url in try recognizedBackupURLs(for: model) {
+            try removeIfPresent(url, using: removeItem)
+        }
+    }
+
     func deleteModel(_ model: LocalAIModel) throws {
         for artifact in model.artifacts {
             try removeIfPresent(artifactURL(for: artifact))
             try removeIfPresent(partialArtifactURL(for: artifact))
         }
+        try cleanupBackups(for: model)
     }
 
     func deletePartialModel(_ model: LocalAIModel) throws {
@@ -189,8 +282,11 @@ struct LocalAIModelStore {
     }
 
     func validationError(for artifact: LocalAIModelArtifact, at url: URL) -> String? {
-        guard fileManager.fileExists(atPath: url.path) else {
+        guard directoryEntryExists(at: url) else {
             return "Model artifact is missing."
+        }
+        guard (try? fileManager.destinationOfSymbolicLink(atPath: url.path)) == nil else {
+            return "Model artifact is not a regular file."
         }
         guard ((try? url.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true) else {
             return "Model artifact is not a regular file."
@@ -222,9 +318,53 @@ struct LocalAIModelStore {
         return max(1, Int64((Double(artifact.approximateBytes) * 0.95).rounded()))
     }
 
+    private func backupTransactions(for model: LocalAIModel) throws -> [String: [String: URL]] {
+        var transactions: [String: [String: URL]] = [:]
+        for url in try recognizedBackupURLs(for: model) {
+            let name = url.lastPathComponent
+            guard let artifact = model.artifacts.first(where: { artifact in
+                name.hasPrefix("\(artifact.expectedFileName).backup-")
+            }) else { continue }
+            let prefix = "\(artifact.expectedFileName).backup-"
+            let token = String(name.dropFirst(prefix.count))
+            transactions[token, default: [:]][artifact.expectedFileName] = url
+        }
+        return transactions
+    }
+
+    private func recognizedBackupURLs(for model: LocalAIModel) throws -> [URL] {
+        guard directoryEntryExists(at: modelsDirectory) else { return [] }
+        let contents = try fileManager.contentsOfDirectory(
+            at: modelsDirectory,
+            includingPropertiesForKeys: nil,
+            options: []
+        )
+        return contents.filter { url in
+            let name = url.lastPathComponent
+            return model.artifacts.contains { artifact in
+                let prefix = "\(artifact.expectedFileName).backup-"
+                guard name.hasPrefix(prefix) else { return false }
+                let token = String(name.dropFirst(prefix.count))
+                return UUID(uuidString: token) != nil
+            }
+        }
+    }
+
+    private func directoryEntryExists(at url: URL) -> Bool {
+        fileManager.fileExists(atPath: url.path)
+            || (try? fileManager.destinationOfSymbolicLink(atPath: url.path)) != nil
+    }
+
     private func removeIfPresent(_ url: URL) throws {
-        if fileManager.fileExists(atPath: url.path) {
-            try fileManager.removeItem(at: url)
+        try removeIfPresent(url) { try fileManager.removeItem(at: $0) }
+    }
+
+    private func removeIfPresent(
+        _ url: URL,
+        using removeItem: (URL) throws -> Void
+    ) throws {
+        if directoryEntryExists(at: url) {
+            try removeItem(url)
         }
     }
 

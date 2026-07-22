@@ -16,6 +16,12 @@ else
   git -C "$checkout_dir" checkout --force "$version"
 fi
 
+license="$checkout_dir/LICENSE"
+if [ ! -s "$license" ]; then
+  echo "Missing or empty llama.cpp LICENSE at $license" >&2
+  exit 1
+fi
+
 cmake_arch_args=()
 if [ "$arch" = "universal" ]; then
   cmake_arch_args=(-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64")
@@ -30,6 +36,7 @@ cmake -S "$checkout_dir" -B "$checkout_dir/build" \
   -DLLAMA_BUILD_TESTS=OFF \
   -DLLAMA_BUILD_EXAMPLES=ON \
   -DLLAMA_BUILD_SERVER=ON \
+  -DGGML_NATIVE=OFF \
   -DGGML_METAL=ON \
   -DGGML_METAL_EMBED_LIBRARY=ON
 cmake --build "$checkout_dir/build" --target llama-server --config Release -j "$(sysctl -n hw.ncpu)"
