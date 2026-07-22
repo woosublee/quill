@@ -336,6 +336,29 @@ final class AppState: ObservableObject, @unchecked Sendable {
     static var localAIServerManagerFactory: () -> LocalAIServerManager = {
         LocalAIServerManager()
     }
+    static var localAIInstallStatusProvider: (LocalAIModel) -> LocalAIInstallStatus = {
+        LocalAIModelStore().installStatus(for: $0)
+    }
+    static var localAIInstallStarter: (
+        LocalAIModel,
+        @escaping (LocalAIDownloadProgress) -> Void,
+        @escaping (Result<Void, LocalAIInstallerError>) -> Void
+    ) -> LocalAIInstallTask = { model, progress, completion in
+        LocalAIInstaller().install(
+            model: model,
+            progress: progress,
+            completion: completion
+        )
+    }
+    static var localAIModelDelete: (LocalAIModel) throws -> Void = {
+        try LocalAIModelStore().deleteModel($0)
+    }
+    static var localAIPartialModelDelete: (LocalAIModel) throws -> Void = {
+        try LocalAIModelStore().deletePartialModel($0)
+    }
+    static var localAIProcessingAvailabilityProvider: () -> LocalAIProcessingAvailability = {
+        .live()
+    }
     static var nativeWhisperInstallStarter: (
         NativeWhisperModel,
         @escaping (NativeWhisperDownloadProgress) -> Void,
@@ -1707,6 +1730,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var foregroundTranscriptionJobID: UUID?
     private var activeTranscriptionJobs: [UUID: TranscriptionJob] = [:]
     let localAIServerManager: LocalAIServerManager
+    @Published private(set) var localAIInstallStates: [String: LocalAIModelInstallViewState] = [:]
+    private var localAIInstallTasks: [String: LocalAIInstallTask] = [:]
+    private var localAIInstallTokens: [String: UUID] = [:]
+    private var pendingLocalAISelections: [AIProcessingFeature: String] = [:]
 
     @Published var postProcessingBackendChoice: AIProcessingBackendChoice {
         didSet {
@@ -2232,10 +2259,418 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 self.startRecordingFromCalendarReminder()
             }
         }
+
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                refreshAllLocalAIInstallStates()
+                normalizeAIProcessingChoices()
+            }
+        } else {
+            DispatchQueue.main.sync {
+                MainActor.assumeIsolated {
+                    refreshAllLocalAIInstallStates()
+                    normalizeAIProcessingChoices()
+                }
+            }
+        }
     }
 
     deinit {
         removeAudioDeviceObservers()
+    }
+
+    @MainActor
+    func localAIInstallState(
+        for model: LocalAIModel
+    ) -> LocalAIModelInstallViewState {
+        localAIInstallStates[model.id]
+            ?? .initial(
+                model: model,
+                status: Self.localAIInstallStatusProvider(model)
+            )
+    }
+
+    @MainActor
+    func refreshAllLocalAIInstallStates() {
+        for model in LocalAIModelCatalog.all {
+            var state = localAIInstallState(for: model)
+            state.status = Self.localAIInstallStatusProvider(model)
+            localAIInstallStates[model.id] = state
+        }
+    }
+
+    @MainActor
+    func currentAIProcessingChoice(
+        for feature: AIProcessingFeature
+    ) -> AIProcessingBackendChoice {
+        switch feature {
+        case .postProcessing: return postProcessingBackendChoice
+        case .context: return contextBackendChoice
+        }
+    }
+
+    @MainActor
+    private func applyAIProcessingChoice(
+        _ choice: AIProcessingBackendChoice,
+        for feature: AIProcessingFeature
+    ) {
+        guard currentAIProcessingChoice(for: feature) != choice else { return }
+        switch feature {
+        case .postProcessing:
+            postProcessingBackendChoice = choice
+        case .context:
+            contextBackendChoice = choice
+        }
+    }
+
+    @MainActor
+    func selectedOrPendingLocalAIModel(
+        for feature: AIProcessingFeature
+    ) -> LocalAIModel? {
+        let currentChoice = currentAIProcessingChoice(for: feature)
+        let modelID = pendingLocalAISelections[feature]
+            ?? (currentChoice.isLocal ? currentChoice.modelID : nil)
+        return modelID.flatMap(LocalAIModelCatalog.model(id:))
+    }
+
+    @MainActor
+    func pendingLocalAIModelID(
+        for feature: AIProcessingFeature
+    ) -> String? {
+        pendingLocalAISelections[feature]
+    }
+
+    @MainActor
+    func isAIProcessingChoiceAvailable(
+        _ choice: AIProcessingBackendChoice
+    ) -> Bool {
+        switch choice {
+        case .cloud:
+            return !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .localAI:
+            return Self.localAIProcessingAvailabilityProvider().isSupported
+        }
+    }
+
+    @MainActor
+    func isAIProcessingBackendReady(
+        for feature: AIProcessingFeature
+    ) -> Bool {
+        switch currentAIProcessingChoice(for: feature) {
+        case .cloud:
+            return !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .localAI(let modelID):
+            guard Self.localAIProcessingAvailabilityProvider().isSupported,
+                  let model = LocalAIModelCatalog.model(id: modelID) else {
+                return false
+            }
+            return Self.localAIInstallStatusProvider(model) == .ready
+        }
+    }
+
+    @MainActor
+    func aiProcessingChoiceDisplays(
+        for feature: AIProcessingFeature
+    ) -> [AIProcessingChoiceDisplay] {
+        let rememberedCloudModel = feature == .postProcessing
+            ? resolvedPostProcessingCloudModelID
+            : resolvedContextCloudModelID
+        var cloudModelIDs: [String] = []
+        for modelID in ModelConfiguration.llmModels + [rememberedCloudModel] {
+            if !modelID.isEmpty, !cloudModelIDs.contains(modelID) {
+                cloudModelIDs.append(modelID)
+            }
+        }
+        let hasCloudKey = !apiKey.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        ).isEmpty
+        let cloudDisplays = cloudModelIDs.map { modelID in
+            AIProcessingChoiceDisplay(
+                choice: .cloud(modelID: modelID),
+                section: "Cloud",
+                title: modelID,
+                subtitle: nil,
+                isAvailable: hasCloudKey,
+                unavailableReason: hasCloudKey
+                    ? nil
+                    : "API key is not configured",
+                isRecommended: false
+            )
+        }
+
+        let availability = Self.localAIProcessingAvailabilityProvider()
+        guard availability.isSupported else { return cloudDisplays }
+        let localDisplays = LocalAIModelCatalog.all.map { model in
+            AIProcessingChoiceDisplay(
+                choice: .localAI(modelID: model.id),
+                section: "On This Mac",
+                title: model.displayName,
+                subtitle: ByteCountFormatter.string(
+                    fromByteCount: model.approximateBytes,
+                    countStyle: .file
+                ),
+                isAvailable: true,
+                unavailableReason: nil,
+                isRecommended: model.id == availability.recommendedModel.id
+            )
+        }
+        return cloudDisplays + localDisplays
+    }
+
+    @MainActor
+    func selectAIProcessingBackendChoice(
+        _ choice: AIProcessingBackendChoice,
+        for feature: AIProcessingFeature
+    ) {
+        switch choice {
+        case .cloud(let modelID):
+            pendingLocalAISelections.removeValue(forKey: feature)
+            switch feature {
+            case .postProcessing:
+                if postProcessingModel != modelID {
+                    postProcessingModel = modelID
+                }
+            case .context:
+                if contextModel != modelID {
+                    contextModel = modelID
+                }
+            }
+            applyAIProcessingChoice(choice, for: feature)
+
+        case .localAI(let modelID):
+            guard Self.localAIProcessingAvailabilityProvider().isSupported,
+                  let model = LocalAIModelCatalog.model(id: modelID) else {
+                return
+            }
+            if Self.localAIInstallStatusProvider(model) == .ready {
+                pendingLocalAISelections.removeValue(forKey: feature)
+                applyAIProcessingChoice(choice, for: feature)
+            } else {
+                pendingLocalAISelections[feature] = modelID
+                installLocalAIModel(model, autoSelectFor: feature)
+            }
+        }
+    }
+
+    @MainActor
+    func installLocalAIModel(
+        _ model: LocalAIModel,
+        autoSelectFor feature: AIProcessingFeature? = nil
+    ) {
+        guard Self.localAIProcessingAvailabilityProvider().isSupported else {
+            return
+        }
+        if let feature {
+            pendingLocalAISelections[feature] = model.id
+        }
+        guard localAIInstallTasks[model.id] == nil else { return }
+
+        let token = UUID()
+        localAIInstallTokens[model.id] = token
+        var state = localAIInstallState(for: model)
+        state.isInstalling = true
+        state.issue = nil
+        state.progress = LocalAIDownloadProgress(
+            downloadedBytes: 0,
+            totalBytes: model.approximateBytes
+        )
+        localAIInstallStates[model.id] = state
+
+        localAIInstallTasks[model.id] = Self.localAIInstallStarter(
+            model,
+            { [weak self] progress in
+                DispatchQueue.main.async {
+                    guard let self,
+                          self.localAIInstallTokens[model.id] == token else {
+                        return
+                    }
+                    var state = self.localAIInstallState(for: model)
+                    state.progress = progress
+                    self.localAIInstallStates[model.id] = state
+                }
+            },
+            { [weak self] result in
+                DispatchQueue.main.async {
+                    self?.finishLocalAIInstall(
+                        model: model,
+                        token: token,
+                        result: result
+                    )
+                }
+            }
+        )
+    }
+
+    @MainActor
+    private func finishLocalAIInstall(
+        model: LocalAIModel,
+        token: UUID,
+        result: Result<Void, LocalAIInstallerError>
+    ) {
+        guard localAIInstallTokens[model.id] == token,
+              localAIInstallTasks.removeValue(forKey: model.id) != nil else {
+            return
+        }
+        localAIInstallTokens.removeValue(forKey: model.id)
+        let waitingFeatures = pendingLocalAISelections.compactMap {
+            $0.value == model.id ? $0.key : nil
+        }
+        for feature in waitingFeatures {
+            pendingLocalAISelections.removeValue(forKey: feature)
+        }
+
+        var state = localAIInstallState(for: model)
+        state.isInstalling = false
+        state.status = Self.localAIInstallStatusProvider(model)
+
+        switch result {
+        case .success where state.status == .ready:
+            state.issue = nil
+            for feature in waitingFeatures {
+                applyAIProcessingChoice(
+                    .localAI(modelID: model.id),
+                    for: feature
+                )
+            }
+        case .success:
+            state.issue = localAIModelUnavailableIssue(for: model)
+        case .failure(.cancelled):
+            state.issue = nil
+        case .failure(let error):
+            state.issue = localAIModelUnavailableIssue(for: model)
+            print("Local AI install failed: \(error.localizedDescription)")
+        }
+        localAIInstallStates[model.id] = state
+    }
+
+    @MainActor
+    private func localAIModelUnavailableIssue(
+        for model: LocalAIModel
+    ) -> QuillUserIssueRecord {
+        QuillUserIssueRecord(
+            code: .localAIModelUnavailable,
+            severity: .error,
+            context: QuillUserIssueContext(
+                modelID: model.id,
+                localBackend: "Local AI"
+            )
+        )
+    }
+
+    @MainActor
+    func cancelPendingLocalAISelection(
+        for feature: AIProcessingFeature
+    ) {
+        pendingLocalAISelections.removeValue(forKey: feature)
+    }
+
+    @MainActor
+    func cancelLocalAIInstall(_ model: LocalAIModel) {
+        let task = localAIInstallTasks.removeValue(forKey: model.id)
+        localAIInstallTokens.removeValue(forKey: model.id)
+        task?.cancel()
+        try? Self.localAIPartialModelDelete(model)
+        pendingLocalAISelections = pendingLocalAISelections.filter {
+            $0.value != model.id
+        }
+        var state = localAIInstallState(for: model)
+        state.isInstalling = false
+        state.status = Self.localAIInstallStatusProvider(model)
+        state.progress = LocalAIDownloadProgress(
+            downloadedBytes: state.progress.downloadedBytes,
+            totalBytes: state.progress.totalBytes,
+            isCancelled: true
+        )
+        localAIInstallStates[model.id] = state
+    }
+
+    @MainActor
+    private func normalizedAIProcessingChoice(
+        _ choice: AIProcessingBackendChoice,
+        for feature: AIProcessingFeature
+    ) -> AIProcessingBackendChoice? {
+        switch choice {
+        case .cloud:
+            return choice
+        case .localAI(let modelID):
+            if Self.localAIProcessingAvailabilityProvider().isSupported,
+               let model = LocalAIModelCatalog.model(id: modelID),
+               Self.localAIInstallStatusProvider(model) == .ready {
+                return choice
+            }
+            let availability = Self.localAIProcessingAvailabilityProvider()
+            let installed = availability.isSupported
+                ? LocalAIModelCatalog.all.filter {
+                    Self.localAIInstallStatusProvider($0) == .ready
+                }
+                : []
+            let preferred = installed.first {
+                $0.id == availability.recommendedModel.id
+            } ?? installed.first
+            if let preferred {
+                return .localAI(modelID: preferred.id)
+            }
+            if !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let modelID = feature == .postProcessing
+                    ? resolvedPostProcessingCloudModelID
+                    : resolvedContextCloudModelID
+                return .cloud(modelID: modelID)
+            }
+            return nil
+        }
+    }
+
+    @MainActor
+    private func normalizeAIProcessingChoices() {
+        for feature in AIProcessingFeature.allCases {
+            let current = currentAIProcessingChoice(for: feature)
+            if let normalized = normalizedAIProcessingChoice(
+                current,
+                for: feature
+            ) {
+                if normalized != current {
+                    applyAIProcessingChoice(normalized, for: feature)
+                }
+                continue
+            }
+
+            let rememberedCloudModel = feature == .postProcessing
+                ? resolvedPostProcessingCloudModelID
+                : resolvedContextCloudModelID
+            applyAIProcessingChoice(
+                .cloud(modelID: rememberedCloudModel),
+                for: feature
+            )
+            switch feature {
+            case .postProcessing:
+                disablePostProcessing = true
+            case .context:
+                disableContextCapture = true
+            }
+        }
+    }
+
+    @MainActor
+    func deleteLocalAIModel(_ model: LocalAIModel) {
+        let manager = localAIServerManager
+        Task { [weak self] in
+            await manager.stop()
+            guard let self else { return }
+
+            var state = self.localAIInstallState(for: model)
+            state.isInstalling = false
+            do {
+                try Self.localAIModelDelete(model)
+                state.status = Self.localAIInstallStatusProvider(model)
+                state.issue = nil
+            } catch {
+                state.status = Self.localAIInstallStatusProvider(model)
+                state.issue = self.localAIModelUnavailableIssue(for: model)
+                print("Local AI model deletion failed: \(error.localizedDescription)")
+            }
+            self.localAIInstallStates[model.id] = state
+            self.normalizeAIProcessingChoices()
+        }
     }
 
     private func removeAudioDeviceObservers() {
