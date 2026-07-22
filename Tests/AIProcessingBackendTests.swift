@@ -78,7 +78,7 @@ struct AIProcessingBackendTests {
 
     private static func testLocalExecutorUsesLeaseAndLocalRequestContract() async throws {
         let process = FakeLocalAIServerProcess()
-        var observedModelIDs: [String] = []
+        let observedModelIDs = ObservedModelIDs()
         let manager = LocalAIServerManager(
             launchProcess: { model, _, port, _ in
                 observedModelIDs.append(model.id)
@@ -95,7 +95,7 @@ struct AIProcessingBackendTests {
         )
 
         let endpoint = try await executor.withEndpoint { $0 }
-        assert(observedModelIDs == [LocalAIModelCatalog.fast.id])
+        assert(observedModelIDs.values == [LocalAIModelCatalog.fast.id])
         assert(endpoint.kind == .local)
         assert(endpoint.baseURL.host == "127.0.0.1")
         assert(endpoint.authorizationToken == nil)
@@ -117,6 +117,23 @@ struct AIProcessingBackendTests {
         } catch AIProcessingBackendError.unknownLocalModel(let modelID) {
             assert(modelID == "missing-model")
         }
+    }
+}
+
+private final class ObservedModelIDs: @unchecked Sendable {
+    private let lock = NSLock()
+    private var modelIDs: [String] = []
+
+    func append(_ modelID: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        modelIDs.append(modelID)
+    }
+
+    var values: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return modelIDs
     }
 }
 
