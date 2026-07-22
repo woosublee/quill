@@ -2485,8 +2485,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func resumeDeferredLocalAIRequests() {
+        let pendingModelIDs = Set(pendingLocalAISelections.values)
+        for modelID in pendingModelIDs {
+            guard let model = LocalAIModelCatalog.model(id: modelID),
+                  !localAIDeletionRequestedModelIDs.contains(modelID) else {
+                clearPendingLocalAISelections(forModelID: modelID)
+                continue
+            }
+            guard Self.localAIProcessingAvailabilityProvider().isSupported else {
+                clearPendingLocalAISelections(forModelID: modelID)
+                var state = localAIInstallState(for: model)
+                state.issue = localAIModelUnavailableIssue(for: model)
+                localAIInstallStates[model.id] = state
+                continue
+            }
+            if localAIInstallState(for: model).status == .ready {
+                applyReadyLocalAIModelToWaitingFeatures(model)
+            }
+        }
+
         let requestedModelIDs = localAIDeferredInstallModelIDs
-            .union(pendingLocalAISelections.values)
         localAIDeferredInstallModelIDs.removeAll()
         for modelID in requestedModelIDs {
             guard let model = LocalAIModelCatalog.model(id: modelID),
@@ -2684,14 +2702,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
             guard hasCompletedLocalAIStatusRefresh else {
                 setPendingLocalAIModelID(modelID, for: feature)
-                localAIDeferredInstallModelIDs.insert(modelID)
                 return
             }
             if localAIInstallState(for: model).status == .ready {
                 setPendingLocalAIModelID(nil, for: feature)
                 applyAIProcessingChoice(choice, for: feature)
             } else {
-                installLocalAIModel(model, autoSelectFor: feature)
+                setPendingLocalAIModelID(modelID, for: feature)
             }
         }
     }

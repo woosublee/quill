@@ -303,6 +303,12 @@ struct AppStateAIProcessingBackendTests {
             precondition(appState.pendingLocalAIModelID(for: .postProcessing) == model.id)
             precondition(appState.pendingLocalAIModelID(for: .context) == model.id)
             precondition(appState.selectedOrPendingLocalAIModel(for: .postProcessing) == model)
+            precondition(!appState.localAIInstallState(for: model).isInstalling)
+        }
+        precondition(installHarness.starts(for: model) == 0)
+
+        await MainActor.run {
+            appState.installLocalAIModel(model, autoSelectFor: .postProcessing)
             precondition(appState.localAIInstallState(for: model).isInstalling)
         }
         precondition(installHarness.starts(for: model) == 1)
@@ -355,6 +361,18 @@ struct AppStateAIProcessingBackendTests {
             )
         }
 
+        precondition(installHarness.starts(for: LocalAIModelCatalog.quality) == 0)
+        precondition(installHarness.starts(for: LocalAIModelCatalog.fast) == 0)
+        await MainActor.run {
+            appState.installLocalAIModel(
+                LocalAIModelCatalog.quality,
+                autoSelectFor: .postProcessing
+            )
+            appState.installLocalAIModel(
+                LocalAIModelCatalog.fast,
+                autoSelectFor: .context
+            )
+        }
         precondition(installHarness.starts(for: LocalAIModelCatalog.quality) == 1)
         precondition(installHarness.starts(for: LocalAIModelCatalog.fast) == 1)
         await MainActor.run {
@@ -384,6 +402,7 @@ struct AppStateAIProcessingBackendTests {
                 .localAI(modelID: model.id),
                 for: .context
             )
+            appState.installLocalAIModel(model, autoSelectFor: .context)
             appState.selectAIProcessingBackendChoice(
                 .cloud(modelID: "cloud/override"),
                 for: .postProcessing
@@ -437,6 +456,7 @@ struct AppStateAIProcessingBackendTests {
                 .localAI(modelID: model.id),
                 for: .context
             )
+            appState.installLocalAIModel(model, autoSelectFor: .context)
             appState.cancelPendingLocalAISelection(for: .postProcessing)
             precondition(appState.pendingLocalAIModelID(for: .postProcessing) == nil)
             precondition(appState.pendingLocalAIModelID(for: .context) == model.id)
@@ -540,6 +560,7 @@ struct AppStateAIProcessingBackendTests {
                 .localAI(modelID: model.id),
                 for: .context
             )
+            appState.installLocalAIModel(model, autoSelectFor: .postProcessing)
             appState.cancelLocalAIInstall(model)
             precondition(appState.pendingLocalAIModelID(for: .postProcessing) == nil)
             precondition(appState.pendingLocalAIModelID(for: .context) == nil)
@@ -569,6 +590,7 @@ struct AppStateAIProcessingBackendTests {
                 .localAI(modelID: model.id),
                 for: .postProcessing
             )
+            appState.installLocalAIModel(model, autoSelectFor: .postProcessing)
             precondition(appState.pendingLocalAIModelID(for: .postProcessing) == model.id)
         }
         precondition(installHarness.starts(for: model) == 1)
@@ -739,11 +761,13 @@ struct AppStateAIProcessingBackendTests {
                 .localAI(modelID: model.id),
                 for: .postProcessing
             )
+            appState.installLocalAIModel(model, autoSelectFor: .postProcessing)
             appState.cancelLocalAIInstall(model)
             appState.selectAIProcessingBackendChoice(
                 .localAI(modelID: model.id),
                 for: .postProcessing
             )
+            appState.installLocalAIModel(model, autoSelectFor: .postProcessing)
             precondition(appState.pendingLocalAIModelID(for: .postProcessing) == model.id)
         }
 
@@ -1047,6 +1071,7 @@ struct AppStateAIProcessingBackendTests {
                 .localAI(modelID: model.id),
                 for: .postProcessing
             )
+            appState.installLocalAIModel(model, autoSelectFor: .postProcessing)
             return originalChoice
         }
 
@@ -1084,6 +1109,7 @@ struct AppStateAIProcessingBackendTests {
                 .localAI(modelID: model.id),
                 for: .context
             )
+            appState.installLocalAIModel(model, autoSelectFor: .context)
             return originalChoice
         }
 
@@ -1120,6 +1146,7 @@ struct AppStateAIProcessingBackendTests {
                 .localAI(modelID: model.id),
                 for: .context
             )
+            appState.installLocalAIModel(model, autoSelectFor: .context)
         }
         installHarness.complete(
             model: model,
@@ -1430,6 +1457,7 @@ struct AppStateAIProcessingBackendTests {
                 .localAI(modelID: model.id),
                 for: .context
             )
+            appState.installLocalAIModel(model, autoSelectFor: .postProcessing)
             appState.deleteLocalAIModel(model)
             precondition(appState.pendingLocalAIModelID(for: .postProcessing) == nil)
             precondition(appState.pendingLocalAIModelID(for: .context) == nil)
