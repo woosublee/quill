@@ -94,3 +94,26 @@ make test-transcription
 make check-test-wiring && make test-transcription
 # passed
 ```
+
+## Follow-up: AppState Context capture publication cancellation guard
+
+### RED
+
+Added a focused `AppContextBackendTests` source-contract regression for `AppState.startContextCapture()`. It requires an outer `guard !Task.isCancelled else { return nil }` after `collectContext()` and an inner `guard !Task.isCancelled else { return }` inside `MainActor.run` before `capturedContext` is mutated. `make test-transcription` failed as expected because the outer guard was missing.
+
+### GREEN
+
+Added both guards without refactoring the capture path. The outer guard prevents a cancelled task from scheduling a MainActor publication, while the inner guard closes the cancellation window between scheduling and executing the MainActor closure. The inner guard is immediately followed by synchronous state mutations, with no suspension point between them.
+
+### Commands and results
+
+```text
+make test-transcription
+# RED: failed at missing guard !Task.isCancelled else { return nil }
+
+make test-transcription
+# GREEN: passed
+
+make check-test-wiring && make test-transcription
+# passed
+```

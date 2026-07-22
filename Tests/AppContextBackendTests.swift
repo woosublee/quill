@@ -10,6 +10,7 @@ struct AppContextBackendTests {
         try await testCloudThrownTransportRetriesWithoutScreenshot()
         try await testCancellationStopsRetryAndDoesNotRecordIssue()
         try await testLocalRequestUsesEndpointRequestAndSelectedModelIDs()
+        try testAppStateContextCaptureGuardsCancelledPublication()
         try await testLocalFailureReturnsNilAndRecordsPrivateIssue()
         try await testLocalProcessExitRecordsDedicatedIssue()
         print("AppContextBackendTests passed")
@@ -213,6 +214,34 @@ struct AppContextBackendTests {
         try expect(!bodyText.contains("image_url"), "local endpoint omits image")
     }
 
+    private static func testAppStateContextCaptureGuardsCancelledPublication() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        guard let captureStart = source.range(of: "private func startContextCapture()"),
+              let captureEnd = source.range(of: "    private func fallbackContextAtStop()") else {
+            throw AppContextBackendTestFailure("AppState Context capture source")
+        }
+        let captureBody = String(source[captureStart.lowerBound..<captureEnd.lowerBound])
+        let resultRange = try requiredRange(
+            "let context = await self.contextService.collectContext()",
+            in: captureBody
+        )
+        let outerGuardRange = try requiredRange(
+            "guard !Task.isCancelled else { return nil }",
+            in: captureBody
+        )
+        let mainActorRange = try requiredRange("await MainActor.run {", in: captureBody)
+        let innerGuardRange = try requiredRange(
+            "guard !Task.isCancelled else { return }",
+            in: captureBody
+        )
+        let mutationRange = try requiredRange("self.capturedContext = context", in: captureBody)
+
+        try expect(resultRange.lowerBound < outerGuardRange.lowerBound, "outer guard follows Context result")
+        try expect(outerGuardRange.lowerBound < mainActorRange.lowerBound, "outer guard precedes MainActor publish")
+        try expect(mainActorRange.lowerBound < innerGuardRange.lowerBound, "inner guard is inside MainActor publish")
+        try expect(innerGuardRange.lowerBound < mutationRange.lowerBound, "inner guard precedes Context mutation")
+    }
+
     private static func testLocalFailureReturnsNilAndRecordsPrivateIssue() async throws {
         let issues = ContextIssueRecorder()
         let service = AppContextService(
@@ -301,6 +330,16 @@ struct AppContextBackendTests {
             throw AppContextBackendTestFailure("request body")
         }
         return text
+    }
+
+    private static func requiredRange(
+        _ value: String,
+        in source: String
+    ) throws -> Range<String.Index> {
+        guard let range = source.range(of: value) else {
+            throw AppContextBackendTestFailure("missing \(value)")
+        }
+        return range
     }
 
     private static func expect(

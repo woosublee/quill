@@ -8143,7 +8143,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         contextCaptureTask = Task { [weak self] in
             guard let self else { return nil }
             let context = await self.contextService.collectContext()
+            guard !Task.isCancelled else { return nil }
             await MainActor.run {
+                guard !Task.isCancelled else { return }
                 self.capturedContext = context
                 self.lastContextSummary = context.contextSummary
                 self.lastContextScreenshotDataURL = context.screenshotDataURL
