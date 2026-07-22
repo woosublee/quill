@@ -1731,6 +1731,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var isEscapeCancelAlertPresented = false
     private var isNativeWhisperQuitAlertPresented = false
     private var shouldTerminateAfterTranscription = false
+    private var pendingAudioOnlyStopIDs: Set<UUID> = []
     private var audioDeviceObservers: [NSObjectProtocol] = []
     private var needsMicrophoneRefreshAfterRecording = false
     private let pipelineHistoryStore = PipelineHistoryStore()
@@ -2648,6 +2649,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case recoveredWithoutTranscription(RecoveredRecordingArtifact)
         case preservedForRecovery(recordingID: UUID, message: String)
         case empty
+    }
+
+    private enum StoppedRecordingCompletion {
+        case transcriptionJob(UUID)
+        case audioOnly(UUID)
     }
 
     static func audioStorageDirectory() -> URL {
@@ -5248,6 +5254,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func requestTerminationWhileRecording() -> NSApplication.TerminateReply {
+        if !pendingAudioOnlyStopIDs.isEmpty, !shouldConfirmTermination {
+            shouldTerminateAfterTranscription = true
+            return .terminateLater
+        }
         guard shouldConfirmTermination else { return .terminateNow }
         guard !isEscapeCancelAlertPresented else { return .terminateCancel }
 
@@ -5311,7 +5321,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func terminateIfReady() {
-        guard shouldTerminateAfterTranscription, !isRecording, !isTranscribing else { return }
+        guard shouldTerminateAfterTranscription,
+              !isRecording,
+              !isTranscribing,
+              pendingAudioOnlyStopIDs.isEmpty else { return }
         shouldTerminateAfterTranscription = false
         NSApp.reply(toApplicationShouldTerminate: true)
     }
@@ -5962,6 +5975,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func beginRecording(triggerMode: RecordingTriggerMode, onStarted: (@MainActor () -> Void)? = nil) {
         os_log(.info, log: recordingLog, "beginRecording() entered")
         clearPendingOverlayDismissToken()
+        overlayTranscriptionID = UUID()
         errorMessage = nil
         let audioInputID = selectedMicrophoneID
         activeRecordingID = AudioInputDevice.isSingleSource(audioInputID)
@@ -6829,6 +6843,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    private func completeStoppedRecording(
+        _ completion: StoppedRecordingCompletion,
+        overlayID: UUID,
+        updateOwnedUI: () -> Void
+    ) {
+        cleanupActiveAudioRecordersIfIdle()
+        if overlayTranscriptionID == overlayID {
+            updateOwnedUI()
+        }
+
+        switch completion {
+        case .transcriptionJob(let jobID):
+            finishTranscriptionJob(jobID, overlayID: overlayID)
+        case .audioOnly(let recordingID):
+            pendingAudioOnlyStopIDs.remove(recordingID)
+            terminateIfReady()
+        }
+    }
+
+    @MainActor
     private func stopAndTranscribe() {
         guard activeRecordingStorageFailureID == nil else { return }
         cancelPendingShortcutStart()
@@ -6855,6 +6889,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         activeRecordingCalendarSnapshot = nil
 
         if !shouldTranscribe {
+            let audioOnlyOverlayID = overlayTranscriptionID
             capturedContext = nil
             contextCaptureTask?.cancel()
             contextCaptureTask = nil
@@ -6865,7 +6900,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 recordingID: jobID,
                 recordingStartedAt: recordingStartedAt,
                 recordingEndedAt: recordingEndedAt,
-                calendarSnapshot: recordingCalendarSnapshot
+                calendarSnapshot: recordingCalendarSnapshot,
+                overlayID: audioOnlyOverlayID
             )
             return
         }
@@ -7057,7 +7093,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             case .recoveredWithoutTranscription(let recovered):
                 self.persistRecoveredRecordingWithoutTranscription(
                     recovered,
-                    jobID: jobID,
+                    completion: .transcriptionJob(jobID),
                     overlayID: myOverlayID
                 )
                 return
@@ -7299,8 +7335,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         recordingID: UUID,
         recordingStartedAt: Date?,
         recordingEndedAt: Date,
-        calendarSnapshot: RecordingCalendarSnapshot?
+        calendarSnapshot: RecordingCalendarSnapshot?,
+        overlayID: UUID
     ) {
+        pendingAudioOnlyStopIDs.insert(recordingID)
         isRecording = false
         restoreAudioInterruptionIfNeeded()
         refreshTranscribingState()
@@ -7312,10 +7350,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
             switch stoppedRecording {
             case .transcribable(let fileURL, _):
                 guard let savedAudioFile = Self.savedAudioFileForStoppedRecording(fileURL) else {
-                    self.errorMessage = localizedCatalogString("No audio recorded")
-                    self.statusText = localizedCatalogString("Error")
-                    self.dismissTranscribingOverlay()
-                    self.cleanupActiveAudioRecordersIfIdle()
+                    self.completeStoppedRecording(
+                        .audioOnly(recordingID),
+                        overlayID: overlayID
+                    ) {
+                        self.errorMessage = localizedCatalogString("No audio recorded")
+                        self.statusText = localizedCatalogString("Error")
+                        self.dismissTranscribingOverlay()
+                    }
                     return
                 }
 
@@ -7327,13 +7369,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         calendarSnapshot: calendarSnapshot
                     )
                     await MainActor.run {
-                        // persistAudioOnlyRecording creates PipelineHistoryItem.audioOnly(...).
                         self.persistAudioOnlyRecording(
                             recordingID: recordingID,
                             recordingStartedAt: recordingStartedAt,
                             recordingEndedAt: recordingEndedAt,
                             calendarMatch: calendarMatch,
-                            audioFileName: savedAudioFile.fileName
+                            audioFileName: savedAudioFile.fileName,
+                            overlayID: overlayID
                         )
                     }
                 }
@@ -7341,22 +7383,30 @@ final class AppState: ObservableObject, @unchecked Sendable {
             case .recoveredWithoutTranscription(let recovered):
                 self.persistRecoveredRecordingWithoutTranscription(
                     recovered,
-                    jobID: recordingID,
-                    overlayID: self.overlayTranscriptionID
+                    completion: .audioOnly(recordingID),
+                    overlayID: overlayID
                 )
 
             case .preservedForRecovery(_, let message):
-                self.errorMessage = localizedCatalogString("Audio was preserved for recovery.") + " " + message
-                self.statusText = localizedCatalogString("Error")
-                self.dismissTranscribingOverlay()
-                self.cleanupActiveAudioRecordersIfIdle()
+                self.completeStoppedRecording(
+                    .audioOnly(recordingID),
+                    overlayID: overlayID
+                ) {
+                    self.errorMessage = localizedCatalogString("Audio was preserved for recovery.") + " " + message
+                    self.statusText = localizedCatalogString("Error")
+                    self.dismissTranscribingOverlay()
+                }
 
             case .empty:
-                self.errorMessage = localizedCatalogString("No audio recorded")
-                self.statusText = localizedCatalogString("Error")
                 self.mcpLastRecordingFailed = true
-                self.dismissTranscribingOverlay()
-                self.cleanupActiveAudioRecordersIfIdle()
+                self.completeStoppedRecording(
+                    .audioOnly(recordingID),
+                    overlayID: overlayID
+                ) {
+                    self.errorMessage = localizedCatalogString("No audio recorded")
+                    self.statusText = localizedCatalogString("Error")
+                    self.dismissTranscribingOverlay()
+                }
             }
         }
     }
@@ -7932,7 +7982,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         recordingStartedAt: Date?,
         recordingEndedAt: Date,
         calendarMatch: CalendarEventMatch?,
-        audioFileName: String
+        audioFileName: String,
+        overlayID: UUID
     ) {
         let item = PipelineHistoryItem.audioOnly(
             id: recordingID,
@@ -7958,21 +8009,30 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     recordingID: journalRecordingID
                 )
             }
-            statusText = localizedCatalogString("Recording saved")
-            debugStatusMessage = "Recording saved"
-            errorMessage = nil
             mcpLastRecordingFailed = false
-            dismissTranscribingOverlay()
-            cleanupActiveAudioRecordersIfIdle()
-            scheduleReadyStatusReset(
-                after: 3,
-                matching: [localizedCatalogString("Recording saved")]
-            )
+            completeStoppedRecording(
+                .audioOnly(recordingID),
+                overlayID: overlayID
+            ) {
+                self.statusText = localizedCatalogString("Recording saved")
+                self.debugStatusMessage = "Recording saved"
+                self.errorMessage = nil
+                self.dismissTranscribingOverlay()
+                self.scheduleReadyStatusReset(
+                    after: 3,
+                    matching: [localizedCatalogString("Recording saved")]
+                )
+            }
         } catch {
-            errorMessage = userIssue(for: error).record.presentation().compactMessage
-            statusText = localizedCatalogString("Error")
-            dismissTranscribingOverlay()
-            cleanupActiveAudioRecordersIfIdle()
+            let message = userIssue(for: error).record.presentation().compactMessage
+            completeStoppedRecording(
+                .audioOnly(recordingID),
+                overlayID: overlayID
+            ) {
+                self.errorMessage = message
+                self.statusText = localizedCatalogString("Error")
+                self.dismissTranscribingOverlay()
+            }
         }
     }
 
@@ -7991,9 +8051,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     private func persistRecoveredRecordingWithoutTranscription(
         _ recovered: RecoveredRecordingArtifact,
-        jobID: UUID,
+        completion: StoppedRecordingCompletion,
         overlayID: UUID
     ) {
+        let presentation: (errorMessage: String, statusText: String)
         do {
             let removedAssets = try RecordingRecoveryHistory(
                 journalStore: recordingJournalStore,
@@ -8016,23 +8077,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 in: pipelineHistoryStore.loadAllHistory(),
                 store: pipelineHistoryStore
             )
-            errorMessage = localizedCatalogString(
-                recovered.mode.descriptionLocalizationKey
-            )
-            statusText = localizedCatalogString(
-                recovered.mode.titleLocalizationKey
+            presentation = (
+                localizedCatalogString(recovered.mode.descriptionLocalizationKey),
+                localizedCatalogString(recovered.mode.titleLocalizationKey)
             )
         } catch {
-            errorMessage = LocalizedUserMessage.providerFailure(
-                prefix: localizedCatalogString("Unable to save recovery entry"),
-                providerDetail: error.localizedDescription
+            presentation = (
+                LocalizedUserMessage.providerFailure(
+                    prefix: localizedCatalogString("Unable to save recovery entry"),
+                    providerDetail: error.localizedDescription
+                ),
+                localizedCatalogString("Error")
             )
-            statusText = localizedCatalogString("Error")
         }
         tearDownRealtimeService()
-        cleanupActiveAudioRecordersIfIdle()
-        dismissTranscribingOverlay()
-        finishTranscriptionJob(jobID, overlayID: overlayID)
+        completeStoppedRecording(
+            completion,
+            overlayID: overlayID
+        ) {
+            self.errorMessage = presentation.errorMessage
+            self.statusText = presentation.statusText
+            self.dismissTranscribingOverlay()
+        }
     }
 
     @MainActor
