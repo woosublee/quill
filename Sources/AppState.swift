@@ -940,6 +940,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var nativeWhisperInstallIssue: QuillUserIssueRecord?
     @Published private(set) var pendingNativeWhisperAutoSelectionModelID: String?
     private var nativeWhisperInstallTask: NativeWhisperInstallTask?
+    private var nativeWhisperInstallQuiescenceWaiters: [CheckedContinuation<Void, Never>] = []
     private var nativeWhisperInstallCancellationMessage: String?
 
     var willAutoSelectNativeWhisperWhenReady: Bool {
@@ -1157,6 +1158,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func installNativeWhisperModel(autoSelectWhenReady: Bool = true) {
+        guard !isModelTerminationCleanupPending else { return }
         let model = NativeWhisperModelCatalog.recommended
         if autoSelectWhenReady {
             pendingNativeWhisperAutoSelectionModelID = model.id
@@ -1188,6 +1190,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         result: Result<Void, NativeWhisperInstallerError>
     ) {
         nativeWhisperInstallTask = nil
+        defer { resumeNativeWhisperInstallQuiescenceWaitersIfNeeded() }
         isInstallingNativeWhisper = false
         refreshNativeWhisperInstallStatus()
 
@@ -1214,6 +1217,24 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    func waitForNativeWhisperInstallToQuiesce() async {
+        guard nativeWhisperInstallTask != nil else { return }
+        await withCheckedContinuation { continuation in
+            nativeWhisperInstallQuiescenceWaiters.append(continuation)
+        }
+    }
+
+    @MainActor
+    private func resumeNativeWhisperInstallQuiescenceWaitersIfNeeded() {
+        guard nativeWhisperInstallTask == nil else { return }
+        let waiters = nativeWhisperInstallQuiescenceWaiters
+        nativeWhisperInstallQuiescenceWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    @MainActor
     func cancelNativeWhisperAutoSelection() {
         pendingNativeWhisperAutoSelectionModelID = nil
     }
@@ -1223,14 +1244,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         pendingNativeWhisperAutoSelectionModelID = nil
         nativeWhisperInstallCancellationMessage = nil
         nativeWhisperInstallTask?.cancel()
-        let model = NativeWhisperModelCatalog.recommended
-        try? NativeWhisperModelStore().deletePartialModel(model)
         nativeWhisperInstallProgress = NativeWhisperDownloadProgress(
             downloadedBytes: nativeWhisperInstallProgress.downloadedBytes,
             totalBytes: nativeWhisperInstallProgress.totalBytes,
             isCancelled: true
         )
-        refreshNativeWhisperInstallStatus()
     }
 
     @MainActor
@@ -2683,6 +2701,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         _ model: LocalAIModel,
         autoSelectFor feature: AIProcessingFeature? = nil
     ) {
+        guard !isModelTerminationCleanupPending else { return }
         guard let canonicalModel = canonicalLocalAIModel(model),
               Self.localAIProcessingAvailabilityProvider().isSupported,
               !localAIDeletionRequestedModelIDs.contains(model.id) else {
@@ -2708,6 +2727,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func startLocalAIInstallIfPossible(_ model: LocalAIModel) {
+        guard !isModelTerminationCleanupPending else { return }
         guard localAIInstallTasks[model.id] == nil,
               !localAICancellingModelIDs.contains(model.id),
               !localAIDeletionRequestedModelIDs.contains(model.id),
@@ -6204,7 +6224,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private var hasActiveModelDownload: Bool {
-        isInstallingNativeWhisper || !localAIInstallTasks.isEmpty
+        nativeWhisperInstallTask != nil || !localAIInstallTasks.isEmpty
     }
 
     @MainActor
@@ -6250,6 +6270,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let manager = localAIServerManager
         Task { [weak self] in
             guard let self else { return }
+            await self.waitForNativeWhisperInstallToQuiesce()
             await self.waitForLocalAIInstallsToQuiesce()
             await manager.stop()
             await MainActor.run {

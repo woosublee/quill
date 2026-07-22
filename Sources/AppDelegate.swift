@@ -89,6 +89,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.updateActivationPolicy()
         }
 
+        appState.startLocalAIIdleShutdownMonitoring()
+
         if !appState.hasCompletedSetup {
             showSetupWindow()
         } else {
@@ -110,7 +112,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             startMCPServer()
             appState.startCalendarRecordingReminderScheduling()
             appState.startGoogleCalendarHealthCheck()
-            appState.startLocalAIIdleShutdownMonitoring()
         }
 
     }

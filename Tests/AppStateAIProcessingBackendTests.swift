@@ -49,6 +49,9 @@ struct AppStateAIProcessingBackendTests {
         try await testIdleShutdownMonitoringIsIdempotentAndStops()
         await testLocalAIInstallQuiescenceWaitsForEveryWorker()
         try await testTerminationWaitsForLocalAIQuiescenceAndSuppressesDuplicates()
+        try await testNativeWhisperTerminationWaitsForWorkerQuiescence()
+        try await testCombinedNativeAndLocalTerminationWaitsForBothWorkers()
+        await testTerminationCleanupBlocksNewModelInstalls()
         await testPendingRecordingTerminationCancelRepliesFalseOnce()
         await testPartialCleanupFailureSetsModelIssue()
         await testInstallerSuccessRequiresReadyStatus()
@@ -764,6 +767,190 @@ struct AppStateAIProcessingBackendTests {
         precondition(installHarness.starts(for: model) == 1)
         await yieldMainActor()
         precondition(replyHarness.values == [true])
+    }
+
+    private static func testNativeWhisperTerminationWaitsForWorkerQuiescence() async throws {
+        resetAIProcessingDefaults()
+        let nativeStatusHarness = NativeWhisperStatusHarness(status: .notInstalled)
+        let nativeInstallHarness = ControlledNativeWhisperInstallHarness()
+        let replyHarness = TerminationReplyHarness()
+        let process = TestLocalAIServerProcess()
+        let manager = LocalAIServerManager(
+            launchProcess: { _, _, port, _ in (process, port) },
+            pollHealth: { _ in true },
+            validateModel: { _ in .ready },
+            terminationGracePeriod: 0,
+            waitForProcessExit: { _, _ in true }
+        )
+        let seams = LocalAISeamSnapshot()
+        AppState.nativeWhisperInstallStatusProvider = {
+            nativeStatusHarness.installStatus(for: $0)
+        }
+        AppState.nativeWhisperInstallStarter = { model, progress, completion in
+            nativeInstallHarness.start(
+                model: model,
+                progress: progress,
+                completion: completion
+            )
+        }
+        AppState.localAIServerManagerFactory = { manager }
+        AppState.modelDownloadQuitAlertPresenter = { .alertFirstButtonReturn }
+        AppState.applicationTerminationReply = replyHarness.reply
+        defer { seams.restore() }
+
+        let appState = await makeRefreshedAppState()
+        _ = try await manager.withBaseURL(for: LocalAIModelCatalog.fast) { $0 }
+        await MainActor.run {
+            appState.installNativeWhisperModel(autoSelectWhenReady: true)
+        }
+        let statusCallsBeforeCancellation = nativeStatusHarness.callCount
+
+        let terminationReply = await MainActor.run {
+            appState.requestTerminationAfterModelCleanup()
+        }
+        precondition(terminationReply == .terminateLater)
+        precondition(nativeInstallHarness.task?.isCancelled == true)
+        precondition(process.isRunning)
+        precondition(replyHarness.values.isEmpty)
+        precondition(nativeStatusHarness.callCount == statusCallsBeforeCancellation)
+
+        nativeInstallHarness.complete(with: .failure(.cancelled))
+        await waitUntil { !appState.isInstallingNativeWhisper }
+        await waitUntil { !process.isRunning }
+        await waitUntil { replyHarness.values == [true] }
+        precondition(nativeStatusHarness.callCount == statusCallsBeforeCancellation + 1)
+        await yieldMainActor()
+        precondition(replyHarness.values == [true])
+    }
+
+    private static func testCombinedNativeAndLocalTerminationWaitsForBothWorkers() async throws {
+        resetAIProcessingDefaults()
+        let localStatusHarness = LocalAIStatusHarness(defaultStatus: .notInstalled)
+        let localInstallHarness = LocalAIInstallHarness()
+        let nativeStatusHarness = NativeWhisperStatusHarness(status: .notInstalled)
+        let nativeInstallHarness = ControlledNativeWhisperInstallHarness()
+        let partialDeletionHarness = LocalAIDeletionHarness()
+        let replyHarness = TerminationReplyHarness()
+        let process = TestLocalAIServerProcess()
+        let manager = LocalAIServerManager(
+            launchProcess: { _, _, port, _ in (process, port) },
+            pollHealth: { _ in true },
+            validateModel: { _ in .ready },
+            terminationGracePeriod: 0,
+            waitForProcessExit: { _, _ in true }
+        )
+        let seams = LocalAISeamSnapshot()
+        AppState.localAIInstallStatusProvider = { localStatusHarness.status(for: $0) }
+        AppState.localAIInstallStarter = localInstallHarness.start
+        AppState.localAIPartialModelDelete = { model in
+            partialDeletionHarness.record(
+                modelID: model.id,
+                managerWasStopped: !process.isRunning
+            )
+        }
+        AppState.localAIProcessingAvailabilityProvider = supportedLocalAIAvailability
+        AppState.nativeWhisperInstallStatusProvider = {
+            nativeStatusHarness.installStatus(for: $0)
+        }
+        AppState.nativeWhisperInstallStarter = { model, progress, completion in
+            nativeInstallHarness.start(
+                model: model,
+                progress: progress,
+                completion: completion
+            )
+        }
+        AppState.localAIServerManagerFactory = { manager }
+        AppState.modelDownloadQuitAlertPresenter = { .alertFirstButtonReturn }
+        AppState.applicationTerminationReply = replyHarness.reply
+        defer { seams.restore() }
+
+        let localModel = LocalAIModelCatalog.fast
+        let appState = await makeRefreshedAppState()
+        _ = try await manager.withBaseURL(for: LocalAIModelCatalog.quality) { $0 }
+        await MainActor.run {
+            appState.installNativeWhisperModel(autoSelectWhenReady: false)
+            appState.installLocalAIModel(localModel)
+            precondition(appState.isInstallingNativeWhisper)
+            precondition(appState.localAIInstallState(for: localModel).isInstalling)
+        }
+
+        let terminationReply = await MainActor.run {
+            appState.requestTerminationAfterModelCleanup()
+        }
+        precondition(terminationReply == .terminateLater)
+        precondition(nativeInstallHarness.task?.isCancelled == true)
+        precondition(
+            localInstallHarness.task(for: localModel, startIndex: 0)?.isCancelled
+                == true
+        )
+
+        localInstallHarness.complete(model: localModel, with: .failure(.cancelled))
+        await waitUntil {
+            !appState.localAIInstallState(for: localModel).isInstalling
+        }
+        precondition(partialDeletionHarness.deletedModelIDs == [localModel.id])
+        precondition(partialDeletionHarness.managerWasStoppedValues == [false])
+        precondition(process.isRunning)
+        precondition(replyHarness.values.isEmpty)
+
+        nativeInstallHarness.complete(with: .failure(.cancelled))
+        await waitUntil { !appState.isInstallingNativeWhisper }
+        await waitUntil { !process.isRunning }
+        await waitUntil { replyHarness.values == [true] }
+        await yieldMainActor()
+        precondition(replyHarness.values == [true])
+    }
+
+    private static func testTerminationCleanupBlocksNewModelInstalls() async {
+        resetAIProcessingDefaults()
+        let localStatusHarness = LocalAIStatusHarness(defaultStatus: .notInstalled)
+        let localInstallHarness = LocalAIInstallHarness()
+        let nativeStatusHarness = NativeWhisperStatusHarness(status: .notInstalled)
+        let nativeInstallHarness = ControlledNativeWhisperInstallHarness()
+        let replyHarness = TerminationReplyHarness()
+        let seams = LocalAISeamSnapshot()
+        AppState.localAIInstallStatusProvider = { localStatusHarness.status(for: $0) }
+        AppState.localAIInstallStarter = localInstallHarness.start
+        AppState.localAIPartialModelDelete = { _ in }
+        AppState.localAIProcessingAvailabilityProvider = supportedLocalAIAvailability
+        AppState.nativeWhisperInstallStatusProvider = {
+            nativeStatusHarness.installStatus(for: $0)
+        }
+        AppState.nativeWhisperInstallStarter = { model, progress, completion in
+            nativeInstallHarness.start(
+                model: model,
+                progress: progress,
+                completion: completion
+            )
+        }
+        AppState.modelDownloadQuitAlertPresenter = { .alertFirstButtonReturn }
+        AppState.applicationTerminationReply = replyHarness.reply
+        defer { seams.restore() }
+
+        let activeModel = LocalAIModelCatalog.fast
+        let blockedModel = LocalAIModelCatalog.quality
+        let appState = await makeRefreshedAppState()
+        await MainActor.run {
+            appState.installLocalAIModel(activeModel)
+            precondition(
+                appState.requestTerminationAfterModelCleanup() == .terminateLater
+            )
+            appState.installNativeWhisperModel(autoSelectWhenReady: true)
+            appState.installLocalAIModel(
+                blockedModel,
+                autoSelectFor: .postProcessing
+            )
+        }
+
+        precondition(nativeInstallHarness.startCount == 0)
+        precondition(localInstallHarness.starts(for: blockedModel) == 0)
+        await MainActor.run {
+            precondition(appState.pendingLocalAIModelID(for: .postProcessing) == nil)
+            precondition(!appState.willAutoSelectNativeWhisperWhenReady)
+        }
+
+        localInstallHarness.complete(model: activeModel, with: .failure(.cancelled))
+        await waitUntil { replyHarness.values == [true] }
     }
 
     private static func testPendingRecordingTerminationCancelRepliesFalseOnce() async {
@@ -1525,7 +1712,25 @@ struct AppStateAIProcessingBackendTests {
             contentsOfFile: "Sources/AppDelegate.swift",
             encoding: .utf8
         )
-        assert(source.contains("appState.startLocalAIIdleShutdownMonitoring()"))
+        let launch = sourceBlock(
+            in: source,
+            from: "func applicationDidFinishLaunching",
+            to: "func applicationShouldTerminate"
+        )
+        let monitor = requiredRange(
+            of: "appState.startLocalAIIdleShutdownMonitoring()",
+            in: launch
+        )
+        let setupConditional = requiredRange(
+            of: "if !appState.hasCompletedSetup",
+            in: launch
+        )
+        assert(
+            launch.components(
+                separatedBy: "appState.startLocalAIIdleShutdownMonitoring()"
+            ).count - 1 == 1
+        )
+        assert(monitor.lowerBound < setupConditional.lowerBound)
     }
 
     private static func testTerminationRoutesThroughUnifiedModelCleanup() throws {
@@ -1541,13 +1746,27 @@ struct AppStateAIProcessingBackendTests {
         assert(state.contains("localAIDeferredInstallModelIDs.removeAll()"))
         assert(state.contains("localAIRestartAfterCancellationModelIDs.removeAll()"))
         assert(state.contains("pendingLocalAISelections.removeAll()"))
+        assert(state.contains("nativeWhisperInstallTask != nil"))
         assert(state.contains("!localAIInstallTasks.isEmpty"))
+        assert(state.contains("waitForNativeWhisperInstallToQuiesce()"))
         assert(state.contains("waitForLocalAIInstallsToQuiesce()"))
+        assert(
+            state.components(
+                separatedBy: "guard !isModelTerminationCleanupPending else { return }"
+            ).count - 1 >= 2
+        )
         assert(
             state.contains(
                 "requestTerminationAfterModelCleanup(replyIsAlreadyPending: true)"
             )
         )
+        let nativeCancellation = sourceBlock(
+            in: state,
+            from: "func cancelNativeWhisperInstall()",
+            to: "func deleteNativeWhisperModel()"
+        )
+        assert(!nativeCancellation.contains("deletePartialModel"))
+        assert(!nativeCancellation.contains("refreshNativeWhisperInstallStatus()"))
     }
 
     private static func appStateSource() throws -> String {
@@ -1618,6 +1837,8 @@ struct AppStateAIProcessingBackendTests {
 }
 
 private struct LocalAISeamSnapshot {
+    let nativeWhisperInstallStatusProvider = AppState.nativeWhisperInstallStatusProvider
+    let nativeWhisperInstallStarter = AppState.nativeWhisperInstallStarter
     let installStatusProvider = AppState.localAIInstallStatusProvider
     let installStarter = AppState.localAIInstallStarter
     let modelDelete = AppState.localAIModelDelete
@@ -1629,6 +1850,8 @@ private struct LocalAISeamSnapshot {
     let applicationTerminationReply = AppState.applicationTerminationReply
 
     func restore() {
+        AppState.nativeWhisperInstallStatusProvider = nativeWhisperInstallStatusProvider
+        AppState.nativeWhisperInstallStarter = nativeWhisperInstallStarter
         AppState.localAIInstallStatusProvider = installStatusProvider
         AppState.localAIInstallStarter = installStarter
         AppState.localAIModelDelete = modelDelete
@@ -1638,6 +1861,70 @@ private struct LocalAISeamSnapshot {
         AppState.localAIIdleShutdownSleep = idleShutdownSleep
         AppState.modelDownloadQuitAlertPresenter = modelDownloadQuitAlertPresenter
         AppState.applicationTerminationReply = applicationTerminationReply
+    }
+}
+
+private final class NativeWhisperStatusHarness: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedStatus: NativeWhisperInstallStatus
+    private var calls = 0
+
+    init(status: NativeWhisperInstallStatus) {
+        storedStatus = status
+    }
+
+    var callCount: Int {
+        lock.withLock { calls }
+    }
+
+    func installStatus(for model: NativeWhisperModel) -> NativeWhisperInstallStatus {
+        lock.withLock {
+            calls += 1
+            return storedStatus
+        }
+    }
+
+    func set(_ status: NativeWhisperInstallStatus) {
+        lock.withLock { storedStatus = status }
+    }
+}
+
+private final class ControlledNativeWhisperInstallHarness: @unchecked Sendable {
+    typealias Completion = (Result<Void, NativeWhisperInstallerError>) -> Void
+
+    private let lock = NSLock()
+    private var tasks: [NativeWhisperInstallTask] = []
+    private var completions: [Completion] = []
+
+    var startCount: Int {
+        lock.withLock { tasks.count }
+    }
+
+    var task: NativeWhisperInstallTask? {
+        lock.withLock { tasks.last }
+    }
+
+    func start(
+        model: NativeWhisperModel,
+        progress: @escaping (NativeWhisperDownloadProgress) -> Void,
+        completion: @escaping Completion
+    ) -> NativeWhisperInstallTask {
+        let task = NativeWhisperInstallTask()
+        lock.withLock {
+            tasks.append(task)
+            completions.append(completion)
+        }
+        return task
+    }
+
+    func complete(
+        startIndex: Int = 0,
+        with result: Result<Void, NativeWhisperInstallerError>
+    ) {
+        let completion = lock.withLock {
+            completions[safe: startIndex]
+        }
+        completion?(result)
     }
 }
 
