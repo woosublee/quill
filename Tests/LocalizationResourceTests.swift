@@ -91,6 +91,7 @@ struct LocalizationResourceTests {
         assert(cloudProgressEnglish == "Transcribing %d of %d…")
         assert(cloudProgressKorean == "%d/%d 청크 전사 중…")
         assert(cloudResumeKorean == "클라우드 전사 재개 중…")
+        try assertAIProcessingBackendErrorTranslations(root: root)
         let partialTitleEntry = strings["Some audio recovered"]
             as? [String: Any]
         let partialTitleLocalizations = partialTitleEntry?["localizations"]
@@ -819,6 +820,20 @@ struct LocalizationResourceTests {
         for language in ["en", "ko"] {
             let value = (((localizations?[language] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String)
             assert(!(value ?? "").isEmpty, "Missing Task 5 \(language) translation for \(key)")
+        }
+    }
+
+    private static func assertAIProcessingBackendErrorTranslations(root: URL) throws {
+        let translations = [
+            "The cloud AI base URL is invalid.": "클라우드 AI 기본 URL이 올바르지 않습니다.",
+            "The selected local AI model is unknown.": "선택한 로컬 AI 모델을 찾을 수 없습니다.",
+            "The local AI runtime is unavailable.": "로컬 AI 런타임을 사용할 수 없습니다."
+        ]
+        for (english, korean) in translations {
+            let englishValue = try localizedValue(key: english, language: "en", root: root)
+            let koreanValue = try localizedValue(key: english, language: "ko", root: root)
+            assert(englishValue == english)
+            assert(koreanValue == korean)
         }
     }
 

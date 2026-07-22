@@ -53,9 +53,12 @@ enum AIProcessingBackendError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .invalidCloudBaseURL: return "The cloud AI base URL is invalid."
-        case .unknownLocalModel: return "The selected local AI model is unknown."
-        case .localRuntimeUnavailable: return "The local AI runtime is unavailable."
+        case .invalidCloudBaseURL:
+            return localizedCatalogString("The cloud AI base URL is invalid.")
+        case .unknownLocalModel:
+            return localizedCatalogString("The selected local AI model is unknown.")
+        case .localRuntimeUnavailable:
+            return localizedCatalogString("The local AI runtime is unavailable.")
         }
     }
 }
