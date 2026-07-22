@@ -68,6 +68,7 @@ protocol LocalAIServerProcess: AnyObject {
 
 final class RealLocalAIServerProcess: LocalAIServerProcess {
     private let process: Process
+    private let terminationRelay: TerminationRelay
     let launchArguments: [String]
 
     init(
@@ -99,7 +100,12 @@ final class RealLocalAIServerProcess: LocalAIServerProcess {
             "PATH": "/usr/bin:/bin",
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path
         ]
+        let terminationRelay = TerminationRelay()
+        process.terminationHandler = { _ in
+            terminationRelay.signal()
+        }
         self.process = process
+        self.terminationRelay = terminationRelay
         try process.run()
     }
 
@@ -111,10 +117,43 @@ final class RealLocalAIServerProcess: LocalAIServerProcess {
     }
 
     func setTerminationHandler(_ handler: @escaping () -> Void) {
-        process.terminationHandler = { _ in handler() }
+        terminationRelay.register(handler)
     }
 
     static func defaultRunnerURL(bundle: Bundle = .main) -> URL? {
         bundle.url(forResource: "llama-server", withExtension: nil, subdirectory: "llama")
+    }
+}
+
+private final class TerminationRelay {
+    private let lock = NSLock()
+    private var hasTerminated = false
+    private var handler: (() -> Void)?
+
+    func signal() {
+        let callback: (() -> Void)?
+        lock.lock()
+        if hasTerminated {
+            callback = nil
+        } else {
+            hasTerminated = true
+            callback = handler
+            handler = nil
+        }
+        lock.unlock()
+        callback?()
+    }
+
+    func register(_ handler: @escaping () -> Void) {
+        let callback: (() -> Void)?
+        lock.lock()
+        if hasTerminated {
+            callback = handler
+        } else {
+            self.handler = handler
+            callback = nil
+        }
+        lock.unlock()
+        callback?()
     }
 }
