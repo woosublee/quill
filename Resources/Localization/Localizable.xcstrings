@@ -1265,6 +1265,102 @@
         }
       }
     },
+    "Applies to recordings when Transcription is enabled.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applies to recordings when Transcription is enabled."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사가 활성화된 녹음에 적용됩니다."
+          }
+        }
+      }
+    },
+    "Record audio without creating a transcript.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record audio without creating a transcript."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사본을 만들지 않고 오디오를 녹음합니다."
+          }
+        }
+      }
+    },
+    "Recording saved": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording saved"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 저장됨"
+          }
+        }
+      }
+    },
+    "Saved without transcription. You can transcribe it later.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved without transcription. You can transcribe it later."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 없이 저장되었습니다. 나중에 전사할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Start Recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 시작"
+          }
+        }
+      }
+    },
+    "Transcribe audio": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcribe audio"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오 전사"
+          }
+        }
+      }
+    },
     "No content": {
       "localizations": {
         "en": {

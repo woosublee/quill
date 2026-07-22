@@ -296,7 +296,12 @@ final class MCPServer {
                 return textContent("Not currently recording.")
             }
             appState.stopRecordingFromMCP()
-            return textContent("Recording stopped. Transcription in progress — listen for recording/completed event.")
+            if appState.transcriptionEnabled {
+                return textContent(
+                    "Recording stopped. Transcription in progress — listen for recording/completed event."
+                )
+            }
+            return textContent("Recording stopped. Audio note is being saved.")
 
         case "get_status":
             let status: String

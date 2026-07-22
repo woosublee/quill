@@ -218,7 +218,12 @@ struct LocalizationResourceTests {
             "The transcript text could not be saved.",
             "The recording file could not be saved.",
             "Export to Obsidian",
-            "More Actions"
+            "More Actions",
+            "Audio only",
+            "Audio recording",
+            "Not transcribed",
+            "Saved without transcription. You can transcribe it later.",
+            "Transcribe audio"
         ]
         for key in noteBrowserKeys {
             let localizations = (strings[key] as? [String: Any])?["localizations"]

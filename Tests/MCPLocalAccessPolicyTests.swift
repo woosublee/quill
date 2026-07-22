@@ -10,6 +10,7 @@ struct MCPLocalAccessPolicyTests {
         testAcceptsOnlyNumericLoopbackPeers()
         testListenerIsRestrictedToLoopback()
         try testMCPServerUsesPolicyAndDoesNotEmitCORSHeaders()
+        try testMCPStopRecordingCopySupportsRecordOnly()
         print("MCPLocalAccessPolicyTests passed")
     }
 
@@ -88,6 +89,12 @@ struct MCPLocalAccessPolicyTests {
         assertContains(source, "MCPLocalAccessPolicy.allowsRequest(headers: request.headers, port: Self.port)")
         assertDoesNotContain(source, "Access-Control-Allow-Origin")
         assertDoesNotContain(source, "corsHeaders()")
+    }
+
+    private static func testMCPStopRecordingCopySupportsRecordOnly() throws {
+        let source = try String(contentsOfFile: "Sources/MCPServer.swift", encoding: .utf8)
+        assertContains(source, "appState.transcriptionEnabled")
+        assertContains(source, "Recording stopped. Audio note is being saved.")
     }
 
     private static func assertTrue(_ condition: @autoclosure () -> Bool, _ message: String) {
