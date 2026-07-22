@@ -63,6 +63,7 @@ func reserveEphemeralLoopbackPort() throws -> UInt16 {
 protocol LocalAIServerProcess: AnyObject {
     var isRunning: Bool { get }
     func terminate()
+    func forceTerminate()
     func setTerminationHandler(_ handler: @escaping () -> Void)
 }
 
@@ -114,6 +115,11 @@ final class RealLocalAIServerProcess: LocalAIServerProcess {
     func terminate() {
         guard process.isRunning else { return }
         process.terminate()
+    }
+
+    func forceTerminate() {
+        guard process.isRunning else { return }
+        _ = Darwin.kill(process.processIdentifier, SIGKILL)
     }
 
     func setTerminationHandler(_ handler: @escaping () -> Void) {

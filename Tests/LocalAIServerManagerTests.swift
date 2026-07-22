@@ -22,6 +22,7 @@ struct LocalAIServerManagerTests {
         try await testUnhealthyStartupTerminatesProcess()
         try await testCrashedProcessRestartsOnNextRequest()
         try await testStopTerminatesRunningProcess()
+        try await testStopForceTerminatesAfterGraceTimeout()
         try await testStopDuringStartupWaitsForDelayedExitCleanup()
         try await testIdleShutdownTerminatesAfterTimeout()
         try await testIdleShutdownDoesNothingBeforeTimeout()
@@ -544,6 +545,29 @@ struct LocalAIServerManagerTests {
         try require(!process.isRunning, "stop should leave no running process")
     }
 
+    private static func testStopForceTerminatesAfterGraceTimeout() async throws {
+        let process = DelayedExitProcess()
+        let observedTimeouts = LockedBox<[TimeInterval]>([])
+        let manager = makeManager(
+            launchProcess: { _, _, port, _ in (process, port) },
+            terminationGracePeriod: 0.5,
+            waitForProcessExit: { process, timeout in
+                observedTimeouts.withValue { $0.append(timeout) }
+                return !process.isRunning
+            }
+        )
+
+        _ = try await manager.withBaseURL(for: testModel) { $0 }
+        await manager.stop()
+
+        try require(process.terminateCallCount == 1, "stop should request graceful termination once")
+        try require(process.forceTerminateCallCount == 1, "stop should force-terminate after the grace period expires")
+        try require(observedTimeouts.value == [0.5, 0.5], "manager should use the configured timeout before and after force termination")
+        try require(!process.isRunning, "force termination should leave no running process")
+        let idle = await manager.lifecycleSnapshot()
+        try require(idle.phase == .idle, "force-terminated process should leave the manager idle")
+    }
+
     private static func testStopDuringStartupWaitsForDelayedExitCleanup() async throws {
         let process = DelayedExitProcess()
         let healthGate = ControlledHealthPoll()
@@ -850,6 +874,13 @@ struct LocalAIServerManagerTests {
         launchProcess: @escaping LocalAIServerManager.LaunchProcess,
         pollHealth: @escaping LocalAIServerManager.PollHealth = { _ in true },
         validateModel: @escaping LocalAIServerManager.ValidateModel = { _ in .ready },
+        terminationGracePeriod: TimeInterval = 2,
+        waitForProcessExit: @escaping LocalAIServerManager.WaitForProcessExit = { process, _ in
+            while process.isRunning {
+                await Task.yield()
+            }
+            return true
+        },
         now: @escaping @Sendable () -> Date = { Date(timeIntervalSince1970: 0) },
         observeLifecycle: @escaping LocalAIServerManager.ObserveLifecycle = { _ in }
     ) -> LocalAIServerManager {
@@ -860,6 +891,8 @@ struct LocalAIServerManagerTests {
             launchProcess: launchProcess,
             pollHealth: pollHealth,
             validateModel: validateModel,
+            terminationGracePeriod: terminationGracePeriod,
+            waitForProcessExit: waitForProcessExit,
             now: now,
             observeLifecycle: observeLifecycle
         )
@@ -1157,6 +1190,15 @@ private final class FakeProcess: LocalAIServerProcess, @unchecked Sendable {
         handler?()
     }
 
+    func forceTerminate() {
+        let handler: (() -> Void)?
+        lock.lock()
+        running = false
+        handler = terminationHandler
+        lock.unlock()
+        handler?()
+    }
+
     func waitForTerminateRequest() throws {
         guard terminateRequested.wait(timeout: .now() + 2) == .success else {
             throw TestFailure("process terminate was not requested")
@@ -1192,6 +1234,7 @@ private final class DelayedExitProcess: LocalAIServerProcess, @unchecked Sendabl
     private var running = true
     private var terminationHandler: (() -> Void)?
     private var storedTerminateCallCount = 0
+    private var storedForceTerminateCallCount = 0
 
     var isRunning: Bool {
         lock.lock()
@@ -1205,11 +1248,27 @@ private final class DelayedExitProcess: LocalAIServerProcess, @unchecked Sendabl
         return storedTerminateCallCount
     }
 
+    var forceTerminateCallCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedForceTerminateCallCount
+    }
+
     func terminate() {
         lock.lock()
         storedTerminateCallCount += 1
         lock.unlock()
         terminateRequested.signal()
+    }
+
+    func forceTerminate() {
+        let handler: (() -> Void)?
+        lock.lock()
+        storedForceTerminateCallCount += 1
+        running = false
+        handler = terminationHandler
+        lock.unlock()
+        handler?()
     }
 
     func setTerminationHandler(_ handler: @escaping () -> Void) {

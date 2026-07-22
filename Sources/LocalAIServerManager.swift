@@ -95,6 +95,7 @@ actor LocalAIServerManager {
     ) throws -> (LocalAIServerProcess, UInt16)
     typealias PollHealth = @Sendable (_ port: UInt16) async -> Bool
     typealias ValidateModel = @Sendable (_ model: LocalAIModel) throws -> LocalAIInstallStatus
+    typealias WaitForProcessExit = @Sendable (_ process: LocalAIServerProcess, _ timeout: TimeInterval) async -> Bool
     typealias ObserveLifecycle = @Sendable (_ snapshot: LifecycleSnapshot) -> Void
 
     struct LifecycleSnapshot: Equatable, Sendable {
@@ -167,6 +168,8 @@ actor LocalAIServerManager {
     private let launchProcess: LaunchProcess
     private let pollHealth: PollHealth
     private let validateModel: ValidateModel
+    private let terminationGracePeriod: TimeInterval
+    private let waitForProcessExit: WaitForProcessExit
     private let now: @Sendable () -> Date
     private let observeLifecycle: ObserveLifecycle
 
@@ -192,6 +195,10 @@ actor LocalAIServerManager {
             await LocalAIServerManager.defaultPollHealth(port: port)
         },
         validateModel: ValidateModel? = nil,
+        terminationGracePeriod: TimeInterval = 2,
+        waitForProcessExit: @escaping WaitForProcessExit = { process, timeout in
+            await LocalAIServerManager.defaultWaitForProcessExit(process: process, timeout: timeout)
+        },
         now: @escaping @Sendable () -> Date = { Date() },
         observeLifecycle: @escaping ObserveLifecycle = { _ in }
     ) {
@@ -204,6 +211,8 @@ actor LocalAIServerManager {
             try store.recoverInterruptedReplacement(for: model)
             return store.installStatus(for: model)
         }
+        self.terminationGracePeriod = terminationGracePeriod
+        self.waitForProcessExit = waitForProcessExit
         self.now = now
         self.observeLifecycle = observeLifecycle
     }
@@ -670,7 +679,17 @@ actor LocalAIServerManager {
             _ = await healthTask.value
         }
         if stopping.launch.process.isRunning {
-            await stopping.launch.exitSignal.wait()
+            let exitedGracefully = await waitForProcessExit(
+                stopping.launch.process,
+                terminationGracePeriod
+            )
+            if !exitedGracefully, stopping.launch.process.isRunning {
+                stopping.launch.process.forceTerminate()
+                _ = await waitForProcessExit(
+                    stopping.launch.process,
+                    terminationGracePeriod
+                )
+            }
         }
         if case let .stopping(current) = state,
            current.launch.token == stopping.launch.token {
@@ -744,6 +763,24 @@ actor LocalAIServerManager {
             contextSize: contextSize
         )
         return (process, port)
+    }
+
+    private static func defaultWaitForProcessExit(
+        process: LocalAIServerProcess,
+        timeout: TimeInterval
+    ) async -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + max(0, timeout)
+        while process.isRunning {
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else { return false }
+            let interval = min(remaining, 0.05)
+            do {
+                try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+            } catch {
+                return !process.isRunning
+            }
+        }
+        return true
     }
 
     private static func defaultPollHealth(port: UInt16) async -> Bool {
