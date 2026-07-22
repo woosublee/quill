@@ -667,7 +667,6 @@ struct CloudTranscriptionJobStoreTests {
             lastFailure: lastFailure,
             completionPolicy: CloudTranscriptionCompletionPolicy(
                 postProcessingEnabled: true,
-                preserveExactWording: false,
                 outputLanguage: "en",
                 pressEnterCommandEnabled: false
             )
@@ -791,7 +790,6 @@ struct CloudTranscriptionJobStoreTests {
                 : nil,
             completionPolicy: CloudTranscriptionCompletionPolicy(
                 postProcessingEnabled: true,
-                preserveExactWording: false,
                 outputLanguage: "en",
                 pressEnterCommandEnabled: false
             )

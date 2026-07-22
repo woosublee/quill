@@ -33,12 +33,9 @@ struct AppStateTranscriptionConfigurationTests {
         testLLMTransportTimeoutNormalization()
         testPostProcessingCooldownDispositionDefaultsToProcessed()
         testPostProcessingCooldownDispositionCanBeMarkedSkipped()
-        testPreserveExactWordingDefaultsOffAndPersists()
         testNoteBrowserDefaultsOnWhenPreferenceIsMissing()
         testNoteBrowserPreservesExplicitOptOut()
-        testVerbatimTranslationPromptAndSanitizer()
-        testVerbatimTranslationRejectsOutputThatSanitizesToEmpty()
-        try testPreserveExactWordingSettingsAndPipelineWiring()
+        try testPreserveExactWordingIsRemovedFromSettingsAndPipeline()
         testLegacyMlxWhisperOptionsDefaultToOff()
         testLegacyMlxWhisperOptionsPersistIndependentlyFromEngine()
         testLegacyMlxWhisperOptionsFallBackToLegacyEnginePreference()
@@ -183,7 +180,6 @@ struct AppStateTranscriptionConfigurationTests {
         )
         let completion = TranscriptionCompletionSnapshot(
             postProcessingEnabled: true,
-            preserveExactWording: false,
             outputLanguage: "ko",
             pressEnterCommandEnabled: false
         )
@@ -209,7 +205,6 @@ struct AppStateTranscriptionConfigurationTests {
         )
         let completion = TranscriptionCompletionSnapshot(
             postProcessingEnabled: false,
-            preserveExactWording: true,
             outputLanguage: "ja",
             pressEnterCommandEnabled: true
         )
@@ -332,16 +327,6 @@ struct AppStateTranscriptionConfigurationTests {
         assert(result.skippedDueToCooldown)
     }
 
-    private static func testPreserveExactWordingDefaultsOffAndPersists() {
-        resetDefaults()
-        let defaults = UserDefaults.standard
-        let appState = AppState()
-
-        assert(!appState.preserveExactWording)
-        appState.preserveExactWording = true
-        assert(defaults.bool(forKey: "preserve_exact_wording"))
-    }
-
     private static func testNoteBrowserDefaultsOnWhenPreferenceIsMissing() {
         resetDefaults()
         let defaults = UserDefaults.standard
@@ -361,57 +346,21 @@ struct AppStateTranscriptionConfigurationTests {
         assert(!AppState().noteBrowserEnabled)
     }
 
-    private static func testVerbatimTranslationPromptAndSanitizer() {
-        let prompt = PostProcessingService.verbatimTranslationSystemPrompt(targetLanguage: "English")
-
-        assert(prompt.contains("literal translator"))
-        assert(prompt.contains("Preserve every word"))
-        assert(prompt.contains("English"))
-        assert(PostProcessingService.sanitizeVerbatimTranslation("\"EMPTY\"") == "EMPTY")
-        assert(PostProcessingService.sanitizeVerbatimTranslation("\" translated text \"") == "translated text")
-    }
-
-    private static func testVerbatimTranslationRejectsOutputThatSanitizesToEmpty() {
-        do {
-            _ = try PostProcessingService.validatedVerbatimTranslation("\"\"")
-            assertionFailure("Quote-only literal translation must be treated as empty output")
-        } catch PostProcessingError.emptyOutput {
-            // Expected: stripping the outer quotes leaves no literal text to paste.
-        } catch {
-            assertionFailure("Expected emptyOutput, got \(error)")
-        }
-
-        do {
-            let literalEmpty = try PostProcessingService.validatedVerbatimTranslation("\"EMPTY\"")
-            assert(literalEmpty == "EMPTY")
-
-            let translated = try PostProcessingService.validatedVerbatimTranslation("\" translated text \"")
-            assert(translated == "translated text")
-        } catch {
-            assertionFailure("Nonempty literal translations must remain valid: \(error)")
-        }
-    }
-
-    private static func testPreserveExactWordingSettingsAndPipelineWiring() throws {
+    private static func testPreserveExactWordingIsRemovedFromSettingsAndPipeline() throws {
         let settings = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
         let appState = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
-        let postProcessingDetails = sourceBlock(
-            in: settings,
-            from: "private var postProcessingDetails: some View",
-            to: "\n    private var preserveExactWordingSetting"
-        )
-        let preserveExactWordingSetting = sourceBlock(
-            in: settings,
-            from: "private var preserveExactWordingSetting: some View",
-            to: "\n    private var vocabularySection"
-        )
+        let postProcessing = try String(contentsOfFile: "Sources/PostProcessingService.swift", encoding: .utf8)
 
-        precondition(postProcessingDetails.contains("preserveExactWordingSetting"))
-        precondition(preserveExactWordingSetting.contains("Toggle(\"Preserve Exact Wording\", isOn: $appState.preserveExactWording)"))
-        precondition(preserveExactWordingSetting.contains(".disabled(appState.disablePostProcessing)"))
-        precondition(appState.contains("if preserveExactWording"))
-        precondition(appState.contains("postProcessingService.translateVerbatim"))
-        precondition(appState.contains("preserveExactWording: preserveExactWording"))
+        for obsoleteReference in [
+            "Preserve Exact Wording",
+            "preserveExactWording",
+            "preserve_exact_wording"
+        ] {
+            precondition(!settings.contains(obsoleteReference), "Settings still contains \(obsoleteReference)")
+            precondition(!appState.contains(obsoleteReference), "AppState still contains \(obsoleteReference)")
+        }
+        precondition(!postProcessing.contains("translateVerbatim"))
+        precondition(!postProcessing.contains("verbatimTranslationSystemPrompt"))
     }
 
     private static func testLegacyMlxWhisperOptionsDefaultToOff() {
@@ -1957,8 +1906,7 @@ struct AppStateTranscriptionConfigurationTests {
             localTranscriptionModel: .find(id: "apple-speech"),
             transcriptionLanguage: .find(code: "en"),
             usedContextCapture: true,
-            usedPostProcessing: false,
-            preserveExactWording: true
+            usedPostProcessing: false
         )
 
         precondition(snapshot.customVocabulary == "team terms")
@@ -1968,7 +1916,6 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(snapshot.transcriptionLanguage.code == "en")
         precondition(snapshot.usedContextCapture)
         precondition(!snapshot.usedPostProcessing)
-        precondition(snapshot.preserveExactWording)
     }
 
     private static func testRetryAvailabilityRequiresStoredAudio() async {

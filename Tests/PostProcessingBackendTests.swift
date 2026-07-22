@@ -8,7 +8,6 @@ struct PostProcessingBackendTests {
         try await testLocalRequestUsesLoopbackWithoutAuthorization()
         try await testLocalFailureDoesNotInvokeCloudFallbackOrSetCooldown()
         try await testLocalCommandTransformUsesEndpointWithoutCloudFallback()
-        try await testLocalTranslationUsesEndpointWithoutCloudFallback()
         try testLocalManagerErrorsMapToDedicatedIssues()
         try testInvalidCloudBaseURLIsNotRelabeledAsLocal()
         print("PostProcessingBackendTests passed")
@@ -61,19 +60,6 @@ struct PostProcessingBackendTests {
         }
 
         try await assertRateLimitedLocalScenario(scenario, label: "command")
-    }
-
-    private static func testLocalTranslationUsesEndpointWithoutCloudFallback() async throws {
-        let scenario = makeRateLimitedLocalScenario()
-        try await assertNoCooldown(scenario, label: "precondition")
-        try await expectFailure("translation local failure") {
-            _ = try await scenario.service.translateVerbatim(
-                transcript: "hello there",
-                targetLanguage: "Korean"
-            )
-        }
-
-        try await assertRateLimitedLocalScenario(scenario, label: "translation")
     }
 
     private static func testLocalManagerErrorsMapToDedicatedIssues() throws {

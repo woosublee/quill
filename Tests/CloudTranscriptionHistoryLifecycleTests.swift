@@ -647,7 +647,6 @@ struct CloudTranscriptionHistoryLifecycleTests {
                 : nil,
             completionPolicy: CloudTranscriptionCompletionPolicy(
                 postProcessingEnabled: true,
-                preserveExactWording: false,
                 outputLanguage: "en",
                 pressEnterCommandEnabled: false
             )
@@ -664,7 +663,6 @@ struct CloudTranscriptionHistoryLifecycleTests {
     ) throws -> TranscriptionService {
         let completionPolicy = CloudTranscriptionCompletionPolicy(
             postProcessingEnabled: true,
-            preserveExactWording: false,
             outputLanguage: "en",
             pressEnterCommandEnabled: false
         )

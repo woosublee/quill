@@ -122,7 +122,6 @@ struct RecordingProcessingSnapshot: Codable, Equatable {
     let preferredModelID: String?
     let fallbackModelID: String?
     let outputLanguage: String
-    let preserveExactWording: Bool
     let contextCaptureEnabled: Bool
     let instructionExecutionGuardEnabled: Bool
     let customVocabulary: [String]

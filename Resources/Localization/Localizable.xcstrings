@@ -4664,22 +4664,6 @@
         }
       }
     },
-    "Preserve Exact Wording": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preserve Exact Wording"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "정확한 표현 유지"
-          }
-        }
-      }
-    },
     "Preserve clipboard after paste": {
       "localizations": {
         "en": {
@@ -5261,38 +5245,6 @@
         }
       },
       "shouldTranslate": false
-    },
-    "Skip LLM cleanup. Raw transcript is used as-is. No API call is made for post-processing.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skip LLM cleanup. Raw transcript is used as-is. No API call is made for post-processing."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "LLM 정리를 건너뜁니다. 원본 받아쓰기를 그대로 사용하며 후처리를 위한 API 호출을 하지 않습니다."
-          }
-        }
-      }
-    },
-    "Skip cleanup while post-processing is enabled. Without an Output Language, the raw transcript is used. With one, only a literal translation is performed.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skip cleanup while post-processing is enabled. Without an Output Language, the raw transcript is used. With one, only a literal translation is performed."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "후처리가 켜진 상태에서 정리를 건너뜁니다. 출력 언어가 없으면 원본 받아쓰기를 사용하고, 있으면 직역만 수행합니다."
-          }
-        }
-      }
     },
     "Skip screen recording and app context detection. Transcription will not adapt to the current app. Screen Recording permission is not required.": {
       "localizations": {

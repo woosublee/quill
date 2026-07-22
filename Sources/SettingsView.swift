@@ -2231,8 +2231,6 @@ struct ModelsSettingsView: View {
             Divider()
             outputLanguageSetting
             Divider()
-            preserveExactWordingSetting
-            Divider()
             ModelDropdownView(
                 title: "Post-Processing Fallback Model",
                 subtitle: "Used as the explicit retry model for transcript cleanup and Edit Mode transforms.",
@@ -2474,17 +2472,6 @@ struct ModelsSettingsView: View {
             key = "Final transcript language for post-processing and Edit Mode transforms."
         }
         return localizedCatalogString(key)
-    }
-
-    private var preserveExactWordingSetting: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Toggle("Preserve Exact Wording", isOn: $appState.preserveExactWording)
-                .disabled(appState.disablePostProcessing)
-            Text("Skip cleanup while post-processing is enabled. Without an Output Language, the raw transcript is used. With one, only a literal translation is performed.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .opacity(appState.disablePostProcessing ? 0.55 : 1)
     }
 
     private func customStandardAPIModelDraft(for modelID: String) -> String {

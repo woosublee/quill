@@ -52,7 +52,6 @@ struct ModelsSettingsUIContractTests {
 
         for existing in [
             "@Published var disablePostProcessing: Bool",
-            "@Published var preserveExactWording: Bool",
             "@Published var disableContextCapture: Bool",
             "@Published var disableAutoPaste: Bool",
             "@Published var realtimeStreamingEnabled: Bool",
@@ -360,7 +359,7 @@ struct ModelsSettingsUIContractTests {
         let outputLanguage = block(
             in: models,
             from: "private var outputLanguageSetting: some View",
-            to: "\n    private var preserveExactWordingSetting"
+            to: "\n    private func customStandardAPIModelDraft"
         )
         let validation = block(
             in: models,
@@ -435,7 +434,6 @@ struct ModelsSettingsUIContractTests {
             "defaultModel: AppState.defaultPostProcessingModel",
             "defaultModel: AppState.defaultPostProcessingFallbackModel",
             "selection: $appState.outputLanguage",
-            "isOn: $appState.preserveExactWording",
             "vocabularySection",
             "systemPromptSection",
             "instructionGuardSection"

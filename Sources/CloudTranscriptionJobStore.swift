@@ -22,7 +22,6 @@ struct CloudTranscriptionStoredFailure: Codable, Equatable, Sendable {
 
 struct CloudTranscriptionCompletionPolicy: Codable, Equatable, Sendable {
     let postProcessingEnabled: Bool
-    let preserveExactWording: Bool
     let outputLanguage: String
     let pressEnterCommandEnabled: Bool
 }

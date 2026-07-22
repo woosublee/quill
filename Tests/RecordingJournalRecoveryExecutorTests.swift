@@ -650,7 +650,6 @@ struct RecordingJournalRecoveryExecutorTests {
                 preferredModelID: nil,
                 fallbackModelID: nil,
                 outputLanguage: "auto",
-                preserveExactWording: false,
                 contextCaptureEnabled: false,
                 instructionExecutionGuardEnabled: true,
                 customVocabulary: [],
