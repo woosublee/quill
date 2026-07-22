@@ -4,6 +4,7 @@ enum LocalAIServerManagerError: LocalizedError, Equatable {
     case modelUnavailable(String)
     case modelCorrupt(String)
     case startFailed(String)
+    case processExited(String)
 
     var errorDescription: String? {
         switch self {
@@ -13,6 +14,8 @@ enum LocalAIServerManagerError: LocalizedError, Equatable {
             return "The selected local AI model is corrupt."
         case .startFailed:
             return "Could not start the local AI runtime."
+        case .processExited:
+            return localizedCatalogString("The local AI runtime stopped unexpectedly.")
         }
     }
 }
@@ -140,11 +143,15 @@ actor LocalAIServerManager {
 
     private struct ResolvedBaseURL {
         let launchToken: UUID
+        let modelID: String
+        let process: LocalAIServerProcess
         let url: URL
     }
 
     private struct RequestLease {
         let launchToken: UUID
+        let modelID: String
+        let process: LocalAIServerProcess
         let url: URL
     }
 
@@ -244,7 +251,14 @@ actor LocalAIServerManager {
             releaseLease(lease)
             return result
         } catch {
+            let processExited = !lease.process.isRunning
             releaseLease(lease)
+            if processExited {
+                clearExitedLaunchIfCurrent(lease)
+                throw LocalAIServerManagerError.processExited(
+                    "Process exited during an active request for model \(lease.modelID)"
+                )
+            }
             throw error
         }
     }
@@ -258,7 +272,12 @@ actor LocalAIServerManager {
                 try Task.checkCancellation()
                 activeRequestCounts[resolved.launchToken, default: 0] += 1
                 lastRequestAt = now()
-                return RequestLease(launchToken: resolved.launchToken, url: resolved.url)
+                return RequestLease(
+                    launchToken: resolved.launchToken,
+                    modelID: resolved.modelID,
+                    process: resolved.process,
+                    url: resolved.url
+                )
             } catch {
                 if Task.isCancelled || error is CancellationError {
                     await cancelStartupWaiter(
@@ -292,6 +311,21 @@ actor LocalAIServerManager {
             activeRequestCounts[lease.launchToken] = currentCount - 1
         }
         lastRequestAt = now()
+    }
+
+    private func clearExitedLaunchIfCurrent(_ lease: RequestLease) {
+        switch state {
+        case let .running(launch) where launch.token == lease.launchToken:
+            lastRequestAt = nil
+            clearSwitchDrain(launchToken: launch.token)
+            setState(.idle)
+        case let .starting(startup) where startup.launch.token == lease.launchToken:
+            startup.healthTask.cancel()
+            lastRequestAt = nil
+            setState(.idle)
+        case .idle, .starting, .running, .stopping:
+            break
+        }
     }
 
     /// Releases an idle resident process. In-progress requests are never
@@ -383,6 +417,8 @@ actor LocalAIServerManager {
                     lastRequestAt = now()
                     return ResolvedBaseURL(
                         launchToken: launch.token,
+                        modelID: launch.modelID,
+                        process: launch.process,
                         url: Self.baseURL(port: launch.port)
                     )
                 }
@@ -587,6 +623,8 @@ actor LocalAIServerManager {
             lastRequestAt = now()
             return ResolvedBaseURL(
                 launchToken: current.token,
+                modelID: current.modelID,
+                process: current.process,
                 url: Self.baseURL(port: current.port)
             )
 
@@ -603,6 +641,8 @@ actor LocalAIServerManager {
             lastRequestAt = now()
             return ResolvedBaseURL(
                 launchToken: current.launch.token,
+                modelID: current.launch.modelID,
+                process: current.launch.process,
                 url: Self.baseURL(port: current.launch.port)
             )
 

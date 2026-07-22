@@ -33,6 +33,8 @@ struct LocalAIServerManagerTests {
         try await testIdleShutdownDoesNotTerminateHeldOpenOperation()
         try await testThrownOperationReleasesLease()
         try await testCancelledOperationReleasesLease()
+        try await testOperationErrorIsPreservedWhileProcessLives()
+        try await testOperationErrorBecomesProcessExitedAfterCrash()
         try await testManagerDeinitTerminatesRunningProcess()
         print("LocalAIServerManagerTests passed")
     }
@@ -855,6 +857,47 @@ struct LocalAIServerManagerTests {
         try require(launchCount.value == 2, "cancelled operation should allow a later model switch")
     }
 
+    private static func testOperationErrorIsPreservedWhileProcessLives() async throws {
+        let process = FakeProcess()
+        let manager = makeManager(
+            launchProcess: { _, _, port, _ in (process, port) }
+        )
+
+        do {
+            _ = try await manager.withBaseURL(for: testModel) { _ -> URL in
+                throw OperationSentinel.failed
+            }
+            assertionFailure("Expected operation failure")
+        } catch OperationSentinel.failed {
+            // expected
+        }
+        let snapshot = await manager.lifecycleSnapshot()
+        try require(
+            snapshot.activeRequestCount == 0,
+            "throwing operation must release its lease while the process lives"
+        )
+    }
+
+    private static func testOperationErrorBecomesProcessExitedAfterCrash() async throws {
+        let process = FakeProcess()
+        let manager = makeManager(
+            launchProcess: { _, _, port, _ in (process, port) }
+        )
+
+        do {
+            _ = try await manager.withBaseURL(for: testModel) { _ -> URL in
+                process.simulateCrash()
+                throw OperationSentinel.failed
+            }
+            assertionFailure("Expected process-exited failure")
+        } catch LocalAIServerManagerError.processExited(let detail) {
+            try require(detail.contains(testModel.id), "process-exited detail must identify the model")
+        }
+        let snapshot = await manager.lifecycleSnapshot()
+        try require(snapshot.phase == .idle, "crashed process must clear the matching launch")
+        try require(snapshot.activeRequestCount == 0, "crashed operation must release its lease")
+    }
+
     private static func testManagerDeinitTerminatesRunningProcess() async throws {
         let process = FakeProcess()
         var manager: LocalAIServerManager? = makeManager(
@@ -1023,6 +1066,10 @@ struct LocalAIServerManagerTests {
         FileManager.default.fileExists(atPath: url.path)
             || (try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)) != nil
     }
+}
+
+private enum OperationSentinel: Error, Equatable {
+    case failed
 }
 
 private enum HealthProbeFailure: Error {

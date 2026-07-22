@@ -827,7 +827,8 @@ struct LocalizationResourceTests {
         let translations = [
             "The cloud AI base URL is invalid.": "클라우드 AI 기본 URL이 올바르지 않습니다.",
             "The selected local AI model is unknown.": "선택한 로컬 AI 모델을 찾을 수 없습니다.",
-            "The local AI runtime is unavailable.": "로컬 AI 런타임을 사용할 수 없습니다."
+            "The local AI runtime is unavailable.": "로컬 AI 런타임을 사용할 수 없습니다.",
+            "The local AI runtime stopped unexpectedly.": "로컬 AI 런타임이 예기치 않게 중지되었습니다."
         ]
         for (english, korean) in translations {
             let englishValue = try localizedValue(key: english, language: "en", root: root)

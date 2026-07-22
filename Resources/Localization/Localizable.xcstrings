@@ -12740,6 +12740,22 @@
           }
         }
       }
+    },
+    "The local AI runtime stopped unexpectedly.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The local AI runtime stopped unexpectedly."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 AI 런타임이 예기치 않게 중지되었습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
