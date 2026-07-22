@@ -112,9 +112,10 @@ private struct AudioImportTaskConfiguration {
     let pressEnterCommandEnabled: Bool
     let postProcessingAPIKey: String
     let postProcessingBaseURL: String
-    let postProcessingModel: String
+    let postProcessingBackendChoice: AIProcessingBackendChoice
     let postProcessingFallbackModel: String
     let instructionExecutionGuardEnabled: Bool
+    let localAIServerManager: LocalAIServerManager
 
     init(
         transcriptionConfiguration: AudioImportTranscriptionConfiguration,
@@ -130,9 +131,10 @@ private struct AudioImportTaskConfiguration {
         pressEnterCommandEnabled: Bool,
         postProcessingAPIKey: String,
         postProcessingBaseURL: String,
-        postProcessingModel: String,
+        postProcessingBackendChoice: AIProcessingBackendChoice,
         postProcessingFallbackModel: String,
-        instructionExecutionGuardEnabled: Bool
+        instructionExecutionGuardEnabled: Bool,
+        localAIServerManager: LocalAIServerManager
     ) {
         self.mode = transcriptionConfiguration.mode
         self.useLocalTranscription = transcriptionConfiguration.useLocalTranscription
@@ -151,9 +153,10 @@ private struct AudioImportTaskConfiguration {
         self.pressEnterCommandEnabled = pressEnterCommandEnabled
         self.postProcessingAPIKey = postProcessingAPIKey
         self.postProcessingBaseURL = postProcessingBaseURL
-        self.postProcessingModel = postProcessingModel
+        self.postProcessingBackendChoice = postProcessingBackendChoice
         self.postProcessingFallbackModel = postProcessingFallbackModel
         self.instructionExecutionGuardEnabled = instructionExecutionGuardEnabled
+        self.localAIServerManager = localAIServerManager
     }
 
     var systemPrompt: String {
@@ -161,12 +164,13 @@ private struct AudioImportTaskConfiguration {
     }
 
     func makePostProcessingService() -> PostProcessingService {
-        PostProcessingService(
+        AppState.makePostProcessingService(
+            choice: postProcessingBackendChoice,
             apiKey: postProcessingAPIKey,
             baseURL: postProcessingBaseURL,
-            preferredModel: postProcessingModel,
-            preferredFallbackModel: postProcessingFallbackModel,
-            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
+            cloudFallbackModelID: postProcessingFallbackModel,
+            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled,
+            localServerManager: localAIServerManager
         )
     }
 
@@ -329,6 +333,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     static var nativeWhisperInstallStatusProvider: (NativeWhisperModel) -> NativeWhisperInstallStatus = { model in
         NativeWhisperModelStore().installStatus(for: model)
     }
+    static var localAIServerManagerFactory: () -> LocalAIServerManager = {
+        LocalAIServerManager()
+    }
     static var nativeWhisperInstallStarter: (
         NativeWhisperModel,
         @escaping (NativeWhisperDownloadProgress) -> Void,
@@ -367,6 +374,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let postProcessingModelStorageKey = "post_processing_model"
     private let postProcessingFallbackModelStorageKey = "post_processing_fallback_model"
     private let contextModelStorageKey = "context_model"
+    private let postProcessingBackendChoiceStorageKey = "post_processing_backend_choice"
+    private let contextBackendChoiceStorageKey = "context_backend_choice"
     private let holdShortcutStorageKey = "hold_shortcut"
     private let toggleShortcutStorageKey = "toggle_shortcut"
     private let recordingCancelShortcutStorageKey = "recording_cancel_shortcut"
@@ -497,6 +506,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var postProcessingModel: String {
         didSet {
             UserDefaults.standard.set(postProcessingModel, forKey: postProcessingModelStorageKey)
+            if case .cloud = postProcessingBackendChoice {
+                postProcessingBackendChoice = .cloud(
+                    modelID: resolvedPostProcessingCloudModelID
+                )
+            }
         }
     }
 
@@ -509,6 +523,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var contextModel: String {
         didSet {
             UserDefaults.standard.set(contextModel, forKey: contextModelStorageKey)
+            if case .cloud = contextBackendChoice {
+                contextBackendChoice = .cloud(modelID: resolvedContextCloudModelID)
+            }
             rebuildContextService()
         }
     }
@@ -1028,6 +1045,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private var resolvedRealtimeStreamingModelID: String? {
         nonEmptyModelID(realtimeStreamingModel)
+    }
+
+    private var resolvedPostProcessingCloudModelID: String {
+        nonEmptyModelID(postProcessingModel) ?? Self.defaultPostProcessingModel
+    }
+
+    private var resolvedContextCloudModelID: String {
+        nonEmptyModelID(contextModel) ?? Self.defaultContextModel
     }
 
     private func nonEmptyModelID(_ modelID: String) -> String? {
@@ -1649,6 +1674,37 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var overlayTranscriptionID: UUID = UUID()
     private var foregroundTranscriptionJobID: UUID?
     private var activeTranscriptionJobs: [UUID: TranscriptionJob] = [:]
+    let localAIServerManager: LocalAIServerManager
+
+    @Published var postProcessingBackendChoice: AIProcessingBackendChoice {
+        didSet {
+            AIProcessingBackendChoiceStore.save(
+                postProcessingBackendChoice,
+                defaults: .standard,
+                key: postProcessingBackendChoiceStorageKey
+            )
+            if case .cloud(let modelID) = postProcessingBackendChoice,
+               postProcessingModel != modelID {
+                postProcessingModel = modelID
+            }
+        }
+    }
+
+    @Published var contextBackendChoice: AIProcessingBackendChoice {
+        didSet {
+            AIProcessingBackendChoiceStore.save(
+                contextBackendChoice,
+                defaults: .standard,
+                key: contextBackendChoiceStorageKey
+            )
+            if case .cloud(let modelID) = contextBackendChoice,
+               contextModel != modelID {
+                contextModel = modelID
+            }
+            rebuildContextService()
+        }
+    }
+
     private var contextService: AppContextService
     private var contextCaptureTask: Task<AppContext?, Never>?
     private var capturedContext: AppContext?
@@ -1738,6 +1794,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let postProcessingModel = UserDefaults.standard.string(forKey: postProcessingModelStorageKey) ?? Self.defaultPostProcessingModel
         let postProcessingFallbackModel = UserDefaults.standard.string(forKey: postProcessingFallbackModelStorageKey) ?? Self.defaultPostProcessingFallbackModel
         let contextModel = Self.loadStoredContextModel(key: contextModelStorageKey)
+        let postProcessingBackendChoice = AIProcessingBackendChoiceStore.load(
+            defaults: .standard,
+            key: postProcessingBackendChoiceStorageKey,
+            fallbackCloudModelID: postProcessingModel
+        )
+        let contextBackendChoice = AIProcessingBackendChoiceStore.load(
+            defaults: .standard,
+            key: contextBackendChoiceStorageKey,
+            fallbackCloudModelID: contextModel
+        )
+        let localAIServerManager = Self.localAIServerManagerFactory()
         let shortcuts = Self.loadShortcutConfiguration(
             holdKey: holdShortcutStorageKey,
             toggleKey: toggleShortcutStorageKey,
@@ -1936,12 +2003,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let selectedMicrophoneID = UserDefaults.standard.string(forKey: selectedMicrophoneStorageKey) ?? "default"
         let shouldRestoreMutedAudio = UserDefaults.standard.bool(forKey: pendingMutedAudioRestoreStorageKey)
 
+        self.localAIServerManager = localAIServerManager
         self.contextService = Self.makeAppContextService(
+            choice: contextBackendChoice,
             apiKey: apiKey,
             baseURL: apiBaseURL,
             customContextPrompt: customContextPrompt,
-            contextModel: contextModel,
-            contextScreenshotMaxDimension: contextScreenshotMaxDimension
+            contextScreenshotMaxDimension: contextScreenshotMaxDimension,
+            localServerManager: localAIServerManager
         )
         self.hasCompletedSetup = hasCompletedSetup
         self.apiKey = apiKey
@@ -1952,6 +2021,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.postProcessingModel = postProcessingModel
         self.postProcessingFallbackModel = postProcessingFallbackModel
         self.contextModel = contextModel
+        self.postProcessingBackendChoice = postProcessingBackendChoice
+        self.contextBackendChoice = contextBackendChoice
         self.holdShortcut = shortcuts.hold
         self.toggleShortcut = shortcuts.toggle
         self.recordingCancelShortcut = recordingCancelShortcut
@@ -2245,29 +2316,85 @@ final class AppState: ObservableObject, @unchecked Sendable {
             : defaultContextScreenshotMaxDimension
     }
 
-    static func makeAppContextService(
-        apiKey: String,
-        baseURL: String,
-        customContextPrompt: String,
-        contextModel: String,
-        contextScreenshotMaxDimension: Int
-    ) -> AppContextService {
-        AppContextService(
-            apiKey: apiKey,
-            baseURL: baseURL,
-            customContextPrompt: customContextPrompt,
-            contextModel: contextModel,
-            screenshotMaxDimension: CGFloat(normalizedContextScreenshotMaxDimension(contextScreenshotMaxDimension))
+    func makeAIProcessingBackendExecutor(
+        choice: AIProcessingBackendChoice
+    ) -> AIProcessingBackendExecutor {
+        AIProcessingBackendExecutor(
+            choice: choice,
+            cloudBaseURL: apiBaseURL,
+            cloudAPIKey: apiKey,
+            localServerManager: localAIServerManager
         )
     }
 
-    func makeAppContextService() -> AppContextService {
+    static func makePostProcessingService(
+        choice: AIProcessingBackendChoice,
+        apiKey: String,
+        baseURL: String,
+        cloudFallbackModelID: String,
+        instructionExecutionGuardEnabled: Bool,
+        localServerManager: LocalAIServerManager
+    ) -> PostProcessingService {
+        PostProcessingService(
+            backendExecutor: AIProcessingBackendExecutor(
+                choice: choice,
+                cloudBaseURL: baseURL,
+                cloudAPIKey: apiKey,
+                localServerManager: localServerManager
+            ),
+            cloudFallbackModelID: choice.isLocal ? nil : cloudFallbackModelID,
+            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
+        )
+    }
+
+    func makePostProcessingService(
+        choice: AIProcessingBackendChoice? = nil
+    ) -> PostProcessingService {
+        Self.makePostProcessingService(
+            choice: choice ?? postProcessingBackendChoice,
+            apiKey: apiKey,
+            baseURL: apiBaseURL,
+            cloudFallbackModelID: postProcessingFallbackModel,
+            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled,
+            localServerManager: localAIServerManager
+        )
+    }
+
+    static func makeAppContextService(
+        choice: AIProcessingBackendChoice,
+        apiKey: String,
+        baseURL: String,
+        customContextPrompt: String,
+        contextScreenshotMaxDimension: Int,
+        localServerManager: LocalAIServerManager
+    ) -> AppContextService {
+        AppContextService(
+            backendExecutor: AIProcessingBackendExecutor(
+                choice: choice,
+                cloudBaseURL: baseURL,
+                cloudAPIKey: apiKey,
+                localServerManager: localServerManager
+            ),
+            customContextPrompt: customContextPrompt,
+            contextModel: choice.modelID,
+            screenshotMaxDimension: CGFloat(
+                normalizedContextScreenshotMaxDimension(
+                    contextScreenshotMaxDimension
+                )
+            )
+        )
+    }
+
+    func makeAppContextService(
+        choice: AIProcessingBackendChoice? = nil
+    ) -> AppContextService {
         Self.makeAppContextService(
+            choice: choice ?? contextBackendChoice,
             apiKey: apiKey,
             baseURL: apiBaseURL,
             customContextPrompt: customContextPrompt,
-            contextModel: contextModel,
-            contextScreenshotMaxDimension: contextScreenshotMaxDimension
+            contextScreenshotMaxDimension: contextScreenshotMaxDimension,
+            localServerManager: localAIServerManager
         )
     }
 
@@ -3915,9 +4042,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             pressEnterCommandEnabled: isPressEnterVoiceCommandEnabled,
             postProcessingAPIKey: apiKey,
             postProcessingBaseURL: apiBaseURL,
-            postProcessingModel: postProcessingModel,
+            postProcessingBackendChoice: postProcessingBackendChoice,
             postProcessingFallbackModel: postProcessingFallbackModel,
-            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
+            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled,
+            localAIServerManager: localAIServerManager
         )
         let jobID = UUID()
         let noteID = UUID()
@@ -4203,13 +4331,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         retryingItemIDs.insert(item.id)
 
-        let postProcessingService = PostProcessingService(
-            apiKey: apiKey,
-            baseURL: apiBaseURL,
-            preferredModel: postProcessingModel,
-            preferredFallbackModel: postProcessingFallbackModel,
-            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
-        )
+        let postProcessingService = makePostProcessingService()
 
         let task = Task { [weak self] in
             guard let self else { return }
@@ -6742,13 +6864,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         playAlertSound(named: "Pop")
         overlayManager.showTranscribing()
 
-        let postProcessingService = PostProcessingService(
-            apiKey: apiKey,
-            baseURL: apiBaseURL,
-            preferredModel: postProcessingModel,
-            preferredFallbackModel: postProcessingFallbackModel,
-            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
-        )
+        let postProcessingService = makePostProcessingService()
         let capturedApiKey = resolvedTranscriptionAPIKey
         let capturedApiBaseURL = resolvedTranscriptionBaseURL
         let capturedUseLocalTranscription = useLocalTranscription
@@ -7225,13 +7341,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     from: rawTranscript,
                     pressEnterCommandEnabled: completion.pressEnterCommandEnabled
                 )
-                let postProcessingService = PostProcessingService(
-                    apiKey: apiKey,
-                    baseURL: apiBaseURL,
-                    preferredModel: postProcessingModel,
-                    preferredFallbackModel: postProcessingFallbackModel,
-                    instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
-                )
+                let postProcessingService = makePostProcessingService()
                 let result = await processTranscript(
                     parsed.transcript,
                     intent: SessionIntent.fromPersisted(
