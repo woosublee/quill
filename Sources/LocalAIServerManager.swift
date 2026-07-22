@@ -23,6 +23,20 @@ actor LocalAIServerManager {
         _ contextSize: Int
     ) throws -> (LocalAIServerProcess, UInt16)
     typealias PollHealth = @Sendable (_ port: UInt16) async -> Bool
+    typealias ObserveLifecycle = @Sendable (_ snapshot: LifecycleSnapshot) -> Void
+
+    struct LifecycleSnapshot: Equatable, Sendable {
+        enum Phase: Equatable, Sendable {
+            case idle
+            case starting
+            case running
+            case stopping
+        }
+
+        let phase: Phase
+        let modelID: String?
+        let startupWaiterCount: Int
+    }
 
     private struct LaunchState {
         let token: UUID
@@ -34,6 +48,13 @@ actor LocalAIServerManager {
 
     private struct StartupState {
         let launch: LaunchState
+        let healthTask: Task<Bool, Never>
+        var waiterIDs: Set<UUID>
+    }
+
+    private struct StartupJoin {
+        let launchToken: UUID
+        let modelID: String
         let healthTask: Task<Bool, Never>
     }
 
@@ -55,6 +76,7 @@ actor LocalAIServerManager {
     private let launchProcess: LaunchProcess
     private let pollHealth: PollHealth
     private let now: @Sendable () -> Date
+    private let observeLifecycle: ObserveLifecycle
 
     private var state: LifecycleState = .idle
     private var lastRequestAt: Date?
@@ -74,7 +96,8 @@ actor LocalAIServerManager {
         pollHealth: @escaping PollHealth = { port in
             await LocalAIServerManager.defaultPollHealth(port: port)
         },
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        observeLifecycle: @escaping ObserveLifecycle = { _ in }
     ) {
         self.store = store
         self.idleTimeout = idleTimeout
@@ -82,47 +105,68 @@ actor LocalAIServerManager {
         self.launchProcess = launchProcess
         self.pollHealth = pollHealth
         self.now = now
+        self.observeLifecycle = observeLifecycle
+    }
+
+    deinit {
+        switch state {
+        case .idle:
+            break
+        case let .starting(startup):
+            startup.healthTask.cancel()
+            startup.launch.process.terminate()
+        case let .running(launch):
+            launch.process.terminate()
+        case let .stopping(stopping):
+            stopping.healthTask?.cancel()
+            stopping.launch.process.terminate()
+        }
     }
 
     /// Returns an OpenAI-compatible base URL, starting or switching the local
     /// process as needed. Concurrent requests for the same model share the
-    /// same startup task.
+    /// same startup task while retaining independent cancellation.
     func baseURL(for model: LocalAIModel) async throws -> URL {
-        while true {
-            switch state {
-            case .idle:
-                let startup = try beginStartup(for: model)
-                return try await finishStartup(startup)
-
-            case let .starting(startup):
-                if startup.launch.modelID == model.id {
-                    return try await finishStartup(startup)
+        let waiter = StartupWaiter()
+        return try await withTaskCancellationHandler {
+            do {
+                try Task.checkCancellation()
+                let url = try await serveBaseURL(for: model, waiter: waiter)
+                try Task.checkCancellation()
+                return url
+            } catch {
+                if Task.isCancelled || error is CancellationError {
+                    await cancelStartupWaiter(
+                        waiterID: waiter.id,
+                        launchToken: waiter.launchToken
+                    )
+                    throw CancellationError()
                 }
-                await stopStartup(startup)
-
-            case let .running(launch):
-                guard launch.process.isRunning else {
-                    state = .idle
-                    continue
-                }
-                if launch.modelID == model.id {
-                    lastRequestAt = now()
-                    return Self.baseURL(port: launch.port)
-                }
-                await stopRunning(launch)
-
-            case let .stopping(stopping):
-                await finishStopping(stopping)
+                throw error
+            }
+        } onCancel: {
+            waiter.cancel()
+            Task { [weak self] in
+                await self?.cancelStartupWaiter(
+                    waiterID: waiter.id,
+                    launchToken: waiter.launchToken
+                )
             }
         }
     }
 
-    /// Releases the resident process after the configured period with no
-    /// successfully served or reused endpoint.
+    /// Releases an idle resident process. In-progress requests are never
+    /// evaluated against the prior running launch's request timestamp.
     func shutdownIfIdle() async {
+        guard case let .running(launch) = state else { return }
+        guard launch.process.isRunning else {
+            lastRequestAt = nil
+            setState(.idle)
+            return
+        }
         guard let lastRequestAt else { return }
         guard now().timeIntervalSince(lastRequestAt) >= idleTimeout else { return }
-        await stop()
+        await stopRunning(launch)
     }
 
     /// Stops both a published process and any actor-reentrant startup. This
@@ -143,7 +187,71 @@ actor LocalAIServerManager {
         }
     }
 
-    private func beginStartup(for model: LocalAIModel) throws -> StartupState {
+    /// Internal deterministic observation seam for lifecycle race tests.
+    func lifecycleSnapshot() -> LifecycleSnapshot {
+        snapshot(for: state)
+    }
+
+    private func serveBaseURL(for model: LocalAIModel, waiter: StartupWaiter) async throws -> URL {
+        try Task.checkCancellation()
+
+        while true {
+            switch state {
+            case .idle:
+                let startup = try beginStartup(for: model, waiterID: waiter.id)
+                let join = makeJoin(startup)
+                waiter.register(launchToken: join.launchToken)
+                do {
+                    try Task.checkCancellation()
+                } catch {
+                    await cancelStartupWaiter(waiterID: waiter.id, launchToken: join.launchToken)
+                    throw CancellationError()
+                }
+                return try await waitForStartup(join, waiter: waiter)
+
+            case var .starting(startup):
+                if startup.launch.modelID == model.id {
+                    startup.waiterIDs.insert(waiter.id)
+                    setState(.starting(startup))
+                    let join = makeJoin(startup)
+                    waiter.register(launchToken: join.launchToken)
+                    do {
+                        try Task.checkCancellation()
+                    } catch {
+                        await cancelStartupWaiter(waiterID: waiter.id, launchToken: join.launchToken)
+                        throw CancellationError()
+                    }
+                    return try await waitForStartup(join, waiter: waiter)
+                }
+                lastRequestAt = nil
+                await stopStartup(startup)
+                try Task.checkCancellation()
+
+            case let .running(launch):
+                guard launch.process.isRunning else {
+                    lastRequestAt = nil
+                    setState(.idle)
+                    continue
+                }
+                if launch.modelID == model.id {
+                    try Task.checkCancellation()
+                    lastRequestAt = now()
+                    return Self.baseURL(port: launch.port)
+                }
+                lastRequestAt = nil
+                await stopRunning(launch)
+                try Task.checkCancellation()
+
+            case let .stopping(stopping):
+                lastRequestAt = nil
+                await finishStopping(stopping)
+                try Task.checkCancellation()
+            }
+        }
+    }
+
+    private func beginStartup(for model: LocalAIModel, waiterID: UUID) throws -> StartupState {
+        lastRequestAt = nil
         let modelURL = store.modelURL(for: model)
         let reservedPort = try reserveEphemeralLoopbackPort()
         let (process, launchedPort) = try launchProcess(model, modelURL, reservedPort, contextSize)
@@ -164,49 +272,123 @@ actor LocalAIServerManager {
             port: launchedPort,
             exitSignal: exitSignal
         )
-        let startup = StartupState(launch: launch, healthTask: healthTask)
-        state = .starting(startup)
+        let startup = StartupState(
+            launch: launch,
+            healthTask: healthTask,
+            waiterIDs: [waiterID]
+        )
+        setState(.starting(startup))
         return startup
     }
 
-    private func finishStartup(_ startup: StartupState) async throws -> URL {
-        let isHealthy = await startup.healthTask.value
+    private func makeJoin(_ startup: StartupState) -> StartupJoin {
+        StartupJoin(
+            launchToken: startup.launch.token,
+            modelID: startup.launch.modelID,
+            healthTask: startup.healthTask
+        )
+    }
 
-        switch state {
-        case let .running(current) where current.token == startup.launch.token:
-            guard current.process.isRunning else {
-                state = .idle
-                throw startFailed(for: startup.launch.modelID, reason: "Process exited after startup")
+    private func waitForStartup(_ join: StartupJoin, waiter: StartupWaiter) async throws -> URL {
+        switch await waiter.wait(for: join.healthTask) {
+        case .cancelled:
+            await cancelStartupWaiter(waiterID: waiter.id, launchToken: join.launchToken)
+            throw CancellationError()
+
+        case let .health(isHealthy):
+            do {
+                try Task.checkCancellation()
+            } catch {
+                await cancelStartupWaiter(waiterID: waiter.id, launchToken: join.launchToken)
+                throw CancellationError()
             }
+            let url = try await finishStartup(
+                launchToken: join.launchToken,
+                modelID: join.modelID,
+                waiterID: waiter.id,
+                isHealthy: isHealthy
+            )
+            do {
+                try Task.checkCancellation()
+                return url
+            } catch {
+                await cancelStartupWaiter(waiterID: waiter.id, launchToken: join.launchToken)
+                throw CancellationError()
+            }
+        }
+    }
+
+    private func finishStartup(
+        launchToken: UUID,
+        modelID: String,
+        waiterID: UUID,
+        isHealthy: Bool
+    ) async throws -> URL {
+        switch state {
+        case let .running(current) where current.token == launchToken:
+            guard current.process.isRunning else {
+                lastRequestAt = nil
+                setState(.idle)
+                throw startFailed(for: modelID, reason: "Process exited after startup")
+            }
+            try Task.checkCancellation()
             lastRequestAt = now()
             return Self.baseURL(port: current.port)
 
-        case let .starting(current) where current.launch.token == startup.launch.token:
+        case let .starting(current) where current.launch.token == launchToken:
+            guard current.waiterIDs.contains(waiterID) else {
+                throw CancellationError()
+            }
             guard isHealthy, current.launch.process.isRunning else {
                 await stopStartup(current)
                 throw startFailed(for: current.launch.modelID, reason: "Health check did not succeed")
             }
-            state = .running(current.launch)
+            try Task.checkCancellation()
+            setState(.running(current.launch))
             lastRequestAt = now()
             return Self.baseURL(port: current.launch.port)
 
-        case let .stopping(stopping) where stopping.launch.token == startup.launch.token:
+        case let .stopping(stopping) where stopping.launch.token == launchToken:
             await finishStopping(stopping)
-            throw startFailed(for: startup.launch.modelID, reason: "Startup was cancelled")
+            if Task.isCancelled { throw CancellationError() }
+            throw startFailed(for: modelID, reason: "Startup was cancelled")
 
         default:
-            throw startFailed(for: startup.launch.modelID, reason: "Startup was superseded")
+            if Task.isCancelled { throw CancellationError() }
+            throw startFailed(for: modelID, reason: "Startup was superseded")
+        }
+    }
+
+    private func cancelStartupWaiter(waiterID: UUID, launchToken: UUID?) async {
+        switch state {
+        case var .starting(startup):
+            if let launchToken, startup.launch.token != launchToken { return }
+            guard startup.waiterIDs.remove(waiterID) != nil else { return }
+            setState(.starting(startup))
+            if startup.waiterIDs.isEmpty {
+                await stopStartup(startup)
+            }
+
+        case let .stopping(stopping):
+            guard launchToken == stopping.launch.token else { return }
+            await finishStopping(stopping)
+
+        case .idle, .running:
+            return
         }
     }
 
     private func stopStartup(_ startup: StartupState) async {
+        lastRequestAt = nil
         let stopping: StoppingState
         switch state {
         case let .starting(current) where current.launch.token == startup.launch.token:
             stopping = StoppingState(launch: current.launch, healthTask: current.healthTask)
-            state = .stopping(stopping)
+            setState(.stopping(stopping))
             current.healthTask.cancel()
-            current.launch.process.terminate()
+            if current.launch.process.isRunning {
+                current.launch.process.terminate()
+            }
         case let .stopping(current) where current.launch.token == startup.launch.token:
             stopping = current
         default:
@@ -216,12 +398,15 @@ actor LocalAIServerManager {
     }
 
     private func stopRunning(_ launch: LaunchState) async {
+        lastRequestAt = nil
         let stopping: StoppingState
         switch state {
         case let .running(current) where current.token == launch.token:
             stopping = StoppingState(launch: current, healthTask: nil)
-            state = .stopping(stopping)
-            current.process.terminate()
+            setState(.stopping(stopping))
+            if current.process.isRunning {
+                current.process.terminate()
+            }
         case let .stopping(current) where current.launch.token == launch.token:
             stopping = current
         default:
@@ -239,7 +424,29 @@ actor LocalAIServerManager {
         }
         if case let .stopping(current) = state,
            current.launch.token == stopping.launch.token {
-            state = .idle
+            setState(.idle)
+        }
+    }
+
+    private func setState(_ newState: LifecycleState) {
+        state = newState
+        observeLifecycle(snapshot(for: newState))
+    }
+
+    private func snapshot(for state: LifecycleState) -> LifecycleSnapshot {
+        switch state {
+        case .idle:
+            return LifecycleSnapshot(phase: .idle, modelID: nil, startupWaiterCount: 0)
+        case let .starting(startup):
+            return LifecycleSnapshot(
+                phase: .starting,
+                modelID: startup.launch.modelID,
+                startupWaiterCount: startup.waiterIDs.count
+            )
+        case let .running(launch):
+            return LifecycleSnapshot(phase: .running, modelID: launch.modelID, startupWaiterCount: 0)
+        case let .stopping(stopping):
+            return LifecycleSnapshot(phase: .stopping, modelID: stopping.launch.modelID, startupWaiterCount: 0)
         }
     }
 
@@ -286,6 +493,82 @@ actor LocalAIServerManager {
             }
         }
         return false
+    }
+}
+
+private final class StartupWaiter: @unchecked Sendable {
+    enum Outcome: Sendable {
+        case health(Bool)
+        case cancelled
+    }
+
+    let id = UUID()
+
+    private let lock = NSLock()
+    private var storedLaunchToken: UUID?
+    private var outcome: Outcome?
+    private var continuation: CheckedContinuation<Outcome, Never>?
+    private var observationTask: Task<Void, Never>?
+
+    var launchToken: UUID? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedLaunchToken
+    }
+
+    func register(launchToken: UUID) {
+        lock.lock()
+        storedLaunchToken = launchToken
+        lock.unlock()
+    }
+
+    func wait(for healthTask: Task<Bool, Never>) async -> Outcome {
+        startObserving(healthTask)
+        return await withCheckedContinuation { continuation in
+            let immediateOutcome: Outcome?
+            lock.lock()
+            if let outcome {
+                immediateOutcome = outcome
+            } else {
+                self.continuation = continuation
+                immediateOutcome = nil
+            }
+            lock.unlock()
+            if let immediateOutcome {
+                continuation.resume(returning: immediateOutcome)
+            }
+        }
+    }
+
+    func cancel() {
+        resolve(.cancelled)
+    }
+
+    private func startObserving(_ healthTask: Task<Bool, Never>) {
+        lock.lock()
+        guard outcome == nil, observationTask == nil else {
+            lock.unlock()
+            return
+        }
+        observationTask = Task { [weak self] in
+            let isHealthy = await healthTask.value
+            self?.resolve(.health(isHealthy))
+        }
+        lock.unlock()
+    }
+
+    private func resolve(_ newOutcome: Outcome) {
+        let continuationToResume: CheckedContinuation<Outcome, Never>?
+        lock.lock()
+        guard outcome == nil else {
+            lock.unlock()
+            return
+        }
+        outcome = newOutcome
+        continuationToResume = continuation
+        continuation = nil
+        lock.unlock()
+        continuationToResume?.resume(returning: newOutcome)
     }
 }
 

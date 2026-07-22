@@ -6,17 +6,21 @@ struct LocalAIServerManagerTests {
         try await testLazyStartForwardsPrimaryShardAndExactContextSize()
         try await testSecondRequestForSameModelReusesRunningProcess()
         try await testConcurrentSameModelRequestsCoalesceOneStartup()
-        try await testDifferentModelDuringStartupCleansFirstBeforeLaunchingSecond()
-        try await testRequestForDifferentRunningModelStopsFirstBeforeLaunchingSecond()
+        try await testCancellingOneOfTwoSameModelWaitersKeepsSharedStartup()
+        try await testCancellingSoleStartupWaiterCleansProcessAndThrowsCancellation()
+        try await testDifferentModelDuringStartupWaitsForDelayedExitBeforeLaunchingSecond()
+        try await testRequestForDifferentRunningModelWaitsForDelayedExitBeforeLaunchingSecond()
         try await testLateOldTerminationCallbackDoesNotClearNewSameModelLaunch()
         try await testHealthSuccessAfterProcessExitThrowsAndDoesNotPublishProcess()
         try await testUnhealthyStartupTerminatesProcess()
         try await testCrashedProcessRestartsOnNextRequest()
         try await testStopTerminatesRunningProcess()
-        try await testStopDuringStartupCancelsAndCleansProcess()
+        try await testStopDuringStartupWaitsForDelayedExitCleanup()
         try await testIdleShutdownTerminatesAfterTimeout()
         try await testIdleShutdownDoesNothingBeforeTimeout()
+        try await testIdleShutdownDoesNotCancelNewStartupUsingOldTimestamp()
         try await testSuccessfulStartupRefreshesIdleTimestampAfterHealthWait()
+        try await testManagerDeinitTerminatesRunningProcess()
         print("LocalAIServerManagerTests passed")
     }
 
@@ -74,31 +78,28 @@ struct LocalAIServerManagerTests {
         let process = FakeProcess()
         let healthGate = ControlledHealthPoll()
         let launchCount = LockedBox(0)
-        let launchEvent = DispatchSemaphore(value: 0)
-        let secondCallStarted = DispatchSemaphore(value: 0)
+        let twoWaitersRegistered = DispatchSemaphore(value: 0)
         let manager = makeManager(
             launchProcess: { _, _, port, _ in
                 launchCount.withValue { $0 += 1 }
-                launchEvent.signal()
                 return (process, port)
             },
-            pollHealth: { _ in await healthGate.poll() }
+            pollHealth: { _ in await healthGate.poll() },
+            observeLifecycle: { snapshot in
+                if snapshot.phase == .starting,
+                   snapshot.modelID == testModel.id,
+                   snapshot.startupWaiterCount == 2 {
+                    twoWaitersRegistered.signal()
+                }
+            }
         )
 
         let first = Task { try await manager.baseURL(for: testModel) }
-        try wait(launchEvent, "first launch did not start")
         try healthGate.waitUntilEntered()
+        let second = Task { try await manager.baseURL(for: testModel) }
+        try wait(twoWaitersRegistered, "second caller did not join the in-progress startup")
 
-        let second = Task {
-            secondCallStarted.signal()
-            return try await manager.baseURL(for: testModel)
-        }
-        try wait(secondCallStarted, "second request task did not start")
-        try require(
-            launchEvent.wait(timeout: .now() + 0.5) == .timedOut,
-            "concurrent same-model request launched a second process"
-        )
-
+        try require(launchCount.value == 1, "concurrent same-model request launched a second process")
         healthGate.finish(true)
         let firstURL = try await first.value
         let secondURL = try await second.value
@@ -107,13 +108,83 @@ struct LocalAIServerManagerTests {
         try require(firstURL == secondURL, "coalesced callers should receive the same URL")
     }
 
-    private static func testDifferentModelDuringStartupCleansFirstBeforeLaunchingSecond() async throws {
-        let firstProcess = FakeProcess()
+    private static func testCancellingOneOfTwoSameModelWaitersKeepsSharedStartup() async throws {
+        let process = FakeProcess()
+        let healthGate = ControlledHealthPoll()
+        let twoWaitersRegistered = DispatchSemaphore(value: 0)
+        let oneWaiterRemaining = DispatchSemaphore(value: 0)
+        let sawTwoWaiters = LockedBox(false)
+        let manager = makeManager(
+            launchProcess: { _, _, port, _ in (process, port) },
+            pollHealth: { _ in await healthGate.poll() },
+            observeLifecycle: { snapshot in
+                guard snapshot.phase == .starting, snapshot.modelID == testModel.id else { return }
+                if snapshot.startupWaiterCount == 2 {
+                    sawTwoWaiters.withValue { $0 = true }
+                    twoWaitersRegistered.signal()
+                } else if snapshot.startupWaiterCount == 1, sawTwoWaiters.value {
+                    oneWaiterRemaining.signal()
+                }
+            }
+        )
+
+        let cancelledCaller = resultTask { try await manager.baseURL(for: testModel) }
+        try healthGate.waitUntilEntered()
+        let survivingCaller = resultTask { try await manager.baseURL(for: testModel) }
+        try wait(twoWaitersRegistered, "two same-model waiters were not registered")
+
+        cancelledCaller.cancel()
+        try wait(oneWaiterRemaining, "cancelled waiter was not released from shared startup")
+        try require(process.terminateCallCount == 0, "one cancelled waiter must not stop a startup needed by another waiter")
+
+        healthGate.finish(true)
+        try requireCancellation(await cancelledCaller.value, "cancelled waiter should receive CancellationError")
+        let survivingResult = await survivingCaller.value
+        guard case let .success(url) = survivingResult else {
+            throw TestFailure("surviving waiter should receive the shared startup URL")
+        }
+        try require(url.absoluteString.hasSuffix("/v1"), "surviving waiter received an invalid base URL")
+        try require(process.isRunning, "shared process should remain running for the surviving waiter")
+    }
+
+    private static func testCancellingSoleStartupWaiterCleansProcessAndThrowsCancellation() async throws {
+        let process = DelayedExitProcess()
+        let healthGate = ControlledHealthPoll()
+        let waiterRegistered = DispatchSemaphore(value: 0)
+        let manager = makeManager(
+            launchProcess: { _, _, port, _ in (process, port) },
+            pollHealth: { _ in await healthGate.poll() },
+            observeLifecycle: { snapshot in
+                if snapshot.phase == .starting,
+                   snapshot.modelID == testModel.id,
+                   snapshot.startupWaiterCount == 1 {
+                    waiterRegistered.signal()
+                }
+            }
+        )
+        let caller = resultTask { try await manager.baseURL(for: testModel) }
+        try wait(waiterRegistered, "sole startup waiter was not registered")
+        try healthGate.waitUntilEntered()
+
+        caller.cancel()
+        try process.waitForTerminateRequest()
+        let stopping = await manager.lifecycleSnapshot()
+        try require(stopping.phase == .stopping, "last waiter cancellation must remain in stopping until process exit")
+        try require(stopping.modelID == testModel.id, "stopping snapshot should identify the cancelled launch")
+
+        process.completeTermination()
+        try requireCancellation(await caller.value, "sole cancelled waiter should receive CancellationError")
+        try require(process.terminateCallCount == 1, "last waiter cancellation should terminate the startup process once")
+        let idle = await manager.lifecycleSnapshot()
+        try require(idle.phase == .idle, "last waiter cancellation should finish cleanup before returning")
+    }
+
+    private static func testDifferentModelDuringStartupWaitsForDelayedExitBeforeLaunchingSecond() async throws {
+        let firstProcess = DelayedExitProcess()
         let secondProcess = FakeProcess()
         let firstHealth = ControlledHealthPoll()
         let launches = LockedBox<[String]>([])
-        let secondLaunchObservedCleanup = LockedBox(false)
-        let launchEvent = DispatchSemaphore(value: 0)
+        let secondLaunch = DispatchSemaphore(value: 0)
         let healthCallCount = LockedBox(0)
         let manager = makeManager(
             launchProcess: { model, _, port, _ in
@@ -121,12 +192,7 @@ struct LocalAIServerManagerTests {
                     records.append(model.id)
                     return records.count
                 }
-                if launchIndex == 2 {
-                    secondLaunchObservedCleanup.withValue {
-                        $0 = !firstProcess.isRunning && firstProcess.terminateCallCount == 1
-                    }
-                }
-                launchEvent.signal()
+                if launchIndex == 2 { secondLaunch.signal() }
                 return (launchIndex == 1 ? firstProcess : secondProcess, port)
             },
             pollHealth: { _ in
@@ -139,45 +205,56 @@ struct LocalAIServerManagerTests {
         )
 
         let first = resultTask { try await manager.baseURL(for: testModel) }
-        try wait(launchEvent, "first model launch did not start")
         try firstHealth.waitUntilEntered()
-
         let second = Task { try await manager.baseURL(for: otherModel) }
-        try wait(launchEvent, "second model launch did not start after cancelling the first")
+        try firstProcess.waitForTerminateRequest()
+
+        let stopping = await manager.lifecycleSnapshot()
+        try require(stopping.phase == .stopping, "model switch should wait in stopping for delayed process exit")
+        try require(stopping.modelID == testModel.id, "model switch should still own the first launch while stopping")
+        try require(launches.value == [testModel.id], "replacement launched before first process exited")
+
+        firstProcess.completeTermination()
+        try wait(secondLaunch, "second model did not launch after first process exited")
         let secondURL = try await second.value
         let firstResult = await first.value
 
         try requireFailure(firstResult, "superseded startup should fail")
         try require(launches.value == [testModel.id, otherModel.id], "models launched in the wrong order")
-        try require(secondLaunchObservedCleanup.value, "first startup was not cleaned before second launch")
         try require(!firstProcess.isRunning, "first process must not remain resident")
         try require(secondProcess.isRunning, "second process should remain active")
         try require(secondURL.absoluteString.hasSuffix("/v1"), "second startup should return a base URL")
     }
 
-    private static func testRequestForDifferentRunningModelStopsFirstBeforeLaunchingSecond() async throws {
-        let firstProcess = FakeProcess()
+    private static func testRequestForDifferentRunningModelWaitsForDelayedExitBeforeLaunchingSecond() async throws {
+        let firstProcess = DelayedExitProcess()
         let secondProcess = FakeProcess()
         let launchCount = LockedBox(0)
-        let secondLaunchObservedCleanup = LockedBox(false)
+        let secondLaunch = DispatchSemaphore(value: 0)
         let manager = makeManager(
             launchProcess: { _, _, port, _ in
                 let count = launchCount.withValue { value -> Int in
                     value += 1
                     return value
                 }
-                if count == 2 {
-                    secondLaunchObservedCleanup.withValue { $0 = !firstProcess.isRunning }
-                }
+                if count == 2 { secondLaunch.signal() }
                 return (count == 1 ? firstProcess : secondProcess, port)
             }
         )
 
         _ = try await manager.baseURL(for: testModel)
-        _ = try await manager.baseURL(for: otherModel)
+        let replacement = Task { try await manager.baseURL(for: otherModel) }
+        try firstProcess.waitForTerminateRequest()
+
+        let stopping = await manager.lifecycleSnapshot()
+        try require(stopping.phase == .stopping, "running model switch should wait for delayed process exit")
+        try require(launchCount.value == 1, "replacement launched before running process exited")
+
+        firstProcess.completeTermination()
+        try wait(secondLaunch, "replacement did not launch after old process exit")
+        _ = try await replacement.value
 
         try require(firstProcess.terminateCallCount == 1, "switching models should terminate the old process")
-        try require(secondLaunchObservedCleanup.value, "new process launched before old process cleanup")
         try require(secondProcess.isRunning, "new model process should remain running")
     }
 
@@ -287,8 +364,8 @@ struct LocalAIServerManagerTests {
         try require(!process.isRunning, "stop should leave no running process")
     }
 
-    private static func testStopDuringStartupCancelsAndCleansProcess() async throws {
-        let process = FakeProcess()
+    private static func testStopDuringStartupWaitsForDelayedExitCleanup() async throws {
+        let process = DelayedExitProcess()
         let healthGate = ControlledHealthPoll()
         let manager = makeManager(
             launchProcess: { _, _, port, _ in (process, port) },
@@ -297,12 +374,20 @@ struct LocalAIServerManagerTests {
         let startup = resultTask { try await manager.baseURL(for: testModel) }
         try healthGate.waitUntilEntered()
 
-        await manager.stop()
+        let stopTask = Task { await manager.stop() }
+        try process.waitForTerminateRequest()
+        let stopping = await manager.lifecycleSnapshot()
+        try require(stopping.phase == .stopping, "stop should remain pending while startup process is still running")
+
+        process.completeTermination()
+        await stopTask.value
         let result = await startup.value
 
         try requireFailure(result, "stopped startup should not return a URL")
         try require(process.terminateCallCount == 1, "stop should terminate the startup process")
         try require(!process.isRunning, "startup process should be cleaned before stop returns")
+        let idle = await manager.lifecycleSnapshot()
+        try require(idle.phase == .idle, "stop should finish in idle after delayed exit cleanup")
     }
 
     private static func testIdleShutdownTerminatesAfterTimeout() async throws {
@@ -337,6 +422,49 @@ struct LocalAIServerManagerTests {
         try require(process.terminateCallCount == 0, "process should stay running before idle timeout")
     }
 
+    private static func testIdleShutdownDoesNotCancelNewStartupUsingOldTimestamp() async throws {
+        let oldProcess = FakeProcess()
+        let newProcess = FakeProcess()
+        let newHealth = ControlledHealthPoll()
+        let clock = LockedBox(Date(timeIntervalSince1970: 0))
+        let launchCount = LockedBox(0)
+        let healthCount = LockedBox(0)
+        let manager = makeManager(
+            idleTimeout: 300,
+            launchProcess: { _, _, port, _ in
+                let count = launchCount.withValue { value -> Int in
+                    value += 1
+                    return value
+                }
+                return (count == 1 ? oldProcess : newProcess, port)
+            },
+            pollHealth: { _ in
+                let count = healthCount.withValue { value -> Int in
+                    value += 1
+                    return value
+                }
+                return count == 1 ? true : await newHealth.poll()
+            },
+            now: { clock.value }
+        )
+
+        _ = try await manager.baseURL(for: testModel)
+        clock.withValue { $0 = Date(timeIntervalSince1970: 299) }
+        let newStartup = Task { try await manager.baseURL(for: otherModel) }
+        try newHealth.waitUntilEntered()
+        clock.withValue { $0 = Date(timeIntervalSince1970: 301) }
+
+        await manager.shutdownIfIdle()
+        let starting = await manager.lifecycleSnapshot()
+        try require(starting.phase == .starting, "idle check must not stop an actively requested startup")
+        try require(starting.modelID == otherModel.id, "new model should remain the active startup")
+        try require(newProcess.terminateCallCount == 0, "old timestamp must not terminate the new startup")
+
+        newHealth.finish(true)
+        _ = try await newStartup.value
+        try require(newProcess.isRunning, "new startup should complete after idle check")
+    }
+
     private static func testSuccessfulStartupRefreshesIdleTimestampAfterHealthWait() async throws {
         let process = FakeProcess()
         let healthGate = ControlledHealthPoll()
@@ -358,12 +486,26 @@ struct LocalAIServerManagerTests {
         try require(process.terminateCallCount == 0, "successful startup must refresh idle time after health completes")
     }
 
+    private static func testManagerDeinitTerminatesRunningProcess() async throws {
+        let process = FakeProcess()
+        var manager: LocalAIServerManager? = makeManager(
+            launchProcess: { _, _, port, _ in (process, port) }
+        )
+
+        _ = try await manager?.baseURL(for: testModel)
+        manager = nil
+
+        try process.waitForTerminateRequest()
+        try require(process.terminateCallCount == 1, "manager deinit should terminate its running process")
+    }
+
     private static func makeManager(
         idleTimeout: TimeInterval = 300,
         contextSize: Int = 8192,
         launchProcess: @escaping LocalAIServerManager.LaunchProcess,
         pollHealth: @escaping LocalAIServerManager.PollHealth = { _ in true },
-        now: @escaping @Sendable () -> Date = { Date(timeIntervalSince1970: 0) }
+        now: @escaping @Sendable () -> Date = { Date(timeIntervalSince1970: 0) },
+        observeLifecycle: @escaping LocalAIServerManager.ObserveLifecycle = { _ in }
     ) -> LocalAIServerManager {
         LocalAIServerManager(
             store: LocalAIModelStore(rootDirectory: temporaryRoot()),
@@ -371,7 +513,8 @@ struct LocalAIServerManagerTests {
             contextSize: contextSize,
             launchProcess: launchProcess,
             pollHealth: pollHealth,
-            now: now
+            now: now,
+            observeLifecycle: observeLifecycle
         )
     }
 
@@ -396,6 +539,12 @@ struct LocalAIServerManagerTests {
 
     private static func requireFailure(_ result: Result<URL, Error>, _ message: String) throws {
         guard case .failure = result else { throw TestFailure(message) }
+    }
+
+    private static func requireCancellation(_ result: Result<URL, Error>, _ message: String) throws {
+        guard case let .failure(error) = result, error is CancellationError else {
+            throw TestFailure(message)
+        }
     }
 
     private static func require(_ condition: @autoclosure () -> Bool, _ message: String) throws {
@@ -515,6 +664,7 @@ private final class ControlledHealthPoll: @unchecked Sendable {
 
 private final class FakeProcess: LocalAIServerProcess, @unchecked Sendable {
     private let lock = NSLock()
+    private let terminateRequested = DispatchSemaphore(value: 0)
     private var running = true
     private var terminationHandler: (() -> Void)?
     private var storedTerminateCallCount = 0
@@ -538,7 +688,14 @@ private final class FakeProcess: LocalAIServerProcess, @unchecked Sendable {
         running = false
         handler = terminationHandler
         lock.unlock()
+        terminateRequested.signal()
         handler?()
+    }
+
+    func waitForTerminateRequest() throws {
+        guard terminateRequested.wait(timeout: .now() + 2) == .success else {
+            throw TestFailure("process terminate was not requested")
+        }
     }
 
     func setTerminationHandler(_ handler: @escaping () -> Void) {
@@ -559,6 +716,54 @@ private final class FakeProcess: LocalAIServerProcess, @unchecked Sendable {
     func invokeTerminationHandler() {
         lock.lock()
         let handler = terminationHandler
+        lock.unlock()
+        handler?()
+    }
+}
+
+private final class DelayedExitProcess: LocalAIServerProcess, @unchecked Sendable {
+    private let lock = NSLock()
+    private let terminateRequested = DispatchSemaphore(value: 0)
+    private var running = true
+    private var terminationHandler: (() -> Void)?
+    private var storedTerminateCallCount = 0
+
+    var isRunning: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return running
+    }
+
+    var terminateCallCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedTerminateCallCount
+    }
+
+    func terminate() {
+        lock.lock()
+        storedTerminateCallCount += 1
+        lock.unlock()
+        terminateRequested.signal()
+    }
+
+    func setTerminationHandler(_ handler: @escaping () -> Void) {
+        lock.lock()
+        terminationHandler = handler
+        lock.unlock()
+    }
+
+    func waitForTerminateRequest() throws {
+        guard terminateRequested.wait(timeout: .now() + 2) == .success else {
+            throw TestFailure("delayed process terminate was not requested")
+        }
+    }
+
+    func completeTermination() {
+        let handler: (() -> Void)?
+        lock.lock()
+        running = false
+        handler = terminationHandler
         lock.unlock()
         handler?()
     }
