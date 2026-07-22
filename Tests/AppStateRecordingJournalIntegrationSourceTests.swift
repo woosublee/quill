@@ -243,8 +243,70 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         try testRecordOnlySessionSnapshotsAndGatesAIComponents()
         try testAppleSpeechStartWithoutTriggerModeClearsSessionSnapshot()
         try testRecordOnlyStillStartsSelectedAudioRecorder()
+        try testRecordOnlyBranchesBeforeTranscriptionJobCreation()
+        try testAudioOnlyStopUsesExistingRecorderFinalizationCases()
+        try testAudioOnlyStopDismissesRecordingOverlayOnErrors()
 
         print("AppStateRecordingJournalIntegrationSourceTests passed")
+    }
+
+    private static func testRecordOnlyBranchesBeforeTranscriptionJobCreation() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let stop = try body(startingWith: "private func stopAndTranscribe()", in: source)
+
+        let branch = try requiredRange(of: "if !shouldTranscribe", in: stop)
+        let register = try requiredRange(of: "registerTranscriptionJob(", in: stop)
+        let overlay = try requiredRange(of: "overlayManager.showTranscribing()", in: stop)
+        let service = try requiredRange(of: "PostProcessingService(", in: stop)
+
+        assert(branch.lowerBound < register.lowerBound)
+        assert(branch.lowerBound < overlay.lowerBound)
+        assert(branch.lowerBound < service.lowerBound)
+        assert(stop.contains("stopAndSaveAudioOnly("))
+    }
+
+    private static func testAudioOnlyStopUsesExistingRecorderFinalizationCases() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let helper = try body(startingWith: "private func stopAndSaveAudioOnly(", in: source)
+
+        assert(helper.contains("stopActiveAudioRecorder"))
+        assert(helper.contains("case .transcribable"))
+        assert(helper.contains("case .recoveredWithoutTranscription"))
+        assert(helper.contains("case .preservedForRecovery"))
+        assert(helper.contains("case .empty"))
+        assert(helper.contains("savedAudioFileForStoppedRecording"))
+        assert(helper.contains("PipelineHistoryItem.audioOnly("))
+        assert(!helper.contains("saveTranscriptFile("))
+        assert(!helper.contains("registerTranscriptionJob("))
+        assert(!helper.contains("overlayManager.showTranscribing()"))
+        assert(!helper.contains("writeTranscriptToPasteboard("))
+        assert(!helper.contains("pasteAtCursorWhenShortcutReleased"))
+        assert(!helper.contains("lastTranscript = \"\""))
+    }
+
+    private static func testAudioOnlyStopDismissesRecordingOverlayOnErrors() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let helper = try body(startingWith: "private func stopAndSaveAudioOnly(", in: source)
+        let transcribable = try switchCaseBody(
+            startingWith: "case .transcribable",
+            endingBefore: "case .recoveredWithoutTranscription",
+            in: helper
+        )
+        let preserved = try switchCaseBody(
+            startingWith: "case .preservedForRecovery",
+            endingBefore: "case .empty",
+            in: helper
+        )
+        let emptyRange = try requiredRange(of: "case .empty:", in: helper)
+        let empty = String(helper[emptyRange.upperBound...])
+        let persist = try body(startingWith: "private func persistAudioOnlyRecording(", in: source)
+        let catchRange = try requiredRange(of: "} catch {", in: persist)
+        let persistCatch = String(persist[catchRange.upperBound...])
+
+        assert(transcribable.contains("self.dismissTranscribingOverlay()"))
+        assert(preserved.contains("self.dismissTranscribingOverlay()"))
+        assert(empty.contains("self.dismissTranscribingOverlay()"))
+        assert(persistCatch.contains("dismissTranscribingOverlay()"))
     }
 
     private static func testRecordOnlySessionSnapshotsAndGatesAIComponents() throws {

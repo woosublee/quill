@@ -6816,10 +6816,30 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let jobID = currentRecordingLiveNoteID ?? activeRecordingID ?? UUID()
         let liveNoteID = currentRecordingLiveNoteID
         currentRecordingLiveNoteID = nil
+        let shouldTranscribe = shouldTranscribeActiveRecording
+        activeRecordingTranscriptionEnabled = nil
+        let recordingCalendarSnapshot = activeRecordingCalendarSnapshot
         let recordingStartedAt = activeRecordingStartedAt
         let recordingEndedAt = Date()
         activeRecordingStartedAt = nil
         activeRecordingCalendarSnapshot = nil
+
+        if !shouldTranscribe {
+            capturedContext = nil
+            contextCaptureTask?.cancel()
+            contextCaptureTask = nil
+            liveTranscriber?.cancel()
+            liveTranscriber = nil
+            setActiveRecorderPCMHandler(nil)
+            stopAndSaveAudioOnly(
+                recordingID: jobID,
+                recordingStartedAt: recordingStartedAt,
+                recordingEndedAt: recordingEndedAt,
+                calendarSnapshot: recordingCalendarSnapshot
+            )
+            return
+        }
+
         let startedAt = recordingEndedAt
         registerTranscriptionJob(
             id: jobID,
@@ -7241,6 +7261,73 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 historyID: cloudHistoryID,
                 context: cloudExecutionContext
             )
+        }
+    }
+
+    @MainActor
+    private func stopAndSaveAudioOnly(
+        recordingID: UUID,
+        recordingStartedAt: Date?,
+        recordingEndedAt: Date,
+        calendarSnapshot: RecordingCalendarSnapshot?
+    ) {
+        isRecording = false
+        restoreAudioInterruptionIfNeeded()
+        refreshTranscribingState()
+        errorMessage = nil
+        tearDownRealtimeService()
+
+        stopActiveAudioRecorder { [weak self] stoppedRecording in
+            guard let self else { return }
+            switch stoppedRecording {
+            case .transcribable(let fileURL, _):
+                guard let savedAudioFile = Self.savedAudioFileForStoppedRecording(fileURL) else {
+                    self.errorMessage = localizedCatalogString("No audio recorded")
+                    self.statusText = localizedCatalogString("Error")
+                    self.dismissTranscribingOverlay()
+                    self.cleanupActiveAudioRecordersIfIdle()
+                    return
+                }
+
+                Task { [weak self] in
+                    guard let self else { return }
+                    let calendarMatch = await self.calendarMatchForStoppedRecording(
+                        recordingStartedAt: recordingStartedAt,
+                        recordingEndedAt: recordingEndedAt,
+                        calendarSnapshot: calendarSnapshot
+                    )
+                    await MainActor.run {
+                        // persistAudioOnlyRecording creates PipelineHistoryItem.audioOnly(...).
+                        self.persistAudioOnlyRecording(
+                            recordingID: recordingID,
+                            recordingStartedAt: recordingStartedAt,
+                            recordingEndedAt: recordingEndedAt,
+                            calendarMatch: calendarMatch,
+                            audioFileName: savedAudioFile.fileName
+                        )
+                    }
+                }
+
+            case .recoveredWithoutTranscription(let recovered):
+                self.persistRecoveredRecordingWithoutTranscription(
+                    recovered,
+                    jobID: recordingID,
+                    overlayID: self.overlayTranscriptionID
+                )
+
+            case .preservedForRecovery(_, let message):
+                self.errorMessage = localizedCatalogString("Audio was preserved for recovery.") + " " + message
+                self.statusText = localizedCatalogString("Error")
+                self.dismissTranscribingOverlay()
+                self.cleanupActiveAudioRecordersIfIdle()
+
+            case .empty:
+                self.errorMessage = localizedCatalogString("No audio recorded")
+                self.statusText = localizedCatalogString("Error")
+                self.mcpLastRecordingFailed = true
+                self.dismissTranscribingOverlay()
+                self.cleanupActiveAudioRecordersIfIdle()
+            }
         }
     }
 
@@ -7809,6 +7896,56 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    private func persistAudioOnlyRecording(
+        recordingID: UUID,
+        recordingStartedAt: Date?,
+        recordingEndedAt: Date,
+        calendarMatch: CalendarEventMatch?,
+        audioFileName: String
+    ) {
+        let item = PipelineHistoryItem.audioOnly(
+            id: recordingID,
+            timestamp: recordingEndedAt,
+            recordingStartedAt: recordingStartedAt,
+            recordingEndedAt: recordingEndedAt,
+            calendarMatch: calendarMatch,
+            audioFileName: audioFileName,
+            transcriptionLanguageCode: transcriptionLanguage.code,
+            localTranscriptionModelID: localTranscriptionModel.id
+        )
+        let journalRecordingID = recordingJournalID(
+            forAudioFileName: audioFileName
+        )
+
+        do {
+            let removed = try appendPipelineHistoryItem(item)
+            for assets in removed {
+                cleanupDeletedPipelineHistoryAssets(assets)
+            }
+            if let journalRecordingID {
+                completePromotedRecordingJournal(
+                    recordingID: journalRecordingID
+                )
+            }
+            statusText = localizedCatalogString("Recording saved")
+            debugStatusMessage = "Recording saved"
+            errorMessage = nil
+            mcpLastRecordingFailed = false
+            dismissTranscribingOverlay()
+            cleanupActiveAudioRecordersIfIdle()
+            scheduleReadyStatusReset(
+                after: 3,
+                matching: [localizedCatalogString("Recording saved")]
+            )
+        } catch {
+            errorMessage = userIssue(for: error).record.presentation().compactMessage
+            statusText = localizedCatalogString("Error")
+            dismissTranscribingOverlay()
+            cleanupActiveAudioRecordersIfIdle()
+        }
+    }
+
+    @MainActor
     private func updatePipelineHistoryItem(_ item: PipelineHistoryItem) {
         if let index = pipelineHistory.firstIndex(where: { $0.id == item.id }) {
             pipelineHistory[index] = item
@@ -7930,8 +8067,111 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    private static func logTimestamp(_ date: Date) -> String {
-        ISO8601DateFormatter().string(from: date)
+    private func calendarMatchForStoppedRecording(
+        recordingStartedAt: Date?,
+        recordingEndedAt: Date,
+        calendarSnapshot: RecordingCalendarSnapshot?
+    ) async -> CalendarEventMatch? {
+        if let calendarSnapshot,
+           let calendarID = calendarSnapshot.calendarID,
+           let eventID = calendarSnapshot.eventID,
+           let title = calendarSnapshot.title,
+           let start = calendarSnapshot.startDate,
+           let end = calendarSnapshot.endDate {
+            let matchSource = CalendarMatchSource(
+                rawValue: calendarSnapshot.matchSource ?? ""
+            ) ?? .calendarNotification
+            let attendees = calendarSnapshot.attendeeNames.map {
+                CalendarEventAttendee(
+                    displayName: $0,
+                    email: nil,
+                    responseStatus: nil,
+                    isOptional: false,
+                    isSelf: false
+                )
+            }
+            return CalendarEventMatch(
+                calendarID: calendarID,
+                eventID: eventID,
+                title: title,
+                start: start,
+                end: end,
+                attendees: attendees,
+                matchSource: matchSource,
+                titleState: .applied
+            )
+        }
+
+        guard let recordingStartedAt else { return nil }
+        return await calendarEventMatch(
+            recordingStartedAt: recordingStartedAt,
+            recordingEndedAt: recordingEndedAt
+        )
+    }
+
+    private func calendarEventMatch(
+        recordingStartedAt: Date,
+        recordingEndedAt: Date
+    ) async -> CalendarEventMatch? {
+        guard recordingEndedAt > recordingStartedAt else { return nil }
+        let selectedCalendarIDs = await MainActor.run {
+            googleCalendarConnection.selectedCalendarIDs
+        }
+        guard !selectedCalendarIDs.isEmpty else { return nil }
+
+        do {
+            guard let token = try await validGoogleCalendarToken() else {
+                await MainActor.run {
+                    markGoogleCalendarNeedsReconnect(
+                        feature: .recordingMatch,
+                        message: localizedCatalogString("Google Calendar needs reconnecting. Calendar-based note titles may be unavailable.")
+                    )
+                }
+                return nil
+            }
+            let fetchResult = await Self.googleCalendarServiceFactory()
+                .fetchEventsWithDiagnostics(
+                    accessToken: token.accessToken,
+                    calendarIDs: Array(selectedCalendarIDs),
+                    timeMin: recordingStartedAt,
+                    timeMax: recordingEndedAt
+                )
+            await MainActor.run {
+                if fetchResult.failedCalendarIDs.isEmpty {
+                    markGoogleCalendarHealthy(feature: .recordingMatch)
+                } else {
+                    markGoogleCalendarTemporarilyUnavailable(
+                        feature: .recordingMatch,
+                        message: localizedCatalogString("Some Google calendars could not be refreshed. Calendar-based note titles may be incomplete.")
+                    )
+                }
+            }
+            guard let event = CalendarEventMatcher.bestMatch(
+                recordingStartedAt: recordingStartedAt,
+                recordingEndedAt: recordingEndedAt,
+                events: fetchResult.events
+            ) else { return nil }
+            return event.match(
+                accountID: token.accountEmail,
+                source: .overlapSuggestion,
+                titleState: .suggested
+            )
+        } catch {
+            await MainActor.run {
+                if Self.isGoogleCalendarReconnectError(error) {
+                    markGoogleCalendarNeedsReconnect(
+                        feature: .recordingMatch,
+                        message: localizedCatalogString("Google Calendar needs reconnecting. Calendar-based note titles may be unavailable.")
+                    )
+                } else {
+                    markGoogleCalendarTemporarilyUnavailable(
+                        feature: .recordingMatch,
+                        message: localizedCatalogFormat("Unable to refresh Google Calendar for note titles: %@", error.localizedDescription)
+                    )
+                }
+            }
+            return nil
+        }
     }
 
     private func calendarMatchForHistoryItem(jobID: UUID) async -> CalendarEventMatch? {
@@ -7948,136 +8188,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             os_log(.info, log: calendarLog, "Calendar match skipped: missing recording interval for job %{public}@", jobID.uuidString)
             return nil
         }
-        guard recordingEndedAt > recordingStartedAt else {
-            os_log(
-                .info,
-                log: calendarLog,
-                "Calendar match skipped: invalid recording interval for job %{public}@ start=%{public}@ end=%{public}@",
-                jobID.uuidString,
-                Self.logTimestamp(recordingStartedAt),
-                Self.logTimestamp(recordingEndedAt)
-            )
-            return nil
-        }
-        let selectedCalendarIDs = await MainActor.run { googleCalendarConnection.selectedCalendarIDs }
-        guard !selectedCalendarIDs.isEmpty else {
-            os_log(
-                .info,
-                log: calendarLog,
-                "Calendar match skipped: no selected calendars for job %{public}@ start=%{public}@ end=%{public}@",
-                jobID.uuidString,
-                Self.logTimestamp(recordingStartedAt),
-                Self.logTimestamp(recordingEndedAt)
-            )
-            return nil
-        }
-        do {
-            guard let token = try await validGoogleCalendarToken() else {
-                os_log(.info, log: calendarLog, "Calendar match skipped: no valid Google Calendar token for job %{public}@", jobID.uuidString)
-                await MainActor.run {
-                    markGoogleCalendarNeedsReconnect(
-                        feature: .recordingMatch,
-                        message: localizedCatalogString("Google Calendar needs reconnecting. Calendar-based note titles may be unavailable.")
-                    )
-                }
-                return nil
-            }
-            os_log(
-                .info,
-                log: calendarLog,
-                "Calendar match fetch started: job=%{public}@ calendars=%d start=%{public}@ end=%{public}@",
-                jobID.uuidString,
-                selectedCalendarIDs.count,
-                Self.logTimestamp(recordingStartedAt),
-                Self.logTimestamp(recordingEndedAt)
-            )
-            let fetchResult = await Self.googleCalendarServiceFactory().fetchEventsWithDiagnostics(
-                accessToken: token.accessToken,
-                calendarIDs: Array(selectedCalendarIDs),
-                timeMin: recordingStartedAt,
-                timeMax: recordingEndedAt
-            )
-            if !fetchResult.failedCalendarIDs.isEmpty {
-                await MainActor.run {
-                    markGoogleCalendarTemporarilyUnavailable(
-                        feature: .recordingMatch,
-                        message: localizedCatalogString("Some Google calendars could not be refreshed. Calendar-based note titles may be incomplete.")
-                    )
-                }
-                os_log(
-                    .error,
-                    log: calendarLog,
-                    "Calendar match fetch had failures: job=%{public}@ failedCalendars=%{private}@ fetchedEvents=%d",
-                    jobID.uuidString,
-                    fetchResult.failedCalendarIDs.joined(separator: ","),
-                    fetchResult.events.count
-                )
-            } else {
-                await MainActor.run {
-                    markGoogleCalendarHealthy(feature: .recordingMatch)
-                }
-                os_log(
-                    .info,
-                    log: calendarLog,
-                    "Calendar match fetch succeeded: job=%{public}@ fetchedEvents=%d",
-                    jobID.uuidString,
-                    fetchResult.events.count
-                )
-            }
-            guard let event = CalendarEventMatcher.bestMatch(
-                recordingStartedAt: recordingStartedAt,
-                recordingEndedAt: recordingEndedAt,
-                events: fetchResult.events
-            ) else {
-                os_log(
-                    .info,
-                    log: calendarLog,
-                    "Calendar match not found: job=%{public}@ fetchedEvents=%d failedCalendars=%d",
-                    jobID.uuidString,
-                    fetchResult.events.count,
-                    fetchResult.failedCalendarIDs.count
-                )
-                return nil
-            }
-            os_log(
-                .info,
-                log: calendarLog,
-                "Calendar match found: job=%{public}@ calendar=%{private}@ event=%{private}@ title=%{private}@ start=%{public}@ end=%{public}@",
-                jobID.uuidString,
-                event.calendarID,
-                event.id,
-                event.title,
-                Self.logTimestamp(event.start),
-                Self.logTimestamp(event.end)
-            )
-            return event.match(
-                accountID: token.accountEmail,
-                source: .overlapSuggestion,
-                titleState: .suggested
-            )
-        } catch {
-            os_log(
-                .error,
-                log: calendarLog,
-                "Calendar match failed: job=%{public}@ error=%{public}@",
-                jobID.uuidString,
-                error.localizedDescription
-            )
-            await MainActor.run {
-                if Self.isGoogleCalendarReconnectError(error) {
-                    markGoogleCalendarNeedsReconnect(
-                        feature: .recordingMatch,
-                        message: localizedCatalogString("Google Calendar needs reconnecting. Calendar-based note titles may be unavailable.")
-                    )
-                } else {
-                    markGoogleCalendarTemporarilyUnavailable(
-                        feature: .recordingMatch,
-                        message: localizedCatalogFormat("Unable to refresh Google Calendar for note titles: %@", error.localizedDescription)
-                    )
-                }
-            }
-            return nil
-        }
+        return await calendarEventMatch(
+            recordingStartedAt: recordingStartedAt,
+            recordingEndedAt: recordingEndedAt
+        )
     }
 
     @MainActor

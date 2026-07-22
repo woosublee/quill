@@ -311,12 +311,21 @@ struct PipelineHistoryCalendarMetadataTests {
         let id = UUID()
         let start = Date(timeIntervalSince1970: 100)
         let end = Date(timeIntervalSince1970: 200)
+        let calendarMatch = CalendarEventMatch(
+            calendarID: "calendar-id",
+            eventID: "event-id",
+            title: "Weekly Sync",
+            start: start,
+            end: end,
+            matchSource: .calendarNotification,
+            titleState: .applied
+        )
         let item = PipelineHistoryItem.audioOnly(
             id: id,
             timestamp: end,
             recordingStartedAt: start,
             recordingEndedAt: end,
-            calendarMatch: nil,
+            calendarMatch: calendarMatch,
             audioFileName: "audio.wav",
             transcriptionLanguageCode: "auto",
             localTranscriptionModelID: "remembered-model"
@@ -328,10 +337,12 @@ struct PipelineHistoryCalendarMetadataTests {
         assert(loaded.count == 1)
         assert(loaded[0].id == id)
         assert(loaded[0].machineStatus == .audioOnly)
-        assert(loaded[0].audioFileName == "audio.wav")
-        assert(loaded[0].transcriptFileName == nil)
+        assert(loaded[0].calendarMatch?.eventID == "event-id")
+        assert(loaded[0].calendarMatch?.appliedTitle == "Weekly Sync")
         assert(loaded[0].recordingStartedAt == start)
         assert(loaded[0].recordingEndedAt == end)
+        assert(loaded[0].audioFileName == "audio.wav")
+        assert(loaded[0].transcriptFileName == nil)
     }
 
     private static func testUpsertKeepsOneRowAndUpdatesAllFields() throws {
