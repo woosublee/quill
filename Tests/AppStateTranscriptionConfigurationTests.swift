@@ -1314,6 +1314,13 @@ struct AppStateTranscriptionConfigurationTests {
             precondition(!appState.disablePostProcessing)
             precondition(!appState.disableContextCapture)
             assertProviderState(appState, equals: expectedProviderState)
+
+            appState.disablePostProcessing = false
+            appState.disableContextCapture = true
+            appState.applySetupProcessingPreset(.recordOnly)
+            precondition(!appState.transcriptionEnabled)
+            precondition(!appState.disablePostProcessing)
+            precondition(appState.disableContextCapture)
         }
     }
 

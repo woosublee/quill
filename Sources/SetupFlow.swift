@@ -2,6 +2,7 @@ import UserNotifications
 
 enum SetupFlow {
     enum ProcessingLocation: Equatable {
+        case recordOnly
         case onThisMac
         case apiProvider
     }
@@ -14,6 +15,7 @@ enum SetupFlow {
     }
 
     enum ProcessingPreset: Equatable {
+        case recordOnly
         case localAppleSpeech
         case localNativeWhisper
         case apiStandard
@@ -30,6 +32,8 @@ enum SetupFlow {
         localModel: LocalModel
     ) -> ProcessingPreset? {
         switch location {
+        case .recordOnly:
+            return .recordOnly
         case .onThisMac:
             switch localModel {
             case .appleSpeech:
@@ -45,11 +49,12 @@ enum SetupFlow {
     }
 
     static func requiredPermissions(for preset: ProcessingPreset) -> Set<Permission> {
-        var permissions: Set<Permission> = [.microphone, .accessibility]
-        if preset == .localAppleSpeech {
-            permissions.insert(.speechRecognition)
+        switch preset {
+        case .recordOnly, .localNativeWhisper, .apiStandard:
+            return [.microphone]
+        case .localAppleSpeech:
+            return [.microphone, .speechRecognition]
         }
-        return permissions
     }
 
     static func isNotificationAuthorizationGranted(_ status: UNAuthorizationStatus) -> Bool {

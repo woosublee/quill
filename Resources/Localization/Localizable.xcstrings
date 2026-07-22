@@ -12692,6 +12692,134 @@
           }
         }
       }
+    },
+    "Record only": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record only"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음만"
+          }
+        }
+      }
+    },
+    "No transcription · No model download": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No transcription · No model download"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 없음 · 모델 다운로드 없음"
+          }
+        }
+      }
+    },
+    "Save audio notes now. Transcribe them later if needed. No model download or API key required.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save audio notes now. Transcribe them later if needed. No model download or API key required."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 오디오 노트를 저장하고 필요할 때 나중에 전사하세요. 모델 다운로드나 API 키가 필요하지 않습니다."
+          }
+        }
+      }
+    },
+    "Record only · Audio notes": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record only · Audio notes"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음만 · 오디오 노트"
+          }
+        }
+      }
+    },
+    "Enables automatic paste and Edit Mode when you turn them on.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enables automatic paste and Edit Mode when you turn them on."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동 붙여넣기와 편집 모드를 켜면 사용할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Record your voice and other selected audio inputs.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record your voice and other selected audio inputs."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성과 선택한 다른 오디오 입력을 녹음합니다."
+          }
+        }
+      }
+    },
+    "Screen & System Audio Recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen & System Audio Recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 및 시스템 오디오 녹음"
+          }
+        }
+      }
+    },
+    "Enables System Audio recording and optional screen context.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enables System Audio recording and optional screen context."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 오디오 녹음과 선택적 화면 컨텍스트를 사용할 수 있습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

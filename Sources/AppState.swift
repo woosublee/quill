@@ -1259,17 +1259,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func applySetupProcessingPreset(_ preset: SetupFlow.ProcessingPreset) {
         switch preset {
+        case .recordOnly:
+            transcriptionEnabled = false
         case .localAppleSpeech:
+            transcriptionEnabled = true
             setNoteBrowserTranscriptionChoice(.appleLive)
             disablePostProcessing = true
             disableContextCapture = true
         case .localNativeWhisper:
+            transcriptionEnabled = true
             setNoteBrowserTranscriptionChoice(
                 .nativeWhisper(modelID: NativeWhisperModelCatalog.recommended.id)
             )
             disablePostProcessing = true
             disableContextCapture = true
         case .apiStandard:
+            transcriptionEnabled = true
             setNoteBrowserTranscriptionChoice(
                 .apiStandard(modelID: transcriptionModel)
             )

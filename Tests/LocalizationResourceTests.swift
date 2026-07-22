@@ -64,7 +64,18 @@ struct LocalizationResourceTests {
                 "Local Whisper를 다운로드하는 중에 종료할까요?",
             "Quill will cancel the download and delete the partial file if you quit now.":
                 "지금 종료하면 Quill이 다운로드를 취소하고 partial 파일을 삭제합니다.",
-            "Quit and Cancel Download": "종료하고 다운로드 취소"
+            "Quit and Cancel Download": "종료하고 다운로드 취소",
+            "Record only": "녹음만",
+            "No transcription · No model download": "전사 없음 · 모델 다운로드 없음",
+            "Save audio notes now. Transcribe them later if needed. No model download or API key required.":
+                "지금 오디오 노트를 저장하고 필요할 때 나중에 전사하세요. 모델 다운로드나 API 키가 필요하지 않습니다.",
+            "Record only · Audio notes": "녹음만 · 오디오 노트",
+            "Enables automatic paste and Edit Mode when you turn them on.":
+                "자동 붙여넣기와 편집 모드를 켜면 사용할 수 있습니다.",
+            "Record your voice and other selected audio inputs.": "음성과 선택한 다른 오디오 입력을 녹음합니다.",
+            "Screen & System Audio Recording": "화면 및 시스템 오디오 녹음",
+            "Enables System Audio recording and optional screen context.":
+                "시스템 오디오 녹음과 선택적 화면 컨텍스트를 사용할 수 있습니다."
         ]
         for (key, expected) in onboardingKorean {
             let english = try localizedValue(key: key, language: "en", root: root)
