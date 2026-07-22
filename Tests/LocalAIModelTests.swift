@@ -9,6 +9,7 @@ struct LocalAIModelTests {
         try testCatalogContainsBothModelsWithQualityRecommended()
         try testFindReturnsMatchingModelOrFallsBackToRecommended()
         try testDownloadProgressDisplayText()
+        try testLocalizedModelMetadataAndDownloadProgress()
         print("LocalAIModelTests passed")
     }
 
@@ -79,5 +80,54 @@ struct LocalAIModelTests {
         assert(LocalAIDownloadProgress(downloadedBytes: 0, totalBytes: 100).displayText == "Starting...")
         assert(LocalAIDownloadProgress(downloadedBytes: 50, totalBytes: 100).displayText == "50% · 50 bytes")
         assert(LocalAIDownloadProgress(downloadedBytes: 100, totalBytes: 100, isCancelled: true).displayText == "Canceled")
+    }
+
+    private static func testLocalizedModelMetadataAndDownloadProgress() throws {
+        let bundle = try compiledLocalizationBundle()
+
+        assert(
+            LocalAIModelCatalog.quality.localizedDescription(
+                language: "ko",
+                bundle: bundle
+            ) == "최고 품질입니다. 더 많은 메모리가 필요합니다."
+        )
+        assert(
+            LocalAIModelCatalog.fast.localizedDescription(
+                language: "ko",
+                bundle: bundle
+            ) == "더 빠르고 가볍습니다. 메모리가 적은 Mac에 적합합니다."
+        )
+        assert(
+            LocalAIDownloadProgress(
+                downloadedBytes: 0,
+                totalBytes: 100
+            ).localizedDisplayText(language: "ko", bundle: bundle) == "시작하는 중..."
+        )
+        assert(
+            LocalAIDownloadProgress(
+                downloadedBytes: 100,
+                totalBytes: 100,
+                isCancelled: true
+            ).localizedDisplayText(language: "ko", bundle: bundle) == "취소됨"
+        )
+        assert(
+            LocalAIDownloadProgress(
+                downloadedBytes: 50,
+                totalBytes: 100
+            ).localizedDisplayText(language: "ko", bundle: bundle) == "50% · 50 bytes"
+        )
+    }
+
+    private static func compiledLocalizationBundle() throws -> Bundle {
+        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let localizationRoot = root.appendingPathComponent("build/localization")
+        guard let bundle = Bundle(path: localizationRoot.path) else {
+            throw NSError(
+                domain: "LocalAIModelTests",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Missing compiled localization bundle"]
+            )
+        }
+        return bundle
     }
 }

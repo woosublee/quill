@@ -176,6 +176,17 @@ struct SettingsLocalizationTests {
             "When off, Quill copies the transcript to the clipboard so you can paste it manually.": "끄면 Quill이 전사문을 클립보드에 복사하며, 필요할 때 직접 붙여넣을 수 있습니다.",
             "Used for transcript cleanup and Edit Mode transforms.": "전사문 정리와 Edit Mode 변환에 사용합니다.",
             "Used for context inference, with a text-only retry when screenshot analysis fails.": "컨텍스트 추론에 사용하며, 스크린샷 분석에 실패하면 텍스트 전용으로 다시 시도합니다.",
+            "Cloud": "클라우드",
+            "On This Mac": "이 Mac에서",
+            "Recommended": "권장",
+            "This model will become active when the download finishes.": "다운로드가 완료되면 이 모델이 활성화됩니다.",
+            "This removes the downloaded Local AI model. You can download it again later.": "다운로드한 로컬 AI 모델을 삭제합니다. 나중에 다시 다운로드할 수 있습니다.",
+            "Cancel Local AI model download": "로컬 AI 모델 다운로드 취소",
+            "Cloud fallback is only used when Post-processing uses a cloud model.": "클라우드 fallback은 후처리에서 클라우드 모델을 사용할 때만 적용됩니다.",
+            "Local Context uses app and window text only. Screenshots stay on this Mac.": "로컬 Context는 앱과 창의 텍스트 정보만 사용합니다. 스크린샷은 이 Mac을 벗어나지 않습니다.",
+            "Best quality. Needs more memory.": "최고 품질입니다. 더 많은 메모리가 필요합니다.",
+            "Faster and lighter. Good for lower-memory Macs.": "더 빠르고 가볍습니다. 메모리가 적은 Mac에 적합합니다.",
+            "Canceled": "취소됨",
             "Post-Processing Fallback Model": "후처리 대체 모델",
             "Used as the explicit retry model for transcript cleanup and Edit Mode transforms.": "전사문 정리와 Edit Mode 변환을 다시 시도할 때 사용할 모델입니다.",
             "Edit Mode uses this model, fallback model, Output Language, and Custom Vocabulary. Invocation Style and Extra Modifier remain in Shortcuts.": "Edit Mode는 이 모델, 대체 모델, 출력 언어 및 사용자 지정 어휘를 사용합니다. 실행 방식과 추가 보조 키는 단축키에 그대로 있습니다.",
@@ -200,7 +211,7 @@ struct SettingsLocalizationTests {
         let expected: [String: String] = [
             "Quit while models are downloading?": "모델을 다운로드하는 중에 종료할까요?",
             "Quill will cancel unfinished model downloads and delete partial files before quitting.":
-                "Quill이 종료하기 전에 완료되지 않은 모델 다운로드를 취소하고 부분 파일을 삭제합니다.",
+                "종료하기 전에 Quill이 완료되지 않은 모델 다운로드를 취소하고 partial 파일을 삭제합니다.",
             "Quit and Cancel Downloads": "종료하고 다운로드 취소"
         ]
 

@@ -1834,6 +1834,89 @@ struct ModelsSettingsView: View {
         }
     }
 
+    private func aiProcessingChoiceBinding(
+        for feature: AIProcessingFeature
+    ) -> Binding<AIProcessingBackendChoice> {
+        Binding(
+            get: { appState.currentAIProcessingChoice(for: feature) },
+            set: { appState.selectAIProcessingBackendChoice($0, for: feature) }
+        )
+    }
+
+    private func aiProcessingChoiceMenuLabel(
+        _ display: AIProcessingChoiceDisplay
+    ) -> String {
+        let base = display.subtitle.map {
+            "\(display.title) · \($0)"
+        } ?? display.title
+        return display.isRecommended
+            ? "\(base) — \(localizedCatalogString("Recommended"))"
+            : base
+    }
+
+    @ViewBuilder
+    private func aiProcessingChoicePicker(
+        for feature: AIProcessingFeature
+    ) -> some View {
+        let displays = appState.aiProcessingChoiceDisplays(for: feature)
+        let binding = aiProcessingChoiceBinding(for: feature)
+
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Model")
+                .font(.caption.weight(.semibold))
+
+            if #available(macOS 14.0, *) {
+                Picker("Model", selection: binding) {
+                    ForEach(["Cloud", "On This Mac"], id: \.self) { section in
+                        let sectionDisplays = displays.filter { $0.section == section }
+                        if !sectionDisplays.isEmpty {
+                            Section(localizedCatalogString(section)) {
+                                ForEach(sectionDisplays) { display in
+                                    Text(aiProcessingChoiceMenuLabel(display))
+                                        .tag(display.choice)
+                                        .selectionDisabled(!display.isAvailable)
+                                }
+                            }
+                        }
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            } else {
+                Menu {
+                    ForEach(["Cloud", "On This Mac"], id: \.self) { section in
+                        let sectionDisplays = displays.filter { $0.section == section }
+                        if !sectionDisplays.isEmpty {
+                            Section(localizedCatalogString(section)) {
+                                ForEach(sectionDisplays) { display in
+                                    Button {
+                                        appState.selectAIProcessingBackendChoice(
+                                            display.choice,
+                                            for: feature
+                                        )
+                                    } label: {
+                                        Text(aiProcessingChoiceMenuLabel(display))
+                                    }
+                                    .disabled(!display.isAvailable)
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    if let currentDisplay = displays.first(where: {
+                        $0.choice == appState.currentAIProcessingChoice(for: feature)
+                    }) {
+                        Text(aiProcessingChoiceMenuLabel(currentDisplay))
+                    } else {
+                        Text(verbatim: appState.currentAIProcessingChoice(for: feature).modelID)
+                    }
+                }
+                .menuStyle(.borderlessButton)
+            }
+        }
+        .frame(minWidth: 280, maxWidth: 320, alignment: .leading)
+    }
+
     private var currentTranscriptionUsesAPI: Bool {
         switch appState.currentNoteBrowserTranscriptionChoice {
         case .apiStandard, .apiRealtime:
@@ -1901,6 +1984,15 @@ struct ModelsSettingsView: View {
         )
     }
 
+    private var postProcessingUsesCloud: Bool {
+        if case .cloud = appState.postProcessingBackendChoice { return true }
+        return false
+    }
+
+    private var postProcessingUsesLocal: Bool {
+        !postProcessingUsesCloud
+    }
+
     private var postProcessingFeatureSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -1912,30 +2004,29 @@ struct ModelsSettingsView: View {
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .accessibilityLabel("Post-processing")
-                    .disabled(!hasConfiguredCloudAPIKey)
-                    .opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)
             }
 
-            ModelDropdownView(
-                title: "Model",
-                subtitle: "Used for transcript cleanup and Edit Mode transforms.",
-                predefinedModels: ModelConfiguration.llmModels,
-                defaultModel: AppState.defaultPostProcessingModel,
-                textDraft: $postProcessingModelDraft,
-                onCommit: commitPostProcessingModel,
-                onReset: {
-                    postProcessingModelDraft = AppState.defaultPostProcessingModel
-                    appState.postProcessingModel = AppState.defaultPostProcessingModel
-                }
-            )
-            .disabled(!hasConfiguredCloudAPIKey)
-            .opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)
+            aiProcessingChoicePicker(for: .postProcessing)
 
-            if !hasConfiguredCloudAPIKey {
+            if let model = appState.selectedOrPendingLocalAIModel(for: .postProcessing),
+               appState.aiProcessingChoiceDisplays(for: .postProcessing).contains(where: {
+                   $0.choice == .localAI(modelID: model.id)
+               }) {
+                LocalAIModelRowView(
+                    feature: .postProcessing,
+                    model: model,
+                    isSelected: appState.postProcessingBackendChoice
+                        == .localAI(modelID: model.id)
+                )
+            }
+
+            if postProcessingUsesCloud && !hasConfiguredCloudAPIKey {
                 Label(
-                    appState.disablePostProcessing
-                        ? "Add an API key in Cloud Provider to enable Post-processing."
-                        : "Post-processing is on, but cloud processing is unavailable until an API key is configured.",
+                    localizedCatalogString(
+                        appState.disablePostProcessing
+                            ? "Add an API key in Cloud Provider to enable Post-processing."
+                            : "Post-processing is on, but cloud processing is unavailable until an API key is configured."
+                    ),
                     systemImage: "exclamationmark.triangle"
                 )
                 .font(.caption)
@@ -1962,6 +2053,15 @@ struct ModelsSettingsView: View {
         )
     }
 
+    private var contextUsesCloud: Bool {
+        if case .cloud = appState.contextBackendChoice { return true }
+        return false
+    }
+
+    private var contextUsesLocal: Bool {
+        !contextUsesCloud
+    }
+
     private var contextFeatureSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -1973,30 +2073,35 @@ struct ModelsSettingsView: View {
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .accessibilityLabel("Context")
-                    .disabled(!hasConfiguredCloudAPIKey)
-                    .opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)
             }
 
-            ModelDropdownView(
-                title: "Model",
-                subtitle: "Used for context inference, with a text-only retry when screenshot analysis fails.",
-                predefinedModels: ModelConfiguration.llmModels,
-                defaultModel: AppState.defaultContextModel,
-                textDraft: $contextModelDraft,
-                onCommit: commitContextModel,
-                onReset: {
-                    contextModelDraft = AppState.defaultContextModel
-                    appState.contextModel = AppState.defaultContextModel
-                }
-            )
-            .disabled(!hasConfiguredCloudAPIKey)
-            .opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)
+            aiProcessingChoicePicker(for: .context)
 
-            if !hasConfiguredCloudAPIKey {
+            if let model = appState.selectedOrPendingLocalAIModel(for: .context),
+               appState.aiProcessingChoiceDisplays(for: .context).contains(where: {
+                   $0.choice == .localAI(modelID: model.id)
+               }) {
+                LocalAIModelRowView(
+                    feature: .context,
+                    model: model,
+                    isSelected: appState.contextBackendChoice
+                        == .localAI(modelID: model.id)
+                )
+            }
+
+            if contextUsesLocal {
+                Text("Local Context uses app and window text only. Screenshots stay on this Mac.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if contextUsesCloud && !hasConfiguredCloudAPIKey {
                 Label(
-                    appState.disableContextCapture
-                        ? "Add an API key in Cloud Provider to enable Context."
-                        : "Context is on, but AI context analysis is unavailable until an API key is configured.",
+                    localizedCatalogString(
+                        appState.disableContextCapture
+                            ? "Add an API key in Cloud Provider to enable Context."
+                            : "Context is on, but AI context analysis is unavailable until an API key is configured."
+                    ),
                     systemImage: "exclamationmark.triangle"
                 )
                 .font(.caption)
@@ -2010,7 +2115,7 @@ struct ModelsSettingsView: View {
             }
 
             DisclosureGroup("Details") {
-                contextPromptSection
+                contextDetails
                     .padding(.top, 8)
             }
         }
@@ -2018,6 +2123,19 @@ struct ModelsSettingsView: View {
 
     private var postProcessingDetails: some View {
         VStack(alignment: .leading, spacing: 14) {
+            ModelDropdownView(
+                title: "Model",
+                subtitle: "Used for transcript cleanup and Edit Mode transforms.",
+                predefinedModels: ModelConfiguration.llmModels,
+                defaultModel: AppState.defaultPostProcessingModel,
+                textDraft: $postProcessingModelDraft,
+                onCommit: commitPostProcessingModel,
+                onReset: {
+                    postProcessingModelDraft = AppState.defaultPostProcessingModel
+                    appState.postProcessingModel = AppState.defaultPostProcessingModel
+                }
+            )
+            Divider()
             outputLanguageSetting
             Divider()
             preserveExactWordingSetting
@@ -2034,8 +2152,14 @@ struct ModelsSettingsView: View {
                     appState.postProcessingFallbackModel = AppState.defaultPostProcessingFallbackModel
                 }
             )
-            .disabled(!hasConfiguredCloudAPIKey)
-            .opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)
+            .disabled(postProcessingUsesLocal)
+
+            if postProcessingUsesLocal {
+                Text("Cloud fallback is only used when Post-processing uses a cloud model.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Divider()
             vocabularySection
             Divider()
@@ -2046,6 +2170,25 @@ struct ModelsSettingsView: View {
             Text("Edit Mode uses this model, fallback model, Output Language, and Custom Vocabulary. Invocation Style and Extra Modifier remain in Shortcuts.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private var contextDetails: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ModelDropdownView(
+                title: "Model",
+                subtitle: "Used for context inference, with a text-only retry when screenshot analysis fails.",
+                predefinedModels: ModelConfiguration.llmModels,
+                defaultModel: AppState.defaultContextModel,
+                textDraft: $contextModelDraft,
+                onCommit: commitContextModel,
+                onReset: {
+                    contextModelDraft = AppState.defaultContextModel
+                    appState.contextModel = AppState.defaultContextModel
+                }
+            )
+            Divider()
+            contextPromptSection
         }
     }
 
@@ -2512,9 +2655,13 @@ struct ModelsSettingsView: View {
                         }
                     }
                 }
-                .disabled(systemTestRunning || appState.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || systemTestInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(
+                    systemTestRunning
+                        || !appState.isAIProcessingBackendReady(for: .postProcessing)
+                        || systemTestInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                )
 
-                if appState.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if postProcessingUsesCloud && !hasConfiguredCloudAPIKey {
                     Label("API key required to test", systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(.orange)
@@ -2562,13 +2709,7 @@ struct ModelsSettingsView: View {
         systemTestIssue = nil
         systemTestPrompt = nil
 
-        let service = PostProcessingService(
-            apiKey: appState.apiKey,
-            baseURL: appState.apiBaseURL,
-            preferredModel: appState.postProcessingModel,
-            preferredFallbackModel: appState.postProcessingFallbackModel,
-            instructionExecutionGuardEnabled: appState.instructionExecutionGuardEnabled
-        )
+        let service = appState.makePostProcessingService()
         let input = systemTestInput
         let customPrompt = appState.customSystemPrompt
         let vocabulary = appState.customVocabulary
@@ -2762,9 +2903,12 @@ struct ModelsSettingsView: View {
                         }
                     }
                 }
-                .disabled(contextTestRunning || appState.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(
+                    contextTestRunning
+                        || !appState.isAIProcessingBackendReady(for: .context)
+                )
 
-                if appState.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if contextUsesCloud && !hasConfiguredCloudAPIKey {
                     Label("API key required to test", systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(.orange)

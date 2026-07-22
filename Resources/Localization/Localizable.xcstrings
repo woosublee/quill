@@ -204,7 +204,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quill이 종료하기 전에 완료되지 않은 모델 다운로드를 취소하고 부분 파일을 삭제합니다."
+            "value": "종료하기 전에 Quill이 완료되지 않은 모델 다운로드를 취소하고 partial 파일을 삭제합니다."
           }
         }
       }
@@ -12897,6 +12897,182 @@
           "stringUnit": {
             "state": "translated",
             "value": "로컬 AI 런타임이 예기치 않게 중지되었습니다."
+          }
+        }
+      }
+    },
+    "Cloud": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드"
+          }
+        }
+      }
+    },
+    "On This Mac": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On This Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서"
+          }
+        }
+      }
+    },
+    "Recommended": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommended"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "권장"
+          }
+        }
+      }
+    },
+    "This model will become active when the download finishes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This model will become active when the download finishes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드가 완료되면 이 모델이 활성화됩니다."
+          }
+        }
+      }
+    },
+    "This removes the downloaded Local AI model. You can download it again later.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This removes the downloaded Local AI model. You can download it again later."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드한 로컬 AI 모델을 삭제합니다. 나중에 다시 다운로드할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Cancel Local AI model download": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel Local AI model download"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 AI 모델 다운로드 취소"
+          }
+        }
+      }
+    },
+    "Cloud fallback is only used when Post-processing uses a cloud model.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud fallback is only used when Post-processing uses a cloud model."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 fallback은 후처리에서 클라우드 모델을 사용할 때만 적용됩니다."
+          }
+        }
+      }
+    },
+    "Local Context uses app and window text only. Screenshots stay on this Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Context uses app and window text only. Screenshots stay on this Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 Context는 앱과 창의 텍스트 정보만 사용합니다. 스크린샷은 이 Mac을 벗어나지 않습니다."
+          }
+        }
+      }
+    },
+    "Best quality. Needs more memory.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Best quality. Needs more memory."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최고 품질입니다. 더 많은 메모리가 필요합니다."
+          }
+        }
+      }
+    },
+    "Faster and lighter. Good for lower-memory Macs.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faster and lighter. Good for lower-memory Macs."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 빠르고 가볍습니다. 메모리가 적은 Mac에 적합합니다."
+          }
+        }
+      }
+    },
+    "Canceled": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canceled"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소됨"
           }
         }
       }

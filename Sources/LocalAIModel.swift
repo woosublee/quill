@@ -22,6 +22,13 @@ struct LocalAIModel: Identifiable, Hashable, Codable, Sendable {
 
     /// The first GGUF shard passed to `llama-server --model`.
     var primaryArtifact: LocalAIModelArtifact { artifacts[0] }
+
+    func localizedDescription(
+        language: String = preferredLocalizedStringLanguage(),
+        bundle: Bundle = .main
+    ) -> String {
+        localizedCatalogString(description, language: language, bundle: bundle)
+    }
 }
 
 struct LocalAIModelCatalog {
@@ -111,6 +118,26 @@ struct LocalAIDownloadProgress: Equatable, Sendable {
         if isCancelled { return "Canceled" }
         guard downloadedBytes > 0 else { return "Starting..." }
         let sizeText = ByteCountFormatter.string(fromByteCount: downloadedBytes, countStyle: .file)
+        if let fractionCompleted {
+            return "\(Int((fractionCompleted * 100).rounded()))% · \(sizeText)"
+        }
+        return sizeText
+    }
+
+    func localizedDisplayText(
+        language: String = preferredLocalizedStringLanguage(),
+        bundle: Bundle = .main
+    ) -> String {
+        if isCancelled {
+            return localizedCatalogString("Canceled", language: language, bundle: bundle)
+        }
+        guard downloadedBytes > 0 else {
+            return localizedCatalogString("Starting...", language: language, bundle: bundle)
+        }
+        let sizeText = ByteCountFormatter.string(
+            fromByteCount: downloadedBytes,
+            countStyle: .file
+        )
         if let fractionCompleted {
             return "\(Int((fractionCompleted * 100).rounded()))% · \(sizeText)"
         }

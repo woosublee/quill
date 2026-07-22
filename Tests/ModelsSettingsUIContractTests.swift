@@ -9,6 +9,7 @@ struct ModelsSettingsUIContractTests {
         let postProcessing = try source("Sources/PostProcessingService.swift")
         let context = try source("Sources/AppContextService.swift")
         let modelConfiguration = try source("Sources/ModelConfiguration.swift")
+        let localAIModelRow = (try? source("Sources/LocalAIModelRowView.swift")) ?? ""
         let currentSpec = try source("docs/superpowers/specs/2026-07-17-model-first-settings-redesign.md")
 
         testUIOnlyBoundary(appState: appState)
@@ -23,6 +24,10 @@ struct ModelsSettingsUIContractTests {
         testReviewRegressionGuards(settings)
         testPostProcessingUsesExplicitSwitchAndExistingState(settings)
         testContextUsesExplicitSwitchAndExistingState(settings)
+        testAIProcessingBackendPickersAndLocalRows(
+            settings: settings,
+            localAIModelRow: localAIModelRow
+        )
         try testAutoPasteLivesInShortcutsClipboard(settings)
         testTranscriptionDetailsAreManagementOnly(settings)
         testManagementRowsKeepSelectionAsDefaultBehavior(settings)
@@ -177,16 +182,19 @@ struct ModelsSettingsUIContractTests {
         precondition(models.contains("appState.hasTranscriptionAPIKey"))
         precondition(models.contains("Cloud transcription requires an API key. Add one in Cloud Provider or use the transcription override in Details."))
 
-        for feature in [postProcessing, context] {
-            precondition(feature.components(separatedBy: ".disabled(!hasConfiguredCloudAPIKey)").count >= 3)
-            precondition(feature.components(separatedBy: ".opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)").count >= 3)
-        }
+        precondition(!postProcessing.contains(".disabled(!hasConfiguredCloudAPIKey)"))
+        precondition(!postProcessing.contains(".opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)"))
+        precondition(!context.contains(".disabled(!hasConfiguredCloudAPIKey)"))
+        precondition(!context.contains(".opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)"))
+        precondition(postProcessing.contains("if postProcessingUsesCloud && !hasConfiguredCloudAPIKey"))
+        precondition(context.contains("if contextUsesCloud && !hasConfiguredCloudAPIKey"))
+        precondition(postProcessing.contains("localizedCatalogString(\n                        appState.disablePostProcessing"))
+        precondition(context.contains("localizedCatalogString(\n                        appState.disableContextCapture"))
         precondition(postProcessing.contains("Add an API key in Cloud Provider to enable Post-processing."))
         precondition(postProcessing.contains("Post-processing is on, but cloud processing is unavailable until an API key is configured."))
         precondition(context.contains("Add an API key in Cloud Provider to enable Context."))
         precondition(context.contains("Context is on, but AI context analysis is unavailable until an API key is configured."))
-        precondition(postProcessingDetails.contains(".disabled(!hasConfiguredCloudAPIKey)"))
-        precondition(!postProcessingDetails.contains("postProcessingDetails\n                    .disabled(!hasConfiguredCloudAPIKey)"))
+        precondition(!postProcessingDetails.contains(".disabled(!hasConfiguredCloudAPIKey)"))
         precondition(!context.contains("contextPromptSection\n                    .disabled(!hasConfiguredCloudAPIKey)"))
     }
 
@@ -441,6 +449,93 @@ struct ModelsSettingsUIContractTests {
         }
         precondition(!postProcessing.contains("Text(postProcessingEnabled.wrappedValue ? \"On\" : \"Off\")"))
         precondition(!models.contains(".disabled(appState.disablePostProcessing || appState.useLocalTranscription)"))
+    }
+
+    private static func testAIProcessingBackendPickersAndLocalRows(
+        settings: String,
+        localAIModelRow: String
+    ) {
+        let models = block(
+            in: settings,
+            from: "struct ModelsSettingsView",
+            to: "// MARK: - Shortcuts Settings"
+        )
+        let postProcessing = block(
+            in: models,
+            from: "private var postProcessingFeatureSection: some View",
+            to: "\n    private var contextEnabled"
+        )
+        let context = block(
+            in: models,
+            from: "private var contextFeatureSection: some View",
+            to: "\n    private var postProcessingDetails"
+        )
+        let postProcessingDetails = block(
+            in: models,
+            from: "private var postProcessingDetails: some View",
+            to: "\n    private var contextDetails"
+        )
+        let contextDetails = block(
+            in: models,
+            from: "private var contextDetails: some View",
+            to: "\n    private var transcriptionLanguageSetting"
+        )
+        let systemPrompt = block(
+            in: models,
+            from: "private var systemPromptSection: some View",
+            to: "\n    private func runSystemPromptTest()"
+        )
+        let contextPrompt = block(
+            in: models,
+            from: "private var contextPromptSection: some View",
+            to: "\n    private func runContextPromptTest()"
+        )
+
+        precondition(models.contains("aiProcessingChoicePicker(for: .postProcessing)"))
+        precondition(models.contains("aiProcessingChoicePicker(for: .context)"))
+        precondition(models.contains("Picker(\"Model\", selection:"))
+        precondition(models.contains("ForEach([\"Cloud\", \"On This Mac\"]"))
+        precondition(models.contains("Section(localizedCatalogString(section))"))
+        precondition(models.contains("LocalAIModelRowView("))
+        precondition(models.contains("selectAIProcessingBackendChoice"))
+        precondition(models.contains("aiProcessingChoiceMenuLabel"))
+        precondition(models.contains("Text(aiProcessingChoiceMenuLabel(currentDisplay))"))
+
+        precondition(postProcessing.contains("selectedOrPendingLocalAIModel(for: .postProcessing)"))
+        precondition(postProcessing.contains("aiProcessingChoiceDisplays(for: .postProcessing).contains"))
+        precondition(postProcessing.contains("feature: .postProcessing"))
+        precondition(postProcessing.contains("appState.postProcessingBackendChoice"))
+        precondition(context.contains("selectedOrPendingLocalAIModel(for: .context)"))
+        precondition(context.contains("aiProcessingChoiceDisplays(for: .context).contains"))
+        precondition(context.contains("feature: .context"))
+        precondition(context.contains("appState.contextBackendChoice"))
+        precondition(context.contains("Local Context uses app and window text only. Screenshots stay on this Mac."))
+
+        precondition(postProcessingDetails.contains("textDraft: $postProcessingModelDraft"))
+        precondition(postProcessingDetails.contains("textDraft: $postProcessingFallbackModelDraft"))
+        precondition(postProcessingDetails.contains(".disabled(postProcessingUsesLocal)"))
+        precondition(postProcessingDetails.contains("Cloud fallback is only used when Post-processing uses a cloud model."))
+        precondition(!postProcessingDetails.contains(".disabled(!hasConfiguredCloudAPIKey)"))
+        precondition(contextDetails.contains("textDraft: $contextModelDraft"))
+        precondition(!contextDetails.contains(".disabled(!hasConfiguredCloudAPIKey)"))
+
+        precondition(systemPrompt.contains("appState.isAIProcessingBackendReady(for: .postProcessing)"))
+        precondition(contextPrompt.contains("appState.isAIProcessingBackendReady(for: .context)"))
+        precondition(models.contains("let service = appState.makePostProcessingService()"))
+        precondition(!models.contains("let service = PostProcessingService("))
+
+        precondition(!localAIModelRow.isEmpty, "Missing LocalAIModelRowView source")
+        precondition(localAIModelRow.contains("appState.localAIInstallState(for: model)"))
+        precondition(localAIModelRow.contains("appState.pendingLocalAIModelID(for: feature)"))
+        precondition(localAIModelRow.contains("model.localizedDescription()"))
+        precondition(localAIModelRow.contains("state.progress.localizedDisplayText()"))
+        precondition(localAIModelRow.contains("appState.installLocalAIModel(model, autoSelectFor: feature)"))
+        precondition(localAIModelRow.contains("appState.cancelLocalAIInstall(model)"))
+        precondition(localAIModelRow.contains("appState.deleteLocalAIModel(model)"))
+        precondition(localAIModelRow.contains("if state.isInstalling, state.progress.isCancelled"))
+        precondition(localAIModelRow.contains(".accessibilityLabel(\"Cancel Local AI model download\")"))
+        precondition(localAIModelRow.contains(".accessibilityLabel(\"Delete Model\")"))
+        precondition(localAIModelRow.contains("QuillUserIssueView("))
     }
 
     private static func testAutoPasteLivesInShortcutsClipboard(_ source: String) throws {

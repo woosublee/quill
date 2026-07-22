@@ -63,10 +63,39 @@ struct LocalizationResourceTests {
             "Quit while models are downloading?":
                 "모델을 다운로드하는 중에 종료할까요?",
             "Quill will cancel unfinished model downloads and delete partial files before quitting.":
-                "Quill이 종료하기 전에 완료되지 않은 모델 다운로드를 취소하고 부분 파일을 삭제합니다.",
+                "종료하기 전에 Quill이 완료되지 않은 모델 다운로드를 취소하고 partial 파일을 삭제합니다.",
             "Quit and Cancel Downloads": "종료하고 다운로드 취소"
         ]
         for (key, expected) in onboardingKorean {
+            let english = try localizedValue(key: key, language: "en", root: root)
+            let korean = try localizedValue(key: key, language: "ko", root: root)
+            assert(english == key)
+            assert(korean == expected)
+        }
+
+        let localAISettingsKorean: [String: String] = [
+            "Cloud": "클라우드",
+            "On This Mac": "이 Mac에서",
+            "Recommended": "권장",
+            "This model will become active when the download finishes.":
+                "다운로드가 완료되면 이 모델이 활성화됩니다.",
+            "This removes the downloaded Local AI model. You can download it again later.":
+                "다운로드한 로컬 AI 모델을 삭제합니다. 나중에 다시 다운로드할 수 있습니다.",
+            "Cancel Local AI model download": "로컬 AI 모델 다운로드 취소",
+            "Cloud fallback is only used when Post-processing uses a cloud model.":
+                "클라우드 fallback은 후처리에서 클라우드 모델을 사용할 때만 적용됩니다.",
+            "Local Context uses app and window text only. Screenshots stay on this Mac.":
+                "로컬 Context는 앱과 창의 텍스트 정보만 사용합니다. 스크린샷은 이 Mac을 벗어나지 않습니다.",
+            "Quit while models are downloading?": "모델을 다운로드하는 중에 종료할까요?",
+            "Quill will cancel unfinished model downloads and delete partial files before quitting.":
+                "종료하기 전에 Quill이 완료되지 않은 모델 다운로드를 취소하고 partial 파일을 삭제합니다.",
+            "Quit and Cancel Downloads": "종료하고 다운로드 취소",
+            "Best quality. Needs more memory.": "최고 품질입니다. 더 많은 메모리가 필요합니다.",
+            "Faster and lighter. Good for lower-memory Macs.":
+                "더 빠르고 가볍습니다. 메모리가 적은 Mac에 적합합니다.",
+            "Canceled": "취소됨"
+        ]
+        for (key, expected) in localAISettingsKorean {
             let english = try localizedValue(key: key, language: "en", root: root)
             let korean = try localizedValue(key: key, language: "ko", root: root)
             assert(english == key)
@@ -126,6 +155,7 @@ struct LocalizationResourceTests {
         try assertGoogleCalendarHealthMessageCoverage(root: root, catalogStrings: strings)
         try assertTask6OverlayCoverage(root: root, catalogStrings: strings)
         try assertLocalizedCancellationStatusReset(root: root)
+        try assertTask9LocalAISettingsCoverage(root: root)
 
         try assertFinalManagedSourceAudit(root: root, catalogStrings: strings)
         try assertIntentionalEnglishProductCopy(root: root, catalogStrings: strings)
@@ -469,6 +499,21 @@ struct LocalizationResourceTests {
         assert(settings.components(separatedBy: "localizedCatalogString(isSelected ? \"Selected\" : \"Not selected\")").count == 3)
     }
 
+    private static func assertTask9LocalAISettingsCoverage(root: URL) throws {
+        let settings = try managedSource("Sources/SettingsView.swift", root: root)
+        let localAIModel = try managedSource("Sources/LocalAIModel.swift", root: root)
+        let localAIModelRow = try managedSource("Sources/LocalAIModelRowView.swift", root: root)
+
+        assert(settings.contains("Section(localizedCatalogString(section))"))
+        assert(settings.contains("localizedCatalogString(\"Recommended\")"))
+        assert(localAIModel.contains("func localizedDescription("))
+        assert(localAIModel.contains("func localizedDisplayText("))
+        assert(localAIModel.contains("localizedCatalogString(\"Canceled\""))
+        assert(localAIModel.contains("localizedCatalogString(\"Starting...\""))
+        assert(localAIModelRow.contains("model.localizedDescription()"))
+        assert(localAIModelRow.contains("state.progress.localizedDisplayText()"))
+    }
+
     private static func assertLocalizedCancellationStatusReset(root: URL) throws {
         let appState = try String(contentsOf: root.appendingPathComponent("Sources/AppState.swift"), encoding: .utf8)
         assert(appState.components(separatedBy: "let cancelledStatus = localizedCatalogString(\"Cancelled\")").count == 3)
@@ -586,6 +631,7 @@ struct LocalizationResourceTests {
             "Sources/App.swift",
             "Sources/AppDelegate.swift", "Sources/SetupFlow.swift", "Sources/SettingsView.swift",
             "Sources/ModelDropdownView.swift", "Sources/AppState.swift", "Sources/AudioImportOptions.swift",
+            "Sources/LocalAIModel.swift", "Sources/LocalAIModelRowView.swift",
             "Sources/CalendarRecordingReminderScheduler.swift", "Sources/LocalizedUserMessage.swift",
             "Sources/UpdateManager.swift", "Sources/NativeWhisperModel.swift",
             "Sources/TranscriptionLanguage.swift", "Sources/TranscriptionModel.swift",
