@@ -37,17 +37,19 @@ struct LocalAIModelTests {
 
     private static func testFastModelMetadata() throws {
         let model = LocalAIModelCatalog.fast
-        assert(model.id == "qwen2.5-3b-instruct")
-        assert(model.displayName == "Qwen2.5 3B Instruct")
+        assert(model.id == "qwen2.5-1.5b-instruct")
+        assert(model.displayName == "Qwen2.5 1.5B Instruct")
         assert(model.artifacts.count == 1)
 
         let artifact = model.artifacts[0]
-        assert(artifact.downloadURL.absoluteString == "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf")
-        assert(artifact.expectedFileName == "qwen2.5-3b-instruct-q4_k_m.gguf")
-        assert(artifact.approximateBytes == 2_104_932_768)
-        assert(artifact.checksumSHA256 == "626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d")
+        assert(artifact.downloadURL.absoluteString == "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf")
+        assert(artifact.expectedFileName == "qwen2.5-1.5b-instruct-q4_k_m.gguf")
+        assert(artifact.approximateBytes == 1_117_320_736)
+        assert(artifact.checksumSHA256 == "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e")
 
-        assert(model.approximateBytes == 2_104_932_768)
+        assert(model.approximateBytes == 1_117_320_736)
+        assert(model.approximateResidentRAMBytes == 2_500_000_000)
+        assert(model.approximateResidentRAMBytes > model.approximateBytes)
         assert(model.approximateBytes < LocalAIModelCatalog.quality.approximateBytes)
         assert(model.primaryArtifact == artifact)
     }
@@ -64,12 +66,12 @@ struct LocalAIModelTests {
     }
 
     private static func testCatalogContainsBothModelsWithQualityRecommended() throws {
-        assert(LocalAIModelCatalog.all.map(\.id) == ["qwen2.5-7b-instruct", "qwen2.5-3b-instruct"])
+        assert(LocalAIModelCatalog.all.map(\.id) == ["qwen2.5-7b-instruct", "qwen2.5-1.5b-instruct"])
         assert(LocalAIModelCatalog.recommended.id == LocalAIModelCatalog.quality.id)
     }
 
     private static func testFindReturnsMatchingModelOrFallsBackToRecommended() throws {
-        assert(LocalAIModelCatalog.find(id: "qwen2.5-3b-instruct").id == "qwen2.5-3b-instruct")
+        assert(LocalAIModelCatalog.find(id: "qwen2.5-1.5b-instruct").id == "qwen2.5-1.5b-instruct")
         assert(LocalAIModelCatalog.find(id: "does-not-exist").id == LocalAIModelCatalog.recommended.id)
     }
 

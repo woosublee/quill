@@ -58,37 +58,63 @@ Loopback-only binding (`127.0.0.1`) and no external network exposure. No API key
 `LocalAIModelCatalog` mirrors `NativeWhisperModelCatalog`'s shape (`Sources/NativeWhisperModel.swift`), extended to a real multi-entry catalog rather than a single `recommended`:
 
 ```swift
+struct LocalAIModelArtifact: Identifiable, Hashable, Codable {
+    var id: String { expectedFileName }
+    let downloadURL: URL
+    let expectedFileName: String
+    let approximateBytes: Int64
+    let checksumSHA256: String
+}
+
 struct LocalAIModel: Identifiable, Hashable, Codable {
     let id: String
     let displayName: String
     let description: String
-    let downloadURL: URL
-    let expectedFileName: String
-    let approximateBytes: Int64
+    let artifacts: [LocalAIModelArtifact]
     let approximateResidentRAMBytes: Int64
-    let checksumSHA256: String
+
+    var approximateBytes: Int64 {
+        artifacts.reduce(0) { $0 + $1.approximateBytes }
+    }
+
+    /// The first GGUF shard passed to `llama-server --model`.
+    var primaryArtifact: LocalAIModelArtifact { artifacts[0] }
 }
 
 struct LocalAIModelCatalog {
     static let quality = LocalAIModel(
         id: "qwen2.5-7b-instruct",
         displayName: "Qwen2.5 7B Instruct",
-        description: "...", // localized: highest quality, needs more RAM
-        downloadURL: URL(string: "https://huggingface.co/.../qwen2.5-7b-instruct-q4_k_m.gguf")!,
-        expectedFileName: "qwen2.5-7b-instruct-q4_k_m.gguf",
-        approximateBytes: ..., // ~4.7 GB on disk
-        approximateResidentRAMBytes: ..., // ~6 GB
-        checksumSHA256: "..."
+        description: "Best quality. Needs more memory.",
+        artifacts: [
+            LocalAIModelArtifact(
+                downloadURL: URL(string: "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/main/qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf")!,
+                expectedFileName: "qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf",
+                approximateBytes: 3_993_201_344,
+                checksumSHA256: "dfce12e3862a5283ccfb88221b48480e58745165de856439950d0f22590580db"
+            ),
+            LocalAIModelArtifact(
+                downloadURL: URL(string: "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/main/qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf")!,
+                expectedFileName: "qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf",
+                approximateBytes: 689_872_288,
+                checksumSHA256: "539cf93f78e887edea1c04e2d7d8cdaca9d01dae9c9025bcb8accbe29df3d72a"
+            )
+        ],
+        approximateResidentRAMBytes: 6_400_000_000
     )
     static let fast = LocalAIModel(
-        id: "qwen2.5-3b-instruct",
-        displayName: "Qwen2.5 3B Instruct",
-        description: "...", // localized: faster, lower RAM, for lower-spec Macs
-        downloadURL: URL(string: "https://huggingface.co/.../qwen2.5-3b-instruct-q4_k_m.gguf")!,
-        expectedFileName: "qwen2.5-3b-instruct-q4_k_m.gguf",
-        approximateBytes: ..., // ~2 GB on disk
-        approximateResidentRAMBytes: ..., // ~3 GB
-        checksumSHA256: "..."
+        id: "qwen2.5-1.5b-instruct",
+        displayName: "Qwen2.5 1.5B Instruct",
+        description: "Faster and lighter. Good for lower-memory Macs.",
+        artifacts: [
+            LocalAIModelArtifact(
+                downloadURL: URL(string: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf")!,
+                expectedFileName: "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+                approximateBytes: 1_117_320_736,
+                checksumSHA256: "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e"
+            )
+        ],
+        approximateResidentRAMBytes: 2_500_000_000
     )
     static let recommended = quality
     static let all: [LocalAIModel] = [quality, fast]
@@ -96,9 +122,9 @@ struct LocalAIModelCatalog {
 }
 ```
 
-Both starter models are **Qwen2.5 Instruct, GGUF, Q4_K_M quantization**, differing only in parameter count (7B vs 3B). Both are Apache 2.0 licensed (unlike Gemma's more restrictive terms), which matters given Quill's intent to remain sellable — see `project_quill_commercial_intent` context. Keeping both entries on the same model family and license avoids reopening the Gemma-vs-Qwen licensing question for a second tier; a third size, or a different family, can be added later purely as a new catalog entry with zero change to the runtime or download/install code.
+Both starter models are official **Qwen2.5 Instruct, GGUF, Q4_K_M quantization** releases, differing only in parameter count (7B vs 1.5B). The official Hugging Face model cards declare both Apache-2.0, unlike the prior 3B GGUF repository's `qwen-research` license. Apache-2.0 keeps both catalog entries compatible with Quill's sellable direction; retaining the same official publisher, model family, and license lets future tiers be added as catalog entries without runtime or installer changes.
 
-`ProcessInfo.processInfo.physicalMemory` can be used to suggest — not force — the `fast` tier as the default selection when the machine's total RAM is low (this was flagged as a real risk in #145: "RAM/size: LLMs are heavier than Whisper... Add RAM/size guards"). This is a UI-level default/suggestion, not a hard block — a user on a low-RAM Mac can still choose `quality` if they accept the tradeoff.
+The Quality package is two shards totaling 4_683_073_632 bytes on disk; Fast is one 1_117_320_736-byte file. `approximateResidentRAMBytes` is intentionally higher than each package's disk size because inference also needs loaded weights, runtime buffers, and context/KV cache: Quality reserves 6_400_000_000 bytes and Fast conservatively reserves 2_500_000_000 bytes. `ProcessInfo.processInfo.physicalMemory` can suggest — not force — the `fast` tier on lower-memory Macs. This is a UI-level default/suggestion, not a hard block — a user can still choose `quality` if they accept the tradeoff.
 
 `LocalAIModelStore` mirrors `NativeWhisperModelStore` byte-for-byte in behavior: same `.download`-suffixed partial-file convention, same size-floor + SHA-256 checksum validation, same `install/delete/deletePartial` operations, same `NativeWhisperInstallStatus`-shaped status enum, applied per-model (each model in the catalog has its own independent install/delete lifecycle — installing one does not require deleting another; disk usage is the user's tradeoff to manage, same as it already is for Whisper's `NativeWhisperModelCatalog.all` shape). `LocalAIInstaller` mirrors `NativeWhisperInstaller`: same in-flight-install de-duplication lock (keyed per-model, so two different models can download concurrently without colliding), same cancellation-token shape, same streaming-download-with-progress delegate. These are structurally identical to the Whisper versions — the implementation plan should evaluate whether to factor out a shared generic (`GGUFModelStore<T>`) or keep them as parallel, independently-testable types matching the existing duplication style between similar Quill subsystems. Either is acceptable; do not force a premature shared abstraction if the two call sites diverge even slightly (e.g. differing corruption-detection tolerances).
 
@@ -128,13 +154,13 @@ enum AIProcessingBackendChoice: Equatable {
 (Post-processing and Context can share one enum type since both point at the same catalog of local models and the same cloud provider settings; the implementation plan should confirm whether a single shared choice type or two parallel ones — mirroring the existing `postProcessingModel` / `contextModel` separation — better fits the codebase's existing conventions.)
 
 - **The enable/disable toggle no longer depends on `hasConfiguredCloudAPIKey`.** A user can turn Post-processing or Context on with no cloud key configured at all, provided they then pick an installed local model.
-- **The picker gets an `"On This Mac"` section**, structured exactly like Transcription's `"Local"` section: one tagged entry per `LocalAIModelCatalog.all` item (`On This Mac — Qwen2.5 7B Instruct`, `On This Mac — Qwen2.5 3B Instruct`, …), always present and selectable on Apple Silicon regardless of cloud key state — the existing cloud entries (still free-text-with-suggestions, or migrated to the same sectioned-`Picker` shape as Transcription, to be confirmed in the implementation plan) live in their own section next to it, exactly as `"API"` sits next to `"Local"` today.
+- **The picker gets an `"On This Mac"` section**, structured exactly like Transcription's `"Local"` section: one tagged entry per `LocalAIModelCatalog.all` item (`On This Mac — Qwen2.5 7B Instruct`, `On This Mac — Qwen2.5 1.5B Instruct`, …), always present and selectable on Apple Silicon regardless of cloud key state — the existing cloud entries (still free-text-with-suggestions, or migrated to the same sectioned-`Picker` shape as Transcription, to be confirmed in the implementation plan) live in their own section next to it, exactly as `"API"` sits next to `"Local"` today.
   - On Intel, the `"On This Mac"` section is simply absent from the picker (see Hardware gating) — unchanged in spirit from how Transcription's sections already appear/disappear based on `!displays.isEmpty`.
 - **Below the picker, the exact same conditional-row mechanism as `managedNativeModel` + `NativeWhisperModelRowView`** renders an install/download/progress/delete row scoped to whichever local model is currently selected or pending — reusing `NativeWhisperModelRowView` itself if it can be generalized to `LocalAIModel`, or a structurally identical `LocalAIModelRowView` if the two models' fields diverge enough to make sharing awkward (the implementation plan should decide which, the same open question already flagged for `LocalAIModelStore`/`NativeWhisperModelStore`).
 - The existing cloud choice, when selected without a key configured, keeps today's inline "Add an API key in Cloud Provider to enable this" warning — but scoped to that one choice now, not to the whole section, exactly as Transcription's `currentTranscriptionUsesAPI && !appState.hasTranscriptionAPIKey` warning is already scoped to the API choice rather than disabling the whole Transcription section.
 - Selecting a local model that is not yet installed does not silently fail — it starts the download inline, exactly as `handleTranscriptionChoiceSelection(.nativeWhisper(modelID:))` already does (`pendingNativeModelID` / `pendingNativeWhisperAutoSelectionModelID` auto-select the choice once install completes); `AIProcessingBackendChoice` gets the equivalent pending-selection field, keyed by model ID.
 - If the currently-selected local model is deleted (from Settings) while a feature's choice points at it, that feature falls back to another installed local model if one exists, else to the cloud choice if available, else to disabled — mirroring `normalizedNoteBrowserTranscriptionChoice`'s fallback-chain behavior, not a bespoke new rule.
-- A low-RAM machine sees the `fast` (3B) entry suggested/pre-selected by default rather than `quality` (7B), per the RAM heuristic described under Models above; this is a default only, not a restriction on which entries are selectable.
+- A low-RAM machine sees the `fast` (1.5B) entry suggested/pre-selected by default rather than `quality` (7B), per the RAM heuristic described under Models above; this is a default only, not a restriction on which entries are selectable.
 
 ### Read path for #187
 

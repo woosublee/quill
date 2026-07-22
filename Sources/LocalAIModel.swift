@@ -47,18 +47,18 @@ struct LocalAIModelCatalog {
     )
 
     static let fast = LocalAIModel(
-        id: "qwen2.5-3b-instruct",
-        displayName: "Qwen2.5 3B Instruct",
+        id: "qwen2.5-1.5b-instruct",
+        displayName: "Qwen2.5 1.5B Instruct",
         description: "Faster and lighter. Good for lower-memory Macs.",
         artifacts: [
             LocalAIModelArtifact(
-                downloadURL: URL(string: "https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf")!,
-                expectedFileName: "qwen2.5-3b-instruct-q4_k_m.gguf",
-                approximateBytes: 2_104_932_768,
-                checksumSHA256: "626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d"
+                downloadURL: URL(string: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf")!,
+                expectedFileName: "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+                approximateBytes: 1_117_320_736,
+                checksumSHA256: "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e"
             )
         ],
-        approximateResidentRAMBytes: 3_200_000_000
+        approximateResidentRAMBytes: 2_500_000_000
     )
 
     static let recommended = quality
