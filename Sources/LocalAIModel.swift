@@ -67,6 +67,10 @@ struct LocalAIModelCatalog {
     static func find(id: String) -> LocalAIModel {
         all.first { $0.id == id } ?? recommended
     }
+
+    static func model(id: String) -> LocalAIModel? {
+        all.first { $0.id == id }
+    }
 }
 
 enum LocalAIInstallStatus: Equatable {
