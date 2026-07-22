@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-struct LocalAIModelArtifact: Identifiable, Hashable, Codable {
+struct LocalAIModelArtifact: Identifiable, Hashable, Codable, Sendable {
     var id: String { expectedFileName }
     let downloadURL: URL
     let expectedFileName: String
@@ -9,7 +9,7 @@ struct LocalAIModelArtifact: Identifiable, Hashable, Codable {
     let checksumSHA256: String
 }
 
-struct LocalAIModel: Identifiable, Hashable, Codable {
+struct LocalAIModel: Identifiable, Hashable, Codable, Sendable {
     let id: String
     let displayName: String
     let description: String
@@ -73,7 +73,7 @@ struct LocalAIModelCatalog {
     }
 }
 
-enum LocalAIInstallStatus: Equatable {
+enum LocalAIInstallStatus: Equatable, Sendable {
     case notInstalled
     case partial(downloadedBytes: Int64, expectedBytes: Int64?)
     case ready
@@ -91,7 +91,7 @@ enum LocalAIModelStoreError: LocalizedError, Equatable {
     }
 }
 
-struct LocalAIDownloadProgress: Equatable {
+struct LocalAIDownloadProgress: Equatable, Sendable {
     let downloadedBytes: Int64
     let totalBytes: Int64?
     let isCancelled: Bool

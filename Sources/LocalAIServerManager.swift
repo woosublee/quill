@@ -114,6 +114,7 @@ actor LocalAIServerManager {
         let startupWaiterCount: Int
         let activeRequestCount: Int
         let isWaitingForActiveRequests: Bool
+        let isMaintenanceActive: Bool
     }
 
     private struct LaunchState {
@@ -181,6 +182,7 @@ actor LocalAIServerManager {
     private let observeLifecycle: ObserveLifecycle
 
     private var state: LifecycleState = .idle
+    private var isMaintenanceActive = false
     private var lastRequestAt: Date?
     private var activeRequestCounts: [UUID: Int] = [:]
     private var activeDrainWaiters: [UUID: [UUID: ActiveRequestWaiter]] = [:]
@@ -245,6 +247,7 @@ actor LocalAIServerManager {
         for model: LocalAIModel,
         operation: @escaping @Sendable (URL) async throws -> Result
     ) async throws -> Result {
+        try ensureMaintenanceIsInactive()
         let lease = try await acquireLease(for: model)
         do {
             let result = try await operation(lease.url)
@@ -270,6 +273,7 @@ actor LocalAIServerManager {
                 try Task.checkCancellation()
                 let resolved = try await resolveBaseURL(for: model, waiter: waiter)
                 try Task.checkCancellation()
+                try ensureMaintenanceIsInactive()
                 activeRequestCounts[resolved.launchToken, default: 0] += 1
                 lastRequestAt = now()
                 return RequestLease(
@@ -361,15 +365,74 @@ actor LocalAIServerManager {
         }
     }
 
+    /// Stops the runtime and runs a synchronous model-maintenance operation
+    /// while preventing new inference startups. Existing active operations are
+    /// allowed to drain before the resident process is stopped.
+    func withExclusiveMaintenance<Result: Sendable>(
+        _ operation: @Sendable () throws -> Result
+    ) async throws -> Result {
+        try ensureMaintenanceIsInactive()
+        isMaintenanceActive = true
+        defer { isMaintenanceActive = false }
+
+        await stopForMaintenance()
+        return try operation()
+    }
+
     /// Internal deterministic observation seam for lifecycle race tests.
     func lifecycleSnapshot() -> LifecycleSnapshot {
         snapshot(for: state)
+    }
+
+    private func ensureMaintenanceIsInactive() throws {
+        guard !isMaintenanceActive else {
+            throw LocalAIServerManagerError.modelUnavailable(
+                "Local AI maintenance is in progress."
+            )
+        }
+    }
+
+    private func stopForMaintenance() async {
+        lastRequestAt = nil
+        while true {
+            switch state {
+            case .idle:
+                return
+            case let .starting(startup):
+                await stopStartup(startup)
+            case let .running(launch):
+                await waitForMaintenanceActiveRequestsToDrain(
+                    launchToken: launch.token
+                )
+                guard case let .running(current) = state,
+                      current.token == launch.token else {
+                    continue
+                }
+                await stopRunning(current)
+            case let .stopping(stopping):
+                await finishStopping(stopping)
+            }
+        }
+    }
+
+    private func waitForMaintenanceActiveRequestsToDrain(
+        launchToken: UUID
+    ) async {
+        guard activeRequestCounts[launchToken, default: 0] > 0 else { return }
+        let waiter = ActiveRequestWaiter()
+        activeDrainWaiters[launchToken, default: [:]][waiter.id] = waiter
+        _ = await waiter.wait()
+        activeDrainWaiters[launchToken]?.removeValue(forKey: waiter.id)
+        if activeDrainWaiters[launchToken]?.isEmpty == true {
+            activeDrainWaiters.removeValue(forKey: launchToken)
+        }
     }
 
     private func resolveBaseURL(for model: LocalAIModel, waiter: StartupWaiter) async throws -> ResolvedBaseURL {
         try Task.checkCancellation()
 
         while true {
+            try ensureMaintenanceIsInactive()
             switch state {
             case .idle:
                 let startup = try beginStartup(for: model, waiterID: waiter.id)
@@ -750,7 +813,8 @@ actor LocalAIServerManager {
                 modelID: nil,
                 startupWaiterCount: 0,
                 activeRequestCount: 0,
-                isWaitingForActiveRequests: false
+                isWaitingForActiveRequests: false,
+                isMaintenanceActive: isMaintenanceActive
             )
         case let .starting(startup):
             return LifecycleSnapshot(
@@ -758,7 +822,8 @@ actor LocalAIServerManager {
                 modelID: startup.launch.modelID,
                 startupWaiterCount: startup.waiterIDs.count,
                 activeRequestCount: activeRequestCounts[startup.launch.token, default: 0],
-                isWaitingForActiveRequests: switchDrain?.launchToken == startup.launch.token
+                isWaitingForActiveRequests: switchDrain?.launchToken == startup.launch.token,
+                isMaintenanceActive: isMaintenanceActive
             )
         case let .running(launch):
             return LifecycleSnapshot(
@@ -766,7 +831,8 @@ actor LocalAIServerManager {
                 modelID: launch.modelID,
                 startupWaiterCount: 0,
                 activeRequestCount: activeRequestCounts[launch.token, default: 0],
-                isWaitingForActiveRequests: switchDrain?.launchToken == launch.token
+                isWaitingForActiveRequests: switchDrain?.launchToken == launch.token,
+                isMaintenanceActive: isMaintenanceActive
             )
         case let .stopping(stopping):
             return LifecycleSnapshot(
@@ -774,7 +840,8 @@ actor LocalAIServerManager {
                 modelID: stopping.launch.modelID,
                 startupWaiterCount: 0,
                 activeRequestCount: activeRequestCounts[stopping.launch.token, default: 0],
-                isWaitingForActiveRequests: false
+                isWaitingForActiveRequests: false,
+                isMaintenanceActive: isMaintenanceActive
             )
         }
     }
