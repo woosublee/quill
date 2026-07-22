@@ -45,11 +45,51 @@ struct NoteFileExportUIContractTests {
             noteBrowser.contains("Image(systemName: \"ellipsis\")"),
             "more-actions menu uses the approved symbol"
         )
+        try expect(
+            noteBrowser.contains("ToolbarIconMenu(help: \"More Actions\")"),
+            "more-actions menu uses the toolbar hover control"
+        )
+        let toolbarIconMenu = try sourceSection(
+            noteBrowser,
+            from: "private struct ToolbarIconMenu",
+            to: "// MARK: - Obsidian Export Sheet"
+        )
+        for marker in [
+            "@State private var isHovered = false",
+            "ZStack {",
+            ".fill(isHovered ? hoverFillColor : Color.clear)",
+            ".strokeBorder(hoverStrokeColor.opacity(isHovered ? 1 : 0), lineWidth: 0.5)",
+            "Menu(content: content)",
+            ".contentShape(Circle())",
+            ".onHover { hovering in",
+            "isHovered = hovering"
+        ] {
+            try expect(toolbarIconMenu.contains(marker), "toolbar menu hover control contains \(marker)")
+        }
+        let disabledHitTestingCount = toolbarIconMenu.components(
+            separatedBy: ".allowsHitTesting(false)"
+        ).count - 1
+        try expect(
+            disabledHitTestingCount == 2,
+            "both decorative hover circles leave menu hit testing enabled"
+        )
         print("NoteFileExportUIContractTests passed")
     }
 
     private static func source(_ path: String) throws -> String {
         try String(contentsOfFile: path, encoding: .utf8)
+    }
+
+    private static func sourceSection(
+        _ source: String,
+        from startMarker: String,
+        to endMarker: String
+    ) throws -> Substring {
+        guard let start = source.range(of: startMarker)?.lowerBound,
+              let end = source.range(of: endMarker, range: start..<source.endIndex)?.lowerBound else {
+            throw TestFailure("Unable to locate source section from \(startMarker) to \(endMarker)")
+        }
+        return source[start..<end]
     }
 
     private static func expect(

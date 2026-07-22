@@ -1102,7 +1102,7 @@ struct CalendarSettingsView: View {
                             appState.setCalendarRecordingReminderLeadTime(minutes, isSelected: !isSelected)
                         } label: {
                             Label(
-                                "\(minutes) min before",
+                                CalendarRecordingReminderScheduler.leadTimeOptionTitle(minutes),
                                 systemImage: isSelected ? "checkmark.circle.fill" : "circle"
                             )
                             .frame(maxWidth: .infinity, alignment: .leading)

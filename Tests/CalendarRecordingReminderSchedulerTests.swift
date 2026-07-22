@@ -17,6 +17,7 @@ struct CalendarRecordingReminderSchedulerTests {
         testCalendarReminderIdentifierFilteringUsesPrefix()
         testNotificationTitleDescribesRelativeStartTime()
         try testNotificationCopyLocalizesWrapperAndPreservesEventTitle()
+        try testLeadTimeOptionTitleLocalizes()
         testNormalizesLeadMinutes()
         testNormalizesLeadMinuteSelections()
         testNormalizesRefreshIntervalMinutesToSupportedOptions()
@@ -233,6 +234,25 @@ struct CalendarRecordingReminderSchedulerTests {
         assert(CalendarRecordingReminderScheduler.notificationTitle(for: schedule, now: now, language: "en", bundle: bundle) == "Meeting starts in 10 minutes")
         assert(CalendarRecordingReminderScheduler.notificationTitle(for: schedule, now: now, language: "ko", bundle: bundle) == "회의가 10분 후 시작됩니다")
         assert(CalendarRecordingReminderScheduler.notificationBody(for: event, language: "ko", bundle: bundle) == "눌러서 녹음 시작: Quarterly Review: Q3")
+    }
+
+    private static func testLeadTimeOptionTitleLocalizes() throws {
+        let bundle = try compiledLocalizationBundle()
+
+        assert(
+            CalendarRecordingReminderScheduler.leadTimeOptionTitle(
+                10,
+                language: "en",
+                bundle: bundle
+            ) == "10 min before"
+        )
+        assert(
+            CalendarRecordingReminderScheduler.leadTimeOptionTitle(
+                10,
+                language: "ko",
+                bundle: bundle
+            ) == "10분 전"
+        )
     }
 
     private static func compiledLocalizationBundle() throws -> Bundle {

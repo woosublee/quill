@@ -404,6 +404,27 @@ final class CalendarRecordingReminderScheduler {
         )
     }
 
+    nonisolated static func leadTimeOptionTitle(_ minutes: Int) -> String {
+        leadTimeOptionTitle(
+            minutes,
+            language: preferredLocalizedStringLanguage(),
+            bundle: .main
+        )
+    }
+
+    nonisolated static func leadTimeOptionTitle(
+        _ minutes: Int,
+        language: String,
+        bundle: Bundle
+    ) -> String {
+        localizedCatalogFormat(
+            "%@ min before",
+            String(minutes),
+            language: language,
+            bundle: bundle
+        )
+    }
+
     nonisolated static func notificationTitle(for schedule: CalendarRecordingReminderSchedule, now: Date) -> String {
         notificationTitle(for: schedule, now: now, language: preferredLocalizedStringLanguage(), bundle: .main)
     }
