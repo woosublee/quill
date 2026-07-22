@@ -1046,7 +1046,7 @@ private struct NoteListRow: View {
                     .lineLimit(1)
 
                 if displayData.status == .audioOnly {
-                    Text("Audio only")
+                    Text(localizedCatalogString("Audio only"))
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(.blue)
                         .padding(.horizontal, 6)
@@ -1466,7 +1466,7 @@ private struct NoteDetailView: View {
         HStack(spacing: 5) {
             if isAudioOnly {
                 metaTag(
-                    "Audio only",
+                    localizedCatalogString("Audio only"),
                     active: true,
                     help: "Audio-only recording"
                 )

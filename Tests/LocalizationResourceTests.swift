@@ -220,6 +220,7 @@ struct LocalizationResourceTests {
             "Export to Obsidian",
             "More Actions",
             "Audio only",
+            "Audio-only recording",
             "Audio recording",
             "Not transcribed",
             "Saved without transcription. You can transcribe it later.",
@@ -234,6 +235,14 @@ struct LocalizationResourceTests {
                 assert(!value.isEmpty, "Missing \(language) Note Browser key: \(key)")
             }
         }
+        let audioOnlyTooltip = (strings["Audio-only recording"] as? [String: Any])?["localizations"]
+            as? [String: Any]
+        let audioOnlyTooltipEnglish = (((audioOnlyTooltip?["en"] as? [String: Any])?["stringUnit"]
+            as? [String: Any])?["value"] as? String) ?? ""
+        let audioOnlyTooltipKorean = (((audioOnlyTooltip?["ko"] as? [String: Any])?["stringUnit"]
+            as? [String: Any])?["value"] as? String) ?? ""
+        assert(audioOnlyTooltipEnglish == "Audio-only recording")
+        assert(audioOnlyTooltipKorean == "오디오 전용 녹음")
 
         let hangulPattern = try NSRegularExpression(pattern: "[가-힣]")
         let sourceFiles = [

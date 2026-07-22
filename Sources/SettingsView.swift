@@ -1895,7 +1895,8 @@ struct ModelsSettingsView: View {
                     )
                     .font(.caption)
                     .foregroundStyle(.orange)
-                } else if let reason = currentTranscriptionDisplay.localizedUnavailableReason() {
+                } else if appState.transcriptionEnabled,
+                          let reason = currentTranscriptionDisplay.localizedUnavailableReason() {
                     Label(reason, systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(.orange)

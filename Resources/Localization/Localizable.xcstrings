@@ -1409,6 +1409,22 @@
         }
       }
     },
+    "Audio-only recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio-only recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오 전용 녹음"
+          }
+        }
+      }
+    },
     "Not transcribed": {
       "localizations": {
         "en": {

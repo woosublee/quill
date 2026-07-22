@@ -522,8 +522,17 @@ struct ModelsSettingsUIContractTests {
         precondition(source.contains("Toggle(\"\", isOn: transcriptionEnabled)"))
         precondition(source.contains(".accessibilityLabel(\"Transcription\")"))
         precondition(source.contains("appState.isTranscriptionConfigurationLocked"))
+        let section = block(
+            in: source,
+            from: "private var transcriptionFeatureSection",
+            to: "private var postProcessingEnabled"
+        )
+
         precondition(source.contains("Record audio without creating a transcript."))
         precondition(source.contains(".disabled(!appState.transcriptionEnabled)"))
+        precondition(section.contains("} else if appState.transcriptionEnabled,"))
+        precondition(section.contains("let reason = currentTranscriptionDisplay.localizedUnavailableReason()"))
+        precondition(!section.contains("} else if let reason = currentTranscriptionDisplay.localizedUnavailableReason()"))
     }
 
     private static func testMenuBarUsesRecordingCopyWhenTranscriptionIsOff() throws {
