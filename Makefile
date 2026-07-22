@@ -545,6 +545,8 @@ _test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSC
 	@$(TEST_BUILD_DIR)/LocalAIModelTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/LocalAIModel.swift Tests/LocalAIModelStoreTests.swift -o $(TEST_BUILD_DIR)/LocalAIModelStoreTests
 	@$(TEST_BUILD_DIR)/LocalAIModelStoreTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/LocalAIModel.swift Sources/LocalAIInstaller.swift Tests/LocalAIInstallerTests.swift -o $(TEST_BUILD_DIR)/LocalAIInstallerTests
+	@$(TEST_BUILD_DIR)/LocalAIInstallerTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/QuillUserIssue.swift Sources/NativeWhisperModel.swift Sources/NativeWhisperRuntime.swift Tests/NativeWhisperRuntimeTests.swift -o $(TEST_BUILD_DIR)/NativeWhisperRuntimeTests
 	@$(TEST_BUILD_DIR)/NativeWhisperRuntimeTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/NativeWhisperModel.swift Sources/NativeWhisperInstaller.swift Tests/NativeWhisperInstallerTests.swift -o $(TEST_BUILD_DIR)/NativeWhisperInstallerTests
