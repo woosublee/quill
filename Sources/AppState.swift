@@ -4317,6 +4317,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     postProcessingEnabled: snapshot.postProcessingEnabled,
                     preserveExactWording: snapshot.preserveExactWording
                 )
+                let transcriptFileName = snapshot.item.machineStatus == .audioOnly
+                    ? Self.saveTranscriptFile(
+                        rawTranscript: parsedTranscript.transcript,
+                        postProcessedTranscript: result.finalTranscript
+                    )
+                    : snapshot.item.transcriptFileName
                 updatedItem = self.makeRetryHistoryItem(
                     from: snapshot,
                     rawTranscript: parsedTranscript.transcript,
@@ -4328,7 +4334,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             parsedTranscript: parsedTranscript,
                             isRetry: true
                         ),
-                    debugStatus: "Retried"
+                    debugStatus: "Retried",
+                    transcriptFileName: transcriptFileName
                 )
                 retrySucceeded = true
             } catch {
@@ -4347,7 +4354,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     postProcessedTranscript: snapshot.item.postProcessedTranscript,
                     postProcessingPrompt: snapshot.item.postProcessingPrompt,
                     postProcessingStatus: issue.persistedStatus,
-                    debugStatus: "Retry failed"
+                    debugStatus: "Retry failed",
+                    transcriptFileName: snapshot.item.transcriptFileName
                 )
                 retrySucceeded = false
             }
@@ -4382,6 +4390,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.copyRetryTranscriptToPasteboardIfNeeded(updatedItem.postProcessedTranscript)
                     }
                 } catch {
+                    if snapshot.item.transcriptFileName == nil,
+                       let transcriptFileName = updatedItem.transcriptFileName {
+                        Self.deleteTranscriptFile(transcriptFileName)
+                    }
                     let issue = self.userIssue(for: error)
                     self.errorMessage = issue.record.presentation().compactMessage
                 }
@@ -4426,8 +4438,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
             throw TranscriptionError.submissionFailed(reason)
         }
         let configuration = audioImportConfiguration(for: retryChoice)
+        let isAudioOnly = item.machineStatus == .audioOnly
+        let retryPostProcessingEnabled = isAudioOnly ? !disablePostProcessing : item.usedPostProcessing
+        let retryCustomVocabulary = isAudioOnly ? customVocabulary : item.customVocabulary
+        let retryCustomSystemPrompt = isAudioOnly ? customSystemPrompt : item.customSystemPrompt
         let completionSnapshot = TranscriptionCompletionSnapshot(
-            postProcessingEnabled: item.usedPostProcessing,
+            postProcessingEnabled: retryPostProcessingEnabled,
             preserveExactWording: preserveExactWording,
             outputLanguage: outputLanguage,
             pressEnterCommandEnabled: isPressEnterVoiceCommandEnabled
@@ -4473,15 +4489,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
             item: item,
             audioURL: audioURL,
             restoredContext: AppContext(
-                appName: nil,
-                bundleIdentifier: nil,
-                windowTitle: nil,
-                selectedText: nil,
-                currentActivity: item.contextSummary,
-                contextSystemPrompt: item.contextSystemPrompt,
-                contextPrompt: item.contextPrompt,
-                screenshotDataURL: item.contextScreenshotDataURL,
-                screenshotMimeType: item.contextScreenshotDataURL != nil ? "image/jpeg" : nil,
+                appName: isAudioOnly ? nil : item.contextAppName,
+                bundleIdentifier: isAudioOnly ? nil : item.contextBundleIdentifier,
+                windowTitle: isAudioOnly ? nil : item.contextWindowTitle,
+                selectedText: isAudioOnly ? nil : item.capturedSelection,
+                currentActivity: isAudioOnly ? "" : item.contextSummary,
+                contextSystemPrompt: isAudioOnly ? nil : item.contextSystemPrompt,
+                contextPrompt: isAudioOnly ? nil : item.contextPrompt,
+                screenshotDataURL: isAudioOnly ? nil : item.contextScreenshotDataURL,
+                screenshotMimeType: !isAudioOnly && item.contextScreenshotDataURL != nil
+                    ? "image/jpeg"
+                    : nil,
                 screenshotError: nil
             ),
             restoredIntent: SessionIntent.fromPersisted(intent: item.intent, selectedText: item.selectedText),
@@ -4490,10 +4508,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             transcriptionLanguage: TranscriptionLanguage.find(code: item.transcriptionLanguageCode),
             localTranscriptionModel: configuration.localTranscriptionModel,
             useLocalTranscription: configuration.useLocalTranscription,
-            customVocabulary: item.customVocabulary,
-            customSystemPrompt: item.customSystemPrompt,
+            customVocabulary: retryCustomVocabulary,
+            customSystemPrompt: retryCustomSystemPrompt,
             outputLanguage: outputLanguage,
-            postProcessingEnabled: item.usedPostProcessing,
+            postProcessingEnabled: retryPostProcessingEnabled,
             preserveExactWording: preserveExactWording,
             localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath,
             useLegacyMlxWhisper: configuration.useLegacyMlxWhisper,
@@ -4508,11 +4526,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         postProcessedTranscript: String,
         postProcessingPrompt: String?,
         postProcessingStatus: String,
-        debugStatus: String
+        debugStatus: String,
+        transcriptFileName: String?
     ) -> PipelineHistoryItem {
         PipelineHistoryItem(
             intent: snapshot.item.intent,
             selectedText: snapshot.item.selectedText,
+            capturedSelection: snapshot.item.capturedSelection,
             id: snapshot.item.id,
             timestamp: snapshot.item.timestamp,
             recordingStartedAt: snapshot.item.recordingStartedAt,
@@ -4521,7 +4541,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             rawTranscript: rawTranscript,
             postProcessedTranscript: postProcessedTranscript,
             postProcessingPrompt: postProcessingPrompt,
+            systemPrompt: snapshot.item.systemPrompt,
             contextSummary: snapshot.item.contextSummary,
+            contextSystemPrompt: snapshot.item.contextSystemPrompt,
             contextPrompt: snapshot.item.contextPrompt,
             contextScreenshotDataURL: snapshot.item.contextScreenshotDataURL,
             contextScreenshotStatus: snapshot.item.contextScreenshotStatus,
@@ -4535,7 +4557,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             usedPostProcessing: snapshot.postProcessingEnabled,
             transcriptionLanguageCode: snapshot.transcriptionLanguage.code,
             localTranscriptionModelID: snapshot.localTranscriptionModel.id,
-            transcriptFileName: snapshot.item.transcriptFileName
+            transcriptFileName: transcriptFileName,
+            contextAppName: snapshot.item.contextAppName,
+            contextBundleIdentifier: snapshot.item.contextBundleIdentifier,
+            contextWindowTitle: snapshot.item.contextWindowTitle,
+            customTitle: snapshot.item.customTitle
         )
     }
 
@@ -7505,7 +7531,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             parsedTranscript: parsed,
                             isRetry: true
                         ),
-                    debugStatus: "Resumed after relaunch"
+                    debugStatus: "Resumed after relaunch",
+                    transcriptFileName: item.transcriptFileName
                 )
                 try pipelineHistoryStore.update(updated)
                 pipelineHistory = pipelineHistoryStore.loadAllHistory()

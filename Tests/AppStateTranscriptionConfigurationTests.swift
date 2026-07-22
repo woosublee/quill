@@ -124,6 +124,8 @@ struct AppStateTranscriptionConfigurationTests {
         await testRetryAvailabilityRequiresModelSetup()
         await testRetryAvailabilityRequiresModelSelection()
         await testRetryAvailabilityAcceptsConfiguredAPIStandard()
+        try testAudioOnlyRetryUsesCurrentProcessingSettings()
+        try testAudioOnlyRetryCreatesTranscriptFileAndPreservesMetadata()
         print("AppStateTranscriptionConfigurationTests passed")
     }
 
@@ -2182,6 +2184,41 @@ struct AppStateTranscriptionConfigurationTests {
             precondition(appState.noteBrowserStoredAudioURL(for: item) == audioURL)
             precondition(appState.noteBrowserRetryAvailability(for: item) == .ready)
         }
+    }
+
+    private static func testAudioOnlyRetryUsesCurrentProcessingSettings() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let retrySnapshot = sourceBlock(
+            in: source,
+            from: "private func makeRetrySnapshot(for item: PipelineHistoryItem)",
+            to: "\n    private func makeRetryHistoryItem("
+        )
+
+        assert(retrySnapshot.contains("let isAudioOnly = item.machineStatus == .audioOnly"))
+        assert(retrySnapshot.contains("isAudioOnly ? !disablePostProcessing : item.usedPostProcessing"))
+        assert(retrySnapshot.contains("isAudioOnly ? customVocabulary : item.customVocabulary"))
+        assert(retrySnapshot.contains("isAudioOnly ? customSystemPrompt : item.customSystemPrompt"))
+        assert(retrySnapshot.contains("currentActivity: isAudioOnly ? \"\" : item.contextSummary"))
+    }
+
+    private static func testAudioOnlyRetryCreatesTranscriptFileAndPreservesMetadata() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let retry = sourceBlock(
+            in: source,
+            from: "func retryTranscription(item: PipelineHistoryItem)",
+            to: "\n    @MainActor\n    private func copyRetryTranscriptToPasteboardIfNeeded"
+        )
+        let history = sourceBlock(
+            in: source,
+            from: "private func makeRetryHistoryItem(",
+            to: "\n    func updatePermissionStatus"
+        )
+
+        assert(retry.contains("saveTranscriptFile("))
+        assert(history.contains("capturedSelection: snapshot.item.capturedSelection"))
+        assert(history.contains("systemPrompt: snapshot.item.systemPrompt"))
+        assert(history.contains("contextSystemPrompt: snapshot.item.contextSystemPrompt"))
+        assert(history.contains("customTitle: snapshot.item.customTitle"))
     }
 
     private static func retryHistoryItem(audioFileName: String?) -> PipelineHistoryItem {
