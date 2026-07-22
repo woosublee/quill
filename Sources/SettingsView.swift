@@ -1518,6 +1518,10 @@ struct ModelsSettingsView: View {
     @State private var postProcessingModelDraft = ""
     @State private var postProcessingFallbackModelDraft = ""
     @State private var contextModelDraft = ""
+    @State private var isEditingPostProcessingModel = false
+    @State private var isEditingContextModel = false
+    @State private var retainedPostProcessingLocalModelID: String?
+    @State private var retainedContextLocalModelID: String?
     @FocusState private var isEditingAPIBaseURL: Bool
     @FocusState private var isEditingTranscriptionModel: Bool
     @FocusState private var isEditingRealtimeStreamingModel: Bool
@@ -1596,6 +1600,7 @@ struct ModelsSettingsView: View {
                 ? AppContextService.defaultContextPrompt
                 : appState.customContextPrompt
             initializeManagedNativeModel()
+            initializeManagedLocalAIModels()
         }
         .onChange(of: appState.transcriptionAPIURL) { value in
             if transcriptionAPIURLInput != value { transcriptionAPIURLInput = value }
@@ -1607,6 +1612,16 @@ struct ModelsSettingsView: View {
             guard !isEditingTranscriptionModel else { return }
             let draft = customStandardAPIModelDraft(for: value)
             if transcriptionModelDraft != draft { transcriptionModelDraft = draft }
+        }
+        .onChange(of: appState.postProcessingModel) { value in
+            if !isEditingPostProcessingModel {
+                postProcessingModelDraft = value
+            }
+        }
+        .onChange(of: appState.contextModel) { value in
+            if !isEditingContextModel {
+                contextModelDraft = value
+            }
         }
     }
 
@@ -1839,8 +1854,78 @@ struct ModelsSettingsView: View {
     ) -> Binding<AIProcessingBackendChoice> {
         Binding(
             get: { appState.currentAIProcessingChoice(for: feature) },
-            set: { appState.selectAIProcessingBackendChoice($0, for: feature) }
+            set: { handleAIProcessingChoiceSelection($0, for: feature) }
         )
+    }
+
+    private func handleAIProcessingChoiceSelection(
+        _ choice: AIProcessingBackendChoice,
+        for feature: AIProcessingFeature
+    ) {
+        switch choice {
+        case .cloud(let modelID):
+            setRetainedLocalAIModelID(nil, for: feature)
+            appState.selectAIProcessingBackendChoice(choice, for: feature)
+            syncCloudModelDraft(modelID, for: feature)
+        case .localAI(let modelID):
+            setRetainedLocalAIModelID(modelID, for: feature)
+            appState.selectAIProcessingBackendChoice(choice, for: feature)
+        }
+    }
+
+    private func setRetainedLocalAIModelID(
+        _ modelID: String?,
+        for feature: AIProcessingFeature
+    ) {
+        switch feature {
+        case .postProcessing:
+            retainedPostProcessingLocalModelID = modelID
+        case .context:
+            retainedContextLocalModelID = modelID
+        }
+    }
+
+    private func syncCloudModelDraft(
+        _ modelID: String,
+        for feature: AIProcessingFeature
+    ) {
+        switch feature {
+        case .postProcessing where !isEditingPostProcessingModel:
+            postProcessingModelDraft = modelID
+        case .context where !isEditingContextModel:
+            contextModelDraft = modelID
+        case .postProcessing, .context:
+            break
+        }
+    }
+
+    private func initializeManagedLocalAIModels() {
+        for feature in AIProcessingFeature.allCases {
+            guard let model = appState.selectedOrPendingLocalAIModel(for: feature) else {
+                continue
+            }
+            setRetainedLocalAIModelID(model.id, for: feature)
+        }
+    }
+
+    private func managedLocalAIModel(
+        for feature: AIProcessingFeature
+    ) -> LocalAIModel? {
+        let retainedModelID: String? = switch feature {
+        case .postProcessing: retainedPostProcessingLocalModelID
+        case .context: retainedContextLocalModelID
+        }
+        let retainedModel = retainedModelID.flatMap { retainedModelID in
+            LocalAIModelCatalog.model(id: retainedModelID)
+        }
+        guard let model = appState.selectedOrPendingLocalAIModel(for: feature)
+            ?? retainedModel,
+              appState.aiProcessingChoiceDisplays(for: feature).contains(where: {
+                  $0.choice == .localAI(modelID: model.id)
+              }) else {
+            return nil
+        }
+        return model
     }
 
     private func aiProcessingChoiceMenuLabel(
@@ -1852,6 +1937,21 @@ struct ModelsSettingsView: View {
         return display.isRecommended
             ? "\(base) — \(localizedCatalogString("Recommended"))"
             : base
+    }
+
+    private func aiProcessingChoiceMenuItem(
+        _ display: AIProcessingChoiceDisplay,
+        binding: Binding<AIProcessingBackendChoice>
+    ) -> some View {
+        Toggle(isOn: Binding(
+            get: { binding.wrappedValue == display.choice },
+            set: { isSelected in
+                if isSelected { binding.wrappedValue = display.choice }
+            }
+        )) {
+            Text(aiProcessingChoiceMenuLabel(display))
+        }
+        .disabled(!display.isAvailable)
     }
 
     @ViewBuilder
@@ -1889,15 +1989,10 @@ struct ModelsSettingsView: View {
                         if !sectionDisplays.isEmpty {
                             Section(localizedCatalogString(section)) {
                                 ForEach(sectionDisplays) { display in
-                                    Button {
-                                        appState.selectAIProcessingBackendChoice(
-                                            display.choice,
-                                            for: feature
-                                        )
-                                    } label: {
-                                        Text(aiProcessingChoiceMenuLabel(display))
-                                    }
-                                    .disabled(!display.isAvailable)
+                                    aiProcessingChoiceMenuItem(
+                                        display,
+                                        binding: binding
+                                    )
                                 }
                             }
                         }
@@ -2008,10 +2103,7 @@ struct ModelsSettingsView: View {
 
             aiProcessingChoicePicker(for: .postProcessing)
 
-            if let model = appState.selectedOrPendingLocalAIModel(for: .postProcessing),
-               appState.aiProcessingChoiceDisplays(for: .postProcessing).contains(where: {
-                   $0.choice == .localAI(modelID: model.id)
-               }) {
+            if let model = managedLocalAIModel(for: .postProcessing) {
                 LocalAIModelRowView(
                     feature: .postProcessing,
                     model: model,
@@ -2077,10 +2169,7 @@ struct ModelsSettingsView: View {
 
             aiProcessingChoicePicker(for: .context)
 
-            if let model = appState.selectedOrPendingLocalAIModel(for: .context),
-               appState.aiProcessingChoiceDisplays(for: .context).contains(where: {
-                   $0.choice == .localAI(modelID: model.id)
-               }) {
+            if let model = managedLocalAIModel(for: .context) {
                 LocalAIModelRowView(
                     feature: .context,
                     model: model,
@@ -2129,6 +2218,7 @@ struct ModelsSettingsView: View {
                 predefinedModels: ModelConfiguration.llmModels,
                 defaultModel: AppState.defaultPostProcessingModel,
                 textDraft: $postProcessingModelDraft,
+                isEditing: $isEditingPostProcessingModel,
                 onCommit: commitPostProcessingModel,
                 onReset: {
                     postProcessingModelDraft = AppState.defaultPostProcessingModel
@@ -2181,6 +2271,7 @@ struct ModelsSettingsView: View {
                 predefinedModels: ModelConfiguration.llmModels,
                 defaultModel: AppState.defaultContextModel,
                 textDraft: $contextModelDraft,
+                isEditing: $isEditingContextModel,
                 onCommit: commitContextModel,
                 onReset: {
                     contextModelDraft = AppState.defaultContextModel

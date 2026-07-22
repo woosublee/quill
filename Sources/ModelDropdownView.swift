@@ -9,9 +9,30 @@ struct ModelDropdownView: View {
     let defaultModel: String
     
     @Binding var textDraft: String
+    @Binding var isEditing: Bool
     let onCommit: () -> Void
     let onReset: () -> Void
-    
+
+    init(
+        title: LocalizedStringKey,
+        subtitle: LocalizedStringKey?,
+        predefinedModels: [String],
+        defaultModel: String,
+        textDraft: Binding<String>,
+        isEditing: Binding<Bool> = .constant(false),
+        onCommit: @escaping () -> Void,
+        onReset: @escaping () -> Void
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.predefinedModels = predefinedModels
+        self.defaultModel = defaultModel
+        self._textDraft = textDraft
+        self._isEditing = isEditing
+        self.onCommit = onCommit
+        self.onReset = onReset
+    }
+
     @State private var isCustom: Bool = false
     @FocusState private var isEditingCustom: Bool
     
@@ -61,8 +82,9 @@ struct ModelDropdownView: View {
                         .onSubmit {
                             onCommit()
                         }
-                        .onChange(of: isEditingCustom) { isEditing in
-                            if !isEditing {
+                        .onChange(of: isEditingCustom) { focused in
+                            isEditing = focused
+                            if !focused {
                                 onCommit()
                             }
                         }

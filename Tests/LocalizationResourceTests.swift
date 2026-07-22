@@ -512,6 +512,11 @@ struct LocalizationResourceTests {
         assert(localAIModel.contains("localizedCatalogString(\"Starting...\""))
         assert(localAIModelRow.contains("model.localizedDescription()"))
         assert(localAIModelRow.contains("state.progress.localizedDisplayText()"))
+        assert(
+            localAIModelRow.contains(
+                "localizedCatalogString(isSelected ? \"Selected\" : \"Not selected\")"
+            )
+        )
     }
 
     private static func assertLocalizedCancellationStatusReset(root: URL) throws {

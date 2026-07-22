@@ -187,6 +187,8 @@ struct SettingsLocalizationTests {
             "Best quality. Needs more memory.": "최고 품질입니다. 더 많은 메모리가 필요합니다.",
             "Faster and lighter. Good for lower-memory Macs.": "더 빠르고 가볍습니다. 메모리가 적은 Mac에 적합합니다.",
             "Canceled": "취소됨",
+            "Selected": "선택됨",
+            "Not selected": "선택되지 않음",
             "Post-Processing Fallback Model": "후처리 대체 모델",
             "Used as the explicit retry model for transcript cleanup and Edit Mode transforms.": "전사문 정리와 Edit Mode 변환을 다시 시도할 때 사용할 모델입니다.",
             "Edit Mode uses this model, fallback model, Output Language, and Custom Vocabulary. Invocation Style and Extra Modifier remain in Shortcuts.": "Edit Mode는 이 모델, 대체 모델, 출력 언어 및 사용자 지정 어휘를 사용합니다. 실행 방식과 추가 보조 키는 단축키에 그대로 있습니다.",

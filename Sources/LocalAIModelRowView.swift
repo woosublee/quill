@@ -52,6 +52,9 @@ struct LocalAIModelRowView: View {
                     lineWidth: 1
                 )
         )
+        .accessibilityValue(
+            localizedCatalogString(isSelected ? "Selected" : "Not selected")
+        )
         .confirmationDialog(
             "Delete model?",
             isPresented: $showDeleteConfirmation,
