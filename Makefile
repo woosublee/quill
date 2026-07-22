@@ -53,7 +53,8 @@ FULL_SOURCE_TRANSCRIPTION_TESTS = \
 	Tests/CloudTranscriptionHistoryLifecycleTests.swift \
 	Tests/TranscriptionServiceCloudChunkingTests.swift \
 	Tests/TranscriptionServiceLocalIssueTests.swift \
-	Tests/PostProcessingUserIssueTests.swift
+	Tests/PostProcessingUserIssueTests.swift \
+	Tests/PostProcessingBackendTests.swift
 FULL_SOURCE_APP_STATE_TESTS = \
 	Tests/AudioImportFileCopyTests.swift \
 	Tests/AppStateTranscriptionConfigurationTests.swift

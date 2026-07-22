@@ -5,5 +5,6 @@ struct FullSourceTranscriptionTestRunner {
         await TranscriptionServiceCloudChunkingTests.main()
         try await TranscriptionServiceLocalIssueTests.main()
         try PostProcessingUserIssueTests.main()
+        try await PostProcessingBackendTests.main()
     }
 }
