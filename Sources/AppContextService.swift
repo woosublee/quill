@@ -44,7 +44,6 @@ Return only two sentences, no labels, no markdown, no extra commentary.
     private let transport: Transport
     private let issueSink: IssueSink
     private let customContextPrompt: String
-    private let contextModel: String
     private let maxScreenshotDataURILength = 500_000
     private let screenshotCompressionPrimary = 0.5
     private let screenshotMaxDimension: CGFloat
@@ -71,7 +70,6 @@ Return only two sentences, no labels, no markdown, no extra commentary.
             cloudAPIKey: apiKey
         )
         self.customContextPrompt = customContextPrompt
-        self.contextModel = resolvedModel
         self.screenshotMaxDimension = screenshotMaxDimension > 0
             ? screenshotMaxDimension
             : AppContextService.defaultScreenshotMaxDimension
@@ -91,7 +89,6 @@ Return only two sentences, no labels, no markdown, no extra commentary.
     ) {
         self.backendExecutor = backendExecutor
         self.customContextPrompt = customContextPrompt
-        self.contextModel = contextModel
         self.screenshotMaxDimension = screenshotMaxDimension > 0
             ? screenshotMaxDimension
             : AppContextService.defaultScreenshotMaxDimension
@@ -162,7 +159,7 @@ Return only two sentences, no labels, no markdown, no extra commentary.
                 selectedText: selectedText,
                 screenshotDataURL: screenshot.dataURL,
                 contextSystemPrompt: contextSystemPrompt
-            ) {
+            ), !Task.isCancelled {
                 currentActivity = result.activity
                 contextPrompt = result.prompt
             } else {
@@ -208,8 +205,9 @@ Return only two sentences, no labels, no markdown, no extra commentary.
         screenshotDataURL: String?,
         contextSystemPrompt: String
     ) async -> (activity: String, prompt: String)? {
+        guard !Task.isCancelled else { return nil }
         do {
-            return try await backendExecutor.withEndpoint { [self] endpoint in
+            let result: (activity: String, prompt: String)? = try await backendExecutor.withEndpoint { [self] endpoint in
                 let attempts: [String?] = if endpoint.supportsImages,
                                             let screenshotDataURL {
                     [screenshotDataURL, nil]
@@ -217,6 +215,7 @@ Return only two sentences, no labels, no markdown, no extra commentary.
                     [nil]
                 }
                 for screenshot in attempts {
+                    try Task.checkCancellation()
                     do {
                         if let inferred = try await inferActivityWithLLM(
                             appName: appName,
@@ -227,9 +226,13 @@ Return only two sentences, no labels, no markdown, no extra commentary.
                             contextSystemPrompt: contextSystemPrompt,
                             endpoint: endpoint
                         ) {
+                            try Task.checkCancellation()
                             return inferred
                         }
                     } catch {
+                        if Self.isCancellation(error) || Task.isCancelled {
+                            throw CancellationError()
+                        }
                         if endpoint.kind == .local {
                             throw error
                         }
@@ -242,7 +245,10 @@ Return only two sentences, no labels, no markdown, no extra commentary.
                 }
                 return nil
             }
+            guard !Task.isCancelled else { return nil }
+            return result
         } catch {
+            guard !Self.isCancellation(error), !Task.isCancelled else { return nil }
             issueSink(contextUserIssue(for: error))
             return nil
         }
@@ -337,6 +343,15 @@ Selected text: \(selectedText ?? "None")
             return nil
         }
         return (activity: activity, prompt: fullPrompt)
+    }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return true
+        }
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
 
     private enum AppContextBackendError: Error {

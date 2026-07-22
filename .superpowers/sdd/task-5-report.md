@@ -61,3 +61,36 @@ The final full grouped run passed. It emitted pre-existing CoreData duplicate en
 - Confirmed cloud screenshot retry remains two attempts and remains text-only on retry.
 - Confirmed no captured mutable variables are used in `@Sendable` test closures; request and issue collection use `NSLock`-backed `@unchecked Sendable` recorders.
 - Confirmed `git diff --check` passes.
+
+## Follow-up: cancellation and endpoint identity fixes
+
+### RED
+
+Added focused regressions to `AppContextBackendTests` and ran `make test-transcription` before changing production code. The grouped run failed as expected at `cancelled context returns nil`: a cancelled task whose transport ignored cancellation and returned a successful response could still return inferred context.
+
+### GREEN
+
+- Cancellation is now recognized for `CancellationError`, `URLError.cancelled`, `NSURLErrorCancelled`, and a cancelled task.
+- A cancellation stops the cloud attempt loop immediately, skips text-only retry, returns `nil`, and does not call the private issue sink.
+- Added cancellation checks before each endpoint attempt, before returning inferred output, after the endpoint operation, and when applying inference to `collectContext()`.
+- Retained cloud retry after a non-cancellation thrown transport error.
+- Removed the unused stored `contextModel` property without changing either initializer signature.
+
+### New regression coverage
+
+- Cloud thrown transport error on the screenshot attempt retries once text-only and succeeds.
+- A cancelled cloud task whose transport later succeeds makes one request, returns `nil`, and produces no issue-sink entry.
+- A local endpoint whose `requestModelID` is `local` and whose selected catalog model differs uses `local` in the payload while retaining the selected model in prompt identity; it also omits authorization and image payloads.
+
+### Commands and results
+
+```text
+make test-transcription
+# RED: failed at "cancelled context returns nil"
+
+make test-transcription
+# GREEN: passed
+
+make check-test-wiring && make test-transcription
+# passed
+```
