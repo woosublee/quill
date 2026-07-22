@@ -1,7 +1,7 @@
 import Foundation
 
 enum TranscriptStatus: Equatable {
-    case done, recording, transcribing, recovered, fail
+    case done, recording, transcribing, audioOnly, recovered, fail
 }
 
 struct CloudTranscriptionDisplayProgress: Equatable, Sendable {
@@ -17,6 +17,8 @@ func transcriptStatus(for item: PipelineHistoryItem, retrying: Set<UUID>) -> Tra
         return .recording
     case .importing, .cloudTranscribing:
         return .transcribing
+    case .audioOnly:
+        return .audioOnly
     case .recovered:
         return .recovered
     case .failed:
@@ -131,6 +133,13 @@ struct NoteListRowDisplayData: Equatable {
             _ arguments: [CVarArg]
         ) -> String
     ) -> String {
+        if status == .audioOnly {
+            return localizedCatalogString(
+                "Not transcribed",
+                language: localizationLanguage,
+                bundle: localizationBundle
+            )
+        }
         if status == .fail {
             return item.userIssuePresentation(
                 language: localizationLanguage,

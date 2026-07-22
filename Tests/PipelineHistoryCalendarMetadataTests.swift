@@ -9,6 +9,7 @@ struct PipelineHistoryCalendarMetadataTests {
         try testLegacyEncodedHistoryItemDecodesMissingCalendarMetadataAsNil()
         try testCustomTitlePersistsThroughPipelineHistoryStore()
         try testCalendarMetadataPersistsThroughPipelineHistoryStore()
+        try testAudioOnlyRoundTripPreservesRecordingMetadata()
         try testUpsertKeepsOneRowAndUpdatesAllFields()
         try testDeletedAssetsIncludeHistoryIDForDeleteClearAndTrim()
         testGoogleCalendarConnectionMetadataBuildsConnectedState()
@@ -303,6 +304,34 @@ struct PipelineHistoryCalendarMetadataTests {
         assert(loaded[0].recordingStartedAt == recordingStart)
         assert(loaded[0].recordingEndedAt == recordingEnd)
         assert(loaded[0].calendarMatch == match)
+    }
+
+    private static func testAudioOnlyRoundTripPreservesRecordingMetadata() throws {
+        let store = PipelineHistoryStore(inMemory: true)
+        let id = UUID()
+        let start = Date(timeIntervalSince1970: 100)
+        let end = Date(timeIntervalSince1970: 200)
+        let item = PipelineHistoryItem.audioOnly(
+            id: id,
+            timestamp: end,
+            recordingStartedAt: start,
+            recordingEndedAt: end,
+            calendarMatch: nil,
+            audioFileName: "audio.wav",
+            transcriptionLanguageCode: "auto",
+            localTranscriptionModelID: "remembered-model"
+        )
+
+        _ = try store.append(item, maxCount: 100)
+        let loaded = store.loadAllHistory()
+
+        assert(loaded.count == 1)
+        assert(loaded[0].id == id)
+        assert(loaded[0].machineStatus == .audioOnly)
+        assert(loaded[0].audioFileName == "audio.wav")
+        assert(loaded[0].transcriptFileName == nil)
+        assert(loaded[0].recordingStartedAt == start)
+        assert(loaded[0].recordingEndedAt == end)
     }
 
     private static func testUpsertKeepsOneRowAndUpdatesAllFields() throws {

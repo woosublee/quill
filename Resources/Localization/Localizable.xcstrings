@@ -1281,6 +1281,54 @@
         }
       }
     },
+    "Audio recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오 녹음"
+          }
+        }
+      }
+    },
+    "Audio only": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio only"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오만"
+          }
+        }
+      }
+    },
+    "Not transcribed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not transcribed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사되지 않음"
+          }
+        }
+      }
+    },
     "Transcription failed": {
       "localizations": {
         "en": {

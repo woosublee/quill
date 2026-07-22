@@ -1114,6 +1114,8 @@ private struct NoteListRow: View {
                 .frame(width: 6, height: 6)
         case .recording, .transcribing:
             YellowSpinner(color: .orange)
+        case .audioOnly:
+            EmptyView()
         case .recovered:
             Image(systemName: "arrow.clockwise.circle")
                 .font(.system(size: 9, weight: .medium))
