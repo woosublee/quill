@@ -361,6 +361,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private let apiKeyStorageKey = "groq_api_key"
     private let apiBaseURLStorageKey = "api_base_url"
+    private let transcriptionEnabledStorageKey = "transcription_enabled"
     private let transcriptionModelStorageKey = AppState.transcriptionModelStorageKeyName
     private let transcriptionAPIURLStorageKey = "transcription_api_url"
     private let transcriptionAPIKeyStorageKey = "transcription_api_key"
@@ -454,9 +455,54 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    private static let firstInstallDefaultsVersion = 1
+    private static let firstInstallDefaultsVersionKey = "first_install_defaults_version"
+
+    private static func seedFirstInstallDefaultsIfNeeded(
+        defaults: UserDefaults,
+        hasCompletedSetup: Bool
+    ) {
+        guard defaults.integer(forKey: firstInstallDefaultsVersionKey)
+                < firstInstallDefaultsVersion else { return }
+
+        if hasCompletedSetup {
+            defaults.set(firstInstallDefaultsVersion, forKey: firstInstallDefaultsVersionKey)
+            return
+        }
+
+        if defaults.object(forKey: "disable_auto_paste") == nil {
+            defaults.set(true, forKey: "disable_auto_paste")
+        }
+        if defaults.object(forKey: "transcription_language") == nil {
+            defaults.set("auto", forKey: "transcription_language")
+        }
+        if defaults.object(forKey: "recording_overlay_layout") == nil {
+            defaults.set(RecordingOverlayLayout.notchSides.rawValue, forKey: "recording_overlay_layout")
+        }
+        if defaults.object(forKey: "overlay_waveform_display_mode") == nil {
+            defaults.set(OverlayWaveformDisplayMode.hoverTime.rawValue, forKey: "overlay_waveform_display_mode")
+        }
+        if defaults.object(forKey: "press_enter_voice_command_enabled") == nil {
+            defaults.set(false, forKey: "press_enter_voice_command_enabled")
+        }
+
+        defaults.set(firstInstallDefaultsVersion, forKey: firstInstallDefaultsVersionKey)
+    }
+
     @Published var hasCompletedSetup: Bool {
         didSet {
             UserDefaults.standard.set(hasCompletedSetup, forKey: "hasCompletedSetup")
+        }
+    }
+
+    @Published var transcriptionEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(
+                transcriptionEnabled,
+                forKey: transcriptionEnabledStorageKey
+            )
+            guard transcriptionEnabled, oldValue != transcriptionEnabled else { return }
+            scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration()
         }
     }
 
@@ -1235,12 +1281,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func scheduleNoteBrowserTranscriptionModeNormalizationForSelectedInput() {
         if Thread.isMainThread {
             MainActor.assumeIsolated {
-                guard !isApplyingNoteBrowserTranscriptionChoice else { return }
+                guard transcriptionEnabled,
+                      !isApplyingNoteBrowserTranscriptionChoice else { return }
                 normalizeNoteBrowserTranscriptionMode()
             }
         } else {
             Task { @MainActor [weak self] in
-                guard let self, !self.isApplyingNoteBrowserTranscriptionChoice else { return }
+                guard let self,
+                      self.transcriptionEnabled,
+                      !self.isApplyingNoteBrowserTranscriptionChoice else { return }
                 self.normalizeNoteBrowserTranscriptionMode()
             }
         }
@@ -1249,7 +1298,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration() {
         if Thread.isMainThread {
             MainActor.assumeIsolated {
-                guard !isApplyingNoteBrowserTranscriptionChoice,
+                guard transcriptionEnabled,
+                      !isApplyingNoteBrowserTranscriptionChoice,
                       !isRecording,
                       !isTranscribing else { return }
                 normalizeNoteBrowserTranscriptionMode()
@@ -1257,6 +1307,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         } else {
             Task { @MainActor [weak self] in
                 guard let self,
+                      self.transcriptionEnabled,
                       !self.isApplyingNoteBrowserTranscriptionChoice,
                       !self.isRecording,
                       !self.isTranscribing else { return }
@@ -1565,6 +1616,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var isRecording = false
     @Published var isTranscribing = false
     @Published var retryingItemIDs: Set<UUID> = []
+
+    var isTranscriptionConfigurationLocked: Bool {
+        isRecording || isTranscribing || !retryingItemIDs.isEmpty
+    }
     @Published private(set) var cloudTranscriptionProgressByHistoryID:
         [UUID: CloudTranscriptionDisplayProgress] = [:]
     @Published var lastTranscript: String = ""
@@ -1730,6 +1785,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         UserDefaults.standard.removeObject(forKey: "force_http2_transcription")
         Self.migrateModelStorageKeys()
         let hasCompletedSetup = UserDefaults.standard.bool(forKey: "hasCompletedSetup")
+        Self.seedFirstInstallDefaultsIfNeeded(
+            defaults: .standard,
+            hasCompletedSetup: hasCompletedSetup
+        )
+        let hasStoredTranscriptionEnabled = UserDefaults.standard.object(
+            forKey: transcriptionEnabledStorageKey
+        ) != nil
+        let transcriptionEnabled = hasStoredTranscriptionEnabled
+            ? UserDefaults.standard.bool(forKey: transcriptionEnabledStorageKey)
+            : true
+        if hasCompletedSetup && !hasStoredTranscriptionEnabled {
+            UserDefaults.standard.set(true, forKey: transcriptionEnabledStorageKey)
+        }
         let apiKey = Self.loadStoredAPIKey(account: apiKeyStorageKey)
         let apiBaseURL = Self.loadStoredAPIBaseURL(account: "api_base_url")
         let transcriptionModel = UserDefaults.standard.string(forKey: transcriptionModelStorageKey) ?? Self.defaultTranscriptionModel
@@ -1944,6 +2012,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             contextScreenshotMaxDimension: contextScreenshotMaxDimension
         )
         self.hasCompletedSetup = hasCompletedSetup
+        self.transcriptionEnabled = transcriptionEnabled
         self.apiKey = apiKey
         self.apiBaseURL = apiBaseURL
         self.transcriptionAPIURL = transcriptionAPIURL

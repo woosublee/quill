@@ -36,6 +36,13 @@ struct AppStateTranscriptionConfigurationTests {
         testPreserveExactWordingDefaultsOffAndPersists()
         testNoteBrowserDefaultsOnWhenPreferenceIsMissing()
         testNoteBrowserPreservesExplicitOptOut()
+        await testExistingInstallMigratesMissingTranscriptionPreferenceOn()
+        await testStoredTranscriptionPreferenceIsPreserved()
+        await testTranscriptionOffPreservesRememberedBackend()
+        await testTranscriptionOnRenormalizesRememberedBackend()
+        await testFreshInstallSeedsNewHiddenDefaultsOnce()
+        await testCompletedInstallKeepsLegacyFallbacksWhenKeysAreMissing()
+        await testStoredUserDefaultsBeatFirstInstallSeed()
         testVerbatimTranslationPromptAndSanitizer()
         testVerbatimTranslationRejectsOutputThatSanitizesToEmpty()
         try testPreserveExactWordingSettingsAndPipelineWiring()
@@ -359,6 +366,121 @@ struct AppStateTranscriptionConfigurationTests {
 
         assert(defaults.object(forKey: "note_browser_enabled") as? Bool == false)
         assert(!AppState().noteBrowserEnabled)
+    }
+
+    private static func testExistingInstallMigratesMissingTranscriptionPreferenceOn() async {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set(true, forKey: "hasCompletedSetup")
+        defaults.removeObject(forKey: "transcription_enabled")
+
+        let appState = await MainActor.run { AppState() }
+
+        await MainActor.run {
+            precondition(appState.transcriptionEnabled)
+        }
+        precondition(defaults.object(forKey: "transcription_enabled") != nil)
+        precondition(defaults.bool(forKey: "transcription_enabled"))
+    }
+
+    private static func testStoredTranscriptionPreferenceIsPreserved() async {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set(true, forKey: "hasCompletedSetup")
+        defaults.set(false, forKey: "transcription_enabled")
+
+        let appState = await MainActor.run { AppState() }
+
+        await MainActor.run {
+            precondition(!appState.transcriptionEnabled)
+            appState.transcriptionEnabled = true
+        }
+        precondition(defaults.bool(forKey: "transcription_enabled"))
+    }
+
+    private static func testTranscriptionOffPreservesRememberedBackend() async {
+        resetDefaults()
+        let appState = await MainActor.run { AppState() }
+
+        await MainActor.run {
+            appState.apiKey = "global-key"
+            appState.setNoteBrowserTranscriptionChoice(.apiStandard(modelID: "remembered-model"))
+            appState.transcriptionEnabled = false
+            appState.apiKey = ""
+
+            precondition(!appState.transcriptionEnabled)
+            precondition(appState.currentNoteBrowserTranscriptionChoice == .apiStandard(modelID: "remembered-model"))
+        }
+    }
+
+    private static func testTranscriptionOnRenormalizesRememberedBackend() async {
+        resetDefaults()
+        let appState = await MainActor.run { AppState() }
+
+        await MainActor.run {
+            appState.apiKey = "global-key"
+            appState.setNoteBrowserTranscriptionChoice(.apiStandard(modelID: "remembered-model"))
+            appState.transcriptionEnabled = false
+            appState.apiKey = ""
+            appState.transcriptionEnabled = true
+
+            precondition(appState.currentNoteBrowserTranscriptionMode == .localAppleLive)
+        }
+    }
+
+    private static func testFreshInstallSeedsNewHiddenDefaultsOnce() async {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set(false, forKey: "hasCompletedSetup")
+        defaults.removeObject(forKey: "first_install_defaults_version")
+
+        _ = await MainActor.run { AppState() }
+
+        precondition(defaults.bool(forKey: "disable_auto_paste"))
+        precondition(defaults.string(forKey: "transcription_language") == "auto")
+        precondition(defaults.string(forKey: "recording_overlay_layout") == "notchSides")
+        precondition(defaults.string(forKey: "overlay_waveform_display_mode") == "hoverTime")
+        precondition(!defaults.bool(forKey: "press_enter_voice_command_enabled"))
+        precondition(defaults.integer(forKey: "first_install_defaults_version") == 1)
+    }
+
+    private static func testCompletedInstallKeepsLegacyFallbacksWhenKeysAreMissing() async {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set(true, forKey: "hasCompletedSetup")
+        defaults.removeObject(forKey: "first_install_defaults_version")
+
+        let appState = await MainActor.run { AppState() }
+
+        await MainActor.run {
+            precondition(!appState.disableAutoPaste)
+            precondition(appState.transcriptionLanguage.code == "ko")
+            precondition(appState.recordingOverlayLayout == .centered)
+            precondition(appState.overlayWaveformDisplayMode == .waveformOnly)
+            precondition(appState.isPressEnterVoiceCommandEnabled)
+        }
+        precondition(defaults.integer(forKey: "first_install_defaults_version") == 1)
+    }
+
+    private static func testStoredUserDefaultsBeatFirstInstallSeed() async {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set(false, forKey: "hasCompletedSetup")
+        defaults.set(false, forKey: "disable_auto_paste")
+        defaults.set("en", forKey: "transcription_language")
+        defaults.set("centered", forKey: "recording_overlay_layout")
+        defaults.set("timeOnly", forKey: "overlay_waveform_display_mode")
+        defaults.set(true, forKey: "press_enter_voice_command_enabled")
+
+        let appState = await MainActor.run { AppState() }
+
+        await MainActor.run {
+            precondition(!appState.disableAutoPaste)
+            precondition(appState.transcriptionLanguage.code == "en")
+            precondition(appState.recordingOverlayLayout == .centered)
+            precondition(appState.overlayWaveformDisplayMode == .timeOnly)
+            precondition(appState.isPressEnterVoiceCommandEnabled)
+        }
     }
 
     private static func testVerbatimTranslationPromptAndSanitizer() {
@@ -1258,9 +1380,11 @@ struct AppStateTranscriptionConfigurationTests {
         )
 
         precondition(!selectedInputScheduler.contains("guard !isApplyingNoteBrowserTranscriptionChoice else { return }\n        if Thread.isMainThread"))
-        precondition(selectedInputScheduler.contains("MainActor.assumeIsolated {\n                guard !isApplyingNoteBrowserTranscriptionChoice else { return }"))
+        precondition(selectedInputScheduler.contains("MainActor.assumeIsolated {\n                guard transcriptionEnabled,\n                      !isApplyingNoteBrowserTranscriptionChoice else { return }"))
+        precondition(selectedInputScheduler.contains("guard let self,\n                      self.transcriptionEnabled,\n                      !self.isApplyingNoteBrowserTranscriptionChoice else { return }"))
         precondition(!providerScheduler.contains("guard !isApplyingNoteBrowserTranscriptionChoice else { return }\n        if Thread.isMainThread"))
-        precondition(providerScheduler.contains("MainActor.assumeIsolated {\n                guard !isApplyingNoteBrowserTranscriptionChoice,"))
+        precondition(providerScheduler.contains("MainActor.assumeIsolated {\n                guard transcriptionEnabled,\n                      !isApplyingNoteBrowserTranscriptionChoice,"))
+        precondition(providerScheduler.contains("guard let self,\n                      self.transcriptionEnabled,\n                      !self.isApplyingNoteBrowserTranscriptionChoice,"))
         precondition(!legacyObserver.contains("!isApplyingNoteBrowserTranscriptionChoice"))
     }
 
@@ -2069,6 +2193,12 @@ struct AppStateTranscriptionConfigurationTests {
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("app_state_transcription_test_") {
             defaults.removeObject(forKey: key)
         }
+        defaults.removeObject(forKey: "transcription_enabled")
+        defaults.removeObject(forKey: "first_install_defaults_version")
+        defaults.removeObject(forKey: "disable_auto_paste")
+        defaults.removeObject(forKey: "recording_overlay_layout")
+        defaults.removeObject(forKey: "overlay_waveform_display_mode")
+        defaults.removeObject(forKey: "press_enter_voice_command_enabled")
         defaults.removeObject(forKey: "use_local_transcription")
         defaults.removeObject(forKey: "use_legacy_mlx_whisper")
         defaults.removeObject(forKey: "show_legacy_mlx_whisper_options")
