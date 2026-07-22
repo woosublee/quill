@@ -1,13 +1,84 @@
 import Foundation
 
 enum LocalAIServerManagerError: LocalizedError, Equatable {
+    case modelUnavailable(String)
+    case modelCorrupt(String)
     case startFailed(String)
 
     var errorDescription: String? {
         switch self {
+        case .modelUnavailable:
+            return "The selected local AI model is unavailable or incomplete."
+        case .modelCorrupt:
+            return "The selected local AI model is corrupt."
         case .startFailed:
             return "Could not start the local AI runtime."
         }
+    }
+}
+
+struct LocalAIHealthPoller: Sendable {
+    typealias Probe = @Sendable (URLRequest) async throws -> (Data, URLResponse)
+    typealias MonotonicNow = @Sendable () -> TimeInterval
+    typealias Sleep = @Sendable (TimeInterval) async throws -> Void
+
+    let overallTimeout: TimeInterval
+    let probeTimeout: TimeInterval
+    let cadence: TimeInterval
+    let maxAttempts: Int
+    let probe: Probe
+    let now: MonotonicNow
+    let sleep: Sleep
+
+    static let `default` = LocalAIHealthPoller(
+        overallTimeout: 10,
+        probeTimeout: 1,
+        cadence: 0.2,
+        maxAttempts: 50,
+        probe: { request in
+            try await LLMAPITransport.data(for: request)
+        },
+        now: { ProcessInfo.processInfo.systemUptime },
+        sleep: { duration in
+            let nanoseconds = UInt64(max(0, duration) * 1_000_000_000)
+            try await Task.sleep(nanoseconds: nanoseconds)
+        }
+    )
+
+    func poll(port: UInt16) async -> Bool {
+        guard overallTimeout > 0, probeTimeout > 0, maxAttempts > 0 else { return false }
+        let deadline = now() + overallTimeout
+        let url = URL(string: "http://127.0.0.1:\(port)/health")!
+
+        for attempt in 0..<maxAttempts {
+            if Task.isCancelled { return false }
+            let remaining = deadline - now()
+            guard remaining > 0 else { return false }
+
+            var request = URLRequest(url: url)
+            request.timeoutInterval = min(probeTimeout, remaining)
+            do {
+                let (_, response) = try await probe(request)
+                if let httpResponse = response as? HTTPURLResponse,
+                   httpResponse.statusCode == 200 {
+                    return true
+                }
+            } catch is CancellationError {
+                return false
+            } catch {
+                if Task.isCancelled { return false }
+            }
+
+            guard attempt + 1 < maxAttempts else { return false }
+            let sleepDuration = min(cadence, deadline - now())
+            guard sleepDuration > 0 else { return false }
+            do {
+                try await sleep(sleepDuration)
+            } catch {
+                return false
+            }
+        }
+        return false
     }
 }
 
@@ -23,6 +94,7 @@ actor LocalAIServerManager {
         _ contextSize: Int
     ) throws -> (LocalAIServerProcess, UInt16)
     typealias PollHealth = @Sendable (_ port: UInt16) async -> Bool
+    typealias ValidateModel = @Sendable (_ model: LocalAIModel) throws -> LocalAIInstallStatus
     typealias ObserveLifecycle = @Sendable (_ snapshot: LifecycleSnapshot) -> Void
 
     struct LifecycleSnapshot: Equatable, Sendable {
@@ -36,6 +108,8 @@ actor LocalAIServerManager {
         let phase: Phase
         let modelID: String?
         let startupWaiterCount: Int
+        let activeRequestCount: Int
+        let isWaitingForActiveRequests: Bool
     }
 
     private struct LaunchState {
@@ -63,6 +137,23 @@ actor LocalAIServerManager {
         let healthTask: Task<Bool, Never>?
     }
 
+    private struct ResolvedBaseURL {
+        let launchToken: UUID
+        let url: URL
+    }
+
+    private struct RequestLease {
+        let launchToken: UUID
+        let url: URL
+    }
+
+    private struct SwitchDrainState {
+        let launchToken: UUID
+        var switchWaiterIDs: Set<UUID>
+        var transitionWaiters: [UUID: ActiveRequestWaiter]
+        var isClaimed: Bool
+    }
+
     private enum LifecycleState {
         case idle
         case starting(StartupState)
@@ -75,11 +166,15 @@ actor LocalAIServerManager {
     private let contextSize: Int
     private let launchProcess: LaunchProcess
     private let pollHealth: PollHealth
+    private let validateModel: ValidateModel
     private let now: @Sendable () -> Date
     private let observeLifecycle: ObserveLifecycle
 
     private var state: LifecycleState = .idle
     private var lastRequestAt: Date?
+    private var activeRequestCounts: [UUID: Int] = [:]
+    private var activeDrainWaiters: [UUID: [UUID: ActiveRequestWaiter]] = [:]
+    private var switchDrain: SwitchDrainState?
 
     init(
         store: LocalAIModelStore = LocalAIModelStore(),
@@ -96,6 +191,7 @@ actor LocalAIServerManager {
         pollHealth: @escaping PollHealth = { port in
             await LocalAIServerManager.defaultPollHealth(port: port)
         },
+        validateModel: ValidateModel? = nil,
         now: @escaping @Sendable () -> Date = { Date() },
         observeLifecycle: @escaping ObserveLifecycle = { _ in }
     ) {
@@ -104,6 +200,10 @@ actor LocalAIServerManager {
         self.contextSize = contextSize
         self.launchProcess = launchProcess
         self.pollHealth = pollHealth
+        self.validateModel = validateModel ?? { model in
+            try store.recoverInterruptedReplacement(for: model)
+            return store.installStatus(for: model)
+        }
         self.now = now
         self.observeLifecycle = observeLifecycle
     }
@@ -123,17 +223,33 @@ actor LocalAIServerManager {
         }
     }
 
-    /// Returns an OpenAI-compatible base URL, starting or switching the local
-    /// process as needed. Concurrent requests for the same model share the
-    /// same startup task while retaining independent cancellation.
-    func baseURL(for model: LocalAIModel) async throws -> URL {
+    /// Runs an operation against an OpenAI-compatible base URL while keeping
+    /// the selected process alive for the full operation lifetime.
+    func withBaseURL<Result>(
+        for model: LocalAIModel,
+        operation: @escaping @Sendable (URL) async throws -> Result
+    ) async throws -> Result {
+        let lease = try await acquireLease(for: model)
+        do {
+            let result = try await operation(lease.url)
+            releaseLease(lease)
+            return result
+        } catch {
+            releaseLease(lease)
+            throw error
+        }
+    }
+
+    private func acquireLease(for model: LocalAIModel) async throws -> RequestLease {
         let waiter = StartupWaiter()
         return try await withTaskCancellationHandler {
             do {
                 try Task.checkCancellation()
-                let url = try await serveBaseURL(for: model, waiter: waiter)
+                let resolved = try await resolveBaseURL(for: model, waiter: waiter)
                 try Task.checkCancellation()
-                return url
+                activeRequestCounts[resolved.launchToken, default: 0] += 1
+                lastRequestAt = now()
+                return RequestLease(launchToken: resolved.launchToken, url: resolved.url)
             } catch {
                 if Task.isCancelled || error is CancellationError {
                     await cancelStartupWaiter(
@@ -155,6 +271,20 @@ actor LocalAIServerManager {
         }
     }
 
+    private func releaseLease(_ lease: RequestLease) {
+        guard let currentCount = activeRequestCounts[lease.launchToken], currentCount > 0 else { return }
+        if currentCount == 1 {
+            activeRequestCounts.removeValue(forKey: lease.launchToken)
+            let waiters = activeDrainWaiters.removeValue(forKey: lease.launchToken).map { Array($0.values) } ?? []
+            for waiter in waiters {
+                waiter.resolve(.ready)
+            }
+        } else {
+            activeRequestCounts[lease.launchToken] = currentCount - 1
+        }
+        lastRequestAt = now()
+    }
+
     /// Releases an idle resident process. In-progress requests are never
     /// evaluated against the prior running launch's request timestamp.
     func shutdownIfIdle() async {
@@ -164,6 +294,7 @@ actor LocalAIServerManager {
             setState(.idle)
             return
         }
+        guard activeRequestCounts[launch.token, default: 0] == 0 else { return }
         guard let lastRequestAt else { return }
         guard now().timeIntervalSince(lastRequestAt) >= idleTimeout else { return }
         await stopRunning(launch)
@@ -192,7 +323,7 @@ actor LocalAIServerManager {
         snapshot(for: state)
     }
 
-    private func serveBaseURL(for model: LocalAIModel, waiter: StartupWaiter) async throws -> URL {
+    private func resolveBaseURL(for model: LocalAIModel, waiter: StartupWaiter) async throws -> ResolvedBaseURL {
         try Task.checkCancellation()
 
         while true {
@@ -234,9 +365,21 @@ actor LocalAIServerManager {
                     continue
                 }
                 if launch.modelID == model.id {
+                    if switchDrain?.launchToken == launch.token {
+                        try await waitForSwitchTransition(launchToken: launch.token)
+                        try Task.checkCancellation()
+                        continue
+                    }
                     try Task.checkCancellation()
                     lastRequestAt = now()
-                    return Self.baseURL(port: launch.port)
+                    return ResolvedBaseURL(
+                        launchToken: launch.token,
+                        url: Self.baseURL(port: launch.port)
+                    )
+                }
+                if activeRequestCounts[launch.token, default: 0] > 0 {
+                    try await waitForActiveRequestsToDrain(launchToken: launch.token)
+                    guard case let .running(current) = state, current.token == launch.token else { continue }
                 }
                 lastRequestAt = nil
                 await stopRunning(launch)
@@ -250,8 +393,108 @@ actor LocalAIServerManager {
         }
     }
 
+    private func waitForActiveRequestsToDrain(launchToken: UUID) async throws {
+        guard activeRequestCounts[launchToken, default: 0] > 0 else { return }
+        let waiter = ActiveRequestWaiter()
+        if switchDrain == nil {
+            switchDrain = SwitchDrainState(
+                launchToken: launchToken,
+                switchWaiterIDs: [waiter.id],
+                transitionWaiters: [:],
+                isClaimed: false
+            )
+        } else if switchDrain?.launchToken == launchToken {
+            switchDrain?.switchWaiterIDs.insert(waiter.id)
+        } else {
+            throw CancellationError()
+        }
+        activeDrainWaiters[launchToken, default: [:]][waiter.id] = waiter
+
+        let outcome = await withTaskCancellationHandler {
+            await waiter.wait()
+        } onCancel: {
+            waiter.resolve(.cancelled)
+        }
+
+        if outcome == .cancelled || Task.isCancelled {
+            cancelActiveDrainWaiter(waiterID: waiter.id, launchToken: launchToken)
+            throw CancellationError()
+        }
+
+        activeDrainWaiters[launchToken]?.removeValue(forKey: waiter.id)
+        if activeDrainWaiters[launchToken]?.isEmpty == true {
+            activeDrainWaiters.removeValue(forKey: launchToken)
+        }
+        if switchDrain?.launchToken == launchToken {
+            switchDrain?.switchWaiterIDs.remove(waiter.id)
+            switchDrain?.isClaimed = true
+        }
+    }
+
+    private func waitForSwitchTransition(launchToken: UUID) async throws {
+        guard switchDrain?.launchToken == launchToken else { return }
+        let waiter = ActiveRequestWaiter()
+        switchDrain?.transitionWaiters[waiter.id] = waiter
+        let outcome = await withTaskCancellationHandler {
+            await waiter.wait()
+        } onCancel: {
+            waiter.resolve(.cancelled)
+        }
+        if outcome == .cancelled || Task.isCancelled {
+            switchDrain?.transitionWaiters.removeValue(forKey: waiter.id)
+            throw CancellationError()
+        }
+    }
+
+    private func cancelActiveDrainWaiter(waiterID: UUID, launchToken: UUID) {
+        activeDrainWaiters[launchToken]?.removeValue(forKey: waiterID)
+        if activeDrainWaiters[launchToken]?.isEmpty == true {
+            activeDrainWaiters.removeValue(forKey: launchToken)
+        }
+        guard switchDrain?.launchToken == launchToken else { return }
+        switchDrain?.switchWaiterIDs.remove(waiterID)
+        if switchDrain?.switchWaiterIDs.isEmpty == true,
+           switchDrain?.isClaimed == false {
+            clearSwitchDrain(launchToken: launchToken)
+        }
+    }
+
+    private func clearSwitchDrain(launchToken: UUID) {
+        guard let drain = switchDrain, drain.launchToken == launchToken else { return }
+        switchDrain = nil
+        for waiter in drain.transitionWaiters.values {
+            waiter.resolve(.ready)
+        }
+    }
+
     private func beginStartup(for model: LocalAIModel, waiterID: UUID) throws -> StartupState {
         lastRequestAt = nil
+        let status: LocalAIInstallStatus
+        do {
+            status = try validateModel(model)
+        } catch {
+            throw LocalAIServerManagerError.modelCorrupt(
+                "Validation failed for model \(model.id): \(error.localizedDescription)"
+            )
+        }
+        switch status {
+        case .notInstalled:
+            throw LocalAIServerManagerError.modelUnavailable(
+                "Model \(model.id) is not installed."
+            )
+        case let .partial(downloadedBytes, expectedBytes):
+            let expectedDetail = expectedBytes.map(String.init) ?? "unknown"
+            throw LocalAIServerManagerError.modelUnavailable(
+                "Model \(model.id) is incomplete: \(downloadedBytes) of \(expectedDetail) bytes are present."
+            )
+        case let .corrupt(detail):
+            throw LocalAIServerManagerError.modelCorrupt(
+                "Model \(model.id) failed validation: \(detail)"
+            )
+        case .ready:
+            break
+        }
+
         let modelURL = store.modelURL(for: model)
         let reservedPort = try reserveEphemeralLoopbackPort()
         let (process, launchedPort) = try launchProcess(model, modelURL, reservedPort, contextSize)
@@ -289,7 +532,7 @@ actor LocalAIServerManager {
         )
     }
 
-    private func waitForStartup(_ join: StartupJoin, waiter: StartupWaiter) async throws -> URL {
+    private func waitForStartup(_ join: StartupJoin, waiter: StartupWaiter) async throws -> ResolvedBaseURL {
         switch await waiter.wait(for: join.healthTask) {
         case .cancelled:
             await cancelStartupWaiter(waiterID: waiter.id, launchToken: join.launchToken)
@@ -323,7 +566,7 @@ actor LocalAIServerManager {
         modelID: String,
         waiterID: UUID,
         isHealthy: Bool
-    ) async throws -> URL {
+    ) async throws -> ResolvedBaseURL {
         switch state {
         case let .running(current) where current.token == launchToken:
             guard current.process.isRunning else {
@@ -333,7 +576,10 @@ actor LocalAIServerManager {
             }
             try Task.checkCancellation()
             lastRequestAt = now()
-            return Self.baseURL(port: current.port)
+            return ResolvedBaseURL(
+                launchToken: current.token,
+                url: Self.baseURL(port: current.port)
+            )
 
         case let .starting(current) where current.launch.token == launchToken:
             guard current.waiterIDs.contains(waiterID) else {
@@ -346,7 +592,10 @@ actor LocalAIServerManager {
             try Task.checkCancellation()
             setState(.running(current.launch))
             lastRequestAt = now()
-            return Self.baseURL(port: current.launch.port)
+            return ResolvedBaseURL(
+                launchToken: current.launch.token,
+                url: Self.baseURL(port: current.launch.port)
+            )
 
         case let .stopping(stopping) where stopping.launch.token == launchToken:
             await finishStopping(stopping)
@@ -403,6 +652,7 @@ actor LocalAIServerManager {
         switch state {
         case let .running(current) where current.token == launch.token:
             stopping = StoppingState(launch: current, healthTask: nil)
+            clearSwitchDrain(launchToken: current.token)
             setState(.stopping(stopping))
             if current.process.isRunning {
                 current.process.terminate()
@@ -436,17 +686,37 @@ actor LocalAIServerManager {
     private func snapshot(for state: LifecycleState) -> LifecycleSnapshot {
         switch state {
         case .idle:
-            return LifecycleSnapshot(phase: .idle, modelID: nil, startupWaiterCount: 0)
+            return LifecycleSnapshot(
+                phase: .idle,
+                modelID: nil,
+                startupWaiterCount: 0,
+                activeRequestCount: 0,
+                isWaitingForActiveRequests: false
+            )
         case let .starting(startup):
             return LifecycleSnapshot(
                 phase: .starting,
                 modelID: startup.launch.modelID,
-                startupWaiterCount: startup.waiterIDs.count
+                startupWaiterCount: startup.waiterIDs.count,
+                activeRequestCount: activeRequestCounts[startup.launch.token, default: 0],
+                isWaitingForActiveRequests: switchDrain?.launchToken == startup.launch.token
             )
         case let .running(launch):
-            return LifecycleSnapshot(phase: .running, modelID: launch.modelID, startupWaiterCount: 0)
+            return LifecycleSnapshot(
+                phase: .running,
+                modelID: launch.modelID,
+                startupWaiterCount: 0,
+                activeRequestCount: activeRequestCounts[launch.token, default: 0],
+                isWaitingForActiveRequests: switchDrain?.launchToken == launch.token
+            )
         case let .stopping(stopping):
-            return LifecycleSnapshot(phase: .stopping, modelID: stopping.launch.modelID, startupWaiterCount: 0)
+            return LifecycleSnapshot(
+                phase: .stopping,
+                modelID: stopping.launch.modelID,
+                startupWaiterCount: 0,
+                activeRequestCount: activeRequestCounts[stopping.launch.token, default: 0],
+                isWaitingForActiveRequests: false
+            )
         }
     }
 
@@ -477,22 +747,7 @@ actor LocalAIServerManager {
     }
 
     private static func defaultPollHealth(port: UInt16) async -> Bool {
-        let url = URL(string: "http://127.0.0.1:\(port)/health")!
-        for _ in 0..<50 {
-            if Task.isCancelled { return false }
-            if let (_, response) = try? await LLMAPITransport.data(for: URLRequest(url: url)),
-               let httpResponse = response as? HTTPURLResponse,
-               httpResponse.statusCode == 200 {
-                return true
-            }
-            if Task.isCancelled { return false }
-            do {
-                try await Task.sleep(nanoseconds: 200_000_000)
-            } catch {
-                return false
-            }
-        }
-        return false
+        await LocalAIHealthPoller.default.poll(port: port)
     }
 }
 
@@ -558,6 +813,50 @@ private final class StartupWaiter: @unchecked Sendable {
     }
 
     private func resolve(_ newOutcome: Outcome) {
+        let continuationToResume: CheckedContinuation<Outcome, Never>?
+        lock.lock()
+        guard outcome == nil else {
+            lock.unlock()
+            return
+        }
+        outcome = newOutcome
+        continuationToResume = continuation
+        continuation = nil
+        lock.unlock()
+        continuationToResume?.resume(returning: newOutcome)
+    }
+}
+
+private final class ActiveRequestWaiter: @unchecked Sendable {
+    enum Outcome: Equatable {
+        case ready
+        case cancelled
+    }
+
+    let id = UUID()
+
+    private let lock = NSLock()
+    private var outcome: Outcome?
+    private var continuation: CheckedContinuation<Outcome, Never>?
+
+    func wait() async -> Outcome {
+        await withCheckedContinuation { continuation in
+            let immediateOutcome: Outcome?
+            lock.lock()
+            if let outcome {
+                immediateOutcome = outcome
+            } else {
+                self.continuation = continuation
+                immediateOutcome = nil
+            }
+            lock.unlock()
+            if let immediateOutcome {
+                continuation.resume(returning: immediateOutcome)
+            }
+        }
+    }
+
+    func resolve(_ newOutcome: Outcome) {
         let continuationToResume: CheckedContinuation<Outcome, Never>?
         lock.lock()
         guard outcome == nil else {

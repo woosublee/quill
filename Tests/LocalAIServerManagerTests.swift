@@ -1,9 +1,16 @@
+import CryptoKit
 import Foundation
 
 @main
 struct LocalAIServerManagerTests {
     static func main() async throws {
         try await testLazyStartForwardsPrimaryShardAndExactContextSize()
+        try await testIncompletePackageRefusesLaunch()
+        try await testCorruptPackageRefusesLaunch()
+        try await testRuntimeValidationRecoversInterruptedReplacementBeforeLaunch()
+        try await testDefaultHealthPollUsesExplicitShortRequestTimeout()
+        try await testHealthPollCannotExceedOverallDeadline()
+        try await testHealthPollCancellationExitsPromptly()
         try await testSecondRequestForSameModelReusesRunningProcess()
         try await testConcurrentSameModelRequestsCoalesceOneStartup()
         try await testCancellingOneOfTwoSameModelWaitersKeepsSharedStartup()
@@ -20,6 +27,11 @@ struct LocalAIServerManagerTests {
         try await testIdleShutdownDoesNothingBeforeTimeout()
         try await testIdleShutdownDoesNotCancelNewStartupUsingOldTimestamp()
         try await testSuccessfulStartupRefreshesIdleTimestampAfterHealthWait()
+        try await testHeldOpenOperationBlocksDifferentModelLaunchUntilRelease()
+        try await testCancellingPendingSwitchUnblocksSameModelOperations()
+        try await testIdleShutdownDoesNotTerminateHeldOpenOperation()
+        try await testThrownOperationReleasesLease()
+        try await testCancelledOperationReleasesLease()
         try await testManagerDeinitTerminatesRunningProcess()
         print("LocalAIServerManagerTests passed")
     }
@@ -43,10 +55,11 @@ struct LocalAIServerManagerTests {
                 healthChecks.withValue { $0 += 1 }
                 return true
             },
+            validateModel: { _ in .ready },
             now: { Date(timeIntervalSince1970: 0) }
         )
 
-        let baseURL = try await manager.baseURL(for: multiArtifactModel)
+        let baseURL = try await manager.withBaseURL(for: multiArtifactModel) { $0 }
 
         let records = launch.value
         try require(records.count == 1, "expected one launch")
@@ -55,6 +68,173 @@ struct LocalAIServerManagerTests {
         try require(healthChecks.value == 1, "expected one health check")
         try require(baseURL.absoluteString.hasPrefix("http://127.0.0.1:"), "base URL must use loopback")
         try require(baseURL.absoluteString.hasSuffix("/v1"), "base URL must use the OpenAI-compatible /v1 path")
+    }
+
+    private static func testIncompletePackageRefusesLaunch() async throws {
+        let launchCount = LockedBox(0)
+        let manager = makeManager(
+            launchProcess: { _, _, port, _ in
+                launchCount.withValue { $0 += 1 }
+                return (FakeProcess(), port)
+            },
+            validateModel: { _ in .partial(downloadedBytes: 16, expectedBytes: 32) }
+        )
+
+        let result = await resultTask {
+            try await manager.withBaseURL(for: multiArtifactModel) { $0 }
+        }.value
+
+        try requireModelUnavailable(
+            result,
+            containing: multiArtifactModel.id,
+            and: "16 of 32 bytes",
+            message: "incomplete package should report a detailed unavailable error"
+        )
+        try require(launchCount.value == 0, "incomplete package must be rejected before process launch")
+    }
+
+    private static func testCorruptPackageRefusesLaunch() async throws {
+        let launchCount = LockedBox(0)
+        let corruptArtifact = multiArtifactModel.artifacts[1].expectedFileName
+        let manager = makeManager(
+            launchProcess: { _, _, port, _ in
+                launchCount.withValue { $0 += 1 }
+                return (FakeProcess(), port)
+            },
+            validateModel: { _ in .corrupt("\(corruptArtifact): Model artifact checksum mismatch.") }
+        )
+
+        let result = await resultTask {
+            try await manager.withBaseURL(for: multiArtifactModel) { $0 }
+        }.value
+
+        try requireModelCorrupt(
+            result,
+            containing: corruptArtifact,
+            and: "checksum mismatch",
+            message: "corrupt package should preserve artifact diagnostics"
+        )
+        try require(launchCount.value == 0, "corrupt package must be rejected before process launch")
+    }
+
+    private static func testRuntimeValidationRecoversInterruptedReplacementBeforeLaunch() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let contents = [Data(repeating: 41, count: 16), Data(repeating: 42, count: 20)]
+        let model = validatedModel(id: "runtime-recovery", contents: contents)
+        let store = LocalAIModelStore(rootDirectory: root)
+        let token = UUID().uuidString
+        try store.ensureModelsDirectoryExists()
+        for (artifact, data) in zip(model.artifacts, contents) {
+            try data.write(to: store.backupArtifactURL(for: artifact, token: token))
+        }
+        try Data([99]).write(to: store.artifactURL(for: model.artifacts[0]))
+        let launchCount = LockedBox(0)
+        let manager = LocalAIServerManager(
+            store: store,
+            launchProcess: { _, _, port, _ in
+                launchCount.withValue { $0 += 1 }
+                return (FakeProcess(), port)
+            },
+            pollHealth: { _ in true }
+        )
+
+        _ = try await manager.withBaseURL(for: model) { $0 }
+
+        try require(launchCount.value == 1, "runtime recovery should restore the package before launch")
+        try require(store.installStatus(for: model) == .ready, "runtime recovery did not restore a ready package")
+        for artifact in model.artifacts {
+            try require(
+                !directoryEntryExists(at: store.backupArtifactURL(for: artifact, token: token)),
+                "runtime recovery left a stale transaction backup"
+            )
+        }
+    }
+
+    private static func testDefaultHealthPollUsesExplicitShortRequestTimeout() async throws {
+        let clock = FakeMonotonicClock()
+        let observedTimeouts = LockedBox<[TimeInterval]>([])
+        let poller = LocalAIHealthPoller(
+            overallTimeout: 10,
+            probeTimeout: 1,
+            cadence: 0.2,
+            maxAttempts: 50,
+            probe: { request in
+                observedTimeouts.withValue { $0.append(request.timeoutInterval) }
+                let response = HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: nil
+                )!
+                return (Data(), response)
+            },
+            now: { clock.value },
+            sleep: { duration in clock.advance(by: duration) }
+        )
+
+        let result = await poller.poll(port: 12_345)
+
+        try require(result, "healthy response should complete polling")
+        try require(observedTimeouts.value == [1], "health request should use an explicit one-second timeout")
+    }
+
+    private static func testHealthPollCannotExceedOverallDeadline() async throws {
+        let clock = FakeMonotonicClock()
+        let observedTimeouts = LockedBox<[TimeInterval]>([])
+        let poller = LocalAIHealthPoller(
+            overallTimeout: 10,
+            probeTimeout: 1,
+            cadence: 0.2,
+            maxAttempts: 50,
+            probe: { request in
+                observedTimeouts.withValue { $0.append(request.timeoutInterval) }
+                clock.advance(by: request.timeoutInterval)
+                throw HealthProbeFailure.stalled
+            },
+            now: { clock.value },
+            sleep: { duration in clock.advance(by: duration) }
+        )
+
+        let result = await poller.poll(port: 12_345)
+
+        try require(!result, "stalled probes should fail health polling")
+        try require(clock.value <= 10.000_001, "health polling exceeded its overall deadline")
+        try require(observedTimeouts.value.count <= 50, "health polling exceeded the attempt limit")
+        try require(
+            observedTimeouts.value.allSatisfy { $0 > 0 && $0 <= 1 },
+            "every health request timeout must be short and bounded by the remaining deadline"
+        )
+    }
+
+    private static func testHealthPollCancellationExitsPromptly() async throws {
+        let sleepStarted = DispatchSemaphore(value: 0)
+        let completed = DispatchSemaphore(value: 0)
+        let result = LockedBox<Bool?>(nil)
+        let poller = LocalAIHealthPoller(
+            overallTimeout: 10,
+            probeTimeout: 1,
+            cadence: 0.2,
+            maxAttempts: 50,
+            probe: { _ in throw HealthProbeFailure.failed },
+            now: { ProcessInfo.processInfo.systemUptime },
+            sleep: { _ in
+                sleepStarted.signal()
+                try await Task.sleep(nanoseconds: 5_000_000_000)
+            }
+        )
+        let polling = Task {
+            let value = await poller.poll(port: 12_345)
+            result.withValue { $0 = value }
+            completed.signal()
+        }
+        try wait(sleepStarted, "health poll did not enter its retry sleep")
+
+        polling.cancel()
+        try wait(completed, "cancelled health poll did not exit promptly")
+        await polling.value
+
+        try require(result.value == false, "cancelled health poll should report failure")
     }
 
     private static func testSecondRequestForSameModelReusesRunningProcess() async throws {
@@ -67,8 +247,8 @@ struct LocalAIServerManagerTests {
             }
         )
 
-        let firstURL = try await manager.baseURL(for: testModel)
-        let secondURL = try await manager.baseURL(for: testModel)
+        let firstURL = try await manager.withBaseURL(for: testModel) { $0 }
+        let secondURL = try await manager.withBaseURL(for: testModel) { $0 }
 
         try require(launchCount.value == 1, "same running model should be reused")
         try require(firstURL == secondURL, "reused process should return the same base URL")
@@ -94,9 +274,9 @@ struct LocalAIServerManagerTests {
             }
         )
 
-        let first = Task { try await manager.baseURL(for: testModel) }
+        let first = Task { try await manager.withBaseURL(for: testModel) { $0 } }
         try healthGate.waitUntilEntered()
-        let second = Task { try await manager.baseURL(for: testModel) }
+        let second = Task { try await manager.withBaseURL(for: testModel) { $0 } }
         try wait(twoWaitersRegistered, "second caller did not join the in-progress startup")
 
         try require(launchCount.value == 1, "concurrent same-model request launched a second process")
@@ -128,9 +308,9 @@ struct LocalAIServerManagerTests {
             }
         )
 
-        let cancelledCaller = resultTask { try await manager.baseURL(for: testModel) }
+        let cancelledCaller = resultTask { try await manager.withBaseURL(for: testModel) { $0 } }
         try healthGate.waitUntilEntered()
-        let survivingCaller = resultTask { try await manager.baseURL(for: testModel) }
+        let survivingCaller = resultTask { try await manager.withBaseURL(for: testModel) { $0 } }
         try wait(twoWaitersRegistered, "two same-model waiters were not registered")
 
         cancelledCaller.cancel()
@@ -162,7 +342,7 @@ struct LocalAIServerManagerTests {
                 }
             }
         )
-        let caller = resultTask { try await manager.baseURL(for: testModel) }
+        let caller = resultTask { try await manager.withBaseURL(for: testModel) { $0 } }
         try wait(waiterRegistered, "sole startup waiter was not registered")
         try healthGate.waitUntilEntered()
 
@@ -204,9 +384,9 @@ struct LocalAIServerManagerTests {
             }
         )
 
-        let first = resultTask { try await manager.baseURL(for: testModel) }
+        let first = resultTask { try await manager.withBaseURL(for: testModel) { $0 } }
         try firstHealth.waitUntilEntered()
-        let second = Task { try await manager.baseURL(for: otherModel) }
+        let second = Task { try await manager.withBaseURL(for: otherModel) { $0 } }
         try firstProcess.waitForTerminateRequest()
 
         let stopping = await manager.lifecycleSnapshot()
@@ -242,8 +422,8 @@ struct LocalAIServerManagerTests {
             }
         )
 
-        _ = try await manager.baseURL(for: testModel)
-        let replacement = Task { try await manager.baseURL(for: otherModel) }
+        _ = try await manager.withBaseURL(for: testModel) { $0 }
+        let replacement = Task { try await manager.withBaseURL(for: otherModel) { $0 } }
         try firstProcess.waitForTerminateRequest()
 
         let stopping = await manager.lifecycleSnapshot()
@@ -272,12 +452,12 @@ struct LocalAIServerManagerTests {
             }
         )
 
-        _ = try await manager.baseURL(for: testModel)
+        _ = try await manager.withBaseURL(for: testModel) { $0 }
         oldProcess.simulateCrash(invokeHandler: false)
-        let replacementURL = try await manager.baseURL(for: testModel)
+        let replacementURL = try await manager.withBaseURL(for: testModel) { $0 }
 
         oldProcess.invokeTerminationHandler()
-        let reusedURL = try await manager.baseURL(for: testModel)
+        let reusedURL = try await manager.withBaseURL(for: testModel) { $0 }
 
         try require(launchCount.value == 2, "late old callback cleared the newer same-model launch")
         try require(reusedURL == replacementURL, "newer launch should survive the old callback")
@@ -309,10 +489,10 @@ struct LocalAIServerManagerTests {
             }
         )
 
-        let firstResult = await resultTask { try await manager.baseURL(for: testModel) }.value
+        let firstResult = await resultTask { try await manager.withBaseURL(for: testModel) { $0 } }.value
         try requireStartFailed(firstResult, "health success from an exited process must fail startup")
 
-        _ = try await manager.baseURL(for: testModel)
+        _ = try await manager.withBaseURL(for: testModel) { $0 }
         try require(launchCount.value == 2, "exited process must not be published as running")
         try require(freshProcess.isRunning, "fresh retry should remain running")
     }
@@ -324,7 +504,7 @@ struct LocalAIServerManagerTests {
             pollHealth: { _ in false }
         )
 
-        let result = await resultTask { try await manager.baseURL(for: testModel) }.value
+        let result = await resultTask { try await manager.withBaseURL(for: testModel) { $0 } }.value
 
         try requireStartFailed(result, "unhealthy startup should throw startFailed")
         try require(process.terminateCallCount == 1, "unhealthy startup should terminate its process")
@@ -345,9 +525,9 @@ struct LocalAIServerManagerTests {
             }
         )
 
-        _ = try await manager.baseURL(for: testModel)
+        _ = try await manager.withBaseURL(for: testModel) { $0 }
         crashedProcess.simulateCrash()
-        _ = try await manager.baseURL(for: testModel)
+        _ = try await manager.withBaseURL(for: testModel) { $0 }
 
         try require(launchCount.value == 2, "crashed process should be restarted")
         try require(freshProcess.isRunning, "replacement process should be running")
@@ -357,7 +537,7 @@ struct LocalAIServerManagerTests {
         let process = FakeProcess()
         let manager = makeManager(launchProcess: { _, _, port, _ in (process, port) })
 
-        _ = try await manager.baseURL(for: testModel)
+        _ = try await manager.withBaseURL(for: testModel) { $0 }
         await manager.stop()
 
         try require(process.terminateCallCount == 1, "stop should terminate the running process")
@@ -371,7 +551,7 @@ struct LocalAIServerManagerTests {
             launchProcess: { _, _, port, _ in (process, port) },
             pollHealth: { _ in await healthGate.poll() }
         )
-        let startup = resultTask { try await manager.baseURL(for: testModel) }
+        let startup = resultTask { try await manager.withBaseURL(for: testModel) { $0 } }
         try healthGate.waitUntilEntered()
 
         let stopTask = Task { await manager.stop() }
@@ -399,7 +579,7 @@ struct LocalAIServerManagerTests {
             now: { clock.value }
         )
 
-        _ = try await manager.baseURL(for: testModel)
+        _ = try await manager.withBaseURL(for: testModel) { $0 }
         clock.withValue { $0 = $0.addingTimeInterval(301) }
         await manager.shutdownIfIdle()
 
@@ -415,7 +595,7 @@ struct LocalAIServerManagerTests {
             now: { clock.value }
         )
 
-        _ = try await manager.baseURL(for: testModel)
+        _ = try await manager.withBaseURL(for: testModel) { $0 }
         clock.withValue { $0 = $0.addingTimeInterval(299) }
         await manager.shutdownIfIdle()
 
@@ -448,9 +628,9 @@ struct LocalAIServerManagerTests {
             now: { clock.value }
         )
 
-        _ = try await manager.baseURL(for: testModel)
+        _ = try await manager.withBaseURL(for: testModel) { $0 }
         clock.withValue { $0 = Date(timeIntervalSince1970: 299) }
-        let newStartup = Task { try await manager.baseURL(for: otherModel) }
+        let newStartup = Task { try await manager.withBaseURL(for: otherModel) { $0 } }
         try newHealth.waitUntilEntered()
         clock.withValue { $0 = Date(timeIntervalSince1970: 301) }
 
@@ -475,7 +655,7 @@ struct LocalAIServerManagerTests {
             pollHealth: { _ in await healthGate.poll() },
             now: { clock.value }
         )
-        let startup = Task { try await manager.baseURL(for: testModel) }
+        let startup = Task { try await manager.withBaseURL(for: testModel) { $0 } }
         try healthGate.waitUntilEntered()
         clock.withValue { $0 = $0.addingTimeInterval(600) }
 
@@ -486,13 +666,178 @@ struct LocalAIServerManagerTests {
         try require(process.terminateCallCount == 0, "successful startup must refresh idle time after health completes")
     }
 
+    private static func testHeldOpenOperationBlocksDifferentModelLaunchUntilRelease() async throws {
+        let firstProcess = FakeProcess()
+        let secondProcess = FakeProcess()
+        let operationGate = AsyncGate()
+        let operationStarted = DispatchSemaphore(value: 0)
+        let launchCount = LockedBox(0)
+        let manager = makeManager(
+            launchProcess: { _, _, port, _ in
+                let count = launchCount.withValue { value -> Int in
+                    value += 1
+                    return value
+                }
+                return (count == 1 ? firstProcess : secondProcess, port)
+            }
+        )
+
+        let heldOperation = resultTask {
+            try await manager.withBaseURL(for: testModel) { url in
+                operationStarted.signal()
+                await operationGate.wait()
+                return url
+            }
+        }
+        try wait(operationStarted, "held operation did not start")
+
+        let replacement = Task { try await manager.withBaseURL(for: otherModel) { $0 } }
+        try await waitUntil("model switch did not begin draining the active operation") {
+            await manager.lifecycleSnapshot().isWaitingForActiveRequests
+        }
+
+        try require(firstProcess.terminateCallCount == 0, "model switch terminated a process with an active operation")
+        try require(launchCount.value == 1, "replacement launched before the active operation completed")
+
+        operationGate.open()
+        _ = try await heldOperation.value.get()
+        _ = try await replacement.value
+
+        try require(firstProcess.terminateCallCount == 1, "released operation should permit the old process to stop")
+        try require(launchCount.value == 2, "released operation should permit the replacement launch")
+    }
+
+    private static func testCancellingPendingSwitchUnblocksSameModelOperations() async throws {
+        let process = FakeProcess()
+        let operationGate = AsyncGate()
+        let operationStarted = DispatchSemaphore(value: 0)
+        let launchCount = LockedBox(0)
+        let manager = makeManager(
+            launchProcess: { _, _, port, _ in
+                launchCount.withValue { $0 += 1 }
+                return (process, port)
+            }
+        )
+        let heldOperation = resultTask {
+            try await manager.withBaseURL(for: testModel) { url in
+                operationStarted.signal()
+                await operationGate.wait()
+                return url
+            }
+        }
+        try wait(operationStarted, "held operation did not start")
+        let replacement = resultTask {
+            try await manager.withBaseURL(for: otherModel) { $0 }
+        }
+        try await waitUntil("model switch did not begin waiting for active requests") {
+            await manager.lifecycleSnapshot().isWaitingForActiveRequests
+        }
+
+        replacement.cancel()
+        try requireCancellation(await replacement.value, "cancelled model switch should exit promptly")
+        try await waitUntil("cancelled model switch left the current launch draining") {
+            !(await manager.lifecycleSnapshot().isWaitingForActiveRequests)
+        }
+
+        _ = try await manager.withBaseURL(for: testModel) { $0 }
+        try require(launchCount.value == 1, "same-model operation should reuse the held process")
+        try require(process.terminateCallCount == 0, "cancelled switch must not terminate the held process")
+
+        operationGate.open()
+        _ = try await heldOperation.value.get()
+    }
+
+    private static func testIdleShutdownDoesNotTerminateHeldOpenOperation() async throws {
+        let process = FakeProcess()
+        let operationGate = AsyncGate()
+        let operationStarted = DispatchSemaphore(value: 0)
+        let clock = LockedBox(Date(timeIntervalSince1970: 0))
+        let manager = makeManager(
+            idleTimeout: 300,
+            launchProcess: { _, _, port, _ in (process, port) },
+            now: { clock.value }
+        )
+        let heldOperation = resultTask {
+            try await manager.withBaseURL(for: testModel) { url in
+                operationStarted.signal()
+                await operationGate.wait()
+                return url
+            }
+        }
+        try wait(operationStarted, "held operation did not start")
+        clock.withValue { $0 = $0.addingTimeInterval(301) }
+
+        await manager.shutdownIfIdle()
+
+        try require(process.terminateCallCount == 0, "idle shutdown terminated a held-open operation")
+        operationGate.open()
+        _ = try await heldOperation.value.get()
+    }
+
+    private static func testThrownOperationReleasesLease() async throws {
+        let firstProcess = FakeProcess()
+        let secondProcess = FakeProcess()
+        let launchCount = LockedBox(0)
+        let manager = makeManager(
+            launchProcess: { _, _, port, _ in
+                let count = launchCount.withValue { value -> Int in
+                    value += 1
+                    return value
+                }
+                return (count == 1 ? firstProcess : secondProcess, port)
+            }
+        )
+
+        let result = await resultTask {
+            try await manager.withBaseURL(for: testModel) { _ in
+                throw TestFailure("expected operation failure")
+            }
+        }.value
+        try requireFailure(result, "throwing operation should propagate its error")
+
+        _ = try await manager.withBaseURL(for: otherModel) { $0 }
+        try require(firstProcess.terminateCallCount == 1, "throwing operation leaked its active request lease")
+        try require(launchCount.value == 2, "throwing operation should allow a later model switch")
+    }
+
+    private static func testCancelledOperationReleasesLease() async throws {
+        let firstProcess = FakeProcess()
+        let secondProcess = FakeProcess()
+        let operationStarted = DispatchSemaphore(value: 0)
+        let launchCount = LockedBox(0)
+        let manager = makeManager(
+            launchProcess: { _, _, port, _ in
+                let count = launchCount.withValue { value -> Int in
+                    value += 1
+                    return value
+                }
+                return (count == 1 ? firstProcess : secondProcess, port)
+            }
+        )
+        let operation = resultTask {
+            try await manager.withBaseURL(for: testModel) { url in
+                operationStarted.signal()
+                try await Task.sleep(nanoseconds: 5_000_000_000)
+                return url
+            }
+        }
+        try wait(operationStarted, "cancellable operation did not start")
+
+        operation.cancel()
+        try requireCancellation(await operation.value, "cancelled operation should propagate cancellation")
+
+        _ = try await manager.withBaseURL(for: otherModel) { $0 }
+        try require(firstProcess.terminateCallCount == 1, "cancelled operation leaked its active request lease")
+        try require(launchCount.value == 2, "cancelled operation should allow a later model switch")
+    }
+
     private static func testManagerDeinitTerminatesRunningProcess() async throws {
         let process = FakeProcess()
         var manager: LocalAIServerManager? = makeManager(
             launchProcess: { _, _, port, _ in (process, port) }
         )
 
-        _ = try await manager?.baseURL(for: testModel)
+        _ = try await manager?.withBaseURL(for: testModel) { $0 }
         manager = nil
 
         try process.waitForTerminateRequest()
@@ -504,6 +849,7 @@ struct LocalAIServerManagerTests {
         contextSize: Int = 8192,
         launchProcess: @escaping LocalAIServerManager.LaunchProcess,
         pollHealth: @escaping LocalAIServerManager.PollHealth = { _ in true },
+        validateModel: @escaping LocalAIServerManager.ValidateModel = { _ in .ready },
         now: @escaping @Sendable () -> Date = { Date(timeIntervalSince1970: 0) },
         observeLifecycle: @escaping LocalAIServerManager.ObserveLifecycle = { _ in }
     ) -> LocalAIServerManager {
@@ -513,6 +859,7 @@ struct LocalAIServerManagerTests {
             contextSize: contextSize,
             launchProcess: launchProcess,
             pollHealth: pollHealth,
+            validateModel: validateModel,
             now: now,
             observeLifecycle: observeLifecycle
         )
@@ -541,6 +888,34 @@ struct LocalAIServerManagerTests {
         guard case .failure = result else { throw TestFailure(message) }
     }
 
+    private static func requireModelUnavailable(
+        _ result: Result<URL, Error>,
+        containing firstDetail: String,
+        and secondDetail: String,
+        message: String
+    ) throws {
+        guard case let .failure(error) = result,
+              case let LocalAIServerManagerError.modelUnavailable(detail) = error,
+              detail.contains(firstDetail),
+              detail.contains(secondDetail) else {
+            throw TestFailure(message)
+        }
+    }
+
+    private static func requireModelCorrupt(
+        _ result: Result<URL, Error>,
+        containing firstDetail: String,
+        and secondDetail: String,
+        message: String
+    ) throws {
+        guard case let .failure(error) = result,
+              case let LocalAIServerManagerError.modelCorrupt(detail) = error,
+              detail.contains(firstDetail),
+              detail.contains(secondDetail) else {
+            throw TestFailure(message)
+        }
+    }
+
     private static func requireCancellation(_ result: Result<URL, Error>, _ message: String) throws {
         guard case let .failure(error) = result, error is CancellationError else {
             throw TestFailure(message)
@@ -553,6 +928,17 @@ struct LocalAIServerManagerTests {
 
     private static func wait(_ semaphore: DispatchSemaphore, _ message: String) throws {
         guard semaphore.wait(timeout: .now() + 2) == .success else { throw TestFailure(message) }
+    }
+
+    private static func waitUntil(
+        _ message: String,
+        condition: @escaping @Sendable () async -> Bool
+    ) async throws {
+        for _ in 0..<200 {
+            if await condition() { return }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        throw TestFailure(message)
     }
 
     private static func temporaryRoot() -> URL {
@@ -582,6 +968,50 @@ struct LocalAIServerManagerTests {
             approximateResidentRAMBytes: 32
         )
     }
+
+    private static func validatedModel(id: String, contents: [Data]) -> LocalAIModel {
+        LocalAIModel(
+            id: id,
+            displayName: id,
+            description: "Validated test model",
+            artifacts: contents.enumerated().map { index, data in
+                LocalAIModelArtifact(
+                    downloadURL: URL(string: "https://example.com/\(id)-\(index).gguf")!,
+                    expectedFileName: "\(id)-\(index).gguf",
+                    approximateBytes: Int64(data.count),
+                    checksumSHA256: SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+                )
+            },
+            approximateResidentRAMBytes: 32
+        )
+    }
+
+    private static func directoryEntryExists(at url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.path)
+            || (try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)) != nil
+    }
+}
+
+private enum HealthProbeFailure: Error {
+    case failed
+    case stalled
+}
+
+private final class FakeMonotonicClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue: TimeInterval = 0
+
+    var value: TimeInterval {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedValue
+    }
+
+    func advance(by duration: TimeInterval) {
+        lock.lock()
+        storedValue += duration
+        lock.unlock()
+    }
 }
 
 private struct LaunchRecord {
@@ -610,6 +1040,41 @@ private final class LockedBox<Value>: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return body(&storedValue)
+    }
+}
+
+private final class AsyncGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    private var continuations: [CheckedContinuation<Void, Never>] = []
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let resumeImmediately: Bool
+            lock.lock()
+            if isOpen {
+                resumeImmediately = true
+            } else {
+                continuations.append(continuation)
+                resumeImmediately = false
+            }
+            lock.unlock()
+            if resumeImmediately { continuation.resume() }
+        }
+    }
+
+    func open() {
+        let pending: [CheckedContinuation<Void, Never>]
+        lock.lock()
+        guard !isOpen else {
+            lock.unlock()
+            return
+        }
+        isOpen = true
+        pending = continuations
+        continuations.removeAll()
+        lock.unlock()
+        for continuation in pending { continuation.resume() }
     }
 }
 
