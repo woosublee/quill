@@ -4366,6 +4366,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     context: snapshot.cloudExecutionContext,
                     requiresCloudExecution: snapshot.requiresCloudExecution
                 ) else {
+                    if snapshot.item.transcriptFileName == nil,
+                       let transcriptFileName = updatedItem.transcriptFileName {
+                        Self.deleteTranscriptFile(transcriptFileName)
+                    }
                     self.retryingItemIDs.remove(snapshot.item.id)
                     return
                 }

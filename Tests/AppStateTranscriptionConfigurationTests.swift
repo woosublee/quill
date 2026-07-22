@@ -126,6 +126,7 @@ struct AppStateTranscriptionConfigurationTests {
         await testRetryAvailabilityAcceptsConfiguredAPIStandard()
         try testAudioOnlyRetryUsesCurrentProcessingSettings()
         try testAudioOnlyRetryCreatesTranscriptFileAndPreservesMetadata()
+        try testAudioOnlyRetryDeletesNewTranscriptFileWhenStale()
         print("AppStateTranscriptionConfigurationTests passed")
     }
 
@@ -2219,6 +2220,24 @@ struct AppStateTranscriptionConfigurationTests {
         assert(history.contains("systemPrompt: snapshot.item.systemPrompt"))
         assert(history.contains("contextSystemPrompt: snapshot.item.contextSystemPrompt"))
         assert(history.contains("customTitle: snapshot.item.customTitle"))
+    }
+
+    private static func testAudioOnlyRetryDeletesNewTranscriptFileWhenStale() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let retry = sourceBlock(
+            in: source,
+            from: "func retryTranscription(item: PipelineHistoryItem)",
+            to: "\n    @MainActor\n    private func copyRetryTranscriptToPasteboardIfNeeded"
+        )
+        let staleGuard = sourceBlock(
+            in: retry,
+            from: "guard self.isCurrentCloudTranscriptionExecution(",
+            to: "\n                do {"
+        )
+
+        assert(staleGuard.contains("snapshot.item.transcriptFileName == nil"))
+        assert(staleGuard.contains("let transcriptFileName = updatedItem.transcriptFileName"))
+        assert(staleGuard.contains("Self.deleteTranscriptFile(transcriptFileName)"))
     }
 
     private static func retryHistoryItem(audioFileName: String?) -> PipelineHistoryItem {
