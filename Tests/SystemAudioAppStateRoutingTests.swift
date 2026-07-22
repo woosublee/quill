@@ -20,7 +20,7 @@ struct SystemAudioAppStateRoutingTests {
         precondition(source.contains("AudioInputDevice.isMicrophoneOnly(audioInputID)"))
         precondition(source.contains("private func ensureSystemDefaultAndSystemAudioAccess() async -> Bool"))
         precondition(source.contains("let supportsLiveTranscription = !AudioInputDevice.isSystemDefaultAndSystemAudio(audioInputID)"))
-        precondition(source.contains("if supportsLiveTranscription {\n            startRealtimeStreamingIfEnabled()\n        }"))
+        precondition(source.contains("if shouldTranscribe, supportsLiveTranscription {\n            startRealtimeStreamingIfEnabled()\n        }"))
         precondition(source.contains("func isNoteBrowserTranscriptionModeAvailable(_ mode: NoteBrowserTranscriptionMode) -> Bool"))
         precondition(source.contains("scheduleNoteBrowserTranscriptionModeNormalizationForSelectedInput()"))
         precondition(noteBrowserSource.contains("ForEach(transcriptionChoiceDisplays(in: \"API\"))"))

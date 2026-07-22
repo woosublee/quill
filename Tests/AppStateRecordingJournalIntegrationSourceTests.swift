@@ -240,7 +240,30 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         precondition(preserveBody.contains("detachSegmentedJournalSinks()"))
         precondition(preserveBody.contains("controller.preserveForRecovery()"))
 
+        try testRecordOnlySessionSnapshotsAndGatesAIComponents()
+        try testRecordOnlyStillStartsSelectedAudioRecorder()
+
         print("AppStateRecordingJournalIntegrationSourceTests passed")
+    }
+
+    private static func testRecordOnlySessionSnapshotsAndGatesAIComponents() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let begin = try body(startingWith: "private func beginRecording(", in: source)
+
+        assert(source.contains("private var activeRecordingTranscriptionEnabled: Bool?"))
+        assert(begin.contains("activeRecordingTranscriptionEnabled = transcriptionEnabled"))
+        assert(begin.contains("if shouldTranscribe"))
+        assert(begin.contains("startRealtimeStreamingIfEnabled()"))
+        assert(begin.contains("startContextCapture()"))
+        assert(begin.contains("localTranscriptionModel.makeLiveTranscriber()"))
+    }
+
+    private static func testRecordOnlyStillStartsSelectedAudioRecorder() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let begin = try body(startingWith: "private func beginRecording(", in: source)
+
+        assert(begin.contains("try await self.startSelectedAudioRecorder(inputID: audioInputID)"))
+        assert(begin.contains("self.audioLevelCancellable = self.activeRecorderAudioLevelPublisher"))
     }
 
     private static func switchCaseBody(

@@ -38,6 +38,7 @@ struct AppStateTranscriptionConfigurationTests {
         testNoteBrowserPreservesExplicitOptOut()
         await testExistingInstallMigratesMissingTranscriptionPreferenceOn()
         await testStoredTranscriptionPreferenceIsPreserved()
+        await testRecordOnlyDoesNotRequireAccessibility()
         await testTranscriptionOffPreservesRememberedBackend()
         await testTranscriptionOnRenormalizesRememberedBackend()
         await testFreshInstallSeedsNewHiddenDefaultsOnce()
@@ -396,6 +397,20 @@ struct AppStateTranscriptionConfigurationTests {
             appState.transcriptionEnabled = true
         }
         precondition(defaults.bool(forKey: "transcription_enabled"))
+    }
+
+    private static func testRecordOnlyDoesNotRequireAccessibility() async {
+        resetDefaults()
+        let appState = await MainActor.run { AppState() }
+        await MainActor.run {
+            appState.disableAutoPaste = false
+            appState.isCommandModeEnabled = true
+            appState.transcriptionEnabled = false
+            precondition(!appState.requiresAccessibility)
+
+            appState.transcriptionEnabled = true
+            precondition(appState.requiresAccessibility)
+        }
     }
 
     private static func testTranscriptionOffPreservesRememberedBackend() async {

@@ -1702,6 +1702,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var currentRecordingLiveNoteID: UUID?
     private var activeRecordingStartedAt: Date?
     private var activeRecordingCalendarSnapshot: RecordingCalendarSnapshot?
+    private var activeRecordingTranscriptionEnabled: Bool?
+
+    private var shouldTranscribeActiveRecording: Bool {
+        activeRecordingTranscriptionEnabled ?? transcriptionEnabled
+    }
     private var activeAudioInputID: String?
     private var activeInputSwitchToken: UUID?
     private var isActiveInputSwitchPhysicalStopInProgress = false
@@ -3194,6 +3199,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         currentSessionIntent = .dictation
         activeRecordingStartedAt = nil
         activeRecordingCalendarSnapshot = nil
+        activeRecordingTranscriptionEnabled = nil
         isRecording = false
         restoreAudioInterruptionIfNeeded()
         syncCriticalDictationActivity()
@@ -3575,12 +3581,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 ).isEmpty ? .defaultConfiguration : .transcriptionOverride
             ),
             processing: RecordingProcessingSnapshot(
-                postProcessingEnabled: !disablePostProcessing,
+                postProcessingEnabled: shouldTranscribeActiveRecording && !disablePostProcessing,
                 preferredModelID: postProcessingModel,
                 fallbackModelID: postProcessingFallbackModel,
                 outputLanguage: outputLanguage,
                 preserveExactWording: preserveExactWording,
-                contextCaptureEnabled: !disableContextCapture,
+                contextCaptureEnabled: shouldTranscribeActiveRecording && !disableContextCapture,
                 instructionExecutionGuardEnabled: instructionExecutionGuardEnabled,
                 customVocabulary: customVocabulary
                     .split(whereSeparator: \.isNewline)
@@ -5162,7 +5168,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     // MCP public interface
     @MainActor
     func startRecordingFromMCP() {
-        lastTranscript = ""
+        if transcriptionEnabled {
+            lastTranscript = ""
+        }
         mcpLastRecordingFailed = false
         shortcutSessionController.beginManual(mode: .toggle)
         startRecording(triggerMode: .toggle)
@@ -5189,7 +5197,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             activeRecordingCalendarSnapshot = nil
             return
         }
-        lastTranscript = ""
+        if transcriptionEnabled {
+            lastTranscript = ""
+        }
         shortcutSessionController.beginManual(mode: .toggle)
         startRecording(triggerMode: .toggle, onStarted: onStarted)
     }
@@ -5336,6 +5346,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         capturedContext = nil
         activeRecordingStartedAt = nil
         activeRecordingCalendarSnapshot = nil
+        activeRecordingTranscriptionEnabled = nil
         currentSessionIntent = .dictation
         isRecording = false
         errorMessage = nil
@@ -5564,7 +5575,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// Note: the global hotkey's event tap also needs AX, but that is a separate
     /// concern — we intentionally don't gate on whether a shortcut is bound here.
     var requiresAccessibility: Bool {
-        !disableAutoPaste || isCommandModeEnabled
+        transcriptionEnabled && (!disableAutoPaste || isCommandModeEnabled)
     }
 
     @MainActor
@@ -5576,6 +5587,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         startedAt: CFAbsoluteTime? = nil
     ) async -> Bool {
         activeRecordingTriggerMode = triggerMode
+        if !transcriptionEnabled {
+            currentSessionIntent = .dictation
+            overlayManager.setRecordingTriggerMode(triggerMode, animated: false)
+            return true
+        }
+
         let isAccessibilityTrusted = AXIsProcessTrusted()
         hasAccessibility = isAccessibilityTrusted
         guard isAccessibilityTrusted || !requiresAccessibility else {
@@ -5690,6 +5707,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         hotkeyManager.stop()
         shortcutSessionController.reset()
         activeRecordingTriggerMode = nil
+        activeRecordingTranscriptionEnabled = nil
         cancelRecordingInitializationTimer()
         clearAudioRecorderCallbacks()
         audioLevelCancellable?.cancel()
@@ -5921,8 +5939,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
             ? UUID()
             : nil
         let supportsLiveTranscription = !AudioInputDevice.isSystemDefaultAndSystemAudio(audioInputID)
+        activeRecordingTranscriptionEnabled = transcriptionEnabled
+        let shouldTranscribe = shouldTranscribeActiveRecording
 
-        if supportsLiveTranscription && useLocalTranscription && localTranscriptionModel.isAppleSpeech {
+        if shouldTranscribe,
+           supportsLiveTranscription,
+           useLocalTranscription,
+           localTranscriptionModel.isAppleSpeech {
             refreshSpeechRecognitionAuthorizationStatus()
             switch speechRecognitionAuthorizationStatus {
             case .authorized:
@@ -5987,6 +6010,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             default:
                 isRecording = false
                 activeRecordingCalendarSnapshot = nil
+                activeRecordingTranscriptionEnabled = nil
                 syncCriticalDictationActivity()
                 restoreAudioInterruptionIfNeeded()
                 activeRecordingTriggerMode = nil
@@ -6061,12 +6085,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
         )
 
-        if supportsLiveTranscription {
+        if shouldTranscribe, supportsLiveTranscription {
             startRealtimeStreamingIfEnabled()
         }
 
         // Start engine on background thread so UI isn't blocked
-        if supportsLiveTranscription, useLocalTranscription, let transcriber = localTranscriptionModel.makeLiveTranscriber() {
+        if shouldTranscribe,
+           supportsLiveTranscription,
+           useLocalTranscription,
+           let transcriber = localTranscriptionModel.makeLiveTranscriber() {
             // Live transcription: initialize before recording starts so the request is ready
             // to receive buffers from the very first sample
             Task { [weak self] in
@@ -6123,7 +6150,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     }
                     await MainActor.run {
                         guard self.isRecording, self.activeRecordingTriggerMode != nil else { return }
-                        self.startContextCapture()
+                        if shouldTranscribe {
+                            self.startContextCapture()
+                        }
                         if !transcriber.handlesRecording {
                             self.audioLevelCancellable = self.activeRecorderAudioLevelPublisher(inputID: audioInputID)
                                 .receive(on: DispatchQueue.main)
@@ -6152,7 +6181,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.markRecordingStarted(actualRecordingStartedAt)
                         guard self.isRecording, self.activeRecordingTriggerMode != nil else { return }
                         onStarted?()
-                        self.startContextCapture()
+                        if shouldTranscribe {
+                            self.startContextCapture()
+                        }
                         self.audioLevelCancellable = self.activeRecorderAudioLevelPublisher(inputID: audioInputID)
                             .receive(on: DispatchQueue.main)
                             .sink { [weak self] level in
@@ -6182,6 +6213,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         capturedContext = nil
         activeRecordingStartedAt = nil
         activeRecordingCalendarSnapshot = nil
+        activeRecordingTranscriptionEnabled = nil
         if let liveNoteID = currentRecordingLiveNoteID {
             currentRecordingLiveNoteID = nil
             pipelineHistory.removeAll { $0.id == liveNoteID }
