@@ -60,12 +60,14 @@ struct ModelsSettingsUIContractTests {
         postProcessing: String,
         context: String
     ) {
-        precondition(postProcessing.contains("private let apiKey: String"))
-        precondition(postProcessing.contains("private let baseURL: String"))
+        precondition(postProcessing.contains("private let backendExecutor: AIProcessingBackendExecutor"))
         precondition(postProcessing.contains("preferredFallbackModel"))
-        precondition(context.contains("private let apiKey: String"))
-        precondition(context.contains("private let baseURL: String"))
-        precondition(context.contains("if !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty"))
+        precondition(postProcessing.contains("cloudBaseURL: baseURL"))
+        precondition(postProcessing.contains("cloudAPIKey: apiKey"))
+        precondition(context.contains("private let backendExecutor: AIProcessingBackendExecutor"))
+        precondition(context.contains("cloudBaseURL: baseURL"))
+        precondition(context.contains("cloudAPIKey: apiKey"))
+        precondition(context.contains("if backendExecutor.isConfigured"))
     }
 
     private static func testExistingModelCatalogRemains(_ source: String) {
@@ -310,9 +312,16 @@ struct ModelsSettingsUIContractTests {
         )
         precondition(!appDelegate.contains("cancelNativeWhisperInstallForSettingsClose()"))
         precondition(!appDelegate.contains("cancelNativeWhisperInstallForSetupClose()"))
-        precondition(appDelegate.contains("appState.requestTerminationWhileNativeWhisperInstalling()"))
-        precondition(appState.contains("func requestTerminationWhileNativeWhisperInstalling() -> NSApplication.TerminateReply"))
-        precondition(appState.contains("Quit while Local Whisper is downloading?"))
+        precondition(appDelegate.contains("appState.requestTerminationAfterModelCleanup()"))
+        precondition(!appDelegate.contains("requestTerminationWhileNativeWhisperInstalling()"))
+        precondition(appState.contains("func requestTerminationAfterModelCleanup("))
+        precondition(appState.contains("Quit while models are downloading?"))
+        precondition(
+            appState.contains(
+                "Quill will cancel unfinished model downloads and delete partial files before quitting."
+            )
+        )
+        precondition(appState.contains("Quit and Cancel Downloads"))
 
         precondition(nativeRow.contains("appState.cancelNativeWhisperInstall()"))
         precondition(nativeRow.contains("appState.willAutoSelectNativeWhisperWhenReady"))

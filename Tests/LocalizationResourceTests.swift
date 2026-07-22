@@ -60,11 +60,11 @@ struct LocalizationResourceTests {
                 "계속하려면 녹음 단축키를 하나 이상 활성화하세요.",
             "Hold to Talk": "길게 눌러 말하기",
             "Tap to Toggle": "눌러서 전환",
-            "Quit while Local Whisper is downloading?":
-                "Local Whisper를 다운로드하는 중에 종료할까요?",
-            "Quill will cancel the download and delete the partial file if you quit now.":
-                "지금 종료하면 Quill이 다운로드를 취소하고 partial 파일을 삭제합니다.",
-            "Quit and Cancel Download": "종료하고 다운로드 취소"
+            "Quit while models are downloading?":
+                "모델을 다운로드하는 중에 종료할까요?",
+            "Quill will cancel unfinished model downloads and delete partial files before quitting.":
+                "Quill이 종료하기 전에 완료되지 않은 모델 다운로드를 취소하고 부분 파일을 삭제합니다.",
+            "Quit and Cancel Downloads": "종료하고 다운로드 취소"
         ]
         for (key, expected) in onboardingKorean {
             let english = try localizedValue(key: key, language: "en", root: root)

@@ -12,6 +12,7 @@ struct SettingsLocalizationTests {
         try testCalendarReminderLeadTimeUsesLocalizedCopy()
         try testRecordingOverlaySettingsCopyLocalizes()
         try testModelFirstSettingsCopyLocalizes()
+        try testModelDownloadTerminationCopyLocalizes()
         print("SettingsLocalizationTests passed")
     }
 
@@ -186,6 +187,21 @@ struct SettingsLocalizationTests {
             "Streams audio through the provider's OpenAI-compatible /v1/realtime WebSocket so transcription runs while you speak.": "제공자의 OpenAI-compatible /v1/realtime WebSocket으로 오디오를 스트리밍하여 말하는 동안 전사를 실행합니다.",
             "Realtime Transcription Model": "실시간 전사 모델",
             "Used only for realtime streaming. Leave empty for providers that supply a server default.": "실시간 스트리밍에만 사용합니다. 서버 기본값을 제공하는 공급자에서는 비워 두세요."
+        ]
+
+        for (key, korean) in expected {
+            assert(localizedCatalogString(key, language: "en", bundle: bundle) == key)
+            assert(localizedCatalogString(key, language: "ko", bundle: bundle) == korean)
+        }
+    }
+
+    private static func testModelDownloadTerminationCopyLocalizes() throws {
+        let bundle = try compiledLocalizationBundle()
+        let expected: [String: String] = [
+            "Quit while models are downloading?": "모델을 다운로드하는 중에 종료할까요?",
+            "Quill will cancel unfinished model downloads and delete partial files before quitting.":
+                "Quill이 종료하기 전에 완료되지 않은 모델 다운로드를 취소하고 부분 파일을 삭제합니다.",
+            "Quit and Cancel Downloads": "종료하고 다운로드 취소"
         ]
 
         for (key, korean) in expected {

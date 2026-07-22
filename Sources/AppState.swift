@@ -336,6 +336,27 @@ final class AppState: ObservableObject, @unchecked Sendable {
     static var localAIServerManagerFactory: () -> LocalAIServerManager = {
         LocalAIServerManager()
     }
+    static var localAIIdleShutdownSleep: @Sendable (UInt64) async throws -> Void = {
+        try await Task.sleep(nanoseconds: $0)
+    }
+    static var modelDownloadQuitAlertPresenter: @MainActor () -> NSApplication.ModalResponse = {
+        let alert = NSAlert()
+        alert.messageText = localizedCatalogString("Quit while models are downloading?")
+        alert.informativeText = localizedCatalogString(
+            "Quill will cancel unfinished model downloads and delete partial files before quitting."
+        )
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: localizedCatalogString("Quit and Cancel Downloads"))
+        alert.addButton(withTitle: localizedCatalogString("Cancel"))
+        alert.icon = NSImage(
+            systemSymbolName: "exclamationmark.triangle.fill",
+            accessibilityDescription: nil
+        )
+        return alert.runModal()
+    }
+    static var applicationTerminationReply: @MainActor (Bool) -> Void = {
+        NSApp.reply(toApplicationShouldTerminate: $0)
+    }
     static var localAIInstallStatusProvider: @Sendable (LocalAIModel) -> LocalAIInstallStatus = {
         LocalAIModelStore().installStatus(for: $0)
     }
@@ -1754,6 +1775,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var localAIStatusRefreshGenerations: [String: Int] = [:]
     private var localAIStatusRefreshPendingModelIDs: Set<String> = []
     private var localAIStatusRefreshWaiters: [CheckedContinuation<Void, Never>] = []
+    private var localAIInstallQuiescenceWaiters: [CheckedContinuation<Void, Never>] = []
+    private var localAIIdleShutdownTask: Task<Void, Never>?
     private var hasCompletedLocalAIStatusRefresh = false
 
     @Published var postProcessingBackendChoice: AIProcessingBackendChoice {
@@ -1818,7 +1841,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var isCalendarRecordingReminderSchedulerActive = false
     private var hasShownScreenshotPermissionAlert = false
     private var isEscapeCancelAlertPresented = false
-    private var isNativeWhisperQuitAlertPresented = false
+    private var isModelDownloadQuitAlertPresented = false
+    private var isModelTerminationCleanupPending = false
     private var shouldTerminateAfterTranscription = false
     private var audioDeviceObservers: [NSObjectProtocol] = []
     private var needsMicrophoneRefreshAfterRecording = false
@@ -2295,7 +2319,32 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     deinit {
+        localAIIdleShutdownTask?.cancel()
         removeAudioDeviceObservers()
+    }
+
+    @MainActor
+    func startLocalAIIdleShutdownMonitoring() {
+        guard localAIIdleShutdownTask == nil else { return }
+        let manager = localAIServerManager
+        let sleep = Self.localAIIdleShutdownSleep
+        localAIIdleShutdownTask = Task {
+            while !Task.isCancelled {
+                do {
+                    try await sleep(30_000_000_000)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                await manager.shutdownIfIdle()
+            }
+        }
+    }
+
+    @MainActor
+    func stopLocalAIIdleShutdownMonitoring() {
+        localAIIdleShutdownTask?.cancel()
+        localAIIdleShutdownTask = nil
     }
 
     @MainActor
@@ -2340,6 +2389,24 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard !hasCompletedLocalAIStatusRefresh else { return }
         await withCheckedContinuation { continuation in
             localAIStatusRefreshWaiters.append(continuation)
+        }
+    }
+
+    @MainActor
+    func waitForLocalAIInstallsToQuiesce() async {
+        guard !localAIInstallTasks.isEmpty else { return }
+        await withCheckedContinuation { continuation in
+            localAIInstallQuiescenceWaiters.append(continuation)
+        }
+    }
+
+    @MainActor
+    private func resumeLocalAIInstallQuiescenceWaitersIfNeeded() {
+        guard localAIInstallTasks.isEmpty else { return }
+        let waiters = localAIInstallQuiescenceWaiters
+        localAIInstallQuiescenceWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
         }
     }
 
@@ -2718,6 +2785,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
               localAIInstallTasks.removeValue(forKey: model.id) != nil else {
             return
         }
+        defer { resumeLocalAIInstallQuiescenceWaitersIfNeeded() }
         localAIInstallTokens.removeValue(forKey: model.id)
         let wasCancelling = localAICancellingModelIDs.remove(model.id) != nil
         let shouldDelete = localAIDeletionRequestedModelIDs.contains(model.id)
@@ -6135,25 +6203,60 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
-    func requestTerminationWhileNativeWhisperInstalling() -> NSApplication.TerminateReply {
-        guard isInstallingNativeWhisper else { return .terminateNow }
-        guard !isNativeWhisperQuitAlertPresented else { return .terminateCancel }
+    private var hasActiveModelDownload: Bool {
+        isInstallingNativeWhisper || !localAIInstallTasks.isEmpty
+    }
 
-        let alert = NSAlert()
-        alert.messageText = localizedCatalogString("Quit while Local Whisper is downloading?")
-        alert.informativeText = localizedCatalogString("Quill will cancel the download and delete the partial file if you quit now.")
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: localizedCatalogString("Quit and Cancel Download"))
-        alert.addButton(withTitle: localizedCatalogString("Cancel"))
-        alert.icon = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)
-
-        isNativeWhisperQuitAlertPresented = true
-        let response = alert.runModal()
-        isNativeWhisperQuitAlertPresented = false
-
-        guard response == .alertFirstButtonReturn else { return .terminateCancel }
+    @MainActor
+    private func cancelNativeWhisperInstallIfNeeded() {
+        guard isInstallingNativeWhisper else { return }
         cancelNativeWhisperInstall()
-        return .terminateNow
+    }
+
+    @MainActor
+    private func cancelAllLocalAIInstalls() {
+        localAIDeferredInstallModelIDs.removeAll()
+        localAIRestartAfterCancellationModelIDs.removeAll()
+        pendingLocalAISelections.removeAll()
+        let activeModelIDs = Set(localAIInstallTasks.keys)
+        for model in LocalAIModelCatalog.all where activeModelIDs.contains(model.id) {
+            cancelLocalAIInstall(model)
+        }
+    }
+
+    @MainActor
+    func requestTerminationAfterModelCleanup(
+        replyIsAlreadyPending: Bool = false
+    ) -> NSApplication.TerminateReply {
+        guard !isModelTerminationCleanupPending else { return .terminateLater }
+        guard !isModelDownloadQuitAlertPresented else { return .terminateCancel }
+
+        if hasActiveModelDownload {
+            isModelDownloadQuitAlertPresented = true
+            let response = Self.modelDownloadQuitAlertPresenter()
+            isModelDownloadQuitAlertPresented = false
+            guard response == .alertFirstButtonReturn else {
+                if replyIsAlreadyPending {
+                    Self.applicationTerminationReply(false)
+                }
+                return .terminateCancel
+            }
+        }
+
+        cancelNativeWhisperInstallIfNeeded()
+        cancelAllLocalAIInstalls()
+        stopLocalAIIdleShutdownMonitoring()
+        isModelTerminationCleanupPending = true
+        let manager = localAIServerManager
+        Task { [weak self] in
+            guard let self else { return }
+            await self.waitForLocalAIInstallsToQuiesce()
+            await manager.stop()
+            await MainActor.run {
+                Self.applicationTerminationReply(true)
+            }
+        }
+        return .terminateLater
     }
 
     private var shouldConfirmEscapeCancellation: Bool {
@@ -6172,7 +6275,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func terminateIfReady() {
         guard shouldTerminateAfterTranscription, !isRecording, !isTranscribing else { return }
         shouldTerminateAfterTranscription = false
-        NSApp.reply(toApplicationShouldTerminate: true)
+        _ = requestTerminationAfterModelCleanup(replyIsAlreadyPending: true)
     }
 
     @MainActor

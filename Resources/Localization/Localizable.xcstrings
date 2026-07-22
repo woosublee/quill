@@ -177,44 +177,44 @@
         }
       }
     },
-    "Quit while Local Whisper is downloading?": {
+    "Quit while models are downloading?": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quit while Local Whisper is downloading?"
+            "value": "Quit while models are downloading?"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Local Whisper를 다운로드하는 중에 종료할까요?"
+            "value": "모델을 다운로드하는 중에 종료할까요?"
           }
         }
       }
     },
-    "Quill will cancel the download and delete the partial file if you quit now.": {
+    "Quill will cancel unfinished model downloads and delete partial files before quitting.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quill will cancel the download and delete the partial file if you quit now."
+            "value": "Quill will cancel unfinished model downloads and delete partial files before quitting."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "지금 종료하면 Quill이 다운로드를 취소하고 partial 파일을 삭제합니다."
+            "value": "Quill이 종료하기 전에 완료되지 않은 모델 다운로드를 취소하고 부분 파일을 삭제합니다."
           }
         }
       }
     },
-    "Quit and Cancel Download": {
+    "Quit and Cancel Downloads": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quit and Cancel Download"
+            "value": "Quit and Cancel Downloads"
           }
         },
         "ko": {

@@ -110,6 +110,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             startMCPServer()
             appState.startCalendarRecordingReminderScheduling()
             appState.startGoogleCalendarHealthCheck()
+            appState.startLocalAIIdleShutdownMonitoring()
         }
 
     }
@@ -117,7 +118,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let recordingReply = appState.requestTerminationWhileRecording()
         guard recordingReply == .terminateNow else { return recordingReply }
-        return appState.requestTerminationWhileNativeWhisperInstalling()
+        return appState.requestTerminationAfterModelCleanup()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

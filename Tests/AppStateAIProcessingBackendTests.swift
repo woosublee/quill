@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -45,6 +46,10 @@ struct AppStateAIProcessingBackendTests {
         await testCancelPendingSelectionClearsOnlyOneConsumer()
         await testPendingSelectionChangesPublishObjectWillChange()
         await testCancellationWaitsForCompletionAndRetriesAfterQuiescence()
+        try await testIdleShutdownMonitoringIsIdempotentAndStops()
+        await testLocalAIInstallQuiescenceWaitsForEveryWorker()
+        try await testTerminationWaitsForLocalAIQuiescenceAndSuppressesDuplicates()
+        await testPendingRecordingTerminationCancelRepliesFalseOnce()
         await testPartialCleanupFailureSetsModelIssue()
         await testInstallerSuccessRequiresReadyStatus()
         await testInstallerSuccessRechecksHardwareAvailability()
@@ -62,6 +67,8 @@ struct AppStateAIProcessingBackendTests {
         try testCloudResumeCapturesPostProcessingServiceBeforeTaskStarts()
         try testContextCaptureUsesServiceSnapshotAndKeepsCancellationGuards()
         try testContextModelObserverRebuildsOnlyThroughChoiceChanges()
+        try testAppDelegateStartsIdleMonitoring()
+        try testTerminationRoutesThroughUnifiedModelCleanup()
         print("AppStateAIProcessingBackendTests passed")
     }
 
@@ -594,6 +601,203 @@ struct AppStateAIProcessingBackendTests {
             )
             precondition(appState.contextBackendChoice == originalChoices.1)
         }
+    }
+
+    private static func testIdleShutdownMonitoringIsIdempotentAndStops() async throws {
+        resetAIProcessingDefaults()
+        let sleepHarness = ControlledAsyncSleepHarness()
+        let process = TestLocalAIServerProcess()
+        let manager = LocalAIServerManager(
+            idleTimeout: 0,
+            launchProcess: { _, _, port, _ in (process, port) },
+            pollHealth: { _ in true },
+            validateModel: { _ in .ready },
+            terminationGracePeriod: 0,
+            waitForProcessExit: { _, _ in true }
+        )
+        let seams = LocalAISeamSnapshot()
+        AppState.localAIServerManagerFactory = { manager }
+        AppState.localAIIdleShutdownSleep = { nanoseconds in
+            try await sleepHarness.sleep(nanoseconds: nanoseconds)
+        }
+        defer { seams.restore() }
+
+        _ = try await manager.withBaseURL(for: LocalAIModelCatalog.fast) { $0 }
+        precondition(process.isRunning)
+        let appState = await makeRefreshedAppState()
+
+        await MainActor.run {
+            appState.startLocalAIIdleShutdownMonitoring()
+            appState.startLocalAIIdleShutdownMonitoring()
+        }
+        await waitUntil { sleepHarness.callCount == 1 }
+
+        sleepHarness.resumeNext()
+        await waitUntil { !process.isRunning }
+        await waitUntil { sleepHarness.callCount == 2 }
+
+        await MainActor.run {
+            appState.stopLocalAIIdleShutdownMonitoring()
+        }
+        await waitUntil { sleepHarness.pendingCount == 0 }
+        await yieldMainActor()
+        precondition(sleepHarness.callCount == 2)
+    }
+
+    private static func testLocalAIInstallQuiescenceWaitsForEveryWorker() async {
+        resetAIProcessingDefaults()
+        let statusHarness = LocalAIStatusHarness(defaultStatus: .notInstalled)
+        let installHarness = LocalAIInstallHarness()
+        let completion = LockedBox(false)
+        let seams = LocalAISeamSnapshot()
+        AppState.localAIInstallStatusProvider = { statusHarness.status(for: $0) }
+        AppState.localAIInstallStarter = installHarness.start
+        AppState.localAIPartialModelDelete = { _ in }
+        AppState.localAIProcessingAvailabilityProvider = supportedLocalAIAvailability
+        defer { seams.restore() }
+
+        let appState = await makeRefreshedAppState()
+        await MainActor.run {
+            appState.installLocalAIModel(LocalAIModelCatalog.fast)
+            appState.installLocalAIModel(LocalAIModelCatalog.quality)
+        }
+        let waiter = Task {
+            await appState.waitForLocalAIInstallsToQuiesce()
+            completion.set(true)
+        }
+        await yieldMainActor()
+        precondition(!completion.value)
+
+        await MainActor.run {
+            appState.cancelLocalAIInstall(LocalAIModelCatalog.fast)
+            appState.cancelLocalAIInstall(LocalAIModelCatalog.quality)
+        }
+        precondition(
+            installHarness.task(for: LocalAIModelCatalog.fast, startIndex: 0)?.isCancelled
+                == true
+        )
+        precondition(
+            installHarness.task(for: LocalAIModelCatalog.quality, startIndex: 0)?.isCancelled
+                == true
+        )
+
+        installHarness.complete(
+            model: LocalAIModelCatalog.fast,
+            with: .failure(.cancelled)
+        )
+        await waitUntil {
+            !appState.localAIInstallState(for: LocalAIModelCatalog.fast).isInstalling
+        }
+        precondition(!completion.value)
+
+        installHarness.complete(
+            model: LocalAIModelCatalog.quality,
+            with: .failure(.cancelled)
+        )
+        await waiter.value
+        precondition(completion.value)
+    }
+
+    private static func testTerminationWaitsForLocalAIQuiescenceAndSuppressesDuplicates() async throws {
+        resetAIProcessingDefaults()
+        let statusHarness = LocalAIStatusHarness(defaultStatus: .notInstalled)
+        let installHarness = LocalAIInstallHarness()
+        let partialDeletionHarness = LocalAIDeletionHarness()
+        let replyHarness = TerminationReplyHarness()
+        let process = TestLocalAIServerProcess()
+        let manager = LocalAIServerManager(
+            launchProcess: { _, _, port, _ in (process, port) },
+            pollHealth: { _ in true },
+            validateModel: { _ in .ready },
+            terminationGracePeriod: 0,
+            waitForProcessExit: { _, _ in true }
+        )
+        let seams = LocalAISeamSnapshot()
+        AppState.localAIInstallStatusProvider = { statusHarness.status(for: $0) }
+        AppState.localAIInstallStarter = installHarness.start
+        AppState.localAIPartialModelDelete = { model in
+            partialDeletionHarness.record(
+                modelID: model.id,
+                managerWasStopped: !process.isRunning
+            )
+        }
+        AppState.localAIProcessingAvailabilityProvider = supportedLocalAIAvailability
+        AppState.localAIServerManagerFactory = { manager }
+        AppState.modelDownloadQuitAlertPresenter = { .alertFirstButtonReturn }
+        AppState.applicationTerminationReply = replyHarness.reply
+        defer { seams.restore() }
+
+        let model = LocalAIModelCatalog.fast
+        let appState = await makeRefreshedAppState()
+        _ = try await manager.withBaseURL(for: LocalAIModelCatalog.quality) { $0 }
+        await MainActor.run {
+            appState.selectAIProcessingBackendChoice(
+                .localAI(modelID: model.id),
+                for: .postProcessing
+            )
+            appState.cancelLocalAIInstall(model)
+            appState.selectAIProcessingBackendChoice(
+                .localAI(modelID: model.id),
+                for: .postProcessing
+            )
+            precondition(appState.pendingLocalAIModelID(for: .postProcessing) == model.id)
+        }
+
+        let replies = await MainActor.run { () -> [NSApplication.TerminateReply] in
+            let first = appState.requestTerminationAfterModelCleanup()
+            let duplicate = appState.requestTerminationAfterModelCleanup()
+            return [first, duplicate]
+        }
+        precondition(replies == [.terminateLater, .terminateLater])
+        precondition(installHarness.task(for: model, startIndex: 0)?.isCancelled == true)
+        await MainActor.run {
+            precondition(appState.pendingLocalAIModelID(for: .postProcessing) == nil)
+        }
+        precondition(process.isRunning)
+        precondition(replyHarness.values.isEmpty)
+
+        installHarness.complete(model: model, with: .failure(.cancelled))
+        await waitUntil { !process.isRunning }
+        await waitUntil { replyHarness.values == [true] }
+        precondition(partialDeletionHarness.deletedModelIDs == [model.id])
+        precondition(partialDeletionHarness.managerWasStoppedValues == [false])
+        precondition(installHarness.starts(for: model) == 1)
+        await yieldMainActor()
+        precondition(replyHarness.values == [true])
+    }
+
+    private static func testPendingRecordingTerminationCancelRepliesFalseOnce() async {
+        resetAIProcessingDefaults()
+        let statusHarness = LocalAIStatusHarness(defaultStatus: .notInstalled)
+        let installHarness = LocalAIInstallHarness()
+        let replyHarness = TerminationReplyHarness()
+        let seams = LocalAISeamSnapshot()
+        AppState.localAIInstallStatusProvider = { statusHarness.status(for: $0) }
+        AppState.localAIInstallStarter = installHarness.start
+        AppState.localAIPartialModelDelete = { _ in }
+        AppState.localAIProcessingAvailabilityProvider = supportedLocalAIAvailability
+        AppState.modelDownloadQuitAlertPresenter = { .alertSecondButtonReturn }
+        AppState.applicationTerminationReply = replyHarness.reply
+        defer { seams.restore() }
+
+        let model = LocalAIModelCatalog.fast
+        let appState = await makeRefreshedAppState()
+        await MainActor.run {
+            appState.installLocalAIModel(model)
+            let reply = appState.requestTerminationAfterModelCleanup(
+                replyIsAlreadyPending: true
+            )
+            precondition(reply == .terminateCancel)
+        }
+        precondition(replyHarness.values == [false])
+        precondition(installHarness.task(for: model, startIndex: 0)?.isCancelled == false)
+
+        await MainActor.run {
+            appState.cancelLocalAIInstall(model)
+        }
+        installHarness.complete(model: model, with: .failure(.cancelled))
+        await appState.waitForLocalAIInstallsToQuiesce()
+        precondition(replyHarness.values == [false])
     }
 
     private static func testPartialCleanupFailureSetsModelIssue() async {
@@ -1316,6 +1520,36 @@ struct AppStateAIProcessingBackendTests {
         assert(choiceObserver.components(separatedBy: "rebuildContextService()").count - 1 == 1)
     }
 
+    private static func testAppDelegateStartsIdleMonitoring() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AppDelegate.swift",
+            encoding: .utf8
+        )
+        assert(source.contains("appState.startLocalAIIdleShutdownMonitoring()"))
+    }
+
+    private static func testTerminationRoutesThroughUnifiedModelCleanup() throws {
+        let delegate = try String(
+            contentsOfFile: "Sources/AppDelegate.swift",
+            encoding: .utf8
+        )
+        let state = try appStateSource()
+        assert(delegate.contains("requestTerminationAfterModelCleanup()"))
+        assert(!delegate.contains("requestTerminationWhileNativeWhisperInstalling()"))
+        assert(state.contains("await manager.stop()"))
+        assert(state.contains("cancelAllLocalAIInstalls()"))
+        assert(state.contains("localAIDeferredInstallModelIDs.removeAll()"))
+        assert(state.contains("localAIRestartAfterCancellationModelIDs.removeAll()"))
+        assert(state.contains("pendingLocalAISelections.removeAll()"))
+        assert(state.contains("!localAIInstallTasks.isEmpty"))
+        assert(state.contains("waitForLocalAIInstallsToQuiesce()"))
+        assert(
+            state.contains(
+                "requestTerminationAfterModelCleanup(replyIsAlreadyPending: true)"
+            )
+        )
+    }
+
     private static func appStateSource() throws -> String {
         try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
     }
@@ -1390,6 +1624,9 @@ private struct LocalAISeamSnapshot {
     let partialModelDelete = AppState.localAIPartialModelDelete
     let availabilityProvider = AppState.localAIProcessingAvailabilityProvider
     let serverManagerFactory = AppState.localAIServerManagerFactory
+    let idleShutdownSleep = AppState.localAIIdleShutdownSleep
+    let modelDownloadQuitAlertPresenter = AppState.modelDownloadQuitAlertPresenter
+    let applicationTerminationReply = AppState.applicationTerminationReply
 
     func restore() {
         AppState.localAIInstallStatusProvider = installStatusProvider
@@ -1398,6 +1635,9 @@ private struct LocalAISeamSnapshot {
         AppState.localAIPartialModelDelete = partialModelDelete
         AppState.localAIProcessingAvailabilityProvider = availabilityProvider
         AppState.localAIServerManagerFactory = serverManagerFactory
+        AppState.localAIIdleShutdownSleep = idleShutdownSleep
+        AppState.modelDownloadQuitAlertPresenter = modelDownloadQuitAlertPresenter
+        AppState.applicationTerminationReply = applicationTerminationReply
     }
 }
 
@@ -1581,6 +1821,63 @@ private final class LocalAIDeletionHarness: @unchecked Sendable {
             modelIDs.append(modelID)
             stoppedValues.append(managerWasStopped)
         }
+    }
+}
+
+private final class ControlledAsyncSleepHarness: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+    private var continuations: [UUID: CheckedContinuation<Void, Error>] = [:]
+
+    var callCount: Int {
+        lock.withLock { calls }
+    }
+
+    var pendingCount: Int {
+        lock.withLock { continuations.count }
+    }
+
+    func sleep(nanoseconds: UInt64) async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let shouldCancel = lock.withLock { () -> Bool in
+                    calls += 1
+                    guard !Task.isCancelled else { return true }
+                    continuations[id] = continuation
+                    return false
+                }
+                if shouldCancel {
+                    continuation.resume(throwing: CancellationError())
+                }
+            }
+        } onCancel: {
+            let continuation = self.lock.withLock {
+                self.continuations.removeValue(forKey: id)
+            }
+            continuation?.resume(throwing: CancellationError())
+        }
+    }
+
+    func resumeNext() {
+        let continuation = lock.withLock { () -> CheckedContinuation<Void, Error>? in
+            guard let id = continuations.keys.first else { return nil }
+            return continuations.removeValue(forKey: id)
+        }
+        continuation?.resume()
+    }
+}
+
+private final class TerminationReplyHarness: @unchecked Sendable {
+    private let lock = NSLock()
+    private var replies: [Bool] = []
+
+    var values: [Bool] {
+        lock.withLock { replies }
+    }
+
+    func reply(_ shouldTerminate: Bool) {
+        lock.withLock { replies.append(shouldTerminate) }
     }
 }
 
