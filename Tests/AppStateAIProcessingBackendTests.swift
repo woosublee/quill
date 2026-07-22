@@ -8,6 +8,14 @@ struct AppStateAIProcessingBackendTests {
     static func main() async throws {
         let defaultsSnapshot = UserDefaultsSnapshot()
         let originalSettingsDirectory = AppSettingsStorage.storageDirectoryOverride
+        let originalLocalAIInstallStatusProvider =
+            AppState.localAIInstallStatusProvider
+        let suiteStatusHarness = LocalAIStatusHarness(
+            defaultStatus: .notInstalled
+        )
+        AppState.localAIInstallStatusProvider = {
+            suiteStatusHarness.status(for: $0)
+        }
         let isolatedSettingsDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "quill-app-state-ai-processing-tests-\(ProcessInfo.processInfo.globallyUniqueString)",
@@ -17,6 +25,8 @@ struct AppStateAIProcessingBackendTests {
         defer {
             defaultsSnapshot.restore()
             AppSettingsStorage.storageDirectoryOverride = originalSettingsDirectory
+            AppState.localAIInstallStatusProvider =
+                originalLocalAIInstallStatusProvider
             try? FileManager.default.removeItem(at: isolatedSettingsDirectory)
         }
 
