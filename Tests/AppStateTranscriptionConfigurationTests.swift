@@ -2215,7 +2215,9 @@ struct AppStateTranscriptionConfigurationTests {
             to: "\n    func updatePermissionStatus"
         )
 
+        assert(retry.contains("let transcriptFileName = snapshot.item.transcriptFileName == nil"))
         assert(retry.contains("saveTranscriptFile("))
+        assert(!retry.contains("let transcriptFileName = snapshot.item.machineStatus == .audioOnly"))
         assert(history.contains("capturedSelection: snapshot.item.capturedSelection"))
         assert(history.contains("systemPrompt: snapshot.item.systemPrompt"))
         assert(history.contains("contextSystemPrompt: snapshot.item.contextSystemPrompt"))
@@ -2234,10 +2236,17 @@ struct AppStateTranscriptionConfigurationTests {
             from: "guard self.isCurrentCloudTranscriptionExecution(",
             to: "\n                do {"
         )
+        let storeUpdate = sourceBlock(
+            in: retry,
+            from: "try self.pipelineHistoryStore.update(updatedItem)",
+            to: "\n                if !retrySucceeded"
+        )
 
-        assert(staleGuard.contains("snapshot.item.transcriptFileName == nil"))
-        assert(staleGuard.contains("let transcriptFileName = updatedItem.transcriptFileName"))
-        assert(staleGuard.contains("Self.deleteTranscriptFile(transcriptFileName)"))
+        for cleanup in [staleGuard, storeUpdate] {
+            assert(cleanup.contains("snapshot.item.transcriptFileName == nil"))
+            assert(cleanup.contains("let transcriptFileName = updatedItem.transcriptFileName"))
+            assert(cleanup.contains("Self.deleteTranscriptFile(transcriptFileName)"))
+        }
     }
 
     private static func retryHistoryItem(audioFileName: String?) -> PipelineHistoryItem {

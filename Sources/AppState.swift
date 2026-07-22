@@ -4317,7 +4317,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     postProcessingEnabled: snapshot.postProcessingEnabled,
                     preserveExactWording: snapshot.preserveExactWording
                 )
-                let transcriptFileName = snapshot.item.machineStatus == .audioOnly
+                let transcriptFileName = snapshot.item.transcriptFileName == nil
                     ? Self.saveTranscriptFile(
                         rawTranscript: parsedTranscript.transcript,
                         postProcessedTranscript: result.finalTranscript
