@@ -1,5 +1,26 @@
 import SwiftUI
 
+struct LocalAIManagedModelResolver {
+    static func resolve(
+        pendingModelID: String?,
+        retainedModelID: String?,
+        currentChoice: AIProcessingBackendChoice
+    ) -> LocalAIModel? {
+        if let pendingModelID,
+           let pendingModel = LocalAIModelCatalog.model(id: pendingModelID) {
+            return pendingModel
+        }
+        if let retainedModelID,
+           let retainedModel = LocalAIModelCatalog.model(id: retainedModelID) {
+            return retainedModel
+        }
+        guard case .localAI(let currentModelID) = currentChoice else {
+            return nil
+        }
+        return LocalAIModelCatalog.model(id: currentModelID)
+    }
+}
+
 struct LocalAIModelRowView: View {
     @EnvironmentObject var appState: AppState
 

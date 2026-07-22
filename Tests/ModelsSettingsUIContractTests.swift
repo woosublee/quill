@@ -513,10 +513,20 @@ struct ModelsSettingsUIContractTests {
             from: "private func syncCloudModelDraft(",
             to: "\n    private func initializeManagedLocalAIModels()"
         )
+        let retainedInitialization = block(
+            in: models,
+            from: "private func initializeManagedLocalAIModels()",
+            to: "\n    private func managedLocalAIModel("
+        )
         let retainedResolver = block(
             in: models,
             from: "private func managedLocalAIModel(",
             to: "\n    private func aiProcessingChoiceMenuLabel("
+        )
+        let pureResolver = block(
+            in: localAIModelRow,
+            from: "struct LocalAIManagedModelResolver",
+            to: "struct LocalAIModelRowView"
         )
         let olderMenuItem = block(
             in: models,
@@ -561,17 +571,31 @@ struct ModelsSettingsUIContractTests {
         precondition(draftSync.contains("contextModelDraft = modelID"))
         precondition(retainedSetter.contains("retainedPostProcessingLocalModelID = modelID"))
         precondition(retainedSetter.contains("retainedContextLocalModelID = modelID"))
-        precondition(retainedResolver.contains("appState.selectedOrPendingLocalAIModel(for: feature)"))
-        precondition(retainedResolver.contains("retainedPostProcessingLocalModelID"))
-        precondition(retainedResolver.contains("retainedContextLocalModelID"))
-        precondition(retainedResolver.contains("LocalAIModelCatalog.model(id: retainedModelID)"))
+        precondition(retainedInitialization.contains("LocalAIManagedModelResolver.resolve("))
+        precondition(retainedInitialization.contains("pendingModelID: appState.pendingLocalAIModelID(for: feature)"))
+        precondition(retainedInitialization.contains("retainedModelID: nil"))
+        precondition(retainedInitialization.contains("currentChoice: appState.currentAIProcessingChoice(for: feature)"))
+        precondition(!retainedInitialization.contains("selectedOrPendingLocalAIModel"))
+        precondition(retainedResolver.contains("LocalAIManagedModelResolver.resolve("))
+        precondition(retainedResolver.contains("pendingModelID: appState.pendingLocalAIModelID(for: feature)"))
+        precondition(retainedResolver.contains("retainedModelID: retainedModelID"))
+        precondition(retainedResolver.contains("currentChoice: appState.currentAIProcessingChoice(for: feature)"))
         precondition(retainedResolver.contains("aiProcessingChoiceDisplays(for: feature).contains"))
-        guard let currentOrPending = retainedResolver.range(
-            of: "appState.selectedOrPendingLocalAIModel(for: feature)"
-        ), let retainedFallback = retainedResolver.range(of: "?? retainedModel") else {
-            preconditionFailure("Missing current/pending Local AI priority or retained fallback")
+        precondition(!retainedResolver.contains("selectedOrPendingLocalAIModel"))
+
+        precondition(pureResolver.contains("if let pendingModelID"))
+        precondition(pureResolver.contains("LocalAIModelCatalog.model(id: pendingModelID)"))
+        precondition(pureResolver.contains("if let retainedModelID"))
+        precondition(pureResolver.contains("LocalAIModelCatalog.model(id: retainedModelID)"))
+        precondition(pureResolver.contains("guard case .localAI(let currentModelID) = currentChoice"))
+        precondition(pureResolver.contains("LocalAIModelCatalog.model(id: currentModelID)"))
+        guard let pendingLookup = pureResolver.range(of: "LocalAIModelCatalog.model(id: pendingModelID)"),
+              let retainedLookup = pureResolver.range(of: "LocalAIModelCatalog.model(id: retainedModelID)"),
+              let currentLookup = pureResolver.range(of: "LocalAIModelCatalog.model(id: currentModelID)") else {
+            preconditionFailure("Missing exact managed Local AI model lookup order")
         }
-        precondition(currentOrPending.lowerBound < retainedFallback.lowerBound)
+        precondition(pendingLookup.lowerBound < retainedLookup.lowerBound)
+        precondition(retainedLookup.lowerBound < currentLookup.lowerBound)
 
         precondition(olderMenuItem.contains("Toggle(isOn: Binding("))
         precondition(olderMenuItem.contains("get: { binding.wrappedValue == display.choice }"))

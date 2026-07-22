@@ -1901,7 +1901,11 @@ struct ModelsSettingsView: View {
 
     private func initializeManagedLocalAIModels() {
         for feature in AIProcessingFeature.allCases {
-            guard let model = appState.selectedOrPendingLocalAIModel(for: feature) else {
+            guard let model = LocalAIManagedModelResolver.resolve(
+                pendingModelID: appState.pendingLocalAIModelID(for: feature),
+                retainedModelID: nil,
+                currentChoice: appState.currentAIProcessingChoice(for: feature)
+            ) else {
                 continue
             }
             setRetainedLocalAIModelID(model.id, for: feature)
@@ -1915,14 +1919,13 @@ struct ModelsSettingsView: View {
         case .postProcessing: retainedPostProcessingLocalModelID
         case .context: retainedContextLocalModelID
         }
-        let retainedModel = retainedModelID.flatMap { retainedModelID in
-            LocalAIModelCatalog.model(id: retainedModelID)
-        }
-        guard let model = appState.selectedOrPendingLocalAIModel(for: feature)
-            ?? retainedModel,
-              appState.aiProcessingChoiceDisplays(for: feature).contains(where: {
-                  $0.choice == .localAI(modelID: model.id)
-              }) else {
+        guard let model = LocalAIManagedModelResolver.resolve(
+            pendingModelID: appState.pendingLocalAIModelID(for: feature),
+            retainedModelID: retainedModelID,
+            currentChoice: appState.currentAIProcessingChoice(for: feature)
+        ), appState.aiProcessingChoiceDisplays(for: feature).contains(where: {
+            $0.choice == .localAI(modelID: model.id)
+        }) else {
             return nil
         }
         return model

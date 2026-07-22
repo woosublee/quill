@@ -60,6 +60,7 @@ struct AppStateAIProcessingBackendTests {
         await testUnsupportedHardwareRejectsLocalSelection()
         await testCanonicalModelValidationRejectsForgedModels()
         await testAIProcessingChoiceDisplayMetadata()
+        testManagedLocalAIModelResolutionPriority()
         await testCloudSelectionPublishesContextChoiceOnce()
         await testSelectionWaitsForInitialStatusRefresh()
         await testBackgroundStatusRefreshIgnoresStaleGeneration()
@@ -1255,6 +1256,39 @@ struct AppStateAIProcessingBackendTests {
                 )
             )
         }
+    }
+
+    private static func testManagedLocalAIModelResolutionPriority() {
+        let activeModel = LocalAIModelCatalog.quality
+        let attemptedModel = LocalAIModelCatalog.fast
+
+        let pendingWins = LocalAIManagedModelResolver.resolve(
+            pendingModelID: attemptedModel.id,
+            retainedModelID: nil,
+            currentChoice: .localAI(modelID: activeModel.id)
+        )
+        precondition(pendingWins?.id == attemptedModel.id)
+
+        let retainedWinsAfterPendingClears = LocalAIManagedModelResolver.resolve(
+            pendingModelID: nil,
+            retainedModelID: attemptedModel.id,
+            currentChoice: .localAI(modelID: activeModel.id)
+        )
+        precondition(retainedWinsAfterPendingClears?.id == attemptedModel.id)
+
+        let cloudAfterRetainedClear = LocalAIManagedModelResolver.resolve(
+            pendingModelID: nil,
+            retainedModelID: nil,
+            currentChoice: .cloud(modelID: AppState.defaultPostProcessingModel)
+        )
+        precondition(cloudAfterRetainedClear == nil)
+
+        let activeLocalFallback = LocalAIManagedModelResolver.resolve(
+            pendingModelID: nil,
+            retainedModelID: nil,
+            currentChoice: .localAI(modelID: activeModel.id)
+        )
+        precondition(activeLocalFallback?.id == activeModel.id)
     }
 
     private static func testCloudSelectionPublishesContextChoiceOnce() async {
