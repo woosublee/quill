@@ -1647,7 +1647,7 @@ private struct NoteDetailView: View {
                 help: "Save Files"
             )
 
-            Menu {
+            ToolbarIconMenu(help: "More Actions") {
                 Button("Export to Obsidian") {
                     showObsidianExportSheet = true
                 }
@@ -1656,13 +1656,7 @@ private struct NoteDetailView: View {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 13, weight: .medium))
                     .accessibilityLabel(Text("More Actions"))
-                    .frame(width: 36, height: 36)
-                    .contentShape(Circle())
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("More Actions")
 
             toolbarDivider
 
@@ -2181,6 +2175,50 @@ private struct ToolbarIconButton<Label: View>: View {
             isHovered = hovering && !disabled
         }
         .overrideCursor(.arrow)
+    }
+}
+
+private struct ToolbarIconMenu<Content: View, Label: View>: View {
+    let help: LocalizedStringKey
+    @ViewBuilder let content: () -> Content
+    @ViewBuilder let label: () -> Label
+
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isHovered = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(isHovered ? hoverFillColor : Color.clear)
+                .allowsHitTesting(false)
+            Circle()
+                .strokeBorder(hoverStrokeColor.opacity(isHovered ? 1 : 0), lineWidth: 0.5)
+                .allowsHitTesting(false)
+            Menu(content: content) {
+                label()
+                    .frame(width: 36, height: 36)
+                    .contentShape(Circle())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+        }
+        .frame(width: 36, height: 36)
+        .contentShape(Circle())
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
+        .help(help)
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .overrideCursor(.arrow)
+    }
+
+    private var hoverFillColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.08) : Color.primary.opacity(0.07)
+    }
+
+    private var hoverStrokeColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.16) : Color.primary.opacity(0.12)
     }
 }
 

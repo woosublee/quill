@@ -9,6 +9,7 @@ struct SettingsLocalizationTests {
         try testAudioImportDisplayKeepsModelIDAndLocalizesStaticLabels()
         try testSettingsSectionTitlePolicy()
         try testGoogleCalendarHealthMessagesLocalizeWithoutChangingDetail()
+        try testCalendarReminderLeadTimeUsesLocalizedCopy()
         try testRecordingOverlaySettingsCopyLocalizes()
         try testModelFirstSettingsCopyLocalizes()
         print("SettingsLocalizationTests passed")
@@ -110,6 +111,17 @@ struct SettingsLocalizationTests {
                 bundle: bundle
             ) == "Google Calendar를 새로 고치지 못했습니다: \(detail)"
         )
+    }
+
+    private static func testCalendarReminderLeadTimeUsesLocalizedCopy() throws {
+        let settingsSource = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
+
+        assert(
+            settingsSource.contains(
+                "CalendarRecordingReminderScheduler.leadTimeOptionTitle(minutes)"
+            )
+        )
+        assert(!settingsSource.contains("\"\\(minutes) min before\""))
     }
 
     private static func testRecordingOverlaySettingsCopyLocalizes() throws {
