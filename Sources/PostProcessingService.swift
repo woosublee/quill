@@ -227,7 +227,6 @@ Behavior:
     private var isLocalBackend: Bool { backendExecutor.choice.isLocal }
     private var selectedModelID: String { backendExecutor.choice.modelID }
     private var cloudBaseURL: String { backendExecutor.cloudBaseURL }
-    private var cloudAPIKey: String { backendExecutor.cloudAPIKey }
 
     convenience init(
         apiKey: String,
@@ -290,20 +289,32 @@ Behavior:
             )
         }
         if let backendError = error as? AIProcessingBackendError {
-            let code: QuillUserIssueCode = switch backendError {
-            case .unknownLocalModel:
-                .localAIModelUnavailable
-            case .localRuntimeUnavailable:
-                .localAIStartFailed
-            case .invalidCloudBaseURL:
-                .providerConfigurationInvalid
-            }
-            if backendExecutor.choice.isLocal {
+            switch backendError {
+            case .unknownLocalModel(let modelID):
                 return .local(
-                    code: code,
+                    code: .localAIModelUnavailable,
                     backend: "Local AI",
-                    modelID: selectedModelID,
+                    modelID: modelID,
                     diagnostic: backendError.localizedDescription
+                )
+            case .localRuntimeUnavailable(let modelID):
+                return .local(
+                    code: .localAIStartFailed,
+                    backend: "Local AI",
+                    modelID: modelID,
+                    diagnostic: backendError.localizedDescription
+                )
+            case .invalidCloudBaseURL(let invalidBaseURL):
+                return QuillUserIssueError(
+                    record: QuillUserIssueRecord(
+                        code: .providerConfigurationInvalid,
+                        severity: .warning,
+                        context: QuillUserIssueContext(
+                            providerHost: URL(string: invalidBaseURL)?.host,
+                            modelID: isLocalBackend ? nil : selectedModelID
+                        )
+                    ),
+                    privateDiagnostic: backendError.localizedDescription
                 )
             }
         }
@@ -856,12 +867,14 @@ Model: \(model)
         guard httpResponse.statusCode == 200 else {
             if httpResponse.statusCode == 429 {
                 let cooldown = LLMCooldownManager.rateLimitCooldown(from: httpResponse)
-                let identity = LLMCooldownIdentity(baseURL: cloudBaseURL, model: model)
-                await LLMCooldownManager.shared.setCooldown(
-                    identity,
-                    retryAfterSeconds: cooldown.seconds,
-                    persist: cooldown.isDaily
-                )
+                if endpoint.kind == .cloud {
+                    let identity = LLMCooldownIdentity(baseURL: cloudBaseURL, model: model)
+                    await LLMCooldownManager.shared.setCooldown(
+                        identity,
+                        retryAfterSeconds: cooldown.seconds,
+                        persist: cooldown.isDaily
+                    )
+                }
                 throw PostProcessingError.rateLimited(model: model, retryAfter: cooldown.seconds)
             }
             throw PostProcessingError.requestFailed(
@@ -1027,12 +1040,14 @@ Model: \(model)
         guard httpResponse.statusCode == 200 else {
             if httpResponse.statusCode == 429 {
                 let cooldown = LLMCooldownManager.rateLimitCooldown(from: httpResponse)
-                let identity = LLMCooldownIdentity(baseURL: cloudBaseURL, model: model)
-                await LLMCooldownManager.shared.setCooldown(
-                    identity,
-                    retryAfterSeconds: cooldown.seconds,
-                    persist: cooldown.isDaily
-                )
+                if endpoint.kind == .cloud {
+                    let identity = LLMCooldownIdentity(baseURL: cloudBaseURL, model: model)
+                    await LLMCooldownManager.shared.setCooldown(
+                        identity,
+                        retryAfterSeconds: cooldown.seconds,
+                        persist: cooldown.isDaily
+                    )
+                }
                 throw PostProcessingError.rateLimited(model: model, retryAfter: cooldown.seconds)
             }
             throw PostProcessingError.requestFailed(
@@ -1264,11 +1279,13 @@ Model: \(model)
         guard httpResponse.statusCode == 200 else {
             if httpResponse.statusCode == 429 {
                 let cooldown = LLMCooldownManager.rateLimitCooldown(from: httpResponse)
-                await LLMCooldownManager.shared.setCooldown(
-                    LLMCooldownIdentity(baseURL: cloudBaseURL, model: model),
-                    retryAfterSeconds: cooldown.seconds,
-                    persist: cooldown.isDaily
-                )
+                if endpoint.kind == .cloud {
+                    await LLMCooldownManager.shared.setCooldown(
+                        LLMCooldownIdentity(baseURL: cloudBaseURL, model: model),
+                        retryAfterSeconds: cooldown.seconds,
+                        persist: cooldown.isDaily
+                    )
+                }
                 throw PostProcessingError.rateLimited(model: model, retryAfter: cooldown.seconds)
             }
             throw PostProcessingError.requestFailed(
