@@ -5951,7 +5951,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             case .authorized:
                 break
             case .notDetermined:
-                guard let triggerMode = activeRecordingTriggerMode else { return }
+                guard let triggerMode = activeRecordingTriggerMode else {
+                    activeRecordingTranscriptionEnabled = nil
+                    return
+                }
                 prepareForSpeechRecognitionPermissionPrompt(
                     triggerMode: triggerMode,
                     selectionSnapshot: pendingSelectionSnapshot,

@@ -241,6 +241,7 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         precondition(preserveBody.contains("controller.preserveForRecovery()"))
 
         try testRecordOnlySessionSnapshotsAndGatesAIComponents()
+        try testAppleSpeechStartWithoutTriggerModeClearsSessionSnapshot()
         try testRecordOnlyStillStartsSelectedAudioRecorder()
 
         print("AppStateRecordingJournalIntegrationSourceTests passed")
@@ -256,6 +257,18 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         assert(begin.contains("startRealtimeStreamingIfEnabled()"))
         assert(begin.contains("startContextCapture()"))
         assert(begin.contains("localTranscriptionModel.makeLiveTranscriber()"))
+    }
+
+    private static func testAppleSpeechStartWithoutTriggerModeClearsSessionSnapshot() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let begin = try body(startingWith: "private func beginRecording(", in: source)
+
+        assert(begin.contains("""
+                guard let triggerMode = activeRecordingTriggerMode else {
+                    activeRecordingTranscriptionEnabled = nil
+                    return
+                }
+"""))
     }
 
     private static func testRecordOnlyStillStartsSelectedAudioRecorder() throws {
