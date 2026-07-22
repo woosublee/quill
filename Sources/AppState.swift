@@ -463,6 +463,31 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    private static func normalizedCloudModelID(
+        _ modelID: String,
+        defaultModelID: String
+    ) -> String {
+        let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? defaultModelID : trimmed
+    }
+
+    private static func normalizedAIProcessingBackendChoice(
+        _ choice: AIProcessingBackendChoice,
+        fallbackCloudModelID: String,
+        defaultCloudModelID: String
+    ) -> AIProcessingBackendChoice {
+        guard case .cloud(let modelID) = choice else { return choice }
+        let fallback = normalizedCloudModelID(
+            fallbackCloudModelID,
+            defaultModelID: defaultCloudModelID
+        )
+        let normalizedModelID = normalizedCloudModelID(
+            modelID,
+            defaultModelID: fallback
+        )
+        return .cloud(modelID: normalizedModelID)
+    }
+
     @Published var hasCompletedSetup: Bool {
         didSet {
             UserDefaults.standard.set(hasCompletedSetup, forKey: "hasCompletedSetup")
@@ -507,9 +532,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         didSet {
             UserDefaults.standard.set(postProcessingModel, forKey: postProcessingModelStorageKey)
             if case .cloud = postProcessingBackendChoice {
-                postProcessingBackendChoice = .cloud(
+                let derivedChoice = AIProcessingBackendChoice.cloud(
                     modelID: resolvedPostProcessingCloudModelID
                 )
+                if derivedChoice != postProcessingBackendChoice {
+                    postProcessingBackendChoice = derivedChoice
+                }
             }
         }
     }
@@ -524,9 +552,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         didSet {
             UserDefaults.standard.set(contextModel, forKey: contextModelStorageKey)
             if case .cloud = contextBackendChoice {
-                contextBackendChoice = .cloud(modelID: resolvedContextCloudModelID)
+                let derivedChoice = AIProcessingBackendChoice.cloud(
+                    modelID: resolvedContextCloudModelID
+                )
+                if derivedChoice != contextBackendChoice {
+                    contextBackendChoice = derivedChoice
+                }
             }
-            rebuildContextService()
         }
     }
 
@@ -1678,30 +1710,48 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @Published var postProcessingBackendChoice: AIProcessingBackendChoice {
         didSet {
-            AIProcessingBackendChoiceStore.save(
+            let normalizedChoice = Self.normalizedAIProcessingBackendChoice(
                 postProcessingBackendChoice,
-                defaults: .standard,
-                key: postProcessingBackendChoiceStorageKey
+                fallbackCloudModelID: postProcessingModel,
+                defaultCloudModelID: Self.defaultPostProcessingModel
             )
-            if case .cloud(let modelID) = postProcessingBackendChoice,
-               postProcessingModel != modelID {
-                postProcessingModel = modelID
+            if normalizedChoice != postProcessingBackendChoice {
+                postProcessingBackendChoice = normalizedChoice
+            } else {
+                AIProcessingBackendChoiceStore.save(
+                    postProcessingBackendChoice,
+                    defaults: .standard,
+                    key: postProcessingBackendChoiceStorageKey
+                )
+                if case .cloud(let modelID) = postProcessingBackendChoice,
+                   postProcessingModel != modelID {
+                    postProcessingModel = modelID
+                }
             }
         }
     }
 
     @Published var contextBackendChoice: AIProcessingBackendChoice {
         didSet {
-            AIProcessingBackendChoiceStore.save(
+            let normalizedChoice = Self.normalizedAIProcessingBackendChoice(
                 contextBackendChoice,
-                defaults: .standard,
-                key: contextBackendChoiceStorageKey
+                fallbackCloudModelID: contextModel,
+                defaultCloudModelID: Self.defaultContextModel
             )
-            if case .cloud(let modelID) = contextBackendChoice,
-               contextModel != modelID {
-                contextModel = modelID
+            if normalizedChoice != contextBackendChoice {
+                contextBackendChoice = normalizedChoice
+            } else {
+                AIProcessingBackendChoiceStore.save(
+                    contextBackendChoice,
+                    defaults: .standard,
+                    key: contextBackendChoiceStorageKey
+                )
+                if case .cloud(let modelID) = contextBackendChoice,
+                   contextModel != modelID {
+                    contextModel = modelID
+                }
+                rebuildContextService()
             }
-            rebuildContextService()
         }
     }
 
@@ -1791,18 +1841,55 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let transcriptionModel = UserDefaults.standard.string(forKey: transcriptionModelStorageKey) ?? Self.defaultTranscriptionModel
         let transcriptionAPIURL = Self.loadOptionalStoredAPIValue(account: transcriptionAPIURLStorageKey)
         let transcriptionAPIKey = Self.loadStoredAPIKey(account: transcriptionAPIKeyStorageKey)
-        let postProcessingModel = UserDefaults.standard.string(forKey: postProcessingModelStorageKey) ?? Self.defaultPostProcessingModel
-        let postProcessingFallbackModel = UserDefaults.standard.string(forKey: postProcessingFallbackModelStorageKey) ?? Self.defaultPostProcessingFallbackModel
-        let contextModel = Self.loadStoredContextModel(key: contextModelStorageKey)
-        let postProcessingBackendChoice = AIProcessingBackendChoiceStore.load(
-            defaults: .standard,
-            key: postProcessingBackendChoiceStorageKey,
-            fallbackCloudModelID: postProcessingModel
+        let rememberedPostProcessingModel = Self.normalizedCloudModelID(
+            UserDefaults.standard.string(forKey: postProcessingModelStorageKey) ?? "",
+            defaultModelID: Self.defaultPostProcessingModel
         )
-        let contextBackendChoice = AIProcessingBackendChoiceStore.load(
+        let postProcessingFallbackModel = UserDefaults.standard.string(forKey: postProcessingFallbackModelStorageKey) ?? Self.defaultPostProcessingFallbackModel
+        let rememberedContextModel = Self.normalizedCloudModelID(
+            Self.loadStoredContextModel(key: contextModelStorageKey),
+            defaultModelID: Self.defaultContextModel
+        )
+        let postProcessingBackendChoice = Self.normalizedAIProcessingBackendChoice(
+            AIProcessingBackendChoiceStore.load(
+                defaults: .standard,
+                key: postProcessingBackendChoiceStorageKey,
+                fallbackCloudModelID: rememberedPostProcessingModel
+            ),
+            fallbackCloudModelID: rememberedPostProcessingModel,
+            defaultCloudModelID: Self.defaultPostProcessingModel
+        )
+        let contextBackendChoice = Self.normalizedAIProcessingBackendChoice(
+            AIProcessingBackendChoiceStore.load(
+                defaults: .standard,
+                key: contextBackendChoiceStorageKey,
+                fallbackCloudModelID: rememberedContextModel
+            ),
+            fallbackCloudModelID: rememberedContextModel,
+            defaultCloudModelID: Self.defaultContextModel
+        )
+        let postProcessingModel = switch postProcessingBackendChoice {
+        case .cloud(let modelID): modelID
+        case .localAI: rememberedPostProcessingModel
+        }
+        let contextModel = switch contextBackendChoice {
+        case .cloud(let modelID): modelID
+        case .localAI: rememberedContextModel
+        }
+        UserDefaults.standard.set(
+            postProcessingModel,
+            forKey: postProcessingModelStorageKey
+        )
+        UserDefaults.standard.set(contextModel, forKey: contextModelStorageKey)
+        AIProcessingBackendChoiceStore.save(
+            postProcessingBackendChoice,
             defaults: .standard,
-            key: contextBackendChoiceStorageKey,
-            fallbackCloudModelID: contextModel
+            key: postProcessingBackendChoiceStorageKey
+        )
+        AIProcessingBackendChoiceStore.save(
+            contextBackendChoice,
+            defaults: .standard,
+            key: contextBackendChoiceStorageKey
         )
         let localAIServerManager = Self.localAIServerManagerFactory()
         let shortcuts = Self.loadShortcutConfiguration(
@@ -7325,6 +7412,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             session: session,
             completion: completion
         )
+        let postProcessingService = makePostProcessingService()
         let task = Task { [weak self] in
             guard let self else { return }
             do {
@@ -7341,7 +7429,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     from: rawTranscript,
                     pressEnterCommandEnabled: completion.pressEnterCommandEnabled
                 )
-                let postProcessingService = makePostProcessingService()
                 let result = await processTranscript(
                     parsed.transcript,
                     intent: SessionIntent.fromPersisted(
@@ -8250,9 +8337,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         lastContextScreenshotDataURL = nil
         lastContextScreenshotStatus = "Collecting screenshot..."
 
+        let contextService = contextService
         contextCaptureTask = Task { [weak self] in
             guard let self else { return nil }
-            let context = await self.contextService.collectContext()
+            let context = await contextService.collectContext()
             guard !Task.isCancelled else { return nil }
             await MainActor.run {
                 guard !Task.isCancelled else { return }

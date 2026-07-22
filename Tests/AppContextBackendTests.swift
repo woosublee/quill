@@ -221,8 +221,13 @@ struct AppContextBackendTests {
             throw AppContextBackendTestFailure("AppState Context capture source")
         }
         let captureBody = String(source[captureStart.lowerBound..<captureEnd.lowerBound])
+        let snapshotRange = try requiredRange(
+            "let contextService = contextService",
+            in: captureBody
+        )
+        let taskRange = try requiredRange("contextCaptureTask = Task", in: captureBody)
         let resultRange = try requiredRange(
-            "let context = await self.contextService.collectContext()",
+            "let context = await contextService.collectContext()",
             in: captureBody
         )
         let outerGuardRange = try requiredRange(
@@ -236,6 +241,8 @@ struct AppContextBackendTests {
         )
         let mutationRange = try requiredRange("self.capturedContext = context", in: captureBody)
 
+        try expect(snapshotRange.lowerBound < taskRange.lowerBound, "Context service snapshot precedes task creation")
+        try expect(taskRange.lowerBound < resultRange.lowerBound, "Context task uses captured service")
         try expect(resultRange.lowerBound < outerGuardRange.lowerBound, "outer guard follows Context result")
         try expect(outerGuardRange.lowerBound < mainActorRange.lowerBound, "outer guard precedes MainActor publish")
         try expect(mainActorRange.lowerBound < innerGuardRange.lowerBound, "inner guard is inside MainActor publish")

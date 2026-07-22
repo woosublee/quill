@@ -2075,6 +2075,8 @@ struct AppStateTranscriptionConfigurationTests {
         defaults.removeObject(forKey: "local_transcription_model")
         defaults.removeObject(forKey: "transcription_language")
         defaults.removeObject(forKey: "context_model")
+        defaults.removeObject(forKey: "post_processing_backend_choice")
+        defaults.removeObject(forKey: "context_backend_choice")
         defaults.removeObject(forKey: "preserve_exact_wording")
         defaults.removeObject(forKey: "note_browser_enabled")
         defaults.removeObject(forKey: "selected_microphone_id")
