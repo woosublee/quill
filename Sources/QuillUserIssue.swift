@@ -23,6 +23,9 @@ enum QuillUserIssueCode: String, Codable, CaseIterable, Sendable {
     case postProcessingFailed = "post-processing-failed"
     case postProcessingRateLimited = "post-processing-rate-limited"
     case postProcessingGuardFallback = "post-processing-guard-fallback"
+    case localAIModelUnavailable = "local-ai-model-unavailable"
+    case localAIStartFailed = "local-ai-start-failed"
+    case localAIProcessExited = "local-ai-process-exited"
     case unknown
     case legacy
 }
@@ -123,7 +126,7 @@ struct QuillUserIssueRecord: Codable, Equatable, Sendable {
              .providerConfigurationInvalid:
             return .openProviderSettings
         case .localRuntimeMissing, .localModelMissing,
-             .localDependencyMissing:
+             .localDependencyMissing, .localAIModelUnavailable:
             return .openModelsSettings
         case .microphonePermissionDenied:
             return .openMicrophoneSettings
@@ -137,6 +140,7 @@ struct QuillUserIssueRecord: Codable, Equatable, Sendable {
              .providerUnavailable, .audioFileTooLarge,
              .invalidProviderResponse, .audioUnreadable,
              .audioPreparationFailed, .localTranscriptionFailed,
+             .localAIStartFailed, .localAIProcessExited,
              .recordingInputFailed, .postProcessingFailed,
              .postProcessingRateLimited, .unknown, .legacy:
             return .retryTranscription
@@ -348,7 +352,8 @@ private extension QuillUserIssueCode {
     var defaultSeverity: QuillUserIssueSeverity {
         switch self {
         case .postProcessingFailed, .postProcessingRateLimited,
-             .postProcessingGuardFallback:
+             .postProcessingGuardFallback, .localAIModelUnavailable,
+             .localAIStartFailed, .localAIProcessExited:
             return .warning
         default:
             return .error
@@ -446,6 +451,24 @@ private extension QuillUserIssueCode {
                 titleKey: "Local transcription failed",
                 bodyKey: "The local transcription process could not complete.",
                 suggestionKey: "Try again or choose another configured transcription model."
+            )
+        case .localAIModelUnavailable:
+            return QuillUserIssueCopy(
+                titleKey: "Local AI model needs attention",
+                bodyKey: "Quill kept the original transcript because the selected on-device model is unavailable or incomplete.",
+                suggestionKey: "Open Models settings to install the model again or select another model."
+            )
+        case .localAIStartFailed:
+            return QuillUserIssueCopy(
+                titleKey: "Local AI could not start",
+                bodyKey: "Quill kept the original transcript because the on-device processing runtime did not become ready.",
+                suggestionKey: "Try again. If this continues, restart Quill or reinstall the app."
+            )
+        case .localAIProcessExited:
+            return QuillUserIssueCopy(
+                titleKey: "Local AI stopped unexpectedly",
+                bodyKey: "Quill kept the original transcript because the on-device processing runtime stopped during the request.",
+                suggestionKey: "Try the cleanup again. If this continues, choose another model."
             )
         case .microphonePermissionDenied:
             return QuillUserIssueCopy(

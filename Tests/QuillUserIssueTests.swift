@@ -40,7 +40,10 @@ struct QuillUserIssueTests {
         let warningCodes: Set<QuillUserIssueCode> = [
             .postProcessingFailed,
             .postProcessingRateLimited,
-            .postProcessingGuardFallback
+            .postProcessingGuardFallback,
+            .localAIModelUnavailable,
+            .localAIStartFailed,
+            .localAIProcessExited
         ]
 
         for code in QuillUserIssueCode.allCases {
@@ -62,6 +65,21 @@ struct QuillUserIssueTests {
         try expect(
             QuillUserIssueRecord(code: .localModelMissing).recoveryAction == .openModelsSettings,
             "missing local model opens Models settings"
+        )
+        try expect(
+            QuillUserIssueRecord(code: .localAIModelUnavailable).recoveryAction
+                == .openModelsSettings,
+            "unavailable Local AI model opens Models settings"
+        )
+        try expect(
+            QuillUserIssueRecord(code: .localAIStartFailed).recoveryAction
+                == .retryTranscription,
+            "Local AI startup can retry"
+        )
+        try expect(
+            QuillUserIssueRecord(code: .localAIProcessExited).recoveryAction
+                == .retryTranscription,
+            "Local AI process exit can retry"
         )
         try expect(
             QuillUserIssueRecord(code: .microphonePermissionDenied).recoveryAction == .openMicrophoneSettings,
@@ -139,6 +157,16 @@ struct QuillUserIssueTests {
             try expect(!payload.contains(sentinel), "persisted payload excludes \(sentinel)")
         }
         try expect(issue.privateDiagnostic.contains("STDERR_MARKER"), "private diagnostic remains log-only")
+
+        let localIssue = QuillUserIssueError.local(
+            code: .localAIProcessExited,
+            backend: "Local AI",
+            modelID: "qwen2.5-1.5b-instruct",
+            diagnostic: "/Users/private/model.gguf STDERR_SECRET"
+        )
+        let localPayload = try decodedPayloadString(localIssue.record.encodedStatus())
+        try expect(!localPayload.contains("/Users/private"), "local path is private")
+        try expect(!localPayload.contains("STDERR_SECRET"), "local stderr is private")
     }
 
     private static func testCompactMessageAndSafeDetailsAreDeterministic(

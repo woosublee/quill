@@ -10885,6 +10885,150 @@
         }
       }
     },
+    "Local AI model needs attention": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local AI model needs attention"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 AI 모델을 확인해야 합니다"
+          }
+        }
+      }
+    },
+    "Quill kept the original transcript because the selected on-device model is unavailable or incomplete.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill kept the original transcript because the selected on-device model is unavailable or incomplete."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 온디바이스 모델을 사용할 수 없거나 다운로드가 완료되지 않아 Quill이 원본 받아쓰기를 유지했습니다."
+          }
+        }
+      }
+    },
+    "Open Models settings to install the model again or select another model.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Models settings to install the model again or select another model."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델 설정에서 모델을 다시 설치하거나 다른 모델을 선택하세요."
+          }
+        }
+      }
+    },
+    "Local AI could not start": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local AI could not start"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 AI를 시작하지 못했습니다"
+          }
+        }
+      }
+    },
+    "Quill kept the original transcript because the on-device processing runtime did not become ready.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill kept the original transcript because the on-device processing runtime did not become ready."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "온디바이스 처리 런타임이 준비되지 않아 Quill이 원본 받아쓰기를 유지했습니다."
+          }
+        }
+      }
+    },
+    "Try again. If this continues, restart Quill or reinstall the app.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try again. If this continues, restart Quill or reinstall the app."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 시도하세요. 문제가 계속되면 Quill을 재시작하거나 앱을 다시 설치하세요."
+          }
+        }
+      }
+    },
+    "Local AI stopped unexpectedly": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local AI stopped unexpectedly"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 AI가 예기치 않게 중지되었습니다"
+          }
+        }
+      }
+    },
+    "Quill kept the original transcript because the on-device processing runtime stopped during the request.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill kept the original transcript because the on-device processing runtime stopped during the request."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요청 처리 중 온디바이스 런타임이 중지되어 Quill이 원본 받아쓰기를 유지했습니다."
+          }
+        }
+      }
+    },
+    "Try the cleanup again. If this continues, choose another model.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try the cleanup again. If this continues, choose another model."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정리를 다시 시도하세요. 문제가 계속되면 다른 모델을 선택하세요."
+          }
+        }
+      }
+    },
     "Microphone access is required": {
       "localizations": {
         "en": {
