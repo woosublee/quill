@@ -30,6 +30,13 @@ WHISPER_HELPER = $(WHISPER_CPP_DIR)/build/bin/whisper-cli
 WHISPER_STAMP = $(BUILD_DIR)/.whisper-helper
 WHISPER_BUILD_SETTINGS = $(BUILD_DIR)/.whisper-build-settings
 WHISPER_VERIFY_SCRIPT = BuildSupport/WhisperRuntime/verify-whisper-helper.sh
+LLAMA_CPP_VERSION ?= b4406
+LLAMA_CPP_REPO ?= https://github.com/ggml-org/llama.cpp.git
+LLAMA_CPP_DIR = .build/checkouts/llama.cpp
+LLAMA_HELPER = $(LLAMA_CPP_DIR)/build/bin/llama-server
+LLAMA_STAMP = $(BUILD_DIR)/.llama-server-helper
+LLAMA_BUILD_SETTINGS = $(BUILD_DIR)/.llama-build-settings
+LLAMA_VERIFY_SCRIPT = BuildSupport/LlamaRuntime/verify-llama-server.sh
 empty :=
 space := $(empty) $(empty)
 APP_EXECUTABLE = $(MACOS_DIR)/$(APP_NAME)
@@ -70,7 +77,7 @@ ICON_ICNS = Resources/AppIcon.icns
 endif
 
 # Usage: make install CODESIGN_IDENTITY="Apple Development: you@example.com (TEAMID)"
-.PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test test-core test-recording test-transcription _test-core _test-recording _test-transcription localization-bundle-test native-whisper-helper-test print-app-version print-build-number print-build-tag print-version-metadata FORCE
+.PHONY: all clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test test-core test-recording test-transcription _test-core _test-recording _test-transcription localization-bundle-test native-whisper-helper-test llama-server-helper-test print-app-version print-build-number print-build-tag print-version-metadata FORCE
 
 all: $(APP_EXECUTABLE_TARGET)
 
@@ -103,6 +110,20 @@ native-whisper-helper-test: $(WHISPER_STAMP)
 	@helper="$$(cat "$(WHISPER_STAMP)")"; \
 		$(WHISPER_VERIFY_SCRIPT) "$$helper" "$(ARCH)"
 
+$(LLAMA_BUILD_SETTINGS): FORCE
+	@mkdir -p "$(BUILD_DIR)"
+	@printf '%s\n%s\n%s\n' "$(LLAMA_CPP_REPO)" "$(LLAMA_CPP_VERSION)" "$(ARCH)" > "$@.tmp"
+	@if [ ! -f "$@" ] || ! cmp -s "$@.tmp" "$@"; then mv "$@.tmp" "$@"; else rm "$@.tmp"; fi
+
+$(LLAMA_STAMP): BuildSupport/LlamaRuntime/build-llama.cpp.sh $(LLAMA_VERIFY_SCRIPT) $(LLAMA_BUILD_SETTINGS)
+	@BuildSupport/LlamaRuntime/build-llama.cpp.sh "$(LLAMA_CPP_REPO)" "$(LLAMA_CPP_VERSION)" "$(LLAMA_CPP_DIR)" "$(ARCH)"
+	@mkdir -p "$(BUILD_DIR)"
+	@printf '%s\n' "$(LLAMA_HELPER)" > "$@"
+
+llama-server-helper-test: $(LLAMA_STAMP)
+	@helper="$$(cat "$(LLAMA_STAMP)")"; \
+		$(LLAMA_VERIFY_SCRIPT) "$$helper" "$(ARCH)"
+
 $(LOCALIZATION_STAMP): $(LOCALIZATION_CATALOG) $(LOCALIZATION_INFO_DIR)/en.lproj/InfoPlist.strings $(LOCALIZATION_INFO_DIR)/ko.lproj/InfoPlist.strings
 	@rm -rf "$(LOCALIZATION_BUILD_DIR)"
 	@mkdir -p "$(LOCALIZATION_BUILD_DIR)"
@@ -117,7 +138,7 @@ $(LOCALIZATION_STAMP): $(LOCALIZATION_CATALOG) $(LOCALIZATION_INFO_DIR)/en.lproj
 	done
 	@touch "$@"
 
-$(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS) $(BUILD_SETTINGS) $(SPARKLE_STAMP) $(WHISPER_STAMP) $(LOCALIZATION_STAMP)
+$(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS) $(BUILD_SETTINGS) $(SPARKLE_STAMP) $(WHISPER_STAMP) $(LLAMA_STAMP) $(LOCALIZATION_STAMP)
 	@mkdir -p "$(MACOS_DIR)" "$(RESOURCES)" "$(FRAMEWORKS)"
 	@framework="$$(cat "$(SPARKLE_STAMP)" 2>/dev/null)"; \
 		if [ -z "$$framework" ] || [ ! -d "$$framework" ]; then \
@@ -185,6 +206,14 @@ endif
 		fi; \
 		cp "$$whisper_helper" "$(RESOURCES)/whisper/whisper-cli"; \
 		chmod 755 "$(RESOURCES)/whisper/whisper-cli"
+	@mkdir -p "$(RESOURCES)/llama"
+	@llama_helper="$$(cat "$(LLAMA_STAMP)")"; \
+		if [ -z "$$llama_helper" ] || [ ! -x "$$llama_helper" ]; then \
+			echo "Missing llama.cpp helper at $$llama_helper" >&2; \
+			exit 1; \
+		fi; \
+		cp "$$llama_helper" "$(RESOURCES)/llama/llama-server"; \
+		chmod 755 "$(RESOURCES)/llama/llama-server"
 	@xattr -cr "$(APP_BUNDLE)"
 	@rm -rf "$(BUILD_DIR)/codesign-staging"
 	@mkdir -p "$(BUILD_DIR)/codesign-staging"
@@ -206,6 +235,13 @@ endif
 			codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" "$$helper"; \
 		else \
 			echo "Missing bundled whisper helper in staging app." >&2; \
+			exit 1; \
+		fi
+	@llama_helper="$(BUILD_DIR)/codesign-staging/$(APP_NAME).app/Contents/Resources/llama/llama-server"; \
+		if [ -x "$$llama_helper" ]; then \
+			codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" "$$llama_helper"; \
+		else \
+			echo "Missing bundled llama-server helper in staging app." >&2; \
 			exit 1; \
 		fi
 	@codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" --entitlements Quill.entitlements "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app"
@@ -386,6 +422,8 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/ManualReleaseWorkflowTests
 	@swiftc -parse-as-library Tests/NativeWhisperBuildContractTests.swift -o $(TEST_BUILD_DIR)/NativeWhisperBuildContractTests
 	@$(TEST_BUILD_DIR)/NativeWhisperBuildContractTests
+	@swiftc -parse-as-library Tests/LocalAIBuildContractTests.swift -o $(TEST_BUILD_DIR)/LocalAIBuildContractTests
+	@$(TEST_BUILD_DIR)/LocalAIBuildContractTests
 	@framework="$$(cat "$(SPARKLE_STAMP)")"; framework_parent="$$(dirname "$$framework")"; swiftc -parse-as-library -F "$$framework_parent" -framework Sparkle -Xlinker -rpath -Xlinker "$$framework_parent" Sources/LocalizedStringLookup.swift Sources/LocalizedUserMessage.swift Sources/UpdateManager.swift Tests/UpdateManagerSafetyTests.swift -o $(TEST_BUILD_DIR)/UpdateManagerSafetyTests
 	@$(TEST_BUILD_DIR)/UpdateManagerSafetyTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Tests/LocalizedStringLookupTests.swift -o $(TEST_BUILD_DIR)/LocalizedStringLookupTests
