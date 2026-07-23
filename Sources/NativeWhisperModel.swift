@@ -52,7 +52,7 @@ enum NativeWhisperInstallStatus: Equatable {
     case corrupt(String)
 }
 
-struct NativeWhisperDownloadProgress: Equatable {
+struct NativeWhisperDownloadProgress: Equatable, Sendable {
     let downloadedBytes: Int64
     let totalBytes: Int64?
     let isCancelled: Bool

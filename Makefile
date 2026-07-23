@@ -58,6 +58,7 @@ FULL_SOURCE_TRANSCRIPTION_TESTS = \
 	Tests/AppContextBackendTests.swift
 FULL_SOURCE_APP_STATE_TESTS = \
 	Tests/AudioImportFileCopyTests.swift \
+	Tests/LatestValueProgressCoalescerTests.swift \
 	Tests/AppStateTranscriptionConfigurationTests.swift \
 	Tests/AppStateAIProcessingBackendTests.swift
 GROUPED_TEST_SOURCES = $(FULL_SOURCE_TRANSCRIPTION_TESTS) $(FULL_SOURCE_APP_STATE_TESTS)
