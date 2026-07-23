@@ -5121,7 +5121,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let switchToken = UUID()
         activeInputSwitchToken = switchToken
         isActiveInputSwitchPhysicalStopInProgress = true
-        liveTranscriber = nil
+        tearDownLiveTranscriberOffMainThread()
         tearDownRealtimeService()
         setActiveRecorderPCMHandler(nil)
         audioLevelCancellable?.cancel()
@@ -9897,6 +9897,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
         setActiveRecorderPCMHandler(nil)
         realtimeService?.cancel()
         realtimeService = nil
+    }
+
+    /// Detaches the active live transcriber and tears it down off the main
+    /// thread. Cancelling/deallocating an Apple Speech session is synchronous
+    /// and can stall for a few hundred ms; doing it inline (e.g. from the
+    /// audio-source menu action that triggers a mid-recording input switch)
+    /// keeps the menu open and freezes the UI. The reference is dropped from
+    /// AppState immediately; cancel() and dealloc run on a background queue.
+    @MainActor
+    private func tearDownLiveTranscriberOffMainThread() {
+        guard let transcriber = liveTranscriber else { return }
+        liveTranscriber = nil
+        DispatchQueue.global(qos: .utility).async {
+            transcriber.cancel()
+        }
     }
 
     private func startContextCapture() {
