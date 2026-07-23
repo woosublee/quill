@@ -2656,6 +2656,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case audioOnly(UUID)
     }
 
+    enum MCPStopRecordingOutcome {
+        case notRecording
+        case transcribing
+        case savingAudioOnly
+    }
+
     static func audioStorageDirectory() -> URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Quill"
@@ -5241,9 +5247,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
-    func stopRecordingFromMCP() {
-        guard isRecording else { return }
+    func stopRecordingFromMCP() -> MCPStopRecordingOutcome {
+        guard isRecording else { return .notRecording }
+        let shouldTranscribe = shouldTranscribeActiveRecording
         stopAndTranscribe()
+        return shouldTranscribe ? .transcribing : .savingAudioOnly
     }
 
     @MainActor
@@ -8024,6 +8032,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 )
             }
         } catch {
+            if journalRecordingID == nil,
+               !pipelineHistoryStore.loadAllHistory().contains(where: { $0.id == recordingID }) {
+                Self.deleteStoredFiles(
+                    audioFileName: audioFileName,
+                    transcriptFileName: nil
+                )
+            }
             let message = userIssue(for: error).record.presentation().compactMessage
             completeStoppedRecording(
                 .audioOnly(recordingID),

@@ -243,12 +243,29 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         try testRecordOnlySessionSnapshotsAndGatesAIComponents()
         try testAppleSpeechStartWithoutTriggerModeClearsSessionSnapshot()
         try testRecordOnlyStillStartsSelectedAudioRecorder()
+        try testMCPStopUsesRecordingSessionSnapshot()
         try testRecordOnlyBranchesBeforeTranscriptionJobCreation()
         try testAudioOnlyStopUsesExistingRecorderFinalizationCases()
         try testAudioOnlyStopDismissesRecordingOverlayOnErrors()
+        try testAudioOnlyHistoryFailureCleansOnlyUnreferencedNonJournalAudio()
         try testAudioOnlyCompletionOwnsForegroundUIAndTermination()
 
         print("AppStateRecordingJournalIntegrationSourceTests passed")
+    }
+
+    private static func testMCPStopUsesRecordingSessionSnapshot() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let stop = try body(startingWith: "func stopRecordingFromMCP()", in: source)
+        let snapshot = try requiredRange(
+            of: "let shouldTranscribe = shouldTranscribeActiveRecording",
+            in: stop
+        )
+        let stopCall = try requiredRange(of: "stopAndTranscribe()", in: stop)
+
+        assert(source.contains("enum MCPStopRecordingOutcome"))
+        assert(stop.contains("guard isRecording else { return .notRecording }"))
+        assert(snapshot.lowerBound < stopCall.lowerBound)
+        assert(stop.contains("return shouldTranscribe ? .transcribing : .savingAudioOnly"))
     }
 
     private static func testRecordOnlyBranchesBeforeTranscriptionJobCreation() throws {
@@ -315,6 +332,20 @@ struct AppStateRecordingJournalIntegrationSourceTests {
             assert(terminalPath.contains("completeStoppedRecording("))
             assert(terminalPath.contains("dismissTranscribingOverlay()"))
         }
+    }
+
+    private static func testAudioOnlyHistoryFailureCleansOnlyUnreferencedNonJournalAudio() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let persist = try body(startingWith: "private func persistAudioOnlyRecording(", in: source)
+        let catchRange = try requiredRange(of: "} catch {", in: persist)
+        let catchBody = String(persist[catchRange.upperBound...])
+
+        assert(catchBody.contains("journalRecordingID == nil"))
+        assert(catchBody.contains("!pipelineHistoryStore.loadAllHistory().contains(where: { $0.id == recordingID })"))
+        assert(catchBody.contains("Self.deleteStoredFiles("))
+        assert(catchBody.contains("audioFileName: audioFileName"))
+        assert(catchBody.contains("transcriptFileName: nil"))
+        assert(!catchBody.contains("Self.deleteAudioFile(audioFileName)"))
     }
 
     private static func testAudioOnlyCompletionOwnsForegroundUIAndTermination() throws {

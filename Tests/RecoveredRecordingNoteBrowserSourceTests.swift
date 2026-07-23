@@ -48,6 +48,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("help: \"Audio-only recording\""))
         precondition(source.contains("Saved without transcription. You can transcribe it later."))
         precondition(source.contains("Transcribe audio"))
-        precondition(source.contains("Color.blue"))
+        precondition(source.contains(".fill(Color.blue.opacity(0.08))"))
+        precondition(source.contains(".foregroundStyle(.blue.opacity(0.75))"))
     }
 }

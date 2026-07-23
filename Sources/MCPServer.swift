@@ -202,7 +202,7 @@ final class MCPServer {
             ],
             [
                 "name": "stop_recording",
-                "description": "Stop the current recording and trigger transcription.",
+                "description": "Stop the current recording; transcribe it if transcription was enabled when recording began, otherwise save an audio-only note.",
                 "inputSchema": [
                     "type": "object",
                     "properties": [:]
@@ -292,16 +292,16 @@ final class MCPServer {
             return textContent("Context added: \(text)")
 
         case "stop_recording":
-            guard appState.isRecording else {
+            switch appState.stopRecordingFromMCP() {
+            case .notRecording:
                 return textContent("Not currently recording.")
-            }
-            appState.stopRecordingFromMCP()
-            if appState.transcriptionEnabled {
+            case .transcribing:
                 return textContent(
                     "Recording stopped. Transcription in progress — listen for recording/completed event."
                 )
+            case .savingAudioOnly:
+                return textContent("Recording stopped. Audio note is being saved.")
             }
-            return textContent("Recording stopped. Audio note is being saved.")
 
         case "get_status":
             let status: String

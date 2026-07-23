@@ -2280,6 +2280,7 @@ struct AppStateTranscriptionConfigurationTests {
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("app_state_transcription_test_") {
             defaults.removeObject(forKey: key)
         }
+        defaults.removeObject(forKey: "hasCompletedSetup")
         defaults.removeObject(forKey: "transcription_enabled")
         defaults.removeObject(forKey: "first_install_defaults_version")
         defaults.removeObject(forKey: "disable_auto_paste")

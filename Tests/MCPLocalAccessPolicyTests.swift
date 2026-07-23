@@ -93,8 +93,23 @@ struct MCPLocalAccessPolicyTests {
 
     private static func testMCPStopRecordingCopySupportsRecordOnly() throws {
         let source = try String(contentsOfFile: "Sources/MCPServer.swift", encoding: .utf8)
-        assertContains(source, "appState.transcriptionEnabled")
-        assertContains(source, "Recording stopped. Audio note is being saved.")
+        guard let start = source.range(of: "case \"stop_recording\":"),
+              let end = source.range(
+                of: "case \"get_status\":",
+                range: start.upperBound..<source.endIndex
+              ) else {
+            fatalError("Unable to locate stop_recording handler")
+        }
+        let handler = String(source[start.lowerBound..<end.lowerBound])
+
+        assertContains(handler, "switch appState.stopRecordingFromMCP()")
+        assertContains(handler, "case .notRecording:")
+        assertContains(handler, "case .transcribing:")
+        assertContains(handler, "case .savingAudioOnly:")
+        assertContains(handler, "Not currently recording.")
+        assertContains(handler, "Recording stopped. Transcription in progress — listen for recording/completed event.")
+        assertContains(handler, "Recording stopped. Audio note is being saved.")
+        assertDoesNotContain(handler, "appState.transcriptionEnabled")
     }
 
     private static func assertTrue(_ condition: @autoclosure () -> Bool, _ message: String) {

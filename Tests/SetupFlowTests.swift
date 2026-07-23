@@ -100,7 +100,11 @@ struct SetupFlowTests {
             from: "Text(\"Required\")",
             to: "Text(\"Optional\")"
         )
-        let optional = String(permissions.dropFirst(required.count))
+        let optional = sourceBlock(
+            in: permissions,
+            from: "Text(\"Optional\")",
+            to: "\n        .onAppear"
+        )
 
         assert(!required.contains("title: \"Accessibility\""))
         assert(optional.contains("title: \"Accessibility\""))
