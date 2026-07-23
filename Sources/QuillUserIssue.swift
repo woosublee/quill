@@ -26,6 +26,7 @@ enum QuillUserIssueCode: String, Codable, CaseIterable, Sendable {
     case localAIModelUnavailable = "local-ai-model-unavailable"
     case localAIStartFailed = "local-ai-start-failed"
     case localAIProcessExited = "local-ai-process-exited"
+    case contextUnavailable = "context-unavailable"
     case unknown
     case legacy
 }
@@ -134,7 +135,7 @@ struct QuillUserIssueRecord: Codable, Equatable, Sendable {
             return .openSpeechRecognitionSettings
         case .screenRecordingPermissionDenied:
             return .openScreenRecordingSettings
-        case .postProcessingGuardFallback:
+        case .postProcessingGuardFallback, .contextUnavailable:
             return .none
         case .networkUnavailable, .requestTimedOut, .rateLimited,
              .providerUnavailable, .audioFileTooLarge,
@@ -369,7 +370,8 @@ private extension QuillUserIssueCode {
         switch self {
         case .postProcessingFailed, .postProcessingRateLimited,
              .postProcessingGuardFallback, .localAIModelUnavailable,
-             .localAIStartFailed, .localAIProcessExited:
+             .localAIStartFailed, .localAIProcessExited,
+             .contextUnavailable:
             return .warning
         default:
             return .error
@@ -527,6 +529,12 @@ private extension QuillUserIssueCode {
                 titleKey: "Original transcript kept",
                 bodyKey: "Quill detected that cleanup may have changed the intended meaning.",
                 suggestionKey: "Review the original transcript before using it."
+            )
+        case .contextUnavailable:
+            return QuillUserIssueCopy(
+                titleKey: "Context wasn't available",
+                bodyKey: "Continued with text-only post-processing.",
+                suggestionKey: "No action needed. Context capture will be attempted again next time."
             )
         case .unknown:
             return QuillUserIssueCopy(

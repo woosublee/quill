@@ -8016,13 +8016,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         sessionContext: AppContext?,
         inFlightContextTask: Task<AppContext?, Never>?
     ) async -> AppContext {
+        let resolvedContext: AppContext
         if let sessionContext {
-            return sessionContext
+            resolvedContext = sessionContext
+        } else if let inFlightContext = await inFlightContextTask?.value {
+            resolvedContext = inFlightContext
+        } else {
+            resolvedContext = fallbackContextAtStop()
         }
-        if let inFlightContext = await inFlightContextTask?.value {
-            return inFlightContext
-        }
-        return fallbackContextAtStop()
+        return Self.sanitizedCapturedContext(
+            resolvedContext,
+            contextCaptureDisabled: disableContextCapture
+        )
     }
 
     @MainActor
@@ -9853,6 +9858,50 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
             return context
         }
+    }
+
+    // Old notes may still carry the stop-time placeholder sentence in their
+    // stored contextSummary; both that literal and a genuinely empty summary
+    // count as "no usable context" rather than real captured activity.
+    private static func isPlaceholderContextSummary(_ summary: String) -> Bool {
+        let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return true }
+        return trimmed == "Could not refresh app context at stop time; using text-only post-processing."
+    }
+
+    // Context is only worth injecting into post-processing when it was
+    // successfully captured: real (non-placeholder) activity text, and no
+    // error-severity issue was recorded while collecting it.
+    private static func isUsableCapturedContext(_ context: AppContext) -> Bool {
+        guard !isPlaceholderContextSummary(context.currentActivity) else { return false }
+        guard context.userIssueRecord?.severity != .error else { return false }
+        return true
+    }
+
+    // Context capture being turned off is intentional and already produces an
+    // empty, issue-free context (see fallbackContextAtStop). Only sanitize
+    // when capture is enabled but did not actually succeed: drop the
+    // placeholder/error text instead of injecting it, and surface a warning
+    // (not an error) so the note still shows as completed.
+    private static func sanitizedCapturedContext(
+        _ context: AppContext,
+        contextCaptureDisabled: Bool
+    ) -> AppContext {
+        guard !contextCaptureDisabled else { return context }
+        guard !isUsableCapturedContext(context) else { return context }
+        return AppContext(
+            appName: context.appName,
+            bundleIdentifier: context.bundleIdentifier,
+            windowTitle: context.windowTitle,
+            selectedText: context.selectedText,
+            currentActivity: "",
+            contextSystemPrompt: context.contextSystemPrompt,
+            contextPrompt: context.contextPrompt,
+            screenshotDataURL: context.screenshotDataURL,
+            screenshotMimeType: context.screenshotMimeType,
+            screenshotError: context.screenshotError,
+            userIssueRecord: QuillUserIssueRecord(code: .contextUnavailable)
+        )
     }
 
     private func fallbackContextAtStop() -> AppContext {

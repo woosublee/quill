@@ -11461,6 +11461,54 @@
         }
       }
     },
+    "Context wasn't available": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context wasn't available"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨텍스트를 사용할 수 없었습니다"
+          }
+        }
+      }
+    },
+    "Continued with text-only post-processing.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continued with text-only post-processing."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "텍스트만으로 처리를 계속했습니다."
+          }
+        }
+      }
+    },
+    "No action needed. Context capture will be attempted again next time.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No action needed. Context capture will be attempted again next time."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "별도 조치가 필요 없습니다. 다음번에 컨텍스트 캡처를 다시 시도합니다."
+          }
+        }
+      }
+    },
     "Quill could not complete this transcription.": {
       "localizations": {
         "en": {
