@@ -188,7 +188,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "모델을 다운로드하는 중에 종료할까요?"
+            "value": "모델 다운로드가 진행 중입니다. Quill을 종료할까요?"
           }
         }
       }
@@ -204,7 +204,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "종료하기 전에 Quill이 완료되지 않은 모델 다운로드를 취소하고 partial 파일을 삭제합니다."
+            "value": "종료하면 완료되지 않은 모델 다운로드가 취소되고 부분 다운로드 파일이 삭제됩니다."
           }
         }
       }
@@ -13152,7 +13152,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Local Whisper를 다운로드하는 중에 종료할까요?"
+            "value": "Local Whisper 다운로드가 진행 중입니다. Quill을 종료할까요?"
           }
         }
       }
@@ -13168,7 +13168,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "지금 종료하면 Quill이 다운로드를 취소하고 partial 파일을 삭제합니다."
+            "value": "종료하면 다운로드가 취소되고 부분 다운로드 파일이 삭제됩니다."
           }
         }
       }

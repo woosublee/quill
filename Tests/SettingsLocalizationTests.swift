@@ -226,9 +226,9 @@ struct SettingsLocalizationTests {
     private static func testModelDownloadTerminationCopyLocalizes() throws {
         let bundle = try compiledLocalizationBundle()
         let expected: [String: String] = [
-            "Quit while models are downloading?": "모델을 다운로드하는 중에 종료할까요?",
+            "Quit while models are downloading?": "모델 다운로드가 진행 중입니다. Quill을 종료할까요?",
             "Quill will cancel unfinished model downloads and delete partial files before quitting.":
-                "종료하기 전에 Quill이 완료되지 않은 모델 다운로드를 취소하고 partial 파일을 삭제합니다.",
+                "종료하면 완료되지 않은 모델 다운로드가 취소되고 부분 다운로드 파일이 삭제됩니다.",
             "Quit and Cancel Downloads": "종료하고 다운로드 취소"
         ]
 

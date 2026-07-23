@@ -8,8 +8,10 @@ struct AppContextBackendTests {
         try await testLocalContextOmitsScreenshotAndAuthorization()
         try await testCloudContextRetriesWithoutScreenshot()
         try await testCloudThrownTransportRetriesWithoutScreenshot()
+        try await testCloudRepeatedTransportFailureRecordsStructuredIssue()
         try await testCloudMissingKeySkipsTransportAndRecordsProviderIssue()
         try testContextFallbackCarriesProviderIssue()
+        try testConfiguredContextCollectionPreservesInferenceIssue()
         try await testCancellationStopsRetryAndDoesNotRecordIssue()
         try await testLocalRequestUsesEndpointRequestAndSelectedModelIDs()
         try testAppStateContextCaptureGuardsCancelledPublication()
@@ -135,6 +137,41 @@ struct AppContextBackendTests {
         try expect(!secondBody.contains("image_url"), "cloud thrown retry omits image")
     }
 
+    private static func testCloudRepeatedTransportFailureRecordsStructuredIssue() async throws {
+        let recorder = ContextRequestRecorder()
+        let issues = ContextIssueRecorder()
+        let service = AppContextService(
+            backendExecutor: AIProcessingBackendExecutor(
+                choice: .cloud(modelID: "provider/context"),
+                cloudBaseURL: "https://api.example.com/openai/v1",
+                cloudAPIKey: "cloud-key"
+            ),
+            customContextPrompt: "",
+            contextModel: "provider/context",
+            transport: { request in
+                recorder.record(request)
+                throw URLError(.cannotConnectToHost)
+            },
+            issueSink: { issue in issues.record(issue) }
+        )
+
+        let result = await service.inferActivityWithLLM(
+            appName: "Editor",
+            bundleIdentifier: "test.editor",
+            windowTitle: "Document",
+            selectedText: nil,
+            screenshotDataURL: "data:image/jpeg;base64,IMAGE",
+            contextSystemPrompt: AppContextService.defaultContextPrompt
+        )
+
+        try expect(result == nil, "failed cloud context returns fallback signal")
+        try expect(recorder.count() == 2, "failed cloud context exhausts text retry")
+        try expect(
+            issues.last()?.record.code == .networkUnavailable,
+            "failed cloud context records structured transport issue"
+        )
+    }
+
     private static func testCloudMissingKeySkipsTransportAndRecordsProviderIssue() async throws {
         let recorder = ContextRequestRecorder()
         let issues = ContextIssueRecorder()
@@ -200,6 +237,38 @@ struct AppContextBackendTests {
         try expect(
             context.userIssueRecord == issue,
             "context fallback carries structured issue"
+        )
+    }
+
+    private static func testConfiguredContextCollectionPreservesInferenceIssue() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AppContextService.swift",
+            encoding: .utf8
+        )
+        guard let start = source.range(of: "func collectContext() async -> AppContext"),
+              let end = source.range(
+                of: "func inferActivityWithLLM(",
+                range: start.upperBound..<source.endIndex
+              ) else {
+            throw AppContextBackendTestFailure("Context collection source")
+        }
+        let collection = String(source[start.lowerBound..<end.lowerBound])
+
+        try expect(
+            collection.contains("let inference = await inferActivityWithOutcome("),
+            "configured Context collection captures the full inference outcome"
+        )
+        try expect(
+            collection.contains("userIssueRecord = inference.userIssueRecord"),
+            "configured Context fallback preserves its structured issue"
+        )
+        try expect(
+            source.contains("let issue = contextUserIssue(for: error)"),
+            "Context inference classifies failures once"
+        )
+        try expect(
+            source.contains("userIssueRecord: issue.record"),
+            "Context inference returns the classified issue"
         )
     }
 

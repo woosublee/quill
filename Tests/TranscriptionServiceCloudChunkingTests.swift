@@ -7,6 +7,7 @@ struct TranscriptionServiceCloudChunkingTests {
     static func main() async {
         do {
             try await missingAPIKeyStopsBeforeCloudUpload()
+            try await normalizedAPIKeyUsesTrimmedAuthorizationHeader()
             try realtimeMissingAPIKeyStopsBeforeWebSocketCreation()
             try await smallWAVUsesExistingSingleRequestPath()
             try await smallMP3UsesExistingSingleRequestPath()
@@ -53,6 +54,31 @@ struct TranscriptionServiceCloudChunkingTests {
             await recorder.uploads().count,
             0,
             "missing API key upload count"
+        )
+    }
+
+    private static func normalizedAPIKeyUsesTrimmedAuthorizationHeader() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("mp3")
+        try Data(repeating: 0x44, count: 128).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let recorder = UploadRecorder(results: [.success("trimmed key")])
+        let service = try makeService(
+            apiKey: "  \n test-key \t",
+            ceiling: 10_000,
+            recorder: recorder,
+            checkpointStore: CountingCheckpointStore()
+        )
+
+        _ = try await service.transcribe(fileURL: url)
+
+        let uploads = await recorder.uploads()
+        try expectEqual(uploads.count, 1, "normalized API key upload count")
+        try expectEqual(
+            uploads[0].authorization,
+            "Bearer test-key",
+            "normalized API key authorization"
         )
     }
 
@@ -409,6 +435,7 @@ private actor CountingCheckpointStore: CloudTranscriptionCheckpointStore {
 private actor UploadRecorder {
     struct Upload: Sendable {
         let timeout: TimeInterval
+        let authorization: String?
         let body: Data
     }
 
@@ -437,7 +464,13 @@ private actor UploadRecorder {
         }
         activeUploads += 1
         maximumActiveUploads = max(maximumActiveUploads, activeUploads)
-        recorded.append(Upload(timeout: request.timeoutInterval, body: body))
+        recorded.append(
+            Upload(
+                timeout: request.timeoutInterval,
+                authorization: request.value(forHTTPHeaderField: "Authorization"),
+                body: body
+            )
+        )
         defer { activeUploads -= 1 }
         let result = results.removeFirst()
         let status: Int

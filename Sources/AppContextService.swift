@@ -57,6 +57,11 @@ final class AppContextService: @unchecked Sendable {
     typealias Transport = @Sendable (URLRequest) async throws -> (Data, URLResponse)
     typealias IssueSink = @Sendable (QuillUserIssueError) -> Void
 
+    private struct ContextInferenceOutcome {
+        let result: (activity: String, prompt: String)?
+        let userIssueRecord: QuillUserIssueRecord?
+    }
+
     static let defaultContextPrompt = """
 You are a context synthesis assistant for a speech-to-text pipeline.
 Given app/window metadata and an optional screenshot, output exactly two sentences that describe what the user is doing right now and the likely writing intent in the current window.
@@ -180,14 +185,15 @@ Return only two sentences, no labels, no markdown, no extra commentary.
         let contextPrompt: String?
         let userIssueRecord: QuillUserIssueRecord?
         if backendExecutor.isConfigured {
-            if let result = await inferActivityWithLLM(
+            let inference = await inferActivityWithOutcome(
                 appName: appName,
                 bundleIdentifier: bundleIdentifier,
                 windowTitle: windowTitle,
                 selectedText: selectedText,
                 screenshotDataURL: screenshot.dataURL,
                 contextSystemPrompt: contextSystemPrompt
-            ), !Task.isCancelled {
+            )
+            if let result = inference.result, !Task.isCancelled {
                 currentActivity = result.activity
                 contextPrompt = result.prompt
             } else {
@@ -200,7 +206,7 @@ Return only two sentences, no labels, no markdown, no extra commentary.
                 )
                 contextPrompt = nil
             }
-            userIssueRecord = nil
+            userIssueRecord = inference.userIssueRecord
         } else {
             currentActivity = fallbackCurrentActivity(
                 appName: appName,
@@ -245,7 +251,27 @@ Return only two sentences, no labels, no markdown, no extra commentary.
         screenshotDataURL: String?,
         contextSystemPrompt: String
     ) async -> (activity: String, prompt: String)? {
-        guard !Task.isCancelled else { return nil }
+        await inferActivityWithOutcome(
+            appName: appName,
+            bundleIdentifier: bundleIdentifier,
+            windowTitle: windowTitle,
+            selectedText: selectedText,
+            screenshotDataURL: screenshotDataURL,
+            contextSystemPrompt: contextSystemPrompt
+        ).result
+    }
+
+    private func inferActivityWithOutcome(
+        appName: String?,
+        bundleIdentifier: String?,
+        windowTitle: String?,
+        selectedText: String?,
+        screenshotDataURL: String?,
+        contextSystemPrompt: String
+    ) async -> ContextInferenceOutcome {
+        guard !Task.isCancelled else {
+            return ContextInferenceOutcome(result: nil, userIssueRecord: nil)
+        }
         do {
             let result: (activity: String, prompt: String)? = try await backendExecutor.withEndpoint { [self] endpoint in
                 let attempts: [String?] = if endpoint.supportsImages,
@@ -254,6 +280,7 @@ Return only two sentences, no labels, no markdown, no extra commentary.
                 } else {
                     [nil]
                 }
+                var lastCloudError: Error?
                 for screenshot in attempts {
                     try Task.checkCancellation()
                     do {
@@ -276,21 +303,34 @@ Return only two sentences, no labels, no markdown, no extra commentary.
                         if endpoint.kind == .local {
                             throw error
                         }
-                        // Preserve cloud behavior: a failed screenshot request
-                        // may retry with text-only metadata.
+                        lastCloudError = error
                     }
+                }
+                if let lastCloudError {
+                    throw lastCloudError
                 }
                 if endpoint.kind == .local {
                     throw AppContextBackendError.unusableResponse
                 }
                 return nil
             }
-            guard !Task.isCancelled else { return nil }
-            return result
+            guard !Task.isCancelled else {
+                return ContextInferenceOutcome(result: nil, userIssueRecord: nil)
+            }
+            return ContextInferenceOutcome(
+                result: result,
+                userIssueRecord: nil
+            )
         } catch {
-            guard !Self.isCancellation(error), !Task.isCancelled else { return nil }
-            issueSink(contextUserIssue(for: error))
-            return nil
+            guard !Self.isCancellation(error), !Task.isCancelled else {
+                return ContextInferenceOutcome(result: nil, userIssueRecord: nil)
+            }
+            let issue = contextUserIssue(for: error)
+            issueSink(issue)
+            return ContextInferenceOutcome(
+                result: nil,
+                userIssueRecord: issue.record
+            )
         }
     }
 
