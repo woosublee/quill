@@ -1842,6 +1842,73 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var isTranscribing = false
     @Published var retryingItemIDs: Set<UUID> = []
 
+    // MARK: Warning banner dismissal (per note + issue code, invalidated by retry)
+
+    // A per-note counter bumped every time that note is retried. Dismissals
+    // are recorded against the generation they were dismissed at, so a later
+    // retry (which may produce a different outcome) makes the banner
+    // reappear if the warning condition still holds.
+    @Published private(set) var noteRetryGenerationByID: [String: Int] = AppState.loadIntDictionary(
+        forKey: AppState.noteRetryGenerationDefaultsKey
+    )
+    @Published private(set) var dismissedWarningBannerGeneration: [String: Int] = AppState.loadIntDictionary(
+        forKey: AppState.dismissedWarningBannerGenerationDefaultsKey
+    )
+
+    private static let noteRetryGenerationDefaultsKey = "note_retry_generation_by_id"
+    private static let dismissedWarningBannerGenerationDefaultsKey = "dismissed_warning_banner_generation_by_key"
+
+    private static func loadIntDictionary(forKey key: String) -> [String: Int] {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let values = try? JSONDecoder().decode([String: Int].self, from: data) else {
+            return [:]
+        }
+        return values
+    }
+
+    private static func saveIntDictionary(_ values: [String: Int], forKey key: String) {
+        guard !values.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: key)
+            return
+        }
+        if let data = try? JSONEncoder().encode(values) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+
+    private static func dismissalKey(noteID: UUID, code: QuillUserIssueCode) -> String {
+        "\(noteID.uuidString):\(code.rawValue)"
+    }
+
+    func noteRetryGeneration(for noteID: UUID) -> Int {
+        noteRetryGenerationByID[noteID.uuidString] ?? 0
+    }
+
+    @MainActor
+    func incrementNoteRetryGeneration(for noteID: UUID) {
+        let key = noteID.uuidString
+        noteRetryGenerationByID[key] = (noteRetryGenerationByID[key] ?? 0) + 1
+        Self.saveIntDictionary(noteRetryGenerationByID, forKey: Self.noteRetryGenerationDefaultsKey)
+    }
+
+    func isWarningBannerDismissed(noteID: UUID, code: QuillUserIssueCode) -> Bool {
+        let key = Self.dismissalKey(noteID: noteID, code: code)
+        guard let dismissedGeneration = dismissedWarningBannerGeneration[key] else {
+            return false
+        }
+        return dismissedGeneration == noteRetryGeneration(for: noteID)
+    }
+
+    @MainActor
+    func dismissWarningBanner(noteID: UUID, code: QuillUserIssueCode) {
+        let key = Self.dismissalKey(noteID: noteID, code: code)
+        dismissedWarningBannerGeneration[key] = noteRetryGeneration(for: noteID)
+        Self.saveIntDictionary(
+            dismissedWarningBannerGeneration,
+            forKey: Self.dismissedWarningBannerGenerationDefaultsKey
+        )
+    }
+
     var isTranscriptionConfigurationLocked: Bool {
         isRecording || isTranscribing || !retryingItemIDs.isEmpty
     }
@@ -5665,6 +5732,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         retryingItemIDs.insert(item.id)
+        incrementNoteRetryGeneration(for: item.id)
 
         let postProcessingService = makePostProcessingService()
 

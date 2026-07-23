@@ -79,6 +79,7 @@ struct AppStateAIProcessingBackendTests {
         try testContextModelObserverRebuildsOnlyThroughChoiceChanges()
         try testAppDelegateStartsIdleMonitoring()
         try testTerminationRoutesThroughUnifiedModelCleanup()
+        await testWarningBannerDismissalIsScopedToNoteAndResetsOnRetryGeneration()
         print("AppStateAIProcessingBackendTests passed")
     }
 
@@ -2196,6 +2197,34 @@ struct AppStateAIProcessingBackendTests {
         )
         assert(!nativeCancellation.contains("deletePartialModel"))
         assert(!nativeCancellation.contains("refreshNativeWhisperInstallStatus()"))
+    }
+
+    // Dismissing a warning banner hides it for the note's current retry
+    // generation only; a later retry bumps the generation and invalidates
+    // the dismissal so the banner can reappear if the condition still holds.
+    private static func testWarningBannerDismissalIsScopedToNoteAndResetsOnRetryGeneration() async {
+        let appState = await makeRefreshedAppState()
+        let noteID = UUID()
+        let otherNoteID = UUID()
+        let code = QuillUserIssueCode.contextUnavailable
+
+        await MainActor.run {
+            assert(!appState.isWarningBannerDismissed(noteID: noteID, code: code))
+
+            appState.dismissWarningBanner(noteID: noteID, code: code)
+            assert(appState.isWarningBannerDismissed(noteID: noteID, code: code))
+
+            // Dismissal is scoped to this exact note + issue code.
+            assert(!appState.isWarningBannerDismissed(noteID: otherNoteID, code: code))
+            assert(!appState.isWarningBannerDismissed(noteID: noteID, code: .postProcessingFailed))
+
+            appState.incrementNoteRetryGeneration(for: noteID)
+            assert(!appState.isWarningBannerDismissed(noteID: noteID, code: code))
+
+            // Dismissing again at the new generation hides it again.
+            appState.dismissWarningBanner(noteID: noteID, code: code)
+            assert(appState.isWarningBannerDismissed(noteID: noteID, code: code))
+        }
     }
 
     private static func appStateSource() throws -> String {

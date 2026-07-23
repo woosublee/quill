@@ -1302,6 +1302,13 @@ private struct NoteDetailView: View {
         }
         return issuePresentation
     }
+    private var warningBannerCode: QuillUserIssueCode? {
+        item.userIssueRecord?.code
+    }
+    private var isWarningBannerDismissed: Bool {
+        guard let warningBannerCode else { return false }
+        return appState.isWarningBannerDismissed(noteID: item.id, code: warningBannerCode)
+    }
 
     private var suggestedCalendarTitle: String? {
         guard item.customTitle == nil,
@@ -1600,7 +1607,7 @@ private struct NoteDetailView: View {
                 emptyContentState
             } else {
                 VStack(spacing: 0) {
-                    if let warningPresentation {
+                    if let warningPresentation, !isWarningBannerDismissed {
                         QuillUserIssueView(
                             presentation: warningPresentation,
                             style: .warningBanner,
@@ -1608,6 +1615,14 @@ private struct NoteDetailView: View {
                                 performRecoveryAction(
                                     warningPresentation.recoveryAction
                                 )
+                            },
+                            onDismiss: {
+                                if let warningBannerCode {
+                                    appState.dismissWarningBanner(
+                                        noteID: item.id,
+                                        code: warningBannerCode
+                                    )
+                                }
                             }
                         )
                         .padding(.horizontal, 40)

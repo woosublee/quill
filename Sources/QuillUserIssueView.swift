@@ -10,6 +10,10 @@ struct QuillUserIssueView: View {
     let presentation: QuillUserIssuePresentation
     var style: QuillUserIssueViewStyle = .full
     var action: (() -> Void)?
+    // Only meaningful for .warningBanner: when non-nil, a small close button
+    // renders top-right of the banner. The centered error card (.full /
+    // .inline styles) never passes this, so it never gets a dismiss control.
+    var onDismiss: (() -> Void)?
 
     var body: some View {
         switch style {
@@ -68,6 +72,7 @@ struct QuillUserIssueView: View {
 
             Spacer(minLength: 8)
             actionButton
+            dismissButton
         }
         .padding(10)
         .background(
@@ -78,6 +83,19 @@ struct QuillUserIssueView: View {
             RoundedRectangle(cornerRadius: 10)
                 .stroke(accentColor.opacity(0.15), lineWidth: 1)
         )
+    }
+
+    @ViewBuilder
+    private var dismissButton: some View {
+        if let onDismiss {
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(localizedCatalogString("Dismiss"))
+        }
     }
 
     private var inlineView: some View {
