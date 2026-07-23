@@ -8,6 +8,18 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.27] - 2026-07-24
+
+### Improved
+
+- Kept Note Browser transcription choices and Models settings aligned, so the selected processing backend and model remain consistent across recording, import, retry, and configuration flows.
+- Made context capture more resilient: Quill now warns when immediate capture is unavailable and only includes retry context when the active context setting permits it.
+
+### Fixed
+
+- Moved live-transcriber teardown off the main thread when switching inputs, reducing UI stalls during an active recording setup change.
+- Scoped dismissible warning banners to their originating warning so one dismissal does not hide unrelated recovery guidance.
+
 ## [0.1.26] - 2026-07-22
 
 ### Added
