@@ -1599,7 +1599,7 @@ struct ModelsSettingsView: View {
                 ? AppContextService.defaultContextPrompt
                 : appState.customContextPrompt
             initializeManagedNativeModel()
-            initializeManagedLocalAIModels()
+            reconcileRetainedLocalAIModels()
         }
         .onChange(of: appState.transcriptionAPIURL) { value in
             if transcriptionAPIURLInput != value { transcriptionAPIURLInput = value }
@@ -1621,6 +1621,9 @@ struct ModelsSettingsView: View {
             if focusedCustomAIProcessingFeature != .context {
                 contextModelDraft = customAIProcessingModelDraft(for: value)
             }
+        }
+        .onChange(of: managedLocalAIReconciliationInputs) { _ in
+            reconcileRetainedLocalAIModels()
         }
     }
 
@@ -1863,12 +1866,19 @@ struct ModelsSettingsView: View {
     ) {
         switch choice {
         case .cloud(let modelID):
-            setRetainedLocalAIModelID(nil, for: feature)
             appState.selectAIProcessingBackendChoice(choice, for: feature)
             syncCloudModelDraft(modelID, for: feature)
+            reconcileRetainedLocalAIModel(for: feature)
         case .localAI(let modelID):
-            setRetainedLocalAIModelID(modelID, for: feature)
             appState.selectAIProcessingBackendChoice(choice, for: feature)
+            let wasAccepted =
+                appState.pendingLocalAIModelID(for: feature) == modelID
+                || appState.currentAIProcessingChoice(for: feature) == choice
+            if wasAccepted {
+                setRetainedLocalAIModelID(modelID, for: feature)
+            } else {
+                reconcileRetainedLocalAIModel(for: feature)
+            }
         }
     }
 
@@ -1878,9 +1888,22 @@ struct ModelsSettingsView: View {
     ) {
         switch feature {
         case .postProcessing:
+            guard retainedPostProcessingLocalModelID != modelID else { return }
             retainedPostProcessingLocalModelID = modelID
         case .context:
+            guard retainedContextLocalModelID != modelID else { return }
             retainedContextLocalModelID = modelID
+        }
+    }
+
+    private func retainedLocalAIModelID(
+        for feature: AIProcessingFeature
+    ) -> String? {
+        switch feature {
+        case .postProcessing:
+            retainedPostProcessingLocalModelID
+        case .context:
+            retainedContextLocalModelID
         }
     }
 
@@ -1898,33 +1921,61 @@ struct ModelsSettingsView: View {
         }
     }
 
-    private func initializeManagedLocalAIModels() {
+    private func managedLocalAIResolverInput(
+        for feature: AIProcessingFeature
+    ) -> LocalAIManagedModelResolver.Input {
+        let retainedModelID = retainedLocalAIModelID(for: feature)
+        let retainedState = retainedModelID
+            .flatMap { LocalAIModelCatalog.model(id: $0) }
+            .map { appState.localAIInstallState(for: $0) }
+        return LocalAIManagedModelResolver.Input(
+            pendingModelID: appState.pendingLocalAIModelID(for: feature),
+            retainedModelID: retainedModelID,
+            currentChoice: appState.currentAIProcessingChoice(for: feature),
+            retainedIsInstalling: retainedState?.isInstalling ?? false,
+            retainedProgressIsCancelled: retainedState?.progress.isCancelled ?? false,
+            retainedHasIssue: retainedState?.issue != nil
+        )
+    }
+
+    private func managedLocalAIResolution(
+        for feature: AIProcessingFeature
+    ) -> LocalAIManagedModelResolver.Resolution {
+        LocalAIManagedModelResolver.resolve(
+            managedLocalAIResolverInput(for: feature)
+        )
+    }
+
+    private var managedLocalAIReconciliationInputs:
+        [LocalAIManagedModelResolver.Input] {
+        AIProcessingFeature.allCases.map {
+            managedLocalAIResolverInput(for: $0)
+        }
+    }
+
+    private func reconcileRetainedLocalAIModel(
+        for feature: AIProcessingFeature
+    ) {
+        let resolution = managedLocalAIResolution(for: feature)
+        setRetainedLocalAIModelID(
+            resolution.reconciledRetainedModelID,
+            for: feature
+        )
+    }
+
+    private func reconcileRetainedLocalAIModels() {
         for feature in AIProcessingFeature.allCases {
-            guard let model = LocalAIManagedModelResolver.resolve(
-                pendingModelID: appState.pendingLocalAIModelID(for: feature),
-                retainedModelID: nil,
-                currentChoice: appState.currentAIProcessingChoice(for: feature)
-            ) else {
-                continue
-            }
-            setRetainedLocalAIModelID(model.id, for: feature)
+            reconcileRetainedLocalAIModel(for: feature)
         }
     }
 
     private func managedLocalAIModel(
         for feature: AIProcessingFeature
     ) -> LocalAIModel? {
-        let retainedModelID: String? = switch feature {
-        case .postProcessing: retainedPostProcessingLocalModelID
-        case .context: retainedContextLocalModelID
-        }
-        guard let model = LocalAIManagedModelResolver.resolve(
-            pendingModelID: appState.pendingLocalAIModelID(for: feature),
-            retainedModelID: retainedModelID,
-            currentChoice: appState.currentAIProcessingChoice(for: feature)
-        ), appState.aiProcessingChoiceDisplays(for: feature).contains(where: {
-            $0.choice == .localAI(modelID: model.id)
-        }) else {
+        guard let model = managedLocalAIResolution(for: feature).model,
+              appState.aiProcessingChoiceDisplays(for: feature).contains(where: {
+                  $0.choice == .localAI(modelID: model.id)
+              }) else {
             return nil
         }
         return model

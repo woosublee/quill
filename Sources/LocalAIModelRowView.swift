@@ -1,23 +1,56 @@
 import SwiftUI
 
 struct LocalAIManagedModelResolver {
-    static func resolve(
-        pendingModelID: String?,
-        retainedModelID: String?,
-        currentChoice: AIProcessingBackendChoice
-    ) -> LocalAIModel? {
-        if let pendingModelID,
-           let pendingModel = LocalAIModelCatalog.model(id: pendingModelID) {
-            return pendingModel
+    struct Input: Equatable {
+        let pendingModelID: String?
+        let retainedModelID: String?
+        let currentChoice: AIProcessingBackendChoice
+        let retainedIsInstalling: Bool
+        let retainedProgressIsCancelled: Bool
+        let retainedHasIssue: Bool
+
+        var retainedIsActionable: Bool {
+            retainedIsInstalling
+                || retainedProgressIsCancelled
+                || retainedHasIssue
         }
-        if let retainedModelID,
-           let retainedModel = LocalAIModelCatalog.model(id: retainedModelID) {
-            return retainedModel
+    }
+
+    struct Resolution: Equatable {
+        let model: LocalAIModel?
+        let reconciledRetainedModelID: String?
+    }
+
+    static func resolve(_ input: Input) -> Resolution {
+        let pendingModel = input.pendingModelID.flatMap {
+            LocalAIModelCatalog.model(id: $0)
         }
-        guard case .localAI(let currentModelID) = currentChoice else {
-            return nil
+        let retainedModel = input.retainedModelID.flatMap {
+            LocalAIModelCatalog.model(id: $0)
         }
-        return LocalAIModelCatalog.model(id: currentModelID)
+        let currentModel: LocalAIModel?
+        if case .localAI(let currentModelID) = input.currentChoice {
+            currentModel = LocalAIModelCatalog.model(id: currentModelID)
+        } else {
+            currentModel = nil
+        }
+
+        let shouldRetain = retainedModel.map { model in
+            pendingModel?.id == model.id
+                || currentModel?.id == model.id
+                || input.retainedIsActionable
+        } ?? false
+        let reconciledRetainedModelID = shouldRetain
+            ? retainedModel?.id
+            : nil
+        let model = pendingModel
+            ?? (shouldRetain ? retainedModel : nil)
+            ?? currentModel
+
+        return Resolution(
+            model: model,
+            reconciledRetainedModelID: reconciledRetainedModelID
+        )
     }
 }
 

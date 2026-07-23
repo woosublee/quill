@@ -520,21 +520,21 @@ struct ModelsSettingsUIContractTests {
         let retainedSetter = block(
             in: models,
             from: "private func setRetainedLocalAIModelID(",
-            to: "\n    private func managedLocalAIModel("
+            to: "\n    private func retainedLocalAIModelID("
+        )
+        let retainedGetter = block(
+            in: models,
+            from: "private func retainedLocalAIModelID(",
+            to: "\n    private func syncCloudModelDraft("
         )
         let draftSync = block(
             in: models,
             from: "private func syncCloudModelDraft(",
-            to: "\n    private func initializeManagedLocalAIModels()"
-        )
-        let retainedInitialization = block(
-            in: models,
-            from: "private func initializeManagedLocalAIModels()",
-            to: "\n    private func managedLocalAIModel("
+            to: "\n    private func managedLocalAIResolverInput("
         )
         let retainedResolver = block(
             in: models,
-            from: "private func managedLocalAIModel(",
+            from: "private func managedLocalAIResolverInput(",
             to: "\n    private func aiProcessingChoiceMenuLabel("
         )
         let pureResolver = block(
@@ -557,6 +557,19 @@ struct ModelsSettingsUIContractTests {
             from: ".onAppear {",
             to: "\n    private var hasConfiguredCloudAPIKey"
         )
+        let cloudChoiceSelection = block(
+            in: choiceSelection,
+            from: "case .cloud(let modelID):",
+            to: "case .localAI(let modelID):"
+        )
+        guard let localChoiceStart = choiceSelection.range(
+            of: "case .localAI(let modelID):"
+        ) else {
+            preconditionFailure("Missing Local AI picker selection branch")
+        }
+        let localChoiceSelection = String(
+            choiceSelection[localChoiceStart.lowerBound...]
+        )
 
         precondition(models.contains("aiProcessingChoicePicker(for: .postProcessing)"))
         precondition(models.contains("aiProcessingChoicePicker(for: .context)"))
@@ -569,47 +582,52 @@ struct ModelsSettingsUIContractTests {
 
         precondition(choiceBinding.contains("get: { appState.currentAIProcessingChoice(for: feature) }"))
         precondition(choiceBinding.contains("handleAIProcessingChoiceSelection($0, for: feature)"))
-        precondition(choiceSelection.contains("case .cloud(let modelID):"))
-        precondition(choiceSelection.contains("setRetainedLocalAIModelID(nil, for: feature)"))
-        precondition(
-            choiceSelection.components(separatedBy: "setRetainedLocalAIModelID(nil, for: feature)").count == 2,
-            "Only an explicit cloud picker selection should clear the retained Local AI row"
-        )
-        precondition(choiceSelection.contains("syncCloudModelDraft(modelID, for: feature)"))
-        precondition(choiceSelection.contains("case .localAI(let modelID):"))
-        precondition(choiceSelection.contains("setRetainedLocalAIModelID(modelID, for: feature)"))
-        precondition(choiceSelection.contains("appState.selectAIProcessingBackendChoice(choice, for: feature)"))
+        precondition(cloudChoiceSelection.contains("appState.selectAIProcessingBackendChoice(choice, for: feature)"))
+        precondition(cloudChoiceSelection.contains("syncCloudModelDraft(modelID, for: feature)"))
+        precondition(cloudChoiceSelection.contains("reconcileRetainedLocalAIModel(for: feature)"))
+        precondition(!cloudChoiceSelection.contains("setRetainedLocalAIModelID(nil, for: feature)"))
+        precondition(localChoiceSelection.contains("appState.selectAIProcessingBackendChoice(choice, for: feature)"))
+        precondition(localChoiceSelection.contains("appState.pendingLocalAIModelID(for: feature) == modelID"))
+        precondition(localChoiceSelection.contains("appState.currentAIProcessingChoice(for: feature) == choice"))
+        precondition(localChoiceSelection.contains("setRetainedLocalAIModelID(modelID, for: feature)"))
+        guard let localSelectionCall = localChoiceSelection.range(
+            of: "appState.selectAIProcessingBackendChoice(choice, for: feature)"
+        ), let localAcceptanceCheck = localChoiceSelection.range(
+            of: "appState.pendingLocalAIModelID(for: feature) == modelID"
+        ), let localRetainedSet = localChoiceSelection.range(
+            of: "setRetainedLocalAIModelID(modelID, for: feature)"
+        ) else {
+            preconditionFailure("Missing accepted Local AI picker selection flow")
+        }
+        precondition(localSelectionCall.lowerBound < localAcceptanceCheck.lowerBound)
+        precondition(localAcceptanceCheck.lowerBound < localRetainedSet.lowerBound)
         precondition(draftSync.contains("case .postProcessing where focusedCustomAIProcessingFeature != .postProcessing:"))
         precondition(draftSync.contains("postProcessingModelDraft = customAIProcessingModelDraft(for: modelID)"))
         precondition(draftSync.contains("case .context where focusedCustomAIProcessingFeature != .context:"))
         precondition(draftSync.contains("contextModelDraft = customAIProcessingModelDraft(for: modelID)"))
-        precondition(retainedSetter.contains("retainedPostProcessingLocalModelID = modelID"))
-        precondition(retainedSetter.contains("retainedContextLocalModelID = modelID"))
-        precondition(retainedInitialization.contains("LocalAIManagedModelResolver.resolve("))
-        precondition(retainedInitialization.contains("pendingModelID: appState.pendingLocalAIModelID(for: feature)"))
-        precondition(retainedInitialization.contains("retainedModelID: nil"))
-        precondition(retainedInitialization.contains("currentChoice: appState.currentAIProcessingChoice(for: feature)"))
-        precondition(!retainedInitialization.contains("selectedOrPendingLocalAIModel"))
-        precondition(retainedResolver.contains("LocalAIManagedModelResolver.resolve("))
+        precondition(retainedSetter.contains("guard retainedPostProcessingLocalModelID != modelID else { return }"))
+        precondition(retainedSetter.contains("guard retainedContextLocalModelID != modelID else { return }"))
+        precondition(retainedGetter.contains("retainedPostProcessingLocalModelID"))
+        precondition(retainedGetter.contains("retainedContextLocalModelID"))
+        precondition(retainedResolver.contains("LocalAIManagedModelResolver.Input("))
         precondition(retainedResolver.contains("pendingModelID: appState.pendingLocalAIModelID(for: feature)"))
         precondition(retainedResolver.contains("retainedModelID: retainedModelID"))
         precondition(retainedResolver.contains("currentChoice: appState.currentAIProcessingChoice(for: feature)"))
+        precondition(retainedResolver.contains("retainedIsInstalling: retainedState?.isInstalling ?? false"))
+        precondition(retainedResolver.contains("retainedProgressIsCancelled: retainedState?.progress.isCancelled ?? false"))
+        precondition(retainedResolver.contains("retainedHasIssue: retainedState?.issue != nil"))
+        precondition(retainedResolver.contains("resolution.reconciledRetainedModelID"))
         precondition(retainedResolver.contains("aiProcessingChoiceDisplays(for: feature).contains"))
         precondition(!retainedResolver.contains("selectedOrPendingLocalAIModel"))
 
-        precondition(pureResolver.contains("if let pendingModelID"))
-        precondition(pureResolver.contains("LocalAIModelCatalog.model(id: pendingModelID)"))
-        precondition(pureResolver.contains("if let retainedModelID"))
-        precondition(pureResolver.contains("LocalAIModelCatalog.model(id: retainedModelID)"))
-        precondition(pureResolver.contains("guard case .localAI(let currentModelID) = currentChoice"))
-        precondition(pureResolver.contains("LocalAIModelCatalog.model(id: currentModelID)"))
-        guard let pendingLookup = pureResolver.range(of: "LocalAIModelCatalog.model(id: pendingModelID)"),
-              let retainedLookup = pureResolver.range(of: "LocalAIModelCatalog.model(id: retainedModelID)"),
-              let currentLookup = pureResolver.range(of: "LocalAIModelCatalog.model(id: currentModelID)") else {
-            preconditionFailure("Missing exact managed Local AI model lookup order")
-        }
-        precondition(pendingLookup.lowerBound < retainedLookup.lowerBound)
-        precondition(retainedLookup.lowerBound < currentLookup.lowerBound)
+        precondition(pureResolver.contains("struct Input: Equatable"))
+        precondition(pureResolver.contains("struct Resolution: Equatable"))
+        precondition(pureResolver.contains("var retainedIsActionable: Bool"))
+        precondition(pureResolver.contains("let pendingModel = input.pendingModelID.flatMap"))
+        precondition(pureResolver.contains("let retainedModel = input.retainedModelID.flatMap"))
+        precondition(pureResolver.contains("case .localAI(let currentModelID) = input.currentChoice"))
+        precondition(pureResolver.contains("input.retainedIsActionable"))
+        precondition(pureResolver.contains("reconciledRetainedModelID"))
 
         precondition(olderMenuItem.contains("Toggle(isOn: Binding("))
         precondition(olderMenuItem.contains("get: { binding.wrappedValue == display.choice }"))
@@ -656,7 +674,9 @@ struct ModelsSettingsUIContractTests {
         precondition(customModelApply.contains("handleAIProcessingChoiceSelection(.cloud(modelID: modelID), for: feature)"))
         precondition(customModelDraft.contains("!ModelConfiguration.llmModels.contains(trimmed)"))
 
-        precondition(viewLifecycle.contains("initializeManagedLocalAIModels()"))
+        precondition(!models.contains("initializeManagedLocalAIModels"))
+        precondition(viewLifecycle.contains("reconcileRetainedLocalAIModels()"))
+        precondition(viewLifecycle.contains(".onChange(of: managedLocalAIReconciliationInputs)"))
         precondition(viewLifecycle.contains("postProcessingModelDraft = customAIProcessingModelDraft(for: appState.postProcessingModel)"))
         precondition(viewLifecycle.contains("contextModelDraft = customAIProcessingModelDraft(for: appState.contextModel)"))
         precondition(viewLifecycle.contains(".onChange(of: appState.postProcessingModel)"))

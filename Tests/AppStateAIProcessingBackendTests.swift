@@ -62,7 +62,7 @@ struct AppStateAIProcessingBackendTests {
         await testUnsupportedHardwareRejectsLocalSelection()
         await testCanonicalModelValidationRejectsForgedModels()
         await testAIProcessingChoiceDisplayMetadata()
-        testManagedLocalAIModelResolutionPriority()
+        testManagedLocalAIModelResolutionReconcilesRetainedLifecycle()
         await testCloudSelectionPublishesContextChoiceOnce()
         await testSelectionWaitsForInitialStatusRefresh()
         await testBackgroundStatusRefreshIgnoresStaleGeneration()
@@ -1436,37 +1436,115 @@ struct AppStateAIProcessingBackendTests {
         }
     }
 
-    private static func testManagedLocalAIModelResolutionPriority() {
+    private static func testManagedLocalAIModelResolutionReconcilesRetainedLifecycle() {
         let activeModel = LocalAIModelCatalog.quality
         let attemptedModel = LocalAIModelCatalog.fast
-
-        let pendingWins = LocalAIManagedModelResolver.resolve(
-            pendingModelID: attemptedModel.id,
-            retainedModelID: nil,
-            currentChoice: .localAI(modelID: activeModel.id)
+        let cloudChoice = AIProcessingBackendChoice.cloud(
+            modelID: AppState.defaultPostProcessingModel
         )
-        precondition(pendingWins?.id == attemptedModel.id)
 
-        let retainedWinsAfterPendingClears = LocalAIManagedModelResolver.resolve(
-            pendingModelID: nil,
+        func resolve(
+            pendingModelID: String? = nil,
+            retainedModelID: String? = nil,
+            currentChoice: AIProcessingBackendChoice = cloudChoice,
+            isInstalling: Bool = false,
+            isCancelled: Bool = false,
+            hasIssue: Bool = false
+        ) -> LocalAIManagedModelResolver.Resolution {
+            LocalAIManagedModelResolver.resolve(
+                LocalAIManagedModelResolver.Input(
+                    pendingModelID: pendingModelID,
+                    retainedModelID: retainedModelID,
+                    currentChoice: currentChoice,
+                    retainedIsInstalling: isInstalling,
+                    retainedProgressIsCancelled: isCancelled,
+                    retainedHasIssue: hasIssue
+                )
+            )
+        }
+
+        let pendingWins = resolve(
+            pendingModelID: attemptedModel.id,
             retainedModelID: attemptedModel.id,
             currentChoice: .localAI(modelID: activeModel.id)
         )
-        precondition(retainedWinsAfterPendingClears?.id == attemptedModel.id)
-
-        let cloudAfterRetainedClear = LocalAIManagedModelResolver.resolve(
-            pendingModelID: nil,
-            retainedModelID: nil,
-            currentChoice: .cloud(modelID: AppState.defaultPostProcessingModel)
+        precondition(pendingWins.model?.id == attemptedModel.id)
+        precondition(
+            pendingWins.reconciledRetainedModelID == attemptedModel.id
         )
-        precondition(cloudAfterRetainedClear == nil)
 
-        let activeLocalFallback = LocalAIManagedModelResolver.resolve(
-            pendingModelID: nil,
-            retainedModelID: nil,
+        let failedRetainedWins = resolve(
+            retainedModelID: attemptedModel.id,
+            currentChoice: .localAI(modelID: activeModel.id),
+            hasIssue: true
+        )
+        precondition(failedRetainedWins.model?.id == attemptedModel.id)
+        precondition(
+            failedRetainedWins.reconciledRetainedModelID == attemptedModel.id
+        )
+
+        let installingRetainedStaysVisible = resolve(
+            retainedModelID: attemptedModel.id,
+            isInstalling: true
+        )
+        precondition(
+            installingRetainedStaysVisible.model?.id == attemptedModel.id
+        )
+        precondition(
+            installingRetainedStaysVisible.reconciledRetainedModelID
+                == attemptedModel.id
+        )
+
+        let cancelledRetainedStaysVisible = resolve(
+            retainedModelID: attemptedModel.id,
+            isCancelled: true
+        )
+        precondition(
+            cancelledRetainedStaysVisible.model?.id == attemptedModel.id
+        )
+        precondition(
+            cancelledRetainedStaysVisible.reconciledRetainedModelID
+                == attemptedModel.id
+        )
+
+        let cleanRetainedClearsForCloud = resolve(
+            retainedModelID: attemptedModel.id
+        )
+        precondition(cleanRetainedClearsForCloud.model == nil)
+        precondition(
+            cleanRetainedClearsForCloud.reconciledRetainedModelID == nil
+        )
+
+        let activeLocalReplacesCleanRetained = resolve(
+            retainedModelID: attemptedModel.id,
             currentChoice: .localAI(modelID: activeModel.id)
         )
-        precondition(activeLocalFallback?.id == activeModel.id)
+        precondition(activeLocalReplacesCleanRetained.model?.id == activeModel.id)
+        precondition(
+            activeLocalReplacesCleanRetained.reconciledRetainedModelID == nil
+        )
+
+        let selectedRetainedStaysManaged = resolve(
+            retainedModelID: activeModel.id,
+            currentChoice: .localAI(modelID: activeModel.id)
+        )
+        precondition(selectedRetainedStaysManaged.model?.id == activeModel.id)
+        precondition(
+            selectedRetainedStaysManaged.reconciledRetainedModelID
+                == activeModel.id
+        )
+
+        let activeLocalFallback = resolve(
+            currentChoice: .localAI(modelID: activeModel.id)
+        )
+        precondition(activeLocalFallback.model?.id == activeModel.id)
+        precondition(activeLocalFallback.reconciledRetainedModelID == nil)
+
+        let unknownRetainedClears = resolve(
+            retainedModelID: "unknown-local-model"
+        )
+        precondition(unknownRetainedClears.model == nil)
+        precondition(unknownRetainedClears.reconciledRetainedModelID == nil)
     }
 
     private static func testCloudSelectionPublishesContextChoiceOnce() async {
