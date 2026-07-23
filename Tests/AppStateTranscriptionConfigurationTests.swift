@@ -75,6 +75,7 @@ struct AppStateTranscriptionConfigurationTests {
         testStoppedTranscriptionCompletionSummaryHidesFallbackIndicatorForEmptyRawFallback()
         testStoppedTranscriptionSettingsSnapshotCapturesHistoryMetadata()
         try testAppStateCreatedTranscriptionServicesPassLegacyMlxWhisperToggle()
+        try testRetrySnapshotGatesStoredContextByCurrentToggleAndUsability()
         try testNativeWhisperPreparesAudioBeforeRuntime()
         try testNoteBrowserTranscriptionMenuUsesFlatNativeCheckedItems()
         await testAudioImportConfigurationUsesChoiceDerivedBackend()
@@ -1055,6 +1056,67 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(retryBody.contains("cloudExecutionContext: snapshot.cloudExecutionContext"))
         precondition(stoppedRecordingBody.contains("let capturedUseLegacyMlxWhisper = useLegacyMlxWhisper"))
         precondition(stoppedRecordingBody.contains("useLegacyMlxWhisper: capturedUseLegacyMlxWhisper,"))
+    }
+
+    // Retry never re-captures context; it reuses the note's stored
+    // contextSummary, gated by the CURRENT context-capture toggle and by
+    // whether the stored summary is actually usable (old notes may still
+    // carry the stop-time placeholder sentence).
+    private static func testRetrySnapshotGatesStoredContextByCurrentToggleAndUsability() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let snapshotBody = sourceBlock(
+            in: source,
+            from: "private func makeRetrySnapshot(for item: PipelineHistoryItem) throws -> RetrySnapshot {",
+            to: "\n    private func makeRetryHistoryItem("
+        )
+
+        precondition(
+            snapshotBody.contains("disableContextCapture"),
+            "retry gates stored context injection by the current context toggle"
+        )
+        precondition(
+            snapshotBody.contains("Self.isPlaceholderContextSummary(item.contextSummary)"),
+            "retry treats a placeholder/empty stored summary as unusable"
+        )
+        precondition(
+            snapshotBody.contains("QuillUserIssueRecord(code: .contextUnavailable)"),
+            "retry attaches the context-unavailable warning when stored context is enabled but unusable"
+        )
+        guard let restoredContextRange = snapshotBody.range(of: "restoredContext: AppContext(") else {
+            preconditionFailure("Expected restoredContext construction in makeRetrySnapshot")
+        }
+        guard let restoredContextEnd = snapshotBody.range(
+            of: "restoredIntent:",
+            range: restoredContextRange.upperBound..<snapshotBody.endIndex
+        ) else {
+            preconditionFailure("Expected restoredContext to precede restoredIntent")
+        }
+        let restoredContextBody = String(
+            snapshotBody[restoredContextRange.lowerBound..<restoredContextEnd.lowerBound]
+        )
+        precondition(
+            restoredContextBody.contains("userIssueRecord:"),
+            "restoredContext threads a userIssueRecord for the warning banner"
+        )
+
+        let retryBody = sourceBlock(
+            in: source,
+            from: "func retryTranscription(item: PipelineHistoryItem)",
+            to: "\n    @MainActor\n    private func copyRetryTranscriptToPasteboardIfNeeded"
+        )
+        guard let postProcessingIssueRange = retryBody.range(of: "result.userIssueRecord?.persistedStatus"),
+              let contextIssueRange = retryBody.range(
+                of: "snapshot.restoredContext.userIssueRecord?.persistedStatus",
+                range: postProcessingIssueRange.upperBound..<retryBody.endIndex
+              ),
+              let normalStatusRange = retryBody.range(
+                of: "Self.statusMessage(",
+                range: contextIssueRange.upperBound..<retryBody.endIndex
+              ) else {
+            preconditionFailure("Expected retry status fallback chain: post-processing issue, then context issue, then normal status")
+        }
+        precondition(postProcessingIssueRange.lowerBound < contextIssueRange.lowerBound)
+        precondition(contextIssueRange.lowerBound < normalStatusRange.lowerBound)
     }
 
     private static func testNativeWhisperPreparesAudioBeforeRuntime() throws {
@@ -2485,7 +2547,12 @@ struct AppStateTranscriptionConfigurationTests {
         assert(!retrySnapshot.contains("item.usedPostProcessing"))
         assert(retrySnapshot.contains("isAudioOnly ? customVocabulary : item.customVocabulary"))
         assert(retrySnapshot.contains("isAudioOnly ? customSystemPrompt : item.customSystemPrompt"))
-        assert(retrySnapshot.contains("currentActivity: isAudioOnly ? \"\" : item.contextSummary"))
+        // Retry no longer injects the stored contextSummary unconditionally:
+        // it is gated by the current context toggle and by whether the
+        // stored summary is actually usable (see
+        // testRetrySnapshotGatesStoredContextByCurrentToggleAndUsability).
+        assert(retrySnapshot.contains("let usesStoredContext = !isAudioOnly && !disableContextCapture"))
+        assert(retrySnapshot.contains("currentActivity: restoredCurrentActivity"))
     }
 
     private static func testAudioOnlyRetryCreatesTranscriptFileAndPreservesMetadata() throws {

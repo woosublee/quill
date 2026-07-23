@@ -5706,6 +5706,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     postProcessedTranscript: result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines),
                     postProcessingPrompt: result.prompt,
                     postProcessingStatus: result.userIssueRecord?.persistedStatus
+                        ?? snapshot.restoredContext.userIssueRecord?.persistedStatus
                         ?? Self.statusMessage(
                             for: result.outcome,
                             parsedTranscript: parsedTranscript,
@@ -5820,6 +5821,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         let configuration = audioImportConfiguration(for: retryChoice)
         let isAudioOnly = item.machineStatus == .audioOnly
+        // Retry never re-captures context; it only reuses what was stored,
+        // gated by the CURRENT context toggle (not whatever was in effect
+        // when the note was first recorded). Old notes may still carry the
+        // stop-time placeholder sentence, which counts as no usable context.
+        let usesStoredContext = !isAudioOnly && !disableContextCapture
+        let storedContextIsUsable = usesStoredContext
+            && !Self.isPlaceholderContextSummary(item.contextSummary)
+        let restoredCurrentActivity = storedContextIsUsable ? item.contextSummary : ""
+        let restoredContextUserIssueRecord: QuillUserIssueRecord? = usesStoredContext && !storedContextIsUsable
+            ? QuillUserIssueRecord(code: .contextUnavailable)
+            : nil
         let retryCustomVocabulary = isAudioOnly ? customVocabulary : item.customVocabulary
         let retryCustomSystemPrompt = isAudioOnly ? customSystemPrompt : item.customSystemPrompt
         let completionSnapshot = TranscriptionCompletionSnapshot(
@@ -5872,14 +5884,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 bundleIdentifier: isAudioOnly ? nil : item.contextBundleIdentifier,
                 windowTitle: isAudioOnly ? nil : item.contextWindowTitle,
                 selectedText: isAudioOnly ? nil : item.capturedSelection,
-                currentActivity: isAudioOnly ? "" : item.contextSummary,
+                currentActivity: restoredCurrentActivity,
                 contextSystemPrompt: isAudioOnly ? nil : item.contextSystemPrompt,
                 contextPrompt: isAudioOnly ? nil : item.contextPrompt,
                 screenshotDataURL: isAudioOnly ? nil : item.contextScreenshotDataURL,
                 screenshotMimeType: !isAudioOnly && item.contextScreenshotDataURL != nil
                     ? "image/jpeg"
                     : nil,
-                screenshotError: nil
+                screenshotError: nil,
+                userIssueRecord: restoredContextUserIssueRecord
             ),
             restoredIntent: SessionIntent.fromPersisted(intent: item.intent, selectedText: item.selectedText),
             transcriptionChoice: retryChoice,
