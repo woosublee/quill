@@ -13,6 +13,7 @@ struct SettingsLocalizationTests {
         try testRecordingOverlaySettingsCopyLocalizes()
         try testModelFirstSettingsCopyLocalizes()
         try testModelDownloadTerminationCopyLocalizes()
+        try testCombinedAudioSourceUnavailableReasonsLocalize()
         print("SettingsLocalizationTests passed")
     }
 
@@ -230,6 +231,21 @@ struct SettingsLocalizationTests {
             "Quill will cancel unfinished model downloads and delete partial files before quitting.":
                 "종료하면 완료되지 않은 모델 다운로드가 취소되고 부분 다운로드 파일이 삭제됩니다.",
             "Quit and Cancel Downloads": "종료하고 다운로드 취소"
+        ]
+
+        for (key, korean) in expected {
+            assert(localizedCatalogString(key, language: "en", bundle: bundle) == key)
+            assert(localizedCatalogString(key, language: "ko", bundle: bundle) == korean)
+        }
+    }
+
+    private static func testCombinedAudioSourceUnavailableReasonsLocalize() throws {
+        let bundle = try compiledLocalizationBundle()
+        let expected: [String: String] = [
+            "Realtime is unavailable with System Default + System Audio":
+                "실시간은 시스템 기본값 + 시스템 오디오에서 사용할 수 없습니다",
+            "Apple Live is unavailable with System Default + System Audio":
+                "Apple 라이브는 시스템 기본값 + 시스템 오디오에서 사용할 수 없습니다"
         ]
 
         for (key, korean) in expected {

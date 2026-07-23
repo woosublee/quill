@@ -472,6 +472,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let commandModeManualModifierStorageKey = "command_mode_manual_modifier"
     private let realtimeStreamingEnabledStorageKey = "realtime_streaming_enabled"
     private let realtimeStreamingModelStorageKey = "realtime_streaming_model"
+    private let showRealtimeTranscriptionOptionStorageKey = "show_realtime_transcription_option"
     private let dictationAudioInterruptionEnabledStorageKey = "dictation_audio_interruption_enabled"
     private let recordingOverlayLayoutStorageKey = "recording_overlay_layout"
     private let overlayWaveformDisplayModeStorageKey = "overlay_waveform_display_mode"
@@ -801,6 +802,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Whether Realtime should appear as a selectable transcription option in
+    /// Settings and the Note Browser. Realtime otherwise stays hidden from
+    /// both pickers unless it is already the active choice.
+    @Published var showRealtimeTranscriptionOption: Bool {
+        didSet {
+            UserDefaults.standard.set(
+                showRealtimeTranscriptionOption,
+                forKey: showRealtimeTranscriptionOptionStorageKey
+            )
+        }
+    }
+
     /// Model ID the realtime WebSocket should transcribe with. Empty means
     /// "use the server's default".
     @Published var realtimeStreamingModel: String {
@@ -1019,11 +1032,30 @@ final class AppState: ObservableObject, @unchecked Sendable {
         currentNoteBrowserTranscriptionChoice.mode
     }
 
+    /// Predefined Standard API model IDs, plus the current custom model ID if
+    /// it isn't already one of them. Shared by Settings and the Note Browser
+    /// so both list the same Cloud Standard models.
+    var standardAPIModelIDs: [String] {
+        var modelIDs: [String] = []
+        for modelID in ModelConfiguration.transcriptionModels where !modelIDs.contains(modelID) {
+            modelIDs.append(modelID)
+        }
+        let currentModelID = transcriptionModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !currentModelID.isEmpty && !modelIDs.contains(currentModelID) {
+            modelIDs.append(currentModelID)
+        }
+        return modelIDs
+    }
+
     @MainActor
     var noteBrowserTranscriptionChoiceDisplays: [TranscriptionChoiceDisplay] {
-        [
-            noteBrowserTranscriptionDisplay(for: apiStandardChoice),
-            noteBrowserTranscriptionDisplay(for: apiRealtimeChoice),
+        let standardDisplays = standardAPIModelIDs.map { modelID in
+            noteBrowserTranscriptionDisplay(for: .apiStandard(modelID: modelID))
+        }
+        let realtimeDisplays = (showRealtimeTranscriptionOption || realtimeStreamingEnabled)
+            ? [noteBrowserTranscriptionDisplay(for: apiRealtimeChoice)]
+            : []
+        return standardDisplays + realtimeDisplays + [
             noteBrowserTranscriptionDisplay(for: nativeWhisperChoice),
             noteBrowserTranscriptionDisplay(for: .appleLive)
         ] + installedLegacyLocalWhisperModels.map { model in
@@ -1397,6 +1429,50 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    func setNoteBrowserTranscriptionSelection(
+        _ choice: TranscriptionBackendChoice?
+    ) {
+        guard let choice else {
+            transcriptionEnabled = false
+            return
+        }
+        guard isNoteBrowserTranscriptionChoiceReady(choice) else { return }
+        setNoteBrowserTranscriptionChoice(choice)
+        transcriptionEnabled = true
+    }
+
+    @MainActor
+    func setSettingsTranscriptionEnabled(_ isEnabled: Bool) {
+        guard isEnabled else {
+            transcriptionEnabled = false
+            return
+        }
+        guard let readyChoice = readyNoteBrowserTranscriptionChoice(
+            preferred: currentNoteBrowserTranscriptionChoice
+        ) else {
+            transcriptionEnabled = false
+            return
+        }
+        applyNoteBrowserTranscriptionChoice(readyChoice)
+        transcriptionEnabled = true
+    }
+
+    @MainActor
+    private func readyNoteBrowserTranscriptionChoice(
+        preferred: TranscriptionBackendChoice
+    ) -> TranscriptionBackendChoice? {
+        if isNoteBrowserTranscriptionChoiceReady(preferred) {
+            return preferred
+        }
+        let currentChoice = currentNoteBrowserTranscriptionChoice
+        if isNoteBrowserTranscriptionChoiceReady(currentChoice) {
+            return currentChoice
+        }
+        return noteBrowserFallbackChoices(for: preferred)
+            .first(where: isNoteBrowserTranscriptionChoiceReady)
+    }
+
+    @MainActor
     func applySetupProcessingPreset(_ preset: SetupFlow.ProcessingPreset) {
         switch preset {
         case .recordOnly:
@@ -1466,6 +1542,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let currentChoice = currentNoteBrowserTranscriptionChoice
         let normalizedChoice = normalizedNoteBrowserTranscriptionChoice(currentChoice)
         guard normalizedChoice != currentChoice else { return }
+        guard isNoteBrowserTranscriptionChoiceReady(normalizedChoice) else {
+            transcriptionEnabled = false
+            return
+        }
         applyNoteBrowserTranscriptionChoice(normalizedChoice)
     }
 
@@ -1762,6 +1842,106 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var isTranscribing = false
     @Published var retryingItemIDs: Set<UUID> = []
 
+    // MARK: Warning banner dismissal (per note + issue code, invalidated by retry)
+
+    // A per-note counter bumped every time that note is retried. Dismissals
+    // are recorded against the generation they were dismissed at, so a later
+    // retry (which may produce a different outcome) makes the banner
+    // reappear if the warning condition still holds.
+    @Published private(set) var noteRetryGenerationByID: [String: Int] = AppState.loadIntDictionary(
+        forKey: AppState.noteRetryGenerationDefaultsKey
+    )
+    @Published private(set) var dismissedWarningBannerGeneration: [String: Int] = AppState.loadIntDictionary(
+        forKey: AppState.dismissedWarningBannerGenerationDefaultsKey
+    )
+
+    private static let noteRetryGenerationDefaultsKey = "note_retry_generation_by_id"
+    private static let dismissedWarningBannerGenerationDefaultsKey = "dismissed_warning_banner_generation_by_key"
+
+    private static func loadIntDictionary(forKey key: String) -> [String: Int] {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let values = try? JSONDecoder().decode([String: Int].self, from: data) else {
+            return [:]
+        }
+        return values
+    }
+
+    private static func saveIntDictionary(_ values: [String: Int], forKey key: String) {
+        guard !values.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: key)
+            return
+        }
+        if let data = try? JSONEncoder().encode(values) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+
+    private static func dismissalKey(noteID: UUID, code: QuillUserIssueCode) -> String {
+        "\(noteID.uuidString):\(code.rawValue)"
+    }
+
+    func noteRetryGeneration(for noteID: UUID) -> Int {
+        noteRetryGenerationByID[noteID.uuidString] ?? 0
+    }
+
+    @MainActor
+    func incrementNoteRetryGeneration(for noteID: UUID) {
+        let key = noteID.uuidString
+        noteRetryGenerationByID[key] = (noteRetryGenerationByID[key] ?? 0) + 1
+        Self.saveIntDictionary(noteRetryGenerationByID, forKey: Self.noteRetryGenerationDefaultsKey)
+    }
+
+    func isWarningBannerDismissed(noteID: UUID, code: QuillUserIssueCode) -> Bool {
+        let key = Self.dismissalKey(noteID: noteID, code: code)
+        guard let dismissedGeneration = dismissedWarningBannerGeneration[key] else {
+            return false
+        }
+        return dismissedGeneration == noteRetryGeneration(for: noteID)
+    }
+
+    @MainActor
+    func dismissWarningBanner(noteID: UUID, code: QuillUserIssueCode) {
+        let key = Self.dismissalKey(noteID: noteID, code: code)
+        dismissedWarningBannerGeneration[key] = noteRetryGeneration(for: noteID)
+        Self.saveIntDictionary(
+            dismissedWarningBannerGeneration,
+            forKey: Self.dismissedWarningBannerGenerationDefaultsKey
+        )
+    }
+
+    /// Drops the per-note retry generation and any banner dismissals for a
+    /// deleted note so these side-store dictionaries don't grow unbounded.
+    @MainActor
+    private func forgetWarningBannerState(for noteID: UUID) {
+        let dismissalPrefix = "\(noteID.uuidString):"
+        let hadState = noteRetryGenerationByID[noteID.uuidString] != nil
+            || dismissedWarningBannerGeneration.keys.contains { $0.hasPrefix(dismissalPrefix) }
+        guard hadState else { return }
+        noteRetryGenerationByID.removeValue(forKey: noteID.uuidString)
+        dismissedWarningBannerGeneration = dismissedWarningBannerGeneration.filter {
+            !$0.key.hasPrefix(dismissalPrefix)
+        }
+        Self.saveIntDictionary(noteRetryGenerationByID, forKey: Self.noteRetryGenerationDefaultsKey)
+        Self.saveIntDictionary(
+            dismissedWarningBannerGeneration,
+            forKey: Self.dismissedWarningBannerGenerationDefaultsKey
+        )
+    }
+
+    /// Clears all banner dismissal / retry-generation side state, e.g. when the
+    /// entire run history is cleared.
+    @MainActor
+    private func forgetAllWarningBannerState() {
+        guard !noteRetryGenerationByID.isEmpty || !dismissedWarningBannerGeneration.isEmpty else { return }
+        noteRetryGenerationByID = [:]
+        dismissedWarningBannerGeneration = [:]
+        Self.saveIntDictionary(noteRetryGenerationByID, forKey: Self.noteRetryGenerationDefaultsKey)
+        Self.saveIntDictionary(
+            dismissedWarningBannerGeneration,
+            forKey: Self.dismissedWarningBannerGenerationDefaultsKey
+        )
+    }
+
     var isTranscriptionConfigurationLocked: Bool {
         isRecording || isTranscribing || !retryingItemIDs.isEmpty
     }
@@ -1847,6 +2027,47 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var shouldTranscribeActiveRecording: Bool {
         activeRecordingTranscriptionEnabled ?? transcriptionEnabled
     }
+
+    /// Whether the transcription choice that would actually run right now
+    /// (the active recording's choice while recording, otherwise the choice
+    /// queued up for the next recording) streams live audio (Apple Live,
+    /// API Realtime) and therefore cannot tolerate the combined System
+    /// Default + System Audio source.
+    @MainActor
+    private var currentNoteBrowserTranscriptionChoiceIsLiveOnly: Bool {
+        switch currentNoteBrowserTranscriptionChoice {
+        case .appleLive, .apiRealtime:
+            return true
+        case .apiStandard, .nativeWhisper, .legacyMlxWhisper:
+            return false
+        }
+    }
+
+    /// Whether the currently active recording is relying on a transcriber
+    /// that streams live audio (Apple Live, API Realtime) and therefore
+    /// cannot tolerate a mid-recording switch to the combined
+    /// System Default + System Audio source.
+    @MainActor
+    private var isActiveRecordingUsingLiveOnlyTranscription: Bool {
+        guard isRecording, shouldTranscribeActiveRecording else { return false }
+        return currentNoteBrowserTranscriptionChoiceIsLiveOnly
+    }
+
+    /// Whether `inputID` can be selected right now without breaking live
+    /// transcription: during an active recording, without breaking the
+    /// active recording's live transcriber; otherwise, without queueing up
+    /// a source that would immediately force the next recording's live-only
+    /// transcription choice to turn off. Used by both the recording
+    /// overlay's input switcher and the Note Browser's input picker.
+    @MainActor
+    func isAudioInputSelectable(_ inputID: String) -> Bool {
+        guard AudioInputDevice.isSystemDefaultAndSystemAudio(inputID) else { return true }
+        if isRecording {
+            return !isActiveRecordingUsingLiveOnlyTranscription
+        }
+        return !(transcriptionEnabled && currentNoteBrowserTranscriptionChoiceIsLiveOnly)
+    }
+
     private var activeAudioInputID: String?
     private var activeInputSwitchToken: UUID?
     private var isActiveInputSwitchPhysicalStopInProgress = false
@@ -2130,6 +2351,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let keepDictationInClipboardHistory = UserDefaults.standard.bool(forKey: keepDictationInClipboardHistoryStorageKey)
         let realtimeStreamingEnabled = UserDefaults.standard.bool(forKey: realtimeStreamingEnabledStorageKey)
         let realtimeStreamingModel = UserDefaults.standard.string(forKey: realtimeStreamingModelStorageKey) ?? ""
+        let showRealtimeTranscriptionOption = UserDefaults.standard.bool(
+            forKey: showRealtimeTranscriptionOptionStorageKey
+        )
         let dictationAudioInterruptionEnabled = UserDefaults.standard.bool(
             forKey: dictationAudioInterruptionEnabledStorageKey
         )
@@ -2312,6 +2536,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.keepDictationInClipboardHistory = keepDictationInClipboardHistory
         self.realtimeStreamingEnabled = realtimeStreamingEnabled
         self.realtimeStreamingModel = realtimeStreamingModel
+        self.showRealtimeTranscriptionOption = showRealtimeTranscriptionOption
         self.dictationAudioInterruptionEnabled = dictationAudioInterruptionEnabled
         self.recordingOverlayLayout = recordingOverlayLayout
         self.overlayWaveformDisplayMode = overlayWaveformDisplayMode
@@ -2684,6 +2909,100 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    func discardPendingLocalAISelection(for feature: AIProcessingFeature) {
+        setPendingLocalAIModelID(nil, for: feature)
+    }
+
+    @MainActor
+    func discardUndownloadedLocalAISelections() {
+        let retainedSelections = pendingLocalAISelections.filter { _, modelID in
+            guard let model = LocalAIModelCatalog.model(id: modelID) else {
+                return false
+            }
+            let state = localAIInstallState(for: model)
+            return state.isInstalling
+                || state.progress.isCancelled
+                || state.issue != nil
+        }
+        guard retainedSelections != pendingLocalAISelections else { return }
+        pendingLocalAISelections = retainedSelections
+    }
+
+    @MainActor
+    func commitModelSettingsDrafts(
+        transcriptionEnabled requestedTranscriptionEnabled: Bool,
+        transcriptionChoice: TranscriptionBackendChoice,
+        postProcessingEnabled requestedPostProcessingEnabled: Bool,
+        postProcessingChoice: AIProcessingBackendChoice,
+        contextEnabled requestedContextEnabled: Bool,
+        contextChoice: AIProcessingBackendChoice
+    ) {
+        discardUndownloadedLocalAISelections()
+
+        if requestedTranscriptionEnabled,
+           let readyChoice = readyNoteBrowserTranscriptionChoice(
+                preferred: transcriptionChoice
+           ) {
+            applyNoteBrowserTranscriptionChoice(readyChoice)
+            transcriptionEnabled = true
+        } else {
+            transcriptionEnabled = false
+        }
+
+        commitAIProcessingSettingsDraft(
+            feature: .postProcessing,
+            isEnabled: requestedPostProcessingEnabled,
+            preferredChoice: postProcessingChoice
+        )
+        commitAIProcessingSettingsDraft(
+            feature: .context,
+            isEnabled: requestedContextEnabled,
+            preferredChoice: contextChoice
+        )
+    }
+
+    @MainActor
+    func reconcileModelSelectionsAfterSettingsDismissal() {
+        commitModelSettingsDrafts(
+            transcriptionEnabled: transcriptionEnabled,
+            transcriptionChoice: currentNoteBrowserTranscriptionChoice,
+            postProcessingEnabled: !disablePostProcessing,
+            postProcessingChoice: postProcessingBackendChoice,
+            contextEnabled: !disableContextCapture,
+            contextChoice: contextBackendChoice
+        )
+    }
+
+    @MainActor
+    private func commitAIProcessingSettingsDraft(
+        feature: AIProcessingFeature,
+        isEnabled: Bool,
+        preferredChoice: AIProcessingBackendChoice
+    ) {
+        guard isEnabled,
+              let readyChoice = readyAIProcessingChoice(
+                preferred: preferredChoice,
+                for: feature
+              ) else {
+            switch feature {
+            case .postProcessing:
+                disablePostProcessing = true
+            case .context:
+                disableContextCapture = true
+            }
+            return
+        }
+
+        applyAIProcessingChoice(readyChoice, for: feature)
+        switch feature {
+        case .postProcessing:
+            disablePostProcessing = false
+        case .context:
+            disableContextCapture = false
+        }
+    }
+
+    @MainActor
     func isAIProcessingChoiceAvailable(
         _ choice: AIProcessingBackendChoice
     ) -> Bool {
@@ -2700,7 +3019,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func isAIProcessingBackendReady(
         for feature: AIProcessingFeature
     ) -> Bool {
-        switch currentAIProcessingChoice(for: feature) {
+        isAIProcessingChoiceReady(currentAIProcessingChoice(for: feature))
+    }
+
+    @MainActor
+    func isAIProcessingChoiceReady(
+        _ choice: AIProcessingBackendChoice
+    ) -> Bool {
+        switch choice {
         case .cloud:
             return !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .localAI(let modelID):
@@ -2711,6 +3037,41 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
             return localAIInstallState(for: model).status == .ready
         }
+    }
+
+    @MainActor
+    private func readyAIProcessingChoice(
+        preferred: AIProcessingBackendChoice? = nil,
+        for feature: AIProcessingFeature
+    ) -> AIProcessingBackendChoice? {
+        if let preferred, isAIProcessingChoiceReady(preferred) {
+            return preferred
+        }
+        let currentChoice = currentAIProcessingChoice(for: feature)
+        if isAIProcessingChoiceReady(currentChoice) {
+            return currentChoice
+        }
+
+        let availability = Self.localAIProcessingAvailabilityProvider()
+        if hasCompletedLocalAIStatusRefresh, availability.isSupported {
+            let readyModels = LocalAIModelCatalog.all.filter {
+                localAIInstallState(for: $0).status == .ready
+            }
+            let preferredModel = readyModels.first {
+                $0.id == availability.recommendedModel.id
+            } ?? readyModels.first
+            if let preferredModel {
+                return .localAI(modelID: preferredModel.id)
+            }
+        }
+
+        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        let modelID = feature == .postProcessing
+            ? resolvedPostProcessingCloudModelID
+            : resolvedContextCloudModelID
+        return .cloud(modelID: modelID)
     }
 
     @MainActor
@@ -4783,11 +5144,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
             )
             return
         }
+        // Combined-source selection is already disabled in both input pickers
+        // while a live-only transcriber is active; this is a silent defensive
+        // guard against any bypass, not a user-facing error path.
+        guard isAudioInputSelectable(newInputID) else {
+            return
+        }
 
         let switchToken = UUID()
         activeInputSwitchToken = switchToken
         isActiveInputSwitchPhysicalStopInProgress = true
-        liveTranscriber = nil
+        tearDownLiveTranscriberOffMainThread()
         tearDownRealtimeService()
         setActiveRecorderPCMHandler(nil)
         audioLevelCancellable?.cancel()
@@ -4944,14 +5311,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// Audio source choices shown in the recording overlay's input switcher.
     /// Limited to the source modes — the meaningful mid-recording choice — rather
     /// than the full hardware microphone list.
+    @MainActor
     private func recordingOverlayInputOptions() -> [RecordingOverlayInputOption] {
         [
             RecordingOverlayInputOption(id: AudioInputDevice.defaultMicrophoneID, name: "System Default", isStaticQuillName: true),
             RecordingOverlayInputOption(id: AudioInputDevice.systemAudioID, name: "System Audio", isStaticQuillName: true),
-            RecordingOverlayInputOption(id: AudioInputDevice.systemDefaultAndSystemAudioID, name: "System Default + System Audio", isStaticQuillName: true)
+            RecordingOverlayInputOption(
+                id: AudioInputDevice.systemDefaultAndSystemAudioID,
+                name: "System Default + System Audio",
+                isStaticQuillName: true,
+                isEnabled: isAudioInputSelectable(AudioInputDevice.systemDefaultAndSystemAudioID)
+            )
         ]
     }
 
+    @MainActor
     private func refreshOverlayInputOptions() {
         overlayManager.updateInputOptions(
             recordingOverlayInputOptions(),
@@ -4983,6 +5357,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 cleanupDeletedPipelineHistoryAssets(removedAssets)
             }
             pipelineHistory = []
+            forgetAllWarningBannerState()
         } catch {
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to clear run history"), providerDetail: error.localizedDescription)
         }
@@ -5008,6 +5383,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 cleanupDeletedPipelineHistoryAssets(deletedAssets)
             }
             pipelineHistory.remove(at: index)
+            forgetWarningBannerState(for: id)
         } catch {
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to delete run history entry"), providerDetail: error.localizedDescription)
         }
@@ -5376,10 +5752,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func retryTranscription(item: PipelineHistoryItem) {
         guard !retryingItemIDs.contains(item.id) else { return }
-        if noteBrowserRetryAvailability(for: item) == .needsProviderConfiguration {
-            openProviderSettings()
-            return
-        }
+        guard noteBrowserRetryAvailability(for: item) == .ready else { return }
 
         let snapshot: RetrySnapshot
         do {
@@ -5394,6 +5767,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         retryingItemIDs.insert(item.id)
+        incrementNoteRetryGeneration(for: item.id)
 
         let postProcessingService = makePostProcessingService()
 
@@ -5435,6 +5809,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     postProcessedTranscript: result.finalTranscript.trimmingCharacters(in: .whitespacesAndNewlines),
                     postProcessingPrompt: result.prompt,
                     postProcessingStatus: result.userIssueRecord?.persistedStatus
+                        ?? snapshot.restoredContext.userIssueRecord?.persistedStatus
                         ?? Self.statusMessage(
                             for: result.outcome,
                             parsedTranscript: parsedTranscript,
@@ -5549,6 +5924,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         let configuration = audioImportConfiguration(for: retryChoice)
         let isAudioOnly = item.machineStatus == .audioOnly
+        // Retry never re-captures context; it only reuses what was stored,
+        // gated by the CURRENT context toggle (not whatever was in effect
+        // when the note was first recorded). Old notes may still carry the
+        // stop-time placeholder sentence, which counts as no usable context.
+        let usesStoredContext = !isAudioOnly && !disableContextCapture
+        let storedContextIsUsable = usesStoredContext
+            && !Self.isPlaceholderContextSummary(item.contextSummary)
+        let restoredCurrentActivity = storedContextIsUsable ? item.contextSummary : ""
+        let restoredContextUserIssueRecord: QuillUserIssueRecord? = usesStoredContext && !storedContextIsUsable
+            ? QuillUserIssueRecord(code: .contextUnavailable)
+            : nil
         let retryCustomVocabulary = isAudioOnly ? customVocabulary : item.customVocabulary
         let retryCustomSystemPrompt = isAudioOnly ? customSystemPrompt : item.customSystemPrompt
         let completionSnapshot = TranscriptionCompletionSnapshot(
@@ -5601,14 +5987,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 bundleIdentifier: isAudioOnly ? nil : item.contextBundleIdentifier,
                 windowTitle: isAudioOnly ? nil : item.contextWindowTitle,
                 selectedText: isAudioOnly ? nil : item.capturedSelection,
-                currentActivity: isAudioOnly ? "" : item.contextSummary,
+                currentActivity: restoredCurrentActivity,
                 contextSystemPrompt: isAudioOnly ? nil : item.contextSystemPrompt,
                 contextPrompt: isAudioOnly ? nil : item.contextPrompt,
                 screenshotDataURL: isAudioOnly ? nil : item.contextScreenshotDataURL,
                 screenshotMimeType: !isAudioOnly && item.contextScreenshotDataURL != nil
                     ? "image/jpeg"
                     : nil,
-                screenshotError: nil
+                screenshotError: nil,
+                userIssueRecord: restoredContextUserIssueRecord
             ),
             restoredIntent: SessionIntent.fromPersisted(intent: item.intent, selectedText: item.selectedText),
             transcriptionChoice: retryChoice,
@@ -7745,13 +8132,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         sessionContext: AppContext?,
         inFlightContextTask: Task<AppContext?, Never>?
     ) async -> AppContext {
+        let resolvedContext: AppContext
         if let sessionContext {
-            return sessionContext
+            resolvedContext = sessionContext
+        } else if let inFlightContext = await inFlightContextTask?.value {
+            resolvedContext = inFlightContext
+        } else {
+            resolvedContext = fallbackContextAtStop()
         }
-        if let inFlightContext = await inFlightContextTask?.value {
-            return inFlightContext
-        }
-        return fallbackContextAtStop()
+        return Self.sanitizedCapturedContext(
+            resolvedContext,
+            contextCaptureDisabled: disableContextCapture
+        )
     }
 
     @MainActor
@@ -9542,6 +9934,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
         realtimeService = nil
     }
 
+    /// Detaches the active live transcriber and tears it down off the main
+    /// thread. Cancelling/deallocating an Apple Speech session is synchronous
+    /// and can stall for a few hundred ms; doing it inline (e.g. from the
+    /// audio-source menu action that triggers a mid-recording input switch)
+    /// keeps the menu open and freezes the UI. The reference is dropped from
+    /// AppState immediately; cancel() and dealloc run on a background queue.
+    @MainActor
+    private func tearDownLiveTranscriberOffMainThread() {
+        guard let transcriber = liveTranscriber else { return }
+        liveTranscriber = nil
+        DispatchQueue.global(qos: .utility).async {
+            transcriber.cancel()
+        }
+    }
+
     private func startContextCapture() {
         contextCaptureTask?.cancel()
         capturedContext = nil
@@ -9584,20 +9991,75 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    // Old notes may still carry the stop-time placeholder sentence in their
+    // stored contextSummary; both that literal and a genuinely empty summary
+    // count as "no usable context" rather than real captured activity.
+    private static func isPlaceholderContextSummary(_ summary: String) -> Bool {
+        let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return true }
+        return trimmed == "Could not refresh app context at stop time; using text-only post-processing."
+    }
+
+    // Context is only worth injecting into post-processing when it was
+    // successfully captured: real (non-placeholder) activity text, and no
+    // error-severity issue was recorded while collecting it.
+    private static func isUsableCapturedContext(_ context: AppContext) -> Bool {
+        guard !isPlaceholderContextSummary(context.currentActivity) else { return false }
+        guard context.userIssueRecord?.severity != .error else { return false }
+        return true
+    }
+
+    // Context capture being turned off is intentional and already produces an
+    // empty, issue-free context (see fallbackContextAtStop). Only sanitize
+    // when capture is enabled but did not actually succeed: drop the
+    // placeholder/error text instead of injecting it, and surface a warning
+    // (not an error) so the note still shows as completed.
+    private static func sanitizedCapturedContext(
+        _ context: AppContext,
+        contextCaptureDisabled: Bool
+    ) -> AppContext {
+        guard !contextCaptureDisabled else { return context }
+        guard !isUsableCapturedContext(context) else { return context }
+        return AppContext(
+            appName: context.appName,
+            bundleIdentifier: context.bundleIdentifier,
+            windowTitle: context.windowTitle,
+            selectedText: context.selectedText,
+            currentActivity: "",
+            contextSystemPrompt: context.contextSystemPrompt,
+            contextPrompt: context.contextPrompt,
+            screenshotDataURL: context.screenshotDataURL,
+            screenshotMimeType: context.screenshotMimeType,
+            screenshotError: context.screenshotError,
+            userIssueRecord: QuillUserIssueRecord(code: .contextUnavailable)
+        )
+    }
+
     private func fallbackContextAtStop() -> AppContext {
         let frontmostApp = NSWorkspace.shared.frontmostApplication
         let windowTitle = focusedWindowTitle(for: frontmostApp)
+        // Context capture being off is an intentional setting, not a failure.
+        // Leave currentActivity empty so post-processing runs genuinely
+        // text-only (empty CONTEXT in the prompt, nothing to echo back) and the
+        // note shows no context line — instead of injecting a placeholder
+        // sentence that reads like an error.
+        let currentActivity = disableContextCapture
+            ? ""
+            : "Could not refresh app context at stop time; using text-only post-processing."
+        let screenshotError = disableContextCapture
+            ? "Context capture disabled"
+            : "No app context captured before stop"
         return AppContext(
             appName: frontmostApp?.localizedName,
             bundleIdentifier: frontmostApp?.bundleIdentifier,
             windowTitle: windowTitle,
             selectedText: nil,
-            currentActivity: "Could not refresh app context at stop time; using text-only post-processing.",
+            currentActivity: currentActivity,
             contextSystemPrompt: resolvedContextSystemPrompt(),
             contextPrompt: nil,
             screenshotDataURL: nil,
             screenshotMimeType: nil,
-            screenshotError: "No app context captured before stop"
+            screenshotError: screenshotError
         )
     }
 

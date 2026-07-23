@@ -38,6 +38,21 @@ enum NoteBrowserRecoveryPresentation {
         bundle: Bundle = .main
     ) -> QuillUserIssuePresentation {
         let original = record.presentation(language: language, bundle: bundle)
+
+        // Local backend/model IDs are debugging detail, not something a
+        // typical user acts on for a plain transcription-process failure.
+        if record.code == .localTranscriptionFailed {
+            return QuillUserIssuePresentation(
+                title: original.title,
+                body: original.body,
+                suggestion: original.suggestion,
+                compactMessage: original.compactMessage,
+                detailsRows: [],
+                recoveryAction: original.recoveryAction,
+                severity: original.severity
+            )
+        }
+
         guard record.code == .localModelMissing,
               actionState.hasStoredAudio else {
             return original

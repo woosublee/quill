@@ -481,6 +481,22 @@
         }
       }
     },
+    "Switch the active recording's audio input": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch the active recording's audio input"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "진행 중인 녹음의 오디오 입력 전환"
+          }
+        }
+      }
+    },
     "Cloud transcription": {
       "localizations": {
         "en": {
@@ -6303,6 +6319,38 @@
         }
       }
     },
+    "Apple Live is unavailable with System Default + System Audio": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Live is unavailable with System Default + System Audio"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple 라이브는 시스템 기본값 + 시스템 오디오에서 사용할 수 없습니다"
+          }
+        }
+      }
+    },
+    "Realtime is unavailable with System Default + System Audio": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Realtime is unavailable with System Default + System Audio"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실시간은 시스템 기본값 + 시스템 오디오에서 사용할 수 없습니다"
+          }
+        }
+      }
+    },
     "Transcription Model": {
       "localizations": {
         "en": {
@@ -11409,6 +11457,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "사용하기 전에 원본 전사문을 확인하세요."
+          }
+        }
+      }
+    },
+    "Context wasn't available": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Context wasn't available"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨텍스트를 사용할 수 없었습니다"
+          }
+        }
+      }
+    },
+    "Continued with text-only post-processing.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continued with text-only post-processing."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "텍스트만으로 처리를 계속했습니다."
+          }
+        }
+      }
+    },
+    "No action needed. Context capture will be attempted again next time.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No action needed. Context capture will be attempted again next time."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "별도 조치가 필요 없습니다. 다음번에 컨텍스트 캡처를 다시 시도합니다."
           }
         }
       }

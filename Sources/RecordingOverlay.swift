@@ -5,13 +5,15 @@ import AppKit
 
 struct RecordingOverlayInputOption: Identifiable, Equatable {
     let id: String
+    let isEnabled: Bool
     private let name: String
     private let isStaticQuillName: Bool
 
-    init(id: String, name: String, isStaticQuillName: Bool = false) {
+    init(id: String, name: String, isStaticQuillName: Bool = false, isEnabled: Bool = true) {
         self.id = id
         self.name = name
         self.isStaticQuillName = isStaticQuillName
+        self.isEnabled = isEnabled
     }
 
     var displayName: String {
@@ -1331,11 +1333,15 @@ private struct InputMenuClickCatcher: NSViewRepresentable {
         override func mouseDown(with event: NSEvent) {
             guard !options.isEmpty else { return }
             let menu = NSMenu()
+            // Honor our per-item isEnabled; otherwise AppKit auto-enables every
+            // item whose target responds to the action, masking the disabled state.
+            menu.autoenablesItems = false
             for option in options {
                 let item = NSMenuItem(title: option.displayName, action: #selector(selectOption(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = option.id
                 item.state = AudioInputDevice.isSameInput(option.id, selectedID) ? .on : .off
+                item.isEnabled = option.isEnabled
                 menu.addItem(item)
             }
             // Anchor just below the view's bottom-left so the menu drops downward

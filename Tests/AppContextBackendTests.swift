@@ -16,6 +16,8 @@ struct AppContextBackendTests {
         try await testLocalRequestUsesEndpointRequestAndSelectedModelIDs()
         try testAppStateContextCaptureGuardsCancelledPublication()
         try testAppStatePersistsPostProcessingIssueBeforeContextIssue()
+        try testStopTimeFallbackDistinguishesDisabledFromIncompleteCapture()
+        try testResolveStoppedRecordingContextSanitizesUnusableCapture()
         try await testLocalFailureReturnsNilAndRecordsPrivateIssue()
         try await testLocalProcessExitRecordsDedicatedIssue()
         print("AppContextBackendTests passed")
@@ -425,6 +427,112 @@ struct AppContextBackendTests {
         try expect(
             contextIssue.lowerBound < normalStatus.lowerBound,
             "Context issue takes priority over normal success status"
+        )
+    }
+
+    private static func testStopTimeFallbackDistinguishesDisabledFromIncompleteCapture() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        guard let start = source.range(of: "private func fallbackContextAtStop() -> AppContext {"),
+              let end = source.range(
+                of: "private func resolvedContextSystemPrompt()",
+                range: start.upperBound..<source.endIndex
+              ) else {
+            throw AppContextBackendTestFailure("AppState fallbackContextAtStop source")
+        }
+        let body = String(source[start.lowerBound..<end.lowerBound])
+
+        // Context capture being turned off is an intentional setting: the
+        // stop-time fallback must leave the activity empty (genuine text-only
+        // post-processing, no placeholder injected into the prompt) rather than
+        // read as a failed refresh attempt.
+        try expect(
+            body.contains("disableContextCapture")
+                && body.contains("? \"\""),
+            "fallback leaves currentActivity empty when context capture is disabled"
+        )
+        try expect(
+            body.contains("Could not refresh app context at stop time; using text-only post-processing."),
+            "fallback keeps the incomplete-capture wording for the still-enabled case"
+        )
+    }
+
+    // Context is only injected into post-processing when it was successfully
+    // captured. A fallback/placeholder or error-severity capture must not be
+    // injected as if it were real activity; instead the note should show a
+    // warning (not an error) so post-processing still counts as completed.
+    private static func testResolveStoppedRecordingContextSanitizesUnusableCapture() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+
+        guard let resolveStart = source.range(of: "private func resolveStoppedRecordingContext("),
+              let resolveEnd = source.range(
+                of: "\n    @MainActor\n    private func bootstrapLastTranscriptForPasteAgain",
+                range: resolveStart.upperBound..<source.endIndex
+              ) else {
+            throw AppContextBackendTestFailure("AppState resolveStoppedRecordingContext source")
+        }
+        let resolveBody = String(source[resolveStart.lowerBound..<resolveEnd.lowerBound])
+
+        try expect(
+            resolveBody.contains("Self.sanitizedCapturedContext("),
+            "resolveStoppedRecordingContext sanitizes whatever context it resolves"
+        )
+        try expect(
+            resolveBody.contains("contextCaptureDisabled: disableContextCapture"),
+            "sanitization is gated by the current context capture setting"
+        )
+
+        guard let placeholderStart = source.range(of: "private static func isPlaceholderContextSummary("),
+              let placeholderEnd = source.range(
+                of: "\n    private static func isUsableCapturedContext",
+                range: placeholderStart.upperBound..<source.endIndex
+              ) else {
+            throw AppContextBackendTestFailure("AppState isPlaceholderContextSummary source")
+        }
+        let placeholderBody = String(source[placeholderStart.lowerBound..<placeholderEnd.lowerBound])
+        try expect(placeholderBody.contains("trimmed.isEmpty"), "empty activity counts as placeholder")
+        try expect(
+            placeholderBody.contains(
+                "Could not refresh app context at stop time; using text-only post-processing."
+            ),
+            "the stop-time fallback wording is a known placeholder"
+        )
+
+        guard let usableStart = source.range(of: "private static func isUsableCapturedContext("),
+              let usableEnd = source.range(
+                of: "\n    private static func sanitizedCapturedContext",
+                range: usableStart.upperBound..<source.endIndex
+              ) else {
+            throw AppContextBackendTestFailure("AppState isUsableCapturedContext source")
+        }
+        let usableBody = String(source[usableStart.lowerBound..<usableEnd.lowerBound])
+        try expect(
+            usableBody.contains("isPlaceholderContextSummary(context.currentActivity)"),
+            "usability requires non-placeholder activity"
+        )
+        try expect(
+            usableBody.contains(".severity != .error") || usableBody.contains(".severity == .error"),
+            "usability excludes error-severity capture issues"
+        )
+
+        guard let sanitizeStart = source.range(of: "private static func sanitizedCapturedContext("),
+              let sanitizeEnd = source.range(
+                of: "\n    private func fallbackContextAtStop",
+                range: sanitizeStart.upperBound..<source.endIndex
+              ) else {
+            throw AppContextBackendTestFailure("AppState sanitizedCapturedContext source")
+        }
+        let sanitizeBody = String(source[sanitizeStart.lowerBound..<sanitizeEnd.lowerBound])
+
+        let disabledGuardRange = try requiredRange("guard !contextCaptureDisabled else { return context }", in: sanitizeBody)
+        let usableGuardRange = try requiredRange("guard !isUsableCapturedContext(context) else { return context }", in: sanitizeBody)
+        try expect(
+            disabledGuardRange.lowerBound < usableGuardRange.lowerBound,
+            "disabled setting bypasses sanitization before checking usability"
+        )
+        try expect(sanitizeBody.contains("currentActivity: \"\""), "unusable capture is not injected")
+        try expect(
+            sanitizeBody.contains("QuillUserIssueRecord(code: .contextUnavailable)"),
+            "unusable capture attaches the context-unavailable warning"
         )
     }
 

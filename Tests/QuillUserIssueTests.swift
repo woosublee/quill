@@ -44,7 +44,8 @@ struct QuillUserIssueTests {
             .postProcessingGuardFallback,
             .localAIModelUnavailable,
             .localAIStartFailed,
-            .localAIProcessExited
+            .localAIProcessExited,
+            .contextUnavailable
         ]
 
         for code in QuillUserIssueCode.allCases {
@@ -97,6 +98,10 @@ struct QuillUserIssueTests {
         try expect(
             QuillUserIssueRecord(code: .postProcessingGuardFallback).recoveryAction == .none,
             "guard fallback does not trigger automatic recovery"
+        )
+        try expect(
+            QuillUserIssueRecord(code: .contextUnavailable).recoveryAction == .none,
+            "context unavailable is informational only, no recovery action"
         )
     }
 
