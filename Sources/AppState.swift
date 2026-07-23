@@ -366,6 +366,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             completion: completion
         )
     }
+    static var localAIProgressSchedule:
+        LatestValueProgressCoalescer<LocalAIDownloadProgress>.Schedule =
+            LatestValueProgressCoalescer<LocalAIDownloadProgress>.mainQueueSchedule
     static var localAIModelDelete: @Sendable (LocalAIModel) throws -> Void = {
         try LocalAIModelStore().deleteModel($0)
     }
@@ -386,6 +389,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             completion: completion
         )
     }
+    static var nativeWhisperProgressSchedule:
+        LatestValueProgressCoalescer<NativeWhisperDownloadProgress>.Schedule =
+            LatestValueProgressCoalescer<NativeWhisperDownloadProgress>.mainQueueSchedule
 
     private final class WeakAppStateReference: @unchecked Sendable {
         weak var value: AppState?
@@ -928,6 +934,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var nativeWhisperInstallIssue: QuillUserIssueRecord?
     @Published private(set) var pendingNativeWhisperAutoSelectionModelID: String?
     private var nativeWhisperInstallTask: NativeWhisperInstallTask?
+    private var nativeWhisperProgressCoalescer:
+        LatestValueProgressCoalescer<NativeWhisperDownloadProgress>?
     private var nativeWhisperInstallQuiescenceWaiters: [CheckedContinuation<Void, Never>] = []
     private var nativeWhisperInstallCancellationMessage: String?
 
@@ -1157,12 +1165,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         nativeWhisperInstallCancellationMessage = nil
         isInstallingNativeWhisper = true
         nativeWhisperInstallProgress = NativeWhisperDownloadProgress(downloadedBytes: 0, totalBytes: model.approximateBytes)
+        let progressCoalescer = LatestValueProgressCoalescer<NativeWhisperDownloadProgress>(
+            schedule: Self.nativeWhisperProgressSchedule
+        ) { [weak self] progress in
+            MainActor.assumeIsolated {
+                self?.nativeWhisperInstallProgress = progress
+            }
+        }
+        nativeWhisperProgressCoalescer = progressCoalescer
         nativeWhisperInstallTask = Self.nativeWhisperInstallStarter(
             model,
-            { [weak self] progress in
-                DispatchQueue.main.async {
-                    self?.nativeWhisperInstallProgress = progress
-                }
+            { progress in
+                progressCoalescer.submit(progress)
             },
             { [weak self] result in
                 DispatchQueue.main.async {
@@ -1177,6 +1191,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         model: NativeWhisperModel,
         result: Result<Void, NativeWhisperInstallerError>
     ) {
+        nativeWhisperProgressCoalescer?.invalidate()
+        nativeWhisperProgressCoalescer = nil
         nativeWhisperInstallTask = nil
         defer { resumeNativeWhisperInstallQuiescenceWaitersIfNeeded() }
         isInstallingNativeWhisper = false
@@ -1231,6 +1247,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func cancelNativeWhisperInstall() {
         pendingNativeWhisperAutoSelectionModelID = nil
         nativeWhisperInstallCancellationMessage = nil
+        nativeWhisperProgressCoalescer?.invalidate()
+        nativeWhisperProgressCoalescer = nil
         nativeWhisperInstallTask?.cancel()
         nativeWhisperInstallProgress = NativeWhisperDownloadProgress(
             downloadedBytes: nativeWhisperInstallProgress.downloadedBytes,
@@ -1773,6 +1791,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var localAIInstallStates: [String: LocalAIModelInstallViewState] = [:]
     @Published private var pendingLocalAISelections: [AIProcessingFeature: String] = [:]
     private var localAIInstallTasks: [String: LocalAIInstallTask] = [:]
+    private var localAIProgressCoalescers:
+        [String: LatestValueProgressCoalescer<LocalAIDownloadProgress>] = [:]
     private var localAIInstallTokens: [String: UUID] = [:]
     private var localAICancellingModelIDs: Set<String> = []
     private var localAIRestartAfterCancellationModelIDs: Set<String> = []
@@ -2750,22 +2770,29 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
         localAIInstallStates[model.id] = state
 
+        let progressCoalescer = LatestValueProgressCoalescer<LocalAIDownloadProgress>(
+            schedule: Self.localAIProgressSchedule
+        ) { [weak self] progress in
+            MainActor.assumeIsolated {
+                guard let self,
+                      self.localAIInstallTokens[model.id] == token,
+                      !self.localAICancellingModelIDs.contains(model.id),
+                      !self.localAIDeletionRequestedModelIDs.contains(model.id) else {
+                    return
+                }
+                var state = self.localAIInstallState(for: model)
+                state.progress = progress
+                self.localAIInstallStates[model.id] = state
+            }
+        }
+        localAIProgressCoalescers[model.id] = progressCoalescer
+
         let statusProvider = Self.localAIInstallStatusProvider
         let partialModelDelete = Self.localAIPartialModelDelete
         localAIInstallTasks[model.id] = Self.localAIInstallStarter(
             model,
-            { [weak self] progress in
-                DispatchQueue.main.async {
-                    guard let self,
-                          self.localAIInstallTokens[model.id] == token,
-                          !self.localAICancellingModelIDs.contains(model.id),
-                          !self.localAIDeletionRequestedModelIDs.contains(model.id) else {
-                        return
-                    }
-                    var state = self.localAIInstallState(for: model)
-                    state.progress = progress
-                    self.localAIInstallStates[model.id] = state
-                }
+            { progress in
+                progressCoalescer.submit(progress)
             },
             { [weak self] result in
                 guard let appState = self else { return }
@@ -2808,6 +2835,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
               localAIInstallTasks.removeValue(forKey: model.id) != nil else {
             return
         }
+        localAIProgressCoalescers.removeValue(forKey: model.id)?.invalidate()
         defer { resumeLocalAIInstallQuiescenceWaitersIfNeeded() }
         localAIInstallTokens.removeValue(forKey: model.id)
         let wasCancelling = localAICancellingModelIDs.remove(model.id) != nil
@@ -2922,6 +2950,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
               let task = localAIInstallTasks[canonicalModel.id] else {
             return
         }
+        localAIProgressCoalescers.removeValue(forKey: canonicalModel.id)?.invalidate()
         localAICancellingModelIDs.insert(canonicalModel.id)
         localAIRestartAfterCancellationModelIDs.remove(canonicalModel.id)
         clearPendingLocalAISelections(forModelID: canonicalModel.id)

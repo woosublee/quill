@@ -42,6 +42,8 @@ struct AppStateAIProcessingBackendTests {
         await testPostProcessingAndContextChoicesStayIndependent()
         await testSameModelDownloadCoalescesAndSelectsBothFeatures()
         await testDifferentModelsStartIndependentDownloads()
+        await testNativeWhisperProgressCoalescesAndCancellationWins()
+        await testLocalAIProgressCoalescesPerModelAndCompletionWins()
         await testChoosingCloudClearsOnlyOnePendingSelection()
         await testCancelPendingSelectionClearsOnlyOneConsumer()
         await testPendingSelectionChangesPublishObjectWillChange()
@@ -379,6 +381,155 @@ struct AppStateAIProcessingBackendTests {
             appState.cancelLocalAIInstall(LocalAIModelCatalog.quality)
             appState.cancelLocalAIInstall(LocalAIModelCatalog.fast)
         }
+    }
+
+    private static func testNativeWhisperProgressCoalescesAndCancellationWins() async {
+        resetAIProcessingDefaults()
+        let statusHarness = NativeWhisperStatusHarness(status: .notInstalled)
+        let installHarness = ControlledNativeWhisperInstallHarness()
+        let scheduler = ProgressScheduleHarness()
+        let seams = LocalAISeamSnapshot()
+        AppState.nativeWhisperInstallStatusProvider = {
+            statusHarness.installStatus(for: $0)
+        }
+        AppState.nativeWhisperInstallStarter = { model, progress, completion in
+            installHarness.start(
+                model: model,
+                progress: progress,
+                completion: completion
+            )
+        }
+        AppState.nativeWhisperProgressSchedule = scheduler.schedule
+        defer { seams.restore() }
+
+        let appState = await MainActor.run { AppState() }
+        await MainActor.run {
+            appState.installNativeWhisperModel()
+        }
+        for value in 1...10_000 {
+            installHarness.sendProgress(
+                NativeWhisperDownloadProgress(
+                    downloadedBytes: Int64(value),
+                    totalBytes: 10_000
+                )
+            )
+        }
+
+        precondition(scheduler.scheduledCount == 1)
+        await MainActor.run { scheduler.runNext() }
+        let firstBytes = await MainActor.run {
+            appState.nativeWhisperInstallProgress.downloadedBytes
+        }
+        precondition(firstBytes == 1)
+        precondition(scheduler.scheduledCount == 1)
+        await MainActor.run { scheduler.runNext() }
+        let latestBytes = await MainActor.run {
+            appState.nativeWhisperInstallProgress.downloadedBytes
+        }
+        precondition(latestBytes == 10_000)
+
+        installHarness.sendProgress(
+            NativeWhisperDownloadProgress(
+                downloadedBytes: 10_001,
+                totalBytes: 20_000
+            )
+        )
+        precondition(scheduler.scheduledCount == 1)
+        await MainActor.run {
+            appState.cancelNativeWhisperInstall()
+        }
+        await MainActor.run { scheduler.runAll() }
+        let cancelledProgress = await MainActor.run {
+            appState.nativeWhisperInstallProgress
+        }
+        precondition(cancelledProgress.isCancelled)
+        precondition(cancelledProgress.downloadedBytes == 10_000)
+
+        installHarness.complete(with: .failure(.cancelled))
+        await appState.waitForNativeWhisperInstallToQuiesce()
+    }
+
+    private static func testLocalAIProgressCoalescesPerModelAndCompletionWins() async {
+        resetAIProcessingDefaults()
+        let statusHarness = LocalAIStatusHarness(defaultStatus: .notInstalled)
+        let installHarness = LocalAIInstallHarness()
+        let scheduler = ProgressScheduleHarness()
+        let seams = LocalAISeamSnapshot()
+        AppState.localAIInstallStatusProvider = { statusHarness.status(for: $0) }
+        AppState.localAIInstallStarter = installHarness.start
+        AppState.localAIProcessingAvailabilityProvider = supportedLocalAIAvailability
+        AppState.localAIProgressSchedule = scheduler.schedule
+        defer { seams.restore() }
+
+        let first = LocalAIModelCatalog.fast
+        let second = LocalAIModelCatalog.quality
+        let appState = await makeRefreshedAppState()
+        await MainActor.run {
+            appState.installLocalAIModel(first)
+            appState.installLocalAIModel(second)
+        }
+
+        for value in 1...10_000 {
+            installHarness.sendProgress(
+                model: first,
+                progress: LocalAIDownloadProgress(
+                    downloadedBytes: Int64(value),
+                    totalBytes: 10_000
+                )
+            )
+            installHarness.sendProgress(
+                model: second,
+                progress: LocalAIDownloadProgress(
+                    downloadedBytes: Int64(value * 2),
+                    totalBytes: 20_000
+                )
+            )
+        }
+
+        precondition(scheduler.scheduledCount == 2)
+        await MainActor.run { scheduler.runAll() }
+        let coalescedBytes = await MainActor.run {
+            (
+                appState.localAIInstallState(for: first).progress.downloadedBytes,
+                appState.localAIInstallState(for: second).progress.downloadedBytes
+            )
+        }
+        precondition(coalescedBytes.0 == 10_000)
+        precondition(coalescedBytes.1 == 20_000)
+
+        installHarness.sendProgress(
+            model: first,
+            progress: LocalAIDownloadProgress(
+                downloadedBytes: 10_001,
+                totalBytes: 20_000
+            )
+        )
+        installHarness.sendProgress(
+            model: second,
+            progress: LocalAIDownloadProgress(
+                downloadedBytes: 20_001,
+                totalBytes: 30_000
+            )
+        )
+        precondition(scheduler.scheduledCount == 2)
+        statusHarness.set(.ready, for: first)
+        statusHarness.set(.ready, for: second)
+        installHarness.complete(model: first, with: .success(()))
+        installHarness.complete(model: second, with: .success(()))
+        await appState.waitForLocalAIInstallsToQuiesce()
+        await MainActor.run { scheduler.runAll() }
+        let finalStates = await MainActor.run {
+            (
+                appState.localAIInstallState(for: first),
+                appState.localAIInstallState(for: second)
+            )
+        }
+        precondition(finalStates.0.status == .ready)
+        precondition(finalStates.1.status == .ready)
+        precondition(!finalStates.0.isInstalling)
+        precondition(!finalStates.1.isInstalling)
+        precondition(finalStates.0.progress.downloadedBytes == 10_000)
+        precondition(finalStates.1.progress.downloadedBytes == 20_000)
     }
 
     private static func testChoosingCloudClearsOnlyOnePendingSelection() async {
@@ -1901,8 +2052,10 @@ struct AppStateAIProcessingBackendTests {
 private struct LocalAISeamSnapshot {
     let nativeWhisperInstallStatusProvider = AppState.nativeWhisperInstallStatusProvider
     let nativeWhisperInstallStarter = AppState.nativeWhisperInstallStarter
+    let nativeWhisperProgressSchedule = AppState.nativeWhisperProgressSchedule
     let installStatusProvider = AppState.localAIInstallStatusProvider
     let installStarter = AppState.localAIInstallStarter
+    let localAIProgressSchedule = AppState.localAIProgressSchedule
     let modelDelete = AppState.localAIModelDelete
     let partialModelDelete = AppState.localAIPartialModelDelete
     let availabilityProvider = AppState.localAIProcessingAvailabilityProvider
@@ -1914,8 +2067,10 @@ private struct LocalAISeamSnapshot {
     func restore() {
         AppState.nativeWhisperInstallStatusProvider = nativeWhisperInstallStatusProvider
         AppState.nativeWhisperInstallStarter = nativeWhisperInstallStarter
+        AppState.nativeWhisperProgressSchedule = nativeWhisperProgressSchedule
         AppState.localAIInstallStatusProvider = installStatusProvider
         AppState.localAIInstallStarter = installStarter
+        AppState.localAIProgressSchedule = localAIProgressSchedule
         AppState.localAIModelDelete = modelDelete
         AppState.localAIPartialModelDelete = partialModelDelete
         AppState.localAIProcessingAvailabilityProvider = availabilityProvider
@@ -1952,31 +2107,52 @@ private final class NativeWhisperStatusHarness: @unchecked Sendable {
 }
 
 private final class ControlledNativeWhisperInstallHarness: @unchecked Sendable {
+    typealias Progress = (NativeWhisperDownloadProgress) -> Void
     typealias Completion = (Result<Void, NativeWhisperInstallerError>) -> Void
 
+    private struct StartRecord {
+        let progress: Progress
+        let completion: Completion
+        let task: NativeWhisperInstallTask
+    }
+
     private let lock = NSLock()
-    private var tasks: [NativeWhisperInstallTask] = []
-    private var completions: [Completion] = []
+    private var records: [StartRecord] = []
 
     var startCount: Int {
-        lock.withLock { tasks.count }
+        lock.withLock { records.count }
     }
 
     var task: NativeWhisperInstallTask? {
-        lock.withLock { tasks.last }
+        lock.withLock { records.last?.task }
     }
 
     func start(
         model: NativeWhisperModel,
-        progress: @escaping (NativeWhisperDownloadProgress) -> Void,
+        progress: @escaping Progress,
         completion: @escaping Completion
     ) -> NativeWhisperInstallTask {
         let task = NativeWhisperInstallTask()
         lock.withLock {
-            tasks.append(task)
-            completions.append(completion)
+            records.append(
+                StartRecord(
+                    progress: progress,
+                    completion: completion,
+                    task: task
+                )
+            )
         }
         return task
+    }
+
+    func sendProgress(
+        _ progress: NativeWhisperDownloadProgress,
+        startIndex: Int = 0
+    ) {
+        let callback = lock.withLock {
+            records[safe: startIndex]?.progress
+        }
+        callback?(progress)
     }
 
     func complete(
@@ -1984,9 +2160,42 @@ private final class ControlledNativeWhisperInstallHarness: @unchecked Sendable {
         with result: Result<Void, NativeWhisperInstallerError>
     ) {
         let completion = lock.withLock {
-            completions[safe: startIndex]
+            records[safe: startIndex]?.completion
         }
         completion?(result)
+    }
+}
+
+private final class ProgressScheduleHarness: @unchecked Sendable {
+    typealias Operation = @Sendable () -> Void
+
+    private let lock = NSLock()
+    private var scheduled: [(delay: TimeInterval, operation: Operation)] = []
+
+    var schedule: LatestValueProgressCoalescer<Int>.Schedule {
+        { [weak self] delay, operation in
+            guard let self else { return }
+            self.lock.withLock {
+                self.scheduled.append((delay, operation))
+            }
+        }
+    }
+
+    var scheduledCount: Int {
+        lock.withLock { scheduled.count }
+    }
+
+    func runNext() {
+        let operation = lock.withLock {
+            scheduled.isEmpty ? nil : scheduled.removeFirst().operation
+        }
+        operation?()
+    }
+
+    func runAll() {
+        while scheduledCount > 0 {
+            runNext()
+        }
     }
 }
 
