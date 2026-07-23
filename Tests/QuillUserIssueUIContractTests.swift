@@ -122,9 +122,9 @@ struct QuillUserIssueUIContractTests {
             "Context prompt test uses shared recovery routing"
         )
         try expect(
-            source.contains("case .openProviderSettings:")
-                && source.contains("appState.openProviderSettings()"),
-            "Settings prompt issues can open Provider settings"
+            source.contains("case .openProviderSettings, .openModelsSettings")
+                && !source.contains("appState.openProviderSettings()"),
+            "Settings prompt issues omit no-op Provider navigation"
         )
         try expect(
             source.contains("contextTestIssue = context.userIssueRecord"),

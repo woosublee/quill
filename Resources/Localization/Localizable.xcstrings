@@ -481,6 +481,22 @@
         }
       }
     },
+    "Switch the active recording's audio input": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch the active recording's audio input"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "진행 중인 녹음의 오디오 입력 전환"
+          }
+        }
+      }
+    },
     "Cloud transcription": {
       "localizations": {
         "en": {
@@ -6299,6 +6315,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "Apple 라이브"
+          }
+        }
+      }
+    },
+    "Apple Live is unavailable with System Default + System Audio": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Live is unavailable with System Default + System Audio"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple 라이브는 시스템 기본값 + 시스템 오디오에서 사용할 수 없습니다"
+          }
+        }
+      }
+    },
+    "Realtime is unavailable with System Default + System Audio": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Realtime is unavailable with System Default + System Audio"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실시간은 시스템 기본값 + 시스템 오디오에서 사용할 수 없습니다"
           }
         }
       }

@@ -864,6 +864,9 @@ Model: \(model)
         }
 
         let sanitizedTranscript = sanitizePostProcessedTranscript(content)
+        guard !Self.leaksRawTranscriptionPromptTemplate(sanitizedTranscript) else {
+            throw PostProcessingError.suspectedInstructionExecution
+        }
         if instructionExecutionGuardEnabled && appearsToHaveExecutedInstruction(
             rawTranscript: transcript,
             cleanedTranscript: sanitizedTranscript,
@@ -875,6 +878,14 @@ Model: \(model)
             transcript: sanitizedTranscript,
             prompt: promptForDisplay
         )
+    }
+
+    /// Detects the model echoing this service's own RAW_TRANSCRIPTION prompt
+    /// wrapper back as its "cleaned" output instead of actually cleaning the
+    /// text. Independent of `instructionExecutionGuardEnabled` since this is a
+    /// plain correctness failure, not a prompt-injection concern.
+    static func leaksRawTranscriptionPromptTemplate(_ value: String) -> Bool {
+        value.contains("RAW_TRANSCRIPTION")
     }
 
     private func processCommandTransform(

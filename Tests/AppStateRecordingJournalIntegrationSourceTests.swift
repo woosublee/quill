@@ -182,11 +182,38 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         precondition(switchBody.contains("activeInputSwitchToken = switchToken"))
         precondition(switchBody.contains("isActiveInputSwitchPhysicalStopInProgress = true"))
         precondition(switchBody.contains("isActiveInputSwitchPhysicalStopInProgress = false"))
+        let readinessGuardRange = try requiredRange(of: "guard isAudioInputSelectable(newInputID) else", in: switchBody)
+        let switchTokenRange = try requiredRange(of: "let switchToken = UUID()", in: switchBody)
+        precondition(readinessGuardRange.lowerBound < switchTokenRange.lowerBound)
         let stopRange = try requiredRange(of: "stopPhysicalAudioRecorder(", in: switchBody)
         let switchRange = try requiredRange(of: "controller.switchSegment(", in: switchBody)
         let startRange = try requiredRange(of: "startPhysicalAudioRecorder(inputID: newInputID)", in: switchBody)
         precondition(stopRange.lowerBound < switchRange.lowerBound)
         precondition(switchRange.lowerBound < startRange.lowerBound)
+
+        precondition(source.contains("func isAudioInputSelectable(_ inputID: String) -> Bool"))
+        let selectableBody = try functionBody(named: "isAudioInputSelectable", in: source)
+        precondition(selectableBody.contains("AudioInputDevice.isSystemDefaultAndSystemAudio(inputID)"))
+        precondition(selectableBody.contains("isActiveRecordingUsingLiveOnlyTranscription"))
+        precondition(selectableBody.contains("transcriptionEnabled && currentNoteBrowserTranscriptionChoiceIsLiveOnly"))
+        let liveOnlyBody = try body(
+            startingWith: "private var isActiveRecordingUsingLiveOnlyTranscription: Bool",
+            in: source
+        )
+        precondition(liveOnlyBody.contains("currentNoteBrowserTranscriptionChoiceIsLiveOnly"))
+        let choiceLiveOnlyBody = try body(
+            startingWith: "private var currentNoteBrowserTranscriptionChoiceIsLiveOnly: Bool",
+            in: source
+        )
+        precondition(choiceLiveOnlyBody.contains("case .appleLive, .apiRealtime:"))
+        precondition(choiceLiveOnlyBody.contains("return true"))
+
+        let overlayOptionsBody = try functionBody(named: "recordingOverlayInputOptions", in: source)
+        precondition(
+            overlayOptionsBody.contains(
+                "isEnabled: isAudioInputSelectable(AudioInputDevice.systemDefaultAndSystemAudioID)"
+            )
+        )
         precondition(switchBody.contains("controller.terminalPersistenceFailure"))
         precondition(switchBody.contains("activeRecordingStorageFailureID == controller.recordingID"))
         precondition(switchBody.contains("finishRecordingAfterJournalPersistenceFailure("))

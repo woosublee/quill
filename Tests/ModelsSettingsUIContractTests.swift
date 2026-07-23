@@ -22,6 +22,7 @@ struct ModelsSettingsUIContractTests {
         try testTranscriptionUsesNativePickerAndExistingChoiceAPI(settings)
         testNativeDropdownUsesPendingContextualManagement(settings)
         testNativeManagementRegressionGuards(settings: settings, appDelegate: appDelegate, appState: appState)
+        testPendingLocalAISelectionsResetWithModelsView(settings: settings, appState: appState)
         testReviewRegressionGuards(settings)
         testPostProcessingUsesExplicitSwitchAndExistingState(settings)
         testContextUsesExplicitSwitchAndExistingState(settings)
@@ -36,6 +37,9 @@ struct ModelsSettingsUIContractTests {
         try testTranscriptionCardHasIndependentToggle()
         try testMenuBarUsesRecordingCopyWhenTranscriptionIsOff()
         testCurrentSpecDocumentsCorrectedLayout(currentSpec)
+        try testSettingsDraftsApplyImmediatelyWhenReadyOrOff(settings)
+        try testSettingsDraftsSyncFromExternalAppStateChanges(settings)
+        try testNoteBrowserSharesStandardModelsAndGatesRealtime(appState)
         print("ModelsSettingsUIContractTests passed")
     }
 
@@ -46,7 +50,6 @@ struct ModelsSettingsUIContractTests {
             "contextBackendStorageKey",
             "localAIBaseURLStorageKey",
             "localAIAPIKeyStorageKey",
-            "showRealtimeTranscriptionOptionStorageKey",
             "showLegacyTranscriptionOptionStorageKey"
         ] {
             precondition(!appState.contains(forbidden), "UI-only work added functional state: \(forbidden)")
@@ -57,8 +60,11 @@ struct ModelsSettingsUIContractTests {
             "@Published var disableContextCapture: Bool",
             "@Published var disableAutoPaste: Bool",
             "@Published var realtimeStreamingEnabled: Bool",
+            "@Published var showRealtimeTranscriptionOption: Bool",
             "@Published var showLegacyMlxWhisperOptions: Bool",
-            "func setNoteBrowserTranscriptionChoice(_ choice: TranscriptionBackendChoice)"
+            "func setNoteBrowserTranscriptionChoice(_ choice: TranscriptionBackendChoice)",
+            "var standardAPIModelIDs: [String]",
+            "ModelConfiguration.transcriptionModels"
         ] {
             precondition(appState.contains(existing), "Missing existing state/action: \(existing)")
         }
@@ -200,8 +206,8 @@ struct ModelsSettingsUIContractTests {
         precondition(models.contains("appState.hasTranscriptionAPIKey"))
         precondition(models.contains("Cloud transcription requires an API key. Add one in Cloud Provider or use the transcription override in Details."))
         precondition(models.contains("private func providerConfigurationWarning("))
-        precondition(models.contains("Button(\"Open Provider Settings\")"))
-        precondition(models.contains("appState.openProviderSettings()"))
+        precondition(!models.contains("Button(\"Open Provider Settings\")"))
+        precondition(!models.contains("appState.openProviderSettings()"))
         precondition(transcription.contains("providerConfigurationWarning("))
         precondition(postProcessing.contains("providerConfigurationWarning("))
         precondition(context.contains("providerConfigurationWarning("))
@@ -212,12 +218,12 @@ struct ModelsSettingsUIContractTests {
         precondition(!postProcessing.contains(".opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)"))
         precondition(!context.contains(".disabled(!hasConfiguredCloudAPIKey)"))
         precondition(!context.contains(".opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)"))
-        precondition(postProcessing.contains("if postProcessingUsesCloud && !hasConfiguredCloudAPIKey"))
-        precondition(context.contains("if contextUsesCloud && !hasConfiguredCloudAPIKey"))
+        precondition(postProcessing.contains("if postProcessingEnabledDraft && postProcessingUsesCloud"))
+        precondition(context.contains("if contextEnabledDraft && contextUsesCloud"))
         precondition(models.contains("localizedCatalogString(message)"))
-        precondition(postProcessing.contains("Add an API key in Cloud Provider to enable Post-processing."))
+        precondition(!postProcessing.contains("Add an API key in Cloud Provider to enable Post-processing."))
         precondition(postProcessing.contains("Post-processing is on, but cloud processing is unavailable until an API key is configured."))
-        precondition(context.contains("Add an API key in Cloud Provider to enable Context."))
+        precondition(!context.contains("Add an API key in Cloud Provider to enable Context."))
         precondition(context.contains("Context is on, but AI context analysis is unavailable until an API key is configured."))
         precondition(!postProcessingDetails.contains(".disabled(!hasConfiguredCloudAPIKey)"))
         precondition(!context.contains("contextPromptSection\n                    .disabled(!hasConfiguredCloudAPIKey)"))
@@ -236,18 +242,14 @@ struct ModelsSettingsUIContractTests {
         )
 
         precondition(models.contains("private var transcriptionChoice: Binding<TranscriptionBackendChoice>"))
-        precondition(models.contains("get: { appState.currentNoteBrowserTranscriptionChoice }"))
+        precondition(models.contains("get: { settingsTranscriptionChoice }"))
         precondition(models.contains("set: { handleTranscriptionChoiceSelection($0) }"))
-        precondition(models.contains("@State private var showRealtimeTranscriptionOption = false"))
         precondition(models.contains("private var transcriptionChoiceDisplays: [TranscriptionChoiceDisplay]"))
-        precondition(models.contains("private var standardAPIModelIDs: [String]"))
-        precondition(models.contains("ModelConfiguration.transcriptionModels"))
+        precondition(models.contains("appState.standardAPIModelIDs.map"))
         precondition(models.contains("appState.noteBrowserTranscriptionChoiceDisplays"))
-        precondition(models.contains("showRealtimeTranscriptionOption || appState.realtimeStreamingEnabled"))
+        precondition(models.contains("appState.showRealtimeTranscriptionOption || appState.realtimeStreamingEnabled"))
         precondition(models.contains("appState.showLegacyMlxWhisperOptions"))
         precondition(models.contains("appState.noteBrowserTranscriptionDisplay(for: .apiStandard(modelID: modelID))"))
-        precondition(models.contains("appState.transcriptionModel.trimmingCharacters(in: .whitespacesAndNewlines)"))
-        precondition(models.contains("!modelIDs.contains(currentModelID)"))
         precondition(picker.contains("transcriptionChoiceDisplays.filter { $0.section == section }"))
         precondition(picker.contains("if #available(macOS 14.0, *)"))
         precondition(picker.contains("Picker(\"Model\", selection: transcriptionChoice)"))
@@ -257,11 +259,21 @@ struct ModelsSettingsUIContractTests {
         precondition(picker.contains(".selectionDisabled(!canSelectTranscriptionDisplay(display))"))
         precondition(picker.contains("transcriptionChoiceMenuItem(display)"))
         precondition(picker.contains(".disabled(!canSelectTranscriptionDisplay(display))"))
+        // Settings lets any model be selected (temporary selection); it must not
+        // gate selectability on the shared display availability the way the
+        // Note Browser does.
+        let canSelect = block(
+            in: models,
+            from: "private func canSelectTranscriptionDisplay(_ display: TranscriptionChoiceDisplay) -> Bool",
+            to: "\n    private func transcriptionChoiceMenuLabel"
+        )
+        precondition(!canSelect.contains("return display.isAvailable"))
+        precondition(canSelect.contains("true"))
         precondition(picker.contains(".pickerStyle(.menu)"))
         precondition(picker.contains(".frame(minWidth: 280, maxWidth: 320, alignment: .leading)"))
         precondition(picker.contains("Menu {"))
         precondition(!models.contains("Required · Always On"))
-        precondition(models.contains("Toggle(\"Show Realtime transcription option\", isOn: $showRealtimeTranscriptionOption)"))
+        precondition(models.contains("Toggle(\"Show Realtime transcription option\", isOn: $appState.showRealtimeTranscriptionOption)"))
         precondition(!models.contains("Toggle(\"Show Realtime transcription option\", isOn: $appState.realtimeStreamingEnabled)"))
     }
 
@@ -292,7 +304,7 @@ struct ModelsSettingsUIContractTests {
         precondition(models.contains("NativeWhisperModelCatalog.all.map"))
         precondition(models.contains("handleTranscriptionChoiceSelection($0)"))
         precondition(models.contains("pendingNativeModelID = modelID"))
-        precondition(models.contains("appState.isNoteBrowserTranscriptionChoiceAvailable(choice)"))
+        precondition(models.contains("appState.isNoteBrowserTranscriptionChoiceReady(choice)"))
         precondition(models.contains("appState.cancelNativeWhisperAutoSelection()"))
         precondition(models.contains("private var managedNativeModel: NativeWhisperModel?"))
         precondition(models.contains("private func transcriptionChoiceMenuLabel(_ display: TranscriptionChoiceDisplay) -> String"))
@@ -366,6 +378,30 @@ struct ModelsSettingsUIContractTests {
         precondition(models.contains("appState.cancelNativeWhisperAutoSelection()"))
     }
 
+    private static func testPendingLocalAISelectionsResetWithModelsView(
+        settings: String,
+        appState: String
+    ) {
+        let models = block(
+            in: settings,
+            from: "struct ModelsSettingsView",
+            to: "// MARK: - Shortcuts Settings"
+        )
+        for draftState in [
+            "@State private var transcriptionEnabledDraft = false",
+            "@State private var transcriptionChoiceDraft: TranscriptionBackendChoice?",
+            "@State private var postProcessingEnabledDraft = false",
+            "@State private var postProcessingChoiceDraft: AIProcessingBackendChoice?",
+            "@State private var contextEnabledDraft = false",
+            "@State private var contextChoiceDraft: AIProcessingBackendChoice?"
+        ] {
+            precondition(models.contains(draftState))
+        }
+        precondition(models.contains(".onDisappear {"))
+        precondition(models.contains("appState.commitModelSettingsDrafts("))
+        precondition(appState.contains("func commitModelSettingsDrafts("))
+    }
+
     private static func testReviewRegressionGuards(_ source: String) {
         let models = block(
             in: source,
@@ -399,7 +435,7 @@ struct ModelsSettingsUIContractTests {
         precondition(menuItem.contains("handleTranscriptionChoiceSelection(display.choice)"))
         precondition(!menuItem.contains("appState.setNoteBrowserTranscriptionChoice(display.choice)"))
         precondition(outputLanguage.contains("private var isOutputLanguageAvailable: Bool"))
-        precondition(outputLanguage.contains("!appState.disablePostProcessing || appState.isCommandModeEnabled"))
+        precondition(outputLanguage.contains("postProcessingEnabledDraft || appState.isCommandModeEnabled"))
         precondition(outputLanguage.contains(".disabled(!isOutputLanguageAvailable)"))
         precondition(outputLanguage.contains(".opacity(isOutputLanguageAvailable ? 1 : 0.55)"))
         precondition(outputLanguage.contains("Output Language is unavailable while Post-processing and Edit Mode are off."))
@@ -420,8 +456,8 @@ struct ModelsSettingsUIContractTests {
         )
 
         for expected in [
-            "get: { !appState.disableContextCapture }",
-            "set: { appState.disableContextCapture = !$0 }",
+            "get: { contextEnabledDraft }",
+            "contextEnabledDraft = newValue",
             "customAIProcessingModelSetting(",
             "contextPromptSection",
             "selection: $appState.contextScreenshotMaxDimension"
@@ -435,6 +471,11 @@ struct ModelsSettingsUIContractTests {
         ] {
             precondition(context.contains(expected), "Missing Context switch presentation: \(expected)")
         }
+        precondition(context.contains(".disabled(!contextEnabledDraft)"))
+        precondition(context.contains(".opacity(contextEnabledDraft ? 1 : 0.45)"))
+        precondition(
+            context.contains("if contextEnabledDraft && contextUsesCloud")
+        )
         precondition(!context.contains("Text(contextEnabled.wrappedValue ? \"On\" : \"Off\")"))
     }
 
@@ -451,8 +492,8 @@ struct ModelsSettingsUIContractTests {
         )
 
         for expected in [
-            "get: { !appState.disablePostProcessing }",
-            "set: { appState.disablePostProcessing = !$0 }",
+            "get: { postProcessingEnabledDraft }",
+            "postProcessingEnabledDraft = newValue",
             "Toggle(\"\", isOn: postProcessingEnabled)",
             ".toggleStyle(.switch)",
             ".accessibilityLabel(\"Post-processing\")",
@@ -472,6 +513,15 @@ struct ModelsSettingsUIContractTests {
         ] {
             precondition(postProcessing.contains(expected), "Missing Post-processing switch presentation: \(expected)")
         }
+        precondition(postProcessing.contains(".disabled(!postProcessingEnabledDraft)"))
+        precondition(
+            postProcessing.contains(".opacity(postProcessingEnabledDraft ? 1 : 0.45)")
+        )
+        precondition(
+            postProcessing.contains(
+                "if postProcessingEnabledDraft && postProcessingUsesCloud"
+            )
+        )
         precondition(!postProcessing.contains("Text(postProcessingEnabled.wrappedValue ? \"On\" : \"Off\")"))
         precondition(!models.contains(".disabled(appState.disablePostProcessing || appState.useLocalTranscription)"))
     }
@@ -604,7 +654,7 @@ struct ModelsSettingsUIContractTests {
         precondition(models.contains("aiProcessingChoiceMenuLabel"))
         precondition(models.contains("Text(aiProcessingChoiceMenuLabel(currentDisplay))"))
 
-        precondition(choiceBinding.contains("get: { appState.currentAIProcessingChoice(for: feature) }"))
+        precondition(choiceBinding.contains("get: { settingsAIProcessingChoice(for: feature) }"))
         precondition(choiceBinding.contains("handleAIProcessingChoiceSelection($0, for: feature)"))
         precondition(cloudChoiceSelection.contains("appState.selectAIProcessingBackendChoice(choice, for: feature)"))
         precondition(cloudChoiceSelection.contains("syncCloudModelDraft(modelID, for: feature)"))
@@ -636,7 +686,7 @@ struct ModelsSettingsUIContractTests {
         precondition(retainedResolver.contains("LocalAIManagedModelResolver.Input("))
         precondition(retainedResolver.contains("pendingModelID: appState.pendingLocalAIModelID(for: feature)"))
         precondition(retainedResolver.contains("retainedModelID: retainedModelID"))
-        precondition(retainedResolver.contains("currentChoice: appState.currentAIProcessingChoice(for: feature)"))
+        precondition(retainedResolver.contains("currentChoice: settingsAIProcessingChoice(for: feature)"))
         precondition(retainedResolver.contains("retainedIsInstalling: retainedState?.isInstalling ?? false"))
         precondition(retainedResolver.contains("retainedProgressIsCancelled: retainedState?.progress.isCancelled ?? false"))
         precondition(retainedResolver.contains("retainedHasIssue: retainedState?.issue != nil"))
@@ -664,10 +714,10 @@ struct ModelsSettingsUIContractTests {
 
         precondition(postProcessing.contains("managedLocalAIModel(for: .postProcessing)"))
         precondition(postProcessing.contains("feature: .postProcessing"))
-        precondition(postProcessing.contains("appState.postProcessingBackendChoice"))
+        precondition(postProcessing.contains("settingsAIProcessingChoice(for: .postProcessing)"))
         precondition(context.contains("managedLocalAIModel(for: .context)"))
         precondition(context.contains("feature: .context"))
-        precondition(context.contains("appState.contextBackendChoice"))
+        precondition(context.contains("settingsAIProcessingChoice(for: .context)"))
         precondition(context.contains("Local Context uses app and window text only. Screenshots stay on this Mac."))
 
         precondition(postProcessingDetails.contains("customAIProcessingModelSetting("))
@@ -828,8 +878,10 @@ struct ModelsSettingsUIContractTests {
         )
 
         precondition(source.contains("Record audio without creating a transcript."))
-        precondition(source.contains(".disabled(!appState.transcriptionEnabled)"))
-        precondition(section.contains("} else if appState.transcriptionEnabled,"))
+        precondition(source.contains(".disabled(!transcriptionEnabledDraft)"))
+        precondition(source.contains(".opacity(transcriptionEnabledDraft ? 1 : 0.45)"))
+        precondition(section.contains("if transcriptionEnabledDraft,"))
+        precondition(section.contains("} else if transcriptionEnabledDraft,"))
         precondition(section.contains("let reason = currentTranscriptionDisplay.localizedUnavailableReason()"))
         precondition(!section.contains("} else if let reason = currentTranscriptionDisplay.localizedUnavailableReason()"))
     }
@@ -852,6 +904,86 @@ struct ModelsSettingsUIContractTests {
         precondition(source.contains("Cloud Provider, Transcription, Post-processing, Context의 네 peer card"))
         precondition(source.contains("persisted On/Off 모양은 유지"))
         precondition(source.contains("Settings 진입 시 key를 재검증하는 network request도 추가하지 않는다"))
+    }
+
+    private static func testSettingsDraftsApplyImmediatelyWhenReadyOrOff(
+        _ source: String
+    ) throws {
+        let transcriptionEnabledBinding = block(
+            in: source,
+            from: "private var transcriptionEnabled: Binding<Bool> {",
+            to: "\n    private var managedNativeModel"
+        )
+        precondition(transcriptionEnabledBinding.contains("appState.transcriptionEnabled = false"))
+        precondition(
+            transcriptionEnabledBinding.contains(
+                "appState.isNoteBrowserTranscriptionChoiceReady(settingsTranscriptionChoice)"
+            )
+        )
+        precondition(transcriptionEnabledBinding.contains("appState.transcriptionEnabled = true"))
+
+        let choiceSelection = block(
+            in: source,
+            from: "private func handleTranscriptionChoiceSelection(",
+            to: "\n    private func canSelectTranscriptionDisplay"
+        )
+        precondition(choiceSelection.contains("appState.setNoteBrowserTranscriptionChoice(choice)"))
+        precondition(choiceSelection.contains("appState.transcriptionEnabled = true"))
+
+        let postProcessingEnabledBinding = block(
+            in: source,
+            from: "private var postProcessingEnabled: Binding<Bool> {",
+            to: "\n    private var postProcessingUsesCloud"
+        )
+        precondition(postProcessingEnabledBinding.contains("appState.disablePostProcessing = true"))
+        precondition(postProcessingEnabledBinding.contains("appState.disablePostProcessing = false"))
+
+        let contextEnabledBinding = block(
+            in: source,
+            from: "private var contextEnabled: Binding<Bool> {",
+            to: "\n    private var contextFeatureSection"
+        )
+        precondition(contextEnabledBinding.contains("appState.disableContextCapture = true"))
+        precondition(contextEnabledBinding.contains("appState.disableContextCapture = false"))
+
+        let aiChoiceSelection = block(
+            in: source,
+            from: "private func handleAIProcessingChoiceSelection(",
+            to: "\n    private func setRetainedLocalAIModelID"
+        )
+        precondition(aiChoiceSelection.contains("setAIProcessingFeatureEnabled(true, for: feature)"))
+    }
+
+    private static func testSettingsDraftsSyncFromExternalAppStateChanges(
+        _ source: String
+    ) throws {
+        for expected in [
+            "onChange(of: appState.currentNoteBrowserTranscriptionChoice)",
+            "onChange(of: appState.transcriptionEnabled)",
+            "onChange(of: appState.postProcessingBackendChoice)",
+            "onChange(of: appState.disablePostProcessing)",
+            "onChange(of: appState.contextBackendChoice)",
+            "onChange(of: appState.disableContextCapture)"
+        ] {
+            precondition(source.contains(expected), "Missing external draft sync: \(expected)")
+        }
+    }
+
+    private static func testNoteBrowserSharesStandardModelsAndGatesRealtime(
+        _ appState: String
+    ) throws {
+        let displaysBody = block(
+            in: appState,
+            from: "var noteBrowserTranscriptionChoiceDisplays: [TranscriptionChoiceDisplay] {",
+            to: "\n    @MainActor\n    func label(for mode:"
+        )
+        precondition(displaysBody.contains("standardAPIModelIDs.map"))
+        precondition(
+            displaysBody.contains(
+                "(showRealtimeTranscriptionOption || realtimeStreamingEnabled)"
+            )
+        )
+        precondition(displaysBody.contains("noteBrowserTranscriptionDisplay(for: apiRealtimeChoice)"))
     }
 
     private static func source(_ path: String) throws -> String {

@@ -9,6 +9,7 @@ struct NoteBrowserRecoveryTests {
         testProviderConfigurationPresentationOpensProviderSettings()
         testReadyMissingModelSwitchesToRetry()
         testMissingAudioKeepsGenericIssuePresentation()
+        testLocalTranscriptionFailedHidesDebugDetails()
         print("NoteBrowserRecoveryTests passed")
     }
 
@@ -139,5 +140,35 @@ struct NoteBrowserRecoveryTests {
 
         precondition(presentation.title == record.presentation(language: "en").title)
         precondition(presentation.recoveryAction == .openModelsSettings)
+    }
+
+    private static func testLocalTranscriptionFailedHidesDebugDetails() {
+        let record = QuillUserIssueRecord(
+            code: .localTranscriptionFailed,
+            context: QuillUserIssueContext(
+                modelID: "whisper-large-v3-turbo",
+                localBackend: "Apple Speech"
+            )
+        )
+        let original = record.presentation(language: "en")
+        precondition(!original.detailsRows.isEmpty, "precondition: original issue has debug details")
+
+        let state = NoteBrowserActionState(
+            hasStoredAudio: true,
+            transcript: "",
+            retryAvailability: .ready
+        )
+        let presentation = NoteBrowserRecoveryPresentation.presentation(
+            for: record,
+            actionState: state,
+            language: "en",
+            bundle: .main
+        )
+
+        precondition(presentation.title == original.title)
+        precondition(presentation.body == original.body)
+        precondition(presentation.suggestion == original.suggestion)
+        precondition(presentation.detailsRows.isEmpty)
+        precondition(presentation.recoveryAction == original.recoveryAction)
     }
 }

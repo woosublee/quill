@@ -1512,11 +1512,16 @@ struct ModelsSettingsView: View {
     @State private var transcriptionAPIURLInput: String = ""
     @State private var transcriptionAPIKeyInput: String = ""
     @State private var transcriptionModelDraft = ""
+    @State private var transcriptionEnabledDraft = false
+    @State private var transcriptionChoiceDraft: TranscriptionBackendChoice?
     @State private var pendingNativeModelID: String?
-    @State private var showRealtimeTranscriptionOption = false
     @State private var realtimeStreamingModelDraft = ""
+    @State private var postProcessingEnabledDraft = false
+    @State private var postProcessingChoiceDraft: AIProcessingBackendChoice?
     @State private var postProcessingModelDraft = ""
     @State private var postProcessingFallbackModelDraft = ""
+    @State private var contextEnabledDraft = false
+    @State private var contextChoiceDraft: AIProcessingBackendChoice?
     @State private var contextModelDraft = ""
     @State private var retainedPostProcessingLocalModelID: String?
     @State private var retainedContextLocalModelID: String?
@@ -1587,10 +1592,15 @@ struct ModelsSettingsView: View {
             transcriptionAPIURLInput = appState.transcriptionAPIURL
             transcriptionAPIKeyInput = appState.transcriptionAPIKey
             transcriptionModelDraft = customStandardAPIModelDraft(for: appState.transcriptionModel)
-            showRealtimeTranscriptionOption = appState.realtimeStreamingEnabled
+            transcriptionEnabledDraft = appState.transcriptionEnabled
+            transcriptionChoiceDraft = appState.currentNoteBrowserTranscriptionChoice
             realtimeStreamingModelDraft = appState.realtimeStreamingModel
+            postProcessingEnabledDraft = !appState.disablePostProcessing
+            postProcessingChoiceDraft = appState.postProcessingBackendChoice
             postProcessingModelDraft = customAIProcessingModelDraft(for: appState.postProcessingModel)
             postProcessingFallbackModelDraft = appState.postProcessingFallbackModel
+            contextEnabledDraft = !appState.disableContextCapture
+            contextChoiceDraft = appState.contextBackendChoice
             contextModelDraft = customAIProcessingModelDraft(for: appState.contextModel)
             customVocabularyInput = appState.customVocabulary
             customSystemPromptInput = appState.customSystemPrompt.isEmpty
@@ -1601,6 +1611,24 @@ struct ModelsSettingsView: View {
                 : appState.customContextPrompt
             initializeManagedNativeModel()
             reconcileRetainedLocalAIModels()
+        }
+        .onChange(of: appState.currentNoteBrowserTranscriptionChoice) { value in
+            if transcriptionChoiceDraft != value { transcriptionChoiceDraft = value }
+        }
+        .onChange(of: appState.transcriptionEnabled) { value in
+            if transcriptionEnabledDraft != value { transcriptionEnabledDraft = value }
+        }
+        .onChange(of: appState.postProcessingBackendChoice) { value in
+            if postProcessingChoiceDraft != value { postProcessingChoiceDraft = value }
+        }
+        .onChange(of: appState.disablePostProcessing) { value in
+            if postProcessingEnabledDraft != !value { postProcessingEnabledDraft = !value }
+        }
+        .onChange(of: appState.contextBackendChoice) { value in
+            if contextChoiceDraft != value { contextChoiceDraft = value }
+        }
+        .onChange(of: appState.disableContextCapture) { value in
+            if contextEnabledDraft != !value { contextEnabledDraft = !value }
         }
         .onChange(of: appState.transcriptionAPIURL) { value in
             if transcriptionAPIURLInput != value { transcriptionAPIURLInput = value }
@@ -1625,6 +1653,18 @@ struct ModelsSettingsView: View {
         }
         .onChange(of: managedLocalAIReconciliationInputs) { _ in
             reconcileRetainedLocalAIModels()
+        }
+        .onDisappear {
+            appState.commitModelSettingsDrafts(
+                transcriptionEnabled: transcriptionEnabledDraft,
+                transcriptionChoice: settingsTranscriptionChoice,
+                postProcessingEnabled: postProcessingEnabledDraft,
+                postProcessingChoice: settingsAIProcessingChoice(
+                    for: .postProcessing
+                ),
+                contextEnabled: contextEnabledDraft,
+                contextChoice: settingsAIProcessingChoice(for: .context)
+            )
         }
     }
 
@@ -1704,42 +1744,34 @@ struct ModelsSettingsView: View {
         }
     }
 
+    private var settingsTranscriptionChoice: TranscriptionBackendChoice {
+        transcriptionChoiceDraft ?? appState.currentNoteBrowserTranscriptionChoice
+    }
+
     private var currentTranscriptionDisplay: TranscriptionChoiceDisplay {
         appState.noteBrowserTranscriptionDisplay(
-            for: appState.currentNoteBrowserTranscriptionChoice
+            for: settingsTranscriptionChoice
         )
     }
 
-    private var standardAPIModelIDs: [String] {
-        var modelIDs: [String] = []
-        for modelID in ModelConfiguration.transcriptionModels where !modelIDs.contains(modelID) {
-            modelIDs.append(modelID)
-        }
-
-        let currentModelID = appState.transcriptionModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !currentModelID.isEmpty && !modelIDs.contains(currentModelID) {
-            modelIDs.append(currentModelID)
-        }
-        return modelIDs
-    }
-
     private var transcriptionChoiceDisplays: [TranscriptionChoiceDisplay] {
-        let standardDisplays = standardAPIModelIDs.map { modelID in
+        let standardDisplays = appState.standardAPIModelIDs.map { modelID in
             appState.noteBrowserTranscriptionDisplay(for: .apiStandard(modelID: modelID))
         }
         let nativeDisplays = NativeWhisperModelCatalog.all.map { model in
             appState.noteBrowserTranscriptionDisplay(for: .nativeWhisper(modelID: model.id))
         }
+        // appState.noteBrowserTranscriptionChoiceDisplays already gates Realtime
+        // on showRealtimeTranscriptionOption / realtimeStreamingEnabled, so
+        // apiRealtime only appears here when it's already meant to be shown.
         let otherDisplays = appState.noteBrowserTranscriptionChoiceDisplays.filter { display in
             switch display.choice {
             case .apiStandard, .nativeWhisper:
                 return false
-            case .apiRealtime:
-                return showRealtimeTranscriptionOption || appState.realtimeStreamingEnabled
+            case .apiRealtime, .appleLive:
+                return true
             case .legacyMlxWhisper:
                 return display.isAvailable
-            case .appleLive:
-                return true
             }
         }
         return standardDisplays + nativeDisplays + otherDisplays
@@ -1747,15 +1779,26 @@ struct ModelsSettingsView: View {
 
     private var transcriptionChoice: Binding<TranscriptionBackendChoice> {
         Binding(
-            get: { appState.currentNoteBrowserTranscriptionChoice },
+            get: { settingsTranscriptionChoice },
             set: { handleTranscriptionChoiceSelection($0) }
         )
     }
 
     private var transcriptionEnabled: Binding<Bool> {
         Binding(
-            get: { appState.transcriptionEnabled },
-            set: { appState.transcriptionEnabled = $0 }
+            get: { transcriptionEnabledDraft },
+            set: { newValue in
+                transcriptionEnabledDraft = newValue
+                guard newValue else {
+                    appState.transcriptionEnabled = false
+                    return
+                }
+                guard appState.isNoteBrowserTranscriptionChoiceReady(settingsTranscriptionChoice) else {
+                    return
+                }
+                appState.setNoteBrowserTranscriptionChoice(settingsTranscriptionChoice)
+                appState.transcriptionEnabled = true
+            }
         )
     }
 
@@ -1765,29 +1808,34 @@ struct ModelsSettingsView: View {
     }
 
     private func initializeManagedNativeModel() {
-        guard case .nativeWhisper(let modelID) =
-            appState.currentNoteBrowserTranscriptionChoice else { return }
+        guard case .nativeWhisper(let modelID) = settingsTranscriptionChoice else {
+            return
+        }
         pendingNativeModelID = modelID
     }
 
     private func handleTranscriptionChoiceSelection(_ choice: TranscriptionBackendChoice) {
+        transcriptionChoiceDraft = choice
         switch choice {
         case .nativeWhisper(let modelID):
             pendingNativeModelID = modelID
-            if appState.isNoteBrowserTranscriptionChoiceAvailable(choice) {
-                appState.cancelNativeWhisperAutoSelection()
-                appState.setNoteBrowserTranscriptionChoice(choice)
-            }
         case .apiStandard, .apiRealtime, .legacyMlxWhisper, .appleLive:
             pendingNativeModelID = nil
             appState.cancelNativeWhisperAutoSelection()
+        }
+        if appState.isNoteBrowserTranscriptionChoiceReady(choice) {
             appState.setNoteBrowserTranscriptionChoice(choice)
+            appState.transcriptionEnabled = true
         }
     }
 
     private func canSelectTranscriptionDisplay(_ display: TranscriptionChoiceDisplay) -> Bool {
-        if case .nativeWhisper = display.choice { return true }
-        return display.isAvailable
+        // Settings always lets any model be selected, independent of the audio
+        // input source or install state — this is a temporary selection. When
+        // the picked model can't actually run right now, the warning below the
+        // picker explains why, and the Note Browser stays on the last ready
+        // model until Settings resolves to a usable one.
+        true
     }
 
     private func transcriptionChoiceMenuLabel(_ display: TranscriptionChoiceDisplay) -> String {
@@ -1839,7 +1887,7 @@ struct ModelsSettingsView: View {
 
     private func transcriptionChoiceMenuItem(_ display: TranscriptionChoiceDisplay) -> some View {
         Toggle(isOn: Binding(
-            get: { appState.currentNoteBrowserTranscriptionChoice == display.choice },
+            get: { settingsTranscriptionChoice == display.choice },
             set: { isSelected in
                 if isSelected { handleTranscriptionChoiceSelection(display.choice) }
             }
@@ -1859,22 +1907,64 @@ struct ModelsSettingsView: View {
         }
     }
 
+    private func settingsAIProcessingChoice(
+        for feature: AIProcessingFeature
+    ) -> AIProcessingBackendChoice {
+        switch feature {
+        case .postProcessing:
+            postProcessingChoiceDraft
+                ?? appState.currentAIProcessingChoice(for: feature)
+        case .context:
+            contextChoiceDraft
+                ?? appState.currentAIProcessingChoice(for: feature)
+        }
+    }
+
+    private func setAIProcessingChoiceDraft(
+        _ choice: AIProcessingBackendChoice,
+        for feature: AIProcessingFeature
+    ) {
+        switch feature {
+        case .postProcessing:
+            postProcessingChoiceDraft = choice
+        case .context:
+            contextChoiceDraft = choice
+        }
+    }
+
     private func aiProcessingChoiceBinding(
         for feature: AIProcessingFeature
     ) -> Binding<AIProcessingBackendChoice> {
         Binding(
-            get: { appState.currentAIProcessingChoice(for: feature) },
+            get: { settingsAIProcessingChoice(for: feature) },
             set: { handleAIProcessingChoiceSelection($0, for: feature) }
         )
+    }
+
+    private func setAIProcessingFeatureEnabled(
+        _ isEnabled: Bool,
+        for feature: AIProcessingFeature
+    ) {
+        switch feature {
+        case .postProcessing:
+            appState.disablePostProcessing = !isEnabled
+        case .context:
+            appState.disableContextCapture = !isEnabled
+        }
     }
 
     private func handleAIProcessingChoiceSelection(
         _ choice: AIProcessingBackendChoice,
         for feature: AIProcessingFeature
     ) {
+        setAIProcessingChoiceDraft(choice, for: feature)
         switch choice {
         case .cloud(let modelID):
-            appState.selectAIProcessingBackendChoice(choice, for: feature)
+            appState.discardPendingLocalAISelection(for: feature)
+            if appState.isAIProcessingChoiceReady(choice) {
+                appState.selectAIProcessingBackendChoice(choice, for: feature)
+                setAIProcessingFeatureEnabled(true, for: feature)
+            }
             syncCloudModelDraft(modelID, for: feature)
             reconcileRetainedLocalAIModel(for: feature)
         case .localAI(let modelID):
@@ -1884,6 +1974,9 @@ struct ModelsSettingsView: View {
                 || appState.currentAIProcessingChoice(for: feature) == choice
             if wasAccepted {
                 setRetainedLocalAIModelID(modelID, for: feature)
+                if appState.currentAIProcessingChoice(for: feature) == choice {
+                    setAIProcessingFeatureEnabled(true, for: feature)
+                }
             } else {
                 reconcileRetainedLocalAIModel(for: feature)
             }
@@ -1939,7 +2032,7 @@ struct ModelsSettingsView: View {
         return LocalAIManagedModelResolver.Input(
             pendingModelID: appState.pendingLocalAIModelID(for: feature),
             retainedModelID: retainedModelID,
-            currentChoice: appState.currentAIProcessingChoice(for: feature),
+            currentChoice: settingsAIProcessingChoice(for: feature),
             retainedIsInstalling: retainedState?.isInstalling ?? false,
             retainedProgressIsCancelled: retainedState?.progress.isCancelled ?? false,
             retainedHasIssue: retainedState?.issue != nil
@@ -2060,11 +2153,11 @@ struct ModelsSettingsView: View {
                     }
                 } label: {
                     if let currentDisplay = displays.first(where: {
-                        $0.choice == appState.currentAIProcessingChoice(for: feature)
+                        $0.choice == settingsAIProcessingChoice(for: feature)
                     }) {
                         Text(aiProcessingChoiceMenuLabel(currentDisplay))
                     } else {
-                        Text(verbatim: appState.currentAIProcessingChoice(for: feature).modelID)
+                        Text(verbatim: settingsAIProcessingChoice(for: feature).modelID)
                     }
                 }
                 .menuStyle(.borderlessButton)
@@ -2074,7 +2167,7 @@ struct ModelsSettingsView: View {
     }
 
     private var currentTranscriptionUsesAPI: Bool {
-        switch appState.currentNoteBrowserTranscriptionChoice {
+        switch settingsTranscriptionChoice {
         case .apiStandard, .apiRealtime:
             true
         case .nativeWhisper, .legacyMlxWhisper, .appleLive:
@@ -2089,38 +2182,27 @@ struct ModelsSettingsView: View {
         switch issue.recoveryAction {
         case .retryTranscription:
             return retry
-        case .openProviderSettings:
-            return { appState.openProviderSettings() }
-        case .openModelsSettings, .openMicrophoneSettings,
-             .openSpeechRecognitionSettings, .openScreenRecordingSettings,
-             .none:
+        case .openProviderSettings, .openModelsSettings,
+             .openMicrophoneSettings, .openSpeechRecognitionSettings,
+             .openScreenRecordingSettings, .none:
             return nil
         }
     }
 
     private func providerConfigurationWarning(_ message: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(
-                localizedCatalogString(message),
-                systemImage: "exclamationmark.triangle"
-            )
-            .font(.caption)
-            .foregroundStyle(.orange)
-
-            Button("Open Provider Settings") {
-                appState.openProviderSettings()
-            }
-            .font(.caption)
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-        }
+        Label(
+            localizedCatalogString(message),
+            systemImage: "exclamationmark.triangle"
+        )
+        .font(.caption)
+        .foregroundStyle(.orange)
     }
 
     private var transcriptionFeatureSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text(
-                    appState.transcriptionEnabled
+                    transcriptionEnabledDraft
                         ? "Convert speech to text."
                         : "Record audio without creating a transcript."
                 )
@@ -2140,7 +2222,7 @@ struct ModelsSettingsView: View {
                 if let model = managedNativeModel {
                     NativeWhisperModelRowView(
                         model: model,
-                        isSelected: appState.currentNoteBrowserTranscriptionChoice == .nativeWhisper(modelID: model.id),
+                        isSelected: settingsTranscriptionChoice == .nativeWhisper(modelID: model.id),
                         onSelect: {
                             handleTranscriptionChoiceSelection(.nativeWhisper(modelID: model.id))
                         },
@@ -2152,13 +2234,13 @@ struct ModelsSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if appState.transcriptionEnabled,
+                if transcriptionEnabledDraft,
                    currentTranscriptionUsesAPI,
                    !appState.hasTranscriptionAPIKey {
                     providerConfigurationWarning(
                         "Cloud transcription requires an API key. Add one in Cloud Provider or use the transcription override in Details."
                     )
-                } else if appState.transcriptionEnabled,
+                } else if transcriptionEnabledDraft,
                           let reason = currentTranscriptionDisplay.localizedUnavailableReason() {
                     Label(reason, systemImage: "exclamationmark.triangle")
                         .font(.caption)
@@ -2178,20 +2260,38 @@ struct ModelsSettingsView: View {
                     .padding(.top, 8)
                 }
             }
-            .disabled(!appState.transcriptionEnabled)
-            .opacity(appState.transcriptionEnabled ? 1 : 0.45)
+            .disabled(!transcriptionEnabledDraft)
+            .opacity(transcriptionEnabledDraft ? 1 : 0.45)
         }
     }
 
     private var postProcessingEnabled: Binding<Bool> {
         Binding(
-            get: { !appState.disablePostProcessing },
-            set: { appState.disablePostProcessing = !$0 }
+            get: { postProcessingEnabledDraft },
+            set: { newValue in
+                postProcessingEnabledDraft = newValue
+                guard newValue else {
+                    appState.disablePostProcessing = true
+                    return
+                }
+                guard appState.isAIProcessingChoiceReady(
+                    settingsAIProcessingChoice(for: .postProcessing)
+                ) else {
+                    return
+                }
+                appState.selectAIProcessingBackendChoice(
+                    settingsAIProcessingChoice(for: .postProcessing),
+                    for: .postProcessing
+                )
+                appState.disablePostProcessing = false
+            }
         )
     }
 
     private var postProcessingUsesCloud: Bool {
-        if case .cloud = appState.postProcessingBackendChoice { return true }
+        if case .cloud = settingsAIProcessingChoice(for: .postProcessing) {
+            return true
+        }
         return false
     }
 
@@ -2212,53 +2312,74 @@ struct ModelsSettingsView: View {
                     .accessibilityLabel("Post-processing")
             }
 
-            aiProcessingChoicePicker(for: .postProcessing)
+            VStack(alignment: .leading, spacing: 12) {
+                aiProcessingChoicePicker(for: .postProcessing)
 
-            if let model = managedLocalAIModel(for: .postProcessing) {
-                LocalAIModelRowView(
-                    feature: .postProcessing,
-                    model: model,
-                    isSelected: appState.postProcessingBackendChoice
-                        == .localAI(modelID: model.id)
-                )
-            }
+                if let model = managedLocalAIModel(for: .postProcessing) {
+                    LocalAIModelRowView(
+                        feature: .postProcessing,
+                        model: model,
+                        isSelected: settingsAIProcessingChoice(for: .postProcessing)
+                            == .localAI(modelID: model.id)
+                    )
+                }
 
-            if postProcessingUsesCloud && !hasConfiguredCloudAPIKey {
-                providerConfigurationWarning(
-                    appState.disablePostProcessing
-                        ? "Add an API key in Cloud Provider to enable Post-processing."
-                        : "Post-processing is on, but cloud processing is unavailable until an API key is configured."
-                )
-            }
+                if postProcessingEnabledDraft && postProcessingUsesCloud
+                    && !hasConfiguredCloudAPIKey {
+                    providerConfigurationWarning(
+                        "Post-processing is on, but cloud processing is unavailable until an API key is configured."
+                    )
+                }
 
-            if appState.disablePostProcessing {
-                Text("Normal dictation uses the raw transcript while Post-processing is off. Edit Mode still uses this model configuration.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+                if !postProcessingEnabledDraft {
+                    Text("Normal dictation uses the raw transcript while Post-processing is off. Edit Mode still uses this model configuration.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
-            if !appState.transcriptionEnabled {
-                Text("Applies to recordings when Transcription is enabled.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
+                if !transcriptionEnabledDraft {
+                    Text("Applies to recordings when Transcription is enabled.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
 
-            DisclosureGroup("Details") {
-                postProcessingDetails
-                    .padding(.top, 8)
+                DisclosureGroup("Details") {
+                    postProcessingDetails
+                        .padding(.top, 8)
+                }
             }
+            .disabled(!postProcessingEnabledDraft)
+            .opacity(postProcessingEnabledDraft ? 1 : 0.45)
         }
     }
 
     private var contextEnabled: Binding<Bool> {
         Binding(
-            get: { !appState.disableContextCapture },
-            set: { appState.disableContextCapture = !$0 }
+            get: { contextEnabledDraft },
+            set: { newValue in
+                contextEnabledDraft = newValue
+                guard newValue else {
+                    appState.disableContextCapture = true
+                    return
+                }
+                guard appState.isAIProcessingChoiceReady(
+                    settingsAIProcessingChoice(for: .context)
+                ) else {
+                    return
+                }
+                appState.selectAIProcessingBackendChoice(
+                    settingsAIProcessingChoice(for: .context),
+                    for: .context
+                )
+                appState.disableContextCapture = false
+            }
         )
     }
 
     private var contextUsesCloud: Bool {
-        if case .cloud = appState.contextBackendChoice { return true }
+        if case .cloud = settingsAIProcessingChoice(for: .context) {
+            return true
+        }
         return false
     }
 
@@ -2279,47 +2400,50 @@ struct ModelsSettingsView: View {
                     .accessibilityLabel("Context")
             }
 
-            aiProcessingChoicePicker(for: .context)
+            VStack(alignment: .leading, spacing: 12) {
+                aiProcessingChoicePicker(for: .context)
 
-            if let model = managedLocalAIModel(for: .context) {
-                LocalAIModelRowView(
-                    feature: .context,
-                    model: model,
-                    isSelected: appState.contextBackendChoice
-                        == .localAI(modelID: model.id)
-                )
-            }
+                if let model = managedLocalAIModel(for: .context) {
+                    LocalAIModelRowView(
+                        feature: .context,
+                        model: model,
+                        isSelected: settingsAIProcessingChoice(for: .context)
+                            == .localAI(modelID: model.id)
+                    )
+                }
 
-            if contextUsesLocal {
-                Text("Local Context uses app and window text only. Screenshots stay on this Mac.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+                if contextUsesLocal {
+                    Text("Local Context uses app and window text only. Screenshots stay on this Mac.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
-            if contextUsesCloud && !hasConfiguredCloudAPIKey {
-                providerConfigurationWarning(
-                    appState.disableContextCapture
-                        ? "Add an API key in Cloud Provider to enable Context."
-                        : "Context is on, but AI context analysis is unavailable until an API key is configured."
-                )
-            }
+                if contextEnabledDraft && contextUsesCloud
+                    && !hasConfiguredCloudAPIKey {
+                    providerConfigurationWarning(
+                        "Context is on, but AI context analysis is unavailable until an API key is configured."
+                    )
+                }
 
-            if appState.disableContextCapture {
-                Text("Context capture is off. Quill skips app context and screenshots for normal dictation.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+                if !contextEnabledDraft {
+                    Text("Context capture is off. Quill skips app context and screenshots for normal dictation.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
 
-            if !appState.transcriptionEnabled {
-                Text("Applies to recordings when Transcription is enabled.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
+                if !transcriptionEnabledDraft {
+                    Text("Applies to recordings when Transcription is enabled.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
 
-            DisclosureGroup("Details") {
-                contextDetails
-                    .padding(.top, 8)
+                DisclosureGroup("Details") {
+                    contextDetails
+                        .padding(.top, 8)
+                }
             }
+            .disabled(!contextEnabledDraft)
+            .opacity(contextEnabledDraft ? 1 : 0.45)
         }
     }
 
@@ -2463,9 +2587,9 @@ struct ModelsSettingsView: View {
 
     private var realtimeTranscriptionSetting: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("Show Realtime transcription option", isOn: $showRealtimeTranscriptionOption)
+            Toggle("Show Realtime transcription option", isOn: $appState.showRealtimeTranscriptionOption)
 
-            if showRealtimeTranscriptionOption || appState.realtimeStreamingEnabled {
+            if appState.showRealtimeTranscriptionOption || appState.realtimeStreamingEnabled {
                 Text("Realtime Transcription Model")
                     .font(.caption.weight(.semibold))
                 HStack(spacing: 8) {
@@ -2593,14 +2717,14 @@ struct ModelsSettingsView: View {
     }
 
     private var isOutputLanguageAvailable: Bool {
-        !appState.disablePostProcessing || appState.isCommandModeEnabled
+        postProcessingEnabledDraft || appState.isCommandModeEnabled
     }
 
     private var outputLanguageHelpText: String {
         let key: String
         if !isOutputLanguageAvailable {
             key = "Output Language is unavailable while Post-processing and Edit Mode are off."
-        } else if appState.disablePostProcessing {
+        } else if !postProcessingEnabledDraft {
             key = "Output Language remains available for Edit Mode transforms."
         } else {
             key = "Final transcript language for post-processing and Edit Mode transforms."

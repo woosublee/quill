@@ -40,6 +40,12 @@ struct AppStateTranscriptionConfigurationTests {
         await testRecordOnlyDoesNotRequireAccessibility()
         await testTranscriptionOffPreservesRememberedBackend()
         await testTranscriptionOnPreservesRememberedBackendReadiness()
+        await testNoteBrowserSelectionControlsTranscriptionWithoutForgettingModel()
+        await testNoteBrowserSelectionRejectsUnreadyChoice()
+        await testSettingsTranscriptionToggleRequiresReadyRememberedChoice()
+        await testSettingsDraftPreservesPreviousReadyTranscriptionChoice()
+        await testSettingsDismissalTurnsOffTranscriptionWithoutReadyModel()
+        await testSettingsDismissalFallsBackToReadyTranscriptionModel()
         await testFreshInstallSeedsNewHiddenDefaultsOnce()
         await testCompletedInstallKeepsLegacyFallbacksWhenKeysAreMissing()
         await testStoredUserDefaultsBeatFirstInstallSeed()
@@ -95,11 +101,12 @@ struct AppStateTranscriptionConfigurationTests {
         await testRemovingAPIKeyPreservesSelectedAPIMode()
         await testRemovingAPIKeyPreservesSelectedAPIModeWhileRecording()
         await testSystemDefaultAndSystemAudioConvertsAPIRealtimeToStandard()
-        await testSystemDefaultAndSystemAudioFallsBackToSelectableAPIStandard()
+        await testSystemDefaultAndSystemAudioTurnsOffWithoutReadyFallback()
         await testSystemDefaultAndSystemAudioRejectsLiveModeSelections()
+        await testCombinedSourceDisabledWhenQueuedLiveOnlyChoiceNotRecording()
         await testSystemDefaultAndSystemAudioNormalizesStoredAPIRealtimeOnStartup()
-        await testSystemDefaultAndSystemAudioFallsBackFromStoredRealtimeToAPIStandardWithoutKey()
-        await testSystemDefaultAndSystemAudioFallsBackFromStoredAppleLiveToAPIStandardWithoutWhisper()
+        await testSystemDefaultAndSystemAudioStartupTurnsOffStoredRealtimeWithoutKey()
+        await testSystemDefaultAndSystemAudioStartupTurnsOffStoredAppleLiveWithoutWhisper()
         await testSystemDefaultAndSystemAudioFallsBackFromStoredAppleLiveToInstalledNativeWhisperWithoutReentry()
         await testRepeatedNativeWhisperSelectionRemainsStable()
         await testLegacyAndNativeWhisperTransitionsRemainStable()
@@ -435,6 +442,148 @@ struct AppStateTranscriptionConfigurationTests {
                 !appState.isNoteBrowserTranscriptionChoiceReady(
                     appState.currentNoteBrowserTranscriptionChoice
                 )
+            )
+        }
+    }
+
+    private static func testNoteBrowserSelectionControlsTranscriptionWithoutForgettingModel() async {
+        resetDefaults()
+        let appState = await MainActor.run { AppState() }
+
+        await MainActor.run {
+            appState.apiKey = "configured-key"
+            let choice = TranscriptionBackendChoice.apiStandard(
+                modelID: "remembered-model"
+            )
+            appState.setNoteBrowserTranscriptionSelection(choice)
+            precondition(appState.transcriptionEnabled)
+            precondition(appState.currentNoteBrowserTranscriptionChoice == choice)
+
+            appState.setNoteBrowserTranscriptionSelection(nil)
+            precondition(!appState.transcriptionEnabled)
+            precondition(appState.currentNoteBrowserTranscriptionChoice == choice)
+        }
+    }
+
+    private static func testNoteBrowserSelectionRejectsUnreadyChoice() async {
+        resetDefaults()
+        let appState = await MainActor.run { AppState() }
+
+        await MainActor.run {
+            appState.transcriptionEnabled = false
+            let originalChoice = appState.currentNoteBrowserTranscriptionChoice
+
+            appState.setNoteBrowserTranscriptionSelection(
+                .apiStandard(modelID: "missing-key-model")
+            )
+
+            precondition(!appState.transcriptionEnabled)
+            precondition(appState.currentNoteBrowserTranscriptionChoice == originalChoice)
+        }
+    }
+
+    private static func testSettingsTranscriptionToggleRequiresReadyRememberedChoice() async {
+        resetDefaults()
+        let appState = await MainActor.run { AppState() }
+
+        await MainActor.run {
+            appState.selectedMicrophoneID =
+                AudioInputDevice.systemDefaultAndSystemAudioID
+            appState.setNoteBrowserTranscriptionChoice(
+                .apiStandard(modelID: "remembered-model")
+            )
+            appState.transcriptionEnabled = false
+
+            appState.setSettingsTranscriptionEnabled(true)
+
+            precondition(!appState.transcriptionEnabled)
+            precondition(
+                appState.currentNoteBrowserTranscriptionChoice
+                    == .apiStandard(modelID: "remembered-model")
+            )
+
+            appState.apiKey = "configured-key"
+            appState.setSettingsTranscriptionEnabled(true)
+            precondition(appState.transcriptionEnabled)
+
+            appState.setSettingsTranscriptionEnabled(false)
+            precondition(!appState.transcriptionEnabled)
+        }
+    }
+
+    private static func testSettingsDraftPreservesPreviousReadyTranscriptionChoice() async {
+        resetDefaults()
+        let originalProvider = AppState.nativeWhisperInstallStatusProvider
+        AppState.nativeWhisperInstallStatusProvider = { _ in .ready }
+        defer { AppState.nativeWhisperInstallStatusProvider = originalProvider }
+        let appState = await MainActor.run { AppState() }
+
+        await MainActor.run {
+            let previousChoice = TranscriptionBackendChoice.nativeWhisper(
+                modelID: NativeWhisperModelCatalog.recommended.id
+            )
+            appState.setNoteBrowserTranscriptionChoice(previousChoice)
+            appState.transcriptionEnabled = true
+
+            appState.commitModelSettingsDrafts(
+                transcriptionEnabled: true,
+                transcriptionChoice: .apiStandard(modelID: "missing-key-model"),
+                postProcessingEnabled: false,
+                postProcessingChoice: appState.postProcessingBackendChoice,
+                contextEnabled: false,
+                contextChoice: appState.contextBackendChoice
+            )
+
+            precondition(appState.transcriptionEnabled)
+            precondition(appState.currentNoteBrowserTranscriptionChoice == previousChoice)
+        }
+    }
+
+    private static func testSettingsDismissalTurnsOffTranscriptionWithoutReadyModel() async {
+        resetDefaults()
+        let appState = await MainActor.run { AppState() }
+
+        await MainActor.run {
+            appState.selectedMicrophoneID =
+                AudioInputDevice.systemDefaultAndSystemAudioID
+            appState.setNoteBrowserTranscriptionChoice(
+                .apiStandard(modelID: "remembered-model")
+            )
+            appState.transcriptionEnabled = true
+
+            appState.reconcileModelSelectionsAfterSettingsDismissal()
+
+            precondition(!appState.transcriptionEnabled)
+            precondition(
+                appState.currentNoteBrowserTranscriptionChoice
+                    == .apiStandard(modelID: "remembered-model")
+            )
+        }
+    }
+
+    private static func testSettingsDismissalFallsBackToReadyTranscriptionModel() async {
+        resetDefaults()
+        let originalProvider = AppState.nativeWhisperInstallStatusProvider
+        AppState.nativeWhisperInstallStatusProvider = { _ in .ready }
+        defer { AppState.nativeWhisperInstallStatusProvider = originalProvider }
+        let appState = await MainActor.run { AppState() }
+
+        await MainActor.run {
+            appState.selectedMicrophoneID =
+                AudioInputDevice.systemDefaultAndSystemAudioID
+            appState.setNoteBrowserTranscriptionChoice(
+                .apiStandard(modelID: "remembered-model")
+            )
+            appState.transcriptionEnabled = true
+
+            appState.reconcileModelSelectionsAfterSettingsDismissal()
+
+            precondition(appState.transcriptionEnabled)
+            precondition(
+                appState.currentNoteBrowserTranscriptionChoice
+                    == .nativeWhisper(
+                        modelID: NativeWhisperModelCatalog.recommended.id
+                    )
             )
         }
     }
@@ -941,9 +1090,17 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(source.contains("ForEach(transcriptionChoiceDisplays(in: \"On This Mac\"))"))
         precondition(!source.contains("transcriptionChoiceDisplays(in: \"Legacy mlx-whisper\")"))
         precondition(menuItemSource.contains("Toggle(isOn: Binding<Bool>("))
-        precondition(menuItemSource.contains("get: { appState.currentNoteBrowserTranscriptionChoice == display.choice }"))
-        precondition(menuItemSource.contains("if isSelected { appState.setNoteBrowserTranscriptionChoice(display.choice) }"))
-        precondition(menuItemSource.contains(".disabled(!display.isAvailable)"))
+        precondition(menuItemSource.contains("appState.transcriptionEnabled"))
+        precondition(menuItemSource.contains("appState.currentNoteBrowserTranscriptionChoice == display.choice"))
+        precondition(menuItemSource.contains("appState.setNoteBrowserTranscriptionSelection(display.choice)"))
+        precondition(
+            menuItemSource.contains(
+                ".disabled(!appState.isNoteBrowserTranscriptionChoiceReady(display.choice))"
+            )
+        )
+        precondition(!menuItemSource.contains(".disabled(!display.isAvailable)"))
+        precondition(source.contains("appState.setNoteBrowserTranscriptionSelection(nil)"))
+        precondition(source.contains("localizedCatalogString(\"Off\")"))
         precondition(!menuItemSource.contains("Picker(\"Transcription\", selection:"))
         precondition(!menuItemSource.contains("Image(systemName: \"checkmark\")"))
     }
@@ -1039,12 +1196,12 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(importBody.contains("openProviderSettings()"))
 
         guard let retryGuard = retryBody.range(
-            of: "noteBrowserRetryAvailability(for: item) == .needsProviderConfiguration"
+            of: "guard noteBrowserRetryAvailability(for: item) == .ready else"
         ), let retrySnapshot = retryBody.range(of: "snapshot = try makeRetrySnapshot(for: item)") else {
-            preconditionFailure("Expected retry provider readiness guard")
+            preconditionFailure("Expected retry readiness guard")
         }
         precondition(retryGuard.lowerBound < retrySnapshot.lowerBound)
-        precondition(retryBody.contains("openProviderSettings()"))
+        precondition(!retryBody.contains("openProviderSettings()"))
     }
 
     private static func testRecordingStartRequiresProviderConfigurationBeforePermissions() throws {
@@ -1478,16 +1635,15 @@ struct AppStateTranscriptionConfigurationTests {
 
         precondition(!models.contains("showingLocalTranscriptionSettings"))
         precondition(!models.contains("Picker(\"Transcription Mode\""))
-        precondition(models.contains("@State private var showRealtimeTranscriptionOption = false"))
         precondition(models.contains("private var transcriptionChoiceDisplays: [TranscriptionChoiceDisplay]"))
-        precondition(models.contains("private var standardAPIModelIDs: [String]"))
-        precondition(models.contains("showRealtimeTranscriptionOption || appState.realtimeStreamingEnabled"))
+        precondition(models.contains("appState.standardAPIModelIDs.map"))
+        precondition(models.contains("appState.showRealtimeTranscriptionOption || appState.realtimeStreamingEnabled"))
         precondition(models.contains("appState.showLegacyMlxWhisperOptions"))
-        precondition(models.contains("ModelConfiguration.transcriptionModels"))
         precondition(models.contains("appState.noteBrowserTranscriptionDisplay(for: .apiStandard(modelID: modelID))"))
-        precondition(models.contains("appState.transcriptionModel.trimmingCharacters(in: .whitespacesAndNewlines)"))
         precondition(models.contains("private var transcriptionChoice: Binding<TranscriptionBackendChoice>"))
-        precondition(models.contains("get: { appState.currentNoteBrowserTranscriptionChoice }"))
+        precondition(models.contains("get: { transcriptionEnabledDraft }"))
+        precondition(models.contains("transcriptionEnabledDraft = newValue"))
+        precondition(models.contains("get: { settingsTranscriptionChoice }"))
         precondition(models.contains("set: { handleTranscriptionChoiceSelection($0) }"))
         precondition(models.contains("Picker(\"Model\", selection: transcriptionChoice)"))
         precondition(models.contains("@State private var pendingNativeModelID: String?"))
@@ -1653,22 +1809,19 @@ struct AppStateTranscriptionConfigurationTests {
         }
     }
 
-    private static func testSystemDefaultAndSystemAudioFallsBackToSelectableAPIStandard() async {
+    private static func testSystemDefaultAndSystemAudioTurnsOffWithoutReadyFallback() async {
         resetDefaults()
         await MainActor.run {
             let appState = AppState()
             appState.setNoteBrowserTranscriptionMode(.localAppleLive)
+            appState.transcriptionEnabled = true
             precondition(appState.currentNoteBrowserTranscriptionMode == .localAppleLive)
 
             appState.selectedMicrophoneID = AudioInputDevice.systemDefaultAndSystemAudioID
 
-            precondition(appState.currentNoteBrowserTranscriptionMode == .apiStandard)
-            precondition(!appState.useLocalTranscription)
-            precondition(
-                !appState.isNoteBrowserTranscriptionChoiceReady(
-                    appState.currentNoteBrowserTranscriptionChoice
-                )
-            )
+            precondition(!appState.transcriptionEnabled)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .localAppleLive)
+            precondition(appState.useLocalTranscription)
         }
     }
 
@@ -1682,12 +1835,56 @@ struct AppStateTranscriptionConfigurationTests {
             precondition(!appState.isNoteBrowserTranscriptionModeAvailable(.localAppleLive))
             precondition(appState.isNoteBrowserTranscriptionModeAvailable(.apiStandard))
             precondition(!appState.isNoteBrowserTranscriptionModeAvailable(.localWhisper))
+            precondition(
+                !appState.noteBrowserTranscriptionDisplay(
+                    for: .apiRealtime(modelID: nil)
+                ).isAvailable
+            )
+            precondition(
+                !appState.noteBrowserTranscriptionDisplay(for: .appleLive).isAvailable
+            )
+            precondition(
+                appState.noteBrowserTranscriptionDisplay(
+                    for: .apiStandard(modelID: AppState.defaultTranscriptionModel)
+                ).isAvailable
+            )
 
             appState.setNoteBrowserTranscriptionMode(.apiRealtime)
             precondition(appState.currentNoteBrowserTranscriptionMode == .apiStandard)
 
             appState.setNoteBrowserTranscriptionMode(.localAppleLive)
             precondition(appState.currentNoteBrowserTranscriptionMode == .apiStandard)
+        }
+    }
+
+    private static func testCombinedSourceDisabledWhenQueuedLiveOnlyChoiceNotRecording() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = AppState()
+            appState.apiKey = "global-key"
+            appState.setNoteBrowserTranscriptionMode(.apiRealtime)
+            appState.transcriptionEnabled = true
+            precondition(!appState.isRecording)
+
+            precondition(
+                !appState.isAudioInputSelectable(AudioInputDevice.systemDefaultAndSystemAudioID),
+                "combined source must be disabled while queued for a live-only model, even before recording starts"
+            )
+            precondition(appState.isAudioInputSelectable(AudioInputDevice.defaultMicrophoneID))
+            precondition(appState.isAudioInputSelectable(AudioInputDevice.systemAudioID))
+
+            appState.setNoteBrowserTranscriptionMode(.apiStandard)
+            precondition(
+                appState.isAudioInputSelectable(AudioInputDevice.systemDefaultAndSystemAudioID),
+                "combined source is selectable again once the queued model doesn't need live streaming"
+            )
+
+            appState.setNoteBrowserTranscriptionMode(.apiRealtime)
+            appState.transcriptionEnabled = false
+            precondition(
+                appState.isAudioInputSelectable(AudioInputDevice.systemDefaultAndSystemAudioID),
+                "combined source is selectable when transcription is off, regardless of the remembered model"
+            )
         }
     }
 
@@ -1708,7 +1905,7 @@ struct AppStateTranscriptionConfigurationTests {
         }
     }
 
-    private static func testSystemDefaultAndSystemAudioFallsBackFromStoredRealtimeToAPIStandardWithoutKey() async {
+    private static func testSystemDefaultAndSystemAudioStartupTurnsOffStoredRealtimeWithoutKey() async {
         resetDefaults()
         let defaults = UserDefaults.standard
         defaults.set(AudioInputDevice.systemDefaultAndSystemAudioID, forKey: "selected_microphone_id")
@@ -1718,18 +1915,14 @@ struct AppStateTranscriptionConfigurationTests {
         await MainActor.run {
             let appState = AppState()
 
-            precondition(appState.currentNoteBrowserTranscriptionMode == .apiStandard)
+            precondition(!appState.transcriptionEnabled)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .apiRealtime)
             precondition(!appState.useLocalTranscription)
-            precondition(!appState.realtimeStreamingEnabled)
-            precondition(
-                !appState.isNoteBrowserTranscriptionChoiceReady(
-                    appState.currentNoteBrowserTranscriptionChoice
-                )
-            )
+            precondition(appState.realtimeStreamingEnabled)
         }
     }
 
-    private static func testSystemDefaultAndSystemAudioFallsBackFromStoredAppleLiveToAPIStandardWithoutWhisper() async {
+    private static func testSystemDefaultAndSystemAudioStartupTurnsOffStoredAppleLiveWithoutWhisper() async {
         resetDefaults()
         let defaults = UserDefaults.standard
         defaults.set(AudioInputDevice.systemDefaultAndSystemAudioID, forKey: "selected_microphone_id")
@@ -1739,14 +1932,9 @@ struct AppStateTranscriptionConfigurationTests {
         await MainActor.run {
             let appState = AppState()
 
-            precondition(appState.currentNoteBrowserTranscriptionMode == .apiStandard)
-            precondition(!appState.useLocalTranscription)
-            precondition(!appState.realtimeStreamingEnabled)
-            precondition(
-                !appState.isNoteBrowserTranscriptionChoiceReady(
-                    appState.currentNoteBrowserTranscriptionChoice
-                )
-            )
+            precondition(!appState.transcriptionEnabled)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .localAppleLive)
+            precondition(appState.useLocalTranscription)
         }
     }
 

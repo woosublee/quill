@@ -16,6 +16,7 @@ struct AppContextBackendTests {
         try await testLocalRequestUsesEndpointRequestAndSelectedModelIDs()
         try testAppStateContextCaptureGuardsCancelledPublication()
         try testAppStatePersistsPostProcessingIssueBeforeContextIssue()
+        try testStopTimeFallbackDistinguishesDisabledFromIncompleteCapture()
         try await testLocalFailureReturnsNilAndRecordsPrivateIssue()
         try await testLocalProcessExitRecordsDedicatedIssue()
         print("AppContextBackendTests passed")
@@ -425,6 +426,32 @@ struct AppContextBackendTests {
         try expect(
             contextIssue.lowerBound < normalStatus.lowerBound,
             "Context issue takes priority over normal success status"
+        )
+    }
+
+    private static func testStopTimeFallbackDistinguishesDisabledFromIncompleteCapture() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        guard let start = source.range(of: "private func fallbackContextAtStop() -> AppContext {"),
+              let end = source.range(
+                of: "private func resolvedContextSystemPrompt()",
+                range: start.upperBound..<source.endIndex
+              ) else {
+            throw AppContextBackendTestFailure("AppState fallbackContextAtStop source")
+        }
+        let body = String(source[start.lowerBound..<end.lowerBound])
+
+        // Context capture being turned off is an intentional setting: the
+        // stop-time fallback must leave the activity empty (genuine text-only
+        // post-processing, no placeholder injected into the prompt) rather than
+        // read as a failed refresh attempt.
+        try expect(
+            body.contains("disableContextCapture")
+                && body.contains("? \"\""),
+            "fallback leaves currentActivity empty when context capture is disabled"
+        )
+        try expect(
+            body.contains("Could not refresh app context at stop time; using text-only post-processing."),
+            "fallback keeps the incomplete-capture wording for the still-enabled case"
         )
     }
 

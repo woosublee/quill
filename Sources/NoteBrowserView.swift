@@ -434,14 +434,44 @@ struct NoteBrowserView: View {
 
     private func transcriptionChoiceMenuItem(_ display: TranscriptionChoiceDisplay) -> some View {
         Toggle(isOn: Binding<Bool>(
-            get: { appState.currentNoteBrowserTranscriptionChoice == display.choice },
+            get: {
+                appState.transcriptionEnabled
+                    && appState.currentNoteBrowserTranscriptionChoice == display.choice
+            },
             set: { isSelected in
-                if isSelected { appState.setNoteBrowserTranscriptionChoice(display.choice) }
+                if isSelected {
+                    appState.setNoteBrowserTranscriptionSelection(display.choice)
+                }
             }
         )) {
             Text(display.localizedCompactLabel())
         }
-        .disabled(!display.isAvailable)
+        .disabled(!appState.isNoteBrowserTranscriptionChoiceReady(display.choice))
+    }
+
+    private var transcriptionOffMenuItem: some View {
+        Toggle(isOn: Binding<Bool>(
+            get: { !appState.transcriptionEnabled },
+            set: { isSelected in
+                if isSelected {
+                    appState.setNoteBrowserTranscriptionSelection(nil)
+                }
+            }
+        )) {
+            Text(localizedCatalogString("Off"))
+        }
+    }
+
+    private var transcriptionSelectionLabel: String {
+        appState.transcriptionEnabled
+            ? appState.noteBrowserTranscriptionChoiceLabel
+            : localizedCatalogString("Off")
+    }
+
+    private var transcriptionSelectionDetailLabel: String {
+        appState.transcriptionEnabled
+            ? appState.noteBrowserTranscriptionChoiceDetailLabel
+            : localizedCatalogString("Off")
     }
 
     private func transcriptionChoiceDisplays(in section: String) -> [TranscriptionChoiceDisplay] {
@@ -490,9 +520,10 @@ struct NoteBrowserView: View {
 
     // MARK: - Sidebar
 
-    // Down-chevron beside the Rec button to choose the audio input for the next
-    // recording (mirrors the menu bar Microphone submenu). Disabled while
-    // recording — switching the live input is done from the recording overlay.
+    // Down-chevron beside the Rec button to choose the audio input. Mirrors the
+    // menu bar Microphone submenu. While recording, selecting an input switches
+    // the active recording's input (same capability as the recording overlay's
+    // switcher) instead of only setting the preference for the next recording.
     // Starts/stops the Rec dot pulse. Stopping is wrapped in a finite animation
     // so the repeatForever context is cleanly torn down (no idle CPU), and this
     // is also called from onAppear so the pulse runs if the view opens while a
@@ -520,22 +551,34 @@ struct NoteBrowserView: View {
             .frame(width: 11, height: 22)
             .contentShape(Rectangle())
             .padding(.leading, -2)
-            .opacity(appState.isRecording ? 0.3 : 1.0)
             .overlay {
-                if !appState.isRecording {
-                    InputMenuCatcher(
-                        sources: [
-                            (AudioInputDevice.defaultMicrophoneID, "System Default"),
-                            (AudioInputDevice.systemAudioID, "System Audio"),
-                            (AudioInputDevice.systemDefaultAndSystemAudioID, "System Default + System Audio")
-                        ],
-                        mics: appState.availableMicrophones.map { ($0.uid, $0.name) },
-                        selectedID: appState.selectedMicrophoneID,
-                        onSelect: { appState.selectedMicrophoneID = $0 }
-                    )
-                }
+                InputMenuCatcher(
+                    sources: [
+                        (AudioInputDevice.defaultMicrophoneID, "System Default"),
+                        (AudioInputDevice.systemAudioID, "System Audio"),
+                        (AudioInputDevice.systemDefaultAndSystemAudioID, "System Default + System Audio")
+                    ],
+                    disabledSourceIDs: appState.isAudioInputSelectable(
+                        AudioInputDevice.systemDefaultAndSystemAudioID
+                    ) ? [] : [AudioInputDevice.systemDefaultAndSystemAudioID],
+                    mics: appState.isRecording
+                        ? []
+                        : appState.availableMicrophones.map { ($0.uid, $0.name) },
+                    selectedID: appState.selectedMicrophoneID,
+                    onSelect: { newInputID in
+                        if appState.isRecording {
+                            appState.switchActiveRecordingInput(to: newInputID)
+                        } else {
+                            appState.selectedMicrophoneID = newInputID
+                        }
+                    }
+                )
             }
-            .help("Choose audio input for the next recording")
+            .help(
+                appState.isRecording
+                    ? "Switch the active recording's audio input"
+                    : "Choose audio input for the next recording"
+            )
             .overrideCursor(.arrow)
     }
 
@@ -623,6 +666,8 @@ struct NoteBrowserView: View {
                 Spacer()
 
                 Menu {
+                    transcriptionOffMenuItem
+                    Divider()
                     Section("Cloud") {
                         ForEach(transcriptionChoiceDisplays(in: "Cloud")) { display in
                             transcriptionChoiceMenuItem(display)
@@ -634,7 +679,7 @@ struct NoteBrowserView: View {
                         }
                     }
                 } label: {
-                    Text(appState.noteBrowserTranscriptionChoiceLabel)
+                    Text(transcriptionSelectionLabel)
                         .font(.system(size: 11, weight: .semibold))
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -643,7 +688,11 @@ struct NoteBrowserView: View {
                         .background(Color.primary.opacity(0.06), in: Capsule())
                 }
                 .menuStyle(.borderlessButton)
-                .accessibilityLabel(String(localized: "Transcription method: \(appState.noteBrowserTranscriptionChoiceDetailLabel)"))
+                .accessibilityLabel(
+                    String(
+                        localized: "Transcription method: \(transcriptionSelectionDetailLabel)"
+                    )
+                )
                 .disabled(appState.isRecording || appState.isTranscribing)
             }
             .padding(.horizontal, 12)
@@ -1054,6 +1103,14 @@ private struct NoteListRow: View {
                                 .foregroundStyle(isSelected ? selectedMetaColor : .orange)
                         }
                     }
+                    if displayData.status == .audioOnly {
+                        Text(localizedCatalogString("Audio only"))
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(selectedMetaColor)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.primary.opacity(0.08), in: Capsule())
+                    }
                     Spacer()
                     statusIndicator
                 }
@@ -1062,15 +1119,6 @@ private struct NoteListRow: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(selectedTitleColor)
                     .lineLimit(1)
-
-                if displayData.status == .audioOnly {
-                    Text(localizedCatalogString("Audio only"))
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.blue)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.blue.opacity(0.10), in: Capsule())
-                }
 
                 Text(displayData.preview.isEmpty ? " " : displayData.preview)
                     .font(.system(size: 11.5))
@@ -1143,7 +1191,7 @@ private struct NoteListRow: View {
             YellowSpinner(color: .orange)
         case .audioOnly:
             Circle()
-                .fill(Color.blue)
+                .fill(Color.green)
                 .frame(width: 6, height: 6)
         case .recovered:
             Image(systemName: "arrow.clockwise.circle")
@@ -1838,7 +1886,11 @@ private struct NoteDetailView: View {
                 )
             )
         case .needsProviderConfiguration:
-            appState.openProviderSettings()
+            showToast(
+                localizedCatalogString(
+                    "No transcription method is available. Configure an API key or install a Local Whisper model, then try again."
+                )
+            )
         case .noAudio:
             break
         }
@@ -2624,22 +2676,24 @@ private struct LiveRecordingBadge: View {
 /// input shows a native checkmark.
 private struct InputMenuCatcher: NSViewRepresentable {
     let sources: [(id: String, name: String)]
+    let disabledSourceIDs: Set<String>
     let mics: [(id: String, name: String)]
     let selectedID: String
     let onSelect: (String) -> Void
 
     func makeNSView(context: Context) -> CatcherView {
         let view = CatcherView()
-        view.apply(sources: sources, mics: mics, selectedID: selectedID, onSelect: onSelect)
+        view.apply(sources: sources, disabledSourceIDs: disabledSourceIDs, mics: mics, selectedID: selectedID, onSelect: onSelect)
         return view
     }
 
     func updateNSView(_ nsView: CatcherView, context: Context) {
-        nsView.apply(sources: sources, mics: mics, selectedID: selectedID, onSelect: onSelect)
+        nsView.apply(sources: sources, disabledSourceIDs: disabledSourceIDs, mics: mics, selectedID: selectedID, onSelect: onSelect)
     }
 
     final class CatcherView: NSView {
         private var sources: [(id: String, name: String)] = []
+        private var disabledSourceIDs: Set<String> = []
         private var mics: [(id: String, name: String)] = []
         private var selectedID = ""
         private var onSelect: ((String) -> Void)?
@@ -2650,11 +2704,13 @@ private struct InputMenuCatcher: NSViewRepresentable {
 
         func apply(
             sources: [(id: String, name: String)],
+            disabledSourceIDs: Set<String>,
             mics: [(id: String, name: String)],
             selectedID: String,
             onSelect: @escaping (String) -> Void
         ) {
             self.sources = sources
+            self.disabledSourceIDs = disabledSourceIDs
             self.mics = mics
             self.selectedID = selectedID
             self.onSelect = onSelect
@@ -2662,13 +2718,18 @@ private struct InputMenuCatcher: NSViewRepresentable {
 
         override func mouseDown(with event: NSEvent) {
             let menu = NSMenu()
+            // Honor our per-item isEnabled; otherwise AppKit auto-enables every
+            // item whose target responds to the action, masking the disabled state.
+            menu.autoenablesItems = false
             for option in sources {
-                menu.addItem(makeItem(option))
+                let item = makeItem(option, isStaticQuillName: true)
+                item.isEnabled = !disabledSourceIDs.contains(option.id)
+                menu.addItem(item)
             }
             if !mics.isEmpty {
                 menu.addItem(.separator())
                 for option in mics {
-                    menu.addItem(makeItem(option))
+                    menu.addItem(makeItem(option, isStaticQuillName: false))
                 }
             }
             // Flipped view: y == bounds.height is the bottom edge, so the menu
@@ -2676,8 +2737,12 @@ private struct InputMenuCatcher: NSViewRepresentable {
             menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 2), in: self)
         }
 
-        private func makeItem(_ option: (id: String, name: String)) -> NSMenuItem {
-            let item = NSMenuItem(title: option.name, action: #selector(pick(_:)), keyEquivalent: "")
+        // `sources` entries are Quill-authored labels ("System Default", etc.)
+        // and need localizing; `mics` entries are real device names from the
+        // system and must be shown verbatim.
+        private func makeItem(_ option: (id: String, name: String), isStaticQuillName: Bool) -> NSMenuItem {
+            let title = isStaticQuillName ? String(localized: String.LocalizationValue(option.name)) : option.name
+            let item = NSMenuItem(title: title, action: #selector(pick(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = option.id
             item.state = AudioInputDevice.isSameInput(option.id, selectedID) ? .on : .off
