@@ -8,6 +8,7 @@ struct QuillUserIssueTests {
         try testSeverityAndRecoveryActions()
         try testVersionedPersistenceRoundTripAndRejection()
         try testPersistedPayloadExcludesPrivateDiagnostics()
+        try testMissingProviderAPIKeyFactory()
         try testCompactMessageAndSafeDetailsAreDeterministic(bundle: bundle)
         print("QuillUserIssueTests passed")
     }
@@ -167,6 +168,34 @@ struct QuillUserIssueTests {
         let localPayload = try decodedPayloadString(localIssue.record.encodedStatus())
         try expect(!localPayload.contains("/Users/private"), "local path is private")
         try expect(!localPayload.contains("STDERR_SECRET"), "local stderr is private")
+    }
+
+    private static func testMissingProviderAPIKeyFactory() throws {
+        let issue = QuillUserIssueError.missingProviderAPIKey(
+            providerHost: "api.example.com",
+            modelID: "provider/model-v1"
+        )
+
+        try expect(
+            issue.record.code == .providerConfigurationInvalid,
+            "missing provider key uses configuration issue"
+        )
+        try expect(
+            issue.record.recoveryAction == .openProviderSettings,
+            "missing provider key opens Provider settings"
+        )
+        try expect(
+            issue.record.context.providerHost == "api.example.com",
+            "missing provider key keeps safe provider host"
+        )
+        try expect(
+            issue.record.context.modelID == "provider/model-v1",
+            "missing provider key keeps safe model ID"
+        )
+        try expect(
+            !issue.privateDiagnostic.lowercased().contains("key="),
+            "missing provider key diagnostic excludes credential values"
+        )
     }
 
     private static func testCompactMessageAndSafeDetailsAreDeterministic(

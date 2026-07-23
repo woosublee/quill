@@ -173,6 +173,13 @@ class TranscriptionService {
             }
         }
 
+        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw QuillUserIssueError.missingProviderAPIKey(
+                providerHost: baseURL.host,
+                modelID: transcriptionModel
+            )
+        }
+
         if try shouldUseLargeCloudChunkPath(fileURL: fileURL) {
             return try await transcribeLargeCanonicalWAV(fileURL: fileURL)
         }

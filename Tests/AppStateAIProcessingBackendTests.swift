@@ -1404,8 +1404,8 @@ struct AppStateAIProcessingBackendTests {
                 return false
             }
             precondition(cloud?.section == "Cloud")
-            precondition(cloud?.isAvailable == false)
-            precondition(cloud?.unavailableReason == "API key is not configured")
+            precondition(cloud?.isAvailable == true)
+            precondition(cloud?.unavailableReason == nil)
 
             let quality = displays.first {
                 $0.choice == .localAI(modelID: LocalAIModelCatalog.quality.id)
@@ -1423,15 +1423,21 @@ struct AppStateAIProcessingBackendTests {
                 )
             )
             precondition(
-                !appState.isAIProcessingChoiceAvailable(
+                appState.isAIProcessingChoiceAvailable(
                     .cloud(modelID: AppState.defaultPostProcessingModel)
                 )
+            )
+            precondition(
+                !appState.isAIProcessingBackendReady(for: .postProcessing)
             )
             appState.apiKey = "test-key"
             precondition(
                 appState.isAIProcessingChoiceAvailable(
                     .cloud(modelID: AppState.defaultPostProcessingModel)
                 )
+            )
+            precondition(
+                appState.isAIProcessingBackendReady(for: .postProcessing)
             )
         }
     }
@@ -1788,8 +1794,8 @@ struct AppStateAIProcessingBackendTests {
             apiKey: "",
             expectedPostChoice: .cloud(modelID: "remembered/post"),
             expectedContextChoice: .cloud(modelID: "remembered/context"),
-            expectedPostDisabled: true,
-            expectedContextDisabled: true,
+            expectedPostDisabled: false,
+            expectedContextDisabled: false,
             verifyManagerStopsBeforeDelete: false
         )
     }

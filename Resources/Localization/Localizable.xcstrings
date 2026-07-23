@@ -3473,6 +3473,38 @@
         }
       }
     },
+    "API key required": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API key required"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 키가 필요합니다."
+          }
+        }
+      }
+    },
+    "Add an API key to transcribe this file with the selected Cloud model.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add an API key to transcribe this file with the selected Cloud model."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 클라우드 모델로 이 파일을 전사하려면 API 키를 추가하세요."
+          }
+        }
+      }
+    },
     "API key required to test": {
       "localizations": {
         "en": {
@@ -12385,6 +12417,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "단축키"
+          }
+        }
+      }
+    },
+    "Add an API key to retry transcription": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add an API key to retry transcription"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사를 다시 시도하려면 API 키를 추가하세요."
           }
         }
       }

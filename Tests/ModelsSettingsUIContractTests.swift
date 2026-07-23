@@ -159,6 +159,11 @@ struct ModelsSettingsUIContractTests {
             from: "private var cloudProviderSection: some View",
             to: "\n    private var currentTranscriptionDisplay"
         )
+        let transcription = block(
+            in: models,
+            from: "private var transcriptionFeatureSection: some View",
+            to: "\n    private var postProcessingEnabled"
+        )
         let postProcessing = block(
             in: models,
             from: "private var postProcessingFeatureSection: some View",
@@ -174,6 +179,16 @@ struct ModelsSettingsUIContractTests {
             from: "private var postProcessingDetails: some View",
             to: "\n    private var transcriptionLanguageSetting"
         )
+        let systemPrompt = block(
+            in: models,
+            from: "private var systemPromptSection: some View",
+            to: "\n    private func runSystemPromptTest()"
+        )
+        let contextPrompt = block(
+            in: models,
+            from: "private var contextPromptSection: some View",
+            to: "\n    private func runContextPromptTest()"
+        )
 
         precondition(models.contains("private var hasConfiguredCloudAPIKey: Bool"))
         precondition(models.contains("!appState.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty"))
@@ -182,6 +197,14 @@ struct ModelsSettingsUIContractTests {
         precondition(provider.contains("Validating..."))
         precondition(models.contains("appState.hasTranscriptionAPIKey"))
         precondition(models.contains("Cloud transcription requires an API key. Add one in Cloud Provider or use the transcription override in Details."))
+        precondition(models.contains("private func providerConfigurationWarning("))
+        precondition(models.contains("Button(\"Open Provider Settings\")"))
+        precondition(models.contains("appState.openProviderSettings()"))
+        precondition(transcription.contains("providerConfigurationWarning("))
+        precondition(postProcessing.contains("providerConfigurationWarning("))
+        precondition(context.contains("providerConfigurationWarning("))
+        precondition(systemPrompt.contains("providerConfigurationWarning("))
+        precondition(contextPrompt.contains("providerConfigurationWarning("))
 
         precondition(!postProcessing.contains(".disabled(!hasConfiguredCloudAPIKey)"))
         precondition(!postProcessing.contains(".opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)"))
@@ -189,8 +212,7 @@ struct ModelsSettingsUIContractTests {
         precondition(!context.contains(".opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)"))
         precondition(postProcessing.contains("if postProcessingUsesCloud && !hasConfiguredCloudAPIKey"))
         precondition(context.contains("if contextUsesCloud && !hasConfiguredCloudAPIKey"))
-        precondition(postProcessing.contains("localizedCatalogString(\n                        appState.disablePostProcessing"))
-        precondition(context.contains("localizedCatalogString(\n                        appState.disableContextCapture"))
+        precondition(models.contains("localizedCatalogString(message)"))
         precondition(postProcessing.contains("Add an API key in Cloud Provider to enable Post-processing."))
         precondition(postProcessing.contains("Post-processing is on, but cloud processing is unavailable until an API key is configured."))
         precondition(context.contains("Add an API key in Cloud Provider to enable Context."))

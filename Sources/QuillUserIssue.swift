@@ -242,6 +242,22 @@ struct QuillUserIssueError: Error, Sendable {
         )
     }
 
+    static func missingProviderAPIKey(
+        providerHost: String?,
+        modelID: String
+    ) -> Self {
+        Self(
+            record: QuillUserIssueRecord(
+                code: .providerConfigurationInvalid,
+                context: QuillUserIssueContext(
+                    providerHost: providerHost,
+                    modelID: modelID
+                )
+            ),
+            privateDiagnostic: "Provider API key is missing"
+        )
+    }
+
     static func cloudHTTP(
         status: Int,
         providerCode: String? = nil,

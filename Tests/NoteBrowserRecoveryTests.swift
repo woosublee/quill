@@ -6,6 +6,7 @@ struct NoteBrowserRecoveryTests {
         testActionStateSeparatesAssetsFromRetryReadiness()
         testModelSetupPresentationOpensSettings()
         testModelSelectionPresentationOpensSettings()
+        testProviderConfigurationPresentationOpensProviderSettings()
         testReadyMissingModelSwitchesToRetry()
         testMissingAudioKeepsGenericIssuePresentation()
         print("NoteBrowserRecoveryTests passed")
@@ -75,6 +76,26 @@ struct NoteBrowserRecoveryTests {
         precondition(presentation.suggestion.isEmpty)
         precondition(presentation.detailsRows.isEmpty)
         precondition(presentation.recoveryAction == .openModelsSettings)
+    }
+
+    private static func testProviderConfigurationPresentationOpensProviderSettings() {
+        let state = NoteBrowserActionState(
+            hasStoredAudio: true,
+            transcript: "",
+            retryAvailability: .needsProviderConfiguration
+        )
+        let presentation = NoteBrowserRecoveryPresentation.presentation(
+            for: QuillUserIssueRecord(code: .localModelMissing),
+            actionState: state,
+            language: "en",
+            bundle: .main
+        )
+
+        precondition(presentation.title == "Add an API key to retry transcription")
+        precondition(presentation.body == "Your recording is safely stored.")
+        precondition(presentation.suggestion.isEmpty)
+        precondition(presentation.detailsRows.isEmpty)
+        precondition(presentation.recoveryAction == .openProviderSettings)
     }
 
     private static func testReadyMissingModelSwitchesToRetry() {

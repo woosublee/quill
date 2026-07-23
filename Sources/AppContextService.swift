@@ -20,6 +20,33 @@ struct AppContext {
     let screenshotDataURL: String?
     let screenshotMimeType: String?
     let screenshotError: String?
+    let userIssueRecord: QuillUserIssueRecord?
+
+    init(
+        appName: String?,
+        bundleIdentifier: String?,
+        windowTitle: String?,
+        selectedText: String?,
+        currentActivity: String,
+        contextSystemPrompt: String?,
+        contextPrompt: String?,
+        screenshotDataURL: String?,
+        screenshotMimeType: String?,
+        screenshotError: String?,
+        userIssueRecord: QuillUserIssueRecord? = nil
+    ) {
+        self.appName = appName
+        self.bundleIdentifier = bundleIdentifier
+        self.windowTitle = windowTitle
+        self.selectedText = selectedText
+        self.currentActivity = currentActivity
+        self.contextSystemPrompt = contextSystemPrompt
+        self.contextPrompt = contextPrompt
+        self.screenshotDataURL = screenshotDataURL
+        self.screenshotMimeType = screenshotMimeType
+        self.screenshotError = screenshotError
+        self.userIssueRecord = userIssueRecord
+    }
 
     var contextSummary: String {
         currentActivity
@@ -151,6 +178,7 @@ Return only two sentences, no labels, no markdown, no extra commentary.
         )
         let currentActivity: String
         let contextPrompt: String?
+        let userIssueRecord: QuillUserIssueRecord?
         if backendExecutor.isConfigured {
             if let result = await inferActivityWithLLM(
                 appName: appName,
@@ -172,6 +200,7 @@ Return only two sentences, no labels, no markdown, no extra commentary.
                 )
                 contextPrompt = nil
             }
+            userIssueRecord = nil
         } else {
             currentActivity = fallbackCurrentActivity(
                 appName: appName,
@@ -181,6 +210,16 @@ Return only two sentences, no labels, no markdown, no extra commentary.
                 screenshotAvailable: screenshot.dataURL != nil
             )
             contextPrompt = nil
+            if backendExecutor.choice.isLocal {
+                userIssueRecord = nil
+            } else {
+                let issue = QuillUserIssueError.missingProviderAPIKey(
+                    providerHost: URL(string: backendExecutor.cloudBaseURL)?.host,
+                    modelID: backendExecutor.choice.modelID
+                )
+                issueSink(issue)
+                userIssueRecord = issue.record
+            }
         }
 
         return AppContext(
@@ -193,7 +232,8 @@ Return only two sentences, no labels, no markdown, no extra commentary.
             contextPrompt: contextPrompt,
             screenshotDataURL: screenshot.dataURL,
             screenshotMimeType: screenshot.mimeType,
-            screenshotError: screenshot.error
+            screenshotError: screenshot.error,
+            userIssueRecord: userIssueRecord
         )
     }
 
@@ -359,6 +399,9 @@ Selected text: \(selectedText ?? "None")
     }
 
     private func contextUserIssue(for error: Error) -> QuillUserIssueError {
+        if let issue = error as? QuillUserIssueError {
+            return issue
+        }
         guard backendExecutor.choice.isLocal else {
             return .cloudTransport(
                 error,

@@ -1542,6 +1542,7 @@ struct ModelsSettingsView: View {
     @State private var systemTestPrompt: String? = nil
     @State private var contextTestRunning = false
     @State private var contextTestOutput: String? = nil
+    @State private var contextTestIssue: QuillUserIssueRecord? = nil
     @State private var contextTestError: String? = nil
     @State private var contextTestPrompt: String? = nil
 
@@ -2074,6 +2075,40 @@ struct ModelsSettingsView: View {
         }
     }
 
+    private func settingsTestRecoveryAction(
+        for issue: QuillUserIssueRecord,
+        retry: @escaping () -> Void
+    ) -> (() -> Void)? {
+        switch issue.recoveryAction {
+        case .retryTranscription:
+            return retry
+        case .openProviderSettings:
+            return { appState.openProviderSettings() }
+        case .openModelsSettings, .openMicrophoneSettings,
+             .openSpeechRecognitionSettings, .openScreenRecordingSettings,
+             .none:
+            return nil
+        }
+    }
+
+    private func providerConfigurationWarning(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(
+                localizedCatalogString(message),
+                systemImage: "exclamationmark.triangle"
+            )
+            .font(.caption)
+            .foregroundStyle(.orange)
+
+            Button("Open Provider Settings") {
+                appState.openProviderSettings()
+            }
+            .font(.caption)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+    }
+
     private var transcriptionFeatureSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Convert speech to text.")
@@ -2098,12 +2133,9 @@ struct ModelsSettingsView: View {
             }
 
             if currentTranscriptionUsesAPI && !appState.hasTranscriptionAPIKey {
-                Label(
-                    "Cloud transcription requires an API key. Add one in Cloud Provider or use the transcription override in Details.",
-                    systemImage: "exclamationmark.triangle"
+                providerConfigurationWarning(
+                    "Cloud transcription requires an API key. Add one in Cloud Provider or use the transcription override in Details."
                 )
-                .font(.caption)
-                .foregroundStyle(.orange)
             } else if let reason = currentTranscriptionDisplay.localizedUnavailableReason() {
                 Label(reason, systemImage: "exclamationmark.triangle")
                     .font(.caption)
@@ -2166,16 +2198,11 @@ struct ModelsSettingsView: View {
             }
 
             if postProcessingUsesCloud && !hasConfiguredCloudAPIKey {
-                Label(
-                    localizedCatalogString(
-                        appState.disablePostProcessing
-                            ? "Add an API key in Cloud Provider to enable Post-processing."
-                            : "Post-processing is on, but cloud processing is unavailable until an API key is configured."
-                    ),
-                    systemImage: "exclamationmark.triangle"
+                providerConfigurationWarning(
+                    appState.disablePostProcessing
+                        ? "Add an API key in Cloud Provider to enable Post-processing."
+                        : "Post-processing is on, but cloud processing is unavailable until an API key is configured."
                 )
-                .font(.caption)
-                .foregroundStyle(.orange)
             }
 
             if appState.disablePostProcessing {
@@ -2238,16 +2265,11 @@ struct ModelsSettingsView: View {
             }
 
             if contextUsesCloud && !hasConfiguredCloudAPIKey {
-                Label(
-                    localizedCatalogString(
-                        appState.disableContextCapture
-                            ? "Add an API key in Cloud Provider to enable Context."
-                            : "Context is on, but AI context analysis is unavailable until an API key is configured."
-                    ),
-                    systemImage: "exclamationmark.triangle"
+                providerConfigurationWarning(
+                    appState.disableContextCapture
+                        ? "Add an API key in Cloud Provider to enable Context."
+                        : "Context is on, but AI context analysis is unavailable until an API key is configured."
                 )
-                .font(.caption)
-                .foregroundStyle(.orange)
             }
 
             if appState.disableContextCapture {
@@ -2807,18 +2829,17 @@ struct ModelsSettingsView: View {
                 )
 
                 if postProcessingUsesCloud && !hasConfiguredCloudAPIKey {
-                    Label("API key required to test", systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                    providerConfigurationWarning("API key required to test")
                 }
 
                 if let issue = systemTestIssue {
                     QuillUserIssueView(
                         presentation: issue.presentation(),
                         style: .inline,
-                        action: issue.recoveryAction == .retryTranscription
-                            ? { runSystemPromptTest() }
-                            : nil
+                        action: settingsTestRecoveryAction(
+                            for: issue,
+                            retry: runSystemPromptTest
+                        )
                     )
                 }
 
@@ -3054,9 +3075,18 @@ struct ModelsSettingsView: View {
                 )
 
                 if contextUsesCloud && !hasConfiguredCloudAPIKey {
-                    Label("API key required to test", systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                    providerConfigurationWarning("API key required to test")
+                }
+
+                if let issue = contextTestIssue {
+                    QuillUserIssueView(
+                        presentation: issue.presentation(),
+                        style: .inline,
+                        action: settingsTestRecoveryAction(
+                            for: issue,
+                            retry: runContextPromptTest
+                        )
+                    )
                 }
 
                 if let error = contextTestError {
@@ -3094,6 +3124,7 @@ struct ModelsSettingsView: View {
     private func runContextPromptTest() {
         contextTestRunning = true
         contextTestOutput = nil
+        contextTestIssue = nil
         contextTestError = nil
         contextTestPrompt = nil
 
@@ -3102,7 +3133,11 @@ struct ModelsSettingsView: View {
         Task {
             let context = await service.collectContext()
             await MainActor.run {
-                if let prompt = context.contextPrompt {
+                contextTestIssue = context.userIssueRecord
+                if context.userIssueRecord != nil {
+                    contextTestOutput = context.contextSummary
+                    contextTestPrompt = context.contextPrompt
+                } else if let prompt = context.contextPrompt {
                     contextTestOutput = context.contextSummary
                     contextTestPrompt = prompt
                 } else {

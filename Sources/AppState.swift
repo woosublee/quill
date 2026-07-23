@@ -553,7 +553,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         didSet {
             persistAPIKey(apiKey)
             rebuildContextService()
-            scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration()
         }
     }
 
@@ -573,7 +572,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var transcriptionAPIKey: String {
         didSet {
             persistOptionalAPIValue(transcriptionAPIKey, account: transcriptionAPIKeyStorageKey)
-            scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration()
         }
     }
 
@@ -997,7 +995,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         switch choice {
         case .apiStandard(let modelID):
             let resolvedModelID = nonEmptyModelID(modelID) ?? resolvedStandardTranscriptionModelID
-            let unavailableReason = hasTranscriptionAPIKey ? nil : "API key is not configured"
             return TranscriptionChoiceDisplay(
                 choice: .apiStandard(modelID: resolvedModelID),
                 section: "Cloud",
@@ -1005,19 +1002,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 subtitle: resolvedModelID,
                 compactLabel: "Standard · \(resolvedModelID)",
                 currentLabel: "Cloud · Standard · \(resolvedModelID)",
-                isAvailable: unavailableReason == nil,
-                unavailableReason: unavailableReason
+                isAvailable: true,
+                unavailableReason: nil
             )
         case .apiRealtime(let modelID):
             let resolvedModelID = nonEmptyModelID(modelID ?? realtimeStreamingModel)
             let modelLabel = resolvedModelID ?? "Provider default"
-            let unavailableReason: String? = if !hasTranscriptionAPIKey {
-                "API key is not configured"
-            } else if AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID) {
-                "Realtime is unavailable with System Default + System Audio"
-            } else {
-                nil
-            }
+            let unavailableReason = AudioInputDevice
+                .isSystemDefaultAndSystemAudio(selectedMicrophoneID)
+                ? "Realtime is unavailable with System Default + System Audio"
+                : nil
             return TranscriptionChoiceDisplay(
                 choice: .apiRealtime(modelID: resolvedModelID),
                 section: "Cloud",
@@ -1321,9 +1315,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func isNoteBrowserTranscriptionModeAvailable(_ mode: NoteBrowserTranscriptionMode) -> Bool {
         switch mode {
         case .apiStandard:
-            return hasTranscriptionAPIKey
+            return true
         case .apiRealtime:
-            return hasTranscriptionAPIKey && !AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID)
+            return !AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID)
         case .localWhisper:
             return hasAnyLocalWhisperModel
         case .localAppleLive:
@@ -1334,6 +1328,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func isNoteBrowserTranscriptionChoiceAvailable(_ choice: TranscriptionBackendChoice) -> Bool {
         noteBrowserTranscriptionDisplay(for: choice).isAvailable
+    }
+
+    @MainActor
+    func isNoteBrowserTranscriptionChoiceReady(
+        _ choice: TranscriptionBackendChoice
+    ) -> Bool {
+        guard isNoteBrowserTranscriptionChoiceAvailable(choice) else {
+            return false
+        }
+        return !choice.usesCloudAPI || hasTranscriptionAPIKey
     }
 
     @MainActor
@@ -2605,7 +2609,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     ) -> Bool {
         switch choice {
         case .cloud:
-            return !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return true
         case .localAI(let modelID):
             return LocalAIModelCatalog.model(id: modelID) != nil
                 && Self.localAIProcessingAvailabilityProvider().isSupported
@@ -2642,19 +2646,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 cloudModelIDs.append(modelID)
             }
         }
-        let hasCloudKey = !apiKey.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        ).isEmpty
         let cloudDisplays = cloudModelIDs.map { modelID in
             AIProcessingChoiceDisplay(
                 choice: .cloud(modelID: modelID),
                 section: "Cloud",
                 title: modelID,
                 subtitle: nil,
-                isAvailable: hasCloudKey,
-                unavailableReason: hasCloudKey
-                    ? nil
-                    : "API key is not configured",
+                isAvailable: true,
+                unavailableReason: nil,
                 isRecommended: false
             )
         }
@@ -2988,13 +2987,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             if let preferred {
                 return .localAI(modelID: preferred.id)
             }
-            if !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                let modelID = feature == .postProcessing
-                    ? resolvedPostProcessingCloudModelID
-                    : resolvedContextCloudModelID
-                return .cloud(modelID: modelID)
-            }
-            return nil
+            let modelID = feature == .postProcessing
+                ? resolvedPostProcessingCloudModelID
+                : resolvedContextCloudModelID
+            return .cloud(modelID: modelID)
         }
     }
 
@@ -4996,6 +4992,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func importAudioFile(_ fileURL: URL, choice: TranscriptionBackendChoice) {
+        guard !choice.usesCloudAPI || hasTranscriptionAPIKey else {
+            openProviderSettings()
+            return
+        }
+
         let configuration = AudioImportTaskConfiguration(
             transcriptionConfiguration: audioImportConfiguration(for: choice),
             transcriptionAPIKey: resolvedTranscriptionAPIKey,
@@ -5251,8 +5252,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return .noAudio
         }
         let options = retryOptions(for: audioURL)
-        if options.explicitRetryChoice != nil {
-            return .ready
+        if let retryChoice = options.explicitRetryChoice {
+            return options.isChoiceReady(retryChoice)
+                ? .ready
+                : .needsProviderConfiguration
         }
         return options.supportedChoices.isEmpty
             ? .needsModelSetup
@@ -5281,6 +5284,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func retryTranscription(item: PipelineHistoryItem) {
         guard !retryingItemIDs.contains(item.id) else { return }
+        if noteBrowserRetryAvailability(for: item) == .needsProviderConfiguration {
+            openProviderSettings()
+            return
+        }
 
         let snapshot: RetrySnapshot
         do {
@@ -5601,6 +5608,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func promptForAccessibilityAccess() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
+    }
+
+    @MainActor
+    func openProviderSettings() {
+        selectedSettingsTab = .models
+        NotificationCenter.default.post(name: .showSettings, object: nil)
     }
 
     func openMicrophoneSettings() {
@@ -6622,6 +6635,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         startedAt: CFAbsoluteTime? = nil
     ) async -> Bool {
         activeRecordingTriggerMode = triggerMode
+        guard !currentNoteBrowserTranscriptionChoice.usesCloudAPI
+            || hasTranscriptionAPIKey else {
+            let issue = QuillUserIssueRecord(code: .providerConfigurationInvalid)
+            errorMessage = issue.presentation().compactMessage
+            statusText = localizedCatalogString("API key required")
+            debugStatusMessage = "Cloud transcription requires provider configuration"
+            activeRecordingTriggerMode = nil
+            currentSessionIntent = .dictation
+            shortcutSessionController.reset()
+            openProviderSettings()
+            return false
+        }
+
         let isAccessibilityTrusted = AXIsProcessTrusted()
         hasAccessibility = isAccessibilityTrusted
         guard isAccessibilityTrusted || !requiresAccessibility else {
@@ -7611,6 +7637,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
         try Task.checkCancellation()
         let processingStatus = result.userIssueRecord?.persistedStatus
+            ?? context.userIssueRecord?.persistedStatus
             ?? Self.statusMessage(
                 for: result.outcome,
                 parsedTranscript: parsedTranscript
@@ -8206,6 +8233,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func scheduleCloudTranscriptionAutoResume(
         _ reconciliation: CloudTranscriptionReconciliation
     ) {
+        guard hasTranscriptionAPIKey else { return }
+
         let runtime: CloudTranscriptionExecutionSnapshot
         do {
             runtime = try CloudTranscriptionExecutionSnapshot(
@@ -9214,7 +9243,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 self.lastContextWindowTitle = context.windowTitle ?? ""
                 self.lastContextSelectedText = context.selectedText ?? ""
                 self.lastContextLLMPrompt = context.contextPrompt ?? ""
-                self.lastPostProcessingStatus = "App context captured"
+                self.lastPostProcessingStatus = context.userIssueRecord?.persistedStatus
+                    ?? "App context captured"
                 self.handleScreenshotCaptureIssue(context.screenshotError)
             }
             return context

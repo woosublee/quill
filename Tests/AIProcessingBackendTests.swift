@@ -6,6 +6,7 @@ struct AIProcessingBackendTests {
         try testChoiceStorageRoundTripAndFallback()
         try testAvailabilityAndRAMRecommendation()
         try await testCloudExecutorPreservesProviderConfiguration()
+        try await testCloudExecutorRejectsMissingKeyBeforeOperation()
         try await testLocalExecutorUsesLeaseAndLocalRequestContract()
         try await testUnknownLocalModelFailsWithoutCatalogFallback()
         print("AIProcessingBackendTests passed")
@@ -74,6 +75,29 @@ struct AIProcessingBackendTests {
         assert(endpoint.requestModelID == "provider/custom-model")
         assert(endpoint.selectedModelID == "provider/custom-model")
         assert(endpoint.supportsImages)
+    }
+
+    private static func testCloudExecutorRejectsMissingKeyBeforeOperation() async throws {
+        let operations = ObservedModelIDs()
+        let executor = AIProcessingBackendExecutor(
+            choice: .cloud(modelID: "provider/custom-model"),
+            cloudBaseURL: "https://api.example.com/openai/v1",
+            cloudAPIKey: "  "
+        )
+
+        do {
+            _ = try await executor.withEndpoint { endpoint in
+                operations.append(endpoint.selectedModelID)
+                return endpoint
+            }
+            assertionFailure("Expected missing provider key failure")
+        } catch let issue as QuillUserIssueError {
+            assert(issue.record.code == .providerConfigurationInvalid)
+            assert(issue.record.recoveryAction == .openProviderSettings)
+            assert(issue.record.context.providerHost == "api.example.com")
+            assert(issue.record.context.modelID == "provider/custom-model")
+        }
+        assert(operations.values.isEmpty)
     }
 
     private static func testLocalExecutorUsesLeaseAndLocalRequestContract() async throws {

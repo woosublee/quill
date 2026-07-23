@@ -8,9 +8,12 @@ struct AppContextBackendTests {
         try await testLocalContextOmitsScreenshotAndAuthorization()
         try await testCloudContextRetriesWithoutScreenshot()
         try await testCloudThrownTransportRetriesWithoutScreenshot()
+        try await testCloudMissingKeySkipsTransportAndRecordsProviderIssue()
+        try testContextFallbackCarriesProviderIssue()
         try await testCancellationStopsRetryAndDoesNotRecordIssue()
         try await testLocalRequestUsesEndpointRequestAndSelectedModelIDs()
         try testAppStateContextCaptureGuardsCancelledPublication()
+        try testAppStatePersistsPostProcessingIssueBeforeContextIssue()
         try await testLocalFailureReturnsNilAndRecordsPrivateIssue()
         try await testLocalProcessExitRecordsDedicatedIssue()
         print("AppContextBackendTests passed")
@@ -132,6 +135,74 @@ struct AppContextBackendTests {
         try expect(!secondBody.contains("image_url"), "cloud thrown retry omits image")
     }
 
+    private static func testCloudMissingKeySkipsTransportAndRecordsProviderIssue() async throws {
+        let recorder = ContextRequestRecorder()
+        let issues = ContextIssueRecorder()
+        let service = AppContextService(
+            backendExecutor: AIProcessingBackendExecutor(
+                choice: .cloud(modelID: "provider/context"),
+                cloudBaseURL: "https://api.example.com/openai/v1",
+                cloudAPIKey: "  "
+            ),
+            customContextPrompt: "",
+            contextModel: "provider/context",
+            transport: { request in
+                recorder.record(request)
+                return try successResponse(
+                    request,
+                    "This response must not be requested."
+                )
+            },
+            issueSink: { issue in issues.record(issue) }
+        )
+
+        let result = await service.inferActivityWithLLM(
+            appName: "Editor",
+            bundleIdentifier: "test.editor",
+            windowTitle: "Document",
+            selectedText: nil,
+            screenshotDataURL: nil,
+            contextSystemPrompt: AppContextService.defaultContextPrompt
+        )
+
+        try expect(result == nil, "keyless cloud context uses metadata fallback")
+        try expect(recorder.count() == 0, "keyless cloud context skips transport")
+        try expect(
+            issues.last()?.record.code == .providerConfigurationInvalid,
+            "keyless cloud context records provider configuration issue"
+        )
+        try expect(
+            issues.last()?.record.recoveryAction == .openProviderSettings,
+            "keyless cloud context opens Provider settings"
+        )
+    }
+
+    private static func testContextFallbackCarriesProviderIssue() throws {
+        let issue = QuillUserIssueRecord(code: .providerConfigurationInvalid)
+        let context = AppContext(
+            appName: "Editor",
+            bundleIdentifier: "test.editor",
+            windowTitle: "Document",
+            selectedText: nil,
+            currentActivity: "Fallback metadata summary",
+            contextSystemPrompt: nil,
+            contextPrompt: nil,
+            screenshotDataURL: nil,
+            screenshotMimeType: nil,
+            screenshotError: nil,
+            userIssueRecord: issue
+        )
+
+        try expect(
+            context.contextSummary == "Fallback metadata summary",
+            "context issue does not replace fallback summary"
+        )
+        try expect(
+            context.userIssueRecord == issue,
+            "context fallback carries structured issue"
+        )
+    }
+
     private static func testCancellationStopsRetryAndDoesNotRecordIssue() async throws {
         let recorder = ContextRequestRecorder()
         let issues = ContextIssueRecorder()
@@ -247,6 +318,45 @@ struct AppContextBackendTests {
         try expect(outerGuardRange.lowerBound < mainActorRange.lowerBound, "outer guard precedes MainActor publish")
         try expect(mainActorRange.lowerBound < innerGuardRange.lowerBound, "inner guard is inside MainActor publish")
         try expect(innerGuardRange.lowerBound < mutationRange.lowerBound, "inner guard precedes Context mutation")
+    }
+
+    private static func testAppStatePersistsPostProcessingIssueBeforeContextIssue() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AppState.swift",
+            encoding: .utf8
+        )
+        guard let start = source.range(
+            of: "private func makeStoppedTranscriptionCompletionSummary("
+        ), let end = source.range(
+            of: "private func runSuccessfulStoppedTranscriptionCompletionPipeline(",
+            range: start.upperBound..<source.endIndex
+        ) else {
+            throw AppContextBackendTestFailure(
+                "AppState stopped transcription completion source"
+            )
+        }
+        let completion = String(source[start.lowerBound..<end.lowerBound])
+        let postProcessingIssue = try requiredRange(
+            "result.userIssueRecord?.persistedStatus",
+            in: completion
+        )
+        let contextIssue = try requiredRange(
+            "context.userIssueRecord?.persistedStatus",
+            in: completion
+        )
+        let normalStatus = try requiredRange(
+            "Self.statusMessage(",
+            in: completion
+        )
+
+        try expect(
+            postProcessingIssue.lowerBound < contextIssue.lowerBound,
+            "Post-processing issue takes priority over Context issue"
+        )
+        try expect(
+            contextIssue.lowerBound < normalStatus.lowerBound,
+            "Context issue takes priority over normal success status"
+        )
     }
 
     private static func testLocalFailureReturnsNilAndRecordsPrivateIssue() async throws {

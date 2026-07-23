@@ -66,6 +66,8 @@ struct AppStateTranscriptionConfigurationTests {
         await testAudioImportConfigurationUsesChoiceDerivedBackend()
         try testInitialAudioImportUsesChoiceConfiguration()
         try testAudioImportSheetUsesChoiceDisplayRows()
+        try testCloudTranscriptionActionsRequireProviderConfiguration()
+        try testRecordingStartRequiresProviderConfigurationBeforePermissions()
         await testNoteBrowserTranscriptionChoiceDisplayIncludesResolvedModels()
         try testNoteBrowserTranscriptionChoiceSetterUpdatesLocalBackend()
         await testNativeWhisperInstallLeavesAppleActiveUntilCompletion()
@@ -76,20 +78,20 @@ struct AppStateTranscriptionConfigurationTests {
         await testSetupProcessingPresetsPreserveProviderConfiguration()
         try testSetupProcessingPresetUsesExistingChoiceSetter()
         try testNormalizationGuardsStayInsideMainActorIsolation()
-        await testAPITranscriptionModesRequireResolvedAPIKey()
+        await testAPITranscriptionModesRemainSelectableWithoutResolvedAPIKey()
         try testSettingsModelFirstTranscriptionUsesExistingChoiceSetter()
         try testSettingsLegacyManagementKeepsExistingModelRows()
         try testSettingsGlobalAPIKeyCanBeCleared()
         await testTranscriptionAPIKeyEnablesAPIModesWithoutGlobalAPIKey()
         await testEmptyTranscriptionAPIKeyFallsBackToGlobalAPIKey()
-        await testRemovingAPIKeyNormalizesSelectedAPIMode()
-        await testRemovingAPIKeyDoesNotNormalizeWhileRecording()
+        await testRemovingAPIKeyPreservesSelectedAPIMode()
+        await testRemovingAPIKeyPreservesSelectedAPIModeWhileRecording()
         await testSystemDefaultAndSystemAudioConvertsAPIRealtimeToStandard()
-        await testSystemDefaultAndSystemAudioKeepsAppleLiveWhenNoFallbackIsAvailable()
+        await testSystemDefaultAndSystemAudioFallsBackToSelectableAPIStandard()
         await testSystemDefaultAndSystemAudioRejectsLiveModeSelections()
         await testSystemDefaultAndSystemAudioNormalizesStoredAPIRealtimeOnStartup()
-        await testSystemDefaultAndSystemAudioKeepsStoredAPIRealtimeWhenNoFallbackIsAvailable()
-        await testSystemDefaultAndSystemAudioKeepsStoredAppleLiveWhenWhisperIsUnavailable()
+        await testSystemDefaultAndSystemAudioFallsBackFromStoredRealtimeToAPIStandardWithoutKey()
+        await testSystemDefaultAndSystemAudioFallsBackFromStoredAppleLiveToAPIStandardWithoutWhisper()
         await testSystemDefaultAndSystemAudioFallsBackFromStoredAppleLiveToInstalledNativeWhisperWithoutReentry()
         await testRepeatedNativeWhisperSelectionRemainsStable()
         await testLegacyAndNativeWhisperTransitionsRemainStable()
@@ -110,8 +112,9 @@ struct AppStateTranscriptionConfigurationTests {
         await testGoogleCalendarRefreshMarksTemporaryFailureWhenCalendarListFails()
         await testGoogleCalendarRefreshMarksHealthyWhenCalendarListLoads()
         await testRetryAvailabilityRequiresStoredAudio()
-        await testRetryAvailabilityRequiresModelSetup()
+        await testRetryAvailabilityOffersSelectableCloudAlternative()
         await testRetryAvailabilityRequiresModelSelection()
+        await testRetryAvailabilityRequiresProviderConfiguration()
         await testRetryAvailabilityAcceptsConfiguredAPIStandard()
         print("AppStateTranscriptionConfigurationTests passed")
     }
@@ -394,7 +397,7 @@ struct AppStateTranscriptionConfigurationTests {
 
         let appState = AppState()
 
-        assert(appState.useLegacyMlxWhisper == false)
+        assert(appState.useLegacyMlxWhisper == true)
         assert(appState.showLegacyMlxWhisperOptions == true)
         assert(defaults.bool(forKey: "show_legacy_mlx_whisper_options") == true)
     }
@@ -857,8 +860,73 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(sheetBody.contains("onImport: (TranscriptionBackendChoice) -> Void"))
         precondition(sheetBody.contains("Text(display.localizedTitle())"))
         precondition(sheetBody.contains("Text(display.localizedUnavailableReason() ?? unavailableReason)"))
+        precondition(sheetBody.contains("onOpenProviderSettings: () -> Void"))
+        precondition(sheetBody.contains("options.isChoiceReady(selectedChoice)"))
+        precondition(sheetBody.contains("Open Provider Settings"))
         precondition(!sheetBody.contains("[NoteBrowserTranscriptionMode.apiStandard, .localWhisper]"))
         precondition(!sheetBody.contains("appState.audioImportLabel(for:"))
+    }
+
+    private static func testCloudTranscriptionActionsRequireProviderConfiguration() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AppState.swift",
+            encoding: .utf8
+        )
+        let importBody = sourceBlock(
+            in: source,
+            from: "func importAudioFile(_ fileURL: URL, choice: TranscriptionBackendChoice)",
+            to: "\n    @MainActor\n    func noteBrowserStoredAudioURL"
+        )
+        let retryBody = sourceBlock(
+            in: source,
+            from: "func retryTranscription(item: PipelineHistoryItem)",
+            to: "\n    @MainActor\n    private func copyRetryTranscriptToPasteboardIfNeeded"
+        )
+
+        guard let importGuard = importBody.range(
+            of: "guard !choice.usesCloudAPI || hasTranscriptionAPIKey else"
+        ), let importConfiguration = importBody.range(
+            of: "let configuration = AudioImportTaskConfiguration("
+        ) else {
+            preconditionFailure("Expected import provider readiness guard")
+        }
+        precondition(importGuard.lowerBound < importConfiguration.lowerBound)
+        precondition(importBody.contains("openProviderSettings()"))
+
+        guard let retryGuard = retryBody.range(
+            of: "noteBrowserRetryAvailability(for: item) == .needsProviderConfiguration"
+        ), let retrySnapshot = retryBody.range(of: "snapshot = try makeRetrySnapshot(for: item)") else {
+            preconditionFailure("Expected retry provider readiness guard")
+        }
+        precondition(retryGuard.lowerBound < retrySnapshot.lowerBound)
+        precondition(retryBody.contains("openProviderSettings()"))
+    }
+
+    private static func testRecordingStartRequiresProviderConfigurationBeforePermissions() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AppState.swift",
+            encoding: .utf8
+        )
+        let preflight = sourceBlock(
+            in: source,
+            from: "private func prepareRecordingStart(",
+            to: "\n    static func currentSpeechRecognitionAuthorizationStatus"
+        )
+
+        guard let providerChoiceCheck = preflight.range(
+            of: "guard !currentNoteBrowserTranscriptionChoice.usesCloudAPI"
+        ), let providerKeyCheck = preflight.range(
+            of: "|| hasTranscriptionAPIKey else"
+        ), let accessibilityCheck = preflight.range(
+            of: "let isAccessibilityTrusted = AXIsProcessTrusted()"
+        ) else {
+            preconditionFailure("Expected recording provider readiness guard")
+        }
+        precondition(providerChoiceCheck.lowerBound < providerKeyCheck.lowerBound)
+        precondition(providerKeyCheck.lowerBound < accessibilityCheck.lowerBound)
+        precondition(preflight.contains("QuillUserIssueRecord(code: .providerConfigurationInvalid)"))
+        precondition(preflight.contains("openProviderSettings()"))
+        precondition(preflight.contains("return false"))
     }
 
     private static func testNoteBrowserTranscriptionChoiceDisplayIncludesResolvedModels() async {
@@ -1218,21 +1286,31 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(!legacyObserver.contains("!isApplyingNoteBrowserTranscriptionChoice"))
     }
 
-    private static func testAPITranscriptionModesRequireResolvedAPIKey() async {
+    private static func testAPITranscriptionModesRemainSelectableWithoutResolvedAPIKey() async {
         resetDefaults()
         await MainActor.run {
             let appState = AppState()
 
-            precondition(!appState.isNoteBrowserTranscriptionModeAvailable(.apiStandard))
-            precondition(!appState.isNoteBrowserTranscriptionModeAvailable(.apiRealtime))
+            precondition(appState.isNoteBrowserTranscriptionModeAvailable(.apiStandard))
+            precondition(appState.isNoteBrowserTranscriptionModeAvailable(.apiRealtime))
             precondition(!appState.isNoteBrowserTranscriptionModeAvailable(.localWhisper))
             precondition(appState.isNoteBrowserTranscriptionModeAvailable(.localAppleLive))
 
             appState.setNoteBrowserTranscriptionMode(.apiStandard)
-            precondition(appState.currentNoteBrowserTranscriptionMode == .localAppleLive)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .apiStandard)
+            precondition(
+                !appState.isNoteBrowserTranscriptionChoiceReady(
+                    appState.currentNoteBrowserTranscriptionChoice
+                )
+            )
 
             appState.setNoteBrowserTranscriptionMode(.apiRealtime)
-            precondition(appState.currentNoteBrowserTranscriptionMode == .localAppleLive)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .apiRealtime)
+            precondition(
+                !appState.isNoteBrowserTranscriptionChoiceReady(
+                    appState.currentNoteBrowserTranscriptionChoice
+                )
+            )
         }
     }
 
@@ -1333,6 +1411,11 @@ struct AppStateTranscriptionConfigurationTests {
 
             appState.setNoteBrowserTranscriptionMode(.apiRealtime)
             precondition(appState.currentNoteBrowserTranscriptionMode == .apiRealtime)
+            precondition(
+                appState.isNoteBrowserTranscriptionChoiceReady(
+                    appState.currentNoteBrowserTranscriptionChoice
+                )
+            )
         }
     }
 
@@ -1345,25 +1428,40 @@ struct AppStateTranscriptionConfigurationTests {
 
             precondition(appState.isNoteBrowserTranscriptionModeAvailable(.apiStandard))
             precondition(appState.isNoteBrowserTranscriptionModeAvailable(.apiRealtime))
+            precondition(
+                appState.isNoteBrowserTranscriptionChoiceReady(
+                    .apiStandard(modelID: AppState.defaultTranscriptionModel)
+                )
+            )
         }
     }
 
-    private static func testRemovingAPIKeyNormalizesSelectedAPIMode() async {
+    private static func testRemovingAPIKeyPreservesSelectedAPIMode() async {
         resetDefaults()
         await MainActor.run {
             let appState = AppState()
             appState.apiKey = "global-key"
             appState.setNoteBrowserTranscriptionMode(.apiStandard)
             precondition(appState.currentNoteBrowserTranscriptionMode == .apiStandard)
+            precondition(
+                appState.isNoteBrowserTranscriptionChoiceReady(
+                    appState.currentNoteBrowserTranscriptionChoice
+                )
+            )
 
             appState.apiKey = ""
 
-            precondition(appState.currentNoteBrowserTranscriptionMode == .localAppleLive)
-            precondition(appState.useLocalTranscription)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .apiStandard)
+            precondition(!appState.useLocalTranscription)
+            precondition(
+                !appState.isNoteBrowserTranscriptionChoiceReady(
+                    appState.currentNoteBrowserTranscriptionChoice
+                )
+            )
         }
     }
 
-    private static func testRemovingAPIKeyDoesNotNormalizeWhileRecording() async {
+    private static func testRemovingAPIKeyPreservesSelectedAPIModeWhileRecording() async {
         resetDefaults()
         await MainActor.run {
             let appState = AppState()
@@ -1377,6 +1475,11 @@ struct AppStateTranscriptionConfigurationTests {
             precondition(appState.currentNoteBrowserTranscriptionMode == .apiRealtime)
             precondition(!appState.useLocalTranscription)
             precondition(appState.realtimeStreamingEnabled)
+            precondition(
+                !appState.isNoteBrowserTranscriptionChoiceReady(
+                    appState.currentNoteBrowserTranscriptionChoice
+                )
+            )
         }
     }
 
@@ -1396,7 +1499,7 @@ struct AppStateTranscriptionConfigurationTests {
         }
     }
 
-    private static func testSystemDefaultAndSystemAudioKeepsAppleLiveWhenNoFallbackIsAvailable() async {
+    private static func testSystemDefaultAndSystemAudioFallsBackToSelectableAPIStandard() async {
         resetDefaults()
         await MainActor.run {
             let appState = AppState()
@@ -1405,9 +1508,13 @@ struct AppStateTranscriptionConfigurationTests {
 
             appState.selectedMicrophoneID = AudioInputDevice.systemDefaultAndSystemAudioID
 
-            precondition(appState.currentNoteBrowserTranscriptionMode == .localAppleLive)
-            precondition(appState.useLocalTranscription)
-            precondition(appState.localTranscriptionModel.isAppleSpeech)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .apiStandard)
+            precondition(!appState.useLocalTranscription)
+            precondition(
+                !appState.isNoteBrowserTranscriptionChoiceReady(
+                    appState.currentNoteBrowserTranscriptionChoice
+                )
+            )
         }
     }
 
@@ -1447,7 +1554,7 @@ struct AppStateTranscriptionConfigurationTests {
         }
     }
 
-    private static func testSystemDefaultAndSystemAudioKeepsStoredAPIRealtimeWhenNoFallbackIsAvailable() async {
+    private static func testSystemDefaultAndSystemAudioFallsBackFromStoredRealtimeToAPIStandardWithoutKey() async {
         resetDefaults()
         let defaults = UserDefaults.standard
         defaults.set(AudioInputDevice.systemDefaultAndSystemAudioID, forKey: "selected_microphone_id")
@@ -1457,13 +1564,18 @@ struct AppStateTranscriptionConfigurationTests {
         await MainActor.run {
             let appState = AppState()
 
-            precondition(appState.currentNoteBrowserTranscriptionMode == .apiRealtime)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .apiStandard)
             precondition(!appState.useLocalTranscription)
-            precondition(appState.realtimeStreamingEnabled)
+            precondition(!appState.realtimeStreamingEnabled)
+            precondition(
+                !appState.isNoteBrowserTranscriptionChoiceReady(
+                    appState.currentNoteBrowserTranscriptionChoice
+                )
+            )
         }
     }
 
-    private static func testSystemDefaultAndSystemAudioKeepsStoredAppleLiveWhenWhisperIsUnavailable() async {
+    private static func testSystemDefaultAndSystemAudioFallsBackFromStoredAppleLiveToAPIStandardWithoutWhisper() async {
         resetDefaults()
         let defaults = UserDefaults.standard
         defaults.set(AudioInputDevice.systemDefaultAndSystemAudioID, forKey: "selected_microphone_id")
@@ -1473,9 +1585,14 @@ struct AppStateTranscriptionConfigurationTests {
         await MainActor.run {
             let appState = AppState()
 
-            precondition(appState.currentNoteBrowserTranscriptionMode == .localAppleLive)
-            precondition(appState.useLocalTranscription)
-            precondition(appState.localTranscriptionModel.isAppleSpeech)
+            precondition(appState.currentNoteBrowserTranscriptionMode == .apiStandard)
+            precondition(!appState.useLocalTranscription)
+            precondition(!appState.realtimeStreamingEnabled)
+            precondition(
+                !appState.isNoteBrowserTranscriptionChoiceReady(
+                    appState.currentNoteBrowserTranscriptionChoice
+                )
+            )
         }
     }
 
@@ -1933,7 +2050,7 @@ struct AppStateTranscriptionConfigurationTests {
         }
     }
 
-    private static func testRetryAvailabilityRequiresModelSetup() async {
+    private static func testRetryAvailabilityOffersSelectableCloudAlternative() async {
         resetDefaults()
         await MainActor.run {
             let appState = AppState()
@@ -1950,7 +2067,10 @@ struct AppStateTranscriptionConfigurationTests {
                 id: "mlx-community/whisper-large-v3-turbo"
             )
             precondition(appState.currentNoteBrowserTranscriptionChoice.mode == .localWhisper)
-            precondition(appState.noteBrowserRetryAvailability(for: item) == .needsModelSetup)
+            precondition(
+                appState.noteBrowserRetryAvailability(for: item)
+                    == .needsModelSelection
+            )
         }
     }
 
@@ -1968,6 +2088,26 @@ struct AppStateTranscriptionConfigurationTests {
 
             precondition(appState.currentNoteBrowserTranscriptionChoice == .appleLive)
             precondition(appState.noteBrowserRetryAvailability(for: item) == .needsModelSelection)
+        }
+    }
+
+    private static func testRetryAvailabilityRequiresProviderConfiguration() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = AppState()
+            appState.setNoteBrowserTranscriptionChoice(
+                .apiStandard(modelID: "whisper-large-v3")
+            )
+            let fileName = "retry-provider-setup-\(UUID().uuidString).wav"
+            let audioURL = AppState.audioStorageDirectory().appendingPathComponent(fileName)
+            try! Data([0]).write(to: audioURL)
+            defer { try? FileManager.default.removeItem(at: audioURL) }
+            let item = retryHistoryItem(audioFileName: fileName)
+
+            precondition(
+                appState.noteBrowserRetryAvailability(for: item)
+                    == .needsProviderConfiguration
+            )
         }
     }
 

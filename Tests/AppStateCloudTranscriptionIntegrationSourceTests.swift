@@ -331,6 +331,19 @@ struct AppStateCloudTranscriptionIntegrationSourceTests {
             to: "private func resumeCloudTranscriptionAfterLaunch("
         )
         try expect(autoResume.contains("Task { @MainActor"), "auto-resume is deferred until initialization finishes")
+        guard let providerGuard = autoResume.range(
+            of: "guard hasTranscriptionAPIKey else { return }"
+        ), let runtimeSnapshot = autoResume.range(
+            of: "runtime = try CloudTranscriptionExecutionSnapshot("
+        ) else {
+            throw TestFailure(
+                "startup resume checks provider readiness before creating runtime state"
+            )
+        }
+        try expect(
+            providerGuard.lowerBound < runtimeSnapshot.lowerBound,
+            "keyless startup leaves the persisted cloud sidecar for manual retry"
+        )
         try expect(
             autoResume.contains("completionDelivery: .historyOnly"),
             "startup resume uses history-only completion delivery"

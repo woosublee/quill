@@ -209,6 +209,12 @@ struct AIProcessingBackendExecutor: Sendable {
                   baseURL.host != nil else {
                 throw AIProcessingBackendError.invalidCloudBaseURL(cloudBaseURL)
             }
+            guard !cloudAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw QuillUserIssueError.missingProviderAPIKey(
+                    providerHost: baseURL.host,
+                    modelID: modelID
+                )
+            }
             return try await operation(
                 AIProcessingEndpoint(
                     kind: .cloud,

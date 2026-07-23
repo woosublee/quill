@@ -51,6 +51,15 @@ enum TranscriptionBackendChoice: Hashable, Identifiable {
             return false
         }
     }
+
+    var usesCloudAPI: Bool {
+        switch self {
+        case .apiStandard, .apiRealtime:
+            return true
+        case .nativeWhisper, .legacyMlxWhisper, .appleLive:
+            return false
+        }
+    }
 }
 
 struct TranscriptionChoiceDisplay: Identifiable, Equatable {
@@ -218,6 +227,11 @@ struct AudioImportOptions {
         supportedChoices.contains(currentChoice) ? currentChoice : nil
     }
 
+    func isChoiceReady(_ choice: TranscriptionBackendChoice) -> Bool {
+        guard supportedChoices.contains(choice) else { return false }
+        return !choice.usesCloudAPI || hasAPIKey
+    }
+
     var defaultChoice: TranscriptionBackendChoice? {
         let choices = supportedChoices
         guard !choices.isEmpty else { return nil }
@@ -285,8 +299,6 @@ struct AudioImportOptions {
             "This file type is not supported for import"
         } else if !isWithinAPIUploadLimit {
             "API transcription is unavailable for files over 25MB"
-        } else if !hasAPIKey {
-            "API key is not configured"
         } else {
             nil
         }
