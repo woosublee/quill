@@ -994,11 +994,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let unavailableReason = hasTranscriptionAPIKey ? nil : "API key is not configured"
             return TranscriptionChoiceDisplay(
                 choice: .apiStandard(modelID: resolvedModelID),
-                section: "API",
+                section: "Cloud",
                 title: "Standard",
                 subtitle: resolvedModelID,
                 compactLabel: "Standard · \(resolvedModelID)",
-                currentLabel: "API · Standard · \(resolvedModelID)",
+                currentLabel: "Cloud · Standard · \(resolvedModelID)",
                 isAvailable: unavailableReason == nil,
                 unavailableReason: unavailableReason
             )
@@ -1014,11 +1014,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
             return TranscriptionChoiceDisplay(
                 choice: .apiRealtime(modelID: resolvedModelID),
-                section: "API",
+                section: "Cloud",
                 title: "Realtime",
                 subtitle: modelLabel,
                 compactLabel: "Realtime · \(modelLabel)",
-                currentLabel: "API · Realtime · \(modelLabel)",
+                currentLabel: "Cloud · Realtime · \(modelLabel)",
                 isAvailable: unavailableReason == nil,
                 unavailableReason: unavailableReason
             )
@@ -1026,11 +1026,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let unavailableReason = hasNativeLocalWhisperModel ? nil : "Install the native Local Whisper model to use this option"
             return TranscriptionChoiceDisplay(
                 choice: nativeWhisperChoice,
-                section: "Local",
+                section: "On This Mac",
                 title: "Native Whisper",
                 subtitle: nativeWhisperDisplayName,
                 compactLabel: "Native Whisper · \(nativeWhisperDisplayName)",
-                currentLabel: "Local · Native Whisper · \(nativeWhisperDisplayName)",
+                currentLabel: "On This Mac · Native Whisper · \(nativeWhisperDisplayName)",
                 isAvailable: unavailableReason == nil,
                 unavailableReason: unavailableReason
             )
@@ -1038,11 +1038,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let unavailableReason = model.isInstalled ? nil : "Install \(model.displayName) in Settings to use this option"
             return TranscriptionChoiceDisplay(
                 choice: .legacyMlxWhisper(model: model),
-                section: "Legacy mlx-whisper",
+                section: "On This Mac",
                 title: "Legacy mlx-whisper",
                 subtitle: model.displayName,
                 compactLabel: "Legacy · \(model.displayName)",
-                currentLabel: "Local · Legacy · \(model.displayName)",
+                currentLabel: "On This Mac · Legacy · \(model.displayName)",
                 isAvailable: unavailableReason == nil,
                 unavailableReason: unavailableReason
             )
@@ -1052,11 +1052,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 : nil
             return TranscriptionChoiceDisplay(
                 choice: .appleLive,
-                section: "Local",
+                section: "On This Mac",
                 title: "Apple Live",
                 subtitle: "Apple Speech",
                 compactLabel: "Apple Live · Apple Speech",
-                currentLabel: "Local · Apple Live · Apple Speech",
+                currentLabel: "On This Mac · Apple Live · Apple Speech",
                 isAvailable: unavailableReason == nil,
                 unavailableReason: unavailableReason
             )

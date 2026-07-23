@@ -52,18 +52,29 @@ struct SettingsLocalizationTests {
     }
 
     private static func testAudioImportDisplayKeepsModelIDAndLocalizesStaticLabels() throws {
+        let legacyModel = TranscriptionModel.find(id: "mlx-community/whisper-medium-mlx")
         let options = AudioImportOptions(
             fileExtension: "wav",
             currentChoice: .apiStandard(modelID: "whisper-large-v3"),
-            apiStandardModelID: "whisper-large-v3"
+            apiStandardModelID: "whisper-large-v3",
+            legacyLocalWhisperModels: [legacyModel]
         )
         let display = options.displayRows.first { $0.choice == .apiStandard(modelID: "whisper-large-v3") }!
+        let legacyDisplay = options.displayRows.first { $0.choice == .legacyMlxWhisper(model: legacyModel) }!
         let localizationBundle = try compiledLocalizationBundle()
 
         assert(display.choice.id == "api-standard:whisper-large-v3")
+        assert(display.section == "Cloud")
         assert(display.localizedTitle(language: "en", bundle: localizationBundle) == "API Standard")
         assert(display.localizedTitle(language: "ko", bundle: localizationBundle) == "API 표준")
         assert(display.localizedCompactLabel(language: "ko", bundle: localizationBundle) == "표준 · whisper-large-v3")
+        assert(display.localizedCurrentLabel(language: "en", bundle: localizationBundle) == "Cloud · Standard · whisper-large-v3")
+        assert(display.localizedCurrentLabel(language: "ko", bundle: localizationBundle) == "클라우드 · 표준 · whisper-large-v3")
+
+        assert(legacyDisplay.section == "On This Mac")
+        assert(legacyDisplay.title == "Legacy mlx-whisper")
+        assert(legacyDisplay.localizedCurrentLabel(language: "en", bundle: localizationBundle) == "On This Mac · Legacy · Whisper Medium")
+        assert(legacyDisplay.localizedCurrentLabel(language: "ko", bundle: localizationBundle) == "이 Mac에서 · 레거시 · Whisper Medium")
     }
 
     private static func testSettingsSectionTitlePolicy() throws {

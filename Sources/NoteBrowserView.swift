@@ -598,21 +598,14 @@ struct NoteBrowserView: View {
                 Spacer()
 
                 Menu {
-                    Section("API") {
-                        ForEach(transcriptionChoiceDisplays(in: "API")) { display in
+                    Section("Cloud") {
+                        ForEach(transcriptionChoiceDisplays(in: "Cloud")) { display in
                             transcriptionChoiceMenuItem(display)
                         }
                     }
-                    Section("Local") {
-                        ForEach(transcriptionChoiceDisplays(in: "Local")) { display in
+                    Section("On This Mac") {
+                        ForEach(transcriptionChoiceDisplays(in: "On This Mac")) { display in
                             transcriptionChoiceMenuItem(display)
-                        }
-                    }
-                    if !transcriptionChoiceDisplays(in: "Legacy mlx-whisper").isEmpty {
-                        Section("Legacy mlx-whisper") {
-                            ForEach(transcriptionChoiceDisplays(in: "Legacy mlx-whisper")) { display in
-                                transcriptionChoiceMenuItem(display)
-                            }
                         }
                     }
                 } label: {

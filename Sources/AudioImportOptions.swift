@@ -100,11 +100,11 @@ struct TranscriptionChoiceDisplay: Identifiable, Equatable {
         bundle: Bundle = .main
     ) -> String {
         switch choice {
-        case .apiStandard(let modelID): return "\(localizedCatalogString("API", language: language, bundle: bundle)) · \(localizedStaticLabel("Standard", language: language, bundle: bundle)) · \(modelID)"
-        case .apiRealtime(let modelID): return "\(localizedCatalogString("API", language: language, bundle: bundle)) · \(localizedStaticLabel("Realtime", language: language, bundle: bundle)) · \(modelID ?? "provider-default")"
-        case .nativeWhisper: return "\(localizedCatalogString("Local", language: language, bundle: bundle)) · \(localizedStaticLabel("Native Whisper", language: language, bundle: bundle)) · \(nativeModelName())"
-        case .legacyMlxWhisper(let model): return "\(localizedCatalogString("Local", language: language, bundle: bundle)) · \(localizedStaticLabel("Legacy", language: language, bundle: bundle)) · \(model.displayName)"
-        case .appleLive: return "\(localizedCatalogString("Local", language: language, bundle: bundle)) · \(localizedStaticLabel("Apple Live", language: language, bundle: bundle))"
+        case .apiStandard(let modelID): return "\(localizedCatalogString("Cloud", language: language, bundle: bundle)) · \(localizedStaticLabel("Standard", language: language, bundle: bundle)) · \(modelID)"
+        case .apiRealtime(let modelID): return "\(localizedCatalogString("Cloud", language: language, bundle: bundle)) · \(localizedStaticLabel("Realtime", language: language, bundle: bundle)) · \(modelID ?? "provider-default")"
+        case .nativeWhisper: return "\(localizedCatalogString("On This Mac", language: language, bundle: bundle)) · \(localizedStaticLabel("Native Whisper", language: language, bundle: bundle)) · \(nativeModelName())"
+        case .legacyMlxWhisper(let model): return "\(localizedCatalogString("On This Mac", language: language, bundle: bundle)) · \(localizedStaticLabel("Legacy", language: language, bundle: bundle)) · \(model.displayName)"
+        case .appleLive: return "\(localizedCatalogString("On This Mac", language: language, bundle: bundle)) · \(localizedStaticLabel("Apple Live", language: language, bundle: bundle))"
         }
     }
 
@@ -292,11 +292,11 @@ struct AudioImportOptions {
         }
         return TranscriptionChoiceDisplay(
             choice: choice,
-            section: "API",
+            section: "Cloud",
             title: "API Standard",
             subtitle: apiStandardModelID,
             compactLabel: "Standard · \(apiStandardModelID)",
-            currentLabel: "API · Standard · \(apiStandardModelID)",
+            currentLabel: "Cloud · Standard · \(apiStandardModelID)",
             isAvailable: unavailableReason == nil,
             unavailableReason: unavailableReason
         )
@@ -315,11 +315,11 @@ struct AudioImportOptions {
         }
         return TranscriptionChoiceDisplay(
             choice: choice,
-            section: "Local",
+            section: "On This Mac",
             title: "Native Whisper",
             subtitle: nativeWhisperDisplayName,
             compactLabel: "Native Whisper · \(nativeWhisperDisplayName)",
-            currentLabel: "Local · Native Whisper · \(nativeWhisperDisplayName)",
+            currentLabel: "On This Mac · Native Whisper · \(nativeWhisperDisplayName)",
             isAvailable: unavailableReason == nil,
             unavailableReason: unavailableReason
         )
@@ -331,11 +331,11 @@ struct AudioImportOptions {
             let unavailableReason: String? = isBroadlySupported ? nil : "This file type is not supported for import"
             return TranscriptionChoiceDisplay(
                 choice: choice,
-                section: "Legacy mlx-whisper",
+                section: "On This Mac",
                 title: "Legacy mlx-whisper",
                 subtitle: model.displayName,
                 compactLabel: "Legacy · \(model.displayName)",
-                currentLabel: "Local · Legacy · \(model.displayName)",
+                currentLabel: "On This Mac · Legacy · \(model.displayName)",
                 isAvailable: unavailableReason == nil,
                 unavailableReason: unavailableReason
             )

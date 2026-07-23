@@ -1791,10 +1791,10 @@ struct ModelsSettingsView: View {
     private var transcriptionChoicePickerControl: some View {
         if #available(macOS 14.0, *) {
             Picker("Model", selection: transcriptionChoice) {
-                ForEach(["API", "Local", "Legacy mlx-whisper"], id: \.self) { section in
+                ForEach(["Cloud", "On This Mac"], id: \.self) { section in
                     let displays = transcriptionChoiceDisplays.filter { $0.section == section }
                     if !displays.isEmpty {
-                        Section(section) {
+                        Section(localizedCatalogString(section)) {
                             ForEach(displays) { display in
                                 Text(transcriptionChoiceMenuLabel(display))
                                     .tag(display.choice)
@@ -1808,10 +1808,10 @@ struct ModelsSettingsView: View {
             .pickerStyle(.menu)
         } else {
             Menu {
-                ForEach(["API", "Local", "Legacy mlx-whisper"], id: \.self) { section in
+                ForEach(["Cloud", "On This Mac"], id: \.self) { section in
                     let displays = transcriptionChoiceDisplays.filter { $0.section == section }
                     if !displays.isEmpty {
-                        Section(section) {
+                        Section(localizedCatalogString(section)) {
                             ForEach(displays) { display in
                                 transcriptionChoiceMenuItem(display)
                             }
