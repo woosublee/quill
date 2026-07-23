@@ -205,8 +205,6 @@ private struct RetrySnapshot {
     let useLocalTranscription: Bool
     let customVocabulary: String
     let customSystemPrompt: String
-    let outputLanguage: String
-    let postProcessingEnabled: Bool
     let localWhisperPath: String?
     let useLegacyMlxWhisper: Bool
     let transcriptionModel: String
@@ -5306,6 +5304,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let updatedItem: PipelineHistoryItem
             let retrySucceeded: Bool
             do {
+                let completion = snapshot.execution.completion
                 let transcriptionService = try snapshot.execution
                     .makeTranscriptionService(
                         cloudExecutionContext: snapshot.cloudExecutionContext
@@ -5313,7 +5312,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 let rawTranscript = try await transcriptionService.transcribe(fileURL: snapshot.audioURL)
                 let parsedTranscript = Self.parseTranscriptCommands(
                     from: rawTranscript,
-                    pressEnterCommandEnabled: self.isPressEnterVoiceCommandEnabled
+                    pressEnterCommandEnabled: completion.pressEnterCommandEnabled
                 )
                 let result = await self.processTranscript(
                     parsedTranscript.transcript,
@@ -5322,8 +5321,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     postProcessingService: postProcessingService,
                     customVocabulary: snapshot.customVocabulary,
                     customSystemPrompt: snapshot.customSystemPrompt,
-                    outputLanguage: snapshot.outputLanguage,
-                    postProcessingEnabled: snapshot.postProcessingEnabled
+                    outputLanguage: completion.outputLanguage,
+                    postProcessingEnabled: completion.postProcessingEnabled
                 )
                 updatedItem = self.makeRetryHistoryItem(
                     from: snapshot,
@@ -5435,7 +5434,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         let configuration = audioImportConfiguration(for: retryChoice)
         let completionSnapshot = TranscriptionCompletionSnapshot(
-            postProcessingEnabled: item.usedPostProcessing,
+            postProcessingEnabled: !disablePostProcessing,
             outputLanguage: outputLanguage,
             pressEnterCommandEnabled: isPressEnterVoiceCommandEnabled
         )
@@ -5499,8 +5498,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
             useLocalTranscription: configuration.useLocalTranscription,
             customVocabulary: item.customVocabulary,
             customSystemPrompt: item.customSystemPrompt,
-            outputLanguage: outputLanguage,
-            postProcessingEnabled: item.usedPostProcessing,
             localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath,
             useLegacyMlxWhisper: configuration.useLegacyMlxWhisper,
             transcriptionModel: configuration.transcriptionModel,
@@ -5516,7 +5513,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         postProcessingStatus: String,
         debugStatus: String
     ) -> PipelineHistoryItem {
-        PipelineHistoryItem(
+        let completion = snapshot.execution.completion
+        return PipelineHistoryItem(
             intent: snapshot.item.intent,
             selectedText: snapshot.item.selectedText,
             id: snapshot.item.id,
@@ -5538,7 +5536,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             audioFileName: snapshot.item.audioFileName,
             usedLocalTranscription: snapshot.useLocalTranscription,
             usedContextCapture: snapshot.item.usedContextCapture,
-            usedPostProcessing: snapshot.postProcessingEnabled,
+            usedPostProcessing: completion.postProcessingEnabled,
             transcriptionLanguageCode: snapshot.transcriptionLanguage.code,
             localTranscriptionModelID: snapshot.localTranscriptionModel.id,
             transcriptFileName: snapshot.item.transcriptFileName
@@ -8353,8 +8351,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         useLocalTranscription: false,
                         customVocabulary: item.customVocabulary,
                         customSystemPrompt: item.customSystemPrompt,
-                        outputLanguage: completion.outputLanguage,
-                        postProcessingEnabled: completion.postProcessingEnabled,
                         localWhisperPath: nil,
                         useLegacyMlxWhisper: false,
                         transcriptionModel: runtime.model,
@@ -8498,15 +8494,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let existingRecord = try? cloudTranscriptionJobStore.load(
             historyID: historyID
         )
-        let sameCloudIdentity = existingRecord.map {
+        let isCompatibleRetry = existingRecord.map {
             $0.identity.providerID == snapshot.providerID
                 && $0.identity.model == snapshot.model
                 && $0.identity.language == snapshot.language
                 && $0.identity.responseFormat == snapshot.responseFormat
                 && $0.plan.encodedUploadCeilingBytes
                     == snapshot.encodedUploadCeilingBytes
+                && $0.completionPolicy == completion.cloudJobPolicy
         } ?? false
-        if existingRecord != nil, !sameCloudIdentity {
+        if existingRecord != nil, !isCompatibleRetry {
             cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
                 historyID: historyID,
                 store: cloudTranscriptionJobStore
@@ -8518,7 +8515,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let session = cloudTranscriptionJobStore.beginSession(
             historyID: historyID
         )
-        if existingRecord != nil, !sameCloudIdentity {
+        if existingRecord != nil, !isCompatibleRetry {
             let staleSession = CloudTranscriptionJobSession(
                 historyID: historyID,
                 token: UUID()

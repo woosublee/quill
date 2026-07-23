@@ -18,6 +18,7 @@ struct AppStateCloudTranscriptionIntegrationSourceTests {
         try verifiesHistoryCommitPrecedesSidecarDeletion(appState)
         try verifiesPartialCloudTextStaysOutOfHistory(appState)
         try verifiesExplicitRetryPolicy(appState)
+        try verifiesManualRetryCapturesCurrentCompletionPolicy(appState)
         try verifiesStartupReconciliationOrder(appState)
         try verifiesStartupResumeIsHistoryOnly(appState)
         print("AppStateCloudTranscriptionIntegrationSourceTests passed")
@@ -208,6 +209,71 @@ struct AppStateCloudTranscriptionIntegrationSourceTests {
         )
     }
 
+    private static func verifiesManualRetryCapturesCurrentCompletionPolicy(
+        _ source: String
+    ) throws {
+        let retrySnapshotType = block(
+            source,
+            from: "private struct RetrySnapshot",
+            to: "private struct TranscriptCommandParsingResult"
+        )
+        let retrySnapshotBuilder = block(
+            source,
+            from: "private func makeRetrySnapshot(for item: PipelineHistoryItem)",
+            to: "private func makeRetryHistoryItem("
+        )
+        let retryFlow = block(
+            source,
+            from: "func retryTranscription(item: PipelineHistoryItem)",
+            to: "private func copyRetryTranscriptToPasteboardIfNeeded"
+        )
+        let retryHistory = block(
+            source,
+            from: "private func makeRetryHistoryItem(",
+            to: "func updatePermissionStatus("
+        )
+
+        try expect(
+            retrySnapshotBuilder.contains(
+                "postProcessingEnabled: !disablePostProcessing"
+            ),
+            "manual retry captures the current Post-processing setting"
+        )
+        try expect(
+            !retrySnapshotBuilder.contains("item.usedPostProcessing"),
+            "manual retry does not restore the previous attempt's Post-processing flag"
+        )
+        try expect(
+            !retrySnapshotType.contains("let outputLanguage: String")
+                && !retrySnapshotType.contains("let postProcessingEnabled: Bool"),
+            "retry snapshot keeps completion policy only in its execution snapshot"
+        )
+        try expect(
+            retryFlow.contains("let completion = snapshot.execution.completion"),
+            "retry processing reads one immutable completion snapshot"
+        )
+        try expect(
+            retryFlow.contains(
+                "pressEnterCommandEnabled: completion.pressEnterCommandEnabled"
+            ),
+            "retry command parsing uses the captured completion policy"
+        )
+        try expect(
+            retryFlow.contains("outputLanguage: completion.outputLanguage")
+                && retryFlow.contains(
+                    "postProcessingEnabled: completion.postProcessingEnabled"
+                ),
+            "retry processing uses the captured Post-processing policy"
+        )
+        try expect(
+            retryHistory.contains("let completion = snapshot.execution.completion")
+                && retryHistory.contains(
+                    "usedPostProcessing: completion.postProcessingEnabled"
+                ),
+            "retry history records the Post-processing policy actually used"
+        )
+    }
+
     private static func verifiesStartupReconciliationOrder(_ source: String) throws {
         let initializer = block(
             source,
@@ -277,6 +343,22 @@ struct AppStateCloudTranscriptionIntegrationSourceTests {
         try expect(
             resume.contains("guard completionDelivery == .historyOnly"),
             "resume helper enforces history-only delivery"
+        )
+        try expect(
+            resume.contains(
+                "postProcessingEnabled: record.completionPolicy.postProcessingEnabled"
+            )
+                && resume.contains(
+                    "outputLanguage: record.completionPolicy.outputLanguage"
+                )
+                && resume.contains(
+                    "pressEnterCommandEnabled: record.completionPolicy.pressEnterCommandEnabled"
+                ),
+            "startup resume preserves the persisted completion policy"
+        )
+        try expect(
+            !resume.contains("disablePostProcessing"),
+            "startup resume does not replace persisted policy with current settings"
         )
         for forbidden in [
             "writeDictationStringToPasteboard",
