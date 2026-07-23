@@ -241,6 +241,70 @@
         }
       }
     },
+    "Custom API Model": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom API Model"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정 API 모델"
+          }
+        }
+      }
+    },
+    "e.g. provider/custom-model": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e.g. provider/custom-model"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예: provider/custom-model"
+          }
+        }
+      }
+    },
+    "Use Model": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Model"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델 사용"
+          }
+        }
+      }
+    },
+    "Enter an API model ID that is not listed above. Use the main Model menu to return to a listed model.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter an API model ID that is not listed above. Use the main Model menu to return to a listed model."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위 목록에 없는 API 모델 ID를 입력합니다. 목록의 모델로 돌아가려면 위의 모델 메뉴에서 선택하세요."
+          }
+        }
+      }
+    },
     "Custom Standard API Model": {
       "localizations": {
         "en": {

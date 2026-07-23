@@ -1518,13 +1518,12 @@ struct ModelsSettingsView: View {
     @State private var postProcessingModelDraft = ""
     @State private var postProcessingFallbackModelDraft = ""
     @State private var contextModelDraft = ""
-    @State private var isEditingPostProcessingModel = false
-    @State private var isEditingContextModel = false
     @State private var retainedPostProcessingLocalModelID: String?
     @State private var retainedContextLocalModelID: String?
     @FocusState private var isEditingAPIBaseURL: Bool
     @FocusState private var isEditingTranscriptionModel: Bool
     @FocusState private var isEditingRealtimeStreamingModel: Bool
+    @FocusState private var focusedCustomAIProcessingFeature: AIProcessingFeature?
     @FocusState private var transcriptionAPIURLFocused: Bool
     @FocusState private var transcriptionAPIKeyFocused: Bool
     @State private var isValidatingKey = false
@@ -1589,9 +1588,9 @@ struct ModelsSettingsView: View {
             transcriptionModelDraft = customStandardAPIModelDraft(for: appState.transcriptionModel)
             showRealtimeTranscriptionOption = appState.realtimeStreamingEnabled
             realtimeStreamingModelDraft = appState.realtimeStreamingModel
-            postProcessingModelDraft = appState.postProcessingModel
+            postProcessingModelDraft = customAIProcessingModelDraft(for: appState.postProcessingModel)
             postProcessingFallbackModelDraft = appState.postProcessingFallbackModel
-            contextModelDraft = appState.contextModel
+            contextModelDraft = customAIProcessingModelDraft(for: appState.contextModel)
             customVocabularyInput = appState.customVocabulary
             customSystemPromptInput = appState.customSystemPrompt.isEmpty
                 ? PostProcessingService.defaultSystemPrompt
@@ -1614,13 +1613,13 @@ struct ModelsSettingsView: View {
             if transcriptionModelDraft != draft { transcriptionModelDraft = draft }
         }
         .onChange(of: appState.postProcessingModel) { value in
-            if !isEditingPostProcessingModel {
-                postProcessingModelDraft = value
+            if focusedCustomAIProcessingFeature != .postProcessing {
+                postProcessingModelDraft = customAIProcessingModelDraft(for: value)
             }
         }
         .onChange(of: appState.contextModel) { value in
-            if !isEditingContextModel {
-                contextModelDraft = value
+            if focusedCustomAIProcessingFeature != .context {
+                contextModelDraft = customAIProcessingModelDraft(for: value)
             }
         }
     }
@@ -1890,10 +1889,10 @@ struct ModelsSettingsView: View {
         for feature: AIProcessingFeature
     ) {
         switch feature {
-        case .postProcessing where !isEditingPostProcessingModel:
-            postProcessingModelDraft = modelID
-        case .context where !isEditingContextModel:
-            contextModelDraft = modelID
+        case .postProcessing where focusedCustomAIProcessingFeature != .postProcessing:
+            postProcessingModelDraft = customAIProcessingModelDraft(for: modelID)
+        case .context where focusedCustomAIProcessingFeature != .context:
+            contextModelDraft = customAIProcessingModelDraft(for: modelID)
         case .postProcessing, .context:
             break
         }
@@ -2215,18 +2214,9 @@ struct ModelsSettingsView: View {
 
     private var postProcessingDetails: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ModelDropdownView(
-                title: "Model",
-                subtitle: "Used for transcript cleanup and Edit Mode transforms.",
-                predefinedModels: ModelConfiguration.llmModels,
-                defaultModel: AppState.defaultPostProcessingModel,
-                textDraft: $postProcessingModelDraft,
-                isEditing: $isEditingPostProcessingModel,
-                onCommit: commitPostProcessingModel,
-                onReset: {
-                    postProcessingModelDraft = AppState.defaultPostProcessingModel
-                    appState.postProcessingModel = AppState.defaultPostProcessingModel
-                }
+            customAIProcessingModelSetting(
+                draft: $postProcessingModelDraft,
+                feature: .postProcessing
             )
             Divider()
             outputLanguageSetting
@@ -2266,22 +2256,55 @@ struct ModelsSettingsView: View {
 
     private var contextDetails: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ModelDropdownView(
-                title: "Model",
-                subtitle: "Used for context inference, with a text-only retry when screenshot analysis fails.",
-                predefinedModels: ModelConfiguration.llmModels,
-                defaultModel: AppState.defaultContextModel,
-                textDraft: $contextModelDraft,
-                isEditing: $isEditingContextModel,
-                onCommit: commitContextModel,
-                onReset: {
-                    contextModelDraft = AppState.defaultContextModel
-                    appState.contextModel = AppState.defaultContextModel
-                }
+            customAIProcessingModelSetting(
+                draft: $contextModelDraft,
+                feature: .context
             )
             Divider()
             contextPromptSection
         }
+    }
+
+    private func customAIProcessingModelSetting(
+        draft: Binding<String>,
+        feature: AIProcessingFeature
+    ) -> some View {
+        let trimmedModelID = draft.wrappedValue.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("Custom API Model")
+                .font(.caption.weight(.semibold))
+
+            HStack(spacing: 8) {
+                TextField("e.g. provider/custom-model", text: draft)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.body, design: .monospaced))
+                    .focused($focusedCustomAIProcessingFeature, equals: feature)
+                    .onSubmit { applyCustomAIProcessingModel(draft, for: feature) }
+
+                Button("Use Model") {
+                    applyCustomAIProcessingModel(draft, for: feature)
+                }
+                .font(.caption)
+                .disabled(trimmedModelID.isEmpty)
+            }
+
+            Text("Enter an API model ID that is not listed above. Use the main Model menu to return to a listed model.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func applyCustomAIProcessingModel(
+        _ draft: Binding<String>,
+        for feature: AIProcessingFeature
+    ) {
+        let modelID = draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !modelID.isEmpty else { return }
+        draft.wrappedValue = modelID
+        focusedCustomAIProcessingFeature = nil
+        handleAIProcessingChoiceSelection(.cloud(modelID: modelID), for: feature)
     }
 
     private var transcriptionLanguageSetting: some View {
@@ -2474,6 +2497,14 @@ struct ModelsSettingsView: View {
         return localizedCatalogString(key)
     }
 
+    private func customAIProcessingModelDraft(for modelID: String) -> String {
+        let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !ModelConfiguration.llmModels.contains(trimmed) else {
+            return ""
+        }
+        return trimmed
+    }
+
     private func customStandardAPIModelDraft(for modelID: String) -> String {
         let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !ModelConfiguration.transcriptionModels.contains(trimmed) else {
@@ -2527,30 +2558,12 @@ struct ModelsSettingsView: View {
         appState.realtimeStreamingModel = trimmed
     }
 
-    private func commitPostProcessingModel() {
-        let trimmed = postProcessingModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolved = trimmed.isEmpty ? AppState.defaultPostProcessingModel : trimmed
-        postProcessingModelDraft = resolved
-        if appState.postProcessingModel != resolved {
-            appState.postProcessingModel = resolved
-        }
-    }
-
     private func commitPostProcessingFallbackModel() {
         let trimmed = postProcessingFallbackModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolved = trimmed.isEmpty ? AppState.defaultPostProcessingFallbackModel : trimmed
         postProcessingFallbackModelDraft = resolved
         if appState.postProcessingFallbackModel != resolved {
             appState.postProcessingFallbackModel = resolved
-        }
-    }
-
-    private func commitContextModel() {
-        let trimmed = contextModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolved = trimmed.isEmpty ? AppState.defaultContextModel : trimmed
-        contextModelDraft = resolved
-        if appState.contextModel != resolved {
-            appState.contextModel = resolved
         }
     }
 
