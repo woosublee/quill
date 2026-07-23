@@ -44,7 +44,7 @@
     <key>GoogleCalendarOAuthClientSecret</key>
     <string></string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Quill needs microphone access to transcribe your speech.</string>
+    <string>Quill needs microphone access to record audio.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Quill needs speech recognition to convert your voice to text.</string>
     <key>NSAccessibilityUsageDescription</key>

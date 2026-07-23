@@ -1752,6 +1752,13 @@ struct ModelsSettingsView: View {
         )
     }
 
+    private var transcriptionEnabled: Binding<Bool> {
+        Binding(
+            get: { appState.transcriptionEnabled },
+            set: { appState.transcriptionEnabled = $0 }
+        )
+    }
+
     private var managedNativeModel: NativeWhisperModel? {
         guard let pendingNativeModelID else { return nil }
         return NativeWhisperModelCatalog.all.first { $0.id == pendingNativeModelID }
@@ -2111,49 +2118,68 @@ struct ModelsSettingsView: View {
 
     private var transcriptionFeatureSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Convert speech to text.")
+            HStack {
+                Text(
+                    appState.transcriptionEnabled
+                        ? "Convert speech to text."
+                        : "Record audio without creating a transcript."
+                )
                 .font(.caption)
                 .foregroundStyle(.secondary)
-
-            transcriptionChoicePicker
-
-            if let model = managedNativeModel {
-                NativeWhisperModelRowView(
-                    model: model,
-                    isSelected: appState.currentNoteBrowserTranscriptionChoice == .nativeWhisper(modelID: model.id),
-                    onSelect: {
-                        handleTranscriptionChoiceSelection(.nativeWhisper(modelID: model.id))
-                    },
-                    showsSelectionControl: false
-                )
-
-                Text("The download continues in the background while Quill is running.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                Spacer()
+                Toggle("", isOn: transcriptionEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .accessibilityLabel("Transcription")
+                    .disabled(appState.isTranscriptionConfigurationLocked)
             }
 
-            if currentTranscriptionUsesAPI && !appState.hasTranscriptionAPIKey {
-                providerConfigurationWarning(
-                    "Cloud transcription requires an API key. Add one in Cloud Provider or use the transcription override in Details."
-                )
-            } else if let reason = currentTranscriptionDisplay.localizedUnavailableReason() {
-                Label(reason, systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            }
+            VStack(alignment: .leading, spacing: 12) {
+                transcriptionChoicePicker
 
-            DisclosureGroup("Details") {
-                VStack(alignment: .leading, spacing: 14) {
-                    transcriptionLanguageSetting
-                    Divider()
-                    standardAPITranscriptionSetting
-                    realtimeTranscriptionSetting
-                    transcriptionProviderOverrideSetting
-                    Divider()
-                    legacyTranscriptionSettings
+                if let model = managedNativeModel {
+                    NativeWhisperModelRowView(
+                        model: model,
+                        isSelected: appState.currentNoteBrowserTranscriptionChoice == .nativeWhisper(modelID: model.id),
+                        onSelect: {
+                            handleTranscriptionChoiceSelection(.nativeWhisper(modelID: model.id))
+                        },
+                        showsSelectionControl: false
+                    )
+
+                    Text("The download continues in the background while Quill is running.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
-                .padding(.top, 8)
+
+                if appState.transcriptionEnabled,
+                   currentTranscriptionUsesAPI,
+                   !appState.hasTranscriptionAPIKey {
+                    providerConfigurationWarning(
+                        "Cloud transcription requires an API key. Add one in Cloud Provider or use the transcription override in Details."
+                    )
+                } else if appState.transcriptionEnabled,
+                          let reason = currentTranscriptionDisplay.localizedUnavailableReason() {
+                    Label(reason, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
+                DisclosureGroup("Details") {
+                    VStack(alignment: .leading, spacing: 14) {
+                        transcriptionLanguageSetting
+                        Divider()
+                        standardAPITranscriptionSetting
+                        realtimeTranscriptionSetting
+                        transcriptionProviderOverrideSetting
+                        Divider()
+                        legacyTranscriptionSettings
+                    }
+                    .padding(.top, 8)
+                }
             }
+            .disabled(!appState.transcriptionEnabled)
+            .opacity(appState.transcriptionEnabled ? 1 : 0.45)
         }
     }
 
@@ -2208,6 +2234,12 @@ struct ModelsSettingsView: View {
             if appState.disablePostProcessing {
                 Text("Normal dictation uses the raw transcript while Post-processing is off. Edit Mode still uses this model configuration.")
                     .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if !appState.transcriptionEnabled {
+                Text("Applies to recordings when Transcription is enabled.")
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
             }
 
@@ -2275,6 +2307,12 @@ struct ModelsSettingsView: View {
             if appState.disableContextCapture {
                 Text("Context capture is off. Quill skips app context and screenshots for normal dictation.")
                     .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if !appState.transcriptionEnabled {
+                Text("Applies to recordings when Transcription is enabled.")
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
             }
 

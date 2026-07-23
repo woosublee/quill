@@ -41,7 +41,23 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("NoteFileExportView("))
         precondition(source.contains("Image(systemName: \"square.and.arrow.down\")"))
         precondition(source.contains("Image(systemName: \"ellipsis\")"))
+        try testAudioOnlyNoteUsesDedicatedNormalState()
 
         print("RecoveredRecordingNoteBrowserSourceTests passed")
+    }
+
+    private static func testAudioOnlyNoteUsesDedicatedNormalState() throws {
+        let source = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+        precondition(source.contains("item.machineStatus == .audioOnly"))
+        precondition(
+            source.components(separatedBy: "localizedCatalogString(\"Audio only\")").count >= 3
+        )
+        precondition(!source.contains("Text(\"Audio only\")"))
+        precondition(source.contains("Text(\"Audio recording\")"))
+        precondition(source.contains("help: \"Audio-only recording\""))
+        precondition(source.contains("Saved without transcription. You can transcribe it later."))
+        precondition(source.contains("Transcribe audio"))
+        precondition(source.contains(".fill(Color.blue.opacity(0.08))"))
+        precondition(source.contains(".foregroundStyle(.blue.opacity(0.75))"))
     }
 }

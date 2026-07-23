@@ -64,7 +64,18 @@ struct LocalizationResourceTests {
                 "모델을 다운로드하는 중에 종료할까요?",
             "Quill will cancel unfinished model downloads and delete partial files before quitting.":
                 "종료하기 전에 Quill이 완료되지 않은 모델 다운로드를 취소하고 partial 파일을 삭제합니다.",
-            "Quit and Cancel Downloads": "종료하고 다운로드 취소"
+            "Quit and Cancel Downloads": "종료하고 다운로드 취소",
+            "Record only": "녹음만",
+            "No transcription · No model download": "전사 없음 · 모델 다운로드 없음",
+            "Save audio notes now. Transcribe them later if needed. No model download or API key required.":
+                "지금 오디오 노트를 저장하고 필요할 때 나중에 전사하세요. 모델 다운로드나 API 키가 필요하지 않습니다.",
+            "Record only · Audio notes": "녹음만 · 오디오 노트",
+            "Enables automatic paste and Edit Mode when you turn them on.":
+                "자동 붙여넣기와 편집 모드를 켜면 사용할 수 있습니다.",
+            "Record your voice and other selected audio inputs.": "음성과 선택한 다른 오디오 입력을 녹음합니다.",
+            "Screen & System Audio Recording": "화면 및 시스템 오디오 녹음",
+            "Enables System Audio recording and optional screen context.":
+                "시스템 오디오 녹음과 선택적 화면 컨텍스트를 사용할 수 있습니다."
         ]
         for (key, expected) in onboardingKorean {
             let english = try localizedValue(key: key, language: "en", root: root)
@@ -238,7 +249,13 @@ struct LocalizationResourceTests {
             "The transcript text could not be saved.",
             "The recording file could not be saved.",
             "Export to Obsidian",
-            "More Actions"
+            "More Actions",
+            "Audio only",
+            "Audio-only recording",
+            "Audio recording",
+            "Not transcribed",
+            "Saved without transcription. You can transcribe it later.",
+            "Transcribe audio"
         ]
         for key in noteBrowserKeys {
             let localizations = (strings[key] as? [String: Any])?["localizations"]
@@ -249,6 +266,14 @@ struct LocalizationResourceTests {
                 assert(!value.isEmpty, "Missing \(language) Note Browser key: \(key)")
             }
         }
+        let audioOnlyTooltip = (strings["Audio-only recording"] as? [String: Any])?["localizations"]
+            as? [String: Any]
+        let audioOnlyTooltipEnglish = (((audioOnlyTooltip?["en"] as? [String: Any])?["stringUnit"]
+            as? [String: Any])?["value"] as? String) ?? ""
+        let audioOnlyTooltipKorean = (((audioOnlyTooltip?["ko"] as? [String: Any])?["stringUnit"]
+            as? [String: Any])?["value"] as? String) ?? ""
+        assert(audioOnlyTooltipEnglish == "Audio-only recording")
+        assert(audioOnlyTooltipKorean == "오디오 전용 녹음")
 
         let hangulPattern = try NSRegularExpression(pattern: "[가-힣]")
         let sourceFiles = [

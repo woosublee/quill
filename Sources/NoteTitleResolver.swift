@@ -43,6 +43,13 @@ enum NoteTitleResolver {
         let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         if content.isEmpty {
             if isTranscribing { return "Transcribing..." }
+            if item.machineStatus == .audioOnly {
+                return localizedCatalogString(
+                    "Audio recording",
+                    language: language,
+                    bundle: bundle
+                )
+            }
             if case .failed = item.machineStatus {
                 return item.userIssuePresentation(
                     language: language,

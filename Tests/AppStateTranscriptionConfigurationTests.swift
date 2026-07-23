@@ -35,6 +35,14 @@ struct AppStateTranscriptionConfigurationTests {
         testPostProcessingCooldownDispositionCanBeMarkedSkipped()
         testNoteBrowserDefaultsOnWhenPreferenceIsMissing()
         testNoteBrowserPreservesExplicitOptOut()
+        await testExistingInstallMigratesMissingTranscriptionPreferenceOn()
+        await testStoredTranscriptionPreferenceIsPreserved()
+        await testRecordOnlyDoesNotRequireAccessibility()
+        await testTranscriptionOffPreservesRememberedBackend()
+        await testTranscriptionOnPreservesRememberedBackendReadiness()
+        await testFreshInstallSeedsNewHiddenDefaultsOnce()
+        await testCompletedInstallKeepsLegacyFallbacksWhenKeysAreMissing()
+        await testStoredUserDefaultsBeatFirstInstallSeed()
         try testPreserveExactWordingIsRemovedFromSettingsAndPipeline()
         testLegacyMlxWhisperOptionsDefaultToOff()
         testLegacyMlxWhisperOptionsPersistIndependentlyFromEngine()
@@ -116,6 +124,9 @@ struct AppStateTranscriptionConfigurationTests {
         await testRetryAvailabilityRequiresModelSelection()
         await testRetryAvailabilityRequiresProviderConfiguration()
         await testRetryAvailabilityAcceptsConfiguredAPIStandard()
+        try testRetryUsesCurrentPostProcessingAndAudioOnlyMetadata()
+        try testAudioOnlyRetryCreatesTranscriptFileAndPreservesMetadata()
+        try testAudioOnlyRetryDeletesNewTranscriptFileWhenStale()
         print("AppStateTranscriptionConfigurationTests passed")
     }
 
@@ -347,6 +358,140 @@ struct AppStateTranscriptionConfigurationTests {
 
         assert(defaults.object(forKey: "note_browser_enabled") as? Bool == false)
         assert(!AppState().noteBrowserEnabled)
+    }
+
+    private static func testExistingInstallMigratesMissingTranscriptionPreferenceOn() async {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set(true, forKey: "hasCompletedSetup")
+        defaults.removeObject(forKey: "transcription_enabled")
+
+        let appState = await MainActor.run { AppState() }
+
+        await MainActor.run {
+            precondition(appState.transcriptionEnabled)
+        }
+        precondition(defaults.object(forKey: "transcription_enabled") != nil)
+        precondition(defaults.bool(forKey: "transcription_enabled"))
+    }
+
+    private static func testStoredTranscriptionPreferenceIsPreserved() async {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set(true, forKey: "hasCompletedSetup")
+        defaults.set(false, forKey: "transcription_enabled")
+
+        let appState = await MainActor.run { AppState() }
+
+        await MainActor.run {
+            precondition(!appState.transcriptionEnabled)
+            appState.transcriptionEnabled = true
+        }
+        precondition(defaults.bool(forKey: "transcription_enabled"))
+    }
+
+    private static func testRecordOnlyDoesNotRequireAccessibility() async {
+        resetDefaults()
+        let appState = await MainActor.run { AppState() }
+        await MainActor.run {
+            appState.disableAutoPaste = false
+            appState.isCommandModeEnabled = true
+            appState.transcriptionEnabled = false
+            precondition(!appState.requiresAccessibility)
+
+            appState.transcriptionEnabled = true
+            precondition(appState.requiresAccessibility)
+        }
+    }
+
+    private static func testTranscriptionOffPreservesRememberedBackend() async {
+        resetDefaults()
+        let appState = await MainActor.run { AppState() }
+
+        await MainActor.run {
+            appState.apiKey = "global-key"
+            appState.setNoteBrowserTranscriptionChoice(.apiStandard(modelID: "remembered-model"))
+            appState.transcriptionEnabled = false
+            appState.apiKey = ""
+
+            precondition(!appState.transcriptionEnabled)
+            precondition(appState.currentNoteBrowserTranscriptionChoice == .apiStandard(modelID: "remembered-model"))
+        }
+    }
+
+    private static func testTranscriptionOnPreservesRememberedBackendReadiness() async {
+        resetDefaults()
+        let appState = await MainActor.run { AppState() }
+
+        await MainActor.run {
+            appState.apiKey = "global-key"
+            appState.setNoteBrowserTranscriptionChoice(.apiStandard(modelID: "remembered-model"))
+            appState.transcriptionEnabled = false
+            appState.apiKey = ""
+            appState.transcriptionEnabled = true
+
+            precondition(appState.currentNoteBrowserTranscriptionMode == .apiStandard)
+            precondition(
+                !appState.isNoteBrowserTranscriptionChoiceReady(
+                    appState.currentNoteBrowserTranscriptionChoice
+                )
+            )
+        }
+    }
+
+    private static func testFreshInstallSeedsNewHiddenDefaultsOnce() async {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set(false, forKey: "hasCompletedSetup")
+        defaults.removeObject(forKey: "first_install_defaults_version")
+
+        _ = await MainActor.run { AppState() }
+
+        precondition(defaults.bool(forKey: "disable_auto_paste"))
+        precondition(defaults.string(forKey: "transcription_language") == "auto")
+        precondition(defaults.string(forKey: "recording_overlay_layout") == "notchSides")
+        precondition(defaults.string(forKey: "overlay_waveform_display_mode") == "hoverTime")
+        precondition(!defaults.bool(forKey: "press_enter_voice_command_enabled"))
+        precondition(defaults.integer(forKey: "first_install_defaults_version") == 1)
+    }
+
+    private static func testCompletedInstallKeepsLegacyFallbacksWhenKeysAreMissing() async {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set(true, forKey: "hasCompletedSetup")
+        defaults.removeObject(forKey: "first_install_defaults_version")
+
+        let appState = await MainActor.run { AppState() }
+
+        await MainActor.run {
+            precondition(!appState.disableAutoPaste)
+            precondition(appState.transcriptionLanguage.code == "ko")
+            precondition(appState.recordingOverlayLayout == .centered)
+            precondition(appState.overlayWaveformDisplayMode == .waveformOnly)
+            precondition(appState.isPressEnterVoiceCommandEnabled)
+        }
+        precondition(defaults.integer(forKey: "first_install_defaults_version") == 1)
+    }
+
+    private static func testStoredUserDefaultsBeatFirstInstallSeed() async {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set(false, forKey: "hasCompletedSetup")
+        defaults.set(false, forKey: "disable_auto_paste")
+        defaults.set("en", forKey: "transcription_language")
+        defaults.set("centered", forKey: "recording_overlay_layout")
+        defaults.set("timeOnly", forKey: "overlay_waveform_display_mode")
+        defaults.set(true, forKey: "press_enter_voice_command_enabled")
+
+        let appState = await MainActor.run { AppState() }
+
+        await MainActor.run {
+            precondition(!appState.disableAutoPaste)
+            precondition(appState.transcriptionLanguage.code == "en")
+            precondition(appState.recordingOverlayLayout == .centered)
+            precondition(appState.overlayWaveformDisplayMode == .timeOnly)
+            precondition(appState.isPressEnterVoiceCommandEnabled)
+        }
     }
 
     private static func testPreserveExactWordingIsRemovedFromSettingsAndPipeline() throws {
@@ -1214,6 +1359,13 @@ struct AppStateTranscriptionConfigurationTests {
             precondition(!appState.disablePostProcessing)
             precondition(!appState.disableContextCapture)
             assertProviderState(appState, equals: expectedProviderState)
+
+            appState.disablePostProcessing = false
+            appState.disableContextCapture = true
+            appState.applySetupProcessingPreset(.recordOnly)
+            precondition(!appState.transcriptionEnabled)
+            precondition(!appState.disablePostProcessing)
+            precondition(appState.disableContextCapture)
         }
     }
 
@@ -1280,9 +1432,11 @@ struct AppStateTranscriptionConfigurationTests {
         )
 
         precondition(!selectedInputScheduler.contains("guard !isApplyingNoteBrowserTranscriptionChoice else { return }\n        if Thread.isMainThread"))
-        precondition(selectedInputScheduler.contains("MainActor.assumeIsolated {\n                guard !isApplyingNoteBrowserTranscriptionChoice else { return }"))
+        precondition(selectedInputScheduler.contains("MainActor.assumeIsolated {\n                guard transcriptionEnabled,\n                      !isApplyingNoteBrowserTranscriptionChoice else { return }"))
+        precondition(selectedInputScheduler.contains("guard let self,\n                      self.transcriptionEnabled,\n                      !self.isApplyingNoteBrowserTranscriptionChoice else { return }"))
         precondition(!providerScheduler.contains("guard !isApplyingNoteBrowserTranscriptionChoice else { return }\n        if Thread.isMainThread"))
-        precondition(providerScheduler.contains("MainActor.assumeIsolated {\n                guard !isApplyingNoteBrowserTranscriptionChoice,"))
+        precondition(providerScheduler.contains("MainActor.assumeIsolated {\n                guard transcriptionEnabled,\n                      !isApplyingNoteBrowserTranscriptionChoice,"))
+        precondition(providerScheduler.contains("guard let self,\n                      self.transcriptionEnabled,\n                      !self.isApplyingNoteBrowserTranscriptionChoice,"))
         precondition(!legacyObserver.contains("!isApplyingNoteBrowserTranscriptionChoice"))
     }
 
@@ -2130,6 +2284,69 @@ struct AppStateTranscriptionConfigurationTests {
         }
     }
 
+    private static func testRetryUsesCurrentPostProcessingAndAudioOnlyMetadata() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let retrySnapshot = sourceBlock(
+            in: source,
+            from: "private func makeRetrySnapshot(for item: PipelineHistoryItem)",
+            to: "\n    private func makeRetryHistoryItem("
+        )
+
+        assert(retrySnapshot.contains("let isAudioOnly = item.machineStatus == .audioOnly"))
+        assert(retrySnapshot.contains("postProcessingEnabled: !disablePostProcessing"))
+        assert(!retrySnapshot.contains("item.usedPostProcessing"))
+        assert(retrySnapshot.contains("isAudioOnly ? customVocabulary : item.customVocabulary"))
+        assert(retrySnapshot.contains("isAudioOnly ? customSystemPrompt : item.customSystemPrompt"))
+        assert(retrySnapshot.contains("currentActivity: isAudioOnly ? \"\" : item.contextSummary"))
+    }
+
+    private static func testAudioOnlyRetryCreatesTranscriptFileAndPreservesMetadata() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let retry = sourceBlock(
+            in: source,
+            from: "func retryTranscription(item: PipelineHistoryItem)",
+            to: "\n    @MainActor\n    private func copyRetryTranscriptToPasteboardIfNeeded"
+        )
+        let history = sourceBlock(
+            in: source,
+            from: "private func makeRetryHistoryItem(",
+            to: "\n    func updatePermissionStatus"
+        )
+
+        assert(retry.contains("let transcriptFileName = snapshot.item.transcriptFileName == nil"))
+        assert(retry.contains("saveTranscriptFile("))
+        assert(!retry.contains("let transcriptFileName = snapshot.item.machineStatus == .audioOnly"))
+        assert(history.contains("capturedSelection: snapshot.item.capturedSelection"))
+        assert(history.contains("systemPrompt: snapshot.item.systemPrompt"))
+        assert(history.contains("contextSystemPrompt: snapshot.item.contextSystemPrompt"))
+        assert(history.contains("customTitle: snapshot.item.customTitle"))
+    }
+
+    private static func testAudioOnlyRetryDeletesNewTranscriptFileWhenStale() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let retry = sourceBlock(
+            in: source,
+            from: "func retryTranscription(item: PipelineHistoryItem)",
+            to: "\n    @MainActor\n    private func copyRetryTranscriptToPasteboardIfNeeded"
+        )
+        let staleGuard = sourceBlock(
+            in: retry,
+            from: "guard self.isCurrentCloudTranscriptionExecution(",
+            to: "\n                do {"
+        )
+        let storeUpdate = sourceBlock(
+            in: retry,
+            from: "try self.pipelineHistoryStore.update(updatedItem)",
+            to: "\n                if !retrySucceeded"
+        )
+
+        for cleanup in [staleGuard, storeUpdate] {
+            assert(cleanup.contains("snapshot.item.transcriptFileName == nil"))
+            assert(cleanup.contains("let transcriptFileName = updatedItem.transcriptFileName"))
+            assert(cleanup.contains("Self.deleteTranscriptFile(transcriptFileName)"))
+        }
+    }
+
     private static func retryHistoryItem(audioFileName: String?) -> PipelineHistoryItem {
         PipelineHistoryItem(
             timestamp: Date(timeIntervalSince1970: 1),
@@ -2161,6 +2378,13 @@ struct AppStateTranscriptionConfigurationTests {
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("app_state_transcription_test_") {
             defaults.removeObject(forKey: key)
         }
+        defaults.removeObject(forKey: "hasCompletedSetup")
+        defaults.removeObject(forKey: "transcription_enabled")
+        defaults.removeObject(forKey: "first_install_defaults_version")
+        defaults.removeObject(forKey: "disable_auto_paste")
+        defaults.removeObject(forKey: "recording_overlay_layout")
+        defaults.removeObject(forKey: "overlay_waveform_display_mode")
+        defaults.removeObject(forKey: "press_enter_voice_command_enabled")
         defaults.removeObject(forKey: "use_local_transcription")
         defaults.removeObject(forKey: "use_legacy_mlx_whisper")
         defaults.removeObject(forKey: "show_legacy_mlx_whisper_options")

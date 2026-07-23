@@ -10,6 +10,7 @@ enum PipelineHistoryMachineStatus: Equatable {
     case importing
     case liveRecording
     case cloudTranscribing
+    case audioOnly
     case recovered(RecoveredRecordingContext)
     case failed(QuillUserIssueRecord)
     case completed
@@ -21,12 +22,16 @@ struct PipelineHistoryItem: Identifiable, Codable {
     static let recoveredRecordingStatus =
         RecoveredRecordingMode.complete.recoveredStatus
     static let cloudTranscribingStatus = "cloud-transcribing"
+    static let audioOnlyStatus = "audio-only"
 
     var machineStatus: PipelineHistoryMachineStatus {
         if postProcessingStatus == "importing" { return .importing }
         if postProcessingStatus == "live-recording" { return .liveRecording }
         if postProcessingStatus == Self.cloudTranscribingStatus {
             return .cloudTranscribing
+        }
+        if postProcessingStatus == Self.audioOnlyStatus {
+            return .audioOnly
         }
         if let context = recoveredRecordingContext {
             return .recovered(context)
@@ -247,6 +252,52 @@ struct PipelineHistoryItem: Identifiable, Codable {
             contextAppName: contextAppName,
             contextBundleIdentifier: contextBundleIdentifier,
             contextWindowTitle: contextWindowTitle,
+            customTitle: nil
+        )
+    }
+
+    static func audioOnly(
+        id: UUID = UUID(),
+        timestamp: Date,
+        recordingStartedAt: Date?,
+        recordingEndedAt: Date?,
+        calendarMatch: CalendarEventMatch?,
+        audioFileName: String,
+        transcriptionLanguageCode: String,
+        localTranscriptionModelID: String
+    ) -> PipelineHistoryItem {
+        PipelineHistoryItem(
+            intent: .dictation,
+            selectedText: nil,
+            capturedSelection: nil,
+            id: id,
+            timestamp: timestamp,
+            recordingStartedAt: recordingStartedAt,
+            recordingEndedAt: recordingEndedAt,
+            calendarMatch: calendarMatch,
+            rawTranscript: "",
+            postProcessedTranscript: "",
+            postProcessingPrompt: nil,
+            systemPrompt: nil,
+            contextSummary: "",
+            contextSystemPrompt: nil,
+            contextPrompt: nil,
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: Self.audioOnlyStatus,
+            debugStatus: "Audio only",
+            customVocabulary: "",
+            customSystemPrompt: "",
+            audioFileName: audioFileName,
+            usedLocalTranscription: false,
+            usedContextCapture: false,
+            usedPostProcessing: false,
+            transcriptionLanguageCode: transcriptionLanguageCode,
+            localTranscriptionModelID: localTranscriptionModelID,
+            transcriptFileName: nil,
+            contextAppName: nil,
+            contextBundleIdentifier: nil,
+            contextWindowTitle: nil,
             customTitle: nil
         )
     }

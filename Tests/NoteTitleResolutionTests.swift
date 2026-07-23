@@ -12,6 +12,7 @@ struct NoteTitleResolutionTests {
         testCalendarAppliedTitleIncludesRecordingDate()
         testRecoveredRecordingTitlesNameAvailableSource()
         testStorageInterruptionReasonWinsRecoveredTitle()
+        testAudioOnlyTitleUsesNormalPrecedence()
         print("NoteTitleResolutionTests passed")
     }
 
@@ -99,6 +100,44 @@ struct NoteTitleResolutionTests {
             )
             assert(NoteTitleResolver.displayTitle(for: recovered) == expected)
         }
+    }
+
+    private static func testAudioOnlyTitleUsesNormalPrecedence() {
+        let audioOnly = PipelineHistoryItem.audioOnly(
+            timestamp: Date(timeIntervalSince1970: 10),
+            recordingStartedAt: Date(timeIntervalSince1970: 1),
+            recordingEndedAt: Date(timeIntervalSince1970: 10),
+            calendarMatch: nil,
+            audioFileName: "recording.wav",
+            transcriptionLanguageCode: "auto",
+            localTranscriptionModelID: "remembered-model"
+        )
+        assert(NoteTitleResolver.displayTitle(for: audioOnly) == "Audio recording")
+
+        let calendarMatch = CalendarEventMatch(
+            calendarID: "calendar",
+            eventID: "event",
+            title: "Weekly Sync",
+            start: Date(timeIntervalSince1970: 1),
+            end: Date(timeIntervalSince1970: 10),
+            matchSource: .overlapSuggestion,
+            titleState: .applied
+        )
+        let calendar = PipelineHistoryItem.audioOnly(
+            timestamp: Date(timeIntervalSince1970: 10),
+            recordingStartedAt: Date(timeIntervalSince1970: 1),
+            recordingEndedAt: Date(timeIntervalSince1970: 10),
+            calendarMatch: calendarMatch,
+            audioFileName: "recording.wav",
+            transcriptionLanguageCode: "auto",
+            localTranscriptionModelID: "remembered-model"
+        )
+        assert(NoteTitleResolver.displayTitle(for: calendar) == "Weekly Sync")
+        assert(
+            NoteTitleResolver.displayTitle(
+                for: audioOnly.withCustomTitle("My recording")
+            ) == "My recording"
+        )
     }
 
     private static func item(

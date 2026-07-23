@@ -189,6 +189,12 @@ struct SetupView: View {
 
             HStack(spacing: 12) {
                 processingChoiceCard(
+                    location: .recordOnly,
+                    icon: "waveform",
+                    title: "Record only",
+                    detail: "No transcription · No model download"
+                )
+                processingChoiceCard(
                     location: .onThisMac,
                     icon: "desktopcomputer",
                     title: "On this Mac",
@@ -202,7 +208,19 @@ struct SetupView: View {
                 )
             }
 
-            if processingLocation == .onThisMac {
+            if processingLocation == .recordOnly {
+                Label(
+                    "Save audio notes now. Transcribe them later if needed. No model download or API key required.",
+                    systemImage: "checkmark.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+                .cornerRadius(12)
+            } else if processingLocation == .onThisMac {
                 localProcessingDetails
                     .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
             } else if processingLocation == .apiProvider {
@@ -366,20 +384,11 @@ struct SetupView: View {
 
                 permissionRow(
                     title: "Microphone",
-                    description: "Record your voice for transcription.",
+                    description: "Record your voice and other selected audio inputs.",
                     icon: "mic.fill",
                     granted: micPermissionGranted,
                     actionTitle: String(localized: "Grant Access"),
                     action: requestMicrophonePermission
-                )
-
-                permissionRow(
-                    title: "Accessibility",
-                    description: "Paste transcribed text into your apps.",
-                    icon: "hand.raised.fill",
-                    granted: accessibilityGranted,
-                    actionTitle: String(localized: "Open Settings"),
-                    action: appState.openAccessibilitySettings
                 )
 
                 if selectedPreset == .localAppleSpeech {
@@ -404,8 +413,17 @@ struct SetupView: View {
                 }
 
                 permissionRow(
-                    title: "Screen Recording",
-                    description: "Adds screen context and enables System Audio when you choose it.",
+                    title: "Accessibility",
+                    description: "Enables automatic paste and Edit Mode when you turn them on.",
+                    icon: "hand.raised.fill",
+                    granted: accessibilityGranted,
+                    actionTitle: String(localized: "Open Settings"),
+                    action: appState.openAccessibilitySettings
+                )
+
+                permissionRow(
+                    title: "Screen & System Audio Recording",
+                    description: "Enables System Audio recording and optional screen context.",
                     icon: "camera.viewfinder",
                     granted: appState.hasScreenRecordingPermission,
                     actionTitle: String(localized: "Grant Access"),
@@ -711,6 +729,8 @@ struct SetupView: View {
         case .processing:
             guard let selectedPreset else { return false }
             switch selectedPreset {
+            case .recordOnly:
+                return true
             case .localAppleSpeech:
                 return true
             case .localNativeWhisper:
@@ -729,6 +749,8 @@ struct SetupView: View {
 
     private var processingSummary: String {
         switch selectedPreset {
+        case .recordOnly:
+            return localizedCatalogString("Record only · Audio notes")
         case .localAppleSpeech:
             if appState.willAutoSelectNativeWhisperWhenReady {
                 return localizedCatalogString(
@@ -814,6 +836,8 @@ struct SetupView: View {
     }
 
     private func handleNativeWhisperStatusChange(_ status: NativeWhisperInstallStatus) {
+        guard processingLocation != .recordOnly else { return }
+
         if status == .ready,
            case .nativeWhisper = appState.currentNoteBrowserTranscriptionChoice {
             processingLocation = .onThisMac

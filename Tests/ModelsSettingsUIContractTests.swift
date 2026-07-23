@@ -33,6 +33,8 @@ struct ModelsSettingsUIContractTests {
         try testAutoPasteLivesInShortcutsClipboard(settings)
         testTranscriptionDetailsAreManagementOnly(settings)
         testManagementRowsKeepSelectionAsDefaultBehavior(settings)
+        try testTranscriptionCardHasIndependentToggle()
+        try testMenuBarUsesRecordingCopyWhenTranscriptionIsOff()
         testCurrentSpecDocumentsCorrectedLayout(currentSpec)
         print("ModelsSettingsUIContractTests passed")
     }
@@ -810,6 +812,33 @@ struct ModelsSettingsUIContractTests {
             precondition(row.contains("showsSelectionControl: Bool = true"))
             precondition(row.contains("if showsSelectionControl"))
         }
+    }
+
+    private static func testTranscriptionCardHasIndependentToggle() throws {
+        let source = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
+
+        precondition(source.contains("private var transcriptionEnabled: Binding<Bool>"))
+        precondition(source.contains("Toggle(\"\", isOn: transcriptionEnabled)"))
+        precondition(source.contains(".accessibilityLabel(\"Transcription\")"))
+        precondition(source.contains("appState.isTranscriptionConfigurationLocked"))
+        let section = block(
+            in: source,
+            from: "private var transcriptionFeatureSection",
+            to: "private var postProcessingEnabled"
+        )
+
+        precondition(source.contains("Record audio without creating a transcript."))
+        precondition(source.contains(".disabled(!appState.transcriptionEnabled)"))
+        precondition(section.contains("} else if appState.transcriptionEnabled,"))
+        precondition(section.contains("let reason = currentTranscriptionDisplay.localizedUnavailableReason()"))
+        precondition(!section.contains("} else if let reason = currentTranscriptionDisplay.localizedUnavailableReason()"))
+    }
+
+    private static func testMenuBarUsesRecordingCopyWhenTranscriptionIsOff() throws {
+        let source = try String(contentsOfFile: "Sources/MenuBarView.swift", encoding: .utf8)
+        precondition(source.contains("appState.transcriptionEnabled"))
+        precondition(source.contains("String(localized: \"Start Recording\")"))
+        precondition(source.contains("String(localized: \"Start Dictating\")"))
     }
 
     private static func testCurrentSpecDocumentsCorrectedLayout(_ source: String) {

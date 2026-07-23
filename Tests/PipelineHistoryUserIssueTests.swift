@@ -9,6 +9,7 @@ struct PipelineHistoryUserIssueTests {
         try testLegacyErrorUsesGenericSafePresentation(bundle: bundle)
         try testStoredRecordRerendersForCurrentLanguage(bundle: bundle)
         try testExistingMachineTokensRemainUnchanged()
+        testAudioOnlyIsACompletedNormalState()
         print("PipelineHistoryUserIssueTests passed")
     }
 
@@ -134,6 +135,30 @@ struct PipelineHistoryUserIssueTests {
         guard case .recovered = recovered.machineStatus else {
             throw TestFailure("Expected recovered token")
         }
+    }
+
+    private static func testAudioOnlyIsACompletedNormalState() {
+        let item = PipelineHistoryItem.audioOnly(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 10),
+            recordingStartedAt: Date(timeIntervalSince1970: 1),
+            recordingEndedAt: Date(timeIntervalSince1970: 10),
+            calendarMatch: nil,
+            audioFileName: "recording.wav",
+            transcriptionLanguageCode: "auto",
+            localTranscriptionModelID: "remembered-model"
+        )
+
+        assert(item.machineStatus == .audioOnly)
+        assert(!item.isIncompleteTranscription)
+        assert(item.userIssueRecord == nil)
+        assert(item.rawTranscript.isEmpty)
+        assert(item.postProcessedTranscript.isEmpty)
+        assert(item.transcriptFileName == nil)
+        assert(item.audioFileName == "recording.wav")
+        assert(!item.usedLocalTranscription)
+        assert(!item.usedContextCapture)
+        assert(!item.usedPostProcessing)
     }
 
     private static func historyItem(

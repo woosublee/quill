@@ -28,6 +28,7 @@ struct NoteListRowDisplayDataTests {
         testRestoredCloudProgressDisplaysWaitingCopy()
         testCloudProgressCopyLocalizesInKorean()
         testRetryingItemHidesExistingPreview()
+        testAudioOnlyRowUsesBlueStateAndNotTranscribedPreview()
         print("NoteListRowDisplayDataTests passed")
     }
 
@@ -439,6 +440,28 @@ struct NoteListRowDisplayDataTests {
 
         assert(data.status == .transcribing)
         assert(data.preview.isEmpty, "Expected retrying item to hide stale preview, got: \(data.preview)")
+    }
+
+    private static func testAudioOnlyRowUsesBlueStateAndNotTranscribedPreview() {
+        let item = PipelineHistoryItem.audioOnly(
+            timestamp: Date(timeIntervalSince1970: 10),
+            recordingStartedAt: Date(timeIntervalSince1970: 1),
+            recordingEndedAt: Date(timeIntervalSince1970: 10),
+            calendarMatch: nil,
+            audioFileName: "recording.wav",
+            transcriptionLanguageCode: "auto",
+            localTranscriptionModelID: "remembered-model"
+        )
+        let data = NoteListRowDisplayData(
+            item: item,
+            retryingIDs: [],
+            localization: { key, _ in key }
+        )
+
+        assert(data.status == .audioOnly)
+        assert(data.displayTitle == "Audio recording")
+        assert(data.preview == "Not transcribed")
+        assert(transcriptStatus(for: item, retrying: [item.id]) == .transcribing)
     }
 
     private static func historyItem(
