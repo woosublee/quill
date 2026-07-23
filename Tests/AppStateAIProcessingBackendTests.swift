@@ -80,6 +80,7 @@ struct AppStateAIProcessingBackendTests {
         try testAppDelegateStartsIdleMonitoring()
         try testTerminationRoutesThroughUnifiedModelCleanup()
         await testWarningBannerDismissalIsScopedToNoteAndResetsOnRetryGeneration()
+        try testDeletingNotesForgetsWarningBannerState()
         print("AppStateAIProcessingBackendTests passed")
     }
 
@@ -2225,6 +2226,37 @@ struct AppStateAIProcessingBackendTests {
             appState.dismissWarningBanner(noteID: noteID, code: code)
             assert(appState.isWarningBannerDismissed(noteID: noteID, code: code))
         }
+    }
+
+    // The dismissal side-store dictionaries would otherwise grow unbounded as
+    // notes are deleted, so the delete/clear paths must forget that state.
+    private static func testDeletingNotesForgetsWarningBannerState() throws {
+        let source = try appStateSource()
+
+        let deleteBody = sourceBlock(
+            in: source,
+            from: "func deleteHistoryEntry(id: UUID) {",
+            to: "func updateHistoryItemTitle("
+        )
+        assert(deleteBody.contains("forgetWarningBannerState(for: id)"))
+
+        let clearBody = sourceBlock(
+            in: source,
+            from: "func clearPipelineHistory() {",
+            to: "func deleteHistoryEntry("
+        )
+        assert(clearBody.contains("forgetAllWarningBannerState()"))
+
+        let forgetOne = sourceBlock(
+            in: source,
+            from: "private func forgetWarningBannerState(for noteID: UUID) {",
+            to: "private func forgetAllWarningBannerState() {"
+        )
+        assert(forgetOne.contains("noteRetryGenerationByID.removeValue(forKey: noteID.uuidString)"))
+        assert(forgetOne.contains("dismissedWarningBannerGeneration = dismissedWarningBannerGeneration.filter"))
+        assert(forgetOne.contains("Self.saveIntDictionary(noteRetryGenerationByID"))
+        assert(forgetOne.contains("Self.noteRetryGenerationDefaultsKey"))
+        assert(forgetOne.contains("Self.dismissedWarningBannerGenerationDefaultsKey"))
     }
 
     private static func appStateSource() throws -> String {

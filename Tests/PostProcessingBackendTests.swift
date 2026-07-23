@@ -11,6 +11,7 @@ struct PostProcessingBackendTests {
         try testLocalManagerErrorsMapToDedicatedIssues()
         try testInvalidCloudBaseURLIsNotRelabeledAsLocal()
         try await testLeakedRawTranscriptionTemplateIsTreatedAsFailure()
+        try await testStandaloneRawTranscriptionWordIsNotTreatedAsLeak()
         print("PostProcessingBackendTests passed")
     }
 
@@ -80,6 +81,22 @@ struct PostProcessingBackendTests {
                 customVocabulary: ""
             )
         }
+    }
+
+    private static func testStandaloneRawTranscriptionWordIsNotTreatedAsLeak() async throws {
+        // Legit dictation that merely mentions the word "RAW_TRANSCRIPTION"
+        // (without the template's `<<<` wrapper delimiter) must pass through.
+        let cleaned = "The variable RAW_TRANSCRIPTION holds the raw text."
+        let service = makeLocalService { request in
+            try successResponse(request: request, content: cleaned)
+        }
+
+        let result = try await service.postProcess(
+            transcript: "clean this",
+            context: testContext,
+            customVocabulary: ""
+        )
+        try expect(result.transcript == cleaned, "standalone RAW_TRANSCRIPTION word passes through")
     }
 
     private static func testLocalManagerErrorsMapToDedicatedIssues() throws {

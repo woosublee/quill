@@ -1909,6 +1909,39 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
     }
 
+    /// Drops the per-note retry generation and any banner dismissals for a
+    /// deleted note so these side-store dictionaries don't grow unbounded.
+    @MainActor
+    private func forgetWarningBannerState(for noteID: UUID) {
+        let dismissalPrefix = "\(noteID.uuidString):"
+        let hadState = noteRetryGenerationByID[noteID.uuidString] != nil
+            || dismissedWarningBannerGeneration.keys.contains { $0.hasPrefix(dismissalPrefix) }
+        guard hadState else { return }
+        noteRetryGenerationByID.removeValue(forKey: noteID.uuidString)
+        dismissedWarningBannerGeneration = dismissedWarningBannerGeneration.filter {
+            !$0.key.hasPrefix(dismissalPrefix)
+        }
+        Self.saveIntDictionary(noteRetryGenerationByID, forKey: Self.noteRetryGenerationDefaultsKey)
+        Self.saveIntDictionary(
+            dismissedWarningBannerGeneration,
+            forKey: Self.dismissedWarningBannerGenerationDefaultsKey
+        )
+    }
+
+    /// Clears all banner dismissal / retry-generation side state, e.g. when the
+    /// entire run history is cleared.
+    @MainActor
+    private func forgetAllWarningBannerState() {
+        guard !noteRetryGenerationByID.isEmpty || !dismissedWarningBannerGeneration.isEmpty else { return }
+        noteRetryGenerationByID = [:]
+        dismissedWarningBannerGeneration = [:]
+        Self.saveIntDictionary(noteRetryGenerationByID, forKey: Self.noteRetryGenerationDefaultsKey)
+        Self.saveIntDictionary(
+            dismissedWarningBannerGeneration,
+            forKey: Self.dismissedWarningBannerGenerationDefaultsKey
+        )
+    }
+
     var isTranscriptionConfigurationLocked: Bool {
         isRecording || isTranscribing || !retryingItemIDs.isEmpty
     }
@@ -5324,6 +5357,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 cleanupDeletedPipelineHistoryAssets(removedAssets)
             }
             pipelineHistory = []
+            forgetAllWarningBannerState()
         } catch {
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to clear run history"), providerDetail: error.localizedDescription)
         }
@@ -5349,6 +5383,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 cleanupDeletedPipelineHistoryAssets(deletedAssets)
             }
             pipelineHistory.remove(at: index)
+            forgetWarningBannerState(for: id)
         } catch {
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to delete run history entry"), providerDetail: error.localizedDescription)
         }

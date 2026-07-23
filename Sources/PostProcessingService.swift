@@ -884,8 +884,13 @@ Model: \(model)
     /// wrapper back as its "cleaned" output instead of actually cleaning the
     /// text. Independent of `instructionExecutionGuardEnabled` since this is a
     /// plain correctness failure, not a prompt-injection concern.
+    ///
+    /// Matches on the wrapper's opening delimiter (`<<<RAW_TRANSCRIPTION`) — the
+    /// triple-angle marker only ever appears in the template, so legitimately
+    /// dictated text that merely mentions the word "RAW_TRANSCRIPTION" (an
+    /// identifier, variable name, or the word itself) is not rejected.
     static func leaksRawTranscriptionPromptTemplate(_ value: String) -> Bool {
-        value.contains("RAW_TRANSCRIPTION")
+        value.contains("<<<RAW_TRANSCRIPTION")
     }
 
     private func processCommandTransform(
