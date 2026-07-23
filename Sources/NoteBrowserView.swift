@@ -1045,6 +1045,15 @@ private struct NoteListRow: View {
                     .foregroundStyle(selectedTitleColor)
                     .lineLimit(1)
 
+                if displayData.status == .audioOnly {
+                    Text(localizedCatalogString("Audio only"))
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.blue)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.blue.opacity(0.10), in: Capsule())
+                }
+
                 Text(displayData.preview.isEmpty ? " " : displayData.preview)
                     .font(.system(size: 11.5))
                     .foregroundStyle(selectedPreviewColor)
@@ -1114,6 +1123,10 @@ private struct NoteListRow: View {
                 .frame(width: 6, height: 6)
         case .recording, .transcribing:
             YellowSpinner(color: .orange)
+        case .audioOnly:
+            Circle()
+                .fill(Color.blue)
+                .frame(width: 6, height: 6)
         case .recovered:
             Image(systemName: "arrow.clockwise.circle")
                 .font(.system(size: 9, weight: .medium))
@@ -1149,6 +1162,12 @@ private struct NoteDetailView: View {
     private var isError: Bool {
         if case .failed = item.machineStatus { return true }
         return false
+    }
+    private var isAudioOnly: Bool {
+        item.machineStatus == .audioOnly
+    }
+    private var transcriptionActionHelp: LocalizedStringKey {
+        isAudioOnly ? "Transcribe audio" : "Retry transcription"
     }
     private var isCloudTranscribing: Bool {
         item.machineStatus == .cloudTranscribing
@@ -1445,11 +1464,19 @@ private struct NoteDetailView: View {
     @ViewBuilder
     private var statusBadges: some View {
         HStack(spacing: 5) {
-            metaTag(
-                item.usedLocalTranscription ? "LOCAL" : "CLOUD",
-                active: item.usedLocalTranscription,
-                help: item.usedLocalTranscription ? "Local transcription" : "Cloud transcription"
-            )
+            if isAudioOnly {
+                metaTag(
+                    localizedCatalogString("Audio only"),
+                    active: true,
+                    help: "Audio-only recording"
+                )
+            } else {
+                metaTag(
+                    item.usedLocalTranscription ? "LOCAL" : "CLOUD",
+                    active: item.usedLocalTranscription,
+                    help: item.usedLocalTranscription ? "Local transcription" : "Cloud transcription"
+                )
+            }
             metaDot
             metaTag(
                 item.usedContextCapture ? "CTX" : "NO CTX",
@@ -1556,6 +1583,22 @@ private struct NoteDetailView: View {
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 60)
+            } else if isAudioOnly {
+                ZStack {
+                    Circle()
+                        .fill(Color.blue.opacity(0.08))
+                        .frame(width: 80, height: 80)
+                    Image(systemName: "waveform")
+                        .font(.system(size: 30, weight: .ultraLight))
+                        .foregroundStyle(.blue.opacity(0.75))
+                }
+                Text("Audio recording")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text("Saved without transcription. You can transcribe it later.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
             } else if isError {
                 if let issuePresentation {
                     QuillUserIssueView(
@@ -1605,7 +1648,7 @@ private struct NoteDetailView: View {
                         }
                     },
                     disabled: isRetrying,
-                    help: "Retry transcription"
+                    help: transcriptionActionHelp
                 )
                 toolbarDivider
             }
@@ -2169,6 +2212,7 @@ private struct ToolbarIconButton<Label: View>: View {
         .buttonStyle(ToolbarButtonStyle(isHovered: isHovered))
         .disabled(disabled)
         .help(help)
+        .accessibilityLabel(Text(help))
         .contentShape(Circle())
         .allowsHitTesting(true)
         .onHover { hovering in

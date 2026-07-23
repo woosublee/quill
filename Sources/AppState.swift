@@ -361,6 +361,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private let apiKeyStorageKey = "groq_api_key"
     private let apiBaseURLStorageKey = "api_base_url"
+    private let transcriptionEnabledStorageKey = "transcription_enabled"
     private let transcriptionModelStorageKey = AppState.transcriptionModelStorageKeyName
     private let transcriptionAPIURLStorageKey = "transcription_api_url"
     private let transcriptionAPIKeyStorageKey = "transcription_api_key"
@@ -454,9 +455,54 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    private static let firstInstallDefaultsVersion = 1
+    private static let firstInstallDefaultsVersionKey = "first_install_defaults_version"
+
+    private static func seedFirstInstallDefaultsIfNeeded(
+        defaults: UserDefaults,
+        hasCompletedSetup: Bool
+    ) {
+        guard defaults.integer(forKey: firstInstallDefaultsVersionKey)
+                < firstInstallDefaultsVersion else { return }
+
+        if hasCompletedSetup {
+            defaults.set(firstInstallDefaultsVersion, forKey: firstInstallDefaultsVersionKey)
+            return
+        }
+
+        if defaults.object(forKey: "disable_auto_paste") == nil {
+            defaults.set(true, forKey: "disable_auto_paste")
+        }
+        if defaults.object(forKey: "transcription_language") == nil {
+            defaults.set("auto", forKey: "transcription_language")
+        }
+        if defaults.object(forKey: "recording_overlay_layout") == nil {
+            defaults.set(RecordingOverlayLayout.notchSides.rawValue, forKey: "recording_overlay_layout")
+        }
+        if defaults.object(forKey: "overlay_waveform_display_mode") == nil {
+            defaults.set(OverlayWaveformDisplayMode.hoverTime.rawValue, forKey: "overlay_waveform_display_mode")
+        }
+        if defaults.object(forKey: "press_enter_voice_command_enabled") == nil {
+            defaults.set(false, forKey: "press_enter_voice_command_enabled")
+        }
+
+        defaults.set(firstInstallDefaultsVersion, forKey: firstInstallDefaultsVersionKey)
+    }
+
     @Published var hasCompletedSetup: Bool {
         didSet {
             UserDefaults.standard.set(hasCompletedSetup, forKey: "hasCompletedSetup")
+        }
+    }
+
+    @Published var transcriptionEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(
+                transcriptionEnabled,
+                forKey: transcriptionEnabledStorageKey
+            )
+            guard transcriptionEnabled, oldValue != transcriptionEnabled else { return }
+            scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration()
         }
     }
 
@@ -1213,17 +1259,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func applySetupProcessingPreset(_ preset: SetupFlow.ProcessingPreset) {
         switch preset {
+        case .recordOnly:
+            transcriptionEnabled = false
         case .localAppleSpeech:
+            transcriptionEnabled = true
             setNoteBrowserTranscriptionChoice(.appleLive)
             disablePostProcessing = true
             disableContextCapture = true
         case .localNativeWhisper:
+            transcriptionEnabled = true
             setNoteBrowserTranscriptionChoice(
                 .nativeWhisper(modelID: NativeWhisperModelCatalog.recommended.id)
             )
             disablePostProcessing = true
             disableContextCapture = true
         case .apiStandard:
+            transcriptionEnabled = true
             setNoteBrowserTranscriptionChoice(
                 .apiStandard(modelID: transcriptionModel)
             )
@@ -1235,12 +1286,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func scheduleNoteBrowserTranscriptionModeNormalizationForSelectedInput() {
         if Thread.isMainThread {
             MainActor.assumeIsolated {
-                guard !isApplyingNoteBrowserTranscriptionChoice else { return }
+                guard transcriptionEnabled,
+                      !isApplyingNoteBrowserTranscriptionChoice else { return }
                 normalizeNoteBrowserTranscriptionMode()
             }
         } else {
             Task { @MainActor [weak self] in
-                guard let self, !self.isApplyingNoteBrowserTranscriptionChoice else { return }
+                guard let self,
+                      self.transcriptionEnabled,
+                      !self.isApplyingNoteBrowserTranscriptionChoice else { return }
                 self.normalizeNoteBrowserTranscriptionMode()
             }
         }
@@ -1249,7 +1303,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration() {
         if Thread.isMainThread {
             MainActor.assumeIsolated {
-                guard !isApplyingNoteBrowserTranscriptionChoice,
+                guard transcriptionEnabled,
+                      !isApplyingNoteBrowserTranscriptionChoice,
                       !isRecording,
                       !isTranscribing else { return }
                 normalizeNoteBrowserTranscriptionMode()
@@ -1257,6 +1312,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         } else {
             Task { @MainActor [weak self] in
                 guard let self,
+                      self.transcriptionEnabled,
                       !self.isApplyingNoteBrowserTranscriptionChoice,
                       !self.isRecording,
                       !self.isTranscribing else { return }
@@ -1565,6 +1621,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var isRecording = false
     @Published var isTranscribing = false
     @Published var retryingItemIDs: Set<UUID> = []
+
+    var isTranscriptionConfigurationLocked: Bool {
+        isRecording || isTranscribing || !retryingItemIDs.isEmpty
+    }
     @Published private(set) var cloudTranscriptionProgressByHistoryID:
         [UUID: CloudTranscriptionDisplayProgress] = [:]
     @Published var lastTranscript: String = ""
@@ -1642,6 +1702,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var currentRecordingLiveNoteID: UUID?
     private var activeRecordingStartedAt: Date?
     private var activeRecordingCalendarSnapshot: RecordingCalendarSnapshot?
+    private var activeRecordingTranscriptionEnabled: Bool?
+
+    private var shouldTranscribeActiveRecording: Bool {
+        activeRecordingTranscriptionEnabled ?? transcriptionEnabled
+    }
     private var activeAudioInputID: String?
     private var activeInputSwitchToken: UUID?
     private var isActiveInputSwitchPhysicalStopInProgress = false
@@ -1666,6 +1731,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var isEscapeCancelAlertPresented = false
     private var isNativeWhisperQuitAlertPresented = false
     private var shouldTerminateAfterTranscription = false
+    private var pendingAudioOnlyStopIDs: Set<UUID> = []
     private var audioDeviceObservers: [NSObjectProtocol] = []
     private var needsMicrophoneRefreshAfterRecording = false
     private let pipelineHistoryStore = PipelineHistoryStore()
@@ -1730,6 +1796,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         UserDefaults.standard.removeObject(forKey: "force_http2_transcription")
         Self.migrateModelStorageKeys()
         let hasCompletedSetup = UserDefaults.standard.bool(forKey: "hasCompletedSetup")
+        Self.seedFirstInstallDefaultsIfNeeded(
+            defaults: .standard,
+            hasCompletedSetup: hasCompletedSetup
+        )
+        let hasStoredTranscriptionEnabled = UserDefaults.standard.object(
+            forKey: transcriptionEnabledStorageKey
+        ) != nil
+        let transcriptionEnabled = hasStoredTranscriptionEnabled
+            ? UserDefaults.standard.bool(forKey: transcriptionEnabledStorageKey)
+            : true
+        if hasCompletedSetup && !hasStoredTranscriptionEnabled {
+            UserDefaults.standard.set(true, forKey: transcriptionEnabledStorageKey)
+        }
         let apiKey = Self.loadStoredAPIKey(account: apiKeyStorageKey)
         let apiBaseURL = Self.loadStoredAPIBaseURL(account: "api_base_url")
         let transcriptionModel = UserDefaults.standard.string(forKey: transcriptionModelStorageKey) ?? Self.defaultTranscriptionModel
@@ -1944,6 +2023,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             contextScreenshotMaxDimension: contextScreenshotMaxDimension
         )
         self.hasCompletedSetup = hasCompletedSetup
+        self.transcriptionEnabled = transcriptionEnabled
         self.apiKey = apiKey
         self.apiBaseURL = apiBaseURL
         self.transcriptionAPIURL = transcriptionAPIURL
@@ -2571,6 +2651,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case empty
     }
 
+    private enum StoppedRecordingCompletion {
+        case transcriptionJob(UUID)
+        case audioOnly(UUID)
+    }
+
+    enum MCPStopRecordingOutcome {
+        case notRecording
+        case transcribing
+        case savingAudioOnly
+    }
+
     static func audioStorageDirectory() -> URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Quill"
@@ -3120,6 +3211,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         currentSessionIntent = .dictation
         activeRecordingStartedAt = nil
         activeRecordingCalendarSnapshot = nil
+        activeRecordingTranscriptionEnabled = nil
         isRecording = false
         restoreAudioInterruptionIfNeeded()
         syncCriticalDictationActivity()
@@ -3501,12 +3593,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 ).isEmpty ? .defaultConfiguration : .transcriptionOverride
             ),
             processing: RecordingProcessingSnapshot(
-                postProcessingEnabled: !disablePostProcessing,
+                postProcessingEnabled: shouldTranscribeActiveRecording && !disablePostProcessing,
                 preferredModelID: postProcessingModel,
                 fallbackModelID: postProcessingFallbackModel,
                 outputLanguage: outputLanguage,
                 preserveExactWording: preserveExactWording,
-                contextCaptureEnabled: !disableContextCapture,
+                contextCaptureEnabled: shouldTranscribeActiveRecording && !disableContextCapture,
                 instructionExecutionGuardEnabled: instructionExecutionGuardEnabled,
                 customVocabulary: customVocabulary
                     .split(whereSeparator: \.isNewline)
@@ -4237,6 +4329,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     postProcessingEnabled: snapshot.postProcessingEnabled,
                     preserveExactWording: snapshot.preserveExactWording
                 )
+                let transcriptFileName = snapshot.item.transcriptFileName == nil
+                    ? Self.saveTranscriptFile(
+                        rawTranscript: parsedTranscript.transcript,
+                        postProcessedTranscript: result.finalTranscript
+                    )
+                    : snapshot.item.transcriptFileName
                 updatedItem = self.makeRetryHistoryItem(
                     from: snapshot,
                     rawTranscript: parsedTranscript.transcript,
@@ -4248,7 +4346,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             parsedTranscript: parsedTranscript,
                             isRetry: true
                         ),
-                    debugStatus: "Retried"
+                    debugStatus: "Retried",
+                    transcriptFileName: transcriptFileName
                 )
                 retrySucceeded = true
             } catch {
@@ -4267,7 +4366,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     postProcessedTranscript: snapshot.item.postProcessedTranscript,
                     postProcessingPrompt: snapshot.item.postProcessingPrompt,
                     postProcessingStatus: issue.persistedStatus,
-                    debugStatus: "Retry failed"
+                    debugStatus: "Retry failed",
+                    transcriptFileName: snapshot.item.transcriptFileName
                 )
                 retrySucceeded = false
             }
@@ -4278,6 +4378,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     context: snapshot.cloudExecutionContext,
                     requiresCloudExecution: snapshot.requiresCloudExecution
                 ) else {
+                    if snapshot.item.transcriptFileName == nil,
+                       let transcriptFileName = updatedItem.transcriptFileName {
+                        Self.deleteTranscriptFile(transcriptFileName)
+                    }
                     self.retryingItemIDs.remove(snapshot.item.id)
                     return
                 }
@@ -4302,6 +4406,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.copyRetryTranscriptToPasteboardIfNeeded(updatedItem.postProcessedTranscript)
                     }
                 } catch {
+                    if snapshot.item.transcriptFileName == nil,
+                       let transcriptFileName = updatedItem.transcriptFileName {
+                        Self.deleteTranscriptFile(transcriptFileName)
+                    }
                     let issue = self.userIssue(for: error)
                     self.errorMessage = issue.record.presentation().compactMessage
                 }
@@ -4346,8 +4454,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
             throw TranscriptionError.submissionFailed(reason)
         }
         let configuration = audioImportConfiguration(for: retryChoice)
+        let isAudioOnly = item.machineStatus == .audioOnly
+        let retryPostProcessingEnabled = isAudioOnly ? !disablePostProcessing : item.usedPostProcessing
+        let retryCustomVocabulary = isAudioOnly ? customVocabulary : item.customVocabulary
+        let retryCustomSystemPrompt = isAudioOnly ? customSystemPrompt : item.customSystemPrompt
         let completionSnapshot = TranscriptionCompletionSnapshot(
-            postProcessingEnabled: item.usedPostProcessing,
+            postProcessingEnabled: retryPostProcessingEnabled,
             preserveExactWording: preserveExactWording,
             outputLanguage: outputLanguage,
             pressEnterCommandEnabled: isPressEnterVoiceCommandEnabled
@@ -4393,15 +4505,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
             item: item,
             audioURL: audioURL,
             restoredContext: AppContext(
-                appName: nil,
-                bundleIdentifier: nil,
-                windowTitle: nil,
-                selectedText: nil,
-                currentActivity: item.contextSummary,
-                contextSystemPrompt: item.contextSystemPrompt,
-                contextPrompt: item.contextPrompt,
-                screenshotDataURL: item.contextScreenshotDataURL,
-                screenshotMimeType: item.contextScreenshotDataURL != nil ? "image/jpeg" : nil,
+                appName: isAudioOnly ? nil : item.contextAppName,
+                bundleIdentifier: isAudioOnly ? nil : item.contextBundleIdentifier,
+                windowTitle: isAudioOnly ? nil : item.contextWindowTitle,
+                selectedText: isAudioOnly ? nil : item.capturedSelection,
+                currentActivity: isAudioOnly ? "" : item.contextSummary,
+                contextSystemPrompt: isAudioOnly ? nil : item.contextSystemPrompt,
+                contextPrompt: isAudioOnly ? nil : item.contextPrompt,
+                screenshotDataURL: isAudioOnly ? nil : item.contextScreenshotDataURL,
+                screenshotMimeType: !isAudioOnly && item.contextScreenshotDataURL != nil
+                    ? "image/jpeg"
+                    : nil,
                 screenshotError: nil
             ),
             restoredIntent: SessionIntent.fromPersisted(intent: item.intent, selectedText: item.selectedText),
@@ -4410,10 +4524,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             transcriptionLanguage: TranscriptionLanguage.find(code: item.transcriptionLanguageCode),
             localTranscriptionModel: configuration.localTranscriptionModel,
             useLocalTranscription: configuration.useLocalTranscription,
-            customVocabulary: item.customVocabulary,
-            customSystemPrompt: item.customSystemPrompt,
+            customVocabulary: retryCustomVocabulary,
+            customSystemPrompt: retryCustomSystemPrompt,
             outputLanguage: outputLanguage,
-            postProcessingEnabled: item.usedPostProcessing,
+            postProcessingEnabled: retryPostProcessingEnabled,
             preserveExactWording: preserveExactWording,
             localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath,
             useLegacyMlxWhisper: configuration.useLegacyMlxWhisper,
@@ -4428,11 +4542,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         postProcessedTranscript: String,
         postProcessingPrompt: String?,
         postProcessingStatus: String,
-        debugStatus: String
+        debugStatus: String,
+        transcriptFileName: String?
     ) -> PipelineHistoryItem {
         PipelineHistoryItem(
             intent: snapshot.item.intent,
             selectedText: snapshot.item.selectedText,
+            capturedSelection: snapshot.item.capturedSelection,
             id: snapshot.item.id,
             timestamp: snapshot.item.timestamp,
             recordingStartedAt: snapshot.item.recordingStartedAt,
@@ -4441,7 +4557,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             rawTranscript: rawTranscript,
             postProcessedTranscript: postProcessedTranscript,
             postProcessingPrompt: postProcessingPrompt,
+            systemPrompt: snapshot.item.systemPrompt,
             contextSummary: snapshot.item.contextSummary,
+            contextSystemPrompt: snapshot.item.contextSystemPrompt,
             contextPrompt: snapshot.item.contextPrompt,
             contextScreenshotDataURL: snapshot.item.contextScreenshotDataURL,
             contextScreenshotStatus: snapshot.item.contextScreenshotStatus,
@@ -4455,7 +4573,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             usedPostProcessing: snapshot.postProcessingEnabled,
             transcriptionLanguageCode: snapshot.transcriptionLanguage.code,
             localTranscriptionModelID: snapshot.localTranscriptionModel.id,
-            transcriptFileName: snapshot.item.transcriptFileName
+            transcriptFileName: transcriptFileName,
+            contextAppName: snapshot.item.contextAppName,
+            contextBundleIdentifier: snapshot.item.contextBundleIdentifier,
+            contextWindowTitle: snapshot.item.contextWindowTitle,
+            customTitle: snapshot.item.customTitle
         )
     }
 
@@ -5088,7 +5210,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     // MCP public interface
     @MainActor
     func startRecordingFromMCP() {
-        lastTranscript = ""
+        if transcriptionEnabled {
+            lastTranscript = ""
+        }
         mcpLastRecordingFailed = false
         shortcutSessionController.beginManual(mode: .toggle)
         startRecording(triggerMode: .toggle)
@@ -5115,15 +5239,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
             activeRecordingCalendarSnapshot = nil
             return
         }
-        lastTranscript = ""
+        if transcriptionEnabled {
+            lastTranscript = ""
+        }
         shortcutSessionController.beginManual(mode: .toggle)
         startRecording(triggerMode: .toggle, onStarted: onStarted)
     }
 
     @MainActor
-    func stopRecordingFromMCP() {
-        guard isRecording else { return }
+    func stopRecordingFromMCP() -> MCPStopRecordingOutcome {
+        guard isRecording else { return .notRecording }
+        let shouldTranscribe = shouldTranscribeActiveRecording
         stopAndTranscribe()
+        return shouldTranscribe ? .transcribing : .savingAudioOnly
     }
 
     @MainActor
@@ -5134,6 +5262,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func requestTerminationWhileRecording() -> NSApplication.TerminateReply {
+        if !pendingAudioOnlyStopIDs.isEmpty, !shouldConfirmTermination {
+            shouldTerminateAfterTranscription = true
+            return .terminateLater
+        }
         guard shouldConfirmTermination else { return .terminateNow }
         guard !isEscapeCancelAlertPresented else { return .terminateCancel }
 
@@ -5197,7 +5329,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func terminateIfReady() {
-        guard shouldTerminateAfterTranscription, !isRecording, !isTranscribing else { return }
+        guard shouldTerminateAfterTranscription,
+              !isRecording,
+              !isTranscribing,
+              pendingAudioOnlyStopIDs.isEmpty else { return }
         shouldTerminateAfterTranscription = false
         NSApp.reply(toApplicationShouldTerminate: true)
     }
@@ -5262,6 +5397,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         capturedContext = nil
         activeRecordingStartedAt = nil
         activeRecordingCalendarSnapshot = nil
+        activeRecordingTranscriptionEnabled = nil
         currentSessionIntent = .dictation
         isRecording = false
         errorMessage = nil
@@ -5490,7 +5626,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// Note: the global hotkey's event tap also needs AX, but that is a separate
     /// concern — we intentionally don't gate on whether a shortcut is bound here.
     var requiresAccessibility: Bool {
-        !disableAutoPaste || isCommandModeEnabled
+        transcriptionEnabled && (!disableAutoPaste || isCommandModeEnabled)
     }
 
     @MainActor
@@ -5502,6 +5638,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         startedAt: CFAbsoluteTime? = nil
     ) async -> Bool {
         activeRecordingTriggerMode = triggerMode
+        if !transcriptionEnabled {
+            currentSessionIntent = .dictation
+            overlayManager.setRecordingTriggerMode(triggerMode, animated: false)
+            return true
+        }
+
         let isAccessibilityTrusted = AXIsProcessTrusted()
         hasAccessibility = isAccessibilityTrusted
         guard isAccessibilityTrusted || !requiresAccessibility else {
@@ -5616,6 +5758,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         hotkeyManager.stop()
         shortcutSessionController.reset()
         activeRecordingTriggerMode = nil
+        activeRecordingTranscriptionEnabled = nil
         cancelRecordingInitializationTimer()
         clearAudioRecorderCallbacks()
         audioLevelCancellable?.cancel()
@@ -5840,6 +5983,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func beginRecording(triggerMode: RecordingTriggerMode, onStarted: (@MainActor () -> Void)? = nil) {
         os_log(.info, log: recordingLog, "beginRecording() entered")
         clearPendingOverlayDismissToken()
+        overlayTranscriptionID = UUID()
         errorMessage = nil
         let audioInputID = selectedMicrophoneID
         activeRecordingID = AudioInputDevice.isSingleSource(audioInputID)
@@ -5847,14 +5991,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
             ? UUID()
             : nil
         let supportsLiveTranscription = !AudioInputDevice.isSystemDefaultAndSystemAudio(audioInputID)
+        activeRecordingTranscriptionEnabled = transcriptionEnabled
+        let shouldTranscribe = shouldTranscribeActiveRecording
 
-        if supportsLiveTranscription && useLocalTranscription && localTranscriptionModel.isAppleSpeech {
+        if shouldTranscribe,
+           supportsLiveTranscription,
+           useLocalTranscription,
+           localTranscriptionModel.isAppleSpeech {
             refreshSpeechRecognitionAuthorizationStatus()
             switch speechRecognitionAuthorizationStatus {
             case .authorized:
                 break
             case .notDetermined:
-                guard let triggerMode = activeRecordingTriggerMode else { return }
+                guard let triggerMode = activeRecordingTriggerMode else {
+                    activeRecordingTranscriptionEnabled = nil
+                    return
+                }
                 prepareForSpeechRecognitionPermissionPrompt(
                     triggerMode: triggerMode,
                     selectionSnapshot: pendingSelectionSnapshot,
@@ -5913,6 +6065,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             default:
                 isRecording = false
                 activeRecordingCalendarSnapshot = nil
+                activeRecordingTranscriptionEnabled = nil
                 syncCriticalDictationActivity()
                 restoreAudioInterruptionIfNeeded()
                 activeRecordingTriggerMode = nil
@@ -5987,12 +6140,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
         )
 
-        if supportsLiveTranscription {
+        if shouldTranscribe, supportsLiveTranscription {
             startRealtimeStreamingIfEnabled()
         }
 
         // Start engine on background thread so UI isn't blocked
-        if supportsLiveTranscription, useLocalTranscription, let transcriber = localTranscriptionModel.makeLiveTranscriber() {
+        if shouldTranscribe,
+           supportsLiveTranscription,
+           useLocalTranscription,
+           let transcriber = localTranscriptionModel.makeLiveTranscriber() {
             // Live transcription: initialize before recording starts so the request is ready
             // to receive buffers from the very first sample
             Task { [weak self] in
@@ -6049,7 +6205,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     }
                     await MainActor.run {
                         guard self.isRecording, self.activeRecordingTriggerMode != nil else { return }
-                        self.startContextCapture()
+                        if shouldTranscribe {
+                            self.startContextCapture()
+                        }
                         if !transcriber.handlesRecording {
                             self.audioLevelCancellable = self.activeRecorderAudioLevelPublisher(inputID: audioInputID)
                                 .receive(on: DispatchQueue.main)
@@ -6078,7 +6236,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.markRecordingStarted(actualRecordingStartedAt)
                         guard self.isRecording, self.activeRecordingTriggerMode != nil else { return }
                         onStarted?()
-                        self.startContextCapture()
+                        if shouldTranscribe {
+                            self.startContextCapture()
+                        }
                         self.audioLevelCancellable = self.activeRecorderAudioLevelPublisher(inputID: audioInputID)
                             .receive(on: DispatchQueue.main)
                             .sink { [weak self] level in
@@ -6108,6 +6268,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         capturedContext = nil
         activeRecordingStartedAt = nil
         activeRecordingCalendarSnapshot = nil
+        activeRecordingTranscriptionEnabled = nil
         if let liveNoteID = currentRecordingLiveNoteID {
             currentRecordingLiveNoteID = nil
             pipelineHistory.removeAll { $0.id == liveNoteID }
@@ -6690,6 +6851,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    private func completeStoppedRecording(
+        _ completion: StoppedRecordingCompletion,
+        overlayID: UUID,
+        updateOwnedUI: () -> Void
+    ) {
+        cleanupActiveAudioRecordersIfIdle()
+        if overlayTranscriptionID == overlayID {
+            updateOwnedUI()
+        }
+
+        switch completion {
+        case .transcriptionJob(let jobID):
+            finishTranscriptionJob(jobID, overlayID: overlayID)
+        case .audioOnly(let recordingID):
+            pendingAudioOnlyStopIDs.remove(recordingID)
+            terminateIfReady()
+        }
+    }
+
+    @MainActor
     private func stopAndTranscribe() {
         guard activeRecordingStorageFailureID == nil else { return }
         cancelPendingShortcutStart()
@@ -6707,10 +6888,32 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let jobID = currentRecordingLiveNoteID ?? activeRecordingID ?? UUID()
         let liveNoteID = currentRecordingLiveNoteID
         currentRecordingLiveNoteID = nil
+        let shouldTranscribe = shouldTranscribeActiveRecording
+        activeRecordingTranscriptionEnabled = nil
+        let recordingCalendarSnapshot = activeRecordingCalendarSnapshot
         let recordingStartedAt = activeRecordingStartedAt
         let recordingEndedAt = Date()
         activeRecordingStartedAt = nil
         activeRecordingCalendarSnapshot = nil
+
+        if !shouldTranscribe {
+            let audioOnlyOverlayID = overlayTranscriptionID
+            capturedContext = nil
+            contextCaptureTask?.cancel()
+            contextCaptureTask = nil
+            liveTranscriber?.cancel()
+            liveTranscriber = nil
+            setActiveRecorderPCMHandler(nil)
+            stopAndSaveAudioOnly(
+                recordingID: jobID,
+                recordingStartedAt: recordingStartedAt,
+                recordingEndedAt: recordingEndedAt,
+                calendarSnapshot: recordingCalendarSnapshot,
+                overlayID: audioOnlyOverlayID
+            )
+            return
+        }
+
         let startedAt = recordingEndedAt
         registerTranscriptionJob(
             id: jobID,
@@ -6898,7 +7101,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             case .recoveredWithoutTranscription(let recovered):
                 self.persistRecoveredRecordingWithoutTranscription(
                     recovered,
-                    jobID: jobID,
+                    completion: .transcriptionJob(jobID),
                     overlayID: myOverlayID
                 )
                 return
@@ -7136,6 +7339,87 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    private func stopAndSaveAudioOnly(
+        recordingID: UUID,
+        recordingStartedAt: Date?,
+        recordingEndedAt: Date,
+        calendarSnapshot: RecordingCalendarSnapshot?,
+        overlayID: UUID
+    ) {
+        pendingAudioOnlyStopIDs.insert(recordingID)
+        isRecording = false
+        restoreAudioInterruptionIfNeeded()
+        refreshTranscribingState()
+        errorMessage = nil
+        tearDownRealtimeService()
+
+        stopActiveAudioRecorder { [weak self] stoppedRecording in
+            guard let self else { return }
+            switch stoppedRecording {
+            case .transcribable(let fileURL, _):
+                guard let savedAudioFile = Self.savedAudioFileForStoppedRecording(fileURL) else {
+                    self.completeStoppedRecording(
+                        .audioOnly(recordingID),
+                        overlayID: overlayID
+                    ) {
+                        self.errorMessage = localizedCatalogString("No audio recorded")
+                        self.statusText = localizedCatalogString("Error")
+                        self.dismissTranscribingOverlay()
+                    }
+                    return
+                }
+
+                Task { [weak self] in
+                    guard let self else { return }
+                    let calendarMatch = await self.calendarMatchForStoppedRecording(
+                        recordingStartedAt: recordingStartedAt,
+                        recordingEndedAt: recordingEndedAt,
+                        calendarSnapshot: calendarSnapshot
+                    )
+                    await MainActor.run {
+                        self.persistAudioOnlyRecording(
+                            recordingID: recordingID,
+                            recordingStartedAt: recordingStartedAt,
+                            recordingEndedAt: recordingEndedAt,
+                            calendarMatch: calendarMatch,
+                            audioFileName: savedAudioFile.fileName,
+                            overlayID: overlayID
+                        )
+                    }
+                }
+
+            case .recoveredWithoutTranscription(let recovered):
+                self.persistRecoveredRecordingWithoutTranscription(
+                    recovered,
+                    completion: .audioOnly(recordingID),
+                    overlayID: overlayID
+                )
+
+            case .preservedForRecovery(_, let message):
+                self.completeStoppedRecording(
+                    .audioOnly(recordingID),
+                    overlayID: overlayID
+                ) {
+                    self.errorMessage = localizedCatalogString("Audio was preserved for recovery.") + " " + message
+                    self.statusText = localizedCatalogString("Error")
+                    self.dismissTranscribingOverlay()
+                }
+
+            case .empty:
+                self.mcpLastRecordingFailed = true
+                self.completeStoppedRecording(
+                    .audioOnly(recordingID),
+                    overlayID: overlayID
+                ) {
+                    self.errorMessage = localizedCatalogString("No audio recorded")
+                    self.statusText = localizedCatalogString("Error")
+                    self.dismissTranscribingOverlay()
+                }
+            }
+        }
+    }
+
+    @MainActor
     private func scheduleCloudTranscriptionAutoResume(
         _ reconciliation: CloudTranscriptionReconciliation
     ) {
@@ -7309,7 +7593,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             parsedTranscript: parsed,
                             isRetry: true
                         ),
-                    debugStatus: "Resumed after relaunch"
+                    debugStatus: "Resumed after relaunch",
+                    transcriptFileName: item.transcriptFileName
                 )
                 try pipelineHistoryStore.update(updated)
                 pipelineHistory = pipelineHistoryStore.loadAllHistory()
@@ -7700,6 +7985,73 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    private func persistAudioOnlyRecording(
+        recordingID: UUID,
+        recordingStartedAt: Date?,
+        recordingEndedAt: Date,
+        calendarMatch: CalendarEventMatch?,
+        audioFileName: String,
+        overlayID: UUID
+    ) {
+        let item = PipelineHistoryItem.audioOnly(
+            id: recordingID,
+            timestamp: recordingEndedAt,
+            recordingStartedAt: recordingStartedAt,
+            recordingEndedAt: recordingEndedAt,
+            calendarMatch: calendarMatch,
+            audioFileName: audioFileName,
+            transcriptionLanguageCode: transcriptionLanguage.code,
+            localTranscriptionModelID: localTranscriptionModel.id
+        )
+        let journalRecordingID = recordingJournalID(
+            forAudioFileName: audioFileName
+        )
+
+        do {
+            let removed = try appendPipelineHistoryItem(item)
+            for assets in removed {
+                cleanupDeletedPipelineHistoryAssets(assets)
+            }
+            if let journalRecordingID {
+                completePromotedRecordingJournal(
+                    recordingID: journalRecordingID
+                )
+            }
+            mcpLastRecordingFailed = false
+            completeStoppedRecording(
+                .audioOnly(recordingID),
+                overlayID: overlayID
+            ) {
+                self.statusText = localizedCatalogString("Recording saved")
+                self.debugStatusMessage = "Recording saved"
+                self.errorMessage = nil
+                self.dismissTranscribingOverlay()
+                self.scheduleReadyStatusReset(
+                    after: 3,
+                    matching: [localizedCatalogString("Recording saved")]
+                )
+            }
+        } catch {
+            if journalRecordingID == nil,
+               !pipelineHistoryStore.loadAllHistory().contains(where: { $0.id == recordingID }) {
+                Self.deleteStoredFiles(
+                    audioFileName: audioFileName,
+                    transcriptFileName: nil
+                )
+            }
+            let message = userIssue(for: error).record.presentation().compactMessage
+            completeStoppedRecording(
+                .audioOnly(recordingID),
+                overlayID: overlayID
+            ) {
+                self.errorMessage = message
+                self.statusText = localizedCatalogString("Error")
+                self.dismissTranscribingOverlay()
+            }
+        }
+    }
+
+    @MainActor
     private func updatePipelineHistoryItem(_ item: PipelineHistoryItem) {
         if let index = pipelineHistory.firstIndex(where: { $0.id == item.id }) {
             pipelineHistory[index] = item
@@ -7714,9 +8066,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     private func persistRecoveredRecordingWithoutTranscription(
         _ recovered: RecoveredRecordingArtifact,
-        jobID: UUID,
+        completion: StoppedRecordingCompletion,
         overlayID: UUID
     ) {
+        let presentation: (errorMessage: String, statusText: String)
         do {
             let removedAssets = try RecordingRecoveryHistory(
                 journalStore: recordingJournalStore,
@@ -7739,23 +8092,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 in: pipelineHistoryStore.loadAllHistory(),
                 store: pipelineHistoryStore
             )
-            errorMessage = localizedCatalogString(
-                recovered.mode.descriptionLocalizationKey
-            )
-            statusText = localizedCatalogString(
-                recovered.mode.titleLocalizationKey
+            presentation = (
+                localizedCatalogString(recovered.mode.descriptionLocalizationKey),
+                localizedCatalogString(recovered.mode.titleLocalizationKey)
             )
         } catch {
-            errorMessage = LocalizedUserMessage.providerFailure(
-                prefix: localizedCatalogString("Unable to save recovery entry"),
-                providerDetail: error.localizedDescription
+            presentation = (
+                LocalizedUserMessage.providerFailure(
+                    prefix: localizedCatalogString("Unable to save recovery entry"),
+                    providerDetail: error.localizedDescription
+                ),
+                localizedCatalogString("Error")
             )
-            statusText = localizedCatalogString("Error")
         }
         tearDownRealtimeService()
-        cleanupActiveAudioRecordersIfIdle()
-        dismissTranscribingOverlay()
-        finishTranscriptionJob(jobID, overlayID: overlayID)
+        completeStoppedRecording(
+            completion,
+            overlayID: overlayID
+        ) {
+            self.errorMessage = presentation.errorMessage
+            self.statusText = presentation.statusText
+            self.dismissTranscribingOverlay()
+        }
     }
 
     @MainActor
@@ -7821,8 +8179,111 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    private static func logTimestamp(_ date: Date) -> String {
-        ISO8601DateFormatter().string(from: date)
+    private func calendarMatchForStoppedRecording(
+        recordingStartedAt: Date?,
+        recordingEndedAt: Date,
+        calendarSnapshot: RecordingCalendarSnapshot?
+    ) async -> CalendarEventMatch? {
+        if let calendarSnapshot,
+           let calendarID = calendarSnapshot.calendarID,
+           let eventID = calendarSnapshot.eventID,
+           let title = calendarSnapshot.title,
+           let start = calendarSnapshot.startDate,
+           let end = calendarSnapshot.endDate {
+            let matchSource = CalendarMatchSource(
+                rawValue: calendarSnapshot.matchSource ?? ""
+            ) ?? .calendarNotification
+            let attendees = calendarSnapshot.attendeeNames.map {
+                CalendarEventAttendee(
+                    displayName: $0,
+                    email: nil,
+                    responseStatus: nil,
+                    isOptional: false,
+                    isSelf: false
+                )
+            }
+            return CalendarEventMatch(
+                calendarID: calendarID,
+                eventID: eventID,
+                title: title,
+                start: start,
+                end: end,
+                attendees: attendees,
+                matchSource: matchSource,
+                titleState: .applied
+            )
+        }
+
+        guard let recordingStartedAt else { return nil }
+        return await calendarEventMatch(
+            recordingStartedAt: recordingStartedAt,
+            recordingEndedAt: recordingEndedAt
+        )
+    }
+
+    private func calendarEventMatch(
+        recordingStartedAt: Date,
+        recordingEndedAt: Date
+    ) async -> CalendarEventMatch? {
+        guard recordingEndedAt > recordingStartedAt else { return nil }
+        let selectedCalendarIDs = await MainActor.run {
+            googleCalendarConnection.selectedCalendarIDs
+        }
+        guard !selectedCalendarIDs.isEmpty else { return nil }
+
+        do {
+            guard let token = try await validGoogleCalendarToken() else {
+                await MainActor.run {
+                    markGoogleCalendarNeedsReconnect(
+                        feature: .recordingMatch,
+                        message: localizedCatalogString("Google Calendar needs reconnecting. Calendar-based note titles may be unavailable.")
+                    )
+                }
+                return nil
+            }
+            let fetchResult = await Self.googleCalendarServiceFactory()
+                .fetchEventsWithDiagnostics(
+                    accessToken: token.accessToken,
+                    calendarIDs: Array(selectedCalendarIDs),
+                    timeMin: recordingStartedAt,
+                    timeMax: recordingEndedAt
+                )
+            await MainActor.run {
+                if fetchResult.failedCalendarIDs.isEmpty {
+                    markGoogleCalendarHealthy(feature: .recordingMatch)
+                } else {
+                    markGoogleCalendarTemporarilyUnavailable(
+                        feature: .recordingMatch,
+                        message: localizedCatalogString("Some Google calendars could not be refreshed. Calendar-based note titles may be incomplete.")
+                    )
+                }
+            }
+            guard let event = CalendarEventMatcher.bestMatch(
+                recordingStartedAt: recordingStartedAt,
+                recordingEndedAt: recordingEndedAt,
+                events: fetchResult.events
+            ) else { return nil }
+            return event.match(
+                accountID: token.accountEmail,
+                source: .overlapSuggestion,
+                titleState: .suggested
+            )
+        } catch {
+            await MainActor.run {
+                if Self.isGoogleCalendarReconnectError(error) {
+                    markGoogleCalendarNeedsReconnect(
+                        feature: .recordingMatch,
+                        message: localizedCatalogString("Google Calendar needs reconnecting. Calendar-based note titles may be unavailable.")
+                    )
+                } else {
+                    markGoogleCalendarTemporarilyUnavailable(
+                        feature: .recordingMatch,
+                        message: localizedCatalogFormat("Unable to refresh Google Calendar for note titles: %@", error.localizedDescription)
+                    )
+                }
+            }
+            return nil
+        }
     }
 
     private func calendarMatchForHistoryItem(jobID: UUID) async -> CalendarEventMatch? {
@@ -7839,136 +8300,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             os_log(.info, log: calendarLog, "Calendar match skipped: missing recording interval for job %{public}@", jobID.uuidString)
             return nil
         }
-        guard recordingEndedAt > recordingStartedAt else {
-            os_log(
-                .info,
-                log: calendarLog,
-                "Calendar match skipped: invalid recording interval for job %{public}@ start=%{public}@ end=%{public}@",
-                jobID.uuidString,
-                Self.logTimestamp(recordingStartedAt),
-                Self.logTimestamp(recordingEndedAt)
-            )
-            return nil
-        }
-        let selectedCalendarIDs = await MainActor.run { googleCalendarConnection.selectedCalendarIDs }
-        guard !selectedCalendarIDs.isEmpty else {
-            os_log(
-                .info,
-                log: calendarLog,
-                "Calendar match skipped: no selected calendars for job %{public}@ start=%{public}@ end=%{public}@",
-                jobID.uuidString,
-                Self.logTimestamp(recordingStartedAt),
-                Self.logTimestamp(recordingEndedAt)
-            )
-            return nil
-        }
-        do {
-            guard let token = try await validGoogleCalendarToken() else {
-                os_log(.info, log: calendarLog, "Calendar match skipped: no valid Google Calendar token for job %{public}@", jobID.uuidString)
-                await MainActor.run {
-                    markGoogleCalendarNeedsReconnect(
-                        feature: .recordingMatch,
-                        message: localizedCatalogString("Google Calendar needs reconnecting. Calendar-based note titles may be unavailable.")
-                    )
-                }
-                return nil
-            }
-            os_log(
-                .info,
-                log: calendarLog,
-                "Calendar match fetch started: job=%{public}@ calendars=%d start=%{public}@ end=%{public}@",
-                jobID.uuidString,
-                selectedCalendarIDs.count,
-                Self.logTimestamp(recordingStartedAt),
-                Self.logTimestamp(recordingEndedAt)
-            )
-            let fetchResult = await Self.googleCalendarServiceFactory().fetchEventsWithDiagnostics(
-                accessToken: token.accessToken,
-                calendarIDs: Array(selectedCalendarIDs),
-                timeMin: recordingStartedAt,
-                timeMax: recordingEndedAt
-            )
-            if !fetchResult.failedCalendarIDs.isEmpty {
-                await MainActor.run {
-                    markGoogleCalendarTemporarilyUnavailable(
-                        feature: .recordingMatch,
-                        message: localizedCatalogString("Some Google calendars could not be refreshed. Calendar-based note titles may be incomplete.")
-                    )
-                }
-                os_log(
-                    .error,
-                    log: calendarLog,
-                    "Calendar match fetch had failures: job=%{public}@ failedCalendars=%{private}@ fetchedEvents=%d",
-                    jobID.uuidString,
-                    fetchResult.failedCalendarIDs.joined(separator: ","),
-                    fetchResult.events.count
-                )
-            } else {
-                await MainActor.run {
-                    markGoogleCalendarHealthy(feature: .recordingMatch)
-                }
-                os_log(
-                    .info,
-                    log: calendarLog,
-                    "Calendar match fetch succeeded: job=%{public}@ fetchedEvents=%d",
-                    jobID.uuidString,
-                    fetchResult.events.count
-                )
-            }
-            guard let event = CalendarEventMatcher.bestMatch(
-                recordingStartedAt: recordingStartedAt,
-                recordingEndedAt: recordingEndedAt,
-                events: fetchResult.events
-            ) else {
-                os_log(
-                    .info,
-                    log: calendarLog,
-                    "Calendar match not found: job=%{public}@ fetchedEvents=%d failedCalendars=%d",
-                    jobID.uuidString,
-                    fetchResult.events.count,
-                    fetchResult.failedCalendarIDs.count
-                )
-                return nil
-            }
-            os_log(
-                .info,
-                log: calendarLog,
-                "Calendar match found: job=%{public}@ calendar=%{private}@ event=%{private}@ title=%{private}@ start=%{public}@ end=%{public}@",
-                jobID.uuidString,
-                event.calendarID,
-                event.id,
-                event.title,
-                Self.logTimestamp(event.start),
-                Self.logTimestamp(event.end)
-            )
-            return event.match(
-                accountID: token.accountEmail,
-                source: .overlapSuggestion,
-                titleState: .suggested
-            )
-        } catch {
-            os_log(
-                .error,
-                log: calendarLog,
-                "Calendar match failed: job=%{public}@ error=%{public}@",
-                jobID.uuidString,
-                error.localizedDescription
-            )
-            await MainActor.run {
-                if Self.isGoogleCalendarReconnectError(error) {
-                    markGoogleCalendarNeedsReconnect(
-                        feature: .recordingMatch,
-                        message: localizedCatalogString("Google Calendar needs reconnecting. Calendar-based note titles may be unavailable.")
-                    )
-                } else {
-                    markGoogleCalendarTemporarilyUnavailable(
-                        feature: .recordingMatch,
-                        message: localizedCatalogFormat("Unable to refresh Google Calendar for note titles: %@", error.localizedDescription)
-                    )
-                }
-            }
-            return nil
-        }
+        return await calendarEventMatch(
+            recordingStartedAt: recordingStartedAt,
+            recordingEndedAt: recordingEndedAt
+        )
     }
 
     @MainActor

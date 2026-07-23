@@ -6,7 +6,9 @@ struct SetupFlowTests {
     static func main() throws {
         testProcessingStartsWithoutSelection()
         testLocalDefaultsToAppleSpeech()
-        testRequiredPermissionsAdaptToPreset()
+        testRecordOnlyPresetAndPermissions()
+        try testProcessingOffersRecordOnlyAlongsideLocalAndAPI()
+        try testAccessibilityPermissionIsOptional()
         testNotificationAuthorizationGrantedStates()
         testNotificationActionTitles()
         try testSetupContainsExactlyFiveScrollableSteps()
@@ -47,15 +49,65 @@ struct SetupFlowTests {
         )
     }
 
-    private static func testRequiredPermissionsAdaptToPreset() {
-        let common: Set<SetupFlow.Permission> = [.microphone, .accessibility]
-
+    private static func testRecordOnlyPresetAndPermissions() {
+        assert(
+            SetupFlow.processingPreset(
+                location: .recordOnly,
+                localModel: .appleSpeech
+            ) == .recordOnly
+        )
+        assert(
+            SetupFlow.requiredPermissions(for: .recordOnly) == [.microphone]
+        )
         assert(
             SetupFlow.requiredPermissions(for: .localAppleSpeech)
-                == common.union([.speechRecognition])
+                == [.microphone, .speechRecognition]
         )
-        assert(SetupFlow.requiredPermissions(for: .localNativeWhisper) == common)
-        assert(SetupFlow.requiredPermissions(for: .apiStandard) == common)
+        assert(
+            SetupFlow.requiredPermissions(for: .localNativeWhisper)
+                == [.microphone]
+        )
+        assert(
+            SetupFlow.requiredPermissions(for: .apiStandard)
+                == [.microphone]
+        )
+    }
+
+    private static func testProcessingOffersRecordOnlyAlongsideLocalAndAPI() throws {
+        let source = try String(contentsOfFile: "Sources/SetupView.swift", encoding: .utf8)
+        let processing = sourceBlock(
+            in: source,
+            from: "var processingStep: some View",
+            to: "\n    private var localProcessingDetails"
+        )
+
+        assert(processing.contains("location: .recordOnly"))
+        assert(processing.contains("title: \"Record only\""))
+        assert(processing.contains("location: .onThisMac"))
+        assert(processing.contains("location: .apiProvider"))
+        assert(source.contains("case .recordOnly:\n                return true"))
+    }
+
+    private static func testAccessibilityPermissionIsOptional() throws {
+        let source = try String(contentsOfFile: "Sources/SetupView.swift", encoding: .utf8)
+        let permissions = sourceBlock(
+            in: source,
+            from: "var permissionsStep: some View",
+            to: "\n    var shortcutStep: some View"
+        )
+        let required = sourceBlock(
+            in: permissions,
+            from: "Text(\"Required\")",
+            to: "Text(\"Optional\")"
+        )
+        let optional = sourceBlock(
+            in: permissions,
+            from: "Text(\"Optional\")",
+            to: "\n        .onAppear"
+        )
+
+        assert(!required.contains("title: \"Accessibility\""))
+        assert(optional.contains("title: \"Accessibility\""))
     }
 
     private static func testNotificationAuthorizationGrantedStates() {

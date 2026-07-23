@@ -46,6 +46,15 @@ struct MenuBarView: View {
         NotificationCenter.default.post(name: .showSettings, object: nil)
     }
 
+    private var recordingButtonTitle: String {
+        if appState.isRecording {
+            return String(localized: "Stop Recording")
+        }
+        return appState.transcriptionEnabled
+            ? String(localized: "Start Dictating")
+            : String(localized: "Start Recording")
+    }
+
     var body: some View {
         VStack(spacing: 4) {
             Text("\(AppName.displayName) v\(appVersion)")
@@ -113,7 +122,7 @@ struct MenuBarView: View {
             Divider()
 
             // Manual toggle
-            Button(appState.isRecording ? String(localized: "Stop Recording") : String(localized: "Start Dictating")) {
+            Button(recordingButtonTitle) {
                 appState.toggleRecording()
             }
             .disabled(appState.isTranscribing)
