@@ -4,6 +4,7 @@ enum NoteBrowserRetryAvailability: Equatable {
     case noAudio
     case needsModelSetup
     case needsModelSelection
+    case needsProviderConfiguration
     case ready
 }
 
@@ -111,6 +112,28 @@ enum NoteBrowserRecoveryPresentation {
                 ),
                 detailsRows: [],
                 recoveryAction: .openModelsSettings,
+                severity: original.severity
+            )
+        case .needsProviderConfiguration:
+            return QuillUserIssuePresentation(
+                title: localizedCatalogString(
+                    "Add an API key to retry transcription",
+                    language: language,
+                    bundle: bundle
+                ),
+                body: localizedCatalogString(
+                    "Your recording is safely stored.",
+                    language: language,
+                    bundle: bundle
+                ),
+                suggestion: "",
+                compactMessage: localizedCatalogString(
+                    "Add an API key to retry transcription",
+                    language: language,
+                    bundle: bundle
+                ),
+                detailsRows: [],
+                recoveryAction: .openProviderSettings,
                 severity: original.severity
             )
         case .noAudio:

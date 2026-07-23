@@ -98,6 +98,7 @@ struct QuillUserIssueUIContractTests {
 
     private static func testSettingsTestsUseStructuredIssues(_ source: String) throws {
         try expect(source.contains("@State private var systemTestIssue: QuillUserIssueRecord?"), "Settings stores system prompt issue")
+        try expect(source.contains("@State private var contextTestIssue: QuillUserIssueRecord?"), "Settings stores Context prompt issue")
         try expect(source.contains("@State private var keyValidationIssue: QuillUserIssueRecord?"), "Settings stores provider validation issue")
         try expect(source.contains("QuillUserIssueView("), "Settings uses shared issue renderer")
         try expect(!source.contains("systemTestError = error.localizedDescription"), "System prompt test hides raw errors")
@@ -108,12 +109,26 @@ struct QuillUserIssueUIContractTests {
             to: "if let output = systemTestOutput {"
         )
         try expect(
-            systemTestIssueView.contains("action: issue.recoveryAction == .retryTranscription"),
-            "System prompt test only renders a working retry action"
+            systemTestIssueView.contains("action: settingsTestRecoveryAction("),
+            "System prompt test uses shared recovery routing"
+        )
+        let contextTestIssueView = block(
+            source,
+            from: "if let issue = contextTestIssue {",
+            to: "if let error = contextTestError {"
         )
         try expect(
-            systemTestIssueView.contains(": nil"),
-            "System prompt test hides unsupported recovery actions"
+            contextTestIssueView.contains("action: settingsTestRecoveryAction("),
+            "Context prompt test uses shared recovery routing"
+        )
+        try expect(
+            source.contains("case .openProviderSettings:")
+                && source.contains("appState.openProviderSettings()"),
+            "Settings prompt issues can open Provider settings"
+        )
+        try expect(
+            source.contains("contextTestIssue = context.userIssueRecord"),
+            "Context prompt test surfaces structured Context issues"
         )
     }
 

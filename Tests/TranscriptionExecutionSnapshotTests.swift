@@ -9,6 +9,7 @@ struct TranscriptionExecutionSnapshotTests {
         try cloudSnapshotCapturesImmutableExecutionValues()
         try localSnapshotCapturesImmutableExecutionValues()
         try completionSnapshotConvertsToDurablePolicyWithoutSecrets()
+        try completionPolicyDecodesLegacyPreserveExactWordingKey()
         try serviceFactoryStaysInTranscriptionServiceBoundary()
         print("TranscriptionExecutionSnapshotTests passed")
     }
@@ -126,7 +127,6 @@ struct TranscriptionExecutionSnapshotTests {
     private static func completionSnapshotConvertsToDurablePolicyWithoutSecrets() throws {
         let snapshot = TranscriptionCompletionSnapshot(
             postProcessingEnabled: true,
-            preserveExactWording: true,
             outputLanguage: "ko",
             pressEnterCommandEnabled: false
         )
@@ -138,7 +138,6 @@ struct TranscriptionExecutionSnapshotTests {
             policy,
             CloudTranscriptionCompletionPolicy(
                 postProcessingEnabled: true,
-                preserveExactWording: true,
                 outputLanguage: "ko",
                 pressEnterCommandEnabled: false
             ),
@@ -147,6 +146,28 @@ struct TranscriptionExecutionSnapshotTests {
         for forbidden in ["apiKey", "api_key", "authorization", "oauth"] {
             try expect(!json.lowercased().contains(forbidden.lowercased()), "completion snapshot excludes \(forbidden)")
         }
+    }
+
+    private static func completionPolicyDecodesLegacyPreserveExactWordingKey() throws {
+        let legacyJSON = Data(
+            """
+            {
+              "postProcessingEnabled": true,
+              "preserveExactWording": true,
+              "outputLanguage": "ko",
+              "pressEnterCommandEnabled": false
+            }
+            """.utf8
+        )
+
+        let policy = try JSONDecoder().decode(
+            CloudTranscriptionCompletionPolicy.self,
+            from: legacyJSON
+        )
+
+        try expectEqual(policy.postProcessingEnabled, true, "legacy post-processing state")
+        try expectEqual(policy.outputLanguage, "ko", "legacy output language")
+        try expectEqual(policy.pressEnterCommandEnabled, false, "legacy press-enter state")
     }
 
     private static func serviceFactoryStaysInTranscriptionServiceBoundary() throws {

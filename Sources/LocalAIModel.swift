@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-struct LocalAIModelArtifact: Identifiable, Hashable, Codable {
+struct LocalAIModelArtifact: Identifiable, Hashable, Codable, Sendable {
     var id: String { expectedFileName }
     let downloadURL: URL
     let expectedFileName: String
@@ -9,7 +9,7 @@ struct LocalAIModelArtifact: Identifiable, Hashable, Codable {
     let checksumSHA256: String
 }
 
-struct LocalAIModel: Identifiable, Hashable, Codable {
+struct LocalAIModel: Identifiable, Hashable, Codable, Sendable {
     let id: String
     let displayName: String
     let description: String
@@ -22,6 +22,13 @@ struct LocalAIModel: Identifiable, Hashable, Codable {
 
     /// The first GGUF shard passed to `llama-server --model`.
     var primaryArtifact: LocalAIModelArtifact { artifacts[0] }
+
+    func localizedDescription(
+        language: String = preferredLocalizedStringLanguage(),
+        bundle: Bundle = .main
+    ) -> String {
+        localizedCatalogString(description, language: language, bundle: bundle)
+    }
 }
 
 struct LocalAIModelCatalog {
@@ -67,9 +74,13 @@ struct LocalAIModelCatalog {
     static func find(id: String) -> LocalAIModel {
         all.first { $0.id == id } ?? recommended
     }
+
+    static func model(id: String) -> LocalAIModel? {
+        all.first { $0.id == id }
+    }
 }
 
-enum LocalAIInstallStatus: Equatable {
+enum LocalAIInstallStatus: Equatable, Sendable {
     case notInstalled
     case partial(downloadedBytes: Int64, expectedBytes: Int64?)
     case ready
@@ -87,7 +98,7 @@ enum LocalAIModelStoreError: LocalizedError, Equatable {
     }
 }
 
-struct LocalAIDownloadProgress: Equatable {
+struct LocalAIDownloadProgress: Equatable, Sendable {
     let downloadedBytes: Int64
     let totalBytes: Int64?
     let isCancelled: Bool
@@ -107,6 +118,26 @@ struct LocalAIDownloadProgress: Equatable {
         if isCancelled { return "Canceled" }
         guard downloadedBytes > 0 else { return "Starting..." }
         let sizeText = ByteCountFormatter.string(fromByteCount: downloadedBytes, countStyle: .file)
+        if let fractionCompleted {
+            return "\(Int((fractionCompleted * 100).rounded()))% · \(sizeText)"
+        }
+        return sizeText
+    }
+
+    func localizedDisplayText(
+        language: String = preferredLocalizedStringLanguage(),
+        bundle: Bundle = .main
+    ) -> String {
+        if isCancelled {
+            return localizedCatalogString("Canceled", language: language, bundle: bundle)
+        }
+        guard downloadedBytes > 0 else {
+            return localizedCatalogString("Starting...", language: language, bundle: bundle)
+        }
+        let sizeText = ByteCountFormatter.string(
+            fromByteCount: downloadedBytes,
+            countStyle: .file
+        )
         if let fractionCompleted {
             return "\(Int((fractionCompleted * 100).rounded()))% · \(sizeText)"
         }

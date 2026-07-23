@@ -1518,9 +1518,12 @@ struct ModelsSettingsView: View {
     @State private var postProcessingModelDraft = ""
     @State private var postProcessingFallbackModelDraft = ""
     @State private var contextModelDraft = ""
+    @State private var retainedPostProcessingLocalModelID: String?
+    @State private var retainedContextLocalModelID: String?
     @FocusState private var isEditingAPIBaseURL: Bool
     @FocusState private var isEditingTranscriptionModel: Bool
     @FocusState private var isEditingRealtimeStreamingModel: Bool
+    @FocusState private var focusedCustomAIProcessingFeature: AIProcessingFeature?
     @FocusState private var transcriptionAPIURLFocused: Bool
     @FocusState private var transcriptionAPIKeyFocused: Bool
     @State private var isValidatingKey = false
@@ -1539,6 +1542,7 @@ struct ModelsSettingsView: View {
     @State private var systemTestPrompt: String? = nil
     @State private var contextTestRunning = false
     @State private var contextTestOutput: String? = nil
+    @State private var contextTestIssue: QuillUserIssueRecord? = nil
     @State private var contextTestError: String? = nil
     @State private var contextTestPrompt: String? = nil
 
@@ -1585,9 +1589,9 @@ struct ModelsSettingsView: View {
             transcriptionModelDraft = customStandardAPIModelDraft(for: appState.transcriptionModel)
             showRealtimeTranscriptionOption = appState.realtimeStreamingEnabled
             realtimeStreamingModelDraft = appState.realtimeStreamingModel
-            postProcessingModelDraft = appState.postProcessingModel
+            postProcessingModelDraft = customAIProcessingModelDraft(for: appState.postProcessingModel)
             postProcessingFallbackModelDraft = appState.postProcessingFallbackModel
-            contextModelDraft = appState.contextModel
+            contextModelDraft = customAIProcessingModelDraft(for: appState.contextModel)
             customVocabularyInput = appState.customVocabulary
             customSystemPromptInput = appState.customSystemPrompt.isEmpty
                 ? PostProcessingService.defaultSystemPrompt
@@ -1596,6 +1600,7 @@ struct ModelsSettingsView: View {
                 ? AppContextService.defaultContextPrompt
                 : appState.customContextPrompt
             initializeManagedNativeModel()
+            reconcileRetainedLocalAIModels()
         }
         .onChange(of: appState.transcriptionAPIURL) { value in
             if transcriptionAPIURLInput != value { transcriptionAPIURLInput = value }
@@ -1607,6 +1612,19 @@ struct ModelsSettingsView: View {
             guard !isEditingTranscriptionModel else { return }
             let draft = customStandardAPIModelDraft(for: value)
             if transcriptionModelDraft != draft { transcriptionModelDraft = draft }
+        }
+        .onChange(of: appState.postProcessingModel) { value in
+            if focusedCustomAIProcessingFeature != .postProcessing {
+                postProcessingModelDraft = customAIProcessingModelDraft(for: value)
+            }
+        }
+        .onChange(of: appState.contextModel) { value in
+            if focusedCustomAIProcessingFeature != .context {
+                contextModelDraft = customAIProcessingModelDraft(for: value)
+            }
+        }
+        .onChange(of: managedLocalAIReconciliationInputs) { _ in
+            reconcileRetainedLocalAIModels()
         }
     }
 
@@ -1784,10 +1802,10 @@ struct ModelsSettingsView: View {
     private var transcriptionChoicePickerControl: some View {
         if #available(macOS 14.0, *) {
             Picker("Model", selection: transcriptionChoice) {
-                ForEach(["API", "Local", "Legacy mlx-whisper"], id: \.self) { section in
+                ForEach(["Cloud", "On This Mac"], id: \.self) { section in
                     let displays = transcriptionChoiceDisplays.filter { $0.section == section }
                     if !displays.isEmpty {
-                        Section(section) {
+                        Section(localizedCatalogString(section)) {
                             ForEach(displays) { display in
                                 Text(transcriptionChoiceMenuLabel(display))
                                     .tag(display.choice)
@@ -1801,10 +1819,10 @@ struct ModelsSettingsView: View {
             .pickerStyle(.menu)
         } else {
             Menu {
-                ForEach(["API", "Local", "Legacy mlx-whisper"], id: \.self) { section in
+                ForEach(["Cloud", "On This Mac"], id: \.self) { section in
                     let displays = transcriptionChoiceDisplays.filter { $0.section == section }
                     if !displays.isEmpty {
-                        Section(section) {
+                        Section(localizedCatalogString(section)) {
                             ForEach(displays) { display in
                                 transcriptionChoiceMenuItem(display)
                             }
@@ -1841,12 +1859,260 @@ struct ModelsSettingsView: View {
         }
     }
 
+    private func aiProcessingChoiceBinding(
+        for feature: AIProcessingFeature
+    ) -> Binding<AIProcessingBackendChoice> {
+        Binding(
+            get: { appState.currentAIProcessingChoice(for: feature) },
+            set: { handleAIProcessingChoiceSelection($0, for: feature) }
+        )
+    }
+
+    private func handleAIProcessingChoiceSelection(
+        _ choice: AIProcessingBackendChoice,
+        for feature: AIProcessingFeature
+    ) {
+        switch choice {
+        case .cloud(let modelID):
+            appState.selectAIProcessingBackendChoice(choice, for: feature)
+            syncCloudModelDraft(modelID, for: feature)
+            reconcileRetainedLocalAIModel(for: feature)
+        case .localAI(let modelID):
+            appState.selectAIProcessingBackendChoice(choice, for: feature)
+            let wasAccepted =
+                appState.pendingLocalAIModelID(for: feature) == modelID
+                || appState.currentAIProcessingChoice(for: feature) == choice
+            if wasAccepted {
+                setRetainedLocalAIModelID(modelID, for: feature)
+            } else {
+                reconcileRetainedLocalAIModel(for: feature)
+            }
+        }
+    }
+
+    private func setRetainedLocalAIModelID(
+        _ modelID: String?,
+        for feature: AIProcessingFeature
+    ) {
+        switch feature {
+        case .postProcessing:
+            guard retainedPostProcessingLocalModelID != modelID else { return }
+            retainedPostProcessingLocalModelID = modelID
+        case .context:
+            guard retainedContextLocalModelID != modelID else { return }
+            retainedContextLocalModelID = modelID
+        }
+    }
+
+    private func retainedLocalAIModelID(
+        for feature: AIProcessingFeature
+    ) -> String? {
+        switch feature {
+        case .postProcessing:
+            retainedPostProcessingLocalModelID
+        case .context:
+            retainedContextLocalModelID
+        }
+    }
+
+    private func syncCloudModelDraft(
+        _ modelID: String,
+        for feature: AIProcessingFeature
+    ) {
+        switch feature {
+        case .postProcessing where focusedCustomAIProcessingFeature != .postProcessing:
+            postProcessingModelDraft = customAIProcessingModelDraft(for: modelID)
+        case .context where focusedCustomAIProcessingFeature != .context:
+            contextModelDraft = customAIProcessingModelDraft(for: modelID)
+        case .postProcessing, .context:
+            break
+        }
+    }
+
+    private func managedLocalAIResolverInput(
+        for feature: AIProcessingFeature
+    ) -> LocalAIManagedModelResolver.Input {
+        let retainedModelID = retainedLocalAIModelID(for: feature)
+        let retainedState = retainedModelID
+            .flatMap { LocalAIModelCatalog.model(id: $0) }
+            .map { appState.localAIInstallState(for: $0) }
+        return LocalAIManagedModelResolver.Input(
+            pendingModelID: appState.pendingLocalAIModelID(for: feature),
+            retainedModelID: retainedModelID,
+            currentChoice: appState.currentAIProcessingChoice(for: feature),
+            retainedIsInstalling: retainedState?.isInstalling ?? false,
+            retainedProgressIsCancelled: retainedState?.progress.isCancelled ?? false,
+            retainedHasIssue: retainedState?.issue != nil
+        )
+    }
+
+    private func managedLocalAIResolution(
+        for feature: AIProcessingFeature
+    ) -> LocalAIManagedModelResolver.Resolution {
+        LocalAIManagedModelResolver.resolve(
+            managedLocalAIResolverInput(for: feature)
+        )
+    }
+
+    private var managedLocalAIReconciliationInputs:
+        [LocalAIManagedModelResolver.Input] {
+        AIProcessingFeature.allCases.map {
+            managedLocalAIResolverInput(for: $0)
+        }
+    }
+
+    private func reconcileRetainedLocalAIModel(
+        for feature: AIProcessingFeature
+    ) {
+        let resolution = managedLocalAIResolution(for: feature)
+        setRetainedLocalAIModelID(
+            resolution.reconciledRetainedModelID,
+            for: feature
+        )
+    }
+
+    private func reconcileRetainedLocalAIModels() {
+        for feature in AIProcessingFeature.allCases {
+            reconcileRetainedLocalAIModel(for: feature)
+        }
+    }
+
+    private func managedLocalAIModel(
+        for feature: AIProcessingFeature
+    ) -> LocalAIModel? {
+        guard let model = managedLocalAIResolution(for: feature).model,
+              appState.aiProcessingChoiceDisplays(for: feature).contains(where: {
+                  $0.choice == .localAI(modelID: model.id)
+              }) else {
+            return nil
+        }
+        return model
+    }
+
+    private func aiProcessingChoiceMenuLabel(
+        _ display: AIProcessingChoiceDisplay
+    ) -> String {
+        let base = display.subtitle.map {
+            "\(display.title) · \($0)"
+        } ?? display.title
+        return display.isRecommended
+            ? "\(base) — \(localizedCatalogString("Recommended"))"
+            : base
+    }
+
+    private func aiProcessingChoiceMenuItem(
+        _ display: AIProcessingChoiceDisplay,
+        binding: Binding<AIProcessingBackendChoice>
+    ) -> some View {
+        Toggle(isOn: Binding(
+            get: { binding.wrappedValue == display.choice },
+            set: { isSelected in
+                if isSelected { binding.wrappedValue = display.choice }
+            }
+        )) {
+            Text(aiProcessingChoiceMenuLabel(display))
+        }
+        .disabled(!display.isAvailable)
+    }
+
+    @ViewBuilder
+    private func aiProcessingChoicePicker(
+        for feature: AIProcessingFeature
+    ) -> some View {
+        let displays = appState.aiProcessingChoiceDisplays(for: feature)
+        let binding = aiProcessingChoiceBinding(for: feature)
+
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Model")
+                .font(.caption.weight(.semibold))
+
+            if #available(macOS 14.0, *) {
+                Picker("Model", selection: binding) {
+                    ForEach(["Cloud", "On This Mac"], id: \.self) { section in
+                        let sectionDisplays = displays.filter { $0.section == section }
+                        if !sectionDisplays.isEmpty {
+                            Section(localizedCatalogString(section)) {
+                                ForEach(sectionDisplays) { display in
+                                    Text(aiProcessingChoiceMenuLabel(display))
+                                        .tag(display.choice)
+                                        .selectionDisabled(!display.isAvailable)
+                                }
+                            }
+                        }
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            } else {
+                Menu {
+                    ForEach(["Cloud", "On This Mac"], id: \.self) { section in
+                        let sectionDisplays = displays.filter { $0.section == section }
+                        if !sectionDisplays.isEmpty {
+                            Section(localizedCatalogString(section)) {
+                                ForEach(sectionDisplays) { display in
+                                    aiProcessingChoiceMenuItem(
+                                        display,
+                                        binding: binding
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    if let currentDisplay = displays.first(where: {
+                        $0.choice == appState.currentAIProcessingChoice(for: feature)
+                    }) {
+                        Text(aiProcessingChoiceMenuLabel(currentDisplay))
+                    } else {
+                        Text(verbatim: appState.currentAIProcessingChoice(for: feature).modelID)
+                    }
+                }
+                .menuStyle(.borderlessButton)
+            }
+        }
+        .frame(minWidth: 280, maxWidth: 320, alignment: .leading)
+    }
+
     private var currentTranscriptionUsesAPI: Bool {
         switch appState.currentNoteBrowserTranscriptionChoice {
         case .apiStandard, .apiRealtime:
             true
         case .nativeWhisper, .legacyMlxWhisper, .appleLive:
             false
+        }
+    }
+
+    private func settingsTestRecoveryAction(
+        for issue: QuillUserIssueRecord,
+        retry: @escaping () -> Void
+    ) -> (() -> Void)? {
+        switch issue.recoveryAction {
+        case .retryTranscription:
+            return retry
+        case .openProviderSettings:
+            return { appState.openProviderSettings() }
+        case .openModelsSettings, .openMicrophoneSettings,
+             .openSpeechRecognitionSettings, .openScreenRecordingSettings,
+             .none:
+            return nil
+        }
+    }
+
+    private func providerConfigurationWarning(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(
+                localizedCatalogString(message),
+                systemImage: "exclamationmark.triangle"
+            )
+            .font(.caption)
+            .foregroundStyle(.orange)
+
+            Button("Open Provider Settings") {
+                appState.openProviderSettings()
+            }
+            .font(.caption)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
         }
     }
 
@@ -1889,12 +2155,9 @@ struct ModelsSettingsView: View {
                 if appState.transcriptionEnabled,
                    currentTranscriptionUsesAPI,
                    !appState.hasTranscriptionAPIKey {
-                    Label(
-                        "Cloud transcription requires an API key. Add one in Cloud Provider or use the transcription override in Details.",
-                        systemImage: "exclamationmark.triangle"
+                    providerConfigurationWarning(
+                        "Cloud transcription requires an API key. Add one in Cloud Provider or use the transcription override in Details."
                     )
-                    .font(.caption)
-                    .foregroundStyle(.orange)
                 } else if appState.transcriptionEnabled,
                           let reason = currentTranscriptionDisplay.localizedUnavailableReason() {
                     Label(reason, systemImage: "exclamationmark.triangle")
@@ -1927,6 +2190,15 @@ struct ModelsSettingsView: View {
         )
     }
 
+    private var postProcessingUsesCloud: Bool {
+        if case .cloud = appState.postProcessingBackendChoice { return true }
+        return false
+    }
+
+    private var postProcessingUsesLocal: Bool {
+        !postProcessingUsesCloud
+    }
+
     private var postProcessingFeatureSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -1938,34 +2210,25 @@ struct ModelsSettingsView: View {
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .accessibilityLabel("Post-processing")
-                    .disabled(!hasConfiguredCloudAPIKey)
-                    .opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)
             }
 
-            ModelDropdownView(
-                title: "Model",
-                subtitle: "Used for transcript cleanup and Edit Mode transforms.",
-                predefinedModels: ModelConfiguration.llmModels,
-                defaultModel: AppState.defaultPostProcessingModel,
-                textDraft: $postProcessingModelDraft,
-                onCommit: commitPostProcessingModel,
-                onReset: {
-                    postProcessingModelDraft = AppState.defaultPostProcessingModel
-                    appState.postProcessingModel = AppState.defaultPostProcessingModel
-                }
-            )
-            .disabled(!hasConfiguredCloudAPIKey)
-            .opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)
+            aiProcessingChoicePicker(for: .postProcessing)
 
-            if !hasConfiguredCloudAPIKey {
-                Label(
+            if let model = managedLocalAIModel(for: .postProcessing) {
+                LocalAIModelRowView(
+                    feature: .postProcessing,
+                    model: model,
+                    isSelected: appState.postProcessingBackendChoice
+                        == .localAI(modelID: model.id)
+                )
+            }
+
+            if postProcessingUsesCloud && !hasConfiguredCloudAPIKey {
+                providerConfigurationWarning(
                     appState.disablePostProcessing
                         ? "Add an API key in Cloud Provider to enable Post-processing."
-                        : "Post-processing is on, but cloud processing is unavailable until an API key is configured.",
-                    systemImage: "exclamationmark.triangle"
+                        : "Post-processing is on, but cloud processing is unavailable until an API key is configured."
                 )
-                .font(.caption)
-                .foregroundStyle(.orange)
             }
 
             if appState.disablePostProcessing {
@@ -1994,6 +2257,15 @@ struct ModelsSettingsView: View {
         )
     }
 
+    private var contextUsesCloud: Bool {
+        if case .cloud = appState.contextBackendChoice { return true }
+        return false
+    }
+
+    private var contextUsesLocal: Bool {
+        !contextUsesCloud
+    }
+
     private var contextFeatureSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -2005,34 +2277,31 @@ struct ModelsSettingsView: View {
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .accessibilityLabel("Context")
-                    .disabled(!hasConfiguredCloudAPIKey)
-                    .opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)
             }
 
-            ModelDropdownView(
-                title: "Model",
-                subtitle: "Used for context inference, with a text-only retry when screenshot analysis fails.",
-                predefinedModels: ModelConfiguration.llmModels,
-                defaultModel: AppState.defaultContextModel,
-                textDraft: $contextModelDraft,
-                onCommit: commitContextModel,
-                onReset: {
-                    contextModelDraft = AppState.defaultContextModel
-                    appState.contextModel = AppState.defaultContextModel
-                }
-            )
-            .disabled(!hasConfiguredCloudAPIKey)
-            .opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)
+            aiProcessingChoicePicker(for: .context)
 
-            if !hasConfiguredCloudAPIKey {
-                Label(
+            if let model = managedLocalAIModel(for: .context) {
+                LocalAIModelRowView(
+                    feature: .context,
+                    model: model,
+                    isSelected: appState.contextBackendChoice
+                        == .localAI(modelID: model.id)
+                )
+            }
+
+            if contextUsesLocal {
+                Text("Local Context uses app and window text only. Screenshots stay on this Mac.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if contextUsesCloud && !hasConfiguredCloudAPIKey {
+                providerConfigurationWarning(
                     appState.disableContextCapture
                         ? "Add an API key in Cloud Provider to enable Context."
-                        : "Context is on, but AI context analysis is unavailable until an API key is configured.",
-                    systemImage: "exclamationmark.triangle"
+                        : "Context is on, but AI context analysis is unavailable until an API key is configured."
                 )
-                .font(.caption)
-                .foregroundStyle(.orange)
             }
 
             if appState.disableContextCapture {
@@ -2048,7 +2317,7 @@ struct ModelsSettingsView: View {
             }
 
             DisclosureGroup("Details") {
-                contextPromptSection
+                contextDetails
                     .padding(.top, 8)
             }
         }
@@ -2056,9 +2325,12 @@ struct ModelsSettingsView: View {
 
     private var postProcessingDetails: some View {
         VStack(alignment: .leading, spacing: 14) {
-            outputLanguageSetting
+            customAIProcessingModelSetting(
+                draft: $postProcessingModelDraft,
+                feature: .postProcessing
+            )
             Divider()
-            preserveExactWordingSetting
+            outputLanguageSetting
             Divider()
             ModelDropdownView(
                 title: "Post-Processing Fallback Model",
@@ -2072,8 +2344,14 @@ struct ModelsSettingsView: View {
                     appState.postProcessingFallbackModel = AppState.defaultPostProcessingFallbackModel
                 }
             )
-            .disabled(!hasConfiguredCloudAPIKey)
-            .opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)
+            .disabled(postProcessingUsesLocal)
+
+            if postProcessingUsesLocal {
+                Text("Cloud fallback is only used when Post-processing uses a cloud model.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Divider()
             vocabularySection
             Divider()
@@ -2085,6 +2363,59 @@ struct ModelsSettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private var contextDetails: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            customAIProcessingModelSetting(
+                draft: $contextModelDraft,
+                feature: .context
+            )
+            Divider()
+            contextPromptSection
+        }
+    }
+
+    private func customAIProcessingModelSetting(
+        draft: Binding<String>,
+        feature: AIProcessingFeature
+    ) -> some View {
+        let trimmedModelID = draft.wrappedValue.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        return VStack(alignment: .leading, spacing: 6) {
+            Text("Custom API Model")
+                .font(.caption.weight(.semibold))
+
+            HStack(spacing: 8) {
+                TextField("e.g. provider/custom-model", text: draft)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.body, design: .monospaced))
+                    .focused($focusedCustomAIProcessingFeature, equals: feature)
+                    .onSubmit { applyCustomAIProcessingModel(draft, for: feature) }
+
+                Button("Use Model") {
+                    applyCustomAIProcessingModel(draft, for: feature)
+                }
+                .font(.caption)
+                .disabled(trimmedModelID.isEmpty)
+            }
+
+            Text("Enter an API model ID that is not listed above. Use the main Model menu to return to a listed model.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func applyCustomAIProcessingModel(
+        _ draft: Binding<String>,
+        for feature: AIProcessingFeature
+    ) {
+        let modelID = draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !modelID.isEmpty else { return }
+        draft.wrappedValue = modelID
+        focusedCustomAIProcessingFeature = nil
+        handleAIProcessingChoiceSelection(.cloud(modelID: modelID), for: feature)
     }
 
     private var transcriptionLanguageSetting: some View {
@@ -2277,15 +2608,12 @@ struct ModelsSettingsView: View {
         return localizedCatalogString(key)
     }
 
-    private var preserveExactWordingSetting: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Toggle("Preserve Exact Wording", isOn: $appState.preserveExactWording)
-                .disabled(appState.disablePostProcessing)
-            Text("Skip cleanup while post-processing is enabled. Without an Output Language, the raw transcript is used. With one, only a literal translation is performed.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+    private func customAIProcessingModelDraft(for modelID: String) -> String {
+        let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !ModelConfiguration.llmModels.contains(trimmed) else {
+            return ""
         }
-        .opacity(appState.disablePostProcessing ? 0.55 : 1)
+        return trimmed
     }
 
     private func customStandardAPIModelDraft(for modelID: String) -> String {
@@ -2341,30 +2669,12 @@ struct ModelsSettingsView: View {
         appState.realtimeStreamingModel = trimmed
     }
 
-    private func commitPostProcessingModel() {
-        let trimmed = postProcessingModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolved = trimmed.isEmpty ? AppState.defaultPostProcessingModel : trimmed
-        postProcessingModelDraft = resolved
-        if appState.postProcessingModel != resolved {
-            appState.postProcessingModel = resolved
-        }
-    }
-
     private func commitPostProcessingFallbackModel() {
         let trimmed = postProcessingFallbackModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolved = trimmed.isEmpty ? AppState.defaultPostProcessingFallbackModel : trimmed
         postProcessingFallbackModelDraft = resolved
         if appState.postProcessingFallbackModel != resolved {
             appState.postProcessingFallbackModel = resolved
-        }
-    }
-
-    private func commitContextModel() {
-        let trimmed = contextModelDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolved = trimmed.isEmpty ? AppState.defaultContextModel : trimmed
-        contextModelDraft = resolved
-        if appState.contextModel != resolved {
-            appState.contextModel = resolved
         }
     }
 
@@ -2550,21 +2860,24 @@ struct ModelsSettingsView: View {
                         }
                     }
                 }
-                .disabled(systemTestRunning || appState.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || systemTestInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(
+                    systemTestRunning
+                        || !appState.isAIProcessingBackendReady(for: .postProcessing)
+                        || systemTestInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                )
 
-                if appState.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Label("API key required to test", systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                if postProcessingUsesCloud && !hasConfiguredCloudAPIKey {
+                    providerConfigurationWarning("API key required to test")
                 }
 
                 if let issue = systemTestIssue {
                     QuillUserIssueView(
                         presentation: issue.presentation(),
                         style: .inline,
-                        action: issue.recoveryAction == .retryTranscription
-                            ? { runSystemPromptTest() }
-                            : nil
+                        action: settingsTestRecoveryAction(
+                            for: issue,
+                            retry: runSystemPromptTest
+                        )
                     )
                 }
 
@@ -2600,13 +2913,7 @@ struct ModelsSettingsView: View {
         systemTestIssue = nil
         systemTestPrompt = nil
 
-        let service = PostProcessingService(
-            apiKey: appState.apiKey,
-            baseURL: appState.apiBaseURL,
-            preferredModel: appState.postProcessingModel,
-            preferredFallbackModel: appState.postProcessingFallbackModel,
-            instructionExecutionGuardEnabled: appState.instructionExecutionGuardEnabled
-        )
+        let service = appState.makePostProcessingService()
         let input = systemTestInput
         let customPrompt = appState.customSystemPrompt
         let vocabulary = appState.customVocabulary
@@ -2800,12 +3107,24 @@ struct ModelsSettingsView: View {
                         }
                     }
                 }
-                .disabled(contextTestRunning || appState.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(
+                    contextTestRunning
+                        || !appState.isAIProcessingBackendReady(for: .context)
+                )
 
-                if appState.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Label("API key required to test", systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                if contextUsesCloud && !hasConfiguredCloudAPIKey {
+                    providerConfigurationWarning("API key required to test")
+                }
+
+                if let issue = contextTestIssue {
+                    QuillUserIssueView(
+                        presentation: issue.presentation(),
+                        style: .inline,
+                        action: settingsTestRecoveryAction(
+                            for: issue,
+                            retry: runContextPromptTest
+                        )
+                    )
                 }
 
                 if let error = contextTestError {
@@ -2843,6 +3162,7 @@ struct ModelsSettingsView: View {
     private func runContextPromptTest() {
         contextTestRunning = true
         contextTestOutput = nil
+        contextTestIssue = nil
         contextTestError = nil
         contextTestPrompt = nil
 
@@ -2851,7 +3171,11 @@ struct ModelsSettingsView: View {
         Task {
             let context = await service.collectContext()
             await MainActor.run {
-                if let prompt = context.contextPrompt {
+                contextTestIssue = context.userIssueRecord
+                if context.userIssueRecord != nil {
+                    contextTestOutput = context.contextSummary
+                    contextTestPrompt = context.contextPrompt
+                } else if let prompt = context.contextPrompt {
                     contextTestOutput = context.contextSummary
                     contextTestPrompt = prompt
                 } else {

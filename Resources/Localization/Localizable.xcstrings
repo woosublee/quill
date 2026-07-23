@@ -177,44 +177,44 @@
         }
       }
     },
-    "Quit while Local Whisper is downloading?": {
+    "Quit while models are downloading?": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quit while Local Whisper is downloading?"
+            "value": "Quit while models are downloading?"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Local Whisper를 다운로드하는 중에 종료할까요?"
+            "value": "모델 다운로드가 진행 중입니다. Quill을 종료할까요?"
           }
         }
       }
     },
-    "Quill will cancel the download and delete the partial file if you quit now.": {
+    "Quill will cancel unfinished model downloads and delete partial files before quitting.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quill will cancel the download and delete the partial file if you quit now."
+            "value": "Quill will cancel unfinished model downloads and delete partial files before quitting."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "지금 종료하면 Quill이 다운로드를 취소하고 partial 파일을 삭제합니다."
+            "value": "종료하면 완료되지 않은 모델 다운로드가 취소되고 부분 다운로드 파일이 삭제됩니다."
           }
         }
       }
     },
-    "Quit and Cancel Download": {
+    "Quit and Cancel Downloads": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quit and Cancel Download"
+            "value": "Quit and Cancel Downloads"
           }
         },
         "ko": {
@@ -237,6 +237,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "기본 모델 메뉴에 없는 사용자 지정 모델 ID를 추가합니다."
+          }
+        }
+      }
+    },
+    "Custom API Model": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom API Model"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정 API 모델"
+          }
+        }
+      }
+    },
+    "e.g. provider/custom-model": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e.g. provider/custom-model"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예: provider/custom-model"
+          }
+        }
+      }
+    },
+    "Use Model": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Model"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델 사용"
+          }
+        }
+      }
+    },
+    "Enter an API model ID that is not listed above. Use the main Model menu to return to a listed model.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter an API model ID that is not listed above. Use the main Model menu to return to a listed model."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위 목록에 없는 API 모델 ID를 입력합니다. 목록의 모델로 돌아가려면 위의 모델 메뉴에서 선택하세요."
           }
         }
       }
@@ -1265,102 +1329,6 @@
         }
       }
     },
-    "Applies to recordings when Transcription is enabled.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Applies to recordings when Transcription is enabled."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "전사가 활성화된 녹음에 적용됩니다."
-          }
-        }
-      }
-    },
-    "Record audio without creating a transcript.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Record audio without creating a transcript."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "전사본을 만들지 않고 오디오를 녹음합니다."
-          }
-        }
-      }
-    },
-    "Recording saved": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recording saved"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "녹음 저장됨"
-          }
-        }
-      }
-    },
-    "Saved without transcription. You can transcribe it later.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Saved without transcription. You can transcribe it later."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "전사 없이 저장되었습니다. 나중에 전사할 수 있습니다."
-          }
-        }
-      }
-    },
-    "Start Recording": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Start Recording"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "녹음 시작"
-          }
-        }
-      }
-    },
-    "Transcribe audio": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Transcribe audio"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오디오 전사"
-          }
-        }
-      }
-    },
     "No content": {
       "localizations": {
         "en": {
@@ -1373,70 +1341,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "내용 없음"
-          }
-        }
-      }
-    },
-    "Audio recording": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Audio recording"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오디오 녹음"
-          }
-        }
-      }
-    },
-    "Audio only": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Audio only"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오디오만"
-          }
-        }
-      }
-    },
-    "Audio-only recording": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Audio-only recording"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오디오 전용 녹음"
-          }
-        }
-      }
-    },
-    "Not transcribed": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Not transcribed"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "전사되지 않음"
           }
         }
       }
@@ -3569,6 +3473,38 @@
         }
       }
     },
+    "API key required": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API key required"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API 키가 필요합니다."
+          }
+        }
+      }
+    },
+    "Add an API key to transcribe this file with the selected Cloud model.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add an API key to transcribe this file with the selected Cloud model."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 클라우드 모델로 이 파일을 전사하려면 API 키를 추가하세요."
+          }
+        }
+      }
+    },
     "API key required to test": {
       "localizations": {
         "en": {
@@ -4824,22 +4760,6 @@
         }
       }
     },
-    "Preserve Exact Wording": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preserve Exact Wording"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "정확한 표현 유지"
-          }
-        }
-      }
-    },
     "Preserve clipboard after paste": {
       "localizations": {
         "en": {
@@ -5421,38 +5341,6 @@
         }
       },
       "shouldTranslate": false
-    },
-    "Skip LLM cleanup. Raw transcript is used as-is. No API call is made for post-processing.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skip LLM cleanup. Raw transcript is used as-is. No API call is made for post-processing."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "LLM 정리를 건너뜁니다. 원본 받아쓰기를 그대로 사용하며 후처리를 위한 API 호출을 하지 않습니다."
-          }
-        }
-      }
-    },
-    "Skip cleanup while post-processing is enabled. Without an Output Language, the raw transcript is used. With one, only a literal translation is performed.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skip cleanup while post-processing is enabled. Without an Output Language, the raw transcript is used. With one, only a literal translation is performed."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "후처리가 켜진 상태에서 정리를 건너뜁니다. 출력 언어가 없으면 원본 받아쓰기를 사용하고, 있으면 직역만 수행합니다."
-          }
-        }
-      }
     },
     "Skip screen recording and app context detection. Transcription will not adapt to the current app. Screen Recording permission is not required.": {
       "localizations": {
@@ -11045,6 +10933,150 @@
         }
       }
     },
+    "Local AI model needs attention": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local AI model needs attention"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 AI 모델을 확인해야 합니다"
+          }
+        }
+      }
+    },
+    "Quill kept the original transcript because the selected on-device model is unavailable or incomplete.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill kept the original transcript because the selected on-device model is unavailable or incomplete."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 온디바이스 모델을 사용할 수 없거나 다운로드가 완료되지 않아 Quill이 원본 받아쓰기를 유지했습니다."
+          }
+        }
+      }
+    },
+    "Open Models settings to install the model again or select another model.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Models settings to install the model again or select another model."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델 설정에서 모델을 다시 설치하거나 다른 모델을 선택하세요."
+          }
+        }
+      }
+    },
+    "Local AI could not start": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local AI could not start"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 AI를 시작하지 못했습니다"
+          }
+        }
+      }
+    },
+    "Quill kept the original transcript because the on-device processing runtime did not become ready.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill kept the original transcript because the on-device processing runtime did not become ready."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "온디바이스 처리 런타임이 준비되지 않아 Quill이 원본 받아쓰기를 유지했습니다."
+          }
+        }
+      }
+    },
+    "Try again. If this continues, restart Quill or reinstall the app.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try again. If this continues, restart Quill or reinstall the app."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 시도하세요. 문제가 계속되면 Quill을 재시작하거나 앱을 다시 설치하세요."
+          }
+        }
+      }
+    },
+    "Local AI stopped unexpectedly": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local AI stopped unexpectedly"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 AI가 예기치 않게 중지되었습니다"
+          }
+        }
+      }
+    },
+    "Quill kept the original transcript because the on-device processing runtime stopped during the request.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill kept the original transcript because the on-device processing runtime stopped during the request."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요청 처리 중 온디바이스 런타임이 중지되어 Quill이 원본 받아쓰기를 유지했습니다."
+          }
+        }
+      }
+    },
+    "Try the cleanup again. If this continues, choose another model.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try the cleanup again. If this continues, choose another model."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정리를 다시 시도하세요. 문제가 계속되면 다른 모델을 선택하세요."
+          }
+        }
+      }
+    },
     "Microphone access is required": {
       "localizations": {
         "en": {
@@ -12389,6 +12421,22 @@
         }
       }
     },
+    "Add an API key to retry transcription": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add an API key to retry transcription"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사를 다시 시도하려면 API 키를 추가하세요."
+          }
+        }
+      }
+    },
     "Your recording is safely stored.": {
       "localizations": {
         "en": {
@@ -12849,6 +12897,502 @@
           "stringUnit": {
             "state": "translated",
             "value": "재전사를 위해 Local Whisper를 설치하거나 API Standard를 설정해 주세요."
+          }
+        }
+      }
+    },
+    "The cloud AI base URL is invalid.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cloud AI base URL is invalid."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 AI 기본 URL이 올바르지 않습니다."
+          }
+        }
+      }
+    },
+    "The selected local AI model is unknown.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected local AI model is unknown."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 로컬 AI 모델을 찾을 수 없습니다."
+          }
+        }
+      }
+    },
+    "The local AI runtime is unavailable.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The local AI runtime is unavailable."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 AI 런타임을 사용할 수 없습니다."
+          }
+        }
+      }
+    },
+    "The local AI runtime stopped unexpectedly.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The local AI runtime stopped unexpectedly."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 AI 런타임이 예기치 않게 중지되었습니다."
+          }
+        }
+      }
+    },
+    "Cloud": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드"
+          }
+        }
+      }
+    },
+    "On This Mac": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On This Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서"
+          }
+        }
+      }
+    },
+    "Recommended": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommended"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "권장"
+          }
+        }
+      }
+    },
+    "This model will become active when the download finishes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This model will become active when the download finishes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드가 완료되면 이 모델이 활성화됩니다."
+          }
+        }
+      }
+    },
+    "This removes the downloaded Local AI model. You can download it again later.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This removes the downloaded Local AI model. You can download it again later."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드한 로컬 AI 모델을 삭제합니다. 나중에 다시 다운로드할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Cancel Local AI model download": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel Local AI model download"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 AI 모델 다운로드 취소"
+          }
+        }
+      }
+    },
+    "Cloud fallback is only used when Post-processing uses a cloud model.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud fallback is only used when Post-processing uses a cloud model."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 fallback은 후처리에서 클라우드 모델을 사용할 때만 적용됩니다."
+          }
+        }
+      }
+    },
+    "Local Context uses app and window text only. Screenshots stay on this Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Context uses app and window text only. Screenshots stay on this Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 Context는 앱과 창의 텍스트 정보만 사용합니다. 스크린샷은 이 Mac을 벗어나지 않습니다."
+          }
+        }
+      }
+    },
+    "Best quality. Needs more memory.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Best quality. Needs more memory."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최고 품질입니다. 더 많은 메모리가 필요합니다."
+          }
+        }
+      }
+    },
+    "Faster and lighter. Good for lower-memory Macs.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faster and lighter. Good for lower-memory Macs."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 빠르고 가볍습니다. 메모리가 적은 Mac에 적합합니다."
+          }
+        }
+      }
+    },
+    "Canceled": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canceled"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소됨"
+          }
+        }
+      }
+    },
+    "Quit while Local Whisper is downloading?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit while Local Whisper is downloading?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local Whisper 다운로드가 진행 중입니다. Quill을 종료할까요?"
+          }
+        }
+      }
+    },
+    "Quill will cancel the download and delete the partial file if you quit now.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill will cancel the download and delete the partial file if you quit now."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종료하면 다운로드가 취소되고 부분 다운로드 파일이 삭제됩니다."
+          }
+        }
+      }
+    },
+    "Quit and Cancel Download": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit and Cancel Download"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종료하고 다운로드 취소"
+          }
+        }
+      }
+    },
+    "Applies to recordings when Transcription is enabled.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applies to recordings when Transcription is enabled."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사가 활성화된 녹음에 적용됩니다."
+          }
+        }
+      }
+    },
+    "Record audio without creating a transcript.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record audio without creating a transcript."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사본을 만들지 않고 오디오를 녹음합니다."
+          }
+        }
+      }
+    },
+    "Recording saved": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording saved"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 저장됨"
+          }
+        }
+      }
+    },
+    "Saved without transcription. You can transcribe it later.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved without transcription. You can transcribe it later."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 없이 저장되었습니다. 나중에 전사할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Start Recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 시작"
+          }
+        }
+      }
+    },
+    "Transcribe audio": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcribe audio"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오 전사"
+          }
+        }
+      }
+    },
+    "Audio recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오 녹음"
+          }
+        }
+      }
+    },
+    "Audio only": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio only"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오만"
+          }
+        }
+      }
+    },
+    "Audio-only recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio-only recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오 전용 녹음"
+          }
+        }
+      }
+    },
+    "Not transcribed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not transcribed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사되지 않음"
+          }
+        }
+      }
+    },
+    "Preserve Exact Wording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preserve Exact Wording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정확한 표현 유지"
+          }
+        }
+      }
+    },
+    "Skip LLM cleanup. Raw transcript is used as-is. No API call is made for post-processing.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip LLM cleanup. Raw transcript is used as-is. No API call is made for post-processing."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LLM 정리를 건너뜁니다. 원본 받아쓰기를 그대로 사용하며 후처리를 위한 API 호출을 하지 않습니다."
+          }
+        }
+      }
+    },
+    "Skip cleanup while post-processing is enabled. Without an Output Language, the raw transcript is used. With one, only a literal translation is performed.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip cleanup while post-processing is enabled. Without an Output Language, the raw transcript is used. With one, only a literal translation is performed."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후처리가 켜진 상태에서 정리를 건너뜁니다. 출력 언어가 없으면 원본 받아쓰기를 사용하고, 있으면 직역만 수행합니다."
           }
         }
       }

@@ -20,13 +20,48 @@ struct AppContext {
     let screenshotDataURL: String?
     let screenshotMimeType: String?
     let screenshotError: String?
+    let userIssueRecord: QuillUserIssueRecord?
+
+    init(
+        appName: String?,
+        bundleIdentifier: String?,
+        windowTitle: String?,
+        selectedText: String?,
+        currentActivity: String,
+        contextSystemPrompt: String?,
+        contextPrompt: String?,
+        screenshotDataURL: String?,
+        screenshotMimeType: String?,
+        screenshotError: String?,
+        userIssueRecord: QuillUserIssueRecord? = nil
+    ) {
+        self.appName = appName
+        self.bundleIdentifier = bundleIdentifier
+        self.windowTitle = windowTitle
+        self.selectedText = selectedText
+        self.currentActivity = currentActivity
+        self.contextSystemPrompt = contextSystemPrompt
+        self.contextPrompt = contextPrompt
+        self.screenshotDataURL = screenshotDataURL
+        self.screenshotMimeType = screenshotMimeType
+        self.screenshotError = screenshotError
+        self.userIssueRecord = userIssueRecord
+    }
 
     var contextSummary: String {
         currentActivity
     }
 }
 
-final class AppContextService {
+final class AppContextService: @unchecked Sendable {
+    typealias Transport = @Sendable (URLRequest) async throws -> (Data, URLResponse)
+    typealias IssueSink = @Sendable (QuillUserIssueError) -> Void
+
+    private struct ContextInferenceOutcome {
+        let result: (activity: String, prompt: String)?
+        let userIssueRecord: QuillUserIssueRecord?
+    }
+
     static let defaultContextPrompt = """
 You are a context synthesis assistant for a speech-to-text pipeline.
 Given app/window metadata and an optional screenshot, output exactly two sentences that describe what the user is doing right now and the likely writing intent in the current window.
@@ -37,10 +72,10 @@ Return only two sentences, no labels, no markdown, no extra commentary.
     static let defaultContextPromptDate = "2026-02-24"
     static let defaultScreenshotMaxDimension: CGFloat = 1024
 
-    private let apiKey: String
-    private let baseURL: String
+    private let backendExecutor: AIProcessingBackendExecutor
+    private let transport: Transport
+    private let issueSink: IssueSink
     private let customContextPrompt: String
-    private let contextModel: String
     private let maxScreenshotDataURILength = 500_000
     private let screenshotCompressionPrimary = 0.5
     private let screenshotMaxDimension: CGFloat
@@ -54,16 +89,43 @@ Return only two sentences, no labels, no markdown, no extra commentary.
         baseURL: String = AppState.defaultAPIBaseURL,
         customContextPrompt: String = "",
         contextModel: String = AppState.defaultContextModel,
-        screenshotMaxDimension: CGFloat = AppContextService.defaultScreenshotMaxDimension
+        screenshotMaxDimension: CGFloat = AppContextService.defaultScreenshotMaxDimension,
+        transport: @escaping Transport = { request in
+            try await LLMAPITransport.data(for: request)
+        }
     ) {
-        self.apiKey = apiKey
-        self.baseURL = baseURL
-        self.customContextPrompt = customContextPrompt
         let trimmedModel = contextModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.contextModel = trimmedModel.isEmpty ? AppState.defaultContextModel : trimmedModel
+        let resolvedModel = trimmedModel.isEmpty ? AppState.defaultContextModel : trimmedModel
+        self.backendExecutor = AIProcessingBackendExecutor(
+            choice: .cloud(modelID: resolvedModel),
+            cloudBaseURL: baseURL,
+            cloudAPIKey: apiKey
+        )
+        self.customContextPrompt = customContextPrompt
         self.screenshotMaxDimension = screenshotMaxDimension > 0
             ? screenshotMaxDimension
             : AppContextService.defaultScreenshotMaxDimension
+        self.transport = transport
+        self.issueSink = { _ in }
+    }
+
+    init(
+        backendExecutor: AIProcessingBackendExecutor,
+        customContextPrompt: String = "",
+        contextModel: String,
+        screenshotMaxDimension: CGFloat = AppContextService.defaultScreenshotMaxDimension,
+        transport: @escaping Transport = { request in
+            try await LLMAPITransport.data(for: request)
+        },
+        issueSink: @escaping IssueSink = { _ in }
+    ) {
+        self.backendExecutor = backendExecutor
+        self.customContextPrompt = customContextPrompt
+        self.screenshotMaxDimension = screenshotMaxDimension > 0
+            ? screenshotMaxDimension
+            : AppContextService.defaultScreenshotMaxDimension
+        self.transport = transport
+        self.issueSink = issueSink
     }
 
     private func resolveContextPrompt() -> String {
@@ -121,15 +183,17 @@ Return only two sentences, no labels, no markdown, no extra commentary.
         )
         let currentActivity: String
         let contextPrompt: String?
-        if !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            if let result = await inferActivityWithLLM(
+        let userIssueRecord: QuillUserIssueRecord?
+        if backendExecutor.isConfigured {
+            let inference = await inferActivityWithOutcome(
                 appName: appName,
                 bundleIdentifier: bundleIdentifier,
                 windowTitle: windowTitle,
                 selectedText: selectedText,
                 screenshotDataURL: screenshot.dataURL,
                 contextSystemPrompt: contextSystemPrompt
-            ) {
+            )
+            if let result = inference.result, !Task.isCancelled {
                 currentActivity = result.activity
                 contextPrompt = result.prompt
             } else {
@@ -142,6 +206,7 @@ Return only two sentences, no labels, no markdown, no extra commentary.
                 )
                 contextPrompt = nil
             }
+            userIssueRecord = inference.userIssueRecord
         } else {
             currentActivity = fallbackCurrentActivity(
                 appName: appName,
@@ -151,6 +216,16 @@ Return only two sentences, no labels, no markdown, no extra commentary.
                 screenshotAvailable: screenshot.dataURL != nil
             )
             contextPrompt = nil
+            if backendExecutor.choice.isLocal {
+                userIssueRecord = nil
+            } else {
+                let issue = QuillUserIssueError.missingProviderAPIKey(
+                    providerHost: URL(string: backendExecutor.cloudBaseURL)?.host,
+                    modelID: backendExecutor.choice.modelID
+                )
+                issueSink(issue)
+                userIssueRecord = issue.record
+            }
         }
 
         return AppContext(
@@ -163,11 +238,12 @@ Return only two sentences, no labels, no markdown, no extra commentary.
             contextPrompt: contextPrompt,
             screenshotDataURL: screenshot.dataURL,
             screenshotMimeType: screenshot.mimeType,
-            screenshotError: screenshot.error
+            screenshotError: screenshot.error,
+            userIssueRecord: userIssueRecord
         )
     }
 
-    private func inferActivityWithLLM(
+    func inferActivityWithLLM(
         appName: String?,
         bundleIdentifier: String?,
         windowTitle: String?,
@@ -175,33 +251,87 @@ Return only two sentences, no labels, no markdown, no extra commentary.
         screenshotDataURL: String?,
         contextSystemPrompt: String
     ) async -> (activity: String, prompt: String)? {
-        let attempts: [(model: String, screenshotDataURL: String?)] =
-            if let screenshotDataURL {
-                [
-                    (contextModel, screenshotDataURL),
-                    (contextModel, nil)
-                ]
-            } else {
-                [
-                    (contextModel, nil)
-                ]
-            }
+        await inferActivityWithOutcome(
+            appName: appName,
+            bundleIdentifier: bundleIdentifier,
+            windowTitle: windowTitle,
+            selectedText: selectedText,
+            screenshotDataURL: screenshotDataURL,
+            contextSystemPrompt: contextSystemPrompt
+        ).result
+    }
 
-        for attempt in attempts {
-            if let inferred = await inferActivityWithLLM(
-                appName: appName,
-                bundleIdentifier: bundleIdentifier,
-                windowTitle: windowTitle,
-                selectedText: selectedText,
-                screenshotDataURL: attempt.screenshotDataURL,
-                contextSystemPrompt: contextSystemPrompt,
-                model: attempt.model
-            ) {
-                return inferred
-            }
+    private func inferActivityWithOutcome(
+        appName: String?,
+        bundleIdentifier: String?,
+        windowTitle: String?,
+        selectedText: String?,
+        screenshotDataURL: String?,
+        contextSystemPrompt: String
+    ) async -> ContextInferenceOutcome {
+        guard !Task.isCancelled else {
+            return ContextInferenceOutcome(result: nil, userIssueRecord: nil)
         }
-
-        return nil
+        do {
+            let result: (activity: String, prompt: String)? = try await backendExecutor.withEndpoint { [self] endpoint in
+                let attempts: [String?] = if endpoint.supportsImages,
+                                            let screenshotDataURL {
+                    [screenshotDataURL, nil]
+                } else {
+                    [nil]
+                }
+                var lastCloudError: Error?
+                for screenshot in attempts {
+                    try Task.checkCancellation()
+                    do {
+                        if let inferred = try await inferActivityWithLLM(
+                            appName: appName,
+                            bundleIdentifier: bundleIdentifier,
+                            windowTitle: windowTitle,
+                            selectedText: selectedText,
+                            screenshotDataURL: screenshot,
+                            contextSystemPrompt: contextSystemPrompt,
+                            endpoint: endpoint
+                        ) {
+                            try Task.checkCancellation()
+                            return inferred
+                        }
+                    } catch {
+                        if Self.isCancellation(error) || Task.isCancelled {
+                            throw CancellationError()
+                        }
+                        if endpoint.kind == .local {
+                            throw error
+                        }
+                        lastCloudError = error
+                    }
+                }
+                if let lastCloudError {
+                    throw lastCloudError
+                }
+                if endpoint.kind == .local {
+                    throw AppContextBackendError.unusableResponse
+                }
+                return nil
+            }
+            guard !Task.isCancelled else {
+                return ContextInferenceOutcome(result: nil, userIssueRecord: nil)
+            }
+            return ContextInferenceOutcome(
+                result: result,
+                userIssueRecord: nil
+            )
+        } catch {
+            guard !Self.isCancellation(error), !Task.isCancelled else {
+                return ContextInferenceOutcome(result: nil, userIssueRecord: nil)
+            }
+            let issue = contextUserIssue(for: error)
+            issueSink(issue)
+            return ContextInferenceOutcome(
+                result: nil,
+                userIssueRecord: issue.record
+            )
+        }
     }
 
     private func inferActivityWithLLM(
@@ -211,85 +341,133 @@ Return only two sentences, no labels, no markdown, no extra commentary.
         selectedText: String?,
         screenshotDataURL: String?,
         contextSystemPrompt: String,
-        model: String
-    ) async -> (activity: String, prompt: String)? {
-        do {
-            var request = URLRequest(url: URL(string: "\(baseURL)/chat/completions")!)
-            request.httpMethod = "POST"
-            request.timeoutInterval = contextRequestTimeoutSeconds
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        endpoint: AIProcessingEndpoint
+    ) async throws -> (activity: String, prompt: String)? {
+        let requestURL = endpoint.baseURL.appendingPathComponent("chat/completions")
+        var urlRequest = URLRequest(url: requestURL)
+        urlRequest.httpMethod = "POST"
+        urlRequest.timeoutInterval = contextRequestTimeoutSeconds
+        if let authorizationToken = endpoint.authorizationToken?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !authorizationToken.isEmpty {
+            urlRequest.setValue("Bearer \(authorizationToken)", forHTTPHeaderField: "Authorization")
+        }
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-            let metadata = """
+        let metadata = """
 App: \(appName ?? "Unknown")
 Bundle ID: \(bundleIdentifier ?? "Unknown")
 Window: \(windowTitle ?? "Unknown")
 Selected text: \(selectedText ?? "None")
 """
 
-            let textOnlyPrompt = "Analyze the context and infer the user's current activity in exactly two sentences.\n\n\(metadata)"
-            var userMessageDescription: String
-            var userMessage: Any = textOnlyPrompt
+        let textOnlyPrompt = "Analyze the context and infer the user's current activity in exactly two sentences.\n\n\(metadata)"
+        var userMessageDescription: String
+        var userMessage: Any = textOnlyPrompt
 
-            if let screenshotDataURL {
-                userMessageDescription = "[screenshot attached]\nAnalyze the screenshot plus metadata to infer current activity.\n\(metadata)"
-                userMessage = [
-                    [
-                        "type": "text",
-                        "text": "Analyze the screenshot plus metadata to infer current activity."
-                    ],
-                    [
-                        "type": "text",
-                        "text": metadata
-                    ],
-                    [
-                        "type": "image_url",
-                        "image_url": ["url": screenshotDataURL]
-                    ]
-                ]
-            } else {
-                userMessageDescription = textOnlyPrompt
-            }
-
-            let fullPrompt = "Model: \(model)\n\n[System]\n\(contextSystemPrompt)\n[User]\n\(userMessageDescription)"
-
-            var payload: [String: Any] = [
-                "model": model,
-                "temperature": 0.2,
-                "messages": [
-                    ["role": "system", "content": contextSystemPrompt],
-                    ["role": "user", "content": userMessage]
+        if let screenshotDataURL {
+            userMessageDescription = "[screenshot attached]\nAnalyze the screenshot plus metadata to infer current activity.\n\(metadata)"
+            userMessage = [
+                [
+                    "type": "text",
+                    "text": "Analyze the screenshot plus metadata to infer current activity."
+                ],
+                [
+                    "type": "text",
+                    "text": metadata
+                ],
+                [
+                    "type": "image_url",
+                    "image_url": ["url": screenshotDataURL]
                 ]
             ]
-            let config = ModelConfiguration.config(for: model)
-            if let reasoningEffort = config.reasoningEffort {
-                payload["reasoning_effort"] = reasoningEffort
-            }
-            if let includeReasoning = config.includeReasoning {
-                payload["include_reasoning"] = includeReasoning
-            }
+        } else {
+            userMessageDescription = textOnlyPrompt
+        }
 
-            request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-            let (data, response) = try await LLMAPITransport.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                return nil
-            }
-            guard httpResponse.statusCode == 200 else {
-                return nil
-            }
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let choices = json["choices"] as? [[String: Any]],
-                  let firstChoice = choices.first,
-                  let message = firstChoice["message"] as? [String: Any],
-                  let content = message["content"] as? String else {
-                return nil
-            }
+        let fullPrompt = "Model: \(endpoint.selectedModelID)\n\n[System]\n\(contextSystemPrompt)\n[User]\n\(userMessageDescription)"
 
-            guard let activity = Self.activitySummary(from: content, model: model) else { return nil }
-            return (activity: activity, prompt: fullPrompt)
-        } catch {
+        var payload: [String: Any] = [
+            "model": endpoint.requestModelID,
+            "temperature": 0.2,
+            "messages": [
+                ["role": "system", "content": contextSystemPrompt],
+                ["role": "user", "content": userMessage]
+            ]
+        ]
+        let config = ModelConfiguration.config(for: endpoint.selectedModelID)
+        if let reasoningEffort = config.reasoningEffort {
+            payload["reasoning_effort"] = reasoningEffort
+        }
+        if let includeReasoning = config.includeReasoning {
+            payload["include_reasoning"] = includeReasoning
+        }
+
+        urlRequest.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+        let (data, response) = try await transport(urlRequest)
+        guard let httpResponse = response as? HTTPURLResponse else {
             return nil
         }
+        guard httpResponse.statusCode == 200 else {
+            return nil
+        }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let choices = json["choices"] as? [[String: Any]],
+              let firstChoice = choices.first,
+              let message = firstChoice["message"] as? [String: Any],
+              let content = message["content"] as? String else {
+            return nil
+        }
+
+        guard let activity = Self.activitySummary(from: content, model: endpoint.selectedModelID) else {
+            return nil
+        }
+        return (activity: activity, prompt: fullPrompt)
+    }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return true
+        }
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+    }
+
+    private enum AppContextBackendError: Error {
+        case unusableResponse
+    }
+
+    private func contextUserIssue(for error: Error) -> QuillUserIssueError {
+        if let issue = error as? QuillUserIssueError {
+            return issue
+        }
+        guard backendExecutor.choice.isLocal else {
+            return .cloudTransport(
+                error,
+                providerHost: URL(string: backendExecutor.cloudBaseURL)?.host,
+                modelID: backendExecutor.choice.modelID
+            )
+        }
+        if let managerError = error as? LocalAIServerManagerError {
+            let code: QuillUserIssueCode = switch managerError {
+            case .modelUnavailable, .modelCorrupt: .localAIModelUnavailable
+            case .startFailed: .localAIStartFailed
+            case .processExited: .localAIProcessExited
+            }
+            return .local(
+                code: code,
+                backend: "Local AI",
+                modelID: backendExecutor.choice.modelID,
+                diagnostic: managerError.localizedDescription
+            )
+        }
+        return .local(
+            code: .postProcessingFailed,
+            backend: "Local AI",
+            modelID: backendExecutor.choice.modelID,
+            diagnostic: (error as NSError).description
+        )
     }
 
     static func activitySummary(from rawContent: String, model: String) -> String? {

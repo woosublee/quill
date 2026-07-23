@@ -7,8 +7,8 @@ struct AudioImportOptionsTests {
         testAPIRealtimeFallsBackToAPIStandardForImport()
         testNativeCurrentChoiceDefaultsToNativeWhisper()
         testLegacyCurrentChoiceDefaultsToSameLegacyModel()
-        testAPIKeyMissingFallsBackToLocalWhisper()
-        testNoAvailableBackendReturnsNoDefault()
+        testAPIKeyMissingKeepsCloudChoiceButBlocksExecution()
+        testAPIChoiceRemainsSelectableWithoutAnyReadyBackend()
         testStorageExtensionPreservesSupportedImportExtension()
         testStorageExtensionFallsBackToWavForUnknownExtension()
         testImportedAudioContextSummaryIsEmpty()
@@ -83,26 +83,29 @@ struct AudioImportOptionsTests {
         assert(options.defaultChoice == legacyChoice)
     }
 
-    private static func testAPIKeyMissingFallsBackToLocalWhisper() {
+    private static func testAPIKeyMissingKeepsCloudChoiceButBlocksExecution() {
         let options = makeOptions(
             currentChoice: apiChoice,
             hasAPIKey: false,
             hasNativeLocalWhisperModel: true
         )
 
-        assert(!options.supportedChoices.contains(apiChoice))
-        assert(options.defaultChoice == nativeChoice)
+        assert(options.supportedChoices.contains(apiChoice))
+        assert(options.defaultChoice == apiChoice)
+        assert(!options.isChoiceReady(apiChoice))
+        assert(options.isChoiceReady(nativeChoice))
     }
 
-    private static func testNoAvailableBackendReturnsNoDefault() {
+    private static func testAPIChoiceRemainsSelectableWithoutAnyReadyBackend() {
         let options = makeOptions(
             hasAPIKey: false,
             hasNativeLocalWhisperModel: false,
             legacyLocalWhisperModels: []
         )
 
-        assert(options.supportedChoices.isEmpty)
-        assert(options.defaultChoice == nil)
+        assert(options.supportedChoices == [apiChoice])
+        assert(options.defaultChoice == apiChoice)
+        assert(!options.isChoiceReady(apiChoice))
     }
 
     private static func testStorageExtensionPreservesSupportedImportExtension() {
@@ -195,8 +198,9 @@ struct AudioImportOptionsTests {
             hasNativeLocalWhisperModel: true
         )
 
-        assert(missingKey.defaultChoice == nativeChoice)
-        assert(missingKey.explicitRetryChoice == nil)
+        assert(missingKey.defaultChoice == apiChoice)
+        assert(missingKey.explicitRetryChoice == apiChoice)
+        assert(!missingKey.isChoiceReady(apiChoice))
         assert(nonCanonicalOversized.defaultChoice == nativeChoice)
         assert(nonCanonicalOversized.explicitRetryChoice == nil)
     }

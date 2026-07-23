@@ -121,6 +121,12 @@ struct AppStateCloudTranscriptionCleanupSourceTests {
             from: "private func prepareCloudRetryContext(",
             to: "private func makeCloudExecutionContext("
         )
+        try expect(
+            retry.contains(
+                "$0.completionPolicy == completion.cloudJobPolicy"
+            ),
+            "incompatible retry compares the persisted completion policy"
+        )
         try expectOrdered(
             [
                 "cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(",

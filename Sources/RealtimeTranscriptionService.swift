@@ -28,7 +28,7 @@ final class RealtimeTranscriptionService {
     }
 
     private let config: Configuration
-    private let session: URLSession
+    private let makeWebSocketTask: (URLRequest) -> URLSessionWebSocketTask
     private var task: URLSessionWebSocketTask?
     private var receiveTask: Task<Void, Never>?
 
@@ -49,14 +49,25 @@ final class RealtimeTranscriptionService {
     /// events — useful for a live overlay readout.
     var onPartialUpdate: ((String) -> Void)?
 
-    init(config: Configuration, session: URLSession = .shared) {
+    init(
+        config: Configuration,
+        session: URLSession = .shared,
+        makeWebSocketTask: ((URLRequest) -> URLSessionWebSocketTask)? = nil
+    ) {
         self.config = config
-        self.session = session
+        self.makeWebSocketTask = makeWebSocketTask
+            ?? { session.webSocketTask(with: $0) }
     }
 
     // MARK: Lifecycle
 
     func start() throws {
+        guard !config.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw QuillUserIssueError.missingProviderAPIKey(
+                providerHost: URL(string: config.baseURL)?.host,
+                modelID: config.model
+            )
+        }
         guard let wsURL = Self.deriveWebSocketURL(
             baseURL: config.baseURL,
             model: config.model,
@@ -70,7 +81,7 @@ final class RealtimeTranscriptionService {
             request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
         }
 
-        let task = session.webSocketTask(with: request)
+        let task = makeWebSocketTask(request)
         stateQueue.sync {
             self.task = task
         }

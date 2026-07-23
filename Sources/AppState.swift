@@ -108,13 +108,13 @@ private struct AudioImportTaskConfiguration {
     let customSystemPrompt: String
     let outputLanguage: String
     let postProcessingEnabled: Bool
-    let preserveExactWording: Bool
     let pressEnterCommandEnabled: Bool
     let postProcessingAPIKey: String
     let postProcessingBaseURL: String
-    let postProcessingModel: String
+    let postProcessingBackendChoice: AIProcessingBackendChoice
     let postProcessingFallbackModel: String
     let instructionExecutionGuardEnabled: Bool
+    let localAIServerManager: LocalAIServerManager
 
     init(
         transcriptionConfiguration: AudioImportTranscriptionConfiguration,
@@ -126,13 +126,13 @@ private struct AudioImportTaskConfiguration {
         customSystemPrompt: String,
         outputLanguage: String,
         postProcessingEnabled: Bool,
-        preserveExactWording: Bool,
         pressEnterCommandEnabled: Bool,
         postProcessingAPIKey: String,
         postProcessingBaseURL: String,
-        postProcessingModel: String,
+        postProcessingBackendChoice: AIProcessingBackendChoice,
         postProcessingFallbackModel: String,
-        instructionExecutionGuardEnabled: Bool
+        instructionExecutionGuardEnabled: Bool,
+        localAIServerManager: LocalAIServerManager
     ) {
         self.mode = transcriptionConfiguration.mode
         self.useLocalTranscription = transcriptionConfiguration.useLocalTranscription
@@ -147,13 +147,13 @@ private struct AudioImportTaskConfiguration {
         self.customSystemPrompt = customSystemPrompt
         self.outputLanguage = outputLanguage
         self.postProcessingEnabled = postProcessingEnabled
-        self.preserveExactWording = preserveExactWording
         self.pressEnterCommandEnabled = pressEnterCommandEnabled
         self.postProcessingAPIKey = postProcessingAPIKey
         self.postProcessingBaseURL = postProcessingBaseURL
-        self.postProcessingModel = postProcessingModel
+        self.postProcessingBackendChoice = postProcessingBackendChoice
         self.postProcessingFallbackModel = postProcessingFallbackModel
         self.instructionExecutionGuardEnabled = instructionExecutionGuardEnabled
+        self.localAIServerManager = localAIServerManager
     }
 
     var systemPrompt: String {
@@ -161,12 +161,13 @@ private struct AudioImportTaskConfiguration {
     }
 
     func makePostProcessingService() -> PostProcessingService {
-        PostProcessingService(
+        AppState.makePostProcessingService(
+            choice: postProcessingBackendChoice,
             apiKey: postProcessingAPIKey,
             baseURL: postProcessingBaseURL,
-            preferredModel: postProcessingModel,
-            preferredFallbackModel: postProcessingFallbackModel,
-            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
+            cloudFallbackModelID: postProcessingFallbackModel,
+            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled,
+            localServerManager: localAIServerManager
         )
     }
 
@@ -204,9 +205,6 @@ private struct RetrySnapshot {
     let useLocalTranscription: Bool
     let customVocabulary: String
     let customSystemPrompt: String
-    let outputLanguage: String
-    let postProcessingEnabled: Bool
-    let preserveExactWording: Bool
     let localWhisperPath: String?
     let useLegacyMlxWhisper: Bool
     let transcriptionModel: String
@@ -255,7 +253,6 @@ struct StoppedTranscriptionSettingsSnapshot {
     let transcriptionLanguage: TranscriptionLanguage
     let usedContextCapture: Bool
     let usedPostProcessing: Bool
-    let preserveExactWording: Bool
 }
 
 private enum CommandInvocation: String {
@@ -329,6 +326,56 @@ final class AppState: ObservableObject, @unchecked Sendable {
     static var nativeWhisperInstallStatusProvider: (NativeWhisperModel) -> NativeWhisperInstallStatus = { model in
         NativeWhisperModelStore().installStatus(for: model)
     }
+    static var localAIServerManagerFactory: () -> LocalAIServerManager = {
+        LocalAIServerManager()
+    }
+    static var localAIIdleShutdownSleep: @Sendable (UInt64) async throws -> Void = {
+        try await Task.sleep(nanoseconds: $0)
+    }
+    static var modelDownloadQuitAlertPresenter: @MainActor () -> NSApplication.ModalResponse = {
+        let alert = NSAlert()
+        alert.messageText = localizedCatalogString("Quit while models are downloading?")
+        alert.informativeText = localizedCatalogString(
+            "Quill will cancel unfinished model downloads and delete partial files before quitting."
+        )
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: localizedCatalogString("Quit and Cancel Downloads"))
+        alert.addButton(withTitle: localizedCatalogString("Cancel"))
+        alert.icon = NSImage(
+            systemSymbolName: "exclamationmark.triangle.fill",
+            accessibilityDescription: nil
+        )
+        return alert.runModal()
+    }
+    static var applicationTerminationReply: @MainActor (Bool) -> Void = {
+        NSApp.reply(toApplicationShouldTerminate: $0)
+    }
+    static var localAIInstallStatusProvider: @Sendable (LocalAIModel) -> LocalAIInstallStatus = {
+        LocalAIModelStore().installStatus(for: $0)
+    }
+    static var localAIInstallStarter: (
+        LocalAIModel,
+        @escaping (LocalAIDownloadProgress) -> Void,
+        @escaping (Result<Void, LocalAIInstallerError>) -> Void
+    ) -> LocalAIInstallTask = { model, progress, completion in
+        LocalAIInstaller().install(
+            model: model,
+            progress: progress,
+            completion: completion
+        )
+    }
+    static var localAIProgressSchedule:
+        LatestValueProgressCoalescer<LocalAIDownloadProgress>.Schedule =
+            LatestValueProgressCoalescer<LocalAIDownloadProgress>.mainQueueSchedule
+    static var localAIModelDelete: @Sendable (LocalAIModel) throws -> Void = {
+        try LocalAIModelStore().deleteModel($0)
+    }
+    static var localAIPartialModelDelete: @Sendable (LocalAIModel) throws -> Void = {
+        try LocalAIModelStore().deletePartialModel($0)
+    }
+    static var localAIProcessingAvailabilityProvider: () -> LocalAIProcessingAvailability = {
+        .live()
+    }
     static var nativeWhisperInstallStarter: (
         NativeWhisperModel,
         @escaping (NativeWhisperDownloadProgress) -> Void,
@@ -339,6 +386,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
             progress: progress,
             completion: completion
         )
+    }
+    static var nativeWhisperProgressSchedule:
+        LatestValueProgressCoalescer<NativeWhisperDownloadProgress>.Schedule =
+            LatestValueProgressCoalescer<NativeWhisperDownloadProgress>.mainQueueSchedule
+
+    private final class WeakAppStateReference: @unchecked Sendable {
+        weak var value: AppState?
+
+        init(_ value: AppState) {
+            self.value = value
+        }
+    }
+
+    private struct LocalAIModelDeletionOutcome: Sendable {
+        let status: LocalAIInstallStatus
+        let errorDescription: String?
     }
 
     private struct TranscriptionJob {
@@ -368,6 +431,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let postProcessingModelStorageKey = "post_processing_model"
     private let postProcessingFallbackModelStorageKey = "post_processing_fallback_model"
     private let contextModelStorageKey = "context_model"
+    private let postProcessingBackendChoiceStorageKey = "post_processing_backend_choice"
+    private let contextBackendChoiceStorageKey = "context_backend_choice"
     private let holdShortcutStorageKey = "hold_shortcut"
     private let toggleShortcutStorageKey = "toggle_shortcut"
     private let recordingCancelShortcutStorageKey = "recording_cancel_shortcut"
@@ -398,7 +463,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let disableContextCaptureStorageKey = "disable_context_capture"
     private let disableAutoPasteStorageKey = "disable_auto_paste"
     private let disablePostProcessingStorageKey = "disable_post_processing"
-    private let preserveExactWordingStorageKey = "preserve_exact_wording"
     private let transcriptionLanguageStorageKey = "transcription_language"
     private let outputLanguageStorageKey = "output_language"
     private let localTranscriptionModelStorageKey = AppState.localTranscriptionModelStorageKeyName
@@ -453,6 +517,31 @@ final class AppState: ObservableObject, @unchecked Sendable {
         } else if sharedLooksLikeLocalModel {
             defaults.set(defaultTranscriptionModel, forKey: transcriptionModelStorageKeyName)
         }
+    }
+
+    private static func normalizedCloudModelID(
+        _ modelID: String,
+        defaultModelID: String
+    ) -> String {
+        let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? defaultModelID : trimmed
+    }
+
+    private static func normalizedAIProcessingBackendChoice(
+        _ choice: AIProcessingBackendChoice,
+        fallbackCloudModelID: String,
+        defaultCloudModelID: String
+    ) -> AIProcessingBackendChoice {
+        guard case .cloud(let modelID) = choice else { return choice }
+        let fallback = normalizedCloudModelID(
+            fallbackCloudModelID,
+            defaultModelID: defaultCloudModelID
+        )
+        let normalizedModelID = normalizedCloudModelID(
+            modelID,
+            defaultModelID: fallback
+        )
+        return .cloud(modelID: normalizedModelID)
     }
 
     private static let firstInstallDefaultsVersion = 1
@@ -510,7 +599,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         didSet {
             persistAPIKey(apiKey)
             rebuildContextService()
-            scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration()
         }
     }
 
@@ -530,7 +618,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var transcriptionAPIKey: String {
         didSet {
             persistOptionalAPIValue(transcriptionAPIKey, account: transcriptionAPIKeyStorageKey)
-            scheduleNoteBrowserTranscriptionModeNormalizationForProviderConfiguration()
         }
     }
 
@@ -543,6 +630,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var postProcessingModel: String {
         didSet {
             UserDefaults.standard.set(postProcessingModel, forKey: postProcessingModelStorageKey)
+            if case .cloud = postProcessingBackendChoice {
+                let derivedChoice = AIProcessingBackendChoice.cloud(
+                    modelID: resolvedPostProcessingCloudModelID
+                )
+                if derivedChoice != postProcessingBackendChoice {
+                    postProcessingBackendChoice = derivedChoice
+                }
+            }
         }
     }
 
@@ -555,7 +650,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var contextModel: String {
         didSet {
             UserDefaults.standard.set(contextModel, forKey: contextModelStorageKey)
-            rebuildContextService()
+            if case .cloud = contextBackendChoice {
+                let derivedChoice = AIProcessingBackendChoice.cloud(
+                    modelID: resolvedContextCloudModelID
+                )
+                if derivedChoice != contextBackendChoice {
+                    contextBackendChoice = derivedChoice
+                }
+            }
         }
     }
 
@@ -842,12 +944,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    @Published var preserveExactWording: Bool {
-        didSet {
-            UserDefaults.standard.set(preserveExactWording, forKey: preserveExactWordingStorageKey)
-        }
-    }
-
     @Published var noteBrowserEnabled: Bool {
         didSet {
             UserDefaults.standard.set(noteBrowserEnabled, forKey: noteBrowserEnabledStorageKey)
@@ -880,6 +976,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var nativeWhisperInstallIssue: QuillUserIssueRecord?
     @Published private(set) var pendingNativeWhisperAutoSelectionModelID: String?
     private var nativeWhisperInstallTask: NativeWhisperInstallTask?
+    private var nativeWhisperProgressCoalescer:
+        LatestValueProgressCoalescer<NativeWhisperDownloadProgress>?
+    private var nativeWhisperInstallQuiescenceWaiters: [CheckedContinuation<Void, Never>] = []
     private var nativeWhisperInstallCancellationMessage: String?
 
     var willAutoSelectNativeWhisperWhenReady: Bool {
@@ -942,34 +1041,30 @@ final class AppState: ObservableObject, @unchecked Sendable {
         switch choice {
         case .apiStandard(let modelID):
             let resolvedModelID = nonEmptyModelID(modelID) ?? resolvedStandardTranscriptionModelID
-            let unavailableReason = hasTranscriptionAPIKey ? nil : "API key is not configured"
             return TranscriptionChoiceDisplay(
                 choice: .apiStandard(modelID: resolvedModelID),
-                section: "API",
+                section: "Cloud",
                 title: "Standard",
                 subtitle: resolvedModelID,
                 compactLabel: "Standard · \(resolvedModelID)",
-                currentLabel: "API · Standard · \(resolvedModelID)",
-                isAvailable: unavailableReason == nil,
-                unavailableReason: unavailableReason
+                currentLabel: "Cloud · Standard · \(resolvedModelID)",
+                isAvailable: true,
+                unavailableReason: nil
             )
         case .apiRealtime(let modelID):
             let resolvedModelID = nonEmptyModelID(modelID ?? realtimeStreamingModel)
             let modelLabel = resolvedModelID ?? "Provider default"
-            let unavailableReason: String? = if !hasTranscriptionAPIKey {
-                "API key is not configured"
-            } else if AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID) {
-                "Realtime is unavailable with System Default + System Audio"
-            } else {
-                nil
-            }
+            let unavailableReason = AudioInputDevice
+                .isSystemDefaultAndSystemAudio(selectedMicrophoneID)
+                ? "Realtime is unavailable with System Default + System Audio"
+                : nil
             return TranscriptionChoiceDisplay(
                 choice: .apiRealtime(modelID: resolvedModelID),
-                section: "API",
+                section: "Cloud",
                 title: "Realtime",
                 subtitle: modelLabel,
                 compactLabel: "Realtime · \(modelLabel)",
-                currentLabel: "API · Realtime · \(modelLabel)",
+                currentLabel: "Cloud · Realtime · \(modelLabel)",
                 isAvailable: unavailableReason == nil,
                 unavailableReason: unavailableReason
             )
@@ -977,11 +1072,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let unavailableReason = hasNativeLocalWhisperModel ? nil : "Install the native Local Whisper model to use this option"
             return TranscriptionChoiceDisplay(
                 choice: nativeWhisperChoice,
-                section: "Local",
+                section: "On This Mac",
                 title: "Native Whisper",
                 subtitle: nativeWhisperDisplayName,
                 compactLabel: "Native Whisper · \(nativeWhisperDisplayName)",
-                currentLabel: "Local · Native Whisper · \(nativeWhisperDisplayName)",
+                currentLabel: "On This Mac · Native Whisper · \(nativeWhisperDisplayName)",
                 isAvailable: unavailableReason == nil,
                 unavailableReason: unavailableReason
             )
@@ -989,11 +1084,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let unavailableReason = model.isInstalled ? nil : "Install \(model.displayName) in Settings to use this option"
             return TranscriptionChoiceDisplay(
                 choice: .legacyMlxWhisper(model: model),
-                section: "Legacy mlx-whisper",
+                section: "On This Mac",
                 title: "Legacy mlx-whisper",
                 subtitle: model.displayName,
                 compactLabel: "Legacy · \(model.displayName)",
-                currentLabel: "Local · Legacy · \(model.displayName)",
+                currentLabel: "On This Mac · Legacy · \(model.displayName)",
                 isAvailable: unavailableReason == nil,
                 unavailableReason: unavailableReason
             )
@@ -1003,11 +1098,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 : nil
             return TranscriptionChoiceDisplay(
                 choice: .appleLive,
-                section: "Local",
+                section: "On This Mac",
                 title: "Apple Live",
                 subtitle: "Apple Speech",
                 compactLabel: "Apple Live · Apple Speech",
-                currentLabel: "Local · Apple Live · Apple Speech",
+                currentLabel: "On This Mac · Apple Live · Apple Speech",
                 isAvailable: unavailableReason == nil,
                 unavailableReason: unavailableReason
             )
@@ -1076,6 +1171,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         nonEmptyModelID(realtimeStreamingModel)
     }
 
+    private var resolvedPostProcessingCloudModelID: String {
+        nonEmptyModelID(postProcessingModel) ?? Self.defaultPostProcessingModel
+    }
+
+    private var resolvedContextCloudModelID: String {
+        nonEmptyModelID(contextModel) ?? Self.defaultContextModel
+    }
+
     private func nonEmptyModelID(_ modelID: String) -> String? {
         let trimmed = modelID.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
@@ -1089,6 +1192,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func installNativeWhisperModel(autoSelectWhenReady: Bool = true) {
+        guard !isModelTerminationCleanupPending else { return }
         let model = NativeWhisperModelCatalog.recommended
         if autoSelectWhenReady {
             pendingNativeWhisperAutoSelectionModelID = model.id
@@ -1099,12 +1203,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         nativeWhisperInstallCancellationMessage = nil
         isInstallingNativeWhisper = true
         nativeWhisperInstallProgress = NativeWhisperDownloadProgress(downloadedBytes: 0, totalBytes: model.approximateBytes)
+        let progressCoalescer = LatestValueProgressCoalescer<NativeWhisperDownloadProgress>(
+            schedule: Self.nativeWhisperProgressSchedule
+        ) { [weak self] progress in
+            MainActor.assumeIsolated {
+                self?.nativeWhisperInstallProgress = progress
+            }
+        }
+        nativeWhisperProgressCoalescer = progressCoalescer
         nativeWhisperInstallTask = Self.nativeWhisperInstallStarter(
             model,
-            { [weak self] progress in
-                DispatchQueue.main.async {
-                    self?.nativeWhisperInstallProgress = progress
-                }
+            { progress in
+                progressCoalescer.submit(progress)
             },
             { [weak self] result in
                 DispatchQueue.main.async {
@@ -1119,7 +1229,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         model: NativeWhisperModel,
         result: Result<Void, NativeWhisperInstallerError>
     ) {
+        nativeWhisperProgressCoalescer?.invalidate()
+        nativeWhisperProgressCoalescer = nil
         nativeWhisperInstallTask = nil
+        defer { resumeNativeWhisperInstallQuiescenceWaitersIfNeeded() }
         isInstallingNativeWhisper = false
         refreshNativeWhisperInstallStatus()
 
@@ -1146,6 +1259,24 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    func waitForNativeWhisperInstallToQuiesce() async {
+        guard nativeWhisperInstallTask != nil else { return }
+        await withCheckedContinuation { continuation in
+            nativeWhisperInstallQuiescenceWaiters.append(continuation)
+        }
+    }
+
+    @MainActor
+    private func resumeNativeWhisperInstallQuiescenceWaitersIfNeeded() {
+        guard nativeWhisperInstallTask == nil else { return }
+        let waiters = nativeWhisperInstallQuiescenceWaiters
+        nativeWhisperInstallQuiescenceWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    @MainActor
     func cancelNativeWhisperAutoSelection() {
         pendingNativeWhisperAutoSelectionModelID = nil
     }
@@ -1154,15 +1285,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func cancelNativeWhisperInstall() {
         pendingNativeWhisperAutoSelectionModelID = nil
         nativeWhisperInstallCancellationMessage = nil
+        nativeWhisperProgressCoalescer?.invalidate()
+        nativeWhisperProgressCoalescer = nil
         nativeWhisperInstallTask?.cancel()
-        let model = NativeWhisperModelCatalog.recommended
-        try? NativeWhisperModelStore().deletePartialModel(model)
         nativeWhisperInstallProgress = NativeWhisperDownloadProgress(
             downloadedBytes: nativeWhisperInstallProgress.downloadedBytes,
             totalBytes: nativeWhisperInstallProgress.totalBytes,
             isCancelled: true
         )
-        refreshNativeWhisperInstallStatus()
     }
 
     @MainActor
@@ -1231,9 +1361,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func isNoteBrowserTranscriptionModeAvailable(_ mode: NoteBrowserTranscriptionMode) -> Bool {
         switch mode {
         case .apiStandard:
-            return hasTranscriptionAPIKey
+            return true
         case .apiRealtime:
-            return hasTranscriptionAPIKey && !AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID)
+            return !AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID)
         case .localWhisper:
             return hasAnyLocalWhisperModel
         case .localAppleLive:
@@ -1244,6 +1374,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func isNoteBrowserTranscriptionChoiceAvailable(_ choice: TranscriptionBackendChoice) -> Bool {
         noteBrowserTranscriptionDisplay(for: choice).isAvailable
+    }
+
+    @MainActor
+    func isNoteBrowserTranscriptionChoiceReady(
+        _ choice: TranscriptionBackendChoice
+    ) -> Bool {
+        guard isNoteBrowserTranscriptionChoiceAvailable(choice) else {
+            return false
+        }
+        return !choice.usesCloudAPI || hasTranscriptionAPIKey
     }
 
     @MainActor
@@ -1714,6 +1854,71 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var overlayTranscriptionID: UUID = UUID()
     private var foregroundTranscriptionJobID: UUID?
     private var activeTranscriptionJobs: [UUID: TranscriptionJob] = [:]
+    let localAIServerManager: LocalAIServerManager
+    @Published private(set) var localAIInstallStates: [String: LocalAIModelInstallViewState] = [:]
+    @Published private var pendingLocalAISelections: [AIProcessingFeature: String] = [:]
+    private var localAIInstallTasks: [String: LocalAIInstallTask] = [:]
+    private var localAIProgressCoalescers:
+        [String: LatestValueProgressCoalescer<LocalAIDownloadProgress>] = [:]
+    private var localAIInstallTokens: [String: UUID] = [:]
+    private var localAICancellingModelIDs: Set<String> = []
+    private var localAIRestartAfterCancellationModelIDs: Set<String> = []
+    private var localAIDeferredInstallModelIDs: Set<String> = []
+    private var localAIDeletionRequestedModelIDs: Set<String> = []
+    private var localAIStatusRefreshGenerations: [String: Int] = [:]
+    private var localAIStatusRefreshPendingModelIDs: Set<String> = []
+    private var localAIStatusRefreshWaiters: [CheckedContinuation<Void, Never>] = []
+    private var localAIInstallQuiescenceWaiters: [CheckedContinuation<Void, Never>] = []
+    private var localAIIdleShutdownTask: Task<Void, Never>?
+    private var hasCompletedLocalAIStatusRefresh = false
+
+    @Published var postProcessingBackendChoice: AIProcessingBackendChoice {
+        didSet {
+            let normalizedChoice = Self.normalizedAIProcessingBackendChoice(
+                postProcessingBackendChoice,
+                fallbackCloudModelID: postProcessingModel,
+                defaultCloudModelID: Self.defaultPostProcessingModel
+            )
+            if normalizedChoice != postProcessingBackendChoice {
+                postProcessingBackendChoice = normalizedChoice
+            } else {
+                AIProcessingBackendChoiceStore.save(
+                    postProcessingBackendChoice,
+                    defaults: .standard,
+                    key: postProcessingBackendChoiceStorageKey
+                )
+                if case .cloud(let modelID) = postProcessingBackendChoice,
+                   postProcessingModel != modelID {
+                    postProcessingModel = modelID
+                }
+            }
+        }
+    }
+
+    @Published var contextBackendChoice: AIProcessingBackendChoice {
+        didSet {
+            let normalizedChoice = Self.normalizedAIProcessingBackendChoice(
+                contextBackendChoice,
+                fallbackCloudModelID: contextModel,
+                defaultCloudModelID: Self.defaultContextModel
+            )
+            if normalizedChoice != contextBackendChoice {
+                contextBackendChoice = normalizedChoice
+            } else {
+                AIProcessingBackendChoiceStore.save(
+                    contextBackendChoice,
+                    defaults: .standard,
+                    key: contextBackendChoiceStorageKey
+                )
+                if case .cloud(let modelID) = contextBackendChoice,
+                   contextModel != modelID {
+                    contextModel = modelID
+                }
+                rebuildContextService()
+            }
+        }
+    }
+
     private var contextService: AppContextService
     private var contextCaptureTask: Task<AppContext?, Never>?
     private var capturedContext: AppContext?
@@ -1729,7 +1934,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var isCalendarRecordingReminderSchedulerActive = false
     private var hasShownScreenshotPermissionAlert = false
     private var isEscapeCancelAlertPresented = false
-    private var isNativeWhisperQuitAlertPresented = false
+    private var isModelDownloadQuitAlertPresented = false
+    private var isModelTerminationCleanupPending = false
     private var shouldTerminateAfterTranscription = false
     private var pendingAudioOnlyStopIDs: Set<UUID> = []
     private var audioDeviceObservers: [NSObjectProtocol] = []
@@ -1814,9 +2020,57 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let transcriptionModel = UserDefaults.standard.string(forKey: transcriptionModelStorageKey) ?? Self.defaultTranscriptionModel
         let transcriptionAPIURL = Self.loadOptionalStoredAPIValue(account: transcriptionAPIURLStorageKey)
         let transcriptionAPIKey = Self.loadStoredAPIKey(account: transcriptionAPIKeyStorageKey)
-        let postProcessingModel = UserDefaults.standard.string(forKey: postProcessingModelStorageKey) ?? Self.defaultPostProcessingModel
+        let rememberedPostProcessingModel = Self.normalizedCloudModelID(
+            UserDefaults.standard.string(forKey: postProcessingModelStorageKey) ?? "",
+            defaultModelID: Self.defaultPostProcessingModel
+        )
         let postProcessingFallbackModel = UserDefaults.standard.string(forKey: postProcessingFallbackModelStorageKey) ?? Self.defaultPostProcessingFallbackModel
-        let contextModel = Self.loadStoredContextModel(key: contextModelStorageKey)
+        let rememberedContextModel = Self.normalizedCloudModelID(
+            Self.loadStoredContextModel(key: contextModelStorageKey),
+            defaultModelID: Self.defaultContextModel
+        )
+        let postProcessingBackendChoice = Self.normalizedAIProcessingBackendChoice(
+            AIProcessingBackendChoiceStore.load(
+                defaults: .standard,
+                key: postProcessingBackendChoiceStorageKey,
+                fallbackCloudModelID: rememberedPostProcessingModel
+            ),
+            fallbackCloudModelID: rememberedPostProcessingModel,
+            defaultCloudModelID: Self.defaultPostProcessingModel
+        )
+        let contextBackendChoice = Self.normalizedAIProcessingBackendChoice(
+            AIProcessingBackendChoiceStore.load(
+                defaults: .standard,
+                key: contextBackendChoiceStorageKey,
+                fallbackCloudModelID: rememberedContextModel
+            ),
+            fallbackCloudModelID: rememberedContextModel,
+            defaultCloudModelID: Self.defaultContextModel
+        )
+        let postProcessingModel = switch postProcessingBackendChoice {
+        case .cloud(let modelID): modelID
+        case .localAI: rememberedPostProcessingModel
+        }
+        let contextModel = switch contextBackendChoice {
+        case .cloud(let modelID): modelID
+        case .localAI: rememberedContextModel
+        }
+        UserDefaults.standard.set(
+            postProcessingModel,
+            forKey: postProcessingModelStorageKey
+        )
+        UserDefaults.standard.set(contextModel, forKey: contextModelStorageKey)
+        AIProcessingBackendChoiceStore.save(
+            postProcessingBackendChoice,
+            defaults: .standard,
+            key: postProcessingBackendChoiceStorageKey
+        )
+        AIProcessingBackendChoiceStore.save(
+            contextBackendChoice,
+            defaults: .standard,
+            key: contextBackendChoiceStorageKey
+        )
+        let localAIServerManager = Self.localAIServerManagerFactory()
         let shortcuts = Self.loadShortcutConfiguration(
             holdKey: holdShortcutStorageKey,
             toggleKey: toggleShortcutStorageKey,
@@ -1935,7 +2189,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let disableContextCapture = UserDefaults.standard.bool(forKey: disableContextCaptureStorageKey)
         let disableAutoPaste = UserDefaults.standard.bool(forKey: disableAutoPasteStorageKey)
         let disablePostProcessing = UserDefaults.standard.bool(forKey: disablePostProcessingStorageKey)
-        let preserveExactWording = UserDefaults.standard.bool(forKey: preserveExactWordingStorageKey)
         let noteBrowserEnabled = UserDefaults.standard.object(forKey: noteBrowserEnabledStorageKey) == nil
             ? true
             : UserDefaults.standard.bool(forKey: noteBrowserEnabledStorageKey)
@@ -2015,12 +2268,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let selectedMicrophoneID = UserDefaults.standard.string(forKey: selectedMicrophoneStorageKey) ?? "default"
         let shouldRestoreMutedAudio = UserDefaults.standard.bool(forKey: pendingMutedAudioRestoreStorageKey)
 
+        self.localAIServerManager = localAIServerManager
         self.contextService = Self.makeAppContextService(
+            choice: contextBackendChoice,
             apiKey: apiKey,
             baseURL: apiBaseURL,
             customContextPrompt: customContextPrompt,
-            contextModel: contextModel,
-            contextScreenshotMaxDimension: contextScreenshotMaxDimension
+            contextScreenshotMaxDimension: contextScreenshotMaxDimension,
+            localServerManager: localAIServerManager
         )
         self.hasCompletedSetup = hasCompletedSetup
         self.transcriptionEnabled = transcriptionEnabled
@@ -2032,6 +2287,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.postProcessingModel = postProcessingModel
         self.postProcessingFallbackModel = postProcessingFallbackModel
         self.contextModel = contextModel
+        self.postProcessingBackendChoice = postProcessingBackendChoice
+        self.contextBackendChoice = contextBackendChoice
         self.holdShortcut = shortcuts.hold
         self.toggleShortcut = shortcuts.toggle
         self.recordingCancelShortcut = recordingCancelShortcut
@@ -2075,7 +2332,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.disableContextCapture = disableContextCapture
         self.disableAutoPaste = disableAutoPaste
         self.disablePostProcessing = disablePostProcessing
-        self.preserveExactWording = preserveExactWording
         self.noteBrowserEnabled = noteBrowserEnabled
         self.transcriptionLanguage = transcriptionLanguage
         self.outputLanguage = outputLanguage
@@ -2154,10 +2410,790 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 self.startRecordingFromCalendarReminder()
             }
         }
+
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                refreshAllLocalAIInstallStates()
+            }
+        } else {
+            DispatchQueue.main.sync {
+                MainActor.assumeIsolated {
+                    refreshAllLocalAIInstallStates()
+                }
+            }
+        }
     }
 
     deinit {
+        localAIIdleShutdownTask?.cancel()
         removeAudioDeviceObservers()
+    }
+
+    @MainActor
+    func startLocalAIIdleShutdownMonitoring() {
+        guard localAIIdleShutdownTask == nil else { return }
+        let manager = localAIServerManager
+        let sleep = Self.localAIIdleShutdownSleep
+        localAIIdleShutdownTask = Task {
+            while !Task.isCancelled {
+                do {
+                    try await sleep(30_000_000_000)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                await manager.shutdownIfIdle()
+            }
+        }
+    }
+
+    @MainActor
+    func stopLocalAIIdleShutdownMonitoring() {
+        localAIIdleShutdownTask?.cancel()
+        localAIIdleShutdownTask = nil
+    }
+
+    @MainActor
+    func localAIInstallState(
+        for model: LocalAIModel
+    ) -> LocalAIModelInstallViewState {
+        localAIInstallStates[model.id]
+            ?? .initial(model: model, status: .notInstalled)
+    }
+
+    @MainActor
+    func refreshAllLocalAIInstallStates() {
+        hasCompletedLocalAIStatusRefresh = false
+        localAIStatusRefreshPendingModelIDs = Set(
+            LocalAIModelCatalog.all.map(\.id)
+        )
+        for model in LocalAIModelCatalog.all {
+            if localAIInstallStates[model.id] == nil {
+                localAIInstallStates[model.id] = .initial(
+                    model: model,
+                    status: .notInstalled
+                )
+            }
+            let generation = nextLocalAIStatusRefreshGeneration(for: model)
+            let statusProvider = Self.localAIInstallStatusProvider
+            let appStateReference = WeakAppStateReference(self)
+            Task.detached(priority: .utility) {
+                let status = statusProvider(model)
+                await MainActor.run {
+                    appStateReference.value?.applyLocalAIStatusRefresh(
+                        status,
+                        for: model,
+                        generation: generation
+                    )
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func waitForLocalAIInstallStateRefresh() async {
+        guard !hasCompletedLocalAIStatusRefresh else { return }
+        await withCheckedContinuation { continuation in
+            localAIStatusRefreshWaiters.append(continuation)
+        }
+    }
+
+    @MainActor
+    func waitForLocalAIInstallsToQuiesce() async {
+        guard !localAIInstallTasks.isEmpty else { return }
+        await withCheckedContinuation { continuation in
+            localAIInstallQuiescenceWaiters.append(continuation)
+        }
+    }
+
+    @MainActor
+    private func resumeLocalAIInstallQuiescenceWaitersIfNeeded() {
+        guard localAIInstallTasks.isEmpty else { return }
+        let waiters = localAIInstallQuiescenceWaiters
+        localAIInstallQuiescenceWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    @MainActor
+    private func nextLocalAIStatusRefreshGeneration(
+        for model: LocalAIModel
+    ) -> Int {
+        let generation = localAIStatusRefreshGenerations[model.id, default: 0] + 1
+        localAIStatusRefreshGenerations[model.id] = generation
+        return generation
+    }
+
+    @MainActor
+    private func applyLocalAIStatusRefresh(
+        _ status: LocalAIInstallStatus,
+        for model: LocalAIModel,
+        generation: Int
+    ) {
+        guard localAIStatusRefreshGenerations[model.id] == generation,
+              localAIInstallTasks[model.id] == nil,
+              !localAIDeletionRequestedModelIDs.contains(model.id) else {
+            return
+        }
+        var state = localAIInstallState(for: model)
+        state.status = status
+        localAIInstallStates[model.id] = state
+        localAIStatusRefreshPendingModelIDs.remove(model.id)
+        finishLocalAIStatusRefreshIfReady()
+    }
+
+    @MainActor
+    private func finishLocalAIStatusRefreshIfReady() {
+        guard localAIStatusRefreshPendingModelIDs.isEmpty else { return }
+        hasCompletedLocalAIStatusRefresh = true
+        normalizeAIProcessingChoices()
+        resumeDeferredLocalAIRequests()
+        let waiters = localAIStatusRefreshWaiters
+        localAIStatusRefreshWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    @MainActor
+    private func completeLocalAIStatusOperation(
+        _ status: LocalAIInstallStatus,
+        for model: LocalAIModel
+    ) {
+        _ = nextLocalAIStatusRefreshGeneration(for: model)
+        let completedRefresh = localAIStatusRefreshPendingModelIDs.remove(model.id) != nil
+        var state = localAIInstallState(for: model)
+        state.status = status
+        localAIInstallStates[model.id] = state
+        if completedRefresh {
+            finishLocalAIStatusRefreshIfReady()
+        }
+    }
+
+    @MainActor
+    private func resumeDeferredLocalAIRequests() {
+        let pendingModelIDs = Set(pendingLocalAISelections.values)
+        for modelID in pendingModelIDs {
+            guard let model = LocalAIModelCatalog.model(id: modelID),
+                  !localAIDeletionRequestedModelIDs.contains(modelID) else {
+                clearPendingLocalAISelections(forModelID: modelID)
+                continue
+            }
+            guard Self.localAIProcessingAvailabilityProvider().isSupported else {
+                clearPendingLocalAISelections(forModelID: modelID)
+                var state = localAIInstallState(for: model)
+                state.issue = localAIModelUnavailableIssue(for: model)
+                localAIInstallStates[model.id] = state
+                continue
+            }
+            if localAIInstallState(for: model).status == .ready {
+                applyReadyLocalAIModelToWaitingFeatures(model)
+            }
+        }
+
+        let requestedModelIDs = localAIDeferredInstallModelIDs
+        localAIDeferredInstallModelIDs.removeAll()
+        for modelID in requestedModelIDs {
+            guard let model = LocalAIModelCatalog.model(id: modelID),
+                  !localAIDeletionRequestedModelIDs.contains(modelID) else {
+                clearPendingLocalAISelections(forModelID: modelID)
+                continue
+            }
+            guard Self.localAIProcessingAvailabilityProvider().isSupported else {
+                clearPendingLocalAISelections(forModelID: modelID)
+                var state = localAIInstallState(for: model)
+                state.issue = localAIModelUnavailableIssue(for: model)
+                localAIInstallStates[model.id] = state
+                continue
+            }
+            if localAIInstallState(for: model).status == .ready {
+                applyReadyLocalAIModelToWaitingFeatures(model)
+            } else {
+                startLocalAIInstallIfPossible(model)
+            }
+        }
+    }
+
+    @MainActor
+    func currentAIProcessingChoice(
+        for feature: AIProcessingFeature
+    ) -> AIProcessingBackendChoice {
+        switch feature {
+        case .postProcessing: return postProcessingBackendChoice
+        case .context: return contextBackendChoice
+        }
+    }
+
+    @MainActor
+    private func applyAIProcessingChoice(
+        _ choice: AIProcessingBackendChoice,
+        for feature: AIProcessingFeature
+    ) {
+        guard currentAIProcessingChoice(for: feature) != choice else { return }
+        switch feature {
+        case .postProcessing:
+            postProcessingBackendChoice = choice
+        case .context:
+            contextBackendChoice = choice
+        }
+    }
+
+    @MainActor
+    private func setPendingLocalAIModelID(
+        _ modelID: String?,
+        for feature: AIProcessingFeature
+    ) {
+        guard pendingLocalAISelections[feature] != modelID else { return }
+        if let modelID {
+            pendingLocalAISelections[feature] = modelID
+        } else {
+            pendingLocalAISelections.removeValue(forKey: feature)
+        }
+    }
+
+    @MainActor
+    private func clearPendingLocalAISelections(forModelID modelID: String) {
+        let filtered = pendingLocalAISelections.filter { $0.value != modelID }
+        guard filtered != pendingLocalAISelections else { return }
+        pendingLocalAISelections = filtered
+    }
+
+    @MainActor
+    private func waitingFeatures(for model: LocalAIModel) -> [AIProcessingFeature] {
+        pendingLocalAISelections.compactMap {
+            $0.value == model.id ? $0.key : nil
+        }
+    }
+
+    @MainActor
+    func selectedOrPendingLocalAIModel(
+        for feature: AIProcessingFeature
+    ) -> LocalAIModel? {
+        let currentChoice = currentAIProcessingChoice(for: feature)
+        let modelID = pendingLocalAISelections[feature]
+            ?? (currentChoice.isLocal ? currentChoice.modelID : nil)
+        return modelID.flatMap(LocalAIModelCatalog.model(id:))
+    }
+
+    @MainActor
+    func pendingLocalAIModelID(
+        for feature: AIProcessingFeature
+    ) -> String? {
+        pendingLocalAISelections[feature]
+    }
+
+    @MainActor
+    func isAIProcessingChoiceAvailable(
+        _ choice: AIProcessingBackendChoice
+    ) -> Bool {
+        switch choice {
+        case .cloud:
+            return true
+        case .localAI(let modelID):
+            return LocalAIModelCatalog.model(id: modelID) != nil
+                && Self.localAIProcessingAvailabilityProvider().isSupported
+        }
+    }
+
+    @MainActor
+    func isAIProcessingBackendReady(
+        for feature: AIProcessingFeature
+    ) -> Bool {
+        switch currentAIProcessingChoice(for: feature) {
+        case .cloud:
+            return !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .localAI(let modelID):
+            guard hasCompletedLocalAIStatusRefresh,
+                  Self.localAIProcessingAvailabilityProvider().isSupported,
+                  let model = LocalAIModelCatalog.model(id: modelID) else {
+                return false
+            }
+            return localAIInstallState(for: model).status == .ready
+        }
+    }
+
+    @MainActor
+    func aiProcessingChoiceDisplays(
+        for feature: AIProcessingFeature
+    ) -> [AIProcessingChoiceDisplay] {
+        let rememberedCloudModel = feature == .postProcessing
+            ? resolvedPostProcessingCloudModelID
+            : resolvedContextCloudModelID
+        var cloudModelIDs: [String] = []
+        for modelID in ModelConfiguration.llmModels + [rememberedCloudModel] {
+            if !modelID.isEmpty, !cloudModelIDs.contains(modelID) {
+                cloudModelIDs.append(modelID)
+            }
+        }
+        let cloudDisplays = cloudModelIDs.map { modelID in
+            AIProcessingChoiceDisplay(
+                choice: .cloud(modelID: modelID),
+                section: "Cloud",
+                title: modelID,
+                subtitle: nil,
+                isAvailable: true,
+                unavailableReason: nil,
+                isRecommended: false
+            )
+        }
+
+        let availability = Self.localAIProcessingAvailabilityProvider()
+        guard availability.isSupported else { return cloudDisplays }
+        let localDisplays = LocalAIModelCatalog.all.map { model in
+            AIProcessingChoiceDisplay(
+                choice: .localAI(modelID: model.id),
+                section: "On This Mac",
+                title: model.displayName,
+                subtitle: ByteCountFormatter.string(
+                    fromByteCount: model.approximateBytes,
+                    countStyle: .file
+                ),
+                isAvailable: true,
+                unavailableReason: nil,
+                isRecommended: model.id == availability.recommendedModel.id
+            )
+        }
+        return cloudDisplays + localDisplays
+    }
+
+    @MainActor
+    func selectAIProcessingBackendChoice(
+        _ choice: AIProcessingBackendChoice,
+        for feature: AIProcessingFeature
+    ) {
+        switch choice {
+        case .cloud(let modelID):
+            setPendingLocalAIModelID(nil, for: feature)
+            switch feature {
+            case .postProcessing:
+                if postProcessingModel != modelID {
+                    postProcessingModel = modelID
+                }
+            case .context:
+                if contextModel != modelID {
+                    contextModel = modelID
+                }
+            }
+            applyAIProcessingChoice(choice, for: feature)
+
+        case .localAI(let modelID):
+            guard Self.localAIProcessingAvailabilityProvider().isSupported,
+                  let model = LocalAIModelCatalog.model(id: modelID),
+                  !localAIDeletionRequestedModelIDs.contains(modelID) else {
+                return
+            }
+            guard hasCompletedLocalAIStatusRefresh else {
+                setPendingLocalAIModelID(modelID, for: feature)
+                return
+            }
+            if localAIInstallState(for: model).status == .ready {
+                setPendingLocalAIModelID(nil, for: feature)
+                applyAIProcessingChoice(choice, for: feature)
+            } else {
+                setPendingLocalAIModelID(modelID, for: feature)
+            }
+        }
+    }
+
+    @MainActor
+    func installLocalAIModel(
+        _ model: LocalAIModel,
+        autoSelectFor feature: AIProcessingFeature? = nil
+    ) {
+        guard !isModelTerminationCleanupPending else { return }
+        guard let canonicalModel = canonicalLocalAIModel(model),
+              Self.localAIProcessingAvailabilityProvider().isSupported,
+              !localAIDeletionRequestedModelIDs.contains(model.id) else {
+            return
+        }
+        if let feature {
+            setPendingLocalAIModelID(model.id, for: feature)
+        }
+        guard hasCompletedLocalAIStatusRefresh else {
+            localAIDeferredInstallModelIDs.insert(model.id)
+            return
+        }
+        if localAIInstallState(for: canonicalModel).status == .ready {
+            applyReadyLocalAIModelToWaitingFeatures(canonicalModel)
+            return
+        }
+        if localAICancellingModelIDs.contains(model.id) {
+            localAIRestartAfterCancellationModelIDs.insert(model.id)
+            return
+        }
+        startLocalAIInstallIfPossible(canonicalModel)
+    }
+
+    @MainActor
+    private func startLocalAIInstallIfPossible(_ model: LocalAIModel) {
+        guard !isModelTerminationCleanupPending else { return }
+        guard localAIInstallTasks[model.id] == nil,
+              !localAICancellingModelIDs.contains(model.id),
+              !localAIDeletionRequestedModelIDs.contains(model.id),
+              Self.localAIProcessingAvailabilityProvider().isSupported else {
+            return
+        }
+
+        let token = UUID()
+        localAIInstallTokens[model.id] = token
+        _ = nextLocalAIStatusRefreshGeneration(for: model)
+        var state = localAIInstallState(for: model)
+        state.isInstalling = true
+        state.issue = nil
+        state.progress = LocalAIDownloadProgress(
+            downloadedBytes: 0,
+            totalBytes: model.approximateBytes
+        )
+        localAIInstallStates[model.id] = state
+
+        let progressCoalescer = LatestValueProgressCoalescer<LocalAIDownloadProgress>(
+            schedule: Self.localAIProgressSchedule
+        ) { [weak self] progress in
+            MainActor.assumeIsolated {
+                guard let self,
+                      self.localAIInstallTokens[model.id] == token,
+                      !self.localAICancellingModelIDs.contains(model.id),
+                      !self.localAIDeletionRequestedModelIDs.contains(model.id) else {
+                    return
+                }
+                var state = self.localAIInstallState(for: model)
+                state.progress = progress
+                self.localAIInstallStates[model.id] = state
+            }
+        }
+        localAIProgressCoalescers[model.id] = progressCoalescer
+
+        let statusProvider = Self.localAIInstallStatusProvider
+        let partialModelDelete = Self.localAIPartialModelDelete
+        localAIInstallTasks[model.id] = Self.localAIInstallStarter(
+            model,
+            { progress in
+                progressCoalescer.submit(progress)
+            },
+            { [weak self] result in
+                guard let appState = self else { return }
+                Task.detached(priority: .utility) {
+                    let cleanupErrorDescription: String? = {
+                        guard case .failure(.cancelled) = result else {
+                            return nil
+                        }
+                        do {
+                            try partialModelDelete(model)
+                            return nil
+                        } catch {
+                            return error.localizedDescription
+                        }
+                    }()
+                    let status = statusProvider(model)
+                    await MainActor.run {
+                        appState.finishLocalAIInstall(
+                            model: model,
+                            token: token,
+                            result: result,
+                            status: status,
+                            cleanupErrorDescription: cleanupErrorDescription
+                        )
+                    }
+                }
+            }
+        )
+    }
+
+    @MainActor
+    private func finishLocalAIInstall(
+        model: LocalAIModel,
+        token: UUID,
+        result: Result<Void, LocalAIInstallerError>,
+        status: LocalAIInstallStatus,
+        cleanupErrorDescription: String?
+    ) {
+        guard localAIInstallTokens[model.id] == token,
+              localAIInstallTasks.removeValue(forKey: model.id) != nil else {
+            return
+        }
+        localAIProgressCoalescers.removeValue(forKey: model.id)?.invalidate()
+        defer { resumeLocalAIInstallQuiescenceWaitersIfNeeded() }
+        localAIInstallTokens.removeValue(forKey: model.id)
+        let wasCancelling = localAICancellingModelIDs.remove(model.id) != nil
+        let shouldDelete = localAIDeletionRequestedModelIDs.contains(model.id)
+        let shouldRestart = localAIRestartAfterCancellationModelIDs.remove(model.id) != nil
+
+        var state = localAIInstallState(for: model)
+        state.isInstalling = false
+        state.status = status
+        localAIInstallStates[model.id] = state
+        if let cleanupErrorDescription {
+            state.issue = localAIModelUnavailableIssue(for: model)
+            print("Local AI partial cleanup failed: \(cleanupErrorDescription)")
+        } else if shouldDelete {
+            state.issue = nil
+        } else if wasCancelling {
+            state.issue = nil
+        } else {
+            switch result {
+            case .success
+                where status == .ready
+                    && Self.localAIProcessingAvailabilityProvider().isSupported:
+                state.issue = nil
+                applyReadyLocalAIModelToWaitingFeatures(model)
+            case .success:
+                clearPendingLocalAISelections(forModelID: model.id)
+                state.issue = localAIModelUnavailableIssue(for: model)
+            case .failure(.cancelled):
+                clearPendingLocalAISelections(forModelID: model.id)
+                state.issue = nil
+            case .failure(let error):
+                clearPendingLocalAISelections(forModelID: model.id)
+                state.issue = localAIModelUnavailableIssue(for: model)
+                print("Local AI install failed: \(error.localizedDescription)")
+            }
+        }
+        localAIInstallStates[model.id] = state
+        completeLocalAIStatusOperation(status, for: model)
+
+        if shouldDelete {
+            beginLocalAIModelDeletion(model)
+            return
+        }
+        guard wasCancelling, shouldRestart else { return }
+        guard cleanupErrorDescription == nil,
+              Self.localAIProcessingAvailabilityProvider().isSupported else {
+            clearPendingLocalAISelections(forModelID: model.id)
+            var unavailableState = localAIInstallState(for: model)
+            unavailableState.issue = localAIModelUnavailableIssue(for: model)
+            localAIInstallStates[model.id] = unavailableState
+            return
+        }
+        if status == .ready {
+            applyReadyLocalAIModelToWaitingFeatures(model)
+        } else {
+            startLocalAIInstallIfPossible(model)
+        }
+    }
+
+    @MainActor
+    private func applyReadyLocalAIModelToWaitingFeatures(_ model: LocalAIModel) {
+        guard Self.localAIProcessingAvailabilityProvider().isSupported,
+              localAIInstallState(for: model).status == .ready else {
+            clearPendingLocalAISelections(forModelID: model.id)
+            var state = localAIInstallState(for: model)
+            state.issue = localAIModelUnavailableIssue(for: model)
+            localAIInstallStates[model.id] = state
+            return
+        }
+        for feature in waitingFeatures(for: model) {
+            setPendingLocalAIModelID(nil, for: feature)
+            applyAIProcessingChoice(
+                .localAI(modelID: model.id),
+                for: feature
+            )
+        }
+    }
+
+    @MainActor
+    private func canonicalLocalAIModel(_ model: LocalAIModel) -> LocalAIModel? {
+        guard let canonical = LocalAIModelCatalog.model(id: model.id),
+              canonical == model else {
+            return nil
+        }
+        return canonical
+    }
+
+    @MainActor
+    private func localAIModelUnavailableIssue(
+        for model: LocalAIModel
+    ) -> QuillUserIssueRecord {
+        QuillUserIssueRecord(
+            code: .localAIModelUnavailable,
+            severity: .error,
+            context: QuillUserIssueContext(
+                modelID: model.id,
+                localBackend: "Local AI"
+            )
+        )
+    }
+
+    @MainActor
+    func cancelPendingLocalAISelection(
+        for feature: AIProcessingFeature
+    ) {
+        setPendingLocalAIModelID(nil, for: feature)
+    }
+
+    @MainActor
+    func cancelLocalAIInstall(_ model: LocalAIModel) {
+        guard let canonicalModel = canonicalLocalAIModel(model),
+              let task = localAIInstallTasks[canonicalModel.id] else {
+            return
+        }
+        localAIProgressCoalescers.removeValue(forKey: canonicalModel.id)?.invalidate()
+        localAICancellingModelIDs.insert(canonicalModel.id)
+        localAIRestartAfterCancellationModelIDs.remove(canonicalModel.id)
+        clearPendingLocalAISelections(forModelID: canonicalModel.id)
+        task.cancel()
+        var state = localAIInstallState(for: canonicalModel)
+        state.progress = LocalAIDownloadProgress(
+            downloadedBytes: state.progress.downloadedBytes,
+            totalBytes: state.progress.totalBytes,
+            isCancelled: true
+        )
+        localAIInstallStates[canonicalModel.id] = state
+    }
+
+    @MainActor
+    private func normalizedAIProcessingChoice(
+        _ choice: AIProcessingBackendChoice,
+        for feature: AIProcessingFeature
+    ) -> AIProcessingBackendChoice? {
+        switch choice {
+        case .cloud:
+            return choice
+        case .localAI(let modelID):
+            if Self.localAIProcessingAvailabilityProvider().isSupported,
+               let model = LocalAIModelCatalog.model(id: modelID),
+               localAIInstallState(for: model).status == .ready {
+                return choice
+            }
+            let availability = Self.localAIProcessingAvailabilityProvider()
+            let installed = availability.isSupported
+                ? LocalAIModelCatalog.all.filter {
+                    localAIInstallState(for: $0).status == .ready
+                }
+                : []
+            let preferred = installed.first {
+                $0.id == availability.recommendedModel.id
+            } ?? installed.first
+            if let preferred {
+                return .localAI(modelID: preferred.id)
+            }
+            let modelID = feature == .postProcessing
+                ? resolvedPostProcessingCloudModelID
+                : resolvedContextCloudModelID
+            return .cloud(modelID: modelID)
+        }
+    }
+
+    @MainActor
+    private func normalizeAIProcessingChoices() {
+        guard hasCompletedLocalAIStatusRefresh else { return }
+        for feature in AIProcessingFeature.allCases {
+            let current = currentAIProcessingChoice(for: feature)
+            if let normalized = normalizedAIProcessingChoice(
+                current,
+                for: feature
+            ) {
+                if normalized != current {
+                    applyAIProcessingChoice(normalized, for: feature)
+                }
+                continue
+            }
+
+            let rememberedCloudModel = feature == .postProcessing
+                ? resolvedPostProcessingCloudModelID
+                : resolvedContextCloudModelID
+            applyAIProcessingChoice(
+                .cloud(modelID: rememberedCloudModel),
+                for: feature
+            )
+            switch feature {
+            case .postProcessing:
+                disablePostProcessing = true
+            case .context:
+                disableContextCapture = true
+            }
+        }
+    }
+
+    @MainActor
+    func deleteLocalAIModel(_ model: LocalAIModel) {
+        guard let canonicalModel = canonicalLocalAIModel(model),
+              !localAIDeletionRequestedModelIDs.contains(canonicalModel.id) else {
+            return
+        }
+        localAIDeletionRequestedModelIDs.insert(canonicalModel.id)
+        localAIDeferredInstallModelIDs.remove(canonicalModel.id)
+        localAIRestartAfterCancellationModelIDs.remove(canonicalModel.id)
+        clearPendingLocalAISelections(forModelID: canonicalModel.id)
+
+        if let task = localAIInstallTasks[canonicalModel.id] {
+            localAICancellingModelIDs.insert(canonicalModel.id)
+            task.cancel()
+            var state = localAIInstallState(for: canonicalModel)
+            state.progress = LocalAIDownloadProgress(
+                downloadedBytes: state.progress.downloadedBytes,
+                totalBytes: state.progress.totalBytes,
+                isCancelled: true
+            )
+            localAIInstallStates[canonicalModel.id] = state
+            return
+        }
+        beginLocalAIModelDeletion(canonicalModel)
+    }
+
+    @MainActor
+    private func beginLocalAIModelDeletion(_ model: LocalAIModel) {
+        guard localAIDeletionRequestedModelIDs.contains(model.id),
+              localAIInstallTasks[model.id] == nil else {
+            return
+        }
+        hasCompletedLocalAIStatusRefresh = false
+        localAIStatusRefreshPendingModelIDs.insert(model.id)
+        _ = nextLocalAIStatusRefreshGeneration(for: model)
+        let manager = localAIServerManager
+        let modelDelete = Self.localAIModelDelete
+        let statusProvider = Self.localAIInstallStatusProvider
+        Task { [weak self] in
+            let outcome: LocalAIModelDeletionOutcome
+            do {
+                outcome = try await manager.withExclusiveMaintenance {
+                    do {
+                        try modelDelete(model)
+                        return LocalAIModelDeletionOutcome(
+                            status: statusProvider(model),
+                            errorDescription: nil
+                        )
+                    } catch {
+                        return LocalAIModelDeletionOutcome(
+                            status: statusProvider(model),
+                            errorDescription: error.localizedDescription
+                        )
+                    }
+                }
+            } catch {
+                guard let self else { return }
+                outcome = LocalAIModelDeletionOutcome(
+                    status: self.localAIInstallState(for: model).status,
+                    errorDescription: error.localizedDescription
+                )
+            }
+            guard let self else { return }
+            self.finishLocalAIModelDeletion(model, outcome: outcome)
+        }
+    }
+
+    @MainActor
+    private func finishLocalAIModelDeletion(
+        _ model: LocalAIModel,
+        outcome: LocalAIModelDeletionOutcome
+    ) {
+        guard localAIDeletionRequestedModelIDs.remove(model.id) != nil else {
+            return
+        }
+        if let errorDescription = outcome.errorDescription {
+            var state = localAIInstallState(for: model)
+            state.isInstalling = false
+            state.status = outcome.status
+            state.issue = localAIModelUnavailableIssue(for: model)
+            localAIInstallStates[model.id] = state
+            print("Local AI model deletion failed: \(errorDescription)")
+        } else {
+            localAIInstallStates[model.id] = .initial(
+                model: model,
+                status: outcome.status
+            )
+        }
+        completeLocalAIStatusOperation(outcome.status, for: model)
     }
 
     private func removeAudioDeviceObservers() {
@@ -2325,29 +3361,85 @@ final class AppState: ObservableObject, @unchecked Sendable {
             : defaultContextScreenshotMaxDimension
     }
 
-    static func makeAppContextService(
-        apiKey: String,
-        baseURL: String,
-        customContextPrompt: String,
-        contextModel: String,
-        contextScreenshotMaxDimension: Int
-    ) -> AppContextService {
-        AppContextService(
-            apiKey: apiKey,
-            baseURL: baseURL,
-            customContextPrompt: customContextPrompt,
-            contextModel: contextModel,
-            screenshotMaxDimension: CGFloat(normalizedContextScreenshotMaxDimension(contextScreenshotMaxDimension))
+    func makeAIProcessingBackendExecutor(
+        choice: AIProcessingBackendChoice
+    ) -> AIProcessingBackendExecutor {
+        AIProcessingBackendExecutor(
+            choice: choice,
+            cloudBaseURL: apiBaseURL,
+            cloudAPIKey: apiKey,
+            localServerManager: localAIServerManager
         )
     }
 
-    func makeAppContextService() -> AppContextService {
+    static func makePostProcessingService(
+        choice: AIProcessingBackendChoice,
+        apiKey: String,
+        baseURL: String,
+        cloudFallbackModelID: String,
+        instructionExecutionGuardEnabled: Bool,
+        localServerManager: LocalAIServerManager
+    ) -> PostProcessingService {
+        PostProcessingService(
+            backendExecutor: AIProcessingBackendExecutor(
+                choice: choice,
+                cloudBaseURL: baseURL,
+                cloudAPIKey: apiKey,
+                localServerManager: localServerManager
+            ),
+            cloudFallbackModelID: choice.isLocal ? nil : cloudFallbackModelID,
+            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
+        )
+    }
+
+    func makePostProcessingService(
+        choice: AIProcessingBackendChoice? = nil
+    ) -> PostProcessingService {
+        Self.makePostProcessingService(
+            choice: choice ?? postProcessingBackendChoice,
+            apiKey: apiKey,
+            baseURL: apiBaseURL,
+            cloudFallbackModelID: postProcessingFallbackModel,
+            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled,
+            localServerManager: localAIServerManager
+        )
+    }
+
+    static func makeAppContextService(
+        choice: AIProcessingBackendChoice,
+        apiKey: String,
+        baseURL: String,
+        customContextPrompt: String,
+        contextScreenshotMaxDimension: Int,
+        localServerManager: LocalAIServerManager
+    ) -> AppContextService {
+        AppContextService(
+            backendExecutor: AIProcessingBackendExecutor(
+                choice: choice,
+                cloudBaseURL: baseURL,
+                cloudAPIKey: apiKey,
+                localServerManager: localServerManager
+            ),
+            customContextPrompt: customContextPrompt,
+            contextModel: choice.modelID,
+            screenshotMaxDimension: CGFloat(
+                normalizedContextScreenshotMaxDimension(
+                    contextScreenshotMaxDimension
+                )
+            )
+        )
+    }
+
+    func makeAppContextService(
+        choice: AIProcessingBackendChoice? = nil
+    ) -> AppContextService {
         Self.makeAppContextService(
+            choice: choice ?? contextBackendChoice,
             apiKey: apiKey,
             baseURL: apiBaseURL,
             customContextPrompt: customContextPrompt,
-            contextModel: contextModel,
-            contextScreenshotMaxDimension: contextScreenshotMaxDimension
+            contextScreenshotMaxDimension: contextScreenshotMaxDimension,
+            localServerManager: localAIServerManager
         )
     }
 
@@ -3597,7 +4689,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 preferredModelID: postProcessingModel,
                 fallbackModelID: postProcessingFallbackModel,
                 outputLanguage: outputLanguage,
-                preserveExactWording: preserveExactWording,
                 contextCaptureEnabled: shouldTranscribeActiveRecording && !disableContextCapture,
                 instructionExecutionGuardEnabled: instructionExecutionGuardEnabled,
                 customVocabulary: customVocabulary
@@ -3993,6 +5084,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func importAudioFile(_ fileURL: URL, choice: TranscriptionBackendChoice) {
+        guard !choice.usesCloudAPI || hasTranscriptionAPIKey else {
+            openProviderSettings()
+            return
+        }
+
         let configuration = AudioImportTaskConfiguration(
             transcriptionConfiguration: audioImportConfiguration(for: choice),
             transcriptionAPIKey: resolvedTranscriptionAPIKey,
@@ -4003,13 +5099,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
             customSystemPrompt: customSystemPrompt,
             outputLanguage: outputLanguage,
             postProcessingEnabled: !disablePostProcessing,
-            preserveExactWording: preserveExactWording,
             pressEnterCommandEnabled: isPressEnterVoiceCommandEnabled,
             postProcessingAPIKey: apiKey,
             postProcessingBaseURL: apiBaseURL,
-            postProcessingModel: postProcessingModel,
+            postProcessingBackendChoice: postProcessingBackendChoice,
             postProcessingFallbackModel: postProcessingFallbackModel,
-            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
+            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled,
+            localAIServerManager: localAIServerManager
         )
         let jobID = UUID()
         let noteID = UUID()
@@ -4088,7 +5184,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 useLocalTranscription: configuration.useLocalTranscription,
                 completionPolicy: TranscriptionCompletionSnapshot(
                     postProcessingEnabled: configuration.postProcessingEnabled,
-                    preserveExactWording: configuration.preserveExactWording,
                     outputLanguage: configuration.outputLanguage,
                     pressEnterCommandEnabled: configuration.pressEnterCommandEnabled
                 )
@@ -4126,8 +5221,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         customVocabulary: configuration.customVocabulary,
                         customSystemPrompt: configuration.customSystemPrompt,
                         outputLanguage: configuration.outputLanguage,
-                        postProcessingEnabled: configuration.postProcessingEnabled,
-                        preserveExactWording: configuration.preserveExactWording
+                        postProcessingEnabled: configuration.postProcessingEnabled
                     )
                     try Task.checkCancellation()
                     guard isCurrentCloudTranscriptionExecution(
@@ -4250,8 +5344,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return .noAudio
         }
         let options = retryOptions(for: audioURL)
-        if options.explicitRetryChoice != nil {
-            return .ready
+        if let retryChoice = options.explicitRetryChoice {
+            return options.isChoiceReady(retryChoice)
+                ? .ready
+                : .needsProviderConfiguration
         }
         return options.supportedChoices.isEmpty
             ? .needsModelSetup
@@ -4280,6 +5376,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func retryTranscription(item: PipelineHistoryItem) {
         guard !retryingItemIDs.contains(item.id) else { return }
+        if noteBrowserRetryAvailability(for: item) == .needsProviderConfiguration {
+            openProviderSettings()
+            return
+        }
 
         let snapshot: RetrySnapshot
         do {
@@ -4295,13 +5395,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         retryingItemIDs.insert(item.id)
 
-        let postProcessingService = PostProcessingService(
-            apiKey: apiKey,
-            baseURL: apiBaseURL,
-            preferredModel: postProcessingModel,
-            preferredFallbackModel: postProcessingFallbackModel,
-            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
-        )
+        let postProcessingService = makePostProcessingService()
 
         let task = Task { [weak self] in
             guard let self else { return }
@@ -4309,6 +5403,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let updatedItem: PipelineHistoryItem
             let retrySucceeded: Bool
             do {
+                let completion = snapshot.execution.completion
                 let transcriptionService = try snapshot.execution
                     .makeTranscriptionService(
                         cloudExecutionContext: snapshot.cloudExecutionContext
@@ -4316,7 +5411,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 let rawTranscript = try await transcriptionService.transcribe(fileURL: snapshot.audioURL)
                 let parsedTranscript = Self.parseTranscriptCommands(
                     from: rawTranscript,
-                    pressEnterCommandEnabled: self.isPressEnterVoiceCommandEnabled
+                    pressEnterCommandEnabled: completion.pressEnterCommandEnabled
                 )
                 let result = await self.processTranscript(
                     parsedTranscript.transcript,
@@ -4325,9 +5420,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     postProcessingService: postProcessingService,
                     customVocabulary: snapshot.customVocabulary,
                     customSystemPrompt: snapshot.customSystemPrompt,
-                    outputLanguage: snapshot.outputLanguage,
-                    postProcessingEnabled: snapshot.postProcessingEnabled,
-                    preserveExactWording: snapshot.preserveExactWording
+                    outputLanguage: completion.outputLanguage,
+                    postProcessingEnabled: completion.postProcessingEnabled
                 )
                 let transcriptFileName = snapshot.item.transcriptFileName == nil
                     ? Self.saveTranscriptFile(
@@ -4455,12 +5549,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         let configuration = audioImportConfiguration(for: retryChoice)
         let isAudioOnly = item.machineStatus == .audioOnly
-        let retryPostProcessingEnabled = isAudioOnly ? !disablePostProcessing : item.usedPostProcessing
         let retryCustomVocabulary = isAudioOnly ? customVocabulary : item.customVocabulary
         let retryCustomSystemPrompt = isAudioOnly ? customSystemPrompt : item.customSystemPrompt
         let completionSnapshot = TranscriptionCompletionSnapshot(
-            postProcessingEnabled: retryPostProcessingEnabled,
-            preserveExactWording: preserveExactWording,
+            postProcessingEnabled: !disablePostProcessing,
             outputLanguage: outputLanguage,
             pressEnterCommandEnabled: isPressEnterVoiceCommandEnabled
         )
@@ -4526,9 +5618,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
             useLocalTranscription: configuration.useLocalTranscription,
             customVocabulary: retryCustomVocabulary,
             customSystemPrompt: retryCustomSystemPrompt,
-            outputLanguage: outputLanguage,
-            postProcessingEnabled: retryPostProcessingEnabled,
-            preserveExactWording: preserveExactWording,
             localWhisperPath: localWhisperPath.isEmpty ? nil : localWhisperPath,
             useLegacyMlxWhisper: configuration.useLegacyMlxWhisper,
             transcriptionModel: configuration.transcriptionModel,
@@ -4545,7 +5634,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         debugStatus: String,
         transcriptFileName: String?
     ) -> PipelineHistoryItem {
-        PipelineHistoryItem(
+        let completion = snapshot.execution.completion
+        return PipelineHistoryItem(
             intent: snapshot.item.intent,
             selectedText: snapshot.item.selectedText,
             capturedSelection: snapshot.item.capturedSelection,
@@ -4570,7 +5660,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             audioFileName: snapshot.item.audioFileName,
             usedLocalTranscription: snapshot.useLocalTranscription,
             usedContextCapture: snapshot.item.usedContextCapture,
-            usedPostProcessing: snapshot.postProcessingEnabled,
+            usedPostProcessing: completion.postProcessingEnabled,
             transcriptionLanguageCode: snapshot.transcriptionLanguage.code,
             localTranscriptionModelID: snapshot.localTranscriptionModel.id,
             transcriptFileName: transcriptFileName,
@@ -4639,6 +5729,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func promptForAccessibilityAccess() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
+    }
+
+    @MainActor
+    func openProviderSettings() {
+        selectedSettingsTab = .models
+        NotificationCenter.default.post(name: .showSettings, object: nil)
     }
 
     func openMicrophoneSettings() {
@@ -5294,25 +6390,61 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
-    func requestTerminationWhileNativeWhisperInstalling() -> NSApplication.TerminateReply {
-        guard isInstallingNativeWhisper else { return .terminateNow }
-        guard !isNativeWhisperQuitAlertPresented else { return .terminateCancel }
+    private var hasActiveModelDownload: Bool {
+        nativeWhisperInstallTask != nil || !localAIInstallTasks.isEmpty
+    }
 
-        let alert = NSAlert()
-        alert.messageText = localizedCatalogString("Quit while Local Whisper is downloading?")
-        alert.informativeText = localizedCatalogString("Quill will cancel the download and delete the partial file if you quit now.")
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: localizedCatalogString("Quit and Cancel Download"))
-        alert.addButton(withTitle: localizedCatalogString("Cancel"))
-        alert.icon = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)
-
-        isNativeWhisperQuitAlertPresented = true
-        let response = alert.runModal()
-        isNativeWhisperQuitAlertPresented = false
-
-        guard response == .alertFirstButtonReturn else { return .terminateCancel }
+    @MainActor
+    private func cancelNativeWhisperInstallIfNeeded() {
+        guard isInstallingNativeWhisper else { return }
         cancelNativeWhisperInstall()
-        return .terminateNow
+    }
+
+    @MainActor
+    private func cancelAllLocalAIInstalls() {
+        localAIDeferredInstallModelIDs.removeAll()
+        localAIRestartAfterCancellationModelIDs.removeAll()
+        pendingLocalAISelections.removeAll()
+        let activeModelIDs = Set(localAIInstallTasks.keys)
+        for model in LocalAIModelCatalog.all where activeModelIDs.contains(model.id) {
+            cancelLocalAIInstall(model)
+        }
+    }
+
+    @MainActor
+    func requestTerminationAfterModelCleanup(
+        replyIsAlreadyPending: Bool = false
+    ) -> NSApplication.TerminateReply {
+        guard !isModelTerminationCleanupPending else { return .terminateLater }
+        guard !isModelDownloadQuitAlertPresented else { return .terminateCancel }
+
+        if hasActiveModelDownload {
+            isModelDownloadQuitAlertPresented = true
+            let response = Self.modelDownloadQuitAlertPresenter()
+            isModelDownloadQuitAlertPresented = false
+            guard response == .alertFirstButtonReturn else {
+                if replyIsAlreadyPending {
+                    Self.applicationTerminationReply(false)
+                }
+                return .terminateCancel
+            }
+        }
+
+        cancelNativeWhisperInstallIfNeeded()
+        cancelAllLocalAIInstalls()
+        stopLocalAIIdleShutdownMonitoring()
+        isModelTerminationCleanupPending = true
+        let manager = localAIServerManager
+        Task { [weak self] in
+            guard let self else { return }
+            await self.waitForNativeWhisperInstallToQuiesce()
+            await self.waitForLocalAIInstallsToQuiesce()
+            await manager.stop()
+            await MainActor.run {
+                Self.applicationTerminationReply(true)
+            }
+        }
+        return .terminateLater
     }
 
     private var shouldConfirmEscapeCancellation: Bool {
@@ -5334,7 +6466,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
               !isTranscribing,
               pendingAudioOnlyStopIDs.isEmpty else { return }
         shouldTerminateAfterTranscription = false
-        NSApp.reply(toApplicationShouldTerminate: true)
+        _ = requestTerminationAfterModelCleanup(replyIsAlreadyPending: true)
     }
 
     @MainActor
@@ -5642,6 +6774,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
             currentSessionIntent = .dictation
             overlayManager.setRecordingTriggerMode(triggerMode, animated: false)
             return true
+        }
+        guard !currentNoteBrowserTranscriptionChoice.usesCloudAPI
+            || hasTranscriptionAPIKey else {
+            let issue = QuillUserIssueRecord(code: .providerConfigurationInvalid)
+            errorMessage = issue.presentation().compactMessage
+            statusText = localizedCatalogString("API key required")
+            debugStatusMessage = "Cloud transcription requires provider configuration"
+            activeRecordingTriggerMode = nil
+            currentSessionIntent = .dictation
+            shortcutSessionController.reset()
+            openProviderSettings()
+            return false
         }
 
         let isAccessibilityTrusted = AXIsProcessTrusted()
@@ -6448,9 +7592,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case skippedEmptyRawTranscript
         case voiceMacro(command: String)
         case postProcessingDisabled
-        case preservedExactWording
-        case preservedExactWordingTranslated
-        case preservedExactWordingTranslationFailedFallback
         case postProcessingSucceeded
         case postProcessingSkippedCooldown
         case postProcessingFailedFallback
@@ -6466,12 +7607,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 return "Voice macro used: \(command)"
             case .postProcessingDisabled:
                 return "Post-processing disabled"
-            case .preservedExactWording:
-                return "Preserved exact wording, skipped cleanup"
-            case .preservedExactWordingTranslated:
-                return "Preserved exact wording, translated to output language"
-            case .preservedExactWordingTranslationFailedFallback:
-                return "Literal translation failed, using raw transcript"
             case .postProcessingSucceeded:
                 return isRetry ? "Post-processing succeeded (retried)" : "Post-processing succeeded"
             case .postProcessingSkippedCooldown:
@@ -6498,8 +7633,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         customVocabulary: String,
         customSystemPrompt: String,
         outputLanguage: String,
-        postProcessingEnabled: Bool,
-        preserveExactWording: Bool
+        postProcessingEnabled: Bool
     ) async -> (
         finalTranscript: String,
         outcome: TranscriptProcessingOutcome,
@@ -6549,37 +7683,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         if !postProcessingEnabled {
             return (rawTranscript, .postProcessingDisabled, "", nil)
-        }
-
-        if preserveExactWording {
-            let targetLanguage = outputLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !targetLanguage.isEmpty else {
-                return (trimmedRawTranscript, .preservedExactWording, "", nil)
-            }
-            do {
-                let result = try await postProcessingService.translateVerbatim(
-                    transcript: trimmedRawTranscript,
-                    targetLanguage: targetLanguage
-                )
-                let outcome: TranscriptProcessingOutcome = result.skippedDueToCooldown
-                    ? .postProcessingSkippedCooldown
-                    : .preservedExactWordingTranslated
-                return (result.transcript, outcome, result.prompt, nil)
-            } catch {
-                let issue = postProcessingService.userIssue(for: error)
-                os_log(
-                    .error,
-                    log: recordingLog,
-                    "Literal translation failed: %{private}@",
-                    issue.privateDiagnostic
-                )
-                return (
-                    trimmedRawTranscript,
-                    .preservedExactWordingTranslationFailedFallback,
-                    "",
-                    issue.record
-                )
-            }
         }
 
         do {
@@ -6671,7 +7774,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         customSystemPrompt: String,
         outputLanguage: String,
         postProcessingEnabled: Bool,
-        preserveExactWording: Bool,
         pressEnterCommandEnabled: Bool
     ) async throws -> StoppedTranscriptionCompletionSummary {
         let parsedTranscript = Self.parseTranscriptCommands(
@@ -6690,18 +7792,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
             customVocabulary: customVocabulary,
             customSystemPrompt: customSystemPrompt,
             outputLanguage: outputLanguage,
-            postProcessingEnabled: postProcessingEnabled,
-            preserveExactWording: preserveExactWording
+            postProcessingEnabled: postProcessingEnabled
         )
         try Task.checkCancellation()
         let processingStatus = result.userIssueRecord?.persistedStatus
+            ?? context.userIssueRecord?.persistedStatus
             ?? Self.statusMessage(
                 for: result.outcome,
                 parsedTranscript: parsedTranscript
             )
         let outcomeWasPostProcessingFailedFallback: Bool
         switch result.outcome {
-        case .postProcessingFailedFallback, .preservedExactWordingTranslationFailedFallback:
+        case .postProcessingFailedFallback:
             outcomeWasPostProcessingFailedFallback = true
         default:
             outcomeWasPostProcessingFailedFallback = false
@@ -6945,13 +8047,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         playAlertSound(named: "Pop")
         overlayManager.showTranscribing()
 
-        let postProcessingService = PostProcessingService(
-            apiKey: apiKey,
-            baseURL: apiBaseURL,
-            preferredModel: postProcessingModel,
-            preferredFallbackModel: postProcessingFallbackModel,
-            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
-        )
+        let postProcessingService = makePostProcessingService()
         let capturedApiKey = resolvedTranscriptionAPIKey
         let capturedApiBaseURL = resolvedTranscriptionBaseURL
         let capturedUseLocalTranscription = useLocalTranscription
@@ -6970,8 +8066,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             localTranscriptionModel: capturedLocalTranscriptionModel,
             transcriptionLanguage: capturedTranscriptionLanguage,
             usedContextCapture: !disableContextCapture,
-            usedPostProcessing: !disablePostProcessing,
-            preserveExactWording: preserveExactWording
+            usedPostProcessing: !disablePostProcessing
         )
         let capturedLiveTranscriber = liveTranscriber
         let capturedPressEnterCommandEnabled = isPressEnterVoiceCommandEnabled
@@ -7011,7 +8106,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         customSystemPrompt: capturedCustomSystemPrompt,
                         outputLanguage: capturedOutputLanguage,
                         postProcessingEnabled: capturedSettings.usedPostProcessing,
-                        preserveExactWording: capturedSettings.preserveExactWording,
                         pressEnterCommandEnabled: capturedPressEnterCommandEnabled
                     )
                     try await self.runSuccessfulStoppedTranscriptionCompletionPipeline(
@@ -7174,7 +8268,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 useLocalTranscription: capturedUseLocalTranscription,
                 completionPolicy: TranscriptionCompletionSnapshot(
                     postProcessingEnabled: capturedSettings.usedPostProcessing,
-                    preserveExactWording: capturedSettings.preserveExactWording,
                     outputLanguage: capturedOutputLanguage,
                     pressEnterCommandEnabled: capturedPressEnterCommandEnabled
                 )
@@ -7238,7 +8331,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         customSystemPrompt: capturedCustomSystemPrompt,
                         outputLanguage: capturedOutputLanguage,
                         postProcessingEnabled: capturedSettings.usedPostProcessing,
-                        preserveExactWording: capturedSettings.preserveExactWording,
                         pressEnterCommandEnabled: capturedPressEnterCommandEnabled
                     )
                     try await self.runSuccessfulStoppedTranscriptionCompletionPipeline(
@@ -7423,6 +8515,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func scheduleCloudTranscriptionAutoResume(
         _ reconciliation: CloudTranscriptionReconciliation
     ) {
+        guard hasTranscriptionAPIKey else { return }
+
         let runtime: CloudTranscriptionExecutionSnapshot
         do {
             runtime = try CloudTranscriptionExecutionSnapshot(
@@ -7484,7 +8578,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
         let completion = TranscriptionCompletionSnapshot(
             postProcessingEnabled: record.completionPolicy.postProcessingEnabled,
-            preserveExactWording: record.completionPolicy.preserveExactWording,
             outputLanguage: record.completionPolicy.outputLanguage,
             pressEnterCommandEnabled: record.completionPolicy.pressEnterCommandEnabled
         )
@@ -7493,6 +8586,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             session: session,
             completion: completion
         )
+        let postProcessingService = makePostProcessingService()
         let task = Task { [weak self] in
             guard let self else { return }
             do {
@@ -7508,13 +8602,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 let parsed = Self.parseTranscriptCommands(
                     from: rawTranscript,
                     pressEnterCommandEnabled: completion.pressEnterCommandEnabled
-                )
-                let postProcessingService = PostProcessingService(
-                    apiKey: apiKey,
-                    baseURL: apiBaseURL,
-                    preferredModel: postProcessingModel,
-                    preferredFallbackModel: postProcessingFallbackModel,
-                    instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
                 )
                 let result = await processTranscript(
                     parsed.transcript,
@@ -7540,8 +8627,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     customVocabulary: item.customVocabulary,
                     customSystemPrompt: item.customSystemPrompt,
                     outputLanguage: completion.outputLanguage,
-                    postProcessingEnabled: completion.postProcessingEnabled,
-                    preserveExactWording: completion.preserveExactWording
+                    postProcessingEnabled: completion.postProcessingEnabled
                 )
                 let updated = makeRetryHistoryItem(
                     from: RetrySnapshot(
@@ -7576,9 +8662,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         useLocalTranscription: false,
                         customVocabulary: item.customVocabulary,
                         customSystemPrompt: item.customSystemPrompt,
-                        outputLanguage: completion.outputLanguage,
-                        postProcessingEnabled: completion.postProcessingEnabled,
-                        preserveExactWording: completion.preserveExactWording,
                         localWhisperPath: nil,
                         useLegacyMlxWhisper: false,
                         transcriptionModel: runtime.model,
@@ -7723,15 +8806,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let existingRecord = try? cloudTranscriptionJobStore.load(
             historyID: historyID
         )
-        let sameCloudIdentity = existingRecord.map {
+        let isCompatibleRetry = existingRecord.map {
             $0.identity.providerID == snapshot.providerID
                 && $0.identity.model == snapshot.model
                 && $0.identity.language == snapshot.language
                 && $0.identity.responseFormat == snapshot.responseFormat
                 && $0.plan.encodedUploadCeilingBytes
                     == snapshot.encodedUploadCeilingBytes
+                && $0.completionPolicy == completion.cloudJobPolicy
         } ?? false
-        if existingRecord != nil, !sameCloudIdentity {
+        if existingRecord != nil, !isCompatibleRetry {
             cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
                 historyID: historyID,
                 store: cloudTranscriptionJobStore
@@ -7743,7 +8827,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let session = cloudTranscriptionJobStore.beginSession(
             historyID: historyID
         )
-        if existingRecord != nil, !sameCloudIdentity {
+        if existingRecord != nil, !isCompatibleRetry {
             let staleSession = CloudTranscriptionJobSession(
                 historyID: historyID,
                 token: UUID()
@@ -8475,10 +9559,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         lastContextScreenshotDataURL = nil
         lastContextScreenshotStatus = "Collecting screenshot..."
 
+        let contextService = contextService
         contextCaptureTask = Task { [weak self] in
             guard let self else { return nil }
-            let context = await self.contextService.collectContext()
+            let context = await contextService.collectContext()
+            guard !Task.isCancelled else { return nil }
             await MainActor.run {
+                guard !Task.isCancelled else { return }
                 self.capturedContext = context
                 self.lastContextSummary = context.contextSummary
                 self.lastContextScreenshotDataURL = context.screenshotDataURL
@@ -8489,7 +9576,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 self.lastContextWindowTitle = context.windowTitle ?? ""
                 self.lastContextSelectedText = context.selectedText ?? ""
                 self.lastContextLLMPrompt = context.contextPrompt ?? ""
-                self.lastPostProcessingStatus = "App context captured"
+                self.lastPostProcessingStatus = context.userIssueRecord?.persistedStatus
+                    ?? "App context captured"
                 self.handleScreenshotCaptureIssue(context.screenshotError)
             }
             return context

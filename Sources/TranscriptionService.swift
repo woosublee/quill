@@ -76,7 +76,7 @@ class TranscriptionService {
         cloudDependencies: CloudTranscriptionDependencies = .live,
         cloudExecutionContext: CloudTranscriptionExecutionContext? = nil
     ) throws {
-        self.apiKey = apiKey
+        self.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         self.baseURL = try CloudTranscriptionExecutionSnapshot.normalizedBaseURL(
             from: baseURL
         )
@@ -171,6 +171,13 @@ class TranscriptionService {
                 group.cancelAll()
                 return result
             }
+        }
+
+        guard !apiKey.isEmpty else {
+            throw QuillUserIssueError.missingProviderAPIKey(
+                providerHost: baseURL.host,
+                modelID: transcriptionModel
+            )
         }
 
         if try shouldUseLargeCloudChunkPath(fileURL: fileURL) {

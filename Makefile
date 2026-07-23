@@ -53,10 +53,14 @@ FULL_SOURCE_TRANSCRIPTION_TESTS = \
 	Tests/CloudTranscriptionHistoryLifecycleTests.swift \
 	Tests/TranscriptionServiceCloudChunkingTests.swift \
 	Tests/TranscriptionServiceLocalIssueTests.swift \
-	Tests/PostProcessingUserIssueTests.swift
+	Tests/PostProcessingUserIssueTests.swift \
+	Tests/PostProcessingBackendTests.swift \
+	Tests/AppContextBackendTests.swift
 FULL_SOURCE_APP_STATE_TESTS = \
 	Tests/AudioImportFileCopyTests.swift \
-	Tests/AppStateTranscriptionConfigurationTests.swift
+	Tests/LatestValueProgressCoalescerTests.swift \
+	Tests/AppStateTranscriptionConfigurationTests.swift \
+	Tests/AppStateAIProcessingBackendTests.swift
 GROUPED_TEST_SOURCES = $(FULL_SOURCE_TRANSCRIPTION_TESTS) $(FULL_SOURCE_APP_STATE_TESTS)
 GROUPED_RUNNER_SOURCES = Tests/FullSourceTranscriptionTestRunner.swift Tests/FullSourceAppStateTestRunner.swift
 FULL_SOURCE_TRANSCRIPTION_RUNNER = $(TEST_BUILD_DIR)/FullSourceTranscriptionTestRunner
@@ -558,6 +562,8 @@ _test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSC
 	@$(TEST_BUILD_DIR)/LocalAIServerProcessTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/LocalAIModel.swift Sources/LocalAIServerProcess.swift Sources/LLMAPITransport.swift Sources/LocalAIServerManager.swift Tests/LocalAIServerManagerTests.swift -o $(TEST_BUILD_DIR)/LocalAIServerManagerTests
 	@$(TEST_BUILD_DIR)/LocalAIServerManagerTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/QuillUserIssue.swift Sources/LocalAIModel.swift Sources/LocalAIServerProcess.swift Sources/LLMAPITransport.swift Sources/LocalAIServerManager.swift Sources/AIProcessingBackend.swift Tests/AIProcessingBackendTests.swift -o $(TEST_BUILD_DIR)/AIProcessingBackendTests
+	@$(TEST_BUILD_DIR)/AIProcessingBackendTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/QuillUserIssue.swift Sources/NativeWhisperModel.swift Sources/NativeWhisperRuntime.swift Tests/NativeWhisperRuntimeTests.swift -o $(TEST_BUILD_DIR)/NativeWhisperRuntimeTests
 	@$(TEST_BUILD_DIR)/NativeWhisperRuntimeTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/NativeWhisperModel.swift Sources/NativeWhisperInstaller.swift Tests/NativeWhisperInstallerTests.swift -o $(TEST_BUILD_DIR)/NativeWhisperInstallerTests

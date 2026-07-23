@@ -6,6 +6,7 @@ struct RecordingJournalManifestTests {
         do {
             try canonicalFormatMatchesRecorderContract()
             try manifestRoundTripPreservesStableMetadata()
+            try manifestDecodesLegacyPreserveExactWordingKey()
             try legacyPromotionWithoutRecoveryModeDefaultsToComplete()
             try promotionRoundTripPreservesRecoveryMode()
             try partialPromotionRoundTripPreservesRecoveryIssues()
@@ -52,6 +53,36 @@ struct RecordingJournalManifestTests {
 
         try expectEqual(decoded, manifest, "manifest round trip")
         try decoded.validate()
+    }
+
+    private static func manifestDecodesLegacyPreserveExactWordingKey() throws {
+        let manifest = try makeManifest()
+        let data = try RecordingJournalCoding.makeEncoder().encode(manifest)
+        guard var json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var pipeline = json["pipeline"] as? [String: Any],
+              var processing = pipeline["processing"] as? [String: Any] else {
+            throw TestFailure("encoded manifest must contain pipeline processing metadata")
+        }
+        processing["preserveExactWording"] = true
+        pipeline["processing"] = processing
+        json["pipeline"] = pipeline
+        let legacyData = try JSONSerialization.data(withJSONObject: json)
+
+        let decoded = try RecordingJournalCoding.makeDecoder().decode(
+            RecordingJournalManifest.self,
+            from: legacyData
+        )
+
+        try expectEqual(
+            decoded.pipeline.processing.outputLanguage,
+            manifest.pipeline.processing.outputLanguage,
+            "legacy processing output language"
+        )
+        try expectEqual(
+            decoded.pipeline.processing.postProcessingEnabled,
+            manifest.pipeline.processing.postProcessingEnabled,
+            "legacy post-processing state"
+        )
     }
 
     private static func legacyPromotionWithoutRecoveryModeDefaultsToComplete() throws {
@@ -691,7 +722,6 @@ struct RecordingJournalManifestTests {
                     preferredModelID: "qwen3.5-plus",
                     fallbackModelID: "qwen3.5-flash",
                     outputLanguage: "auto",
-                    preserveExactWording: false,
                     contextCaptureEnabled: true,
                     instructionExecutionGuardEnabled: true,
                     customVocabulary: ["Quill"],

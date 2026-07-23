@@ -9,6 +9,8 @@ struct ModelsSettingsUIContractTests {
         let postProcessing = try source("Sources/PostProcessingService.swift")
         let context = try source("Sources/AppContextService.swift")
         let modelConfiguration = try source("Sources/ModelConfiguration.swift")
+        let modelDropdown = try source("Sources/ModelDropdownView.swift")
+        let localAIModelRow = (try? source("Sources/LocalAIModelRowView.swift")) ?? ""
         let currentSpec = try source("docs/superpowers/specs/2026-07-17-model-first-settings-redesign.md")
 
         testUIOnlyBoundary(appState: appState)
@@ -23,6 +25,11 @@ struct ModelsSettingsUIContractTests {
         testReviewRegressionGuards(settings)
         testPostProcessingUsesExplicitSwitchAndExistingState(settings)
         testContextUsesExplicitSwitchAndExistingState(settings)
+        testAIProcessingBackendPickersAndLocalRows(
+            settings: settings,
+            modelDropdown: modelDropdown,
+            localAIModelRow: localAIModelRow
+        )
         try testAutoPasteLivesInShortcutsClipboard(settings)
         testTranscriptionDetailsAreManagementOnly(settings)
         testManagementRowsKeepSelectionAsDefaultBehavior(settings)
@@ -47,7 +54,6 @@ struct ModelsSettingsUIContractTests {
 
         for existing in [
             "@Published var disablePostProcessing: Bool",
-            "@Published var preserveExactWording: Bool",
             "@Published var disableContextCapture: Bool",
             "@Published var disableAutoPaste: Bool",
             "@Published var realtimeStreamingEnabled: Bool",
@@ -62,12 +68,14 @@ struct ModelsSettingsUIContractTests {
         postProcessing: String,
         context: String
     ) {
-        precondition(postProcessing.contains("private let apiKey: String"))
-        precondition(postProcessing.contains("private let baseURL: String"))
+        precondition(postProcessing.contains("private let backendExecutor: AIProcessingBackendExecutor"))
         precondition(postProcessing.contains("preferredFallbackModel"))
-        precondition(context.contains("private let apiKey: String"))
-        precondition(context.contains("private let baseURL: String"))
-        precondition(context.contains("if !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty"))
+        precondition(postProcessing.contains("cloudBaseURL: baseURL"))
+        precondition(postProcessing.contains("cloudAPIKey: apiKey"))
+        precondition(context.contains("private let backendExecutor: AIProcessingBackendExecutor"))
+        precondition(context.contains("cloudBaseURL: baseURL"))
+        precondition(context.contains("cloudAPIKey: apiKey"))
+        precondition(context.contains("if backendExecutor.isConfigured"))
     }
 
     private static func testExistingModelCatalogRemains(_ source: String) {
@@ -153,6 +161,11 @@ struct ModelsSettingsUIContractTests {
             from: "private var cloudProviderSection: some View",
             to: "\n    private var currentTranscriptionDisplay"
         )
+        let transcription = block(
+            in: models,
+            from: "private var transcriptionFeatureSection: some View",
+            to: "\n    private var postProcessingEnabled"
+        )
         let postProcessing = block(
             in: models,
             from: "private var postProcessingFeatureSection: some View",
@@ -168,6 +181,16 @@ struct ModelsSettingsUIContractTests {
             from: "private var postProcessingDetails: some View",
             to: "\n    private var transcriptionLanguageSetting"
         )
+        let systemPrompt = block(
+            in: models,
+            from: "private var systemPromptSection: some View",
+            to: "\n    private func runSystemPromptTest()"
+        )
+        let contextPrompt = block(
+            in: models,
+            from: "private var contextPromptSection: some View",
+            to: "\n    private func runContextPromptTest()"
+        )
 
         precondition(models.contains("private var hasConfiguredCloudAPIKey: Bool"))
         precondition(models.contains("!appState.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty"))
@@ -176,17 +199,27 @@ struct ModelsSettingsUIContractTests {
         precondition(provider.contains("Validating..."))
         precondition(models.contains("appState.hasTranscriptionAPIKey"))
         precondition(models.contains("Cloud transcription requires an API key. Add one in Cloud Provider or use the transcription override in Details."))
+        precondition(models.contains("private func providerConfigurationWarning("))
+        precondition(models.contains("Button(\"Open Provider Settings\")"))
+        precondition(models.contains("appState.openProviderSettings()"))
+        precondition(transcription.contains("providerConfigurationWarning("))
+        precondition(postProcessing.contains("providerConfigurationWarning("))
+        precondition(context.contains("providerConfigurationWarning("))
+        precondition(systemPrompt.contains("providerConfigurationWarning("))
+        precondition(contextPrompt.contains("providerConfigurationWarning("))
 
-        for feature in [postProcessing, context] {
-            precondition(feature.components(separatedBy: ".disabled(!hasConfiguredCloudAPIKey)").count >= 3)
-            precondition(feature.components(separatedBy: ".opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)").count >= 3)
-        }
+        precondition(!postProcessing.contains(".disabled(!hasConfiguredCloudAPIKey)"))
+        precondition(!postProcessing.contains(".opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)"))
+        precondition(!context.contains(".disabled(!hasConfiguredCloudAPIKey)"))
+        precondition(!context.contains(".opacity(hasConfiguredCloudAPIKey ? 1 : 0.45)"))
+        precondition(postProcessing.contains("if postProcessingUsesCloud && !hasConfiguredCloudAPIKey"))
+        precondition(context.contains("if contextUsesCloud && !hasConfiguredCloudAPIKey"))
+        precondition(models.contains("localizedCatalogString(message)"))
         precondition(postProcessing.contains("Add an API key in Cloud Provider to enable Post-processing."))
         precondition(postProcessing.contains("Post-processing is on, but cloud processing is unavailable until an API key is configured."))
         precondition(context.contains("Add an API key in Cloud Provider to enable Context."))
         precondition(context.contains("Context is on, but AI context analysis is unavailable until an API key is configured."))
-        precondition(postProcessingDetails.contains(".disabled(!hasConfiguredCloudAPIKey)"))
-        precondition(!postProcessingDetails.contains("postProcessingDetails\n                    .disabled(!hasConfiguredCloudAPIKey)"))
+        precondition(!postProcessingDetails.contains(".disabled(!hasConfiguredCloudAPIKey)"))
         precondition(!context.contains("contextPromptSection\n                    .disabled(!hasConfiguredCloudAPIKey)"))
     }
 
@@ -218,7 +251,9 @@ struct ModelsSettingsUIContractTests {
         precondition(picker.contains("transcriptionChoiceDisplays.filter { $0.section == section }"))
         precondition(picker.contains("if #available(macOS 14.0, *)"))
         precondition(picker.contains("Picker(\"Model\", selection: transcriptionChoice)"))
-        precondition(picker.contains("Section(section)"))
+        precondition(picker.components(separatedBy: "ForEach([\"Cloud\", \"On This Mac\"]").count == 5)
+        precondition(picker.components(separatedBy: "Section(localizedCatalogString(section))").count == 5)
+        precondition(!picker.contains("Legacy mlx-whisper\"], id: \\.self"))
         precondition(picker.contains(".selectionDisabled(!canSelectTranscriptionDisplay(display))"))
         precondition(picker.contains("transcriptionChoiceMenuItem(display)"))
         precondition(picker.contains(".disabled(!canSelectTranscriptionDisplay(display))"))
@@ -312,9 +347,16 @@ struct ModelsSettingsUIContractTests {
         )
         precondition(!appDelegate.contains("cancelNativeWhisperInstallForSettingsClose()"))
         precondition(!appDelegate.contains("cancelNativeWhisperInstallForSetupClose()"))
-        precondition(appDelegate.contains("appState.requestTerminationWhileNativeWhisperInstalling()"))
-        precondition(appState.contains("func requestTerminationWhileNativeWhisperInstalling() -> NSApplication.TerminateReply"))
-        precondition(appState.contains("Quit while Local Whisper is downloading?"))
+        precondition(appDelegate.contains("appState.requestTerminationAfterModelCleanup()"))
+        precondition(!appDelegate.contains("requestTerminationWhileNativeWhisperInstalling()"))
+        precondition(appState.contains("func requestTerminationAfterModelCleanup("))
+        precondition(appState.contains("Quit while models are downloading?"))
+        precondition(
+            appState.contains(
+                "Quill will cancel unfinished model downloads and delete partial files before quitting."
+            )
+        )
+        precondition(appState.contains("Quit and Cancel Downloads"))
 
         precondition(nativeRow.contains("appState.cancelNativeWhisperInstall()"))
         precondition(nativeRow.contains("appState.willAutoSelectNativeWhisperWhenReady"))
@@ -343,7 +385,7 @@ struct ModelsSettingsUIContractTests {
         let outputLanguage = block(
             in: models,
             from: "private var outputLanguageSetting: some View",
-            to: "\n    private var preserveExactWordingSetting"
+            to: "\n    private func customStandardAPIModelDraft"
         )
         let validation = block(
             in: models,
@@ -380,7 +422,7 @@ struct ModelsSettingsUIContractTests {
         for expected in [
             "get: { !appState.disableContextCapture }",
             "set: { appState.disableContextCapture = !$0 }",
-            "defaultModel: AppState.defaultContextModel",
+            "customAIProcessingModelSetting(",
             "contextPromptSection",
             "selection: $appState.contextScreenshotMaxDimension"
         ] {
@@ -414,11 +456,9 @@ struct ModelsSettingsUIContractTests {
             "Toggle(\"\", isOn: postProcessingEnabled)",
             ".toggleStyle(.switch)",
             ".accessibilityLabel(\"Post-processing\")",
-            "predefinedModels: ModelConfiguration.llmModels",
-            "defaultModel: AppState.defaultPostProcessingModel",
+            "customAIProcessingModelSetting(",
             "defaultModel: AppState.defaultPostProcessingFallbackModel",
             "selection: $appState.outputLanguage",
-            "isOn: $appState.preserveExactWording",
             "vocabularySection",
             "systemPromptSection",
             "instructionGuardSection"
@@ -434,6 +474,265 @@ struct ModelsSettingsUIContractTests {
         }
         precondition(!postProcessing.contains("Text(postProcessingEnabled.wrappedValue ? \"On\" : \"Off\")"))
         precondition(!models.contains(".disabled(appState.disablePostProcessing || appState.useLocalTranscription)"))
+    }
+
+    private static func testAIProcessingBackendPickersAndLocalRows(
+        settings: String,
+        modelDropdown: String,
+        localAIModelRow: String
+    ) {
+        let models = block(
+            in: settings,
+            from: "struct ModelsSettingsView",
+            to: "// MARK: - Shortcuts Settings"
+        )
+        let postProcessing = block(
+            in: models,
+            from: "private var postProcessingFeatureSection: some View",
+            to: "\n    private var contextEnabled"
+        )
+        let context = block(
+            in: models,
+            from: "private var contextFeatureSection: some View",
+            to: "\n    private var postProcessingDetails"
+        )
+        let postProcessingDetails = block(
+            in: models,
+            from: "private var postProcessingDetails: some View",
+            to: "\n    private var contextDetails"
+        )
+        let contextDetails = block(
+            in: models,
+            from: "private var contextDetails: some View",
+            to: "\n    private func customAIProcessingModelSetting("
+        )
+        let customModelSetting = block(
+            in: models,
+            from: "private func customAIProcessingModelSetting(",
+            to: "\n    private func applyCustomAIProcessingModel("
+        )
+        let customModelApply = block(
+            in: models,
+            from: "private func applyCustomAIProcessingModel(",
+            to: "\n    private var transcriptionLanguageSetting"
+        )
+        let customModelDraft = block(
+            in: models,
+            from: "private func customAIProcessingModelDraft(",
+            to: "\n    private func customStandardAPIModelDraft"
+        )
+        let systemPrompt = block(
+            in: models,
+            from: "private var systemPromptSection: some View",
+            to: "\n    private func runSystemPromptTest()"
+        )
+        let contextPrompt = block(
+            in: models,
+            from: "private var contextPromptSection: some View",
+            to: "\n    private func runContextPromptTest()"
+        )
+        let choiceBinding = block(
+            in: models,
+            from: "private func aiProcessingChoiceBinding(",
+            to: "\n    private func handleAIProcessingChoiceSelection("
+        )
+        let choiceSelection = block(
+            in: models,
+            from: "private func handleAIProcessingChoiceSelection(",
+            to: "\n    private func setRetainedLocalAIModelID("
+        )
+        let retainedSetter = block(
+            in: models,
+            from: "private func setRetainedLocalAIModelID(",
+            to: "\n    private func retainedLocalAIModelID("
+        )
+        let retainedGetter = block(
+            in: models,
+            from: "private func retainedLocalAIModelID(",
+            to: "\n    private func syncCloudModelDraft("
+        )
+        let draftSync = block(
+            in: models,
+            from: "private func syncCloudModelDraft(",
+            to: "\n    private func managedLocalAIResolverInput("
+        )
+        let retainedResolver = block(
+            in: models,
+            from: "private func managedLocalAIResolverInput(",
+            to: "\n    private func aiProcessingChoiceMenuLabel("
+        )
+        let pureResolver = block(
+            in: localAIModelRow,
+            from: "struct LocalAIManagedModelResolver",
+            to: "struct LocalAIModelRowView"
+        )
+        let olderMenuItem = block(
+            in: models,
+            from: "private func aiProcessingChoiceMenuItem(",
+            to: "\n    @ViewBuilder\n    private func aiProcessingChoicePicker("
+        )
+        let processingPicker = block(
+            in: models,
+            from: "@ViewBuilder\n    private func aiProcessingChoicePicker(",
+            to: "\n    private var currentTranscriptionUsesAPI"
+        )
+        let viewLifecycle = block(
+            in: models,
+            from: ".onAppear {",
+            to: "\n    private var hasConfiguredCloudAPIKey"
+        )
+        let cloudChoiceSelection = block(
+            in: choiceSelection,
+            from: "case .cloud(let modelID):",
+            to: "case .localAI(let modelID):"
+        )
+        guard let localChoiceStart = choiceSelection.range(
+            of: "case .localAI(let modelID):"
+        ) else {
+            preconditionFailure("Missing Local AI picker selection branch")
+        }
+        let localChoiceSelection = String(
+            choiceSelection[localChoiceStart.lowerBound...]
+        )
+
+        precondition(models.contains("aiProcessingChoicePicker(for: .postProcessing)"))
+        precondition(models.contains("aiProcessingChoicePicker(for: .context)"))
+        precondition(models.contains("Picker(\"Model\", selection:"))
+        precondition(models.contains("ForEach([\"Cloud\", \"On This Mac\"]"))
+        precondition(models.contains("Section(localizedCatalogString(section))"))
+        precondition(models.contains("LocalAIModelRowView("))
+        precondition(models.contains("aiProcessingChoiceMenuLabel"))
+        precondition(models.contains("Text(aiProcessingChoiceMenuLabel(currentDisplay))"))
+
+        precondition(choiceBinding.contains("get: { appState.currentAIProcessingChoice(for: feature) }"))
+        precondition(choiceBinding.contains("handleAIProcessingChoiceSelection($0, for: feature)"))
+        precondition(cloudChoiceSelection.contains("appState.selectAIProcessingBackendChoice(choice, for: feature)"))
+        precondition(cloudChoiceSelection.contains("syncCloudModelDraft(modelID, for: feature)"))
+        precondition(cloudChoiceSelection.contains("reconcileRetainedLocalAIModel(for: feature)"))
+        precondition(!cloudChoiceSelection.contains("setRetainedLocalAIModelID(nil, for: feature)"))
+        precondition(localChoiceSelection.contains("appState.selectAIProcessingBackendChoice(choice, for: feature)"))
+        precondition(localChoiceSelection.contains("appState.pendingLocalAIModelID(for: feature) == modelID"))
+        precondition(localChoiceSelection.contains("appState.currentAIProcessingChoice(for: feature) == choice"))
+        precondition(localChoiceSelection.contains("setRetainedLocalAIModelID(modelID, for: feature)"))
+        guard let localSelectionCall = localChoiceSelection.range(
+            of: "appState.selectAIProcessingBackendChoice(choice, for: feature)"
+        ), let localAcceptanceCheck = localChoiceSelection.range(
+            of: "appState.pendingLocalAIModelID(for: feature) == modelID"
+        ), let localRetainedSet = localChoiceSelection.range(
+            of: "setRetainedLocalAIModelID(modelID, for: feature)"
+        ) else {
+            preconditionFailure("Missing accepted Local AI picker selection flow")
+        }
+        precondition(localSelectionCall.lowerBound < localAcceptanceCheck.lowerBound)
+        precondition(localAcceptanceCheck.lowerBound < localRetainedSet.lowerBound)
+        precondition(draftSync.contains("case .postProcessing where focusedCustomAIProcessingFeature != .postProcessing:"))
+        precondition(draftSync.contains("postProcessingModelDraft = customAIProcessingModelDraft(for: modelID)"))
+        precondition(draftSync.contains("case .context where focusedCustomAIProcessingFeature != .context:"))
+        precondition(draftSync.contains("contextModelDraft = customAIProcessingModelDraft(for: modelID)"))
+        precondition(retainedSetter.contains("guard retainedPostProcessingLocalModelID != modelID else { return }"))
+        precondition(retainedSetter.contains("guard retainedContextLocalModelID != modelID else { return }"))
+        precondition(retainedGetter.contains("retainedPostProcessingLocalModelID"))
+        precondition(retainedGetter.contains("retainedContextLocalModelID"))
+        precondition(retainedResolver.contains("LocalAIManagedModelResolver.Input("))
+        precondition(retainedResolver.contains("pendingModelID: appState.pendingLocalAIModelID(for: feature)"))
+        precondition(retainedResolver.contains("retainedModelID: retainedModelID"))
+        precondition(retainedResolver.contains("currentChoice: appState.currentAIProcessingChoice(for: feature)"))
+        precondition(retainedResolver.contains("retainedIsInstalling: retainedState?.isInstalling ?? false"))
+        precondition(retainedResolver.contains("retainedProgressIsCancelled: retainedState?.progress.isCancelled ?? false"))
+        precondition(retainedResolver.contains("retainedHasIssue: retainedState?.issue != nil"))
+        precondition(retainedResolver.contains("resolution.reconciledRetainedModelID"))
+        precondition(retainedResolver.contains("aiProcessingChoiceDisplays(for: feature).contains"))
+        precondition(!retainedResolver.contains("selectedOrPendingLocalAIModel"))
+
+        precondition(pureResolver.contains("struct Input: Equatable"))
+        precondition(pureResolver.contains("struct Resolution: Equatable"))
+        precondition(pureResolver.contains("var retainedIsActionable: Bool"))
+        precondition(pureResolver.contains("let pendingModel = input.pendingModelID.flatMap"))
+        precondition(pureResolver.contains("let retainedModel = input.retainedModelID.flatMap"))
+        precondition(pureResolver.contains("case .localAI(let currentModelID) = input.currentChoice"))
+        precondition(pureResolver.contains("input.retainedIsActionable"))
+        precondition(pureResolver.contains("reconciledRetainedModelID"))
+
+        precondition(olderMenuItem.contains("Toggle(isOn: Binding("))
+        precondition(olderMenuItem.contains("get: { binding.wrappedValue == display.choice }"))
+        precondition(olderMenuItem.contains("if isSelected { binding.wrappedValue = display.choice }"))
+        precondition(olderMenuItem.contains("Text(aiProcessingChoiceMenuLabel(display))"))
+        precondition(olderMenuItem.contains(".disabled(!display.isAvailable)"))
+        precondition(processingPicker.contains("Menu {"))
+        precondition(processingPicker.contains("aiProcessingChoiceMenuItem("))
+        precondition(processingPicker.contains("binding: binding"))
+
+        precondition(postProcessing.contains("managedLocalAIModel(for: .postProcessing)"))
+        precondition(postProcessing.contains("feature: .postProcessing"))
+        precondition(postProcessing.contains("appState.postProcessingBackendChoice"))
+        precondition(context.contains("managedLocalAIModel(for: .context)"))
+        precondition(context.contains("feature: .context"))
+        precondition(context.contains("appState.contextBackendChoice"))
+        precondition(context.contains("Local Context uses app and window text only. Screenshots stay on this Mac."))
+
+        precondition(postProcessingDetails.contains("customAIProcessingModelSetting("))
+        precondition(postProcessingDetails.contains("draft: $postProcessingModelDraft"))
+        precondition(postProcessingDetails.contains("feature: .postProcessing"))
+        precondition(postProcessingDetails.components(separatedBy: "ModelDropdownView(").count == 2)
+        precondition(postProcessingDetails.contains("textDraft: $postProcessingFallbackModelDraft"))
+        precondition(postProcessingDetails.contains(".disabled(postProcessingUsesLocal)"))
+        precondition(postProcessingDetails.contains("Cloud fallback is only used when Post-processing uses a cloud model."))
+        precondition(!postProcessingDetails.contains(".disabled(!hasConfiguredCloudAPIKey)"))
+        precondition(contextDetails.contains("customAIProcessingModelSetting("))
+        precondition(contextDetails.contains("draft: $contextModelDraft"))
+        precondition(contextDetails.contains("feature: .context"))
+        precondition(!contextDetails.contains("ModelDropdownView("))
+        precondition(!contextDetails.contains("Reset to Default"))
+        precondition(!contextDetails.contains(".disabled(!hasConfiguredCloudAPIKey)"))
+
+        precondition(customModelSetting.contains("Text(\"Custom API Model\")"))
+        precondition(customModelSetting.contains("TextField(\"e.g. provider/custom-model\", text: draft)"))
+        precondition(customModelSetting.contains(".focused($focusedCustomAIProcessingFeature, equals: feature)"))
+        precondition(customModelSetting.contains(".onSubmit { applyCustomAIProcessingModel(draft, for: feature) }"))
+        precondition(customModelSetting.contains("Button(\"Use Model\")"))
+        precondition(customModelSetting.contains("Enter an API model ID that is not listed above. Use the main Model menu to return to a listed model."))
+        precondition(!customModelSetting.contains("onChange(of: focusedCustomAIProcessingFeature"))
+        precondition(!customModelSetting.contains("Reset to Default"))
+        precondition(customModelApply.contains("let modelID = draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)"))
+        precondition(customModelApply.contains("guard !modelID.isEmpty else { return }"))
+        precondition(customModelApply.contains("handleAIProcessingChoiceSelection(.cloud(modelID: modelID), for: feature)"))
+        precondition(customModelDraft.contains("!ModelConfiguration.llmModels.contains(trimmed)"))
+
+        precondition(!models.contains("initializeManagedLocalAIModels"))
+        precondition(viewLifecycle.contains("reconcileRetainedLocalAIModels()"))
+        precondition(viewLifecycle.contains(".onChange(of: managedLocalAIReconciliationInputs)"))
+        precondition(viewLifecycle.contains("postProcessingModelDraft = customAIProcessingModelDraft(for: appState.postProcessingModel)"))
+        precondition(viewLifecycle.contains("contextModelDraft = customAIProcessingModelDraft(for: appState.contextModel)"))
+        precondition(viewLifecycle.contains(".onChange(of: appState.postProcessingModel)"))
+        precondition(viewLifecycle.contains("focusedCustomAIProcessingFeature != .postProcessing"))
+        precondition(viewLifecycle.contains("postProcessingModelDraft = customAIProcessingModelDraft(for: value)"))
+        precondition(viewLifecycle.contains(".onChange(of: appState.contextModel)"))
+        precondition(viewLifecycle.contains("focusedCustomAIProcessingFeature != .context"))
+        precondition(viewLifecycle.contains("contextModelDraft = customAIProcessingModelDraft(for: value)"))
+
+        precondition(modelDropdown.contains("@Binding var isEditing: Bool"))
+        precondition(modelDropdown.contains("isEditing: Binding<Bool> = .constant(false)"))
+        precondition(modelDropdown.contains("self._isEditing = isEditing"))
+        precondition(modelDropdown.contains("isEditing = focused"))
+
+        precondition(systemPrompt.contains("appState.isAIProcessingBackendReady(for: .postProcessing)"))
+        precondition(contextPrompt.contains("appState.isAIProcessingBackendReady(for: .context)"))
+        precondition(models.contains("let service = appState.makePostProcessingService()"))
+        precondition(!models.contains("let service = PostProcessingService("))
+
+        precondition(!localAIModelRow.isEmpty, "Missing LocalAIModelRowView source")
+        precondition(localAIModelRow.contains("appState.localAIInstallState(for: model)"))
+        precondition(localAIModelRow.contains("appState.pendingLocalAIModelID(for: feature)"))
+        precondition(localAIModelRow.contains("model.localizedDescription()"))
+        precondition(localAIModelRow.contains("state.progress.localizedDisplayText()"))
+        precondition(localAIModelRow.contains("appState.installLocalAIModel(model, autoSelectFor: feature)"))
+        precondition(localAIModelRow.contains("appState.cancelLocalAIInstall(model)"))
+        precondition(localAIModelRow.contains("appState.deleteLocalAIModel(model)"))
+        precondition(localAIModelRow.contains("if state.isInstalling, state.progress.isCancelled"))
+        precondition(localAIModelRow.contains(".accessibilityLabel(\"Cancel Local AI model download\")"))
+        precondition(localAIModelRow.contains(".accessibilityLabel(\"Delete Model\")"))
+        precondition(localAIModelRow.contains("localizedCatalogString(isSelected ? \"Selected\" : \"Not selected\")"))
+        precondition(localAIModelRow.contains("QuillUserIssueView("))
     }
 
     private static func testAutoPasteLivesInShortcutsClipboard(_ source: String) throws {

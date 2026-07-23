@@ -133,14 +133,12 @@ struct LocalTranscriptionExecutionSnapshot: Equatable, Sendable {
 
 struct TranscriptionCompletionSnapshot: Codable, Equatable, Sendable {
     let postProcessingEnabled: Bool
-    let preserveExactWording: Bool
     let outputLanguage: String
     let pressEnterCommandEnabled: Bool
 
     var cloudJobPolicy: CloudTranscriptionCompletionPolicy {
         CloudTranscriptionCompletionPolicy(
             postProcessingEnabled: postProcessingEnabled,
-            preserveExactWording: preserveExactWording,
             outputLanguage: outputLanguage,
             pressEnterCommandEnabled: pressEnterCommandEnabled
         )

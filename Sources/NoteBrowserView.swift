@@ -305,6 +305,7 @@ private struct PendingAudioImport: Identifiable {
 private struct AudioImportSheet: View {
     let importRequest: PendingAudioImport
     let onImport: (TranscriptionBackendChoice) -> Void
+    let onOpenProviderSettings: () -> Void
     let onCancel: () -> Void
 
     @State private var selectedChoice: TranscriptionBackendChoice
@@ -312,10 +313,12 @@ private struct AudioImportSheet: View {
     init(
         importRequest: PendingAudioImport,
         onImport: @escaping (TranscriptionBackendChoice) -> Void,
+        onOpenProviderSettings: @escaping () -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.importRequest = importRequest
         self.onImport = onImport
+        self.onOpenProviderSettings = onOpenProviderSettings
         self.onCancel = onCancel
         let fallbackChoice = TranscriptionBackendChoice.apiStandard(modelID: importRequest.apiStandardModelID)
         _selectedChoice = State(initialValue: importRequest.options.defaultChoice ?? fallbackChoice)
@@ -339,6 +342,14 @@ private struct AudioImportSheet: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
+            } else if !options.isChoiceReady(selectedChoice) {
+                Label(
+                    "Add an API key to transcribe this file with the selected Cloud model.",
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.system(size: 12))
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -377,10 +388,21 @@ private struct AudioImportSheet: View {
                 Button("Cancel") { onCancel() }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
-                Button("Transcribe") { onImport(selectedChoice) }
+                if options.isChoiceReady(selectedChoice) {
+                    Button("Transcribe") { onImport(selectedChoice) }
+                        .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.borderedProminent)
+                } else {
+                    Button("Open Provider Settings") {
+                        onOpenProviderSettings()
+                    }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
-                    .disabled(options.supportedChoices.isEmpty || !options.supportedChoices.contains(selectedChoice))
+                    .disabled(
+                        options.supportedChoices.isEmpty
+                            || !options.supportedChoices.contains(selectedChoice)
+                    )
+                }
             }
         }
         .padding(24)
@@ -443,6 +465,9 @@ struct NoteBrowserView: View {
             AudioImportSheet(importRequest: importRequest) { choice in
                 pendingAudioImport = nil
                 appState.importAudioFile(importRequest.fileURL, choice: choice)
+            } onOpenProviderSettings: {
+                pendingAudioImport = nil
+                appState.openProviderSettings()
             } onCancel: {
                 pendingAudioImport = nil
             }
@@ -598,21 +623,14 @@ struct NoteBrowserView: View {
                 Spacer()
 
                 Menu {
-                    Section("API") {
-                        ForEach(transcriptionChoiceDisplays(in: "API")) { display in
+                    Section("Cloud") {
+                        ForEach(transcriptionChoiceDisplays(in: "Cloud")) { display in
                             transcriptionChoiceMenuItem(display)
                         }
                     }
-                    Section("Local") {
-                        ForEach(transcriptionChoiceDisplays(in: "Local")) { display in
+                    Section("On This Mac") {
+                        ForEach(transcriptionChoiceDisplays(in: "On This Mac")) { display in
                             transcriptionChoiceMenuItem(display)
-                        }
-                    }
-                    if !transcriptionChoiceDisplays(in: "Legacy mlx-whisper").isEmpty {
-                        Section("Legacy mlx-whisper") {
-                            ForEach(transcriptionChoiceDisplays(in: "Legacy mlx-whisper")) { display in
-                                transcriptionChoiceMenuItem(display)
-                            }
                         }
                     }
                 } label: {
@@ -1787,9 +1805,11 @@ private struct NoteDetailView: View {
         switch action {
         case .retryTranscription:
             retryTranscription()
-        case .openModelsSettings, .openProviderSettings:
+        case .openModelsSettings:
             appState.selectedSettingsTab = .models
             NotificationCenter.default.post(name: .showSettings, object: nil)
+        case .openProviderSettings:
+            appState.openProviderSettings()
         case .openMicrophoneSettings:
             appState.openMicrophoneSettings()
         case .openSpeechRecognitionSettings:
@@ -1817,6 +1837,8 @@ private struct NoteDetailView: View {
                     "Set up Local Whisper or API Standard to retry this recording."
                 )
             )
+        case .needsProviderConfiguration:
+            appState.openProviderSettings()
         case .noAudio:
             break
         }

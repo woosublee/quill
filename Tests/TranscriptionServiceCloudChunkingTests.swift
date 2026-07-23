@@ -6,6 +6,9 @@ import Foundation
 struct TranscriptionServiceCloudChunkingTests {
     static func main() async {
         do {
+            try await missingAPIKeyStopsBeforeCloudUpload()
+            try await normalizedAPIKeyUsesTrimmedAuthorizationHeader()
+            try realtimeMissingAPIKeyStopsBeforeWebSocketCreation()
             try await smallWAVUsesExistingSingleRequestPath()
             try await smallMP3UsesExistingSingleRequestPath()
             try await largeCanonicalWAVUsesSequentialBoundedChunks()
@@ -18,6 +21,98 @@ struct TranscriptionServiceCloudChunkingTests {
             fputs("TranscriptionServiceCloudChunkingTests failed: \(error)\n", stderr)
             exit(1)
         }
+    }
+
+    private static func missingAPIKeyStopsBeforeCloudUpload() async throws {
+        let recorder = UploadRecorder(results: [.success("must not upload")])
+        let service = try makeService(
+            apiKey: "  ",
+            ceiling: 10_000,
+            recorder: recorder,
+            checkpointStore: CountingCheckpointStore()
+        )
+        let missingFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("mp3")
+
+        do {
+            _ = try await service.transcribe(fileURL: missingFile)
+            throw TestFailure("missing API key must fail")
+        } catch let issue as QuillUserIssueError {
+            try expectEqual(
+                issue.record.code,
+                .providerConfigurationInvalid,
+                "missing API key issue code"
+            )
+            try expectEqual(
+                issue.record.recoveryAction,
+                .openProviderSettings,
+                "missing API key recovery action"
+            )
+        }
+        try expectEqual(
+            await recorder.uploads().count,
+            0,
+            "missing API key upload count"
+        )
+    }
+
+    private static func normalizedAPIKeyUsesTrimmedAuthorizationHeader() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("mp3")
+        try Data(repeating: 0x44, count: 128).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let recorder = UploadRecorder(results: [.success("trimmed key")])
+        let service = try makeService(
+            apiKey: "  \n test-key \t",
+            ceiling: 10_000,
+            recorder: recorder,
+            checkpointStore: CountingCheckpointStore()
+        )
+
+        _ = try await service.transcribe(fileURL: url)
+
+        let uploads = await recorder.uploads()
+        try expectEqual(uploads.count, 1, "normalized API key upload count")
+        try expectEqual(
+            uploads[0].authorization,
+            "Bearer test-key",
+            "normalized API key authorization"
+        )
+    }
+
+    private static func realtimeMissingAPIKeyStopsBeforeWebSocketCreation() throws {
+        let creations = LockedCounter()
+        let service = RealtimeTranscriptionService(
+            config: RealtimeTranscriptionService.Configuration(
+                baseURL: "https://api.example.com/openai/v1",
+                apiKey: "\n",
+                model: "provider/realtime",
+                language: nil
+            ),
+            makeWebSocketTask: { request in
+                creations.increment()
+                return URLSession.shared.webSocketTask(with: request)
+            }
+        )
+
+        do {
+            try service.start()
+            throw TestFailure("missing realtime API key must fail")
+        } catch let issue as QuillUserIssueError {
+            try expectEqual(
+                issue.record.code,
+                .providerConfigurationInvalid,
+                "missing realtime API key issue code"
+            )
+            try expectEqual(
+                issue.record.recoveryAction,
+                .openProviderSettings,
+                "missing realtime API key recovery action"
+            )
+        }
+        try expectEqual(creations.value, 0, "missing realtime WebSocket count")
     }
 
     private static func smallWAVUsesExistingSingleRequestPath() async throws {
@@ -214,12 +309,13 @@ struct TranscriptionServiceCloudChunkingTests {
     }
 
     private static func makeService(
+        apiKey: String = "test-key",
         ceiling: UInt64,
         recorder: UploadRecorder,
         checkpointStore: CountingCheckpointStore
     ) throws -> TranscriptionService {
         try TranscriptionService(
-            apiKey: "test-key",
+            apiKey: apiKey,
             baseURL: "https://provider.example/v1",
             useLocalTranscription: false,
             transcriptionLanguage: .auto,
@@ -293,6 +389,23 @@ struct TranscriptionServiceCloudChunkingTests {
     }
 }
 
+private final class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
+    }
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+}
+
 private actor CountingCheckpointStore: CloudTranscriptionCheckpointStore {
     private var checkpoint: CloudTranscriptionCheckpoint?
     private var loads = 0
@@ -322,6 +435,7 @@ private actor CountingCheckpointStore: CloudTranscriptionCheckpointStore {
 private actor UploadRecorder {
     struct Upload: Sendable {
         let timeout: TimeInterval
+        let authorization: String?
         let body: Data
     }
 
@@ -350,7 +464,13 @@ private actor UploadRecorder {
         }
         activeUploads += 1
         maximumActiveUploads = max(maximumActiveUploads, activeUploads)
-        recorded.append(Upload(timeout: request.timeoutInterval, body: body))
+        recorded.append(
+            Upload(
+                timeout: request.timeoutInterval,
+                authorization: request.value(forHTTPHeaderField: "Authorization"),
+                body: body
+            )
+        )
         defer { activeUploads -= 1 }
         let result = results.removeFirst()
         let status: Int

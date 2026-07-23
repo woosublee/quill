@@ -24,6 +24,8 @@ struct LocalAIServerManagerTests {
         try await testStopTerminatesRunningProcess()
         try await testStopForceTerminatesAfterGraceTimeout()
         try await testStopDuringStartupWaitsForDelayedExitCleanup()
+        try await testMaintenanceWaitsForActiveRequestAndRejectsNewStartup()
+        try await testMaintenanceCancelsStartupAndBlocksReplacement()
         try await testIdleShutdownTerminatesAfterTimeout()
         try await testIdleShutdownDoesNothingBeforeTimeout()
         try await testIdleShutdownDoesNotCancelNewStartupUsingOldTimestamp()
@@ -33,6 +35,8 @@ struct LocalAIServerManagerTests {
         try await testIdleShutdownDoesNotTerminateHeldOpenOperation()
         try await testThrownOperationReleasesLease()
         try await testCancelledOperationReleasesLease()
+        try await testOperationErrorIsPreservedWhileProcessLives()
+        try await testOperationErrorBecomesProcessExitedAfterCrash()
         try await testManagerDeinitTerminatesRunningProcess()
         print("LocalAIServerManagerTests passed")
     }
@@ -594,6 +598,110 @@ struct LocalAIServerManagerTests {
         try require(idle.phase == .idle, "stop should finish in idle after delayed exit cleanup")
     }
 
+    private static func testMaintenanceWaitsForActiveRequestAndRejectsNewStartup() async throws {
+        let firstProcess = FakeProcess()
+        let secondProcess = FakeProcess()
+        let operationGate = AsyncGate()
+        let operationStarted = DispatchSemaphore(value: 0)
+        let launchCount = LockedBox(0)
+        let maintenanceRan = LockedBox(false)
+        let manager = makeManager(
+            launchProcess: { _, _, port, _ in
+                let count = launchCount.withValue { value -> Int in
+                    value += 1
+                    return value
+                }
+                return (count == 1 ? firstProcess : secondProcess, port)
+            }
+        )
+        let heldOperation = resultTask {
+            try await manager.withBaseURL(for: testModel) { url in
+                operationStarted.signal()
+                await operationGate.wait()
+                return url
+            }
+        }
+        try wait(operationStarted, "maintenance test operation did not start")
+
+        let maintenance = resultTask {
+            try await manager.withExclusiveMaintenance {
+                maintenanceRan.withValue { $0 = true }
+                return URL(string: "https://maintenance.invalid")!
+            }
+        }
+        try await waitUntil("maintenance barrier did not activate") {
+            await manager.lifecycleSnapshot().isMaintenanceActive
+        }
+
+        let rejected = await resultTask {
+            try await manager.withBaseURL(for: otherModel) { $0 }
+        }.value
+        try requireModelUnavailable(
+            rejected,
+            containing: "maintenance",
+            and: "progress",
+            message: "requests during maintenance should fail before startup"
+        )
+        try require(launchCount.value == 1, "maintenance allowed a replacement startup")
+        try require(!maintenanceRan.value, "maintenance operation ran before the active request drained")
+
+        operationGate.open()
+        _ = try await heldOperation.value.get()
+        _ = try await maintenance.value.get()
+        try require(maintenanceRan.value, "maintenance operation did not run after the request drained")
+        try require(!firstProcess.isRunning, "maintenance did not stop the active process")
+
+        _ = try await manager.withBaseURL(for: otherModel) { $0 }
+        try require(launchCount.value == 2, "maintenance barrier was not released")
+    }
+
+    private static func testMaintenanceCancelsStartupAndBlocksReplacement() async throws {
+        let process = DelayedExitProcess()
+        let healthGate = ControlledHealthPoll()
+        let launchCount = LockedBox(0)
+        let maintenanceRan = LockedBox(false)
+        let manager = makeManager(
+            launchProcess: { _, _, port, _ in
+                launchCount.withValue { $0 += 1 }
+                return (process, port)
+            },
+            pollHealth: { _ in await healthGate.poll() }
+        )
+        let startup = resultTask {
+            try await manager.withBaseURL(for: testModel) { $0 }
+        }
+        try healthGate.waitUntilEntered()
+
+        let maintenance = resultTask {
+            try await manager.withExclusiveMaintenance {
+                maintenanceRan.withValue { $0 = true }
+                return URL(string: "https://maintenance.invalid")!
+            }
+        }
+        try process.waitForTerminateRequest()
+        try await waitUntil("startup maintenance barrier did not activate") {
+            await manager.lifecycleSnapshot().isMaintenanceActive
+        }
+
+        let rejected = await resultTask {
+            try await manager.withBaseURL(for: otherModel) { $0 }
+        }.value
+        try requireModelUnavailable(
+            rejected,
+            containing: "maintenance",
+            and: "progress",
+            message: "maintenance should reject a replacement during startup shutdown"
+        )
+        try require(launchCount.value == 1, "maintenance launched a second process during startup shutdown")
+
+        healthGate.finish(false)
+        process.completeTermination()
+        try requireFailure(await startup.value, "maintenance should supersede the startup")
+        _ = try await maintenance.value.get()
+        try require(maintenanceRan.value, "maintenance operation did not run after startup cleanup")
+        try require(!process.isRunning, "maintenance left the startup process running")
+    }
+
     private static func testIdleShutdownTerminatesAfterTimeout() async throws {
         let process = FakeProcess()
         let clock = LockedBox(Date(timeIntervalSince1970: 0))
@@ -855,6 +963,47 @@ struct LocalAIServerManagerTests {
         try require(launchCount.value == 2, "cancelled operation should allow a later model switch")
     }
 
+    private static func testOperationErrorIsPreservedWhileProcessLives() async throws {
+        let process = FakeProcess()
+        let manager = makeManager(
+            launchProcess: { _, _, port, _ in (process, port) }
+        )
+
+        do {
+            _ = try await manager.withBaseURL(for: testModel) { _ -> URL in
+                throw OperationSentinel.failed
+            }
+            assertionFailure("Expected operation failure")
+        } catch OperationSentinel.failed {
+            // expected
+        }
+        let snapshot = await manager.lifecycleSnapshot()
+        try require(
+            snapshot.activeRequestCount == 0,
+            "throwing operation must release its lease while the process lives"
+        )
+    }
+
+    private static func testOperationErrorBecomesProcessExitedAfterCrash() async throws {
+        let process = FakeProcess()
+        let manager = makeManager(
+            launchProcess: { _, _, port, _ in (process, port) }
+        )
+
+        do {
+            _ = try await manager.withBaseURL(for: testModel) { _ -> URL in
+                process.simulateCrash()
+                throw OperationSentinel.failed
+            }
+            assertionFailure("Expected process-exited failure")
+        } catch LocalAIServerManagerError.processExited(let detail) {
+            try require(detail.contains(testModel.id), "process-exited detail must identify the model")
+        }
+        let snapshot = await manager.lifecycleSnapshot()
+        try require(snapshot.phase == .idle, "crashed process must clear the matching launch")
+        try require(snapshot.activeRequestCount == 0, "crashed operation must release its lease")
+    }
+
     private static func testManagerDeinitTerminatesRunningProcess() async throws {
         let process = FakeProcess()
         var manager: LocalAIServerManager? = makeManager(
@@ -1023,6 +1172,10 @@ struct LocalAIServerManagerTests {
         FileManager.default.fileExists(atPath: url.path)
             || (try? FileManager.default.destinationOfSymbolicLink(atPath: url.path)) != nil
     }
+}
+
+private enum OperationSentinel: Error, Equatable {
+    case failed
 }
 
 private enum HealthProbeFailure: Error {

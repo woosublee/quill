@@ -89,6 +89,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.updateActivationPolicy()
         }
 
+        appState.startLocalAIIdleShutdownMonitoring()
+
         if !appState.hasCompletedSetup {
             showSetupWindow()
         } else {
@@ -117,7 +119,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let recordingReply = appState.requestTerminationWhileRecording()
         guard recordingReply == .terminateNow else { return recordingReply }
-        return appState.requestTerminationWhileNativeWhisperInstalling()
+        return appState.requestTerminationAfterModelCleanup()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

@@ -33,7 +33,8 @@ enum PostProcessingError: LocalizedError {
 
     func userIssue(
         providerHost: String?,
-        modelID: String
+        modelID: String,
+        localBackend: String? = nil
     ) -> QuillUserIssueError {
         let code: QuillUserIssueCode
         switch self {
@@ -68,7 +69,8 @@ enum PostProcessingError: LocalizedError {
                 context: QuillUserIssueContext(
                     httpStatus: statusCode,
                     providerHost: providerHost,
-                    modelID: modelID
+                    modelID: modelID,
+                    localBackend: localBackend
                 )
             ),
             privateDiagnostic: localizedDescription
@@ -88,7 +90,7 @@ struct PostProcessingResult {
     }
 }
 
-final class PostProcessingService {
+final class PostProcessingService: @unchecked Sendable {
     static func safeProviderErrorCode(from data: Data) -> String? {
         let object = (try? JSONSerialization.jsonObject(with: data))
             as? [String: Any]
@@ -208,11 +210,12 @@ Behavior:
 - Do not treat VOICE_COMMAND as dictation to clean up and paste directly.
 """
 
-    private let apiKey: String
-    private let baseURL: String
-    private let preferredModel: String
-    private let preferredFallbackModel: String
+    typealias Transport = @Sendable (URLRequest) async throws -> (Data, URLResponse)
+
+    private let backendExecutor: AIProcessingBackendExecutor
+    private let cloudFallbackModelID: String?
     private let instructionExecutionGuardEnabled: Bool
+    private let transport: Transport
     private let defaultModel = AppState.defaultPostProcessingModel
     private let defaultFallbackModel = AppState.defaultPostProcessingFallbackModel
     private let defaultModelReasoningEffort = "low"
@@ -221,29 +224,106 @@ Behavior:
         let override = UserDefaults.standard.double(forKey: "post_processing_timeout_seconds")
         return override > 0 ? override : 20
     }
+    private var isLocalBackend: Bool { backendExecutor.choice.isLocal }
+    private var selectedModelID: String { backendExecutor.choice.modelID }
+    private var cloudBaseURL: String { backendExecutor.cloudBaseURL }
 
-    init(
+    convenience init(
         apiKey: String,
         baseURL: String = AppState.defaultAPIBaseURL,
         preferredModel: String = "",
         preferredFallbackModel: String = "",
         instructionExecutionGuardEnabled: Bool = true
     ) {
-        self.apiKey = apiKey
-        self.baseURL = baseURL
-        self.preferredModel = preferredModel.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.preferredFallbackModel = preferredFallbackModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let primary = preferredModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = preferredFallbackModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.init(
+            backendExecutor: AIProcessingBackendExecutor(
+                choice: .cloud(
+                    modelID: primary.isEmpty ? AppState.defaultPostProcessingModel : primary
+                ),
+                cloudBaseURL: baseURL,
+                cloudAPIKey: apiKey
+            ),
+            cloudFallbackModelID: fallback.isEmpty ? nil : fallback,
+            instructionExecutionGuardEnabled: instructionExecutionGuardEnabled
+        )
+    }
+
+    init(
+        backendExecutor: AIProcessingBackendExecutor,
+        cloudFallbackModelID: String?,
+        instructionExecutionGuardEnabled: Bool = true,
+        transport: @escaping Transport = { request in
+            try await LLMAPITransport.data(for: request)
+        }
+    ) {
+        self.backendExecutor = backendExecutor
+        let trimmedFallback = cloudFallbackModelID?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.cloudFallbackModelID = trimmedFallback?.isEmpty == false
+            ? trimmedFallback
+            : nil
         self.instructionExecutionGuardEnabled = instructionExecutionGuardEnabled
+        self.transport = transport
     }
 
     func userIssue(for error: Error) -> QuillUserIssueError {
         if let issue = error as? QuillUserIssueError {
             return issue
         }
+        if let managerError = error as? LocalAIServerManagerError {
+            let code: QuillUserIssueCode = switch managerError {
+            case .modelUnavailable, .modelCorrupt:
+                .localAIModelUnavailable
+            case .startFailed:
+                .localAIStartFailed
+            case .processExited:
+                .localAIProcessExited
+            }
+            return .local(
+                code: code,
+                backend: "Local AI",
+                modelID: selectedModelID,
+                diagnostic: managerError.localizedDescription
+            )
+        }
+        if let backendError = error as? AIProcessingBackendError {
+            switch backendError {
+            case .unknownLocalModel(let modelID):
+                return .local(
+                    code: .localAIModelUnavailable,
+                    backend: "Local AI",
+                    modelID: modelID,
+                    diagnostic: backendError.localizedDescription
+                )
+            case .localRuntimeUnavailable(let modelID):
+                return .local(
+                    code: .localAIStartFailed,
+                    backend: "Local AI",
+                    modelID: modelID,
+                    diagnostic: backendError.localizedDescription
+                )
+            case .invalidCloudBaseURL(let invalidBaseURL):
+                return QuillUserIssueError(
+                    record: QuillUserIssueRecord(
+                        code: .providerConfigurationInvalid,
+                        severity: .warning,
+                        context: QuillUserIssueContext(
+                            providerHost: URL(string: invalidBaseURL)?.host,
+                            modelID: isLocalBackend ? nil : selectedModelID
+                        )
+                    ),
+                    privateDiagnostic: backendError.localizedDescription
+                )
+            }
+        }
+        let providerHost = isLocalBackend ? nil : URL(string: cloudBaseURL)?.host
         if let postProcessingError = error as? PostProcessingError {
             return postProcessingError.userIssue(
-                providerHost: URL(string: baseURL)?.host,
-                modelID: resolvedPrimaryModel()
+                providerHost: providerHost,
+                modelID: resolvedPrimaryModel(),
+                localBackend: isLocalBackend ? "Local AI" : nil
             )
         }
         let nsError = error as NSError
@@ -252,7 +332,7 @@ Behavior:
                 code: .postProcessingFailed,
                 severity: .warning,
                 context: QuillUserIssueContext(
-                    providerHost: URL(string: baseURL)?.host,
+                    providerHost: providerHost,
                     modelID: resolvedPrimaryModel()
                 )
             ),
@@ -299,43 +379,6 @@ Behavior:
                 group.cancelAll()
                 throw error
             }
-        }
-    }
-
-    func translateVerbatim(
-        transcript: String,
-        targetLanguage: String
-    ) async throws -> PostProcessingResult {
-        let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedTranscript.isEmpty else {
-            throw PostProcessingError.invalidInput("Transcript must not be empty")
-        }
-        let trimmedLanguage = targetLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedLanguage.isEmpty else {
-            throw PostProcessingError.invalidInput("Target language must not be empty")
-        }
-
-        let timeoutSeconds = postProcessingTimeoutSeconds
-        return try await withThrowingTaskGroup(of: PostProcessingResult.self) { group in
-            group.addTask { [weak self] in
-                guard let self else {
-                    throw PostProcessingError.invalidResponse("Post-processing service deallocated")
-                }
-                return try await self.translateVerbatimWithFallback(
-                    transcript: trimmedTranscript,
-                    targetLanguage: trimmedLanguage
-                )
-            }
-            group.addTask {
-                try await Task.sleep(for: .seconds(timeoutSeconds))
-                throw PostProcessingError.requestTimedOut(timeoutSeconds)
-            }
-
-            guard let result = try await group.next() else {
-                throw PostProcessingError.invalidResponse("No translation result")
-            }
-            group.cancelAll()
-            return result
         }
     }
 
@@ -396,10 +439,38 @@ Behavior:
         customSystemPrompt: String = "",
         outputLanguage: String = ""
     ) async throws -> PostProcessingResult {
+        if isLocalBackend {
+            return try await backendExecutor.withEndpoint { [self] endpoint in
+                try await process(
+                    transcript: transcript,
+                    contextSummary: contextSummary,
+                    endpoint: endpoint,
+                    customVocabulary: customVocabulary,
+                    customSystemPrompt: customSystemPrompt,
+                    outputLanguage: outputLanguage
+                )
+            }
+        }
+        return try await processCloudWithFallback(
+            transcript: transcript,
+            contextSummary: contextSummary,
+            customVocabulary: customVocabulary,
+            customSystemPrompt: customSystemPrompt,
+            outputLanguage: outputLanguage
+        )
+    }
+
+    private func processCloudWithFallback(
+        transcript: String,
+        contextSummary: String,
+        customVocabulary: [String],
+        customSystemPrompt: String = "",
+        outputLanguage: String = ""
+    ) async throws -> PostProcessingResult {
         var primaryModel = resolvedPrimaryModel()
         let retryModel = resolvedRetryModel(for: primaryModel)
         guard let availableModel = await LLMCooldownManager.shared.effectivePrimary(
-            baseURL: baseURL,
+            baseURL: cloudBaseURL,
             primary: primaryModel,
             fallback: retryModel
         ) else {
@@ -440,7 +511,7 @@ Behavior:
 
             if case .rateLimited = error,
                await LLMCooldownManager.shared.effectivePrimary(
-                   baseURL: baseURL,
+                   baseURL: cloudBaseURL,
                    primary: resolvedPrimaryModel(),
                    fallback: retryModel
                ) == nil {
@@ -455,7 +526,7 @@ Behavior:
                 throw error
             }
             guard await LLMCooldownManager.shared.effectivePrimary(
-                baseURL: baseURL,
+                baseURL: cloudBaseURL,
                 primary: retryModel,
                 fallback: nil
             ) != nil else {
@@ -479,7 +550,7 @@ Behavior:
             } catch let retryError as PostProcessingError {
                 if case .rateLimited = retryError,
                    await LLMCooldownManager.shared.effectivePrimary(
-                       baseURL: baseURL,
+                       baseURL: cloudBaseURL,
                        primary: resolvedPrimaryModel(),
                        fallback: retryModel
                    ) == nil {
@@ -501,10 +572,38 @@ Behavior:
         customVocabulary: [String],
         outputLanguage: String = ""
     ) async throws -> PostProcessingResult {
+        if isLocalBackend {
+            return try await backendExecutor.withEndpoint { [self] endpoint in
+                try await processCommandTransform(
+                    selectedText: selectedText,
+                    voiceCommand: voiceCommand,
+                    contextSummary: contextSummary,
+                    endpoint: endpoint,
+                    customVocabulary: customVocabulary,
+                    outputLanguage: outputLanguage
+                )
+            }
+        }
+        return try await processCommandTransformCloudWithFallback(
+            selectedText: selectedText,
+            voiceCommand: voiceCommand,
+            contextSummary: contextSummary,
+            customVocabulary: customVocabulary,
+            outputLanguage: outputLanguage
+        )
+    }
+
+    private func processCommandTransformCloudWithFallback(
+        selectedText: String,
+        voiceCommand: String,
+        contextSummary: String,
+        customVocabulary: [String],
+        outputLanguage: String = ""
+    ) async throws -> PostProcessingResult {
         var primaryModel = resolvedPrimaryModel()
         let retryModel = resolvedRetryModel(for: primaryModel)
         guard let availableModel = await LLMCooldownManager.shared.effectivePrimary(
-            baseURL: baseURL,
+            baseURL: cloudBaseURL,
             primary: primaryModel,
             fallback: retryModel
         ) else {
@@ -543,7 +642,7 @@ Behavior:
 
             if case .rateLimited = error,
                await LLMCooldownManager.shared.effectivePrimary(
-                   baseURL: baseURL,
+                   baseURL: cloudBaseURL,
                    primary: resolvedPrimaryModel(),
                    fallback: retryModel
                ) == nil {
@@ -558,7 +657,7 @@ Behavior:
                 throw error
             }
             guard await LLMCooldownManager.shared.effectivePrimary(
-                baseURL: baseURL,
+                baseURL: cloudBaseURL,
                 primary: retryModel,
                 fallback: nil
             ) != nil else {
@@ -577,7 +676,7 @@ Behavior:
             } catch let retryError as PostProcessingError {
                 if case .rateLimited = retryError,
                    await LLMCooldownManager.shared.effectivePrimary(
-                       baseURL: baseURL,
+                       baseURL: cloudBaseURL,
                        primary: resolvedPrimaryModel(),
                        fallback: retryModel
                    ) == nil {
@@ -593,19 +692,15 @@ Behavior:
     }
 
     private func resolvedPrimaryModel() -> String {
-        preferredModel.isEmpty ? defaultModel : preferredModel
+        selectedModelID.isEmpty ? defaultModel : selectedModelID
     }
 
     private func resolvedRetryModel(for primaryModel: String) -> String? {
-        if !preferredFallbackModel.isEmpty {
-            return preferredFallbackModel == primaryModel ? nil : preferredFallbackModel
+        if let cloudFallbackModelID {
+            return cloudFallbackModelID == primaryModel ? nil : cloudFallbackModelID
         }
-        if primaryModel == defaultModel {
-            return defaultFallbackModel
-        }
-        if primaryModel == defaultFallbackModel {
-            return defaultModel
-        }
+        if primaryModel == defaultModel { return defaultFallbackModel }
+        if primaryModel == defaultFallbackModel { return defaultModel }
         return nil
     }
 
@@ -617,14 +712,39 @@ Behavior:
         customSystemPrompt: String = "",
         outputLanguage: String = ""
     ) async throws -> PostProcessingResult {
-        guard let url = URL(string: "\(baseURL)/chat/completions") else {
-            throw PostProcessingError.invalidInput("Invalid base URL: \(baseURL)")
+        let executor = backendExecutor.replacingChoice(.cloud(modelID: model))
+        return try await executor.withEndpoint { [self] endpoint in
+            try await process(
+                transcript: transcript,
+                contextSummary: contextSummary,
+                endpoint: endpoint,
+                customVocabulary: customVocabulary,
+                customSystemPrompt: customSystemPrompt,
+                outputLanguage: outputLanguage
+            )
         }
+    }
+
+    private func process(
+        transcript: String,
+        contextSummary: String,
+        endpoint: AIProcessingEndpoint,
+        customVocabulary: [String],
+        customSystemPrompt: String = "",
+        outputLanguage: String = ""
+    ) async throws -> PostProcessingResult {
+        let url = endpoint.baseURL
+            .appendingPathComponent("chat")
+            .appendingPathComponent("completions")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        if let token = endpoint.authorizationToken,
+           !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = postProcessingTimeoutSeconds
+        let model = endpoint.selectedModelID
 
         let normalizedVocabulary = normalizedVocabularyText(customVocabulary)
         let vocabularyPrompt = if !normalizedVocabulary.isEmpty {
@@ -670,7 +790,7 @@ Model: \(model)
 """
 
         var payload: [String: Any] = [
-            "model": model,
+            "model": endpoint.requestModelID,
             "temperature": 0.0,
             "messages": [
                 [
@@ -702,7 +822,7 @@ Model: \(model)
 
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
-        let (data, response) = try await LLMAPITransport.data(for: request)
+        let (data, response) = try await transport(request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw PostProcessingError.invalidResponse("No HTTP response")
         }
@@ -710,12 +830,14 @@ Model: \(model)
         guard httpResponse.statusCode == 200 else {
             if httpResponse.statusCode == 429 {
                 let cooldown = LLMCooldownManager.rateLimitCooldown(from: httpResponse)
-                let identity = LLMCooldownIdentity(baseURL: baseURL, model: model)
-                await LLMCooldownManager.shared.setCooldown(
-                    identity,
-                    retryAfterSeconds: cooldown.seconds,
-                    persist: cooldown.isDaily
-                )
+                if endpoint.kind == .cloud {
+                    let identity = LLMCooldownIdentity(baseURL: cloudBaseURL, model: model)
+                    await LLMCooldownManager.shared.setCooldown(
+                        identity,
+                        retryAfterSeconds: cooldown.seconds,
+                        persist: cooldown.isDaily
+                    )
+                }
                 throw PostProcessingError.rateLimited(model: model, retryAfter: cooldown.seconds)
             }
             throw PostProcessingError.requestFailed(
@@ -763,14 +885,39 @@ Model: \(model)
         customVocabulary: [String],
         outputLanguage: String = ""
     ) async throws -> PostProcessingResult {
-        guard let url = URL(string: "\(baseURL)/chat/completions") else {
-            throw PostProcessingError.invalidInput("Invalid base URL: \(baseURL)")
+        let executor = backendExecutor.replacingChoice(.cloud(modelID: model))
+        return try await executor.withEndpoint { [self] endpoint in
+            try await processCommandTransform(
+                selectedText: selectedText,
+                voiceCommand: voiceCommand,
+                contextSummary: contextSummary,
+                endpoint: endpoint,
+                customVocabulary: customVocabulary,
+                outputLanguage: outputLanguage
+            )
         }
+    }
+
+    private func processCommandTransform(
+        selectedText: String,
+        voiceCommand: String,
+        contextSummary: String,
+        endpoint: AIProcessingEndpoint,
+        customVocabulary: [String],
+        outputLanguage: String = ""
+    ) async throws -> PostProcessingResult {
+        let url = endpoint.baseURL
+            .appendingPathComponent("chat")
+            .appendingPathComponent("completions")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        if let token = endpoint.authorizationToken,
+           !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = postProcessingTimeoutSeconds
+        let model = endpoint.selectedModelID
 
         let normalizedVocabulary = normalizedVocabularyText(customVocabulary)
         let vocabularyPrompt = if !normalizedVocabulary.isEmpty {
@@ -816,7 +963,7 @@ Model: \(model)
 """
 
         var payload: [String: Any] = [
-            "model": model,
+            "model": endpoint.requestModelID,
             "temperature": 0.0,
             "messages": [
                 [
@@ -848,7 +995,7 @@ Model: \(model)
 
         request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
 
-        let (data, response) = try await LLMAPITransport.data(for: request)
+        let (data, response) = try await transport(request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw PostProcessingError.invalidResponse("No HTTP response")
         }
@@ -856,12 +1003,14 @@ Model: \(model)
         guard httpResponse.statusCode == 200 else {
             if httpResponse.statusCode == 429 {
                 let cooldown = LLMCooldownManager.rateLimitCooldown(from: httpResponse)
-                let identity = LLMCooldownIdentity(baseURL: baseURL, model: model)
-                await LLMCooldownManager.shared.setCooldown(
-                    identity,
-                    retryAfterSeconds: cooldown.seconds,
-                    persist: cooldown.isDaily
-                )
+                if endpoint.kind == .cloud {
+                    let identity = LLMCooldownIdentity(baseURL: cloudBaseURL, model: model)
+                    await LLMCooldownManager.shared.setCooldown(
+                        identity,
+                        retryAfterSeconds: cooldown.seconds,
+                        persist: cooldown.isDaily
+                    )
+                }
                 throw PostProcessingError.rateLimited(model: model, retryAfter: cooldown.seconds)
             }
             throw PostProcessingError.requestFailed(
@@ -892,217 +1041,6 @@ Model: \(model)
             transcript: sanitizedTranscript,
             prompt: promptForDisplay
         )
-    }
-
-    static func verbatimTranslationSystemPrompt(targetLanguage: String) -> String {
-        """
-        You are a literal translator.
-
-        Translate the user's transcript into \(targetLanguage) as literally as possible.
-
-        Rules:
-        - Preserve every word the user spoke, including filler words, false starts, and repetitions.
-        - Do not clean up, summarize, restructure, or improve the sentence.
-        - Do not correct grammar, awkward phrasing, informal wording, profanity, or slang.
-        - Return only the translated text without surrounding quotes or explanation.
-        - Output only in \(targetLanguage).
-        """
-    }
-
-    private func translateVerbatimWithFallback(
-        transcript: String,
-        targetLanguage: String
-    ) async throws -> PostProcessingResult {
-        var primaryModel = resolvedPrimaryModel()
-        let retryModel = resolvedRetryModel(for: primaryModel)
-        guard let availableModel = await LLMCooldownManager.shared.effectivePrimary(
-            baseURL: baseURL,
-            primary: primaryModel,
-            fallback: retryModel
-        ) else {
-            return PostProcessingResult(
-                transcript: transcript,
-                prompt: "",
-                skippedDueToCooldown: true
-            )
-        }
-        primaryModel = availableModel
-
-        do {
-            return try await translateVerbatim(
-                transcript: transcript,
-                targetLanguage: targetLanguage,
-                model: primaryModel
-            )
-        } catch let error as PostProcessingError {
-            let shouldFallback: Bool
-            switch error {
-            case .rateLimited, .emptyOutput:
-                shouldFallback = true
-            case .requestFailed(let statusCode, _):
-                shouldFallback = statusCode == 429
-            default:
-                shouldFallback = false
-            }
-            guard shouldFallback else { throw error }
-            if case .rateLimited = error,
-               await LLMCooldownManager.shared.effectivePrimary(
-                   baseURL: baseURL,
-                   primary: resolvedPrimaryModel(),
-                   fallback: retryModel
-               ) == nil {
-                return PostProcessingResult(
-                    transcript: transcript,
-                    prompt: "",
-                    skippedDueToCooldown: true
-                )
-            }
-            guard let retryModel, retryModel != primaryModel else { throw error }
-            guard await LLMCooldownManager.shared.effectivePrimary(
-                baseURL: baseURL,
-                primary: retryModel,
-                fallback: nil
-            ) != nil else {
-                throw error
-            }
-            do {
-                return try await translateVerbatim(
-                    transcript: transcript,
-                    targetLanguage: targetLanguage,
-                    model: retryModel
-                )
-            } catch let retryError as PostProcessingError {
-                if case .rateLimited = retryError,
-                   await LLMCooldownManager.shared.effectivePrimary(
-                       baseURL: baseURL,
-                       primary: resolvedPrimaryModel(),
-                       fallback: retryModel
-                   ) == nil {
-                    return PostProcessingResult(
-                        transcript: transcript,
-                        prompt: "",
-                        skippedDueToCooldown: true
-                    )
-                }
-                throw retryError
-            }
-        }
-    }
-
-    private func translateVerbatim(
-        transcript: String,
-        targetLanguage: String,
-        model: String
-    ) async throws -> PostProcessingResult {
-        guard let url = URL(string: "\(baseURL)/chat/completions") else {
-            throw PostProcessingError.invalidInput("Invalid base URL: \(baseURL)")
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = postProcessingTimeoutSeconds
-
-        let systemPrompt = Self.verbatimTranslationSystemPrompt(targetLanguage: targetLanguage)
-        let userMessage = """
-        Translate the transcript below into \(targetLanguage), keeping the wording literal.
-
-        TRANSCRIPT:
-        <<<TRANSCRIPT
-        \(transcript)
-        TRANSCRIPT
-        """
-        let promptForDisplay = """
-        Model: \(model)
-
-        [System]
-        \(systemPrompt)
-
-        [User]
-        \(userMessage)
-        """
-
-        var payload: [String: Any] = [
-            "model": model,
-            "temperature": 0.0,
-            "messages": [
-                ["role": "system", "content": systemPrompt],
-                ["role": "user", "content": userMessage]
-            ]
-        ]
-        let config = ModelConfiguration.config(for: model)
-        if let maxTokens = config.maxCompletionTokens {
-            payload["max_completion_tokens"] = maxTokens
-        } else if model == defaultModel {
-            payload["max_completion_tokens"] = postProcessingMaxCompletionTokens
-        }
-        if let effort = config.reasoningEffort {
-            payload["reasoning_effort"] = effort
-        } else if model == defaultModel {
-            payload["reasoning_effort"] = defaultModelReasoningEffort
-        }
-        if let include = config.includeReasoning {
-            payload["include_reasoning"] = include
-        } else if model == defaultModel {
-            payload["include_reasoning"] = false
-        }
-        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
-
-        let (data, response) = try await LLMAPITransport.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw PostProcessingError.invalidResponse("No HTTP response")
-        }
-        guard httpResponse.statusCode == 200 else {
-            if httpResponse.statusCode == 429 {
-                let cooldown = LLMCooldownManager.rateLimitCooldown(from: httpResponse)
-                await LLMCooldownManager.shared.setCooldown(
-                    LLMCooldownIdentity(baseURL: baseURL, model: model),
-                    retryAfterSeconds: cooldown.seconds,
-                    persist: cooldown.isDaily
-                )
-                throw PostProcessingError.rateLimited(model: model, retryAfter: cooldown.seconds)
-            }
-            throw PostProcessingError.requestFailed(
-                statusCode: httpResponse.statusCode,
-                providerCode: Self.safeProviderErrorCode(from: data)
-            )
-        }
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let choices = json["choices"] as? [[String: Any]],
-              let message = choices.first?["message"] as? [String: Any],
-              let rawContent = message["content"] as? String else {
-            throw PostProcessingError.invalidResponse("Missing choices[0].message.content")
-        }
-
-        let content = config.shouldStripThinkTags
-            ? ModelConfiguration.stripThinkTags(rawContent)
-            : rawContent
-        guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw PostProcessingError.emptyOutput
-        }
-        let sanitizedTranslation = try Self.validatedVerbatimTranslation(content)
-        return PostProcessingResult(
-            transcript: sanitizedTranslation,
-            prompt: promptForDisplay
-        )
-    }
-
-    static func sanitizeVerbatimTranslation(_ value: String) -> String {
-        var result = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        if result.hasPrefix("\"") && result.hasSuffix("\"") && result.count > 1 {
-            result.removeFirst()
-            result.removeLast()
-            result = result.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return result
-    }
-
-    static func validatedVerbatimTranslation(_ value: String) throws -> String {
-        let sanitized = sanitizeVerbatimTranslation(value)
-        guard !sanitized.isEmpty else {
-            throw PostProcessingError.emptyOutput
-        }
-        return sanitized
     }
 
     static func applyOutputLanguage(_ prompt: String, language: String) -> String {

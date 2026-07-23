@@ -12,6 +12,7 @@ struct SettingsLocalizationTests {
         try testCalendarReminderLeadTimeUsesLocalizedCopy()
         try testRecordingOverlaySettingsCopyLocalizes()
         try testModelFirstSettingsCopyLocalizes()
+        try testModelDownloadTerminationCopyLocalizes()
         print("SettingsLocalizationTests passed")
     }
 
@@ -51,18 +52,29 @@ struct SettingsLocalizationTests {
     }
 
     private static func testAudioImportDisplayKeepsModelIDAndLocalizesStaticLabels() throws {
+        let legacyModel = TranscriptionModel.find(id: "mlx-community/whisper-medium-mlx")
         let options = AudioImportOptions(
             fileExtension: "wav",
             currentChoice: .apiStandard(modelID: "whisper-large-v3"),
-            apiStandardModelID: "whisper-large-v3"
+            apiStandardModelID: "whisper-large-v3",
+            legacyLocalWhisperModels: [legacyModel]
         )
         let display = options.displayRows.first { $0.choice == .apiStandard(modelID: "whisper-large-v3") }!
+        let legacyDisplay = options.displayRows.first { $0.choice == .legacyMlxWhisper(model: legacyModel) }!
         let localizationBundle = try compiledLocalizationBundle()
 
         assert(display.choice.id == "api-standard:whisper-large-v3")
+        assert(display.section == "Cloud")
         assert(display.localizedTitle(language: "en", bundle: localizationBundle) == "API Standard")
         assert(display.localizedTitle(language: "ko", bundle: localizationBundle) == "API 표준")
         assert(display.localizedCompactLabel(language: "ko", bundle: localizationBundle) == "표준 · whisper-large-v3")
+        assert(display.localizedCurrentLabel(language: "en", bundle: localizationBundle) == "Cloud · Standard · whisper-large-v3")
+        assert(display.localizedCurrentLabel(language: "ko", bundle: localizationBundle) == "클라우드 · 표준 · whisper-large-v3")
+
+        assert(legacyDisplay.section == "On This Mac")
+        assert(legacyDisplay.title == "Legacy mlx-whisper")
+        assert(legacyDisplay.localizedCurrentLabel(language: "en", bundle: localizationBundle) == "On This Mac · Legacy · Whisper Medium")
+        assert(legacyDisplay.localizedCurrentLabel(language: "ko", bundle: localizationBundle) == "이 Mac에서 · 레거시 · Whisper Medium")
     }
 
     private static func testSettingsSectionTitlePolicy() throws {
@@ -154,6 +166,10 @@ struct SettingsLocalizationTests {
             "Custom Standard API Model": "사용자 지정 표준 API 모델",
             "e.g. custom-transcription-model": "예: custom-transcription-model",
             "Add a custom model ID when it is not listed in the main Model menu.": "기본 모델 메뉴에 없는 사용자 지정 모델 ID를 추가합니다.",
+            "Custom API Model": "사용자 지정 API 모델",
+            "e.g. provider/custom-model": "예: provider/custom-model",
+            "Use Model": "모델 사용",
+            "Enter an API model ID that is not listed above. Use the main Model menu to return to a listed model.": "위 목록에 없는 API 모델 ID를 입력합니다. 목록의 모델로 돌아가려면 위의 모델 메뉴에서 선택하세요.",
             "Show Realtime transcription option": "실시간 전사 옵션 표시",
             "Download required": "다운로드 필요",
             "Downloading...": "다운로드 중...",
@@ -175,6 +191,19 @@ struct SettingsLocalizationTests {
             "When off, Quill copies the transcript to the clipboard so you can paste it manually.": "끄면 Quill이 전사문을 클립보드에 복사하며, 필요할 때 직접 붙여넣을 수 있습니다.",
             "Used for transcript cleanup and Edit Mode transforms.": "전사문 정리와 Edit Mode 변환에 사용합니다.",
             "Used for context inference, with a text-only retry when screenshot analysis fails.": "컨텍스트 추론에 사용하며, 스크린샷 분석에 실패하면 텍스트 전용으로 다시 시도합니다.",
+            "Cloud": "클라우드",
+            "On This Mac": "이 Mac에서",
+            "Recommended": "권장",
+            "This model will become active when the download finishes.": "다운로드가 완료되면 이 모델이 활성화됩니다.",
+            "This removes the downloaded Local AI model. You can download it again later.": "다운로드한 로컬 AI 모델을 삭제합니다. 나중에 다시 다운로드할 수 있습니다.",
+            "Cancel Local AI model download": "로컬 AI 모델 다운로드 취소",
+            "Cloud fallback is only used when Post-processing uses a cloud model.": "클라우드 fallback은 후처리에서 클라우드 모델을 사용할 때만 적용됩니다.",
+            "Local Context uses app and window text only. Screenshots stay on this Mac.": "로컬 Context는 앱과 창의 텍스트 정보만 사용합니다. 스크린샷은 이 Mac을 벗어나지 않습니다.",
+            "Best quality. Needs more memory.": "최고 품질입니다. 더 많은 메모리가 필요합니다.",
+            "Faster and lighter. Good for lower-memory Macs.": "더 빠르고 가볍습니다. 메모리가 적은 Mac에 적합합니다.",
+            "Canceled": "취소됨",
+            "Selected": "선택됨",
+            "Not selected": "선택되지 않음",
             "Post-Processing Fallback Model": "후처리 대체 모델",
             "Used as the explicit retry model for transcript cleanup and Edit Mode transforms.": "전사문 정리와 Edit Mode 변환을 다시 시도할 때 사용할 모델입니다.",
             "Edit Mode uses this model, fallback model, Output Language, and Custom Vocabulary. Invocation Style and Extra Modifier remain in Shortcuts.": "Edit Mode는 이 모델, 대체 모델, 출력 언어 및 사용자 지정 어휘를 사용합니다. 실행 방식과 추가 보조 키는 단축키에 그대로 있습니다.",
@@ -186,6 +215,21 @@ struct SettingsLocalizationTests {
             "Streams audio through the provider's OpenAI-compatible /v1/realtime WebSocket so transcription runs while you speak.": "제공자의 OpenAI-compatible /v1/realtime WebSocket으로 오디오를 스트리밍하여 말하는 동안 전사를 실행합니다.",
             "Realtime Transcription Model": "실시간 전사 모델",
             "Used only for realtime streaming. Leave empty for providers that supply a server default.": "실시간 스트리밍에만 사용합니다. 서버 기본값을 제공하는 공급자에서는 비워 두세요."
+        ]
+
+        for (key, korean) in expected {
+            assert(localizedCatalogString(key, language: "en", bundle: bundle) == key)
+            assert(localizedCatalogString(key, language: "ko", bundle: bundle) == korean)
+        }
+    }
+
+    private static func testModelDownloadTerminationCopyLocalizes() throws {
+        let bundle = try compiledLocalizationBundle()
+        let expected: [String: String] = [
+            "Quit while models are downloading?": "모델 다운로드가 진행 중입니다. Quill을 종료할까요?",
+            "Quill will cancel unfinished model downloads and delete partial files before quitting.":
+                "종료하면 완료되지 않은 모델 다운로드가 취소되고 부분 다운로드 파일이 삭제됩니다.",
+            "Quit and Cancel Downloads": "종료하고 다운로드 취소"
         ]
 
         for (key, korean) in expected {

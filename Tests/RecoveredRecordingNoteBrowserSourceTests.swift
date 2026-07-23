@@ -7,6 +7,10 @@ struct RecoveredRecordingNoteBrowserSourceTests {
             contentsOfFile: "Sources/NoteBrowserView.swift",
             encoding: .utf8
         )
+        let appStateSource = try String(
+            contentsOfFile: "Sources/AppState.swift",
+            encoding: .utf8
+        )
 
         precondition(source.contains("private var isRecoveredRecording: Bool"))
         precondition(source.contains("private var recoveredRecordingContext: RecoveredRecordingContext"))
@@ -19,6 +23,11 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("Text(recoveryDescription)"))
         precondition(source.contains("NoteAudioPlayerView(audioURL: storedAudioURL)"))
         precondition(source.contains("appState.retryTranscription(item: item)"))
+        precondition(source.contains("case .needsProviderConfiguration:"))
+        precondition(source.contains("appState.openProviderSettings()"))
+        precondition(appStateSource.contains("func openProviderSettings()"))
+        precondition(appStateSource.contains("selectedSettingsTab = .models"))
+        precondition(appStateSource.contains("NotificationCenter.default.post(name: .showSettings, object: nil)"))
         precondition(source.contains("appState.deleteHistoryEntry(id: id)"))
         precondition(source.contains("Image(systemName: \"arrow.clockwise.circle\")"))
         precondition(source.contains(".foregroundStyle(.orange.opacity(0.7))"))

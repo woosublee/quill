@@ -411,7 +411,6 @@ struct CloudTranscriptionHistoryCoordinatorTests {
             lastFailure: nil,
             completionPolicy: CloudTranscriptionCompletionPolicy(
                 postProcessingEnabled: true,
-                preserveExactWording: false,
                 outputLanguage: "en",
                 pressEnterCommandEnabled: false
             )

@@ -4,6 +4,7 @@ enum LocalAIServerManagerError: LocalizedError, Equatable {
     case modelUnavailable(String)
     case modelCorrupt(String)
     case startFailed(String)
+    case processExited(String)
 
     var errorDescription: String? {
         switch self {
@@ -13,6 +14,8 @@ enum LocalAIServerManagerError: LocalizedError, Equatable {
             return "The selected local AI model is corrupt."
         case .startFailed:
             return "Could not start the local AI runtime."
+        case .processExited:
+            return localizedCatalogString("The local AI runtime stopped unexpectedly.")
         }
     }
 }
@@ -111,6 +114,7 @@ actor LocalAIServerManager {
         let startupWaiterCount: Int
         let activeRequestCount: Int
         let isWaitingForActiveRequests: Bool
+        let isMaintenanceActive: Bool
     }
 
     private struct LaunchState {
@@ -140,11 +144,15 @@ actor LocalAIServerManager {
 
     private struct ResolvedBaseURL {
         let launchToken: UUID
+        let modelID: String
+        let process: LocalAIServerProcess
         let url: URL
     }
 
     private struct RequestLease {
         let launchToken: UUID
+        let modelID: String
+        let process: LocalAIServerProcess
         let url: URL
     }
 
@@ -174,6 +182,7 @@ actor LocalAIServerManager {
     private let observeLifecycle: ObserveLifecycle
 
     private var state: LifecycleState = .idle
+    private var isMaintenanceActive = false
     private var lastRequestAt: Date?
     private var activeRequestCounts: [UUID: Int] = [:]
     private var activeDrainWaiters: [UUID: [UUID: ActiveRequestWaiter]] = [:]
@@ -238,13 +247,21 @@ actor LocalAIServerManager {
         for model: LocalAIModel,
         operation: @escaping @Sendable (URL) async throws -> Result
     ) async throws -> Result {
+        try ensureMaintenanceIsInactive()
         let lease = try await acquireLease(for: model)
         do {
             let result = try await operation(lease.url)
             releaseLease(lease)
             return result
         } catch {
+            let processExited = !lease.process.isRunning
             releaseLease(lease)
+            if processExited {
+                clearExitedLaunchIfCurrent(lease)
+                throw LocalAIServerManagerError.processExited(
+                    "Process exited during an active request for model \(lease.modelID)"
+                )
+            }
             throw error
         }
     }
@@ -256,9 +273,15 @@ actor LocalAIServerManager {
                 try Task.checkCancellation()
                 let resolved = try await resolveBaseURL(for: model, waiter: waiter)
                 try Task.checkCancellation()
+                try ensureMaintenanceIsInactive()
                 activeRequestCounts[resolved.launchToken, default: 0] += 1
                 lastRequestAt = now()
-                return RequestLease(launchToken: resolved.launchToken, url: resolved.url)
+                return RequestLease(
+                    launchToken: resolved.launchToken,
+                    modelID: resolved.modelID,
+                    process: resolved.process,
+                    url: resolved.url
+                )
             } catch {
                 if Task.isCancelled || error is CancellationError {
                     await cancelStartupWaiter(
@@ -294,6 +317,21 @@ actor LocalAIServerManager {
         lastRequestAt = now()
     }
 
+    private func clearExitedLaunchIfCurrent(_ lease: RequestLease) {
+        switch state {
+        case let .running(launch) where launch.token == lease.launchToken:
+            lastRequestAt = nil
+            clearSwitchDrain(launchToken: launch.token)
+            setState(.idle)
+        case let .starting(startup) where startup.launch.token == lease.launchToken:
+            startup.healthTask.cancel()
+            lastRequestAt = nil
+            setState(.idle)
+        case .idle, .starting, .running, .stopping:
+            break
+        }
+    }
+
     /// Releases an idle resident process. In-progress requests are never
     /// evaluated against the prior running launch's request timestamp.
     func shutdownIfIdle() async {
@@ -327,15 +365,74 @@ actor LocalAIServerManager {
         }
     }
 
+    /// Stops the runtime and runs a synchronous model-maintenance operation
+    /// while preventing new inference startups. Existing active operations are
+    /// allowed to drain before the resident process is stopped.
+    func withExclusiveMaintenance<Result: Sendable>(
+        _ operation: @Sendable () throws -> Result
+    ) async throws -> Result {
+        try ensureMaintenanceIsInactive()
+        isMaintenanceActive = true
+        defer { isMaintenanceActive = false }
+
+        await stopForMaintenance()
+        return try operation()
+    }
+
     /// Internal deterministic observation seam for lifecycle race tests.
     func lifecycleSnapshot() -> LifecycleSnapshot {
         snapshot(for: state)
+    }
+
+    private func ensureMaintenanceIsInactive() throws {
+        guard !isMaintenanceActive else {
+            throw LocalAIServerManagerError.modelUnavailable(
+                "Local AI maintenance is in progress."
+            )
+        }
+    }
+
+    private func stopForMaintenance() async {
+        lastRequestAt = nil
+        while true {
+            switch state {
+            case .idle:
+                return
+            case let .starting(startup):
+                await stopStartup(startup)
+            case let .running(launch):
+                await waitForMaintenanceActiveRequestsToDrain(
+                    launchToken: launch.token
+                )
+                guard case let .running(current) = state,
+                      current.token == launch.token else {
+                    continue
+                }
+                await stopRunning(current)
+            case let .stopping(stopping):
+                await finishStopping(stopping)
+            }
+        }
+    }
+
+    private func waitForMaintenanceActiveRequestsToDrain(
+        launchToken: UUID
+    ) async {
+        guard activeRequestCounts[launchToken, default: 0] > 0 else { return }
+        let waiter = ActiveRequestWaiter()
+        activeDrainWaiters[launchToken, default: [:]][waiter.id] = waiter
+        _ = await waiter.wait()
+        activeDrainWaiters[launchToken]?.removeValue(forKey: waiter.id)
+        if activeDrainWaiters[launchToken]?.isEmpty == true {
+            activeDrainWaiters.removeValue(forKey: launchToken)
+        }
     }
 
     private func resolveBaseURL(for model: LocalAIModel, waiter: StartupWaiter) async throws -> ResolvedBaseURL {
         try Task.checkCancellation()
 
         while true {
+            try ensureMaintenanceIsInactive()
             switch state {
             case .idle:
                 let startup = try beginStartup(for: model, waiterID: waiter.id)
@@ -383,6 +480,8 @@ actor LocalAIServerManager {
                     lastRequestAt = now()
                     return ResolvedBaseURL(
                         launchToken: launch.token,
+                        modelID: launch.modelID,
+                        process: launch.process,
                         url: Self.baseURL(port: launch.port)
                     )
                 }
@@ -587,6 +686,8 @@ actor LocalAIServerManager {
             lastRequestAt = now()
             return ResolvedBaseURL(
                 launchToken: current.token,
+                modelID: current.modelID,
+                process: current.process,
                 url: Self.baseURL(port: current.port)
             )
 
@@ -603,6 +704,8 @@ actor LocalAIServerManager {
             lastRequestAt = now()
             return ResolvedBaseURL(
                 launchToken: current.launch.token,
+                modelID: current.launch.modelID,
+                process: current.launch.process,
                 url: Self.baseURL(port: current.launch.port)
             )
 
@@ -710,7 +813,8 @@ actor LocalAIServerManager {
                 modelID: nil,
                 startupWaiterCount: 0,
                 activeRequestCount: 0,
-                isWaitingForActiveRequests: false
+                isWaitingForActiveRequests: false,
+                isMaintenanceActive: isMaintenanceActive
             )
         case let .starting(startup):
             return LifecycleSnapshot(
@@ -718,7 +822,8 @@ actor LocalAIServerManager {
                 modelID: startup.launch.modelID,
                 startupWaiterCount: startup.waiterIDs.count,
                 activeRequestCount: activeRequestCounts[startup.launch.token, default: 0],
-                isWaitingForActiveRequests: switchDrain?.launchToken == startup.launch.token
+                isWaitingForActiveRequests: switchDrain?.launchToken == startup.launch.token,
+                isMaintenanceActive: isMaintenanceActive
             )
         case let .running(launch):
             return LifecycleSnapshot(
@@ -726,7 +831,8 @@ actor LocalAIServerManager {
                 modelID: launch.modelID,
                 startupWaiterCount: 0,
                 activeRequestCount: activeRequestCounts[launch.token, default: 0],
-                isWaitingForActiveRequests: switchDrain?.launchToken == launch.token
+                isWaitingForActiveRequests: switchDrain?.launchToken == launch.token,
+                isMaintenanceActive: isMaintenanceActive
             )
         case let .stopping(stopping):
             return LifecycleSnapshot(
@@ -734,7 +840,8 @@ actor LocalAIServerManager {
                 modelID: stopping.launch.modelID,
                 startupWaiterCount: 0,
                 activeRequestCount: activeRequestCounts[stopping.launch.token, default: 0],
-                isWaitingForActiveRequests: false
+                isWaitingForActiveRequests: false,
+                isMaintenanceActive: isMaintenanceActive
             )
         }
     }
