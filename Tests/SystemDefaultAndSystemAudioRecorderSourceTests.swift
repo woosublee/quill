@@ -14,6 +14,29 @@ struct SystemDefaultAndSystemAudioRecorderSourceTests {
         precondition(source.contains("let microphoneStarted: Bool"))
         precondition(source.contains("let systemAudioStarted: Bool"))
         precondition(source.contains("let microphoneUsedSystemDefaultFallback: Bool"))
+
+        // A partial combined start (exactly one source) must be identifiable
+        // as a single typed value so callers don't re-derive it from the two
+        // booleans, and so the notice can name which source is missing.
+        precondition(source.contains("enum DegradedCombinedCaptureSource: Equatable"))
+        precondition(source.contains("case microphone"))
+        precondition(source.contains("case systemAudio"))
+        precondition(source.contains("var missingSource: DegradedCombinedCaptureSource?"))
+        guard let missingSourceRange = source.range(of: "var missingSource: DegradedCombinedCaptureSource?") else {
+            preconditionFailure("Could not locate missingSource computed property")
+        }
+        let missingSourceBody = source[missingSourceRange.lowerBound..<source.index(missingSourceRange.lowerBound, offsetBy: 260)]
+        precondition(missingSourceBody.contains("!microphoneStarted"), "missingSource identifies a failed microphone")
+        precondition(missingSourceBody.contains("!systemAudioStarted"), "missingSource identifies a failed System Audio source")
+
+        // Manual QA hook: let a developer force one side of the combined
+        // start to fail deterministically, without touching real hardware
+        // permissions, to exercise the degraded-capture notice on demand.
+        // Each flag is consumed (reset) by the attempt it triggers, so it
+        // only affects the next recording, never a later one.
+        precondition(source.contains("var debugForcesMicrophoneStartFailure = false"))
+        precondition(source.contains("var debugForcesSystemAudioStartFailure = false"))
+        precondition(source.contains("case debugSimulatedStartFailure"))
         precondition(source.contains("struct CombinedStoppedRecordingSources: Equatable"))
         precondition(source.contains("func startRecording(microphoneDeviceUID: String) async throws -> CombinedRecordingStartResult"))
         precondition(source.contains("func stopRecordingSources("))
@@ -45,6 +68,10 @@ struct SystemDefaultAndSystemAudioRecorderSourceTests {
         let startRecordingSource = source[startRecordingRange.lowerBound..<stopRecordingRange.lowerBound]
         precondition(startRecordingSource.contains("configureChildCallbacks()"), "startRecording should configure child callbacks each time it starts")
         precondition(startRecordingSource.contains("subscribeToAudioLevelsIfNeeded()"), "startRecording should restore audio level subscriptions when needed")
+        precondition(startRecordingSource.contains("if debugForcesMicrophoneStartFailure {"), "startRecording checks the microphone debug-failure hook")
+        precondition(startRecordingSource.contains("if debugForcesSystemAudioStartFailure {"), "startRecording checks the System Audio debug-failure hook")
+        precondition(startRecordingSource.contains("debugForcesMicrophoneStartFailure = false"), "the microphone debug hook resets itself after one use")
+        precondition(startRecordingSource.contains("debugForcesSystemAudioStartFailure = false"), "the System Audio debug hook resets itself after one use")
 
         precondition(source.contains("Publishers.CombineLatest(microphoneRecorder.$audioLevel, systemAudioRecorder.$audioLevel)"))
         precondition(source.contains("max(microphoneLevel, systemAudioLevel)"))

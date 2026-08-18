@@ -16964,6 +16964,38 @@
           }
         }
       }
+    },
+    "No mic — recording with System Audio only": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No mic — recording with System Audio only"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마이크 없음 — 시스템 오디오만으로 녹음 중"
+          }
+        }
+      }
+    },
+    "No System Audio — recording with Mic only": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No System Audio — recording with Mic only"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 오디오 없음 — 마이크만으로 녹음 중"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

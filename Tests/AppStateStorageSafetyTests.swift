@@ -11,6 +11,7 @@ struct AppStateStorageSafetyTests {
         try await verifiesSharedAssetsRemainWhileHistoryStillReferencesThem()
         try verifiesRemovedRowsDoNotProtectEachOthersSharedAssets()
         try verifiesAudioOnlyPersistenceFailureCleanupDecisions()
+        try verifiesDegradedCombinedCaptureMessages()
         try await verifiesArchiveUsesOriginatingHistoryStoreFactory()
         try await verifiesHistoryCreatedAfterAssetsDoesNotSweep()
         try await verifiesHistoryRowsLostAfterSnapshotDoesNotSweep()
@@ -396,6 +397,35 @@ struct AppStateStorageSafetyTests {
                 "audio-only persistence failure preserves uncertain ownership"
             )
         }
+    }
+
+    // A degraded combined-capture message must name which source is
+    // missing and which one recording continues with, so the notice never
+    // reads as a generic, actionless "something failed".
+    private static func verifiesDegradedCombinedCaptureMessages() throws {
+        let missingMicMessage = AppState.degradedCombinedCaptureMessage(missing: .microphone)
+        try expect(
+            missingMicMessage.localizedCaseInsensitiveContains("mic"),
+            "missing-microphone message names the mic"
+        )
+        try expect(
+            missingMicMessage.localizedCaseInsensitiveContains("system audio"),
+            "missing-microphone message names the surviving source"
+        )
+
+        let missingSystemAudioMessage = AppState.degradedCombinedCaptureMessage(missing: .systemAudio)
+        try expect(
+            missingSystemAudioMessage.localizedCaseInsensitiveContains("system audio"),
+            "missing-System-Audio message names System Audio"
+        )
+        try expect(
+            missingSystemAudioMessage.localizedCaseInsensitiveContains("mic"),
+            "missing-System-Audio message names the surviving source"
+        )
+        try expect(
+            missingMicMessage != missingSystemAudioMessage,
+            "the two degraded messages are distinct"
+        )
     }
 
     private static func makeHistoryItem(

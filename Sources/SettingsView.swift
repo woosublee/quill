@@ -180,6 +180,21 @@ struct DebugSettingsView: View {
                         }
                     }
                 }
+
+                SettingsCard("Combined Capture", icon: "mic.and.signal.meter") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Force one side of the next Microphone + System Audio recording to fail to start, so the degraded-capture notice can be checked without touching real permissions. Each button arms one attempt only.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        Button("Force Microphone Failure Next Start") {
+                            appState.systemDefaultAndSystemAudioRecorder.debugForcesMicrophoneStartFailure = true
+                        }
+                        Button("Force System Audio Failure Next Start") {
+                            appState.systemDefaultAndSystemAudioRecorder.debugForcesSystemAudioStartFailure = true
+                        }
+                    }
+                }
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)

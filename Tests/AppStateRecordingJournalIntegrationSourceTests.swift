@@ -199,6 +199,10 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         let startRange = try requiredRange(of: "startPhysicalAudioRecorder(selection: newSelection)", in: switchBody)
         precondition(stopRange.lowerBound < switchRange.lowerBound)
         precondition(switchRange.lowerBound < startRange.lowerBound)
+        precondition(
+            switchBody.contains("self.showDegradedCombinedCaptureNoticeIfNeeded(degradedSource)"),
+            "switching into a combined input surfaces a degraded combined-capture notice, same as an initial start"
+        )
 
         // The live transcriber must be torn down off the main thread so the
         // audio-source menu action returns immediately instead of stalling the
@@ -505,6 +509,10 @@ struct AppStateRecordingJournalIntegrationSourceTests {
 
         assert(begin.contains("try await self.startSelectedAudioRecorder(selection: audioSelection)"))
         assert(begin.contains("self.audioLevelCancellable = self.activeRecorderAudioLevelPublisher"))
+        assert(
+            begin.components(separatedBy: "self.showDegradedCombinedCaptureNoticeIfNeeded(degradedSource)").count - 1 == 2,
+            "both selected-audio-recorder start paths in beginRecording surface a degraded combined-capture notice"
+        )
     }
 
     private static func switchCaseBody(

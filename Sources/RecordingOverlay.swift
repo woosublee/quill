@@ -205,6 +205,12 @@ final class RecordingOverlayManager {
     /// Identifies the in-flight notice so its scheduled dismissal only fires if
     /// that same notice is still showing.
     private var noticeToken: UUID?
+    /// Separate panel for the degraded combined-capture notice, kept apart from
+    /// `noticeWindow` so an unrelated transient notice (which reuses and
+    /// auto-dismisses `noticeWindow`) can never silently overwrite or expire
+    /// this persistent, user-dismissed-only notice.
+    private var degradedCaptureNoticeWindow: NSPanel?
+    private var degradedCaptureNoticeToken: UUID?
     private let notchSideRegionWidth: CGFloat = 92
     private let notchSidePanelHeight: CGFloat = 38
     private let notchSideHorizontalInset: CGFloat = 8
@@ -495,6 +501,81 @@ final class RecordingOverlayManager {
         }
     }
 
+    /// Surface that a combined recording started with only one source: the
+    /// pill above keeps showing the surviving source's waveform untouched
+    /// (the phase stays `.recording`); this is a separate informational
+    /// panel below it, like `showRecordingNotice`. Unlike that notice, it
+    /// does not auto-dismiss — nothing about it changes what gets recorded,
+    /// so there is no decision to time out, but it must stay long enough
+    /// that a user who missed it while joining the meeting still sees it
+    /// later. It is dismissed only by the user (hover-reveal ×) or when the
+    /// recording session ends.
+    func showDegradedCombinedCaptureNotice(_ message: String, reminderFrame: NSRect?) {
+        DispatchQueue.main.async {
+            guard self.overlayState.phase == .recording,
+                  let anchor = self.noticeAnchorFrame(reminderFrame: reminderFrame) else {
+                return
+            }
+            self.showAnchoredDegradedCaptureNotice(message, anchor: anchor)
+        }
+    }
+
+    private func showAnchoredDegradedCaptureNotice(_ message: String, anchor: NSRect) {
+        let token = UUID()
+        degradedCaptureNoticeToken = token
+
+        let height: CGFloat = 34
+        let gap: CGFloat = 6
+        let estimatedFit = CGFloat(message.count) * 6.8 + 66
+        let minFit = min(360, max(200, estimatedFit))
+        var width = minFit
+        if let screenWidth = screenGeometry?.screenFrame.width {
+            width = min(width, screenWidth - 32)
+        }
+        let frame = NSRect(
+            x: anchor.midX - width / 2,
+            y: anchor.minY - gap - height,
+            width: width,
+            height: height
+        )
+
+        let panel = degradedCaptureNoticeWindow ?? makeOverlayPanel(width: frame.width, height: frame.height)
+        panel.hasShadow = true
+        panel.ignoresMouseEvents = false
+        panel.contentView = makeTransparentContent(
+            width: frame.width,
+            height: frame.height,
+            rootView: DegradedCaptureNoticeView(message: message) { [weak self] in
+                guard let self, self.degradedCaptureNoticeToken == token else { return }
+                self.degradedCaptureNoticeToken = nil
+                self.dismissDegradedCaptureNotice()
+            }
+        )
+        let isAlreadyVisible = panel.isVisible && panel.alphaValue > 0
+        panel.setFrame(frame, display: true)
+        if !isAlreadyVisible {
+            panel.alphaValue = 0
+        }
+        panel.orderFrontRegardless()
+        degradedCaptureNoticeWindow = panel
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            panel.animator().alphaValue = 1
+        }
+    }
+
+    private func dismissDegradedCaptureNotice() {
+        guard let panel = degradedCaptureNoticeWindow else { return }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.16
+            panel.animator().alphaValue = 0
+        }, completionHandler: { [weak self, weak panel] in
+            guard let self, self.degradedCaptureNoticeToken == nil else { return }
+            panel?.orderOut(nil)
+        })
+    }
+
     private func dismissNoticeToast() {
         guard let panel = noticeWindow else { return }
         NSAnimationContext.runAnimationGroup({ context in
@@ -731,6 +812,8 @@ final class RecordingOverlayManager {
         // doesn't linger after the session ends.
         noticeToken = nil
         noticeWindow?.orderOut(nil)
+        degradedCaptureNoticeToken = nil
+        degradedCaptureNoticeWindow?.orderOut(nil)
     }
 }
 
@@ -1420,6 +1503,108 @@ struct RecordingNoticeToastView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color.black)
         )
+    }
+}
+
+/// Informational panel for a degraded combined-capture start. No Continue
+/// action — recording behavior is identical whether or not this is ever
+/// interacted with — and no Stop action, since the pill above already
+/// provides one (toggle mode's Stop button, or hold mode's release-to-stop).
+/// The only control is a dismiss (×) that fades in on hover, matching macOS
+/// notification conventions, so the default state stays a plain status line.
+struct DegradedCaptureNoticeView: View {
+    let message: String
+    let onDismiss: () -> Void
+    @State private var isHovering = false
+
+    var body: some View {
+        ZStack {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color.red.opacity(0.92))
+                Text(message)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if isHovering {
+                    Button(action: onDismiss) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 18, height: 18)
+                            .background(Circle().fill(Color.white.opacity(0.14)))
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.opacity)
+                }
+            }
+            .padding(.horizontal, 14)
+            // SwiftUI's own hover tracking (see InputSwitchMenu above) is not
+            // reliable inside this borderless, non-activating panel, so hover
+            // is reported through an NSTrackingArea catcher instead.
+            DegradedCaptureNoticeHoverCatcher { hovering in
+                withAnimation(.easeOut(duration: 0.14)) {
+                    isHovering = hovering
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.black)
+        )
+    }
+}
+
+private struct DegradedCaptureNoticeHoverCatcher: NSViewRepresentable {
+    let onHoverChange: (Bool) -> Void
+
+    func makeNSView(context: Context) -> HoverView {
+        let view = HoverView()
+        view.onHoverChange = onHoverChange
+        return view
+    }
+
+    func updateNSView(_ nsView: HoverView, context: Context) {
+        nsView.onHoverChange = onHoverChange
+    }
+
+    final class HoverView: NSView {
+        var onHoverChange: ((Bool) -> Void)?
+        private var hoverTrackingArea: NSTrackingArea?
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let hoverTrackingArea {
+                removeTrackingArea(hoverTrackingArea)
+            }
+            // .activeAlways so hover fires even though the overlay panel
+            // never becomes key; .inVisibleRect keeps it sized to the view.
+            let area = NSTrackingArea(
+                rect: bounds,
+                options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+            addTrackingArea(area)
+            hoverTrackingArea = area
+        }
+
+        override func mouseEntered(with event: NSEvent) {
+            onHoverChange?(true)
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            onHoverChange?(false)
+        }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            // Track hover across the whole panel without intercepting the
+            // dismiss button's own clicks.
+            nil
+        }
     }
 }
 

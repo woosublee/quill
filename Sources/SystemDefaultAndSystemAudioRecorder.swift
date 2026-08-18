@@ -2,10 +2,24 @@ import Combine
 import Foundation
 import os
 
+enum DegradedCombinedCaptureSource: Equatable {
+    case microphone
+    case systemAudio
+}
+
 struct CombinedRecordingStartResult: Equatable {
     let microphoneStarted: Bool
     let systemAudioStarted: Bool
     let microphoneUsedSystemDefaultFallback: Bool
+
+    /// Which source is missing when exactly one side of a combined start
+    /// failed, or nil when both started (startRecording throws instead of
+    /// returning a result when neither did).
+    var missingSource: DegradedCombinedCaptureSource? {
+        if !microphoneStarted { return .microphone }
+        if !systemAudioStarted { return .systemAudio }
+        return nil
+    }
 }
 
 struct CombinedStoppedRecordingSources: Equatable {
@@ -22,6 +36,13 @@ final class SystemDefaultAndSystemAudioRecorder: ObservableObject {
 
     var onRecordingReady: (() -> Void)?
     var onRecordingFailure: ((Error) -> Void)?
+
+    /// Manual QA hooks: force one side of the next combined start to fail
+    /// without touching real hardware/permissions, so the degraded-capture
+    /// notice can be exercised on demand. Each flag resets itself after the
+    /// attempt it triggers.
+    var debugForcesMicrophoneStartFailure = false
+    var debugForcesSystemAudioStartFailure = false
 
     private enum RecordingSource: Hashable {
         case microphone
@@ -78,6 +99,10 @@ final class SystemDefaultAndSystemAudioRecorder: ObservableObject {
         var microphoneUsedSystemDefaultFallback = false
 
         do {
+            if debugForcesMicrophoneStartFailure {
+                debugForcesMicrophoneStartFailure = false
+                throw SystemDefaultAndSystemAudioRecorderError.debugSimulatedStartFailure
+            }
             let result = try microphoneRecorder.startRecording(
                 deviceUID: microphoneDeviceUID
             )
@@ -91,6 +116,10 @@ final class SystemDefaultAndSystemAudioRecorder: ObservableObject {
         }
 
         do {
+            if debugForcesSystemAudioStartFailure {
+                debugForcesSystemAudioStartFailure = false
+                throw SystemDefaultAndSystemAudioRecorderError.debugSimulatedStartFailure
+            }
             try await systemAudioRecorder.startRecording()
             stateLock.withLock { state in
                 state.systemStarted = true
@@ -313,12 +342,15 @@ final class SystemDefaultAndSystemAudioRecorder: ObservableObject {
 
 enum SystemDefaultAndSystemAudioRecorderError: LocalizedError {
     case failedToStartAnyRecorder([Error])
+    case debugSimulatedStartFailure
 
     var errorDescription: String? {
         switch self {
         case .failedToStartAnyRecorder(let errors):
             let details = errors.map(\.localizedDescription).joined(separator: "; ")
             return details.isEmpty ? "Could not start Microphone + System Audio recording." : "Could not start Microphone + System Audio recording: \(details)"
+        case .debugSimulatedStartFailure:
+            return "Debug: simulated start failure."
         }
     }
 }

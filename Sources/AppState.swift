@@ -5112,17 +5112,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     private func startSelectedAudioRecorder(
         selection: RecordingAudioSelection
-    ) async throws {
+    ) async throws -> DegradedCombinedCaptureSource? {
         let inputID = selection.inputID
         let controller = try makeActiveSegmentedJournalController(inputID: inputID)
         attachSegmentedJournalSinks(controller.activeSegment, inputID: inputID)
         do {
-            try await startPhysicalAudioRecorder(selection: selection)
+            let degradedSource = try await startPhysicalAudioRecorder(selection: selection)
             controller.startCheckpointing { [weak self] error in
                 DispatchQueue.main.async {
                     self?.reportRecordingJournalCheckpointFailure(error)
                 }
             }
+            return degradedSource
         } catch {
             detachSegmentedJournalSinks()
             activeSegmentedJournalController = nil
@@ -5137,9 +5138,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     private func startPhysicalAudioRecorder(
         selection: RecordingAudioSelection
-    ) async throws {
+    ) async throws -> DegradedCombinedCaptureSource? {
         let inputID = selection.inputID
         let microphoneUsedSystemDefaultFallback: Bool
+        var degradedSource: DegradedCombinedCaptureSource?
         switch AudioRecordingSource(inputID: inputID) {
         case .microphone:
             let result = try audioRecorder.startRecording(deviceUID: inputID)
@@ -5153,11 +5155,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
             )
             microphoneUsedSystemDefaultFallback =
                 result.microphoneUsedSystemDefaultFallback
+            degradedSource = result.missingSource
         }
 
         if microphoneUsedSystemDefaultFallback {
             applySystemDefaultMicrophoneFallback(for: inputID)
         }
+        return degradedSource
     }
 
     @MainActor
@@ -5168,6 +5172,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
             activeAudioInputID = AudioInputDevice.defaultMicrophoneID
         }
         refreshOverlayInputOptions()
+    }
+
+    /// The message a partial combined start surfaces, naming which source
+    /// is missing and which one recording continues with.
+    static func degradedCombinedCaptureMessage(missing: DegradedCombinedCaptureSource) -> String {
+        switch missing {
+        case .microphone:
+            return localizedCatalogString("No mic — recording with System Audio only")
+        case .systemAudio:
+            return localizedCatalogString("No System Audio — recording with Mic only")
+        }
+    }
+
+    @MainActor
+    private func showDegradedCombinedCaptureNoticeIfNeeded(_ degradedSource: DegradedCombinedCaptureSource?) {
+        guard let degradedSource else { return }
+        overlayManager.showDegradedCombinedCaptureNotice(
+            Self.degradedCombinedCaptureMessage(missing: degradedSource),
+            reminderFrame: meetingReminderOverlayManager.visibleOverlayFrame
+        )
     }
 
     private func journalSourceRequests(
@@ -5859,7 +5883,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 Task { [weak self] in
                     guard let self else { return }
                     do {
-                        try await self.startPhysicalAudioRecorder(selection: newSelection)
+                        let degradedSource = try await self.startPhysicalAudioRecorder(selection: newSelection)
                         await MainActor.run {
                             guard self.activeInputSwitchToken == switchToken,
                                   self.isRecording else { return }
@@ -5872,6 +5896,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             .sink { [weak self] level in
                                 self?.overlayManager.updateAudioLevel(level)
                             }
+                            self.showDegradedCombinedCaptureNoticeIfNeeded(degradedSource)
                         }
                     } catch {
                         await MainActor.run {
@@ -8713,13 +8738,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         }
                         self.audioRecorder.onRecordingReady?()
                     } else {
-                        try await self.startSelectedAudioRecorder(selection: audioSelection)
+                        let degradedSource = try await self.startSelectedAudioRecorder(selection: audioSelection)
                         let actualRecordingStartedAt = Date()
                         await MainActor.run {
                             self.markRecordingStarted(actualRecordingStartedAt)
                             if self.isRecording, self.activeRecordingTriggerMode != nil {
                                 onStarted?()
                             }
+                            self.showDegradedCombinedCaptureNoticeIfNeeded(degradedSource)
                         }
                         os_log(.info, log: recordingLog, "selected audio recorder start done: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
                     }
@@ -8749,7 +8775,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 guard let self else { return }
                 let t0 = CFAbsoluteTimeGetCurrent()
                 do {
-                    try await self.startSelectedAudioRecorder(selection: audioSelection)
+                    let degradedSource = try await self.startSelectedAudioRecorder(selection: audioSelection)
                     let actualRecordingStartedAt = Date()
                     os_log(.info, log: recordingLog, "selected audio recorder start done: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
                     await MainActor.run {
@@ -8764,6 +8790,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             .sink { [weak self] level in
                                 self?.overlayManager.updateAudioLevel(level)
                             }
+                        self.showDegradedCombinedCaptureNoticeIfNeeded(degradedSource)
                     }
                 } catch {
                     await MainActor.run {
