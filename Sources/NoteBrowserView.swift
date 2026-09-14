@@ -1467,7 +1467,8 @@ private struct NoteDetailView: View {
             hasStoredAudio: storedAudioURL != nil,
             transcript: displayContent,
             retryAvailability: retryAvailability,
-            postProcessingEnabled: !appState.disablePostProcessing
+            postProcessingEnabled: !appState.disablePostProcessing,
+            hasSummary: summaryEnvelope != nil
         )
     }
     private var issuePresentation: QuillUserIssuePresentation? {
@@ -1547,7 +1548,9 @@ private struct NoteDetailView: View {
             NoteFileExportView(
                 source: NoteFileExportSource(
                     transcript: displayContent,
-                    audioURL: storedAudioURL
+                    audioURL: storedAudioURL,
+                    summary: summaryEnvelope.map { MeetingSummaryMarkdownRenderer.render($0) },
+                    isSummaryStale: isSummaryStale
                 ),
                 suggestedBaseName: NoteFileExportNaming.suggestedBaseName(
                     customTitle: item.customTitle,
@@ -2068,7 +2071,6 @@ private struct NoteDetailView: View {
                     : unavailableCopyHelp
             )
 
-            // Save transcript text and recording files
             toolbarButton(
                 action: { showFileExportSheet = true },
                 label: {
