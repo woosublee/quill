@@ -11,6 +11,9 @@ struct QuillUserIssueTests {
         try testPersistedPayloadExcludesPrivateDiagnostics()
         try testLocalIssueUsesBoundedDiagnosticCategoryAndExcerpt()
         try testMissingProviderAPIKeyFactory()
+        try testConnectionLostOffersLocalizedRetryAndNetworkGuidance(bundle: bundle)
+        try testOfflineTransportFailuresKeepExistingGuidance(bundle: bundle)
+        try testTransportTimeoutClassificationIsPreserved()
         try testCompactMessageAndSafeDetailsAreDeterministic(bundle: bundle)
         try testMeetingSummaryLanguageUnavailableAndProviderCodeDetails(bundle: bundle)
         try testMeetingSummaryFailureSubtypeUsesSafeLocalizedDetails(bundle: bundle)
@@ -500,6 +503,87 @@ struct QuillUserIssueTests {
             !issue.privateDiagnostic.lowercased().contains("key="),
             "missing provider key diagnostic excludes credential values"
         )
+    }
+
+    private static func testConnectionLostOffersLocalizedRetryAndNetworkGuidance(
+        bundle: Bundle
+    ) throws {
+        let issue = QuillUserIssueError.cloudTransport(
+            URLError(.networkConnectionLost),
+            providerHost: "api.example.com",
+            modelID: "provider/model-v1"
+        )
+        let english = issue.record.presentation(language: "en", bundle: bundle)
+        let korean = issue.record.presentation(language: "ko", bundle: bundle)
+
+        try expect(
+            english.title == "Connection lost",
+            "연결 끊김을 인터넷 연결 없음으로 잘못 안내하지 않는다"
+        )
+        try expect(
+            english.suggestion == "Try again or switch to another network.",
+            "연결 끊김에는 재시도와 다른 네트워크 사용을 안내한다"
+        )
+        try expect(korean.title == "연결이 끊겼습니다", "연결 끊김 제목을 한국어로 표시한다")
+        try expect(
+            korean.suggestion == "다시 시도하거나 다른 네트워크를 사용해 보세요.",
+            "한국어에서도 재시도와 다른 네트워크 사용을 안내한다"
+        )
+        try expect(
+            english.recoveryAction == .retryTranscription
+                && korean.recoveryAction == .retryTranscription,
+            "연결 끊김의 기존 전사 재시도 동작을 유지한다"
+        )
+        try expect(
+            english.detailsRows == [
+                QuillUserIssueDetailsRow(label: "Provider", value: "api.example.com"),
+                QuillUserIssueDetailsRow(label: "Model", value: "provider/model-v1")
+            ],
+            "연결 끊김에도 기존 제공자와 모델 상세정보를 보존한다"
+        )
+        let restored = try QuillUserIssueRecord.decodePersistedStatus(issue.persistedStatus)
+        try expect(
+            restored.presentation(language: "ko", bundle: bundle) == korean,
+            "기록을 다시 읽어도 연결 끊김 안내와 복구 동작을 유지한다"
+        )
+    }
+
+    private static func testOfflineTransportFailuresKeepExistingGuidance(
+        bundle: Bundle
+    ) throws {
+        let codes: [URLError.Code] = [
+            .notConnectedToInternet,
+            .cannotConnectToHost,
+            .cannotFindHost,
+            .dnsLookupFailed
+        ]
+        for code in codes {
+            let issue = QuillUserIssueError.cloudTransport(
+                URLError(code),
+                providerHost: "api.example.com",
+                modelID: "provider/model-v1"
+            )
+            let english = issue.record.presentation(language: "en", bundle: bundle)
+            let korean = issue.record.presentation(language: "ko", bundle: bundle)
+
+            try expect(issue.record.code == .networkUnavailable, "\(code)는 기존 네트워크 오류 분류를 유지한다")
+            try expect(english.title == "No network connection", "\(code)는 기존 영어 안내를 유지한다")
+            try expect(korean.title == "네트워크 연결 없음", "\(code)는 기존 한국어 안내를 유지한다")
+            try expect(english.recoveryAction == .retryTranscription, "\(code)는 전사를 재시도할 수 있다")
+        }
+    }
+
+    private static func testTransportTimeoutClassificationIsPreserved() throws {
+        for (code, timedOut) in [(URLError.Code.timedOut, false), (.networkConnectionLost, true)] {
+            let issue = QuillUserIssueError.cloudTransport(
+                URLError(code),
+                timedOut: timedOut,
+                providerHost: "api.example.com",
+                modelID: "provider/model-v1"
+            )
+            try expect(issue.record.code == .requestTimedOut, "명시적인 시간 초과는 연결 끊김보다 우선한다")
+            try expect(issue.record.recoveryAction == .retryTranscription, "시간 초과의 재시도 동작을 유지한다")
+        }
     }
 
     private static func testCompactMessageAndSafeDetailsAreDeterministic(
