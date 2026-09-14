@@ -8,6 +8,18 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.42] - 2026-09-15
+
+### Improved
+
+- Extended Save Files to export saved Meeting Summaries as separate TXT or Markdown files, including notes that only have a saved summary.
+- Kept the Save Files layout stable as export selections change and showed when a saved summary may be out of date.
+
+### Fixed
+
+- Added filename-length preflight before exports, including generated summary suffixes, to reduce partial writes caused by overlong filenames.
+- Distinguished interrupted transcription-service connections from offline errors, with clearer retry and alternative-network guidance in English and Korean.
+
 ## [0.1.41] - 2026-08-26
 
 ### Improved
