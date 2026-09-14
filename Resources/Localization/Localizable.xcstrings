@@ -10725,6 +10725,54 @@
         }
       }
     },
+    "Connection lost": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection lost"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결이 끊겼습니다"
+          }
+        }
+      }
+    },
+    "The connection to the transcription service was interrupted before the request completed.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The connection to the transcription service was interrupted before the request completed."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 요청이 완료되기 전에 서비스와의 연결이 끊겼습니다."
+          }
+        }
+      }
+    },
+    "Try again or switch to another network.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try again or switch to another network."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 시도하거나 다른 네트워크를 사용해 보세요."
+          }
+        }
+      }
+    },
     "Transcription timed out": {
       "localizations": {
         "en": {

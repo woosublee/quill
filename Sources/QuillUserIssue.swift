@@ -2,6 +2,7 @@ import Foundation
 
 enum QuillUserIssueCode: String, Codable, CaseIterable, Sendable {
     case networkUnavailable = "network-unavailable"
+    case networkConnectionLost = "network-connection-lost"
     case requestTimedOut = "request-timed-out"
     case rateLimited = "rate-limited"
     case authenticationFailed = "authentication-failed"
@@ -281,7 +282,8 @@ struct QuillUserIssueRecord: Codable, Equatable, Sendable {
              .meetingSummaryInvalidResponse, .historyPersistenceUnavailable,
              .historyRecovered:
             return .none
-        case .networkUnavailable, .requestTimedOut, .rateLimited,
+        case .networkUnavailable, .networkConnectionLost,
+             .requestTimedOut, .rateLimited,
              .providerUnavailable, .audioFileTooLarge,
              .invalidProviderResponse, .audioUnreadable,
              .audioPreparationFailed, .localTranscriptionFailed,
@@ -476,8 +478,10 @@ struct QuillUserIssueError: Error, Sendable {
             code = .requestTimedOut
         } else if let urlError = error as? URLError {
             switch urlError.code {
-            case .notConnectedToInternet, .networkConnectionLost,
-                 .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+            case .networkConnectionLost:
+                code = .networkConnectionLost
+            case .notConnectedToInternet, .cannotConnectToHost,
+                 .cannotFindHost, .dnsLookupFailed:
                 code = .networkUnavailable
             case .timedOut:
                 code = .requestTimedOut
@@ -567,6 +571,12 @@ private extension QuillUserIssueCode {
                 titleKey: "No network connection",
                 bodyKey: "Quill could not reach the transcription service because this Mac appears to be offline.",
                 suggestionKey: "Check your internet connection, then try again."
+            )
+        case .networkConnectionLost:
+            return QuillUserIssueCopy(
+                titleKey: "Connection lost",
+                bodyKey: "The connection to the transcription service was interrupted before the request completed.",
+                suggestionKey: "Try again or switch to another network."
             )
         case .requestTimedOut:
             switch context.operation {
