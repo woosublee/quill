@@ -13,12 +13,14 @@ struct NoteBrowserActionState: Equatable {
     let hasTranscriptText: Bool
     let retryAvailability: NoteBrowserRetryAvailability
     let postProcessingEnabled: Bool
+    let hasSummary: Bool
 
     init(
         hasStoredAudio: Bool,
         transcript: String,
         retryAvailability: NoteBrowserRetryAvailability,
-        postProcessingEnabled: Bool = true
+        postProcessingEnabled: Bool = true,
+        hasSummary: Bool = false
     ) {
         self.hasStoredAudio = hasStoredAudio
         self.hasTranscriptText = !transcript
@@ -26,11 +28,12 @@ struct NoteBrowserActionState: Equatable {
             .isEmpty
         self.retryAvailability = retryAvailability
         self.postProcessingEnabled = postProcessingEnabled
+        self.hasSummary = hasSummary
     }
 
     var showsRetryButton: Bool { hasStoredAudio }
     var canCopy: Bool { hasTranscriptText }
-    var canSaveFiles: Bool { hasStoredAudio || hasTranscriptText }
+    var canSaveFiles: Bool { hasStoredAudio || hasTranscriptText || hasSummary }
 }
 
 enum NoteBrowserRecoveryPresentation {

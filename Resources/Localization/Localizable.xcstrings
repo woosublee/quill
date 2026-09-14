@@ -13957,6 +13957,22 @@
         }
       }
     },
+    "Save 3 Files": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save 3 Files"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 3개 저장"
+          }
+        }
+      }
+    },
     "Save 2 Files": {
       "localizations": {
         "en": {
@@ -14017,6 +14033,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "대치"
+          }
+        }
+      }
+    },
+    "Saved 3 files.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved 3 files."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 3개를 저장했습니다."
+          }
+        }
+      }
+    },
+    "Summary saved.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summary saved."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약을 저장했습니다."
+          }
+        }
+      }
+    },
+    "A file name is too long. Shorten the name before saving.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A file name is too long. Shorten the name before saving."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일명이 너무 깁니다. 이름을 줄인 뒤 저장하세요."
+          }
+        }
+      }
+    },
+    "The summary could not be saved.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The summary could not be saved."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약을 저장하지 못했습니다."
           }
         }
       }

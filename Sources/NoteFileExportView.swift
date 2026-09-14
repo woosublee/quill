@@ -10,6 +10,7 @@ struct NoteFileExportView: View {
     @AppStorage("note_file_export_last_directory")
     private var lastDirectoryPath = ""
     @State private var includeTranscript: Bool
+    @State private var includeSummary: Bool
     @State private var includeAudio: Bool
     @State private var textFormat = NoteFileExportTextFormat.plainText
     @State private var baseName: String
@@ -31,6 +32,7 @@ struct NoteFileExportView: View {
         self.onDismiss = onDismiss
         self.onSaved = onSaved
         _includeTranscript = State(initialValue: source.transcript != nil)
+        _includeSummary = State(initialValue: source.summary != nil)
         _includeAudio = State(initialValue: source.audioURL != nil)
         _baseName = State(initialValue: suggestedBaseName)
     }
@@ -45,6 +47,53 @@ struct NoteFileExportView: View {
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 18)
 
+            ScrollView(.vertical) {
+                exportFields
+                    .padding(.horizontal, 4)
+            }
+            .padding(.horizontal, -4)
+
+            Divider().padding(.vertical, 16)
+            HStack {
+                Button("Cancel") { onDismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button(action: { prepareSave() }) {
+                    HStack(spacing: 6) {
+                        if isSaving {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                        Text(saveButtonTitle)
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .disabled(!canSave || isSaving)
+            }
+        }
+        .padding(24)
+        .frame(width: 500, height: 520)
+        .onAppear { loadInitialDirectory() }
+        .confirmationDialog(
+            "Replace Existing Files?",
+            isPresented: $showReplaceConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Replace", role: .destructive) {
+                guard let request = pendingReplacementRequest else { return }
+                performSave(request, replaceExisting: true)
+            }
+            Button("Cancel", role: .cancel) {
+                pendingReplacementRequest = nil
+            }
+        } message: {
+            Text(conflictMessage)
+        }
+    }
+
+    private var exportFields: some View {
+        VStack(alignment: .leading, spacing: 0) {
             fieldLabel("Items to Save")
             Toggle("Transcript Text", isOn: $includeTranscript)
                 .toggleStyle(.checkbox)
@@ -55,9 +104,28 @@ struct NoteFileExportView: View {
                     .foregroundStyle(.secondary)
                     .padding(.leading, 22)
             }
+            if source.summary != nil {
+                HStack(alignment: .center, spacing: 8) {
+                    Toggle("Summary", isOn: $includeSummary)
+                        .toggleStyle(.checkbox)
+                        .fixedSize()
+                    if source.isSummaryStale {
+                        Text(
+                            verbatim: "(" + localizedCatalogString(
+                                "Transcript changed after this summary was generated."
+                            ) + ")"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(.top, 6)
+            }
             Toggle("Recording File", isOn: $includeAudio)
                 .toggleStyle(.checkbox)
                 .disabled(source.audioURL == nil)
+                .padding(.top, 6)
             if source.audioURL == nil {
                 Text("The saved recording file could not be found.")
                     .font(.caption)
@@ -65,7 +133,7 @@ struct NoteFileExportView: View {
                     .padding(.leading, 22)
             }
 
-            if includeTranscript, source.transcript != nil {
+            if source.transcript != nil || source.summary != nil {
                 fieldLabel("Text Format")
                     .padding(.top, 14)
                 Picker("Text Format", selection: $textFormat) {
@@ -76,6 +144,9 @@ struct NoteFileExportView: View {
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
+                .disabled(
+                    !selectedItems.contains(.transcript) && !selectedItems.contains(.summary)
+                )
             }
 
             fieldLabel("File Name")
@@ -83,6 +154,13 @@ struct NoteFileExportView: View {
             TextField("File Name", text: $baseName)
                 .textFieldStyle(.roundedBorder)
             filePreview
+            Text("A file name is too long. Shorten the name before saving.")
+                .font(.caption)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 6)
+                .opacity(fileNameIsTooLong ? 1 : 0)
+                .accessibilityHidden(!fileNameIsTooLong)
 
             fieldLabel("Save Location")
                 .padding(.top, 14)
@@ -111,61 +189,36 @@ struct NoteFileExportView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 12)
             }
-
-            Divider().padding(.vertical, 16)
-            HStack {
-                Button("Cancel") { onDismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Spacer()
-                Button(action: { prepareSave() }) {
-                    HStack(spacing: 6) {
-                        if isSaving {
-                            ProgressView()
-                                .controlSize(.small)
-                        }
-                        Text(saveButtonTitle)
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .disabled(!canSave || isSaving)
-            }
         }
-        .padding(24)
-        .frame(width: 500)
-        .onAppear { loadInitialDirectory() }
-        .confirmationDialog(
-            "Replace Existing Files?",
-            isPresented: $showReplaceConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Replace", role: .destructive) {
-                guard let request = pendingReplacementRequest else { return }
-                performSave(request, replaceExisting: true)
-            }
-            Button("Cancel", role: .cancel) {
-                pendingReplacementRequest = nil
-            }
-        } message: {
-            Text(conflictMessage)
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var selectedItems: Set<NoteFileExportItem> {
         var items = Set<NoteFileExportItem>()
         if includeTranscript, source.transcript != nil { items.insert(.transcript) }
+        if includeSummary, source.summary != nil { items.insert(.summary) }
         if includeAudio, source.audioURL != nil { items.insert(.audio) }
         return items
+    }
+
+    private var fileNameIsTooLong: Bool {
+        guard let request = currentRequest else { return false }
+        return !NoteFileExporter.fileNameFailures(for: request).isEmpty
     }
 
     private var canSave: Bool {
         !selectedItems.isEmpty
             && destinationDirectory != nil
             && !baseName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !fileNameIsTooLong
     }
 
     private var saveButtonTitle: LocalizedStringKey {
-        selectedItems.count == 2 ? "Save 2 Files" : "Save File"
+        switch selectedItems.count {
+        case 3: return "Save 3 Files"
+        case 2: return "Save 2 Files"
+        default: return "Save File"
+        }
     }
 
     private var conflictMessage: String {
@@ -175,24 +228,35 @@ struct NoteFileExportView: View {
             .joined(separator: "\n")
     }
 
-    @ViewBuilder
     private var filePreview: some View {
-        if let request = currentRequest {
-            VStack(alignment: .leading, spacing: 3) {
-                ForEach(
-                    NoteFileExporter.destinationURLs(for: request)
-                        .values
-                        .map(\.lastPathComponent)
-                        .sorted(),
-                    id: \.self
-                ) { fileName in
-                    Text(fileName)
+        ZStack(alignment: .topLeading) {
+            VStack(spacing: 3) {
+                ForEach(0..<source.availableItems.count, id: \.self) { _ in
+                    Text(verbatim: " ")
+                        .lineLimit(1)
                 }
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.top, 6)
+            .hidden()
+
+            if let request = currentRequest {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(
+                        NoteFileExporter.destinationURLs(for: request)
+                            .values
+                            .map(\.lastPathComponent)
+                            .sorted(),
+                        id: \.self
+                    ) { fileName in
+                        Text(fileName)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+            }
         }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.top, 6)
     }
 
     private var currentRequest: NoteFileExportRequest? {
@@ -258,7 +322,7 @@ struct NoteFileExportView: View {
     }
 
     private func prepareSave() {
-        guard let request = currentRequest else { return }
+        guard canSave, let request = currentRequest else { return }
         let conflicts = NoteFileExporter.conflicts(for: request)
         if conflicts.isEmpty {
             performSave(request, replaceExisting: false)
@@ -301,11 +365,17 @@ struct NoteFileExportView: View {
         for items: [NoteFileExportItem]
     ) -> String {
         let set = Set(items)
-        if set == [.transcript, .audio] {
+        if set.count == 3 {
+            return localizedCatalogString("Saved 3 files.")
+        }
+        if set.count == 2 {
             return localizedCatalogString("Saved 2 files.")
         }
         if set == [.audio] {
             return localizedCatalogString("Recording file saved.")
+        }
+        if set == [.summary] {
+            return localizedCatalogString("Summary saved.")
         }
         return localizedCatalogString("Transcript text saved.")
     }
@@ -316,10 +386,19 @@ struct NoteFileExportView: View {
             lines.append(successMessage(for: result.savedItems))
         }
         lines.append(contentsOf: result.failures.map { failure in
+            if failure.reason == .fileNameTooLong {
+                return localizedCatalogString(
+                    "A file name is too long. Shorten the name before saving."
+                )
+            }
             switch failure.item {
             case .transcript:
                 return localizedCatalogString(
                     "The transcript text could not be saved."
+                )
+            case .summary:
+                return localizedCatalogString(
+                    "The summary could not be saved."
                 )
             case .audio:
                 return localizedCatalogString(

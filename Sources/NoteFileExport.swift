@@ -33,6 +33,7 @@ enum NoteFileExportNaming {
 
 enum NoteFileExportItem: String, CaseIterable, Hashable, Sendable {
     case transcript
+    case summary
     case audio
 }
 
@@ -52,18 +53,30 @@ enum NoteFileExportTextFormat: String, CaseIterable, Identifiable, Sendable {
 
 struct NoteFileExportSource: Sendable {
     let transcript: String?
+    let summary: String?
     let audioURL: URL?
+    let isSummaryStale: Bool
 
-    init(transcript: String, audioURL: URL?) {
+    init(
+        transcript: String,
+        audioURL: URL?,
+        summary: String? = nil,
+        isSummaryStale: Bool = false
+    ) {
         self.transcript = transcript
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty ? nil : transcript
+        self.summary = summary?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty == false ? summary : nil
         self.audioURL = audioURL
+        self.isSummaryStale = self.summary != nil && isSummaryStale
     }
 
     var availableItems: Set<NoteFileExportItem> {
         var items = Set<NoteFileExportItem>()
         if transcript != nil { items.insert(.transcript) }
+        if summary != nil { items.insert(.summary) }
         if audioURL != nil { items.insert(.audio) }
         return items
     }
@@ -80,6 +93,7 @@ struct NoteFileExportRequest: Sendable {
 enum NoteFileExportFailureReason: Equatable, Sendable {
     case sourceMissing
     case destinationExists
+    case fileNameTooLong
     case writeFailed
 }
 
@@ -127,6 +141,11 @@ enum NoteFileExporter {
                 .appendingPathComponent(baseName)
                 .appendingPathExtension(request.textFormat.pathExtension)
         }
+        if request.selectedItems.contains(.summary) {
+            urls[.summary] = request.destinationDirectory
+                .appendingPathComponent("\(baseName)-summary")
+                .appendingPathExtension(request.textFormat.pathExtension)
+        }
         if request.selectedItems.contains(.audio),
            let audioURL = request.source.audioURL {
             let audioExtension = audioURL.pathExtension.isEmpty
@@ -139,6 +158,19 @@ enum NoteFileExporter {
         return urls
     }
 
+    static func fileNameFailures(
+        for request: NoteFileExportRequest
+    ) -> [NoteFileExportFailure] {
+        let destinations = destinationURLs(for: request)
+        return NoteFileExportItem.allCases.compactMap { item in
+            guard let destination = destinations[item],
+                  destination.lastPathComponent.utf16.count > 255 else {
+                return nil
+            }
+            return NoteFileExportFailure(item: item, reason: .fileNameTooLong)
+        }
+    }
+
     static func conflicts(for request: NoteFileExportRequest) -> [URL] {
         destinationURLs(for: request).values
             .filter { FileManager.default.fileExists(atPath: $0.path) }
@@ -149,6 +181,10 @@ enum NoteFileExporter {
         _ request: NoteFileExportRequest,
         replaceExisting: Bool
     ) -> NoteFileExportResult {
+        let nameFailures = fileNameFailures(for: request)
+        guard nameFailures.isEmpty else {
+            return NoteFileExportResult(savedItems: [], failures: nameFailures)
+        }
         let destinations = destinationURLs(for: request)
         var savedItems: [NoteFileExportItem] = []
         var failures: [NoteFileExportFailure] = []
@@ -171,12 +207,15 @@ enum NoteFileExporter {
 
             do {
                 switch item {
-                case .transcript:
-                    guard let transcript = request.source.transcript else {
+                case .transcript, .summary:
+                    let text = item == .transcript
+                        ? request.source.transcript
+                        : request.source.summary
+                    guard let text else {
                         throw ExportWriteError.sourceMissing
                     }
                     try installData(
-                        Data(transcript.utf8),
+                        Data(text.utf8),
                         at: destination,
                         replaceExisting: replaceExisting
                     )

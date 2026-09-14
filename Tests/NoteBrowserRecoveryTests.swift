@@ -4,6 +4,8 @@ import Foundation
 struct NoteBrowserRecoveryTests {
     static func main() throws {
         testActionStateSeparatesAssetsFromRetryReadiness()
+        testSummaryOnlyEnablesFileSaving()
+        testNoContentDisablesFileSaving()
         testModelSetupPresentationOpensSettings()
         testModelSelectionPresentationOpensSettings()
         testProviderConfigurationPresentationOpensProviderSettings()
@@ -34,6 +36,27 @@ struct NoteBrowserRecoveryTests {
         precondition(!transcriptOnly.showsRetryButton)
         precondition(transcriptOnly.canCopy)
         precondition(transcriptOnly.canSaveFiles)
+    }
+
+    private static func testSummaryOnlyEnablesFileSaving() {
+        let state = NoteBrowserActionState(
+            hasStoredAudio: false,
+            transcript: " \n ",
+            retryAvailability: .noAudio,
+            hasSummary: true
+        )
+        precondition(state.canSaveFiles)
+        precondition(!state.canCopy)
+        precondition(!state.showsRetryButton)
+    }
+
+    private static func testNoContentDisablesFileSaving() {
+        let state = NoteBrowserActionState(
+            hasStoredAudio: false,
+            transcript: " \n ",
+            retryAvailability: .noAudio
+        )
+        precondition(!state.canSaveFiles)
     }
 
     private static func testModelSetupPresentationOpensSettings() {
