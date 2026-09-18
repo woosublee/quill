@@ -21,10 +21,11 @@ enum SetupFlow {
         case apiStandard
     }
 
-    enum Permission: Hashable {
+    enum Permission: Hashable, CaseIterable {
         case microphone
         case accessibility
         case speechRecognition
+        case screenRecording
     }
 
     static func processingPreset(
@@ -48,13 +49,44 @@ enum SetupFlow {
         }
     }
 
-    static func requiredPermissions(for preset: ProcessingPreset) -> Set<Permission> {
+    static func hasRequiredAudioSource(
+        for preset: ProcessingPreset,
+        recordOnlySource: AudioRecordingSource?
+    ) -> Bool {
+        preset != .recordOnly || recordOnlySource != nil
+    }
+
+    static func requiredPermissions(
+        for preset: ProcessingPreset,
+        audioSource: AudioRecordingSource = .microphone
+    ) -> Set<Permission> {
         switch preset {
-        case .recordOnly, .localNativeWhisper, .apiStandard:
+        case .recordOnly:
+            var permissions: Set<Permission> = []
+            if audioSource.requiresMicrophonePermission {
+                permissions.insert(.microphone)
+            }
+            if audioSource.requiresSystemAudioPermission {
+                permissions.insert(.screenRecording)
+            }
+            return permissions
+        case .localNativeWhisper, .apiStandard:
             return [.microphone]
         case .localAppleSpeech:
             return [.microphone, .speechRecognition]
         }
+    }
+
+    static func canContinuePermissions(
+        for preset: ProcessingPreset,
+        recordOnlySource: AudioRecordingSource?,
+        grantedPermissions: Set<Permission>
+    ) -> Bool {
+        guard hasRequiredAudioSource(for: preset, recordOnlySource: recordOnlySource) else {
+            return false
+        }
+        return requiredPermissions(for: preset, audioSource: recordOnlySource ?? .microphone)
+            .isSubset(of: grantedPermissions)
     }
 
     static func isNotificationAuthorizationGranted(_ status: UNAuthorizationStatus) -> Bool {

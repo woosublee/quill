@@ -2305,6 +2305,102 @@
         }
       }
     },
+    "Record Mac audio without using the microphone.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Record Mac audio without using the microphone."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마이크 없이 Mac에서 재생되는 소리만 녹음합니다."
+          }
+        }
+      }
+    },
+    "Required permissions depend on your recording setup. Optional permissions can be enabled later.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Required permissions depend on your recording setup. Optional permissions can be enabled later."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 설정에 따라 필요한 권한이 달라집니다. 선택 권한은 나중에 허용할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Permissions changed. Allow the required access to finish setup.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permissions changed. Allow the required access to finish setup."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "권한 상태가 변경되었습니다. 필요한 권한을 허용한 뒤 설정을 완료하세요."
+          }
+        }
+      }
+    },
+    "Microphone access is not needed for System Audio. Quill will ask when you start a recording that uses the microphone.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Microphone access is not needed for System Audio. Quill will ask when you start a recording that uses the microphone."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 오디오에는 마이크 권한이 필요하지 않습니다. 나중에 마이크를 사용하는 녹음을 시작하면 권한을 요청합니다."
+          }
+        }
+      }
+    },
+    "Notifications are enabled.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications are enabled."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림이 허용되어 있습니다."
+          }
+        }
+      }
+    },
+    "Notifications can be enabled later.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications can be enabled later."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림은 나중에 허용할 수 있습니다."
+          }
+        }
+      }
+    },
     "Choose what Quill records.": {
       "localizations": {
         "en": {

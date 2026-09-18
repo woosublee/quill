@@ -7,6 +7,10 @@ struct SetupFlowTests {
         testProcessingStartsWithoutSelection()
         testLocalDefaultsToAppleSpeech()
         testRecordOnlyPresetAndPermissions()
+        testRecordOnlyRequiresExplicitAudioSource()
+        testPermissionsFollowRecordOnlyAudioSource()
+        testRecordOnlyPermissionProgress()
+        testRecordOnlyDraftDoesNotChangeOtherPresets()
         try testProcessingOffersRecordOnlyAlongsideLocalAndAPI()
         try testAccessibilityPermissionIsOptional()
         testNotificationAuthorizationGrantedStates()
@@ -74,6 +78,88 @@ struct SetupFlowTests {
         )
     }
 
+    private static func testRecordOnlyRequiresExplicitAudioSource() {
+        assert(!SetupFlow.hasRequiredAudioSource(for: .recordOnly, recordOnlySource: nil))
+        for source in AudioRecordingSource.allCases {
+            assert(SetupFlow.hasRequiredAudioSource(for: .recordOnly, recordOnlySource: source))
+        }
+        for preset: SetupFlow.ProcessingPreset in [.localAppleSpeech, .localNativeWhisper, .apiStandard] {
+            assert(SetupFlow.hasRequiredAudioSource(for: preset, recordOnlySource: nil))
+        }
+    }
+
+    private static func testPermissionsFollowRecordOnlyAudioSource() {
+        let cases: [(AudioRecordingSource, Set<SetupFlow.Permission>)] = [
+            (.microphone, [.microphone]),
+            (.systemAudio, [.screenRecording]),
+            (.microphoneAndSystemAudio, [.microphone, .screenRecording]),
+        ]
+        for (source, expected) in cases {
+            assert(SetupFlow.requiredPermissions(for: .recordOnly, audioSource: source) == expected)
+        }
+    }
+
+    private static func testRecordOnlyPermissionProgress() {
+        let cases: [(AudioRecordingSource?, Set<SetupFlow.Permission>, Bool)] = [
+            (nil, [], false),
+            (nil, [.microphone, .screenRecording, .speechRecognition, .accessibility], false),
+            (.microphone, [], false),
+            (.microphone, [.screenRecording], false),
+            (.microphone, [.microphone], true),
+            (.systemAudio, [], false),
+            (.systemAudio, [.microphone], false),
+            (.systemAudio, [.screenRecording], true),
+            (.microphoneAndSystemAudio, [.microphone], false),
+            (.microphoneAndSystemAudio, [.screenRecording], false),
+            (.microphoneAndSystemAudio, [.microphone, .screenRecording], true),
+        ]
+        for (source, granted, expected) in cases {
+            assert(
+                SetupFlow.canContinuePermissions(
+                    for: .recordOnly,
+                    recordOnlySource: source,
+                    grantedPermissions: granted
+                ) == expected
+            )
+        }
+
+        var selectedSource: AudioRecordingSource? = .systemAudio
+        let granted: Set<SetupFlow.Permission> = [.screenRecording]
+        assert(SetupFlow.canContinuePermissions(
+            for: .recordOnly, recordOnlySource: selectedSource, grantedPermissions: granted
+        ))
+        selectedSource = .microphoneAndSystemAudio
+        assert(!SetupFlow.canContinuePermissions(
+            for: .recordOnly, recordOnlySource: selectedSource, grantedPermissions: granted
+        ))
+        selectedSource = .systemAudio
+        assert(SetupFlow.canContinuePermissions(
+            for: .recordOnly, recordOnlySource: selectedSource, grantedPermissions: granted
+        ))
+        assert(!SetupFlow.canContinuePermissions(
+            for: .recordOnly, recordOnlySource: selectedSource, grantedPermissions: []
+        ))
+    }
+
+    private static func testRecordOnlyDraftDoesNotChangeOtherPresets() {
+        let cases: [(SetupFlow.ProcessingPreset, Set<SetupFlow.Permission>)] = [
+            (.localAppleSpeech, [.microphone, .speechRecognition]),
+            (.localNativeWhisper, [.microphone]),
+            (.apiStandard, [.microphone]),
+        ]
+        for (preset, expected) in cases {
+            for source in AudioRecordingSource.allCases {
+                assert(SetupFlow.requiredPermissions(for: preset, audioSource: source) == expected)
+                assert(!SetupFlow.canContinuePermissions(
+                    for: preset, recordOnlySource: source, grantedPermissions: [.screenRecording]
+                ))
+                assert(SetupFlow.canContinuePermissions(
+                    for: preset, recordOnlySource: source, grantedPermissions: expected
+                ))
+            }
+        }
+    }
+
     private static func testProcessingOffersRecordOnlyAlongsideLocalAndAPI() throws {
         let source = try String(contentsOfFile: "Sources/SetupView.swift", encoding: .utf8)
         let processing = sourceBlock(
@@ -86,7 +172,10 @@ struct SetupFlowTests {
         assert(processing.contains("title: \"Record only\""))
         assert(processing.contains("location: .onThisMac"))
         assert(processing.contains("location: .apiProvider"))
-        assert(source.contains("case .recordOnly:\n                return true"))
+        assert(
+            !source.contains("case .recordOnly:\n                return true"),
+            "Record-only must require an explicit audio source before continuing."
+        )
     }
 
     private static func testAccessibilityPermissionIsOptional() throws {

@@ -18,6 +18,7 @@ struct SetupView: View {
 
     @State private var currentStep = SetupStep.welcome
     @State private var processingLocation: SetupFlow.ProcessingLocation?
+    @State private var recordOnlyAudioSource: AudioRecordingSource?
     @State private var localModel = SetupFlow.LocalModel.default
     @State private var apiKeyInput = ""
     @State private var validatedAPIKey: String?
@@ -27,6 +28,7 @@ struct SetupView: View {
     @State private var accessibilityGranted = false
     @State private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
     @State private var permissionTimer: Timer?
+    @State private var permissionsChangedBeforeCompletion = false
     @State private var holdShortcutValidationMessage: String?
     @State private var isCapturingHoldShortcut = false
     @State private var toggleShortcutValidationMessage: String?
@@ -40,6 +42,23 @@ struct SetupView: View {
         SetupFlow.processingPreset(
             location: processingLocation,
             localModel: localModel
+        )
+    }
+
+    private var requiredPermissions: Set<SetupFlow.Permission> {
+        guard let selectedPreset else { return [] }
+        return SetupFlow.requiredPermissions(
+            for: selectedPreset,
+            audioSource: recordOnlyAudioSource ?? .microphone
+        )
+    }
+
+    private var hasGrantedRequiredPermissions: Bool {
+        guard let selectedPreset else { return false }
+        return SetupFlow.canContinuePermissions(
+            for: selectedPreset,
+            recordOnlySource: recordOnlyAudioSource,
+            grantedPermissions: Set(SetupFlow.Permission.allCases.filter(permissionGranted))
         )
     }
 
@@ -220,6 +239,8 @@ struct SetupView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
                 .cornerRadius(12)
+
+                recordOnlySourceSelection
             } else if processingLocation == .onThisMac {
                 localProcessingDetails
                     .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
@@ -229,6 +250,51 @@ struct SetupView: View {
             }
         }
         .animation(.spring(response: 0.35, dampingFraction: 1.0), value: processingLocation)
+    }
+
+    private var recordOnlySourceSelection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Audio Source")
+                .font(.subheadline.weight(.semibold))
+            Text("Choose what Quill records.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            ForEach(AudioRecordingSource.allCases) { source in
+                Button {
+                    recordOnlyAudioSource = source
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: recordOnlyAudioSource == source ? "largecircle.fill.circle" : "circle")
+                            .foregroundStyle(recordOnlyAudioSource == source ? Color.accentColor : .secondary)
+                            .accessibilityHidden(true)
+                        Text(localizedCatalogString(source.titleKey))
+                            .font(.callout)
+                        Spacer()
+                    }
+                    .padding(12)
+                    .background(
+                        recordOnlyAudioSource == source
+                            ? Color.accentColor.opacity(0.08)
+                            : Color(nsColor: .controlBackgroundColor)
+                    )
+                    .cornerRadius(8)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityValue(recordOnlyAudioSource == source ? Text("Selected") : Text("Not selected"))
+            }
+
+            if recordOnlyAudioSource == .systemAudio {
+                Text("Record Mac audio without using the microphone.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(16)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        .cornerRadius(12)
     }
 
     private var localProcessingDetails: some View {
@@ -375,23 +441,39 @@ struct SetupView: View {
             stepHeader(
                 icon: "checkmark.shield.fill",
                 title: "Allow Quill to work",
-                description: "Required permissions unlock dictation. Optional permissions can be skipped and enabled later."
+                description: "Required permissions depend on your recording setup. Optional permissions can be enabled later."
             )
+
+            if permissionsChangedBeforeCompletion {
+                Label(
+                    "Permissions changed. Allow the required access to finish setup.",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+            }
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("Required")
                     .font(.headline)
 
-                permissionRow(
-                    title: "Microphone",
-                    description: "Record your voice and other selected audio inputs.",
-                    icon: "mic.fill",
-                    granted: micPermissionGranted,
-                    actionTitle: String(localized: "Grant Access"),
-                    action: requestMicrophonePermission
-                )
+                if requiredPermissions.contains(.microphone) {
+                    permissionRow(
+                        title: "Microphone",
+                        description: "Record your voice and other selected audio inputs.",
+                        icon: "mic.fill",
+                        granted: micPermissionGranted,
+                        actionTitle: String(localized: "Grant Access"),
+                        action: requestMicrophonePermission
+                    )
+                }
 
-                if selectedPreset == .localAppleSpeech {
+                if requiredPermissions.contains(.screenRecording) {
+                    screenRecordingPermissionRow
+                }
+
+                if requiredPermissions.contains(.speechRecognition) {
                     permissionRow(
                         title: "Speech Recognition",
                         description: "Required by Apple Speech for live transcription.",
@@ -401,6 +483,13 @@ struct SetupView: View {
                         action: { appState.requestSpeechRecognitionAccess() }
                     )
                 }
+            }
+
+            if selectedPreset == .recordOnly, recordOnlyAudioSource == .systemAudio {
+                Text("Microphone access is not needed for System Audio. Quill will ask when you start a recording that uses the microphone.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             VStack(alignment: .leading, spacing: 10) {
@@ -421,14 +510,9 @@ struct SetupView: View {
                     action: appState.openAccessibilitySettings
                 )
 
-                permissionRow(
-                    title: "Screen & System Audio Recording",
-                    description: "Enables System Audio recording and optional screen context.",
-                    icon: "camera.viewfinder",
-                    granted: appState.hasScreenRecordingPermission,
-                    actionTitle: String(localized: "Grant Access"),
-                    action: appState.requestScreenCapturePermission
-                )
+                if !requiredPermissions.contains(.screenRecording) {
+                    screenRecordingPermissionRow
+                }
 
                 permissionRow(
                     title: "Notifications",
@@ -530,6 +614,13 @@ struct SetupView: View {
                     title: "Processing",
                     detail: processingSummary
                 )
+                if selectedPreset == .recordOnly, let recordOnlyAudioSource {
+                    summaryRow(
+                        icon: "waveform",
+                        title: "Audio Source",
+                        detail: localizedCatalogString(recordOnlyAudioSource.titleKey)
+                    )
+                }
                 if appState.hasEnabledHoldShortcut {
                     summaryRow(
                         icon: "keyboard",
@@ -625,6 +716,17 @@ struct SetupView: View {
         }
         .buttonStyle(.plain)
         .accessibilityValue(isSelected ? Text("Selected") : Text("Not selected"))
+    }
+
+    private var screenRecordingPermissionRow: some View {
+        permissionRow(
+            title: "Screen & System Audio Recording",
+            description: "Enables System Audio recording and optional screen context.",
+            icon: "camera.viewfinder",
+            granted: appState.hasScreenRecordingPermission,
+            actionTitle: String(localized: "Grant Access"),
+            action: appState.requestScreenCapturePermission
+        )
     }
 
     private func permissionRow(
@@ -730,7 +832,10 @@ struct SetupView: View {
             guard let selectedPreset else { return false }
             switch selectedPreset {
             case .recordOnly:
-                return true
+                return SetupFlow.hasRequiredAudioSource(
+                    for: selectedPreset,
+                    recordOnlySource: recordOnlyAudioSource
+                )
             case .localAppleSpeech:
                 return true
             case .localNativeWhisper:
@@ -740,10 +845,7 @@ struct SetupView: View {
                 return isAPIKeyValidated && !isValidatingKey
             }
         case .permissions:
-            guard let selectedPreset else { return false }
-            return SetupFlow.requiredPermissions(for: selectedPreset).allSatisfy {
-                permissionGranted($0)
-            }
+            return hasGrantedRequiredPermissions
         }
     }
 
@@ -771,6 +873,11 @@ struct SetupView: View {
     }
 
     private var optionalPermissionsSummary: String {
+        if requiredPermissions.contains(.screenRecording) {
+            return notificationAuthorizationGranted
+                ? localizedCatalogString("Notifications are enabled.")
+                : localizedCatalogString("Notifications can be enabled later.")
+        }
         switch (appState.hasScreenRecordingPermission, notificationAuthorizationGranted) {
         case (true, true):
             return localizedCatalogString("Screen Recording and Notifications are enabled.")
@@ -785,6 +892,19 @@ struct SetupView: View {
 
     private func performPrimaryAction() {
         if currentStep == .ready {
+            if selectedPreset == .recordOnly {
+                guard let recordOnlyAudioSource else {
+                    currentStep = .processing
+                    return
+                }
+                refreshPolledPermissionStatuses()
+                guard hasGrantedRequiredPermissions else {
+                    permissionsChangedBeforeCompletion = true
+                    currentStep = .permissions
+                    return
+                }
+                appState.selectAudioSource(recordOnlyAudioSource)
+            }
             onComplete()
             return
         }
@@ -792,6 +912,7 @@ struct SetupView: View {
         if currentStep == .processing, let selectedPreset {
             appState.applySetupProcessingPreset(selectedPreset)
         }
+        permissionsChangedBeforeCompletion = false
 
         withAnimation(.easeInOut(duration: 0.2)) {
             currentStep = nextStep(currentStep)
@@ -860,6 +981,8 @@ struct SetupView: View {
             return accessibilityGranted
         case .speechRecognition:
             return appState.hasSpeechRecognitionPermission
+        case .screenRecording:
+            return appState.hasScreenRecordingPermission
         }
     }
 
