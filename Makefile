@@ -680,7 +680,7 @@ _test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSC
 	@$(TEST_BUILD_DIR)/GoogleCalendarServiceTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/AppNotificationManager.swift Sources/CalendarRecordingReminderScheduler.swift Tests/CalendarRecordingReminderSchedulerTests.swift -o $(TEST_BUILD_DIR)/CalendarRecordingReminderSchedulerTests
 	@$(TEST_BUILD_DIR)/CalendarRecordingReminderSchedulerTests
-	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/TranscriptionModel.swift Sources/SetupFlow.swift Tests/SetupFlowTests.swift -o $(TEST_BUILD_DIR)/SetupFlowTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/TranscriptionModel.swift Sources/AudioInputDevice.swift Sources/SetupFlow.swift Tests/SetupFlowTests.swift -o $(TEST_BUILD_DIR)/SetupFlowTests
 	@$(TEST_BUILD_DIR)/SetupFlowTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/TranscriptionModel.swift Tests/TranscriptionModelCacheTests.swift -o $(TEST_BUILD_DIR)/TranscriptionModelCacheTests
 	@$(TEST_BUILD_DIR)/TranscriptionModelCacheTests
