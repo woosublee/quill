@@ -8,6 +8,13 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.43] - 2026-09-18
+
+### Fixed
+
+- Allowed Record-only setup with System Audio without requesting unnecessary microphone access, while still requiring Screen & System Audio Recording permission.
+- Added an explicit recording-source choice during Record-only setup, preserved the choice when navigating back, and rechecked required permissions before saving the source and completing setup.
+
 ## [0.1.42] - 2026-09-15
 
 ### Improved
