@@ -468,8 +468,41 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         try testAudioOnlyStopDismissesRecordingOverlayOnErrors()
         try testAudioOnlyHistoryFailureCleansOnlyUnreferencedNonJournalAudio()
         try testAudioOnlyCompletionOwnsForegroundUIAndTermination()
+        try testAppleLiveKeepsMainThreadUpdatesBounded()
 
         print("AppStateRecordingJournalIntegrationSourceTests passed")
+    }
+
+    // #236: Apple Live callbacks must not flood the main thread while recording.
+    private static func testAppleLiveKeepsMainThreadUpdatesBounded() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let appleSpeechSource = try String(
+            contentsOfFile: "Sources/AppleSpeechLiveTranscriber.swift",
+            encoding: .utf8
+        )
+        let begin = try body(startingWith: "private func beginRecording(", in: source)
+
+        // The active recorder already publishes the waveform level; the transcriber's
+        // own level is only needed when it captures audio itself.
+        precondition(begin.contains("""
+                    if transcriber.handlesRecording {
+                        transcriber.onAudioLevel = { [weak self] level in
+"""))
+
+        // Partial results are coalesced instead of replacing a published history
+        // item on every recognizer callback.
+        precondition(begin.contains("LatestValueProgressCoalescer<String>("))
+        precondition(begin.contains("interval: Self.liveTranscriptUpdateInterval"))
+        precondition(begin.contains("liveTranscriptCoalescer.submit(text)"))
+        precondition(begin.contains("self.currentRecordingLiveNoteID == liveID"))
+        precondition(!begin.contains("""
+                    transcriber.onPartialResult = { [weak self] text in
+                        Task { @MainActor [weak self] in
+"""))
+        precondition(source.contains("static let liveTranscriptUpdateInterval: TimeInterval = 0.25"))
+
+        let append = try body(startingWith: "    func appendPCM16(_ data: Data) {", in: appleSpeechSource)
+        precondition(append.contains("guard let callback = state.onAudioLevel else"))
     }
 
     private static func testMCPStartReportsLifecycleRejection() throws {

@@ -2071,6 +2071,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var transcribingIndicatorTask: Task<Void, Never>?
     private var liveTranscriber: (any LiveTranscriber)?
     private var currentRecordingLiveNoteID: UUID?
+    static let liveTranscriptUpdateInterval: TimeInterval = 0.25
     private var activeRecordingStartedAt: Date?
     private var activeRecordingCalendarSnapshot: RecordingCalendarSnapshot?
     private var activeRecordingTranscriptionEnabled: Bool?
@@ -9232,23 +9233,35 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         }
                     }
 
-                    transcriber.onAudioLevel = { [weak self] level in
-                        Task { @MainActor [weak self] in
-                            guard let self,
-                                  self.isCurrentRecordingSession(recordingSessionID) else { return }
-                            self.overlayManager.updateAudioLevel(level)
+                    // The active recorder's level publisher already drives the waveform;
+                    // a second per-buffer stream would double overlay redraws.
+                    if transcriber.handlesRecording {
+                        transcriber.onAudioLevel = { [weak self] level in
+                            Task { @MainActor [weak self] in
+                                guard let self,
+                                      self.isCurrentRecordingSession(recordingSessionID) else { return }
+                                self.overlayManager.updateAudioLevel(level)
+                            }
                         }
                     }
 
                     // 녹음 시작 전 예비 노트를 생성해 Note Browser에 즉시 표시
                     let liveID = recordingSessionID
                     self.currentRecordingLiveNoteID = liveID
-                    transcriber.onPartialResult = { [weak self] text in
-                        Task { @MainActor [weak self] in
+                    // Each partial replaces a published history item and re-renders every
+                    // AppState observer, so deliver only the latest text at a bounded cadence.
+                    let liveTranscriptCoalescer = LatestValueProgressCoalescer<String>(
+                        interval: Self.liveTranscriptUpdateInterval
+                    ) { [weak self] text in
+                        MainActor.assumeIsolated {
                             guard let self,
-                                  self.isCurrentRecordingSession(recordingSessionID) else { return }
+                                  self.isCurrentRecordingSession(recordingSessionID),
+                                  self.currentRecordingLiveNoteID == liveID else { return }
                             self.updateLiveNoteTranscript(noteID: liveID, text)
                         }
+                    }
+                    transcriber.onPartialResult = { text in
+                        liveTranscriptCoalescer.submit(text)
                     }
                     self.createLiveNote(jobID: liveID, noteID: liveID)
 
