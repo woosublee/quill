@@ -2080,6 +2080,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         var displayPrefix = ""
         var finishedSegments: [Task<String?, Never>] = []
         var isRestartPending = false
+        /// The input switch whose replacement transcriber may attach.
+        var pendingRestartToken: UUID?
         /// Some recorded audio was not live transcribed.
         var isIncomplete = false
     }
@@ -6043,6 +6045,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         activeInputSwitchToken = switchToken
         isActiveInputSwitchPhysicalStopInProgress = true
         let restartsLiveTranscription = finishLiveTranscriberSegmentForInputSwitch()
+        // Start the next transcriber while the old recorder stops, so the new
+        // recorder never waits for Apple Speech and no recorded audio is lost.
+        let replacementLiveTranscriber = restartsLiveTranscription
+            ? startReplacementLiveTranscriber(
+                recordingSessionID: controller.recordingID,
+                switchToken: switchToken
+            )
+            : nil
         tearDownRealtimeService()
         setActiveRecorderPCMHandler(nil)
         audioLevelCancellable?.cancel()
@@ -6054,6 +6064,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 return
             }
             self.isActiveInputSwitchPhysicalStopInProgress = false
+            var didHandOffReplacementLiveTranscriber = false
+            defer {
+                if !didHandOffReplacementLiveTranscriber {
+                    self.settleReplacementLiveTranscriber(
+                        replacementLiveTranscriber,
+                        recordingSessionID: controller.recordingID,
+                        switchToken: switchToken
+                    )
+                }
+            }
             guard self.activeInputSwitchToken == switchToken,
                   self.isRecording else {
                 self.finishPhysicalAudioStart(switchToken)
@@ -6141,10 +6161,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         }
                     }
                 )
+                didHandOffReplacementLiveTranscriber = true
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    if restartsLiveTranscription {
-                        await self.restartLiveTranscriberAfterInputSwitch(
+                    // Attach only after the new recorder has started (or failed).
+                    defer {
+                        self.settleReplacementLiveTranscriber(
+                            replacementLiveTranscriber,
                             recordingSessionID: controller.recordingID,
                             switchToken: switchToken
                         )
@@ -11599,51 +11622,74 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return true
     }
 
-    /// Starts a live transcriber for the new input before its recorder starts,
-    /// so it receives the new segment from the first sample.
+    /// Starts a live transcriber for the new input off the main thread. It is
+    /// attached by `settleReplacementLiveTranscriber` once the new recorder runs.
     @MainActor
-    private func restartLiveTranscriberAfterInputSwitch(
+    private func startReplacementLiveTranscriber(
         recordingSessionID: UUID,
         switchToken: UUID
-    ) async {
-        guard let session = liveTranscriptionSession,
-              session.isRestartPending,
-              let liveNoteID = currentRecordingLiveNoteID else { return }
+    ) -> Task<(any LiveTranscriber)?, Never>? {
+        guard let session = liveTranscriptionSession, session.isRestartPending else { return nil }
+        liveTranscriptionSession?.pendingRestartToken = switchToken
         guard let transcriber = session.model.makeLiveTranscriber() else {
             markLiveTranscriptionIncomplete(recordingSessionID: recordingSessionID)
-            return
+            return nil
         }
-        do {
-            try await transcriber.start(locale: session.locale)
-        } catch {
-            os_log(.error, log: recordingLog, "live transcriber restart after input switch failed: %{public}@", error.localizedDescription)
-            DispatchQueue.global(qos: .utility).async {
+        let locale = session.locale
+        return Task.detached {
+            do {
+                try await transcriber.start(locale: locale)
+                return transcriber
+            } catch {
+                os_log(.error, log: recordingLog, "live transcriber restart after input switch failed: %{public}@", error.localizedDescription)
                 transcriber.cancel()
+                return nil
             }
-            markLiveTranscriptionIncomplete(recordingSessionID: recordingSessionID)
-            return
         }
-        guard self.activeInputSwitchToken == switchToken,
-              isCurrentRecordingSession(recordingSessionID),
-              currentRecordingLiveNoteID == liveNoteID,
-              liveTranscriptionSession?.isRestartPending == true else {
-            DispatchQueue.global(qos: .utility).async {
-                transcriber.cancel()
+    }
+
+    /// Attaches the replacement transcriber when its input switch completed for
+    /// the current recording; otherwise releases it off the main thread.
+    @MainActor
+    private func settleReplacementLiveTranscriber(
+        _ pendingTranscriber: Task<(any LiveTranscriber)?, Never>?,
+        recordingSessionID: UUID,
+        switchToken: UUID
+    ) {
+        guard let pendingTranscriber else { return }
+        Task { @MainActor [weak self] in
+            let transcriber = await pendingTranscriber.value
+            guard let self,
+                  self.isCurrentRecordingSession(recordingSessionID),
+                  self.activeInputSwitchToken == nil,
+                  self.liveTranscriptionSession?.pendingRestartToken == switchToken,
+                  let liveNoteID = self.currentRecordingLiveNoteID else {
+                if let transcriber {
+                    DispatchQueue.global(qos: .utility).async {
+                        transcriber.cancel()
+                    }
+                }
+                return
             }
-            return
+            guard let transcriber else {
+                self.markLiveTranscriptionIncomplete(recordingSessionID: recordingSessionID)
+                return
+            }
+            self.liveTranscriptionSession?.isRestartPending = false
+            self.liveTranscriptionSession?.pendingRestartToken = nil
+            self.attachLiveTranscriber(
+                transcriber,
+                recordingSessionID: recordingSessionID,
+                liveNoteID: liveNoteID
+            )
         }
-        liveTranscriptionSession?.isRestartPending = false
-        attachLiveTranscriber(
-            transcriber,
-            recordingSessionID: recordingSessionID,
-            liveNoteID: liveNoteID
-        )
     }
 
     @MainActor
     private func markLiveTranscriptionIncomplete(recordingSessionID: UUID) {
         guard isCurrentRecordingSession(recordingSessionID) else { return }
         liveTranscriptionSession?.isRestartPending = false
+        liveTranscriptionSession?.pendingRestartToken = nil
         liveTranscriptionSession?.isIncomplete = true
     }
 

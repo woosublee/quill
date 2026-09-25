@@ -518,15 +518,34 @@ struct AppStateRecordingJournalIntegrationSourceTests {
 
         precondition(switchBody.contains("let restartsLiveTranscription = finishLiveTranscriberSegmentForInputSwitch()"))
         precondition(!switchBody.contains("tearDownLiveTranscriberOffMainThread()"))
-        // The new transcriber must be listening before the new recorder produces audio,
-        // and after the recorder callbacks are reconfigured (which clear PCM handlers).
-        guard let configure = switchBody.range(of: "self.configureSelectedAudioRecorderCallbacks("),
-              let restart = switchBody.range(of: "await self.restartLiveTranscriberAfterInputSwitch("),
-              let start = switchBody.range(of: "try await self.startPhysicalAudioRecorder(selection: newSelection)") else {
+        // The replacement transcriber starts while the old recorder stops, and the new
+        // recorder never waits for it, so no recorded audio is lost at the switch.
+        guard let replacementStart = switchBody.range(of: "startReplacementLiveTranscriber("),
+              let oldRecorderStop = switchBody.range(of: "stopPhysicalAudioRecorder(inputID: currentInputID)"),
+              let newRecorderStart = switchBody.range(of: "try await self.startPhysicalAudioRecorder(selection: newSelection)") else {
             throw TestFailure("input switch live transcription restart wiring missing")
         }
-        precondition(configure.lowerBound < restart.lowerBound)
-        precondition(restart.lowerBound < start.lowerBound)
+        precondition(replacementStart.lowerBound < oldRecorderStop.lowerBound)
+        precondition(!switchBody.contains("await self.restartLiveTranscriberAfterInputSwitch("))
+        let recorderTask = String(switchBody[switchBody.range(of: "didHandOffReplacementLiveTranscriber = true")!.lowerBound...])
+        guard let settle = recorderTask.range(of: "self.settleReplacementLiveTranscriber("),
+              let recorderStart = recorderTask.range(of: "try await self.startPhysicalAudioRecorder(selection: newSelection)") else {
+            throw TestFailure("replacement transcriber settle wiring missing")
+        }
+        // Settled from a defer, so it runs after the recorder start resolves.
+        precondition(recorderTask[..<settle.lowerBound].contains("defer {"))
+        precondition(settle.lowerBound < recorderStart.lowerBound)
+        // Every exit before the recorder task still releases the replacement.
+        precondition(switchBody.contains("if !didHandOffReplacementLiveTranscriber {"))
+
+        let startReplacement = try functionBody(named: "startReplacementLiveTranscriber", in: source)
+        precondition(startReplacement.contains("Task.detached"))
+        precondition(startReplacement.contains("pendingRestartToken = switchToken"))
+        let settleBody = try functionBody(named: "settleReplacementLiveTranscriber", in: source)
+        precondition(settleBody.contains("self.activeInputSwitchToken == nil"))
+        precondition(settleBody.contains("self.liveTranscriptionSession?.pendingRestartToken == switchToken"))
+        precondition(settleBody.contains("markLiveTranscriptionIncomplete("))
+        precondition(settleBody.contains("DispatchQueue.global"))
 
         let finish = try functionBody(named: "finishLiveTranscriberSegmentForInputSwitch", in: source)
         // Ending the old segment must stay off the main thread (#235).
@@ -535,9 +554,6 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         precondition(finish.contains("session.feed?.finish()"))
         precondition(finish.contains("session.isRestartPending = true"))
 
-        let restartBody = try functionBody(named: "restartLiveTranscriberAfterInputSwitch", in: source)
-        precondition(restartBody.contains("self.activeInputSwitchToken == switchToken"))
-        precondition(restartBody.contains("markLiveTranscriptionIncomplete("))
 
         let stop = try body(startingWith: "func stopAndTranscribe(", in: source)
         precondition(stop.contains("let capturedLiveTranscriptionSession = liveTranscriptionSession"))
