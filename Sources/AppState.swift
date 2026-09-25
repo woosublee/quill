@@ -2070,6 +2070,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var recordingInitializationTimer: DispatchSourceTimer?
     private var transcribingIndicatorTask: Task<Void, Never>?
     private var liveTranscriber: (any LiveTranscriber)?
+    /// Live transcription state that outlives one transcriber, so a mid-recording
+    /// input switch can continue on a new transcriber.
+    private struct LiveTranscriptionSession {
+        let model: TranscriptionModel
+        let locale: Locale
+        var feed: LiveTranscriptSegmentFeed?
+        /// Live-note text of the segments before the current input.
+        var displayPrefix = ""
+        var finishedSegments: [Task<String?, Never>] = []
+        var isRestartPending = false
+        /// Some recorded audio was not live transcribed.
+        var isIncomplete = false
+    }
+    private var liveTranscriptionSession: LiveTranscriptionSession?
     private var currentRecordingLiveNoteID: UUID?
     static let liveTranscriptUpdateInterval: TimeInterval = 0.25
     private var activeRecordingStartedAt: Date?
@@ -5282,6 +5296,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return nil
         }
         liveTranscriber = nil
+        liveTranscriptionSession = nil
         return current
     }
 
@@ -5505,6 +5520,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         capturedContext = nil
         liveTranscriber?.cancel()
         liveTranscriber = nil
+        liveTranscriptionSession = nil
         tearDownRealtimeService()
         shortcutSessionController.reset()
         activeRecordingTriggerMode = nil
@@ -6026,7 +6042,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard physicalAudioStartLifecycle.begin(switchToken) else { return }
         activeInputSwitchToken = switchToken
         isActiveInputSwitchPhysicalStopInProgress = true
-        tearDownLiveTranscriberOffMainThread()
+        let restartsLiveTranscription = finishLiveTranscriberSegmentForInputSwitch()
         tearDownRealtimeService()
         setActiveRecorderPCMHandler(nil)
         audioLevelCancellable?.cancel()
@@ -6127,6 +6143,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 )
                 Task { @MainActor [weak self] in
                     guard let self else { return }
+                    if restartsLiveTranscription {
+                        await self.restartLiveTranscriberAfterInputSwitch(
+                            recordingSessionID: controller.recordingID,
+                            switchToken: switchToken
+                        )
+                    }
                     do {
                         let degradedSource = try await self.startPhysicalAudioRecorder(selection: newSelection)
                         guard self.activeInputSwitchToken == switchToken,
@@ -8142,6 +8164,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         clearAudioRecorderCallbacks()
         liveTranscriber?.cancel()
         liveTranscriber = nil
+        liveTranscriptionSession = nil
         if let id = currentRecordingLiveNoteID {
             currentRecordingLiveNoteID = nil
             pipelineHistory.removeAll { $0.id == id }
@@ -9213,56 +9236,33 @@ final class AppState: ObservableObject, @unchecked Sendable {
            supportsLiveTranscription,
            useLocalTranscription,
            let transcriber = localTranscriptionModel.makeLiveTranscriber() {
+            let liveTranscriptionModel = localTranscriptionModel
+            let liveTranscriptionLocale = transcriptionLanguage.sfSpeechLocale
             // Live transcription: initialize before recording starts so the request is ready
             // to receive buffers from the very first sample
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 var didPublishLiveTranscriber = false
                 do {
-                    try await transcriber.start(locale: transcriptionLanguage.sfSpeechLocale)
+                    try await transcriber.start(locale: liveTranscriptionLocale)
                     guard self.isCurrentRecordingSession(recordingSessionID) else {
                         transcriber.cancel()
                         self.finishPhysicalAudioStart(recordingSessionID)
                         return
                     }
-                    self.liveTranscriber = transcriber
-                    didPublishLiveTranscriber = true
-                    if !transcriber.handlesRecording {
-                        self.setActiveRecorderPCMHandler { [weak transcriber] data in
-                            transcriber?.appendPCM16(data)
-                        }
-                    }
-
-                    // The active recorder's level publisher already drives the waveform;
-                    // a second per-buffer stream would double overlay redraws.
-                    if transcriber.handlesRecording {
-                        transcriber.onAudioLevel = { [weak self] level in
-                            Task { @MainActor [weak self] in
-                                guard let self,
-                                      self.isCurrentRecordingSession(recordingSessionID) else { return }
-                                self.overlayManager.updateAudioLevel(level)
-                            }
-                        }
-                    }
-
                     // 녹음 시작 전 예비 노트를 생성해 Note Browser에 즉시 표시
                     let liveID = recordingSessionID
                     self.currentRecordingLiveNoteID = liveID
-                    // Each partial replaces a published history item and re-renders every
-                    // AppState observer, so deliver only the latest text at a bounded cadence.
-                    let liveTranscriptCoalescer = LatestValueProgressCoalescer<String>(
-                        interval: Self.liveTranscriptUpdateInterval
-                    ) { [weak self] text in
-                        MainActor.assumeIsolated {
-                            guard let self,
-                                  self.isCurrentRecordingSession(recordingSessionID),
-                                  self.currentRecordingLiveNoteID == liveID else { return }
-                            self.updateLiveNoteTranscript(noteID: liveID, text)
-                        }
-                    }
-                    transcriber.onPartialResult = { text in
-                        liveTranscriptCoalescer.submit(text)
-                    }
+                    self.liveTranscriptionSession = LiveTranscriptionSession(
+                        model: liveTranscriptionModel,
+                        locale: liveTranscriptionLocale
+                    )
+                    self.attachLiveTranscriber(
+                        transcriber,
+                        recordingSessionID: recordingSessionID,
+                        liveNoteID: liveID
+                    )
+                    didPublishLiveTranscriber = true
                     self.createLiveNote(jobID: liveID, noteID: liveID)
 
                     let t0 = CFAbsoluteTimeGetCurrent()
@@ -10090,6 +10090,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             contextCaptureTask = nil
             liveTranscriber?.cancel()
             liveTranscriber = nil
+            liveTranscriptionSession = nil
             setActiveRecorderPCMHandler(nil)
             stopAndSaveAudioOnly(
                 recordingID: jobID,
@@ -10159,9 +10160,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             usedPostProcessing: !disablePostProcessing
         )
         let capturedLiveTranscriber = liveTranscriber
+        let capturedLiveTranscriptionSession = liveTranscriptionSession
         let capturedPressEnterCommandEnabled = isPressEnterVoiceCommandEnabled
         let capturedNoteAssetStore = noteAssetStore
         liveTranscriber = nil
+        liveTranscriptionSession = nil
         setActiveRecorderPCMHandler(nil)
 
         if let transcriber = capturedLiveTranscriber, transcriber.handlesRecording {
@@ -10387,7 +10390,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 defer { activeRealtime?.cancel() }
                 do {
                     let transcription: TranscriptionResult
-                    let liveResult = try await capturedLiveTranscriber?.finalize()
+                    let liveResult = try await Self.finalizeLiveTranscript(
+                        current: capturedLiveTranscriber,
+                        finishedSegments: capturedLiveTranscriptionSession?.finishedSegments ?? [],
+                        isIncomplete: capturedLiveTranscriptionSession.map {
+                            $0.isIncomplete || $0.isRestartPending
+                        } ?? false
+                    )
                     if let text = liveResult, !text.isEmpty {
                         transcription = TranscriptionResult(
                             text: text,
@@ -11507,19 +11516,158 @@ final class AppState: ObservableObject, @unchecked Sendable {
         realtimeLanguageConfiguration = nil
     }
 
-    /// Detaches the active live transcriber and tears it down off the main
-    /// thread. Cancelling/deallocating an Apple Speech session is synchronous
-    /// and can stall for a few hundred ms; doing it inline (e.g. from the
-    /// audio-source menu action that triggers a mid-recording input switch)
-    /// keeps the menu open and freezes the UI. The reference is dropped from
-    /// AppState immediately; cancel() and dealloc run on a background queue.
     @MainActor
-    private func tearDownLiveTranscriberOffMainThread() {
-        guard let transcriber = liveTranscriber else { return }
-        liveTranscriber = nil
-        DispatchQueue.global(qos: .utility).async {
-            transcriber.cancel()
+    private func attachLiveTranscriber(
+        _ transcriber: any LiveTranscriber,
+        recordingSessionID: UUID,
+        liveNoteID: UUID
+    ) {
+        liveTranscriber = transcriber
+        if !transcriber.handlesRecording {
+            setActiveRecorderPCMHandler { [weak transcriber] data in
+                transcriber?.appendPCM16(data)
+            }
         }
+
+        // The active recorder's level publisher already drives the waveform;
+        // a second per-buffer stream would double overlay redraws.
+        if transcriber.handlesRecording {
+            transcriber.onAudioLevel = { [weak self] level in
+                Task { @MainActor [weak self] in
+                    guard let self,
+                          self.isCurrentRecordingSession(recordingSessionID) else { return }
+                    self.overlayManager.updateAudioLevel(level)
+                }
+            }
+        }
+
+        // Each partial replaces a published history item and re-renders every
+        // AppState observer, so deliver only the latest text at a bounded cadence.
+        let feed = LiveTranscriptSegmentFeed(
+            interval: Self.liveTranscriptUpdateInterval
+        ) { [weak self] text in
+            MainActor.assumeIsolated {
+                guard let self,
+                      self.isCurrentRecordingSession(recordingSessionID),
+                      self.currentRecordingLiveNoteID == liveNoteID else { return }
+                let prefix = self.liveTranscriptionSession?.displayPrefix ?? ""
+                self.updateLiveNoteTranscript(
+                    noteID: liveNoteID,
+                    LiveTranscriptSegments.joined([prefix, text])
+                )
+            }
+        }
+        liveTranscriptionSession?.feed = feed
+        transcriber.onPartialResult = { text in
+            feed.submit(text)
+        }
+    }
+
+    /// Ends the live transcriber of the input being switched away from and keeps
+    /// its text for the live note and the final transcript. Returns whether live
+    /// transcription should restart on the new input.
+    ///
+    /// Ending an Apple Speech session can stall for a few hundred ms, and this
+    /// runs from the audio-source menu action, so the old transcriber is
+    /// finalized and released off the main thread.
+    @MainActor
+    private func finishLiveTranscriberSegmentForInputSwitch() -> Bool {
+        guard var session = liveTranscriptionSession else {
+            if let transcriber = liveTranscriber {
+                liveTranscriber = nil
+                DispatchQueue.global(qos: .utility).async {
+                    transcriber.cancel()
+                }
+            }
+            return false
+        }
+        if let transcriber = liveTranscriber {
+            liveTranscriber = nil
+            transcriber.onPartialResult = nil
+            let latestPartial = session.feed?.finish() ?? ""
+            session.displayPrefix = LiveTranscriptSegments.joined([session.displayPrefix, latestPartial])
+            session.finishedSegments.append(Task.detached {
+                try? await transcriber.finalize()
+            })
+        }
+        session.feed = nil
+        session.isRestartPending = true
+        liveTranscriptionSession = session
+        if let liveNoteID = currentRecordingLiveNoteID {
+            updateLiveNoteTranscript(noteID: liveNoteID, session.displayPrefix)
+        }
+        return true
+    }
+
+    /// Starts a live transcriber for the new input before its recorder starts,
+    /// so it receives the new segment from the first sample.
+    @MainActor
+    private func restartLiveTranscriberAfterInputSwitch(
+        recordingSessionID: UUID,
+        switchToken: UUID
+    ) async {
+        guard let session = liveTranscriptionSession,
+              session.isRestartPending,
+              let liveNoteID = currentRecordingLiveNoteID else { return }
+        guard let transcriber = session.model.makeLiveTranscriber() else {
+            markLiveTranscriptionIncomplete(recordingSessionID: recordingSessionID)
+            return
+        }
+        do {
+            try await transcriber.start(locale: session.locale)
+        } catch {
+            os_log(.error, log: recordingLog, "live transcriber restart after input switch failed: %{public}@", error.localizedDescription)
+            DispatchQueue.global(qos: .utility).async {
+                transcriber.cancel()
+            }
+            markLiveTranscriptionIncomplete(recordingSessionID: recordingSessionID)
+            return
+        }
+        guard self.activeInputSwitchToken == switchToken,
+              isCurrentRecordingSession(recordingSessionID),
+              currentRecordingLiveNoteID == liveNoteID,
+              liveTranscriptionSession?.isRestartPending == true else {
+            DispatchQueue.global(qos: .utility).async {
+                transcriber.cancel()
+            }
+            return
+        }
+        liveTranscriptionSession?.isRestartPending = false
+        attachLiveTranscriber(
+            transcriber,
+            recordingSessionID: recordingSessionID,
+            liveNoteID: liveNoteID
+        )
+    }
+
+    @MainActor
+    private func markLiveTranscriptionIncomplete(recordingSessionID: UUID) {
+        guard isCurrentRecordingSession(recordingSessionID) else { return }
+        liveTranscriptionSession?.isRestartPending = false
+        liveTranscriptionSession?.isIncomplete = true
+    }
+
+    /// Returns the live transcript for a stopped recording, or nil to fall back
+    /// to transcribing the recorded file.
+    nonisolated private static func finalizeLiveTranscript(
+        current: (any LiveTranscriber)?,
+        finishedSegments: [Task<String?, Never>],
+        isIncomplete: Bool
+    ) async throws -> String? {
+        guard !finishedSegments.isEmpty || isIncomplete else {
+            return try await current?.finalize()
+        }
+        var segments: [String?] = []
+        for segment in finishedSegments {
+            segments.append(await segment.value)
+        }
+        if let current {
+            segments.append(try? await current.finalize())
+        }
+        return LiveTranscriptSegments.finalTranscript(
+            segments: segments,
+            isIncomplete: isIncomplete
+        )
     }
 
     @MainActor

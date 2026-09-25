@@ -631,6 +631,8 @@ _test-recording: | $(TEST_BUILD_DIR)
 	@$(TEST_BUILD_DIR)/CombinedRecordingNormalStopIntegrationTests
 	@swiftc -parse-as-library -framework AVFoundation Sources/RecordingPCMBufferCopy.swift Tests/RecordingPCMBufferCopyTests.swift -o $(TEST_BUILD_DIR)/RecordingPCMBufferCopyTests
 	@$(TEST_BUILD_DIR)/RecordingPCMBufferCopyTests
+	@swiftc -parse-as-library Sources/LatestValueProgressCoalescer.swift Sources/LiveTranscriptSegments.swift Tests/LiveTranscriptSegmentsTests.swift -o $(TEST_BUILD_DIR)/LiveTranscriptSegmentsTests
+	@$(TEST_BUILD_DIR)/LiveTranscriptSegmentsTests
 	@swiftc -parse-as-library Tests/AudioRecorderJournalIntegrationSourceTests.swift -o $(TEST_BUILD_DIR)/AudioRecorderJournalIntegrationSourceTests
 	@$(TEST_BUILD_DIR)/AudioRecorderJournalIntegrationSourceTests
 	@swiftc -parse-as-library -framework AVFoundation Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/LocalizedStringLookup.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/CanonicalPCM16WAV.swift Sources/RecordingJournalStore.swift Sources/RecordingPCMJournalWriter.swift Sources/RecordingJournalSourceSink.swift Sources/CombinedRecordingJournalController.swift Sources/SegmentedRecordingJournalController.swift Sources/RecordingArtifactFinalizer.swift Sources/AudioMixdownService.swift Sources/CombinedRecordingArtifactFinalizer.swift Sources/SegmentedRecordingArtifactFinalizer.swift Sources/InflightRecordingRecovery.swift Sources/RecordingJournalRecoveryExecutor.swift Sources/SingleSourceRecordingJournalController.swift Tests/SingleSourceRecordingJournalControllerTests.swift -o $(TEST_BUILD_DIR)/SingleSourceRecordingJournalControllerTests

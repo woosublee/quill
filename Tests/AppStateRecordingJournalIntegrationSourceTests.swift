@@ -347,15 +347,16 @@ struct AppStateRecordingJournalIntegrationSourceTests {
             "only the accepted current input switch can reconcile degraded-capture state"
         )
 
-        // The live transcriber must be torn down off the main thread so the
+        // The live transcriber must be ended off the main thread so the
         // audio-source menu action returns immediately instead of stalling the
-        // UI while an Apple Speech session is cancelled/deallocated.
-        precondition(switchBody.contains("tearDownLiveTranscriberOffMainThread()"))
+        // UI while an Apple Speech session is finalized/cancelled/deallocated.
+        precondition(switchBody.contains("finishLiveTranscriberSegmentForInputSwitch()"))
         precondition(!switchBody.contains("liveTranscriber = nil"))
-        let offMainTeardownBody = try functionBody(named: "tearDownLiveTranscriberOffMainThread", in: source)
+        let offMainTeardownBody = try functionBody(named: "finishLiveTranscriberSegmentForInputSwitch", in: source)
         precondition(offMainTeardownBody.contains("liveTranscriber = nil"))
         precondition(offMainTeardownBody.contains("DispatchQueue.global"))
         precondition(offMainTeardownBody.contains("transcriber.cancel()"))
+        precondition(offMainTeardownBody.contains("Task.detached"))
         precondition(appleSpeechSource.contains("private struct State: @unchecked Sendable"))
         precondition(appleSpeechSource.contains("var finalizeContinuations: [CheckedContinuation<String, Error>] = []"))
         precondition(appleSpeechSource.contains("state.finalizeContinuations.append(continuation)"))
@@ -469,6 +470,7 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         try testAudioOnlyHistoryFailureCleansOnlyUnreferencedNonJournalAudio()
         try testAudioOnlyCompletionOwnsForegroundUIAndTermination()
         try testAppleLiveKeepsMainThreadUpdatesBounded()
+        try testInputSwitchRestartsLiveTranscription()
 
         print("AppStateRecordingJournalIntegrationSourceTests passed")
     }
@@ -481,21 +483,24 @@ struct AppStateRecordingJournalIntegrationSourceTests {
             encoding: .utf8
         )
         let begin = try body(startingWith: "private func beginRecording(", in: source)
+        let attach = try functionBody(named: "attachLiveTranscriber", in: source)
+
+        precondition(begin.contains("self.attachLiveTranscriber("))
 
         // The active recorder already publishes the waveform level; the transcriber's
         // own level is only needed when it captures audio itself.
-        precondition(begin.contains("""
-                    if transcriber.handlesRecording {
-                        transcriber.onAudioLevel = { [weak self] level in
+        precondition(attach.contains("""
+        if transcriber.handlesRecording {
+            transcriber.onAudioLevel = { [weak self] level in
 """))
 
         // Partial results are coalesced instead of replacing a published history
         // item on every recognizer callback.
-        precondition(begin.contains("LatestValueProgressCoalescer<String>("))
-        precondition(begin.contains("interval: Self.liveTranscriptUpdateInterval"))
-        precondition(begin.contains("liveTranscriptCoalescer.submit(text)"))
-        precondition(begin.contains("self.currentRecordingLiveNoteID == liveID"))
-        precondition(!begin.contains("""
+        precondition(attach.contains("LiveTranscriptSegmentFeed("))
+        precondition(attach.contains("interval: Self.liveTranscriptUpdateInterval"))
+        precondition(attach.contains("feed.submit(text)"))
+        precondition(attach.contains("self.currentRecordingLiveNoteID == liveNoteID"))
+        precondition(!source.contains("""
                     transcriber.onPartialResult = { [weak self] text in
                         Task { @MainActor [weak self] in
 """))
@@ -503,6 +508,46 @@ struct AppStateRecordingJournalIntegrationSourceTests {
 
         let append = try body(startingWith: "    func appendPCM16(_ data: Data) {", in: appleSpeechSource)
         precondition(append.contains("guard let callback = state.onAudioLevel else"))
+    }
+
+    // #352: an input switch hands live transcription to a new transcriber instead of
+    // silently dropping it until the recording stops.
+    private static func testInputSwitchRestartsLiveTranscription() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let switchBody = try functionBody(named: "switchActiveRecordingInput", in: source)
+
+        precondition(switchBody.contains("let restartsLiveTranscription = finishLiveTranscriberSegmentForInputSwitch()"))
+        precondition(!switchBody.contains("tearDownLiveTranscriberOffMainThread()"))
+        // The new transcriber must be listening before the new recorder produces audio,
+        // and after the recorder callbacks are reconfigured (which clear PCM handlers).
+        guard let configure = switchBody.range(of: "self.configureSelectedAudioRecorderCallbacks("),
+              let restart = switchBody.range(of: "await self.restartLiveTranscriberAfterInputSwitch("),
+              let start = switchBody.range(of: "try await self.startPhysicalAudioRecorder(selection: newSelection)") else {
+            throw TestFailure("input switch live transcription restart wiring missing")
+        }
+        precondition(configure.lowerBound < restart.lowerBound)
+        precondition(restart.lowerBound < start.lowerBound)
+
+        let finish = try functionBody(named: "finishLiveTranscriberSegmentForInputSwitch", in: source)
+        // Ending the old segment must stay off the main thread (#235).
+        precondition(finish.contains("Task.detached"))
+        precondition(finish.contains("try? await transcriber.finalize()"))
+        precondition(finish.contains("session.feed?.finish()"))
+        precondition(finish.contains("session.isRestartPending = true"))
+
+        let restartBody = try functionBody(named: "restartLiveTranscriberAfterInputSwitch", in: source)
+        precondition(restartBody.contains("self.activeInputSwitchToken == switchToken"))
+        precondition(restartBody.contains("markLiveTranscriptionIncomplete("))
+
+        let stop = try body(startingWith: "func stopAndTranscribe(", in: source)
+        precondition(stop.contains("let capturedLiveTranscriptionSession = liveTranscriptionSession"))
+        precondition(stop.contains("try await Self.finalizeLiveTranscript("))
+        precondition(!stop.contains("try await capturedLiveTranscriber?.finalize()"))
+
+        let finalize = try functionBody(named: "finalizeLiveTranscript", in: source)
+        precondition(finalize.contains("LiveTranscriptSegments.finalTranscript("))
+        // Without a switch, the single transcriber keeps today's result and error behavior.
+        precondition(finalize.contains("guard !finishedSegments.isEmpty || isIncomplete else {\n            return try await current?.finalize()"))
     }
 
     private static func testMCPStartReportsLifecycleRejection() throws {
@@ -1042,13 +1087,13 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         assert(lifecycleBegin.lowerBound < noticeBegin.lowerBound)
         assert(begin.contains("guard self.isCurrentRecordingSession(recordingSessionID) else { return }"))
         assert(begin.contains("noticeSessionID: recordingSessionID"))
-        assert(begin.contains("self.liveTranscriber = transcriber"))
+        assert(begin.contains("self.attachLiveTranscriber("))
         let transcriberStart = try requiredRange(
             of: "try await transcriber.start(locale:",
             in: begin
         )
         let transcriberAssignment = try requiredRange(
-            of: "self.liveTranscriber = transcriber",
+            of: "self.attachLiveTranscriber(",
             in: begin
         )
         let transcriberStartupContinuation = String(
