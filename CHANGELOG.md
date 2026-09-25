@@ -8,6 +8,21 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.44] - 2026-09-26
+
+### Added
+
+- Selected and deleted several notes at once in the Note Browser with the Select button, the right-click menu, or ⌘-click, ⇧-click, and ⌘A. Notes that are still recording or processing are left out of the selection.
+
+### Improved
+
+- Continued Apple Live transcription after switching the audio source mid-recording, and kept every segment in the final note instead of transcribing the whole recording again.
+- Showed "Post-processing..." separately from "Transcribing..." in the Note Browser list and menu bar, and displayed these list labels in the app language.
+
+### Fixed
+
+- Fixed the audio-source menu feeling sluggish during Apple Live recording.
+
 ## [0.1.43] - 2026-09-18
 
 ### Fixed
