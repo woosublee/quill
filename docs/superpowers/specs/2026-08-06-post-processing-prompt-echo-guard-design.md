@@ -39,6 +39,8 @@ Add a narrow, app-owned detector on `PostProcessingOutputValidator`. It identifi
 
 The detector requires both data-envelope fragments. A transcript that merely refers to `data.transcript` does not match and remains eligible for normal validation. If the two fragments occur anywhere in a model response, the entire response is rejected—even when text that looks like a cleaned transcript appears before or after them. Quill must not remove only the echoed instruction and accept a potentially truncated or incomplete result.
 
+> Implementation note (#308): the shipped `PostProcessingOutputValidator.containsPostProcessingPromptLeak` checks each data-envelope signature independently. It rejects an output when any signature appears in the output but not in the source transcript, so a transcript in which the user actually dictated one of those sentences is still accepted.
+
 ### Validation and Fallback Flow
 
 `PostProcessingOutputValidator.validate` calls the shared detector immediately after its empty-output check. A match returns `.failure(.promptLeak)`.

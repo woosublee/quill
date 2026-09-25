@@ -42,7 +42,7 @@ Note Browser에서 노트가 만들어진 녹음 시점을 더 빠르게 구분�
 | 상세 단일 시각 | `timestamp` | 연도·월·일·요일·시간·분 | `2026년 8월 10일 (월) 오전 10:00` |
 | 상세 녹음 구간 | `recordingStartedAt`~`recordingEndedAt` | 연도·월·일·요일·시간·분 | `2026년 8월 10일 (월) 오전 10:00~11:12` |
 
-목록은 `DateFormatter.setLocalizedDateFormatFromTemplate("MMMMdEEEjm")`을 사용한다. 상세 단일 시각과 유효한 녹음 구간은 각각 `DateFormatter`와 `DateIntervalFormatter`에 `"yMMMdEEEjm"` 템플릿을 설정한다. 상세 템플릿의 `MMM` 필드는 한국어에서 요일을 괄호로 묶는 시스템 표기를 보장하며, 영어에서는 `Aug`처럼 표준 축약 월 이름을 사용할 수 있다. 템플릿은 날짜 구성 요소의 언어별 순서와 구두점을 Foundation에 맡기므로 영어와 일본어도 해당 로케일의 관례에 맞는 요일 표기를 얻는다.
+목록은 `DateFormatter.setLocalizedDateFormatFromTemplate("MMMMdEEEjm")`을 사용한다. 상세 단일 시각과 유효한 녹음 구간은 각각 `DateFormatter`와 `DateIntervalFormatter`에 `"yMMMdEEEjm"` 템플릿을 설정한다. 상세 템플릿에서 `MMM`은 월 필드로 영어에서는 `Aug`처럼 축약 월 이름이 되고, `EEE`는 요일 필드다. 한국어의 `(월)`처럼 요일을 괄호로 묶는 표기는 템플릿 문자가 아니라 Foundation의 로케일별 형식화 결과다. 템플릿은 날짜 구성 요소의 언어별 순서와 구두점을 Foundation에 맡기므로 영어와 일본어도 해당 로케일의 관례에 맞는 요일 표기를 얻는다.
 
 ### 상세 헤더의 구간 처리
 
