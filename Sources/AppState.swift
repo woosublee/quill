@@ -2220,6 +2220,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var overlayTranscriptionID: UUID = UUID()
     private var foregroundTranscriptionJobID: UUID?
     private var activeTranscriptionJobs: [UUID: TranscriptionJob] = [:]
+    /// Notes whose transcript is ready and whose post-processing is running, so the
+    /// Note Browser can label them apart from notes that are still transcribing.
+    @Published private(set) var postProcessingNoteIDs: Set<UUID> = []
+    private var postProcessingNoteIDByJobID: [UUID: UUID] = [:]
     private var pendingAudioImportJobIDs: Set<UUID> = []
     let localAIServerManager: LocalAIServerManager
     private let localAIWorkflow: LocalAIModelWorkflow
@@ -5098,11 +5102,29 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     private func finishTranscriptionJob(_ id: UUID) {
         activeTranscriptionJobs.removeValue(forKey: id)
+        if let noteID = postProcessingNoteIDByJobID.removeValue(forKey: id) {
+            postProcessingNoteIDs.remove(noteID)
+        }
         if foregroundTranscriptionJobID == id {
             foregroundTranscriptionJobID = activeTranscriptionJobs.values.max(by: { $0.startedAt < $1.startedAt })?.id
         }
         refreshTranscribingState()
         terminateIfReady()
+    }
+
+    @MainActor
+    private func markTranscriptionJobPostProcessing(_ jobID: UUID) {
+        guard activeTranscriptionJobs[jobID] != nil else { return }
+        let noteID = activeTranscriptionJobs[jobID]?.liveNoteID ?? jobID
+        postProcessingNoteIDByJobID[jobID] = noteID
+        postProcessingNoteIDs.insert(noteID)
+    }
+
+    /// User-facing processing stage for the menu bar while a recording is processed.
+    var transcribingStatusTitle: String {
+        localizedCatalogString(
+            postProcessingNoteIDs.isEmpty ? "Transcribing..." : "Post-processing..."
+        )
     }
 
     @MainActor
@@ -10178,6 +10200,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     try Task.checkCancellation()
                     await MainActor.run {
                         self.bootstrapLastTranscriptForPasteAgain(rawTranscript, pressEnterCommandEnabled: capturedPressEnterCommandEnabled)
+                        if capturedSettings.usedPostProcessing {
+                            self.markTranscriptionJobPostProcessing(jobID)
+                        }
                     }
                     let appContext = await self.resolveStoppedRecordingContext(
                         sessionContext: sessionContext,
@@ -10417,6 +10442,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     let rawTranscript = transcription.text
                     await MainActor.run {
                         self.bootstrapLastTranscriptForPasteAgain(rawTranscript, pressEnterCommandEnabled: capturedPressEnterCommandEnabled)
+                        if capturedSettings.usedPostProcessing {
+                            self.markTranscriptionJobPostProcessing(jobID)
+                        }
                     }
                     let appContext = await self.resolveStoppedRecordingContext(
                         sessionContext: sessionContext,

@@ -9,6 +9,8 @@ struct NoteTitleResolutionTests {
         testFallbackUsedWhenNoContentOrAppliedCalendarTitle()
         testTranscribingFallbackWinsOverFailedEmptyContent()
         testAppliedCalendarTitleKeepsWinningWhileTranscribing()
+        testPostProcessingTitleWhileTranscribing()
+        testProcessingTitlesAreLocalized()
         testCalendarAppliedTitleIncludesRecordingDate()
         testRecoveredRecordingTitlesNameAvailableSource()
         testStorageInterruptionReasonWinsRecoveredTitle()
@@ -51,6 +53,48 @@ struct NoteTitleResolutionTests {
         let item = item(transcript: "", calendarMatch: nil, postProcessingStatus: "Error: Previous failure")
         let title = NoteTitleResolver.displayTitle(for: item, isTranscribing: true)
         assert(title == "Transcribing...")
+    }
+
+    private static func testPostProcessingTitleWhileTranscribing() {
+        let item = item(transcript: "", calendarMatch: nil)
+        let title = NoteTitleResolver.displayTitle(
+            for: item,
+            isTranscribing: true,
+            isPostProcessing: true
+        )
+        assert(title == "Post-processing...")
+        // Post-processing only labels a note that is still being processed.
+        assert(NoteTitleResolver.displayTitle(for: item, isPostProcessing: true) == "(No content)")
+    }
+
+    private static func testProcessingTitlesAreLocalized() {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("quill-note-title-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let localizationDirectory = root.appendingPathComponent("ko.lproj", isDirectory: true)
+        try! FileManager.default.createDirectory(at: localizationDirectory, withIntermediateDirectories: true)
+        try! """
+        "Transcribing..." = "전사 중...";
+        "Post-processing..." = "후처리 중...";
+        "Recording..." = "녹음 중...";
+        """.write(
+            to: localizationDirectory.appendingPathComponent("Localizable.strings"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let bundle = Bundle(path: root.path)!
+        let empty = item(transcript: "", calendarMatch: nil)
+
+        assert(NoteTitleResolver.displayTitle(for: empty, isTranscribing: true, language: "ko", bundle: bundle) == "전사 중...")
+        assert(NoteTitleResolver.displayTitle(for: empty, isTranscribing: true, isPostProcessing: true, language: "ko", bundle: bundle) == "후처리 중...")
+        let placeholder = item(
+            transcript: "",
+            calendarMatch: nil,
+            postProcessingStatus: PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus
+        )
+        assert(NoteTitleResolver.displayTitle(for: placeholder, language: "ko", bundle: bundle) == "전사 중...")
+        let live = item(transcript: "", calendarMatch: nil, postProcessingStatus: "live-recording")
+        assert(NoteTitleResolver.displayTitle(for: live, language: "ko", bundle: bundle) == "녹음 중...")
     }
 
     private static func testAppliedCalendarTitleKeepsWinningWhileTranscribing() {

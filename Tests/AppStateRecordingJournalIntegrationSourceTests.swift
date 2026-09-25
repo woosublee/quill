@@ -468,8 +468,30 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         try testAudioOnlyStopDismissesRecordingOverlayOnErrors()
         try testAudioOnlyHistoryFailureCleansOnlyUnreferencedNonJournalAudio()
         try testAudioOnlyCompletionOwnsForegroundUIAndTermination()
+        try testPostProcessingStageIsTrackedPerNote()
 
         print("AppStateRecordingJournalIntegrationSourceTests passed")
+    }
+
+    // #354: the Note Browser labels post-processing apart from transcription.
+    private static func testPostProcessingStageIsTrackedPerNote() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let noteBrowser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+        let menuBar = try String(contentsOfFile: "Sources/MenuBarView.swift", encoding: .utf8)
+        let stop = try body(startingWith: "func stopAndTranscribe(", in: source)
+
+        let marker = """
+                        if capturedSettings.usedPostProcessing {
+                            self.markTranscriptionJobPostProcessing(jobID)
+                        }
+"""
+        precondition(stop.components(separatedBy: marker).count == 3, "both stop paths mark post-processing")
+        let finish = try body(startingWith: "private func finishTranscriptionJob(_ id: UUID)", in: source)
+        precondition(finish.contains("postProcessingNoteIDByJobID.removeValue(forKey: id)"))
+        precondition(finish.contains("postProcessingNoteIDs.remove(noteID)"))
+        precondition(noteBrowser.contains("postProcessingIDs: appState.postProcessingNoteIDs"))
+        precondition(menuBar.contains("Label(appState.transcribingStatusTitle"))
+        precondition(!menuBar.contains("Label(appState.debugStatusMessage"))
     }
 
     private static func testMCPStartReportsLifecycleRejection() throws {

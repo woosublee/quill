@@ -38,6 +38,7 @@ enum NoteTitleResolver {
     static func displayTitle(
         for item: PipelineHistoryItem,
         isTranscribing: Bool = false,
+        isPostProcessing: Bool = false,
         language: String = preferredLocalizedStringLanguage(),
         bundle: Bundle = .main
     ) -> String {
@@ -51,6 +52,7 @@ enum NoteTitleResolver {
         return automaticTitle(
             for: item,
             isTranscribing: isTranscribing,
+            isPostProcessing: isPostProcessing,
             language: language,
             bundle: bundle
         )
@@ -59,12 +61,19 @@ enum NoteTitleResolver {
     static func automaticTitle(
         for item: PipelineHistoryItem,
         isTranscribing: Bool = false,
+        isPostProcessing: Bool = false,
         language: String = preferredLocalizedStringLanguage(),
         bundle: Bundle = .main
     ) -> String {
         let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         if content.isEmpty {
-            if isTranscribing { return "Transcribing..." }
+            if isTranscribing {
+                return localizedCatalogString(
+                    isPostProcessing ? "Post-processing..." : "Transcribing...",
+                    language: language,
+                    bundle: bundle
+                )
+            }
             if item.machineStatus == .audioOnly {
                 return localizedCatalogString(
                     "Audio recording",
@@ -89,8 +98,12 @@ enum NoteTitleResolver {
                     bundle: bundle
                 )
             }
-            if item.postProcessingStatus == "live-recording" { return "Recording..." }
-            if item.postProcessingStatus == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus || item.postProcessingStatus == "importing" { return "Transcribing..." }
+            if item.postProcessingStatus == "live-recording" {
+                return localizedCatalogString("Recording...", language: language, bundle: bundle)
+            }
+            if item.postProcessingStatus == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus || item.postProcessingStatus == "importing" {
+                return localizedCatalogString("Transcribing...", language: language, bundle: bundle)
+            }
             return "(No content)"
         }
         let firstLine = content.components(separatedBy: .newlines).first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? content

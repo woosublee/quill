@@ -30,6 +30,7 @@ struct NoteListRowDisplayDataTests {
         testDegradedRecoveredRecordingNamesAvailableSource()
         testStorageInterruptionPreviewCombinesCauseAndMode()
         testTranscribingTitleAndEmptyPreview()
+        testPostProcessingNoteShowsPostProcessingTitle()
         testCloudChunkProgressDisplaysActiveChunk()
         testRestoredCloudProgressDisplaysWaitingCopy()
         testCloudProgressCopyLocalizesInKorean()
@@ -551,6 +552,34 @@ struct NoteListRowDisplayDataTests {
         assert(data.status == .transcribing)
         assert(data.displayTitle == "Transcribing...")
         assert(data.preview.isEmpty)
+    }
+
+    private static func testPostProcessingNoteShowsPostProcessingTitle() {
+        let id = UUID()
+        let item = historyItem(
+            id: id,
+            transcript: "",
+            postProcessingStatus: PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus
+        )
+
+        let transcribing = NoteListRowDisplayData(item: item, retryingIDs: [])
+        assert(transcribing.displayTitle == "Transcribing...")
+
+        let postProcessing = NoteListRowDisplayData(
+            item: item,
+            retryingIDs: [],
+            postProcessingIDs: [id]
+        )
+        assert(postProcessing.status == .transcribing)
+        assert(postProcessing.displayTitle == "Post-processing...")
+        assert(postProcessing.preview.isEmpty)
+
+        let otherNote = NoteListRowDisplayData(
+            item: item,
+            retryingIDs: [],
+            postProcessingIDs: [UUID()]
+        )
+        assert(otherNote.displayTitle == "Transcribing...")
     }
 
     private static func testCloudChunkProgressDisplaysActiveChunk() {

@@ -188,6 +188,7 @@ struct NoteListRowDisplayData: Equatable {
     init(
         item: PipelineHistoryItem,
         retryingIDs: Set<UUID>,
+        postProcessingIDs: Set<UUID> = [],
         cloudProgress: CloudTranscriptionDisplayProgress? = nil,
         locale: Locale = .current,
         localizationLanguage: String = preferredLocalizedStringLanguage(),
@@ -210,6 +211,7 @@ struct NoteListRowDisplayData: Equatable {
         let displayTitle = NoteTitleResolver.displayTitle(
             for: item,
             isTranscribing: status == .transcribing,
+            isPostProcessing: postProcessingIDs.contains(item.id),
             language: localizationLanguage,
             bundle: localizationBundle
         )
