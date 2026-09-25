@@ -160,16 +160,35 @@ struct NoteSelection: Equatable {
 enum NoteBrowserKeyCommand {
     case selectAll, endSelection, delete
 
-    init?(keyCode: UInt16, modifierFlags: NSEvent.ModifierFlags) {
+    init?(
+        keyCode: UInt16,
+        charactersIgnoringModifiers: String?,
+        modifierFlags: NSEvent.ModifierFlags
+    ) {
         let flags = modifierFlags
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.capsLock, .numericPad, .function])
         switch keyCode {
-        case 0 where flags == .command: self = .selectAll       // A
         case 53 where flags.isEmpty: self = .endSelection       // esc
         case 51 where flags.isEmpty, 117 where flags.isEmpty: self = .delete  // delete, forward delete
-        default: return nil
+        default:
+            guard flags == .command,
+                  Self.typesSelectAllLetter(
+                    keyCode: keyCode,
+                    characters: charactersIgnoringModifiers
+                  ) else { return nil }
+            self = .selectAll
         }
+    }
+
+    /// Matches the typed letter "a" so other layouts (for example ⌘Q on AZERTY)
+    /// keep their meaning. A non-Latin input source falls back to the A key position.
+    private static func typesSelectAllLetter(keyCode: UInt16, characters: String?) -> Bool {
+        let typed = characters?.lowercased() ?? ""
+        if typed == "a" { return true }
+        let isLatinLetter = typed.unicodeScalars.count == 1
+            && typed.unicodeScalars.allSatisfy { ("a"..."z").contains($0) }
+        return keyCode == 0 && !typed.isEmpty && !isLatinLetter
     }
 }
 

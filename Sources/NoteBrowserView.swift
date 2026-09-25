@@ -503,7 +503,9 @@ struct NoteBrowserView: View {
         if ids.count == 1, !selection.showsSelectionUI || !selection.selectedIDs.contains(ids[0]) {
             let wasFocused = selection.focusedID == ids[0]
             appState.deleteHistoryEntry(id: ids[0])
-            if wasFocused, !appState.pipelineHistory.contains(where: { $0.id == ids[0] }) {
+            // In selection mode the viewed note may be unchecked; keep the checked notes.
+            if wasFocused, !selection.isSelectionModeRequested,
+               !appState.pipelineHistory.contains(where: { $0.id == ids[0] }) {
                 selection.focus(nextID)
             }
             return
@@ -1661,6 +1663,7 @@ private struct NoteBrowserKeyCommandMonitor: NSViewRepresentable {
                           !(window.firstResponder is NSText),
                           let command = NoteBrowserKeyCommand(
                             keyCode: event.keyCode,
+                            charactersIgnoringModifiers: event.charactersIgnoringModifiers,
                             modifierFlags: event.modifierFlags
                           ),
                           self.handle?(command) == true else {

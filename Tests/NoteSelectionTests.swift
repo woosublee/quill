@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 @main
 struct NoteSelectionTests {
@@ -174,17 +174,22 @@ struct NoteSelectionTests {
     }
 
     private static func testKeyCommandsRequireExactModifiers() throws {
-        try expect(NoteBrowserKeyCommand(keyCode: 0, modifierFlags: .command) == .selectAll, "command-A selects all")
-        try expect(NoteBrowserKeyCommand(keyCode: 0, modifierFlags: []) == nil, "plain A is ignored")
-        try expect(NoteBrowserKeyCommand(keyCode: 0, modifierFlags: [.command, .shift]) == nil, "command-shift-A is ignored")
-        try expect(NoteBrowserKeyCommand(keyCode: 53, modifierFlags: []) == .endSelection, "esc ends selection")
-        try expect(NoteBrowserKeyCommand(keyCode: 51, modifierFlags: []) == .delete, "delete asks to delete")
-        try expect(NoteBrowserKeyCommand(keyCode: 117, modifierFlags: .function) == .delete, "forward delete asks to delete")
-        try expect(NoteBrowserKeyCommand(keyCode: 51, modifierFlags: .command) == nil, "command-delete is ignored")
-        try expect(
-            NoteBrowserKeyCommand(keyCode: 0, modifierFlags: [.command, .capsLock]) == .selectAll,
-            "caps lock does not block command-A"
-        )
+        func command(_ keyCode: UInt16, _ characters: String, _ flags: NSEvent.ModifierFlags) -> NoteBrowserKeyCommand? {
+            NoteBrowserKeyCommand(keyCode: keyCode, charactersIgnoringModifiers: characters, modifierFlags: flags)
+        }
+        try expect(command(0, "a", .command) == .selectAll, "command-A selects all")
+        try expect(command(0, "a", []) == nil, "plain A is ignored")
+        try expect(command(0, "a", [.command, .shift]) == nil, "command-shift-A is ignored")
+        try expect(command(0, "a", [.command, .capsLock]) == .selectAll, "caps lock does not block command-A")
+        // AZERTY: the A letter is on key code 12 and key code 0 types Q.
+        try expect(command(12, "a", .command) == .selectAll, "command-A follows the typed letter")
+        try expect(command(0, "q", .command) == nil, "command-Q is never taken for select all")
+        // Korean input: key code 0 types a non-Latin letter.
+        try expect(command(0, "ㅁ", .command) == .selectAll, "command-A works with a non-Latin input source")
+        try expect(command(53, "\u{1B}", []) == .endSelection, "esc ends selection")
+        try expect(command(51, "\u{7F}", []) == .delete, "delete asks to delete")
+        try expect(command(117, "\u{F728}", .function) == .delete, "forward delete asks to delete")
+        try expect(command(51, "\u{7F}", .command) == nil, "command-delete is ignored")
     }
 
     private static func expect(_ condition: Bool, _ message: String) throws {

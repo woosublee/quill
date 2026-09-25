@@ -27,6 +27,10 @@ struct NoteBrowserMultiSelectionSourceTests {
         let perform = try body(of: "private func performPendingDeletion()", in: source)
         precondition(perform.contains("appState.deleteHistoryEntries(ids: ids)"))
         precondition(perform.contains("appState.deleteHistoryEntry(id: ids[0])"))
+        // Deleting one unchecked note from the context menu keeps selection mode.
+        precondition(perform.contains("if wasFocused, !selection.isSelectionModeRequested,"))
+        let monitor0 = try body(of: "private struct NoteBrowserKeyCommandMonitor", in: source)
+        precondition(monitor0.contains("charactersIgnoringModifiers: event.charactersIgnoringModifiers"))
 
         // Busy notes can't join a selection.
         let selectable = try body(of: "private func isBulkSelectable(_ id: UUID) -> Bool", in: source)
