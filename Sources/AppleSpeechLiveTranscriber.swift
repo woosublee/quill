@@ -110,7 +110,7 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber, @unchecked Sendable {
     }
 
     func appendPCM16(_ data: Data) {
-        let appendResult = stateLock.withLock { state -> (level: Float, callback: (@Sendable (Float) -> Void)?)? in
+        let appendResult = stateLock.withLock { state -> (level: Float, callback: @Sendable (Float) -> Void)? in
             guard let recognitionRequest = state.recognitionRequest,
                   let pcmBuffer = Self.fillPCMBuffer(
                     fromPCM16: data,
@@ -119,13 +119,11 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber, @unchecked Sendable {
                 return nil
             }
             recognitionRequest.append(pcmBuffer)
-            return (
-                normalizedLevel(from: pcmBuffer),
-                state.onAudioLevel
-            )
+            guard let callback = state.onAudioLevel else { return nil }
+            return (normalizedLevel(from: pcmBuffer), callback)
         }
         guard let appendResult else { return }
-        appendResult.callback?(appendResult.level)
+        appendResult.callback(appendResult.level)
     }
 
     func finalize() async throws -> String {
