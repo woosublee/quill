@@ -66,11 +66,13 @@ struct NoteSelectionTests {
 
     private static func testSelectionModeTogglesWithPlainClicks() throws {
         var selection = NoteSelection(focusedID: ids[0])
-        selection.beginSelectionMode(isSelectable: everySelectable)
-        try expect(selection.showsSelectionUI, "Select shows the selection UI with one note")
-        try expect(selection.selectedIDs == [ids[0]], "Select starts from the focused note")
+        selection.beginSelectionMode()
+        try expect(selection.showsSelectionUI, "Select shows the selection UI")
+        try expect(selection.selectedIDs.isEmpty, "Select starts with nothing checked")
+        try expect(selection.focusedID == ids[0], "the viewed note is kept to return to")
 
         selection.click(ids[3], modifier: .none, orderedIDs: ids, isSelectable: everySelectable)
+        selection.click(ids[0], modifier: .none, orderedIDs: ids, isSelectable: everySelectable)
         try expect(selection.selectedIDs == [ids[0], ids[3]], "plain click adds in selection mode")
         selection.click(ids[0], modifier: .none, orderedIDs: ids, isSelectable: everySelectable)
         try expect(selection.selectedIDs == [ids[3]], "plain click removes in selection mode")
@@ -79,11 +81,14 @@ struct NoteSelectionTests {
 
     private static func testSelectionModeKeepsEmptySelection() throws {
         var selection = NoteSelection(focusedID: ids[0])
-        selection.beginSelectionMode(isSelectable: everySelectable)
-        selection.click(ids[0], modifier: .none, orderedIDs: ids, isSelectable: everySelectable)
+        selection.beginSelectionMode()
+        selection.click(ids[2], modifier: .none, orderedIDs: ids, isSelectable: everySelectable)
+        selection.click(ids[2], modifier: .none, orderedIDs: ids, isSelectable: everySelectable)
 
         try expect(selection.selectedIDs.isEmpty, "selection mode can be empty")
         try expect(selection.showsSelectionUI, "selection mode stays open when empty")
+        selection.endSelectionMode()
+        try expect(selection.focusedID == ids[2], "Done returns to the last clicked note")
     }
 
     private static func testSelectAllSkipsUnselectableNotes() throws {
@@ -111,7 +116,12 @@ struct NoteSelectionTests {
 
     private static func testEndSelectionModeReturnsToFocusedNote() throws {
         var selection = NoteSelection(focusedID: ids[0])
-        selection.beginSelectionMode(isSelectable: everySelectable)
+        selection.beginSelectionMode()
+        selection.endSelectionMode()
+        try expect(selection.focusedID == ids[0], "Done without choosing returns to the viewed note")
+        try expect(selection.selectedIDs == [ids[0]], "Done without choosing keeps the viewed note")
+
+        selection.beginSelectionMode()
         selection.click(ids[3], modifier: .none, orderedIDs: ids, isSelectable: everySelectable)
         selection.endSelectionMode()
 
@@ -136,7 +146,7 @@ struct NoteSelectionTests {
 
     private static func testFocusResetsMultiSelection() throws {
         var selection = NoteSelection(focusedID: ids[0])
-        selection.beginSelectionMode(isSelectable: everySelectable)
+        selection.beginSelectionMode()
         selection.click(ids[1], modifier: .none, orderedIDs: ids, isSelectable: everySelectable)
         selection.focus(ids[5])
 

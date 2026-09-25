@@ -461,7 +461,7 @@ struct NoteBrowserView: View {
     }
 
     private func beginSelection(including id: UUID? = nil) {
-        selection.beginSelectionMode(isSelectable: isBulkSelectable)
+        selection.beginSelectionMode()
         if let id, !selection.selectedIDs.contains(id) {
             selection.click(
                 id,
@@ -991,9 +991,7 @@ struct NoteBrowserView: View {
             .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
 
             Button("Select") { beginSelection() }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .buttonStyle(SidebarCapsuleButtonStyle())
                 .help("Select multiple notes")
                 .disabled(appState.pipelineHistory.isEmpty)
                 .overrideCursor(.arrow)
@@ -1003,23 +1001,19 @@ struct NoteBrowserView: View {
     }
 
     private var selectionBar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Text(localizedCatalogFormat("%lld selected", selection.selectedIDs.count))
                 .font(.system(size: 12, weight: .semibold))
                 .monospacedDigit()
-            Button("Select All") { _ = selectAllVisibleNotes() }
-                .buttonStyle(.plain)
-                .font(.system(size: 12))
-                .foregroundStyle(Color.accentColor)
-                .overrideCursor(.arrow)
             Spacer(minLength: 8)
+            Button("Select All") { _ = selectAllVisibleNotes() }
+                .buttonStyle(SidebarCapsuleButtonStyle())
+                .overrideCursor(.arrow)
             Button("Done") { selection.endSelectionMode() }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
+                .buttonStyle(SidebarCapsuleButtonStyle())
                 .overrideCursor(.arrow)
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 12)
         .frame(minHeight: 28)
         .padding(.bottom, 8)
     }
@@ -1491,6 +1485,26 @@ private struct NoteListRow: View {
         }
     }
 
+}
+
+/// Neutral capsule matching the sidebar's transcription picker.
+private struct SidebarCapsuleButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 11, weight: .semibold))
+            .lineLimit(1)
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Color.primary.opacity(configuration.isPressed ? 0.12 : 0.06),
+                in: Capsule()
+            )
+            .opacity(isEnabled ? 1 : 0.45)
+            .contentShape(Capsule())
+    }
 }
 
 private struct NoteSelectionCheckbox: View {

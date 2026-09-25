@@ -53,9 +53,12 @@ struct NoteSelection: Equatable {
         collapseToSingleIfNeeded()
     }
 
-    mutating func beginSelectionMode(isSelectable: (UUID) -> Bool) {
+    /// Opens selection mode with nothing checked; the focused note is kept to
+    /// return to when selection mode ends.
+    mutating func beginSelectionMode() {
         isSelectionModeRequested = true
-        selectedIDs = selectedIDs.filter(isSelectable)
+        selectedIDs = []
+        anchorID = nil
     }
 
     mutating func selectAll(orderedIDs: [UUID], isSelectable: (UUID) -> Bool) {
