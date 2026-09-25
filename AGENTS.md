@@ -50,7 +50,7 @@ git diff --check
 ```
 
 `make check` validates plist, entitlement, shell, and YAML files, then runs the
-complete Core, Recording, and Transcription test suite. For a real app bundle
+complete Core, Recording, Transcription, and App State test suite. For a real app bundle
 build, use the Quill signing identity explicitly:
 
 ```bash
