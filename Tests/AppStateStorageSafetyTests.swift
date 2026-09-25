@@ -7,6 +7,7 @@ struct AppStateStorageSafetyTests {
         try await verifiesAppStateInstancesKeepIndependentHistoryLayouts()
         try await verifiesAppStateInstancesKeepIndependentCredentialStores()
         try await verifiesDeleteHistoryEntryRemovesOwnedAssets()
+        try await verifiesDeleteHistoryEntriesSkipsBusyNotesAndKeepsFailures()
         try await verifiesClearHistoryRemovesOwnedAssets()
         try await verifiesSharedAssetsRemainWhileHistoryStillReferencesThem()
         try verifiesRemovedRowsDoNotProtectEachOthersSharedAssets()
@@ -227,6 +228,74 @@ struct AppStateStorageSafetyTests {
             try expect(
                 !FileManager.default.fileExists(atPath: transcriptURL.path),
                 "deleting a history entry removes its owned transcript"
+            )
+        }
+    }
+
+    private static func verifiesDeleteHistoryEntriesSkipsBusyNotesAndKeepsFailures() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let assetStore = NoteAssetStore(
+                storageLayout: environment.storageLayout
+            )
+            let sourceURL = environment.rootDirectory
+                .appendingPathComponent("bulk-delete-source.wav")
+            try Data("bulk audio".utf8).write(to: sourceURL)
+            let audio = try assetStore.saveAudio(from: sourceURL)
+            let withAudio = makeHistoryItem(
+                audioFileName: audio.fileName,
+                transcriptFileName: nil,
+                timestamp: Date(timeIntervalSince1970: 3)
+            )
+            let plain = makeHistoryItem(
+                audioFileName: nil,
+                transcriptFileName: nil,
+                timestamp: Date(timeIntervalSince1970: 2)
+            )
+            let historyStore = PipelineHistoryStore(
+                storeURL: environment.storageLayout.historyStoreURL
+            )
+            _ = try historyStore.append(plain, maxCount: Int.max)
+            _ = try historyStore.append(withAudio, maxCount: Int.max)
+
+            let processing = PipelineHistoryItem(
+                timestamp: Date(timeIntervalSince1970: 4),
+                rawTranscript: "",
+                postProcessedTranscript: "",
+                postProcessingPrompt: nil,
+                contextSummary: "",
+                contextScreenshotDataURL: nil,
+                contextScreenshotStatus: "No screenshot",
+                postProcessingStatus: PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus,
+                debugStatus: "",
+                customVocabulary: ""
+            )
+            // Present only in memory, so its durable delete fails.
+            let unsaved = makeHistoryItem(
+                audioFileName: nil,
+                transcriptFileName: nil,
+                timestamp: Date(timeIntervalSince1970: 1)
+            )
+
+            let appState = await MainActor.run {
+                AppState(dependencies: environment.dependencies)
+            }
+            let result = await MainActor.run { () -> NoteBulkDeletionResult in
+                appState.pipelineHistory.insert(processing, at: 0)
+                appState.pipelineHistory.append(unsaved)
+                return appState.deleteHistoryEntries(
+                    ids: [processing.id, withAudio.id, plain.id, unsaved.id]
+                )
+            }
+
+            try expect(result.deletedIDs == [withAudio.id, plain.id], "saved finished notes are deleted in order")
+            try expect(result.skippedIDs == [processing.id], "a processing note is skipped")
+            try expect(result.failedIDs == [unsaved.id], "a note that fails to delete is reported")
+            let remaining = await MainActor.run { appState.pipelineHistory.map(\.id) }
+            try expect(remaining == [processing.id, unsaved.id], "skipped and failed notes stay in history")
+            try expect(
+                !FileManager.default.fileExists(atPath: audio.fileURL.path),
+                "bulk deletion removes owned audio through the single-note path"
             )
         }
     }

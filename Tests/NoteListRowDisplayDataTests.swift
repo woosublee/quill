@@ -37,6 +37,7 @@ struct NoteListRowDisplayDataTests {
         testRetryingItemHidesExistingPreview()
         testAudioOnlyRowUsesBlueStateAndNotTranscribedPreview()
         testHasMeetingSummaryReflectsStoredSummaryPresence()
+        testOnlyFinishedNotesAreBulkSelectable()
         print("NoteListRowDisplayDataTests passed")
     }
 
@@ -580,6 +581,15 @@ struct NoteListRowDisplayDataTests {
             postProcessingIDs: [UUID()]
         )
         assert(otherNote.displayTitle == "Transcribing...")
+    }
+
+    private static func testOnlyFinishedNotesAreBulkSelectable() {
+        assert(TranscriptStatus.done.isBulkSelectable)
+        assert(TranscriptStatus.audioOnly.isBulkSelectable)
+        assert(TranscriptStatus.recovered.isBulkSelectable)
+        assert(TranscriptStatus.fail.isBulkSelectable)
+        assert(!TranscriptStatus.recording.isBulkSelectable)
+        assert(!TranscriptStatus.transcribing.isBulkSelectable)
     }
 
     private static func testCloudChunkProgressDisplaysActiveChunk() {
