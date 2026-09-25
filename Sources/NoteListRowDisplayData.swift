@@ -2,6 +2,14 @@ import Foundation
 
 enum TranscriptStatus: Equatable {
     case done, recording, transcribing, audioOnly, recovered, fail
+
+    /// Notes still recording or processing are left out of multi-selection and bulk deletion.
+    var isBulkSelectable: Bool {
+        switch self {
+        case .recording, .transcribing: return false
+        case .done, .audioOnly, .recovered, .fail: return true
+        }
+    }
 }
 
 struct CloudTranscriptionDisplayProgress: Equatable, Sendable {

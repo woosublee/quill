@@ -6501,6 +6501,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Deletes several notes through the single-note path, one at a time.
+    /// Notes that are still recording or processing are skipped.
+    @MainActor
+    @discardableResult
+    func deleteHistoryEntries(ids: [UUID]) -> NoteBulkDeletionResult {
+        var result = NoteBulkDeletionResult()
+        for id in ids {
+            guard let item = pipelineHistory.first(where: { $0.id == id }) else { continue }
+            guard transcriptStatus(for: item, retrying: retryingItemIDs).isBulkSelectable else {
+                result.skippedIDs.append(id)
+                continue
+            }
+            deleteHistoryEntry(id: id)
+            if pipelineHistory.contains(where: { $0.id == id }) {
+                result.failedIDs.append(id)
+            } else {
+                result.deletedIDs.append(id)
+            }
+        }
+        return result
+    }
+
     @MainActor
     func meetingSummaryAvailability(
         for item: PipelineHistoryItem

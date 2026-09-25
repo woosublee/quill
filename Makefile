@@ -549,6 +549,8 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/MeetingSourcePayloadTests
 	@swiftc -parse-as-library Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Sources/NoteListRowDisplayData.swift Tests/NoteListRowDisplayDataTests.swift -o $(TEST_BUILD_DIR)/NoteListRowDisplayDataTests
 	@$(TEST_BUILD_DIR)/NoteListRowDisplayDataTests
+	@swiftc -parse-as-library Sources/NoteSelection.swift Tests/NoteSelectionTests.swift -o $(TEST_BUILD_DIR)/NoteSelectionTests
+	@$(TEST_BUILD_DIR)/NoteSelectionTests
 	@swiftc -parse-as-library Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/QuillUserIssue.swift Sources/CalendarIntegrationModels.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Sources/NoteListRowDisplayData.swift Tests/PipelineHistoryUserIssueTests.swift -o $(TEST_BUILD_DIR)/PipelineHistoryUserIssueTests
 	@$(TEST_BUILD_DIR)/PipelineHistoryUserIssueTests
 	@swiftc -parse-as-library Tests/NoteTitleHorizontalScrollFieldTests.swift -o $(TEST_BUILD_DIR)/NoteTitleHorizontalScrollFieldTests
@@ -649,6 +651,8 @@ _test-recording: | $(TEST_BUILD_DIR)
 	@$(TEST_BUILD_DIR)/SegmentedRecordingRecoveryIntegrationTests
 	@swiftc -parse-as-library Tests/RecoveredRecordingNoteBrowserSourceTests.swift -o $(TEST_BUILD_DIR)/RecoveredRecordingNoteBrowserSourceTests
 	@$(TEST_BUILD_DIR)/RecoveredRecordingNoteBrowserSourceTests
+	@swiftc -parse-as-library Tests/NoteBrowserMultiSelectionSourceTests.swift -o $(TEST_BUILD_DIR)/NoteBrowserMultiSelectionSourceTests
+	@$(TEST_BUILD_DIR)/NoteBrowserMultiSelectionSourceTests
 	@swiftc -parse-as-library Sources/InstructionExecutionDetector.swift Tests/InstructionExecutionDetectorTests.swift -o $(TEST_BUILD_DIR)/InstructionExecutionDetectorTests
 	@$(TEST_BUILD_DIR)/InstructionExecutionDetectorTests
 	@swiftc -parse-as-library Tests/ReleaseSDKCompatibilityTests.swift -o $(TEST_BUILD_DIR)/ReleaseSDKCompatibilityTests

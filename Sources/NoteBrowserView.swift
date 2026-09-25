@@ -420,7 +420,9 @@ private struct RecoveryScrollRestoreRequest: Identifiable {
 struct NoteBrowserView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var exportManager: ObsidianExportManager
-    @State private var selectedItemID: UUID?
+    @State private var selection = NoteSelection()
+    @State private var pendingDeletionIDs: [UUID] = []
+    @State private var showDeletionConfirmation = false
     @State private var searchText = ""
     @State private var knownHistoryIDs: Set<UUID> = []
     @State private var recoveryScrollRestoreRequest: RecoveryScrollRestoreRequest?
@@ -429,12 +431,115 @@ struct NoteBrowserView: View {
 
     private var filteredHistory: [PipelineHistoryItem] {
         guard !searchText.isEmpty else { return appState.pipelineHistory }
+        return appState.pipelineHistory.filter(matchesSearch)
+    }
+
+    private func matchesSearch(_ item: PipelineHistoryItem) -> Bool {
+        guard !searchText.isEmpty else { return true }
         let q = searchText.lowercased()
-        return appState.pipelineHistory.filter {
-            $0.postProcessedTranscript.lowercased().contains(q) ||
-            ($0.customTitle ?? "").lowercased().contains(q) ||
-            ($0.calendarMatch?.title ?? "").lowercased().contains(q)
+        return item.postProcessedTranscript.lowercased().contains(q) ||
+            (item.customTitle ?? "").lowercased().contains(q) ||
+            (item.calendarMatch?.title ?? "").lowercased().contains(q)
+    }
+
+    /// The note shown in the detail pane when one note is selected.
+    private var selectedItemID: UUID? { selection.focusedID }
+
+    private func isBulkSelectable(_ id: UUID) -> Bool {
+        guard let item = appState.pipelineHistory.first(where: { $0.id == id }) else { return false }
+        return transcriptStatus(for: item, retrying: appState.retryingItemIDs).isBulkSelectable
+    }
+
+    private func handleRowClick(_ id: UUID) {
+        let flags = NSEvent.modifierFlags
+        let modifier: NoteSelectionModifier = flags.contains(.command)
+            ? .toggle
+            : flags.contains(.shift) ? .extend : .none
+        selection.click(
+            id,
+            modifier: modifier,
+            orderedIDs: filteredHistory.map(\.id),
+            isSelectable: isBulkSelectable
+        )
+    }
+
+    private func beginSelection(including id: UUID? = nil) {
+        selection.beginSelectionMode()
+        if let id, !selection.selectedIDs.contains(id) {
+            selection.click(
+                id,
+                modifier: .none,
+                orderedIDs: filteredHistory.map(\.id),
+                isSelectable: isBulkSelectable
+            )
         }
+    }
+
+    private func selectAllVisibleNotes() -> Bool {
+        let ids = filteredHistory.map(\.id)
+        guard ids.contains(where: isBulkSelectable) else { return false }
+        selection.selectAll(orderedIDs: ids, isSelectable: isBulkSelectable)
+        return true
+    }
+
+    /// Asks to delete the multi-selection, or the clicked note when it is not part of it.
+    private func requestDeletion(of id: UUID? = nil) {
+        let ids: [UUID]
+        if let id, !(selection.showsSelectionUI && selection.selectedIDs.contains(id)) {
+            ids = [id]
+        } else {
+            ids = filteredHistory.map(\.id).filter { selection.selectedIDs.contains($0) }
+        }
+        guard !ids.isEmpty else { return }
+        pendingDeletionIDs = ids
+        showDeletionConfirmation = true
+    }
+
+    private func performPendingDeletion() {
+        let ids = pendingDeletionIDs
+        pendingDeletionIDs = []
+        guard !ids.isEmpty else { return }
+        let nextID = NoteSelection.nextFocusedID(
+            afterDeleting: Set(ids),
+            in: filteredHistory.map(\.id)
+        )
+        if ids.count == 1, !selection.showsSelectionUI || !selection.selectedIDs.contains(ids[0]) {
+            let wasFocused = selection.focusedID == ids[0]
+            appState.deleteHistoryEntry(id: ids[0])
+            // In selection mode the viewed note may be unchecked; keep the checked notes.
+            if wasFocused, !selection.isSelectionModeRequested,
+               !appState.pipelineHistory.contains(where: { $0.id == ids[0] }) {
+                selection.focus(nextID)
+            }
+            return
+        }
+        let result = appState.deleteHistoryEntries(ids: ids)
+        if result.failedIDs.isEmpty, result.skippedIDs.isEmpty {
+            selection.focus(nextID)
+        } else {
+            selection.retainVisible(filteredHistory.map(\.id))
+        }
+    }
+
+    private func handleKeyCommand(_ command: NoteBrowserKeyCommand) -> Bool {
+        switch command {
+        case .selectAll:
+            return selectAllVisibleNotes()
+        case .endSelection:
+            guard selection.showsSelectionUI else { return false }
+            selection.endSelectionMode()
+            return true
+        case .delete:
+            guard selection.showsSelectionUI, !selection.selectedIDs.isEmpty else { return false }
+            requestDeletion()
+            return true
+        }
+    }
+
+    private var deletionConfirmationTitle: Text {
+        pendingDeletionIDs.count == 1
+            ? Text("Delete this note?")
+            : Text(localizedCatalogFormat("Delete %lld notes?", pendingDeletionIDs.count))
     }
 
     private func scheduleRecoveryScrollRestore(for itemID: UUID) {
@@ -514,7 +619,7 @@ struct NoteBrowserView: View {
             let ids = Set(appState.pipelineHistory.map(\.id))
             knownHistoryIDs = ids
             if selectedItemID == nil {
-                selectedItemID = appState.pipelineHistory.first?.id
+                selection.focus(appState.pipelineHistory.first?.id)
             }
         }
         .sheet(item: $pendingAudioImport) { importRequest in
@@ -528,12 +633,39 @@ struct NoteBrowserView: View {
                 pendingAudioImport = nil
             }
         }
+        .confirmationDialog(
+            deletionConfirmationTitle,
+            isPresented: $showDeletionConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) { performPendingDeletion() }
+            Button("Cancel", role: .cancel) { pendingDeletionIDs = [] }
+        } message: {
+            if pendingDeletionIDs.count == 1 {
+                Text("Deleted notes cannot be recovered.")
+            } else {
+                Text("Deleted notes cannot be recovered. Audio and summaries are deleted too.")
+            }
+        }
+        .background(NoteBrowserKeyCommandMonitor(handle: handleKeyCommand))
+        .onChange(of: searchText) { _ in
+            if selection.showsSelectionUI {
+                selection.retainVisible(filteredHistory.map(\.id))
+            }
+        }
         .onReceive(appState.$pipelineHistory) { newHistory in
             let ids = newHistory.map(\.id)
+            if selection.showsSelectionUI {
+                // Keep a multi-selection; new notes don't take over while selecting.
+                // This fires before the change lands, so filter the new value.
+                selection.retainVisible(newHistory.filter(matchesSearch).map(\.id))
+                knownHistoryIDs = Set(ids)
+                return
+            }
             let isRecoveryImport = appState.isHistoryRecoveryOperationInProgress
             // Keep the note the user was viewing visible after a recovery import.
             guard let current = selectedItemID, ids.contains(current) else {
-                selectedItemID = ids.first
+                selection.focus(ids.first)
                 if isRecoveryImport, let fallback = ids.first {
                     scheduleRecoveryScrollRestore(for: fallback)
                 }
@@ -544,7 +676,7 @@ struct NoteBrowserView: View {
                 scheduleRecoveryScrollRestore(for: current)
             } else if let newest = ids.first, newest != current, !knownHistoryIDs.contains(newest) {
                 // Auto-select only genuinely new items; ignore existing item edits.
-                selectedItemID = newest
+                selection.focus(newest)
             }
             knownHistoryIDs = Set(ids)
                 }
@@ -765,28 +897,11 @@ struct NoteBrowserView: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
 
-            // Search bar
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.tertiary)
-                TextField("Search", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                if !searchText.isEmpty {
-                    Button { searchText = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .buttonStyle(.plain)
-                }
+            if selection.showsSelectionUI {
+                selectionBar
+            } else {
+                searchRow
             }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
-            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-            .padding(.horizontal, 12)
-            .padding(.bottom, 8)
 
             Divider().opacity(0.5)
 
@@ -816,10 +931,20 @@ struct NoteBrowserView: View {
                                         postProcessingIDs: appState.postProcessingNoteIDs,
                                         cloudProgress: appState.cloudTranscriptionProgressByHistoryID[item.id]
                                     ),
-                                    isSelected: selectedItemID == item.id
+                                    isSelected: selection.showsSelectionUI
+                                        ? selection.selectedIDs.contains(item.id)
+                                        : selectedItemID == item.id,
+                                    selectionMark: selectionMark(for: item.id)
                                 )
                                 .id(item.id)
-                                .onTapGesture { selectedItemID = item.id }
+                                .onTapGesture { handleRowClick(item.id) }
+                                .contextMenu {
+                                    Button("Select") { beginSelection(including: item.id) }
+                                    Divider()
+                                    Button("Delete…", role: .destructive) {
+                                        requestDeletion(of: item.id)
+                                    }
+                                }
                             }
                         }
                         .padding(.horizontal, 8)
@@ -847,6 +972,62 @@ struct NoteBrowserView: View {
                 .fill(Color.primary.opacity(0.07))
                 .frame(width: 0.5)
         }
+    }
+
+    private var searchRow: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.tertiary)
+                TextField("Search", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                if !searchText.isEmpty {
+                    Button { searchText = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+
+            Button("Select") { beginSelection() }
+                .buttonStyle(SidebarCapsuleButtonStyle())
+                .help("Select multiple notes")
+                .disabled(appState.pipelineHistory.isEmpty)
+                .overrideCursor(.arrow)
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+
+    private var selectionBar: some View {
+        HStack(spacing: 8) {
+            Text(localizedCatalogFormat("%lld selected", selection.selectedIDs.count))
+                .font(.system(size: 12, weight: .semibold))
+                .monospacedDigit()
+            Spacer(minLength: 8)
+            Button("Select All") { _ = selectAllVisibleNotes() }
+                .buttonStyle(SidebarCapsuleButtonStyle())
+                .overrideCursor(.arrow)
+            Button("Done") { selection.endSelectionMode() }
+                .buttonStyle(SidebarCapsuleButtonStyle())
+                .overrideCursor(.arrow)
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 28)
+        .padding(.bottom, 8)
+    }
+
+    private func selectionMark(for id: UUID) -> NoteListRow.SelectionMark? {
+        guard selection.showsSelectionUI else { return nil }
+        if selection.selectedIDs.contains(id) { return .selected }
+        return isBulkSelectable(id) ? .unselected : .unavailable
     }
 
     private func showAudioImportPicker() {
@@ -899,7 +1080,11 @@ struct NoteBrowserView: View {
 
     @ViewBuilder
     private var detailPanel: some View {
-        if let id = selectedItemID,
+        if selection.showsSelectionUI {
+            NoteMultiSelectionPanel(count: selection.selectedIDs.count) {
+                requestDeletion()
+            }
+        } else if let id = selectedItemID,
            let item = appState.pipelineHistory.first(where: { $0.id == id }) {
             NoteDetailView(item: item) {
                 appState.deleteHistoryEntry(id: id)
@@ -1159,8 +1344,15 @@ private final class TitleSingleLineTextView: NSTextView {
 // MARK: - Note List Row
 
 private struct NoteListRow: View {
+    enum SelectionMark {
+        case selected, unselected
+        /// Still recording or processing, so it can't join a multi-selection.
+        case unavailable
+    }
+
     let displayData: NoteListRowDisplayData
     let isSelected: Bool
+    var selectionMark: SelectionMark? = nil
 
     @EnvironmentObject private var exportManager: ObsidianExportManager
     @Environment(\.colorScheme) private var colorScheme
@@ -1170,6 +1362,10 @@ private struct NoteListRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
+            if let selectionMark {
+                NoteSelectionCheckbox(mark: selectionMark)
+                    .frame(maxHeight: .infinity, alignment: .center)
+            }
             // Content
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 4) {
@@ -1295,6 +1491,200 @@ private struct NoteListRow: View {
         }
     }
 
+}
+
+/// Neutral capsule matching the sidebar's transcription picker.
+private struct SidebarCapsuleButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 11, weight: .semibold))
+            .lineLimit(1)
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Color.primary.opacity(configuration.isPressed ? 0.12 : 0.06),
+                in: Capsule()
+            )
+            .opacity(isEnabled ? 1 : 0.45)
+            .contentShape(Capsule())
+    }
+}
+
+private struct NoteSelectionCheckbox: View {
+    let mark: NoteListRow.SelectionMark
+
+    var body: some View {
+        ZStack {
+            switch mark {
+            case .selected:
+                Circle().fill(Color.accentColor)
+                Image(systemName: "checkmark")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white)
+            case .unselected:
+                Circle().strokeBorder(Color.secondary.opacity(0.6), lineWidth: 1.5)
+            case .unavailable:
+                Circle()
+                    .strokeBorder(
+                        Color.secondary.opacity(0.35),
+                        style: StrokeStyle(lineWidth: 1.5, dash: [2, 2])
+                    )
+            }
+        }
+        .frame(width: 18, height: 18)
+        .accessibilityHidden(true)
+        .modifier(UnavailableSelectionHelp(isUnavailable: mark == .unavailable))
+    }
+}
+
+private struct UnavailableSelectionHelp: ViewModifier {
+    let isUnavailable: Bool
+
+    func body(content: Content) -> some View {
+        if isUnavailable {
+            content.help("Notes that are recording or processing can't be selected.")
+        } else {
+            content
+        }
+    }
+}
+
+/// Detail pane while several notes are selected.
+private struct NoteMultiSelectionPanel: View {
+    let count: Int
+    let onDelete: () -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            VStack(spacing: 10) {
+                ZStack {
+                    stackedNote.rotationEffect(.degrees(-9)).offset(x: -8)
+                    stackedNote.rotationEffect(.degrees(7)).offset(x: 8)
+                    stackedNote
+                }
+                .frame(width: 74, height: 88)
+                .padding(.bottom, 6)
+                .accessibilityHidden(true)
+                countTitle
+                    .font(.system(size: 17, weight: .semibold))
+                Text("Click notes in the list to add or remove them.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 260)
+            }
+            .padding(.bottom, 60)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Button(action: onDelete) {
+                HStack(spacing: 6) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 13, weight: .medium))
+                    deleteLabel
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .foregroundStyle(Color.red.opacity(count == 0 ? 0.4 : 0.9))
+                .padding(.horizontal, 14)
+                .frame(height: 38)
+                .background(Capsule().fill(.ultraThinMaterial))
+                .overlay(Capsule().strokeBorder(toolbarStrokeColor, lineWidth: 0.6))
+                .shadow(color: .black.opacity(0.085), radius: 14, x: 0, y: 4)
+            }
+            .buttonStyle(.plain)
+            .disabled(count == 0)
+            .padding(.bottom, 20)
+            .overrideCursor(.arrow)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .textBackgroundColor))
+    }
+
+    private var stackedNote: some View {
+        RoundedRectangle(cornerRadius: 9)
+            .fill(Color(nsColor: .textBackgroundColor))
+            .overlay(
+                RoundedRectangle(cornerRadius: 9)
+                    .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+            )
+            .shadow(color: .black.opacity(0.08), radius: 4, x: 0, y: 2)
+            .frame(width: 74, height: 88)
+    }
+
+    private var countTitle: Text {
+        switch count {
+        case 0: return Text("No notes selected")
+        case 1: return Text("1 note selected")
+        default: return Text(localizedCatalogFormat("%lld notes selected", count))
+        }
+    }
+
+    private var deleteLabel: Text {
+        count == 1 ? Text("Delete Note") : Text(localizedCatalogFormat("Delete %lld Notes", count))
+    }
+
+    private var toolbarStrokeColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.10) : Color.primary.opacity(0.10)
+    }
+}
+
+/// Handles Note Browser list shortcuts (⌘A, esc, delete) for its own window only,
+/// and never while a text field or text view is editing.
+private struct NoteBrowserKeyCommandMonitor: NSViewRepresentable {
+    let handle: (NoteBrowserKeyCommand) -> Bool
+
+    func makeNSView(context: Context) -> MonitorView {
+        let view = MonitorView()
+        view.handle = handle
+        return view
+    }
+
+    func updateNSView(_ nsView: MonitorView, context: Context) {
+        nsView.handle = handle
+    }
+
+    static func dismantleNSView(_ nsView: MonitorView, coordinator: ()) {
+        nsView.removeMonitor()
+    }
+
+    final class MonitorView: NSView {
+        var handle: ((NoteBrowserKeyCommand) -> Bool)?
+        private var monitor: Any?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if window == nil {
+                removeMonitor()
+            } else if monitor == nil {
+                monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                    guard let self,
+                          let window = self.window,
+                          event.window === window,
+                          !(window.firstResponder is NSText),
+                          let command = NoteBrowserKeyCommand(
+                            keyCode: event.keyCode,
+                            charactersIgnoringModifiers: event.charactersIgnoringModifiers,
+                            modifierFlags: event.modifierFlags
+                          ),
+                          self.handle?(command) == true else {
+                        return event
+                    }
+                    return nil
+                }
+            }
+        }
+
+        func removeMonitor() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+            monitor = nil
+        }
+    }
 }
 
 // MARK: - Note Detail View
