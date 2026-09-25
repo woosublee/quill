@@ -106,7 +106,7 @@ ICON_ICNS = Resources/AppIcon.icns
 endif
 
 # Usage: make install CODESIGN_IDENTITY="Apple Development: you@example.com (TEAMID)"
-.PHONY: all check clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test test-core test-recording test-transcription test-local-ai-integration _test-core _test-recording _test-transcription localization-bundle-test native-whisper-helper-test llama-server-helper-test print-app-version print-build-number print-build-tag print-version-metadata validate FORCE
+.PHONY: all check clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test test-core test-recording test-transcription test-app-state test-local-ai-integration _test-core _test-recording _test-transcription _test-app-state localization-bundle-test native-whisper-helper-test llama-server-helper-test print-app-version print-build-number print-build-tag print-version-metadata validate FORCE
 
 all: $(APP_EXECUTABLE_TARGET)
 
@@ -378,7 +378,7 @@ FORCE:
 check-test-wiring:
 	@plan_file="$$(mktemp -t quill-test-plan)"; \
 		trap 'rm -f "$$plan_file"' EXIT; \
-		$(MAKE) -Bn --no-print-directory _test-core _test-recording _test-transcription test-local-ai-integration > "$$plan_file"; \
+		$(MAKE) -Bn --no-print-directory _test-core _test-recording _test-transcription _test-app-state test-local-ai-integration > "$$plan_file"; \
 		grouped_sources=" $(GROUPED_TEST_SOURCES) $(GROUPED_RUNNER_SOURCES) "; \
 		for test_file in Tests/*.swift; do \
 			compile_count="$$(grep -F -- "$$test_file" "$$plan_file" | grep -c 'swiftc ' || true)"; \
@@ -458,6 +458,9 @@ test-recording: check-test-wiring
 test-transcription: check-test-wiring
 	@$(call RUN_TIMED_TARGET,_test-transcription,transcription)
 
+test-app-state: check-test-wiring
+	@$(call RUN_TIMED_TARGET,_test-app-state,app-state)
+
 test-local-ai-integration: $(TEST_BUILD_DIR)/LocalAIIntegrationTests
 	@set -eu; \
 		if ! command -v python3 >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! command -v shasum >/dev/null 2>&1; then \
@@ -522,6 +525,7 @@ test: check-test-wiring
 	@$(call RUN_TIMED_TARGET,_test-core,core)
 	@$(call RUN_TIMED_TARGET,_test-recording,recording)
 	@$(call RUN_TIMED_TARGET,_test-transcription,transcription)
+	@$(call RUN_TIMED_TARGET,_test-app-state,app-state)
 
 _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/LocalizationResourceTests $(TEST_BUILD_DIR)/UpdateSnapshotStoreTests $(TEST_BUILD_DIR)/MeetingSummaryModelsTests $(TEST_BUILD_DIR)/MeetingSummaryTextChunkerTests $(TEST_BUILD_DIR)/SpokenLanguageResolutionTests $(TEST_BUILD_DIR)/MeetingSummaryUIContractTests | $(TEST_BUILD_DIR)
 	@$(TEST_BUILD_DIR)/UpdateSnapshotStoreTests
@@ -673,7 +677,7 @@ _test-recording: | $(TEST_BUILD_DIR)
 	@$(TEST_BUILD_DIR)/AudioWaveformHeightsTests
 	@swiftc -parse-as-library Sources/AudioInputDevice.swift Tests/SystemAudioAppStateRoutingTests.swift -o $(TEST_BUILD_DIR)/SystemAudioAppStateRoutingTests
 	@$(TEST_BUILD_DIR)/SystemAudioAppStateRoutingTests
-_test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSCRIPTION_RUNNER) $(FULL_SOURCE_APP_STATE_RUNNER) $(TEST_BUILD_DIR)/PipelineHistoryMeetingSummaryTests $(TEST_BUILD_DIR)/PipelineHistoryStoreRecoveryTests $(TEST_BUILD_DIR)/HistoryArchiveTransitionTests $(TEST_BUILD_DIR)/HistoryRecoveryServiceTests | $(TEST_BUILD_DIR)
+_test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSCRIPTION_RUNNER) $(TEST_BUILD_DIR)/PipelineHistoryMeetingSummaryTests $(TEST_BUILD_DIR)/PipelineHistoryStoreRecoveryTests $(TEST_BUILD_DIR)/HistoryArchiveTransitionTests $(TEST_BUILD_DIR)/HistoryRecoveryServiceTests | $(TEST_BUILD_DIR)
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/TranscriptTextCore.swift Tests/TranscriptTextCoreTests.swift -o $(TEST_BUILD_DIR)/TranscriptTextCoreTests
 	@$(TEST_BUILD_DIR)/TranscriptTextCoreTests
 	@$(TEST_BUILD_DIR)/PipelineHistoryMeetingSummaryTests
@@ -745,6 +749,9 @@ _test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSC
 		end="$$(date +%s)"; \
 		printf '[timing] group=full-source-transcription seconds=%s status=%s\n' "$$((end - start))" "$$status"; \
 		exit "$$status"
+
+# Separate shard so CI compiles the two full-source runners on parallel runners.
+_test-app-state: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_APP_STATE_RUNNER) | $(TEST_BUILD_DIR)
 	@start="$$(date +%s)"; status=0; \
 		isolated_home="$$(mktemp -d /tmp/quill-app-state-tests.XXXXXX)"; \
 		test -n "$$isolated_home" || exit 1; \

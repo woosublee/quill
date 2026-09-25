@@ -13,6 +13,7 @@ struct BuildMetadataTests {
         try testMakefileBundlesLocalizationResources()
         try testMakefileBuildsAppBundleForLocalizationValidation()
         try testTranscriptionShardBuildsLocalizationResources()
+        try testAppStateRunnerHasItsOwnShard()
         try testTestsWorkflowRunsRequiredChecksInParallel()
         try testMakefileExposesRepositoryValidationTargets()
         try testTestsWorkflowRequiresRepositoryValidation()
@@ -60,7 +61,7 @@ struct BuildMetadataTests {
 
         for target in [
             "check-test-wiring", "test", "test-core", "test-recording", "test-transcription",
-            "localization-bundle-test", "native-whisper-helper-test", "print-version-metadata"
+            "test-app-state", "localization-bundle-test", "native-whisper-helper-test", "print-version-metadata"
         ] {
             assertContains(makefile, "\n\(target):")
         }
@@ -151,10 +152,30 @@ struct BuildMetadataTests {
         )
     }
 
+    // #357: the app-state full-source runner has its own shard, so CI compiles
+    // the two full-source runners on separate runners in parallel.
+    private static func testAppStateRunnerHasItsOwnShard() throws {
+        let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
+
+        assertContains(
+            makefile,
+            "_test-app-state: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_APP_STATE_RUNNER)"
+        )
+        assertContains(makefile, "test-app-state: check-test-wiring\n\t@$(call RUN_TIMED_TARGET,_test-app-state,app-state)")
+        assertContains(makefile, "\t@$(call RUN_TIMED_TARGET,_test-app-state,app-state)\n\n_test-core:")
+        assertContains(makefile, "_test-core _test-recording _test-transcription _test-app-state test-local-ai-integration")
+        let transcriptionLines = makefile
+            .components(separatedBy: "\n")
+            .filter { $0.hasPrefix("_test-transcription:") }
+        precondition(transcriptionLines.count == 1, "expected one _test-transcription rule")
+        // The transcription shard must not also build the app-state runner.
+        assertDoesNotContain(transcriptionLines[0], "$(FULL_SOURCE_APP_STATE_RUNNER)")
+    }
+
     private static func testTestsWorkflowRunsRequiredChecksInParallel() throws {
         let workflow = try String(contentsOfFile: ".github/workflows/tests.yml", encoding: .utf8)
 
-        for target in ["test-core", "test-recording", "test-transcription"] {
+        for target in ["test-core", "test-recording", "test-transcription", "test-app-state"] {
             assertContains(workflow, "target: \(target)")
         }
         assertContains(workflow, "fail-fast: false")

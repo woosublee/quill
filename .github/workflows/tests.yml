@@ -28,6 +28,8 @@ jobs:
             target: test-recording
           - name: Transcription tests
             target: test-transcription
+          - name: App state tests
+            target: test-app-state
 
     steps:
       - name: Check out repository
