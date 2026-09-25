@@ -5120,10 +5120,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         postProcessingNoteIDs.insert(noteID)
     }
 
-    /// User-facing processing stage for the menu bar while a recording is processed.
+    /// User-facing processing stage of the foreground job for the menu bar.
     var transcribingStatusTitle: String {
-        localizedCatalogString(
-            postProcessingNoteIDs.isEmpty ? "Transcribing..." : "Post-processing..."
+        let isPostProcessing = foregroundTranscriptionJobID.map {
+            postProcessingNoteIDByJobID[$0] != nil
+        } ?? false
+        return localizedCatalogString(
+            isPostProcessing ? "Post-processing..." : "Transcribing..."
         )
     }
 

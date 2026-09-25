@@ -492,6 +492,10 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         precondition(noteBrowser.contains("postProcessingIDs: appState.postProcessingNoteIDs"))
         precondition(menuBar.contains("Label(appState.transcribingStatusTitle"))
         precondition(!menuBar.contains("Label(appState.debugStatusMessage"))
+        // The menu bar describes the foreground job, not any job that is post-processing.
+        let statusTitle = try body(startingWith: "var transcribingStatusTitle: String", in: source)
+        precondition(statusTitle.contains("foregroundTranscriptionJobID.map"))
+        precondition(statusTitle.contains("postProcessingNoteIDByJobID[$0] != nil"))
     }
 
     private static func testMCPStartReportsLifecycleRejection() throws {
