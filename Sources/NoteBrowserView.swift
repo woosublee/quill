@@ -431,12 +431,15 @@ struct NoteBrowserView: View {
 
     private var filteredHistory: [PipelineHistoryItem] {
         guard !searchText.isEmpty else { return appState.pipelineHistory }
+        return appState.pipelineHistory.filter(matchesSearch)
+    }
+
+    private func matchesSearch(_ item: PipelineHistoryItem) -> Bool {
+        guard !searchText.isEmpty else { return true }
         let q = searchText.lowercased()
-        return appState.pipelineHistory.filter {
-            $0.postProcessedTranscript.lowercased().contains(q) ||
-            ($0.customTitle ?? "").lowercased().contains(q) ||
-            ($0.calendarMatch?.title ?? "").lowercased().contains(q)
-        }
+        return item.postProcessedTranscript.lowercased().contains(q) ||
+            (item.customTitle ?? "").lowercased().contains(q) ||
+            (item.calendarMatch?.title ?? "").lowercased().contains(q)
     }
 
     /// The note shown in the detail pane when one note is selected.
@@ -654,7 +657,8 @@ struct NoteBrowserView: View {
             let ids = newHistory.map(\.id)
             if selection.showsSelectionUI {
                 // Keep a multi-selection; new notes don't take over while selecting.
-                selection.retainVisible(ids)
+                // This fires before the change lands, so filter the new value.
+                selection.retainVisible(newHistory.filter(matchesSearch).map(\.id))
                 knownHistoryIDs = Set(ids)
                 return
             }

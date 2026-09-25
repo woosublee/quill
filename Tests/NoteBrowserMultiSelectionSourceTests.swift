@@ -46,6 +46,9 @@ struct NoteBrowserMultiSelectionSourceTests {
         // New notes don't replace a multi-selection, and search keeps it to visible notes.
         precondition(source.contains("// Keep a multi-selection; new notes don't take over while selecting."))
         precondition(source.contains("selection.retainVisible(filteredHistory.map(\\.id))"))
+        // The history publisher fires before the change lands, so search is applied to the new value.
+        precondition(source.contains("selection.retainVisible(newHistory.filter(matchesSearch).map(\\.id))"))
+        precondition(source.contains("return appState.pipelineHistory.filter(matchesSearch)"))
 
         print("NoteBrowserMultiSelectionSourceTests passed")
     }
