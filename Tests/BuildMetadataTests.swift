@@ -164,10 +164,12 @@ struct BuildMetadataTests {
         assertContains(makefile, "test-app-state: check-test-wiring\n\t@$(call RUN_TIMED_TARGET,_test-app-state,app-state)")
         assertContains(makefile, "\t@$(call RUN_TIMED_TARGET,_test-app-state,app-state)\n\n_test-core:")
         assertContains(makefile, "_test-core _test-recording _test-transcription _test-app-state test-local-ai-integration")
-        let transcriptionLine = makefile
+        let transcriptionLines = makefile
             .components(separatedBy: "\n")
-            .first { $0.hasPrefix("_test-transcription:") } ?? ""
-        assert(!transcriptionLine.contains("$(FULL_SOURCE_APP_STATE_RUNNER)"), "transcription shard must not build the app-state runner")
+            .filter { $0.hasPrefix("_test-transcription:") }
+        precondition(transcriptionLines.count == 1, "expected one _test-transcription rule")
+        // The transcription shard must not also build the app-state runner.
+        assertDoesNotContain(transcriptionLines[0], "$(FULL_SOURCE_APP_STATE_RUNNER)")
     }
 
     private static func testTestsWorkflowRunsRequiredChecksInParallel() throws {
