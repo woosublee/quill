@@ -813,6 +813,7 @@ struct NoteBrowserView: View {
                                     displayData: NoteListRowDisplayData(
                                         item: item,
                                         retryingIDs: appState.retryingItemIDs,
+                                        postProcessingIDs: appState.postProcessingNoteIDs,
                                         cloudProgress: appState.cloudTranscriptionProgressByHistoryID[item.id]
                                     ),
                                     isSelected: selectedItemID == item.id

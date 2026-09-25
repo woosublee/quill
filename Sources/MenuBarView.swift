@@ -107,7 +107,7 @@ struct MenuBarView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 6)
             } else if appState.isTranscribing {
-                Label(appState.debugStatusMessage, systemImage: "ellipsis.circle")
+                Label(appState.transcribingStatusTitle, systemImage: "ellipsis.circle")
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 6)
