@@ -166,7 +166,7 @@ struct AppStateCloudTranscriptionCleanupSourceTests {
         )
         try expect(
             importFlow.components(
-                separatedBy: "requiresCloudExecution: !configuration.useLocalTranscription"
+                separatedBy: "requiresCloudExecution: configuration.usesJobStore"
             ).count >= 3,
             "import cloud callbacks reject a missing invalidated context"
         )
@@ -184,7 +184,7 @@ struct AppStateCloudTranscriptionCleanupSourceTests {
         )
         try expect(
             recordingFlow.components(
-                separatedBy: "requiresCloudExecution: !capturedUseLocalTranscription"
+                separatedBy: "requiresCloudExecution: capturedUsesJobStore"
             ).count >= 2,
             "recording cloud callbacks reject a missing invalidated context"
         )
