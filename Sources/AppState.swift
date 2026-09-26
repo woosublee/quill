@@ -470,6 +470,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let transcriptionLanguageStorageKey = "transcription_language"
     private let outputLanguageStorageKey = "output_language"
     private let localTranscriptionModelStorageKey = AppState.localTranscriptionModelStorageKeyName
+    private let localAITranscriptionModelStorageKey = "local_ai_transcription_model"
     private let noteBrowserEnabledStorageKey = "note_browser_enabled"
     private let commandModeEnabledStorageKey = "command_mode_enabled"
     private let commandModeStyleStorageKey = "command_mode_style"
@@ -1031,6 +1032,24 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// The Local AI model used for transcription, or nil when transcription
+    /// uses another backend. Kept even if the model later becomes unavailable,
+    /// so the choice shows as unavailable instead of silently switching.
+    @Published var localAITranscriptionModelID: String? {
+        didSet {
+            if let localAITranscriptionModelID {
+                UserDefaults.standard.set(
+                    localAITranscriptionModelID,
+                    forKey: localAITranscriptionModelStorageKey
+                )
+            } else {
+                UserDefaults.standard.removeObject(
+                    forKey: localAITranscriptionModelStorageKey
+                )
+            }
+        }
+    }
+
     @Published private(set) var nativeWhisperInstallStatus: NativeWhisperInstallStatus
     @Published private(set) var nativeWhisperInstallProgress: NativeWhisperDownloadProgress
     @Published private(set) var isInstallingNativeWhisper = false
@@ -1060,6 +1079,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     var currentNoteBrowserTranscriptionChoice: TranscriptionBackendChoice {
         if useLocalTranscription {
+            if let localAITranscriptionModelID {
+                return .localAI(modelID: localAITranscriptionModelID)
+            }
             if localTranscriptionModel.isAppleSpeech {
                 return .appleLive
             }
@@ -1100,7 +1122,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             ? [noteBrowserTranscriptionDisplay(for: apiRealtimeChoice)]
             : []
         return standardDisplays + realtimeDisplays + [
-            noteBrowserTranscriptionDisplay(for: nativeWhisperChoice),
+            noteBrowserTranscriptionDisplay(for: nativeWhisperChoice)
+        ] + localAITranscriptionChoices.map {
+            noteBrowserTranscriptionDisplay(for: $0)
+        } + [
             noteBrowserTranscriptionDisplay(for: .appleLive)
         ] + installedLegacyLocalWhisperModels.map { model in
             noteBrowserTranscriptionDisplay(for: .legacyMlxWhisper(model: model))
@@ -1168,6 +1193,30 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 isAvailable: unavailableReason == nil,
                 unavailableReason: unavailableReason
             )
+        case .localAI(let modelID):
+            let model = LocalAIModelCatalog.model(id: modelID)
+            let name = model?.displayName ?? modelID
+            let unavailableReason: String? = if let model, model.supportsTranscription {
+                if !isLocalAIModelAvailable(model) {
+                    "This Mac does not meet the model's requirements"
+                } else if !isLocalAITranscriptionModelReady(modelID) {
+                    "Install \(name) in Settings to use this option"
+                } else {
+                    nil
+                }
+            } else {
+                "This model is no longer available for transcription"
+            }
+            return TranscriptionChoiceDisplay(
+                choice: .localAI(modelID: modelID),
+                section: "On This Mac",
+                title: "Local AI",
+                subtitle: name,
+                compactLabel: "Local AI · \(name)",
+                currentLabel: "On This Mac · Local AI · \(name)",
+                isAvailable: unavailableReason == nil,
+                unavailableReason: unavailableReason
+            )
         case .appleLive:
             let unavailableReason = AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID)
                 ? "Apple Live is unavailable with Microphone + System Audio"
@@ -1229,6 +1278,46 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private var nativeWhisperChoice: TranscriptionBackendChoice {
         .nativeWhisper(modelID: NativeWhisperModelCatalog.recommended.id)
+    }
+
+    /// Transcription-capable Local AI models this Mac can run, installed or not.
+    @MainActor
+    var localAITranscriptionChoices: [TranscriptionBackendChoice] {
+        LocalAIModelCatalog.transcriptionModels
+            .filter { isLocalAIModelAvailable($0) }
+            .map { .localAI(modelID: $0.id) }
+    }
+
+    @MainActor
+    func isLocalAITranscriptionModelReady(_ modelID: String) -> Bool {
+        guard let model = LocalAIModelCatalog.model(id: modelID),
+              model.supportsTranscription,
+              isLocalAIModelAvailable(model),
+              !localAIWorkflow.isDeletionRequested(modelID) else {
+            return false
+        }
+        return localAIInstallState(for: model).status == .ready
+    }
+
+    @MainActor
+    var audioImportLocalAIModels: [AudioImportLocalAIModel] {
+        LocalAIModelCatalog.transcriptionModels
+            .filter { isLocalAIModelAvailable($0) }
+            .map {
+                AudioImportLocalAIModel(
+                    id: $0.id,
+                    displayName: $0.displayName,
+                    isReady: isLocalAITranscriptionModelReady($0.id)
+                )
+            }
+    }
+
+    @MainActor
+    var transcriptionLocalAIModelID: String? {
+        if case .localAI(let modelID) = currentNoteBrowserTranscriptionChoice {
+            return modelID
+        }
+        return nil
     }
 
     private var nativeWhisperDisplayName: String {
@@ -1380,6 +1469,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 useLocalTranscription: true,
                 localTranscriptionModel: model,
                 useLegacyMlxWhisper: true,
+                transcriptionModel: resolvedStandardTranscriptionModelID
+            )
+        case .localAI:
+            return AudioImportTranscriptionConfiguration(
+                mode: .localWhisper,
+                useLocalTranscription: true,
+                localTranscriptionModel: nativeLocalWhisperSelectionModel,
+                useLegacyMlxWhisper: false,
                 transcriptionModel: resolvedStandardTranscriptionModelID
             )
         case .appleLive:
@@ -1566,6 +1663,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .apiRealtime:
             return apiRealtimeChoice
         case .localWhisper:
+            if let localAITranscriptionModelID {
+                return .localAI(modelID: localAITranscriptionModelID)
+            }
             if useLegacyMlxWhisper, !localTranscriptionModel.isAppleSpeech {
                 return .legacyMlxWhisper(model: localTranscriptionModel)
             }
@@ -1581,6 +1681,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .apiStandard, .apiRealtime:
             return apiStandardChoice
         case .localWhisper, .localAppleLive:
+            if let localAITranscriptionModelID,
+               isLocalAITranscriptionModelReady(localAITranscriptionModelID) {
+                return .localAI(modelID: localAITranscriptionModelID)
+            }
             if useLegacyMlxWhisper, !localTranscriptionModel.isAppleSpeech, localTranscriptionModel.isInstalled {
                 return .legacyMlxWhisper(model: localTranscriptionModel)
             }
@@ -1597,15 +1701,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     private func noteBrowserFallbackChoices(for choice: TranscriptionBackendChoice) -> [TranscriptionBackendChoice] {
         let legacyChoices = installedLegacyLocalWhisperModels.map { TranscriptionBackendChoice.legacyMlxWhisper(model: $0) }
+        let localAIChoices = localAITranscriptionChoices.filter { $0 != choice }
         switch choice {
         case .apiRealtime:
-            return [apiStandardChoice, nativeWhisperChoice] + legacyChoices + [.appleLive]
+            return [apiStandardChoice, nativeWhisperChoice] + localAIChoices + legacyChoices + [.appleLive]
         case .apiStandard:
-            return [nativeWhisperChoice] + legacyChoices + [.appleLive, apiRealtimeChoice]
+            return [nativeWhisperChoice] + localAIChoices + legacyChoices + [.appleLive, apiRealtimeChoice]
         case .appleLive:
-            return [nativeWhisperChoice] + legacyChoices + [apiStandardChoice, apiRealtimeChoice]
+            return [nativeWhisperChoice] + localAIChoices + legacyChoices + [apiStandardChoice, apiRealtimeChoice]
         case .nativeWhisper:
-            return legacyChoices + [apiStandardChoice, .appleLive, apiRealtimeChoice]
+            return localAIChoices + legacyChoices + [apiStandardChoice, .appleLive, apiRealtimeChoice]
+        case .localAI:
+            return [nativeWhisperChoice] + localAIChoices + legacyChoices + [apiStandardChoice, .appleLive, apiRealtimeChoice]
         case .legacyMlxWhisper(let model):
             let sameLegacy = TranscriptionBackendChoice.legacyMlxWhisper(model: model)
             return [nativeWhisperChoice] + legacyChoices.filter { $0 != sameLegacy } + [apiStandardChoice, .appleLive, apiRealtimeChoice]
@@ -1628,7 +1735,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
         isApplyingNoteBrowserTranscriptionChoice = true
         defer { isApplyingNoteBrowserTranscriptionChoice = false }
 
+        if case .localAI = choice {} else {
+            update(\AppState.localAITranscriptionModelID, to: nil)
+        }
         switch choice {
+        case .localAI(let modelID):
+            update(\AppState.useLocalTranscription, to: true)
+            update(\AppState.realtimeStreamingEnabled, to: false)
+            update(\AppState.useLegacyMlxWhisper, to: false)
+            update(\AppState.localTranscriptionModel, to: nativeLocalWhisperSelectionModel)
+            update(\AppState.localAITranscriptionModelID, to: modelID)
         case .apiStandard(let modelID):
             update(\AppState.transcriptionModel, to: nonEmptyModelID(modelID) ?? resolvedStandardTranscriptionModelID)
             update(\AppState.useLocalTranscription, to: false)
@@ -2106,7 +2222,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         switch currentNoteBrowserTranscriptionChoice {
         case .appleLive, .apiRealtime:
             return true
-        case .apiStandard, .nativeWhisper, .legacyMlxWhisper:
+        case .apiStandard, .nativeWhisper, .legacyMlxWhisper, .localAI:
             return false
         }
     }
@@ -3004,6 +3120,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.transcriptionLanguage = transcriptionLanguage
         self.outputLanguage = outputLanguage
         self.localTranscriptionModel = localTranscriptionModel
+        self.localAITranscriptionModelID = UserDefaults.standard
+            .string(forKey: localAITranscriptionModelStorageKey)
         self.soundVolume = soundVolume
         self.voiceMacros = initialMacros
         self.pipelineHistory = savedHistory
@@ -5916,6 +6034,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .legacyMlxWhisper(let model):
             transcriptionBackend = .legacyMlxWhisper
             transcriptionModelID = model.id
+        case .localAI(let modelID):
+            transcriptionBackend = .localAI
+            transcriptionModelID = modelID
         case .appleLive:
             transcriptionBackend = .appleLive
             transcriptionModelID = nil
@@ -7029,6 +7150,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             hasAPIKey: hasTranscriptionAPIKey,
             hasNativeLocalWhisperModel: hasNativeLocalWhisperModel,
             legacyLocalWhisperModels: installedLegacyLocalWhisperModels,
+            localAIModels: audioImportLocalAIModels,
             nativeWhisperModelID: NativeWhisperModelCatalog.recommended.id,
             nativeWhisperDisplayName: NativeWhisperModelCatalog.recommended.displayName,
             allowsOversizedCanonicalCloud: allowsOversizedCanonicalCloud

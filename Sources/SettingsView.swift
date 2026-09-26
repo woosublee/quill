@@ -1523,12 +1523,17 @@ struct ModelsSettingsView: View {
         let nativeDisplays = NativeWhisperModelCatalog.all.map { model in
             appState.noteBrowserTranscriptionDisplay(for: .nativeWhisper(modelID: model.id))
         }
+        // Like Native Whisper, Local AI models are listed before install so
+        // they can be downloaded from here.
+        let localAIDisplays = appState.localAITranscriptionChoices.map {
+            appState.noteBrowserTranscriptionDisplay(for: $0)
+        }
         // appState.noteBrowserTranscriptionChoiceDisplays already gates Realtime
         // on showRealtimeTranscriptionOption / realtimeStreamingEnabled, so
         // apiRealtime only appears here when it's already meant to be shown.
         let otherDisplays = appState.noteBrowserTranscriptionChoiceDisplays.filter { display in
             switch display.choice {
-            case .apiStandard, .nativeWhisper:
+            case .apiStandard, .nativeWhisper, .localAI:
                 return false
             case .apiRealtime, .appleLive:
                 return true
@@ -1536,7 +1541,7 @@ struct ModelsSettingsView: View {
                 return display.isAvailable
             }
         }
-        return standardDisplays + nativeDisplays + otherDisplays
+        return standardDisplays + nativeDisplays + localAIDisplays + otherDisplays
     }
 
     private var transcriptionChoice: Binding<TranscriptionBackendChoice> {
@@ -1581,7 +1586,7 @@ struct ModelsSettingsView: View {
         switch choice {
         case .nativeWhisper(let modelID):
             pendingNativeModelID = modelID
-        case .apiStandard, .apiRealtime, .legacyMlxWhisper, .appleLive:
+        case .apiStandard, .apiRealtime, .legacyMlxWhisper, .localAI, .appleLive:
             pendingNativeModelID = nil
             appState.cancelNativeWhisperAutoSelection()
         }
@@ -1960,7 +1965,7 @@ struct ModelsSettingsView: View {
         switch settingsTranscriptionChoice {
         case .apiStandard, .apiRealtime:
             true
-        case .nativeWhisper, .legacyMlxWhisper, .appleLive:
+        case .nativeWhisper, .legacyMlxWhisper, .localAI, .appleLive:
             false
         }
     }

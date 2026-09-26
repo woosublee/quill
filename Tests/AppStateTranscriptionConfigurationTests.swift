@@ -105,6 +105,11 @@ struct AppStateTranscriptionConfigurationTests {
         try testMakeTranscriptionServiceUsesOriginatingNativeWhisperExecution()
         try testExecutionSnapshotKeepsCloudServiceConfigurationImmutable()
         try testExecutionSnapshotKeepsLocalServiceConfigurationImmutable()
+        await testLocalAIChoiceRoundTripsThroughSettings()
+        await testLocalAIListsOnlyTranscriptionCapableModels()
+        await testUninstalledLocalAIChoiceIsUnavailableNotSwitched()
+        await testUnknownStoredLocalAIModelResolvesUnavailable()
+        await testLocalModeKeepsSelectedLocalAIModel()
         testTranscriptionResponseFormatUsesVerboseJSONForKnownWhisperModels()
         testTranscriptionResponseFormatUsesJSONForOtherModels()
         testTranscriptionHTTP400UsesConfigurationIssue()
@@ -299,6 +304,127 @@ struct AppStateTranscriptionConfigurationTests {
         dependencies: AppStateDependencies
     ) -> AppState {
         AppState(dependencies: dependencies)
+    }
+
+    private static func localAITranscriptionDependencies(
+        installStatus: LocalAIInstallStatus,
+        nativeWhisperStatus: NativeWhisperInstallStatus = .notInstalled
+    ) -> AppStateDependencies {
+        var dependencies = transcriptionTestDependencies(status: { _ in nativeWhisperStatus })
+        dependencies.localAI.installStatus = { _ in installStatus }
+        dependencies.localAI.processingAvailability = {
+            LocalAIProcessingAvailability(
+                isAppleSilicon: true,
+                runnerIsExecutable: true,
+                physicalMemory: 64 * 1024 * 1024 * 1024
+            )
+        }
+        return dependencies
+    }
+
+    private static func makeLocalAIAppState(
+        installStatus: LocalAIInstallStatus,
+        nativeWhisperStatus: NativeWhisperInstallStatus = .notInstalled
+    ) async -> AppState {
+        let appState = await MainActor.run {
+            AppState(dependencies: localAITranscriptionDependencies(
+                installStatus: installStatus,
+                nativeWhisperStatus: nativeWhisperStatus
+            ))
+        }
+        await appState.waitForLocalAIInstallStateRefresh()
+        return appState
+    }
+
+    private static func testLocalAIChoiceRoundTripsThroughSettings() async {
+        resetDefaults()
+        let appState = await makeLocalAIAppState(installStatus: .ready)
+        await MainActor.run {
+            appState.setNoteBrowserTranscriptionChoice(.localAI(modelID: "gemma-4-e4b-it"))
+            precondition(appState.localAITranscriptionModelID == "gemma-4-e4b-it", "model id stored")
+            precondition(appState.useLocalTranscription, "local flag")
+            precondition(!appState.useLegacyMlxWhisper, "legacy cleared")
+            precondition(!appState.realtimeStreamingEnabled, "realtime cleared")
+            precondition(
+                appState.currentNoteBrowserTranscriptionChoice == .localAI(modelID: "gemma-4-e4b-it"),
+                "choice derived"
+            )
+            precondition(
+                UserDefaults.standard.string(forKey: "local_ai_transcription_model") == "gemma-4-e4b-it",
+                "persisted key"
+            )
+            precondition(
+                appState.isNoteBrowserTranscriptionChoiceReady(.localAI(modelID: "gemma-4-e4b-it")),
+                "installed model is ready"
+            )
+
+            // Cloud Standard is always available, so normalization keeps it.
+            appState.setNoteBrowserTranscriptionChoice(
+                .apiStandard(modelID: "whisper-large-v3")
+            )
+            precondition(appState.localAITranscriptionModelID == nil, "cleared by other choice")
+            precondition(!appState.useLocalTranscription, "cloud choice applied")
+        }
+    }
+
+    private static func testLocalAIListsOnlyTranscriptionCapableModels() async {
+        resetDefaults()
+        let appState = await makeLocalAIAppState(installStatus: .ready)
+        await MainActor.run {
+            let ids = appState.noteBrowserTranscriptionChoiceDisplays.compactMap { display -> String? in
+                if case .localAI(let id) = display.choice { return id }
+                return nil
+            }
+            precondition(ids == ["gemma-4-e4b-it"], "gemma listed, qwen not: \(ids)")
+        }
+    }
+
+    private static func testUninstalledLocalAIChoiceIsUnavailableNotSwitched() async {
+        resetDefaults()
+        let appState = await makeLocalAIAppState(installStatus: .notInstalled)
+        await MainActor.run {
+            let choice = TranscriptionBackendChoice.localAI(modelID: "gemma-4-e4b-it")
+            let display = appState.noteBrowserTranscriptionDisplay(for: choice)
+            precondition(!display.isAvailable, "unavailable without package")
+            precondition(display.unavailableReason != nil, "has a reason")
+            precondition(!appState.isNoteBrowserTranscriptionChoiceReady(choice), "not ready")
+        }
+    }
+
+    private static func testUnknownStoredLocalAIModelResolvesUnavailable() async {
+        resetDefaults()
+        UserDefaults.standard.set("retired-model", forKey: "local_ai_transcription_model")
+        UserDefaults.standard.set(true, forKey: "use_local_transcription")
+        let appState = await makeLocalAIAppState(installStatus: .ready)
+        await MainActor.run {
+            precondition(
+                appState.currentNoteBrowserTranscriptionChoice == .localAI(modelID: "retired-model"),
+                "keeps the user's choice"
+            )
+            precondition(
+                !appState.noteBrowserTranscriptionDisplay(for: .localAI(modelID: "retired-model")).isAvailable,
+                "unknown model unavailable"
+            )
+        }
+    }
+
+    private static func testLocalModeKeepsSelectedLocalAIModel() async {
+        resetDefaults()
+        // Native Whisper is also ready, so without the Local AI preference the
+        // local mode would switch to Native Whisper.
+        let appState = await makeLocalAIAppState(
+            installStatus: .ready,
+            nativeWhisperStatus: .ready
+        )
+        await MainActor.run {
+            let choice = TranscriptionBackendChoice.localAI(modelID: "gemma-4-e4b-it")
+            appState.setNoteBrowserTranscriptionChoice(choice)
+            appState.setNoteBrowserTranscriptionMode(.localWhisper)
+            precondition(
+                appState.currentNoteBrowserTranscriptionChoice == choice,
+                "local mode keeps the Local AI choice"
+            )
+        }
     }
 
     private static func testMakeTranscriptionServiceUsesLocalConfiguration() throws {
@@ -4161,6 +4287,7 @@ struct AppStateTranscriptionConfigurationTests {
         defaults.removeObject(forKey: "use_legacy_mlx_whisper")
         defaults.removeObject(forKey: "show_legacy_mlx_whisper_options")
         defaults.removeObject(forKey: "local_transcription_model")
+        defaults.removeObject(forKey: "local_ai_transcription_model")
         defaults.removeObject(forKey: "transcription_language")
         defaults.removeObject(forKey: "context_model")
         defaults.removeObject(forKey: "post_processing_backend_choice")
