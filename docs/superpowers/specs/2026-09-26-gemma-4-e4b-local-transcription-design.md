@@ -148,14 +148,18 @@ processing stays on its existing requests.
   - Thinking is already disabled by the model's `serverArguments`.
 - **Output:** `LocalASRChunkResult { text, finishReason }`, trimmed. Empty text
   is valid.
-- **Typed errors** (`LocalASRError`):
-  - `runtimeUnavailable` (from `LocalAIServerManagerError` or
-    `AIProcessingBackendError`)
-  - `processExited`
-  - `timedOut`
-  - `truncated`, when `finish_reason == "length"`
-  - `invalidResponse`
-  - `cancelled`
+- **Typed errors.** The client and its execution snapshot throw the chunk
+  failure types the shared core already classifies, so retry rules stay in one
+  place:
+  - `TranscriptionChunkRuntimeFailure` (server start failed or exited):
+    retryable
+  - `LocalAITranscriptionModelUnavailableFailure` (package missing or corrupt):
+    not retryable, shown as `localModelMissing`
+  - `TranscriptionChunkTruncatedFailure` (`finish_reason == "length"`): split,
+    see below
+  - `CloudTranscriptionHTTPFailure` (non-200 status: 5xx retryable, 4xx not)
+  - `CloudTranscriptionInvalidResponseFailure` (unparseable body)
+  - `URLError` (timeouts retryable) and `CancellationError`
 - **Timeout:** 120 s per chunk request, matching the local AI default. The cloud
   override `transcription_timeout_seconds` (default 20 s) does not apply,
   because a cloud-sized value would cut off local chunks.
@@ -171,65 +175,69 @@ cloud plan IDs must not change.
 
 - **Chunk limits.** `CloudTranscriptionChunkPlanner.plan` takes a
   `TranscriptionChunkLimit`:
-  - `.encodedUploadCeiling(bytes:, multipart:)`: today's behavior, 3 s silence
-    search. Cloud plan IDs stay byte-identical.
-  - `.maximumDuration(frames:, silenceSearchFrames:)`: used by local ASR. The
-    nominal length is 60 s and the search goes back up to 20 s for the quiet run
-    nearest the end. The same 20 ms windows and RMS ≤ 128 rule apply. With no
-    silence, the cut is at 60 s. No chunk ever exceeds 60 s.
+  - `.encodedUpload(multipart:, ceilingBytes:)`: today's behavior, 3 s silence
+    search. Cloud plans and plan IDs stay byte-identical.
+  - `.rawWAVDuration(maximumFrames:, silenceSearchFrames:)`: used by local ASR.
+    - The nominal length is 60 s (960,000 frames).
+    - The silence search goes back up to 20 s (320,000 frames) for the quiet run
+      nearest the end, with the same 20 ms windows and RMS ≤ 128 rule.
+    - With no silence, the cut is at 60 s, so no chunk ever exceeds 60 s.
+    - The chunk size is the raw WAV byte count (header + PCM), so the existing
+      byte-ceiling validation still applies.
 
-  The plan ID hashes the limit kind and its values, so local plans never collide
-  with cloud plans.
-- **Job identity.** `CloudTranscriptionJobIdentity` gains
-  `backend: TranscriptionJobBackend`:
-  - `.cloud(providerID:, responseFormat:)`
-  - `.localAI(modelID:, packageDigest:)`, where `packageDigest` is derived from
-    the verified artifact SHA-256 values
+  The plan stores two new optional fields: `sizing` (nil means cloud multipart)
+  and `silenceSearchFrameCount` (nil means 3 s). Old records decode unchanged.
+  Local plan IDs hash both fields, so they never collide with cloud plan IDs.
+- **Job identity (no schema change).** `CloudTranscriptionJobIdentity` keeps its
+  fields. A local job fills them this way:
+  - `providerID = "local-ai:" + packageDigest`, where `packageDigest` is the
+    SHA-256 of the model's artifact checksums in order
+  - `model = modelID`
+  - `responseFormat` = the request format's raw value
+  - `language` and `source` as for cloud
 
-  A checkpoint resumes only when backend, model, language, source, and plan all
-  match. Otherwise the job waits for retry, as today.
-- **Job store.** The record moves to schema v2.
-  - v1 records decode as `.cloud` with their existing fields. New writes use v2.
-  - The directory keeps its name (`cloud-transcription/jobs`) so existing
-    records are found.
-  - Downgrade: an older app rejects v2 records as an unsupported schema, and they
-    wait for retry. This is noted in the PR as a migration risk.
-- **Core loop.** `CloudTranscriptionCore` runs a `TranscriptionChunkTranscriber`
-  protocol:
-  - The cloud upload request is one implementation.
-  - `LocalASRTranscriptionClient` is another.
+  A typed accessor (`identity.backend`) returns `.cloud` or
+  `.localAI(modelID:)` from the `local-ai:` prefix. The job store keeps
+  schema v1 and its directory, so no migration is needed. An older app sees a
+  provider it does not know and leaves the job waiting for retry, which is safe.
+- **Core loop.** `CloudTranscriptionCore` already takes the request as a
+  closure (`(URL, TimeInterval) async throws -> String`). A local job passes a
+  closure that calls `LocalASRTranscriptionClient`. Planning, materializing,
+  checkpoints, progress, and assembly are shared.
+- **Retry policy.** It keeps 3 attempts per chunk. Local errors map to existing
+  categories:
+  - `processExited`, `runtimeUnavailable`, and `timedOut` → `providerUnavailable`
+    (retryable)
+  - `invalidResponse` → `invalidResponse` (not retryable)
 
-  Planning, materializing, checkpoints, progress, and assembly are shared.
-- **Retry policy.** It keeps 3 attempts per chunk. Failure categories add
-  `localRuntime` and `truncated`. Retry-After does not apply to local.
-- **Truncation.**
-  - A `truncated` result splits that chunk at its best silence midpoint (or its
-    half) and requests both parts.
-  - Splitting goes at most two levels deep, down to about 15 s.
-  - If the smallest part still truncates, the job fails with completed chunks
-    kept.
-  - The split is recorded in the checkpoint as a sub-plan of that chunk index.
+  Retry-After does not apply to local.
+- **Truncation.** When the request throws `truncated`, the core splits that
+  chunk at its middle and requests both halves in order.
+  - The halves' texts join into that chunk's single result.
+  - Splitting goes at most two levels deep (60 s → 30 s → 15 s).
+  - If a 15 s part still truncates, the job fails with earlier chunks kept.
+  - Splits are not checkpointed. An interrupted chunk is redone whole on resume.
 - **Assembly.** Chunks are joined with a single space, as in cloud. Empty chunk
   results are skipped.
 - **Progress.** The existing `.planned / .uploading(index,total,attempt) /
-  .completed` events drive the same display. The Note Browser shows the Native
-  Whisper "Transcribing" state and appends the chunk counter only when the plan
-  has more than one chunk. A progress value never moves backwards. The
-  coordinator clamps it to the highest completed index for the active session.
-- **Short recordings.** Recordings of 60 s or less are one chunk. They go through
-  the same path, and no checkpoint file is written for a single chunk.
+  .completed` events drive the same display.
+  - The Note Browser shows the Native Whisper "Transcribing" state and appends
+    the chunk counter only when the plan has more than one chunk.
+  - Progress stays monotonic because chunks run in order and split halves emit
+    no events. A test pins this.
 
 ### 5. Source audio
 
-- **Recordings** are already canonical WAV next to the note and are used
-  directly.
-- **Imports** in other formats are converted with the service Native Whisper uses
-  (`AudioImportConversionService`). The converted WAV is written into the job's
-  directory (`cloud-transcription/jobs/<historyID>/source.wav`), not a temporary
-  directory, so resume and retry reuse the same bytes.
-  - The job identity records the source location (`noteAudio` or
-    `jobConvertedAudio`) and the WAV's SHA-256.
-  - The directory is deleted when the job completes or the note is deleted.
+- **Recordings** are canonical WAV next to the note. They use the durable job
+  store, so a quit or crash mid-job resumes at the next chunk after relaunch.
+- **Imports that are already canonical WAV** behave like recordings.
+- **Other imports** are converted with the service Native Whisper uses
+  (`AudioImportConversionService`) into its temporary file, as today.
+  - They use an in-memory checkpoint for that one run, so retries within the
+    run keep completed chunks.
+  - After a relaunch or a manual retry they start again from the first chunk.
+  - No converted audio copy is persisted, so no new user-audio files exist.
+  - Local transcription is far faster than real time, so a full redo is short.
 - The original recording or imported file remains the source of truth and is
   never modified.
 
@@ -311,8 +319,8 @@ Two rules hold in every case:
 
 The plan may split this into pull requests that each merge on their own:
 
-1. **Model-neutral engine:** chunk limits, `TranscriptionJobBackend`, schema
-   v2, and the transcriber protocol. No user-visible change. Cloud regression
+1. **Model-neutral engine:** chunk limits, the local identity accessor, and
+   truncation splitting in the core. No user-visible change. Cloud regression
    tests prove identical plans and resume.
 2. **Local ASR and the chooser:**
    - capabilities and the transport
@@ -331,10 +339,10 @@ in CI. New test files are wired into the existing shards exactly once
   - A tone with no silence cuts at 60 s.
   - Cloud plans and plan IDs are unchanged for existing fixtures (regression).
 - **Identity and store:**
-  - A v1 record decodes as cloud.
-  - A v2 local record round-trips.
+  - Existing records and plans decode unchanged as cloud.
+  - A local record round-trips and reports `.localAI`.
   - Mismatched backend, model, digest, or language does not resume.
-  - A converted source is kept and cleaned up.
+  - A non-WAV import uses an in-memory checkpoint and writes no job file.
 - **Transport:** with a stub `URLProtocol` server:
   - request body shape
   - `finish_reason: length` → `truncated`
@@ -372,10 +380,9 @@ in CI. New test files are wired into the existing shards exactly once
 
 - Audio goes only to the local `llama-server` on 127.0.0.1. There is no new
   network destination.
-- Converted WAV files stay in the app's job directory and are deleted when the
-  job ends or the note is deleted.
+- Converted imports stay in the existing temporary file and are deleted after
+  the run, as with Native Whisper.
 - Logs contain no audio, transcript text, or prompts.
 - High-risk areas for the PR description:
-  - the job store schema change (v2, downgrade behavior)
+  - local jobs sharing the cloud job store (same schema, `local-ai:` provider)
   - a new request type sent to the bundled runtime
-  - new persisted audio copies for converted imports
