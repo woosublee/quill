@@ -110,9 +110,17 @@ struct LocalAIBuildContractTests {
             "Makefile exposes a checksum-verified opt-in loopback integration target"
         )
         try expect(
-            makefile.contains("test-local-ai-integration > \"$$plan_file\"")
-                && makefile.contains("Tests/LocalAIIntegrationTests.swift"),
-            "test wiring plans the opt-in integration executable exactly once"
+            makefile.contains("test-local-ai-integration test-local-asr-integration > \"$$plan_file\"")
+                && makefile.contains("Tests/LocalAIIntegrationTests.swift")
+                && makefile.contains("Tests/LocalASRIntegrationTests.swift"),
+            "test wiring plans the opt-in integration executables exactly once"
+        )
+        try expect(
+            makefile.contains("test-local-asr-integration: $(TEST_BUILD_DIR)/LocalASRIntegrationTests")
+                && makefile.contains("LOCAL_ASR_INTEGRATION_MODEL_SHA256")
+                && makefile.contains("LOCAL_ASR_INTEGRATION_PROJECTOR_SHA256")
+                && makefile.contains("[skip] Local ASR integration prerequisite unavailable"),
+            "Makefile exposes a checksum-verified opt-in Local AI transcription target"
         )
         try expect(
             contextService.contains("if endpoint.supportsImages")

@@ -1,7 +1,7 @@
 # Gemma 4 E4B in the Transcription Chooser — Design
 
 **Date:** 2026-09-26
-**Status:** Draft — awaiting review
+**Status:** Implemented — manual verification pending
 **Issue:** #366 (Stage 4 of `2026-09-26-gemma-4-e4b-unified-local-model-design.md`)
 **Also implements:** the model-neutral parts of #285 (ASR transport) and #286
 (long-form chunking and resume)
