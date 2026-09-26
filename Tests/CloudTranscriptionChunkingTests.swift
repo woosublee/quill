@@ -18,6 +18,12 @@ struct CloudTranscriptionChunkingTests {
             try plannerFallsBackToNominalBoundaryWithoutSilence()
             try plannerDoesNotSearchAfterNominalBoundary()
             try plannerIsDeterministic()
+            try cloudPlanIDAndJSONAreUnchanged()
+            try localPlannerNeverExceedsMaximumFrames()
+            try localPlannerUsesWideSilenceSearch()
+            try localPlannerHandlesExactMultipleAndTinyRemainder()
+            try localPlanIDDiffersFromCloudPlanID()
+            try localMaterializerProducesRawWAVSizedChunk()
             try materializerCopiesExactFrameRanges()
             try materializerUsesBoundedBufferForLargeChunk()
             try materializerCleanupRemovesAttemptDirectory()
@@ -509,6 +515,200 @@ struct CloudTranscriptionChunkingTests {
             includingPropertiesForKeys: nil
         )) ?? []
         try expectEqual(contents.count, 0, "close failure attempt cleanup")
+    }
+
+    private static func cloudPlanIDAndJSONAreUnchanged() throws {
+        let fixture = try makePlannerFixture(
+            samples: Array(repeating: Int16(2_000), count: 12_345)
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let multipart = plannerMultipartLayout
+        let ceiling = try encodedCeiling(frameCount: 4_000, multipart: multipart)
+        let plan = try CloudTranscriptionChunkPlanner().plan(
+            fileURL: fixture.url,
+            source: fixture.identity,
+            wavLayout: fixture.layout,
+            multipart: multipart,
+            encodedUploadCeilingBytes: ceiling
+        )
+        try expectEqual(plan.sizing, nil, "cloud sizing stays nil")
+        try expectEqual(plan.silenceSearchFrameCount, nil, "cloud search stays nil")
+
+        var canonical = "v=\(CloudTranscriptionChunkPlan.currentAlgorithmVersion)"
+        canonical += ";ceiling=\(ceiling)"
+        canonical += ";frames=\(plan.sourceFrameCount)"
+        for chunk in plan.chunks {
+            canonical += ";\(chunk.index):\(chunk.startFrame)-\(chunk.endFrame):\(chunk.estimatedEncodedByteCount)"
+        }
+        let expectedID = SHA256.hash(data: Data(canonical.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        try expectEqual(plan.planID, expectedID, "cloud plan ID formula unchanged")
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let json = String(decoding: try encoder.encode(plan), as: UTF8.self)
+        try expectEqual(json.contains("sizing"), false, "no sizing key in cloud JSON")
+        try expectEqual(json.contains("silenceSearchFrameCount"), false, "no search key in cloud JSON")
+        let decoded = try JSONDecoder().decode(
+            CloudTranscriptionChunkPlan.self,
+            from: Data(json.utf8)
+        )
+        try expectEqual(decoded, plan, "cloud plan round-trips")
+    }
+
+    private static func localPlannerNeverExceedsMaximumFrames() throws {
+        let fixture = try makePlannerFixture(
+            samples: Array(repeating: Int16(2_000), count: 10_500)
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let plan = try CloudTranscriptionChunkPlanner().planLocal(
+            fileURL: fixture.url,
+            source: fixture.identity,
+            wavLayout: fixture.layout,
+            maximumFrameCount: 4_000,
+            silenceSearchFrameCount: 1_600
+        )
+        try expectEqual(plan.sizing, .rawWAV, "local sizing")
+        try expectEqual(
+            plan.chunks.map { $0.endFrame - $0.startFrame },
+            [4_000, 4_000, 2_500],
+            "no-silence local chunks cut at maximum"
+        )
+        try expectEqual(
+            plan.encodedUploadCeilingBytes,
+            CanonicalPCM16WAV.headerByteCount + 4_000 * 2,
+            "raw WAV ceiling"
+        )
+        try plan.validate()
+    }
+
+    private static func localPlannerUsesWideSilenceSearch() throws {
+        // A quiet run of 10 windows (3,200 frames) spanning 5,280–8,480, aligned
+        // to the 320-frame windows of a 6,000-frame search starting at 4,000.
+        // A 3,000-frame search (from 7,000) sees only 1,480 quiet frames and
+        // falls back to the cap.
+        let maximum = 10_000
+        var samples = Array(repeating: Int16(2_000), count: maximum + 2_000)
+        let quietStart = 5_280
+        let quietEnd = quietStart + 3_200
+        for index in quietStart..<quietEnd { samples[index] = 0 }
+        let fixture = try makePlannerFixture(samples: samples)
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+
+        let wide = try CloudTranscriptionChunkPlanner().planLocal(
+            fileURL: fixture.url,
+            source: fixture.identity,
+            wavLayout: fixture.layout,
+            maximumFrameCount: UInt64(maximum),
+            silenceSearchFrameCount: 6_000
+        )
+        try expectEqual(
+            wide.chunks[0].endFrame,
+            UInt64((quietStart + quietEnd) / 2),
+            "wide search finds the quiet midpoint"
+        )
+
+        let narrow = try CloudTranscriptionChunkPlanner().planLocal(
+            fileURL: fixture.url,
+            source: fixture.identity,
+            wavLayout: fixture.layout,
+            maximumFrameCount: UInt64(maximum),
+            silenceSearchFrameCount: 3_000
+        )
+        try expectEqual(narrow.chunks[0].endFrame, UInt64(maximum), "narrow search misses it")
+    }
+
+    private static func localPlannerHandlesExactMultipleAndTinyRemainder() throws {
+        let exact = try makePlannerFixture(
+            samples: Array(repeating: Int16(2_000), count: 8_000)
+        )
+        defer { try? FileManager.default.removeItem(at: exact.url) }
+        let exactPlan = try CloudTranscriptionChunkPlanner().planLocal(
+            fileURL: exact.url,
+            source: exact.identity,
+            wavLayout: exact.layout,
+            maximumFrameCount: 4_000,
+            silenceSearchFrameCount: 1_600
+        )
+        try expectEqual(exactPlan.chunks.count, 2, "exact multiple has no empty tail")
+
+        let tiny = try makePlannerFixture(
+            samples: Array(repeating: Int16(2_000), count: 100)
+        )
+        defer { try? FileManager.default.removeItem(at: tiny.url) }
+        let tinyPlan = try CloudTranscriptionChunkPlanner().planLocal(
+            fileURL: tiny.url,
+            source: tiny.identity,
+            wavLayout: tiny.layout,
+            maximumFrameCount: 4_000,
+            silenceSearchFrameCount: 1_600
+        )
+        try expectEqual(tinyPlan.chunks.count, 1, "shorter than one silence window")
+        try expectEqual(tinyPlan.chunks[0].endFrame, 100, "tiny chunk covers source")
+    }
+
+    private static func localPlanIDDiffersFromCloudPlanID() throws {
+        let fixture = try makePlannerFixture(
+            samples: Array(repeating: Int16(2_000), count: 6_000)
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let planner = CloudTranscriptionChunkPlanner()
+        let local = try planner.planLocal(
+            fileURL: fixture.url,
+            source: fixture.identity,
+            wavLayout: fixture.layout,
+            maximumFrameCount: 4_000,
+            silenceSearchFrameCount: 1_600
+        )
+        let sameRangesAsCloud = try planner.plan(
+            fileURL: fixture.url,
+            source: fixture.identity,
+            wavLayout: fixture.layout,
+            sizing: .rawWAV,
+            ceilingBytes: local.encodedUploadCeilingBytes,
+            silenceSearchFrameCount: nil
+        )
+        try expectEqual(
+            local.planID == sameRangesAsCloud.planID,
+            false,
+            "search window is part of the plan ID"
+        )
+    }
+
+    private static func localMaterializerProducesRawWAVSizedChunk() throws {
+        let fixture = try makePlannerFixture(
+            samples: (0..<6_000).map { Int16($0 % 100) }
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.url) }
+        let plan = try CloudTranscriptionChunkPlanner().planLocal(
+            fileURL: fixture.url,
+            source: fixture.identity,
+            wavLayout: fixture.layout,
+            maximumFrameCount: 4_000,
+            silenceSearchFrameCount: 1_600
+        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let materializer = CloudTranscriptionChunkMaterializer(
+            temporaryRoot: root,
+            copyBufferByteCount: 1_024
+        )
+        let chunk = try materializer.materialize(
+            sourceURL: fixture.url,
+            sourceLayout: fixture.layout,
+            chunk: plan.chunks[1],
+            sizing: .rawWAV
+        )
+        defer { chunk.cleanup() }
+        try expectEqual(
+            chunk.encodedByteCount,
+            plan.chunks[1].estimatedEncodedByteCount,
+            "raw WAV size matches plan"
+        )
+        let samples = try readCanonicalSamples(from: chunk.fileURL)
+        try expectEqual(samples.first, Int16(4_000 % 100), "chunk starts at its frame")
     }
 
     private static func readCanonicalSamples(from url: URL) throws -> [Int16] {

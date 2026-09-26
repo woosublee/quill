@@ -67,6 +67,51 @@ struct CloudTranscriptionMultipartLayout: Equatable, Sendable {
     }
 }
 
+enum TranscriptionChunkSizingKind: String, Codable, Equatable, Sendable {
+    case rawWAV
+}
+
+/// How a chunk's size is measured against its ceiling. Cloud uploads count the
+/// multipart envelope; local requests count only the WAV file bytes.
+enum TranscriptionChunkSizing: Equatable, Sendable {
+    case multipart(CloudTranscriptionMultipartLayout)
+    case rawWAV
+
+    var kind: TranscriptionChunkSizingKind? {
+        switch self {
+        case .multipart: return nil
+        case .rawWAV: return .rawWAV
+        }
+    }
+
+    func encodedByteCount(frameCount: UInt64) throws -> UInt64 {
+        let (payload, overflow) = frameCount.multipliedReportingOverflow(
+            by: UInt64(CanonicalPCM16WAV.bytesPerFrame)
+        )
+        guard !overflow else {
+            throw CloudTranscriptionChunkingError.encodedByteCountOverflow
+        }
+        let wavByteCount = CanonicalPCM16WAV.headerByteCount + payload
+        switch self {
+        case .multipart(let layout):
+            return try layout.encodedByteCount(
+                audioDataByteCount: wavByteCount,
+                fileName: CloudTranscriptionChunkPlanner.uploadFileName,
+                contentType: "audio/wav"
+            )
+        case .rawWAV:
+            return wavByteCount
+        }
+    }
+}
+
+enum LocalTranscriptionChunkLimits {
+    /// 60 s at 16 kHz mono. Gemma 4 silently drops audio past about 2 minutes.
+    static let maximumFrameCount: UInt64 = 960_000
+    /// 20 s search back from the nominal end for a quiet cut point.
+    static let silenceSearchFrameCount: UInt64 = 320_000
+}
+
 struct CloudTranscriptionSourceIdentity: Codable, Equatable, Sendable {
     let audioFileName: String
     let physicalByteCount: UInt64
@@ -136,6 +181,10 @@ struct CloudTranscriptionChunkPlan: Codable, Equatable, Sendable {
     let sourceFrameCount: UInt64
     let chunks: [CloudTranscriptionChunk]
     let planID: String
+    /// nil = cloud multipart sizing (the original format).
+    var sizing: TranscriptionChunkSizingKind? = nil
+    /// nil = the original 3 s cloud silence search.
+    var silenceSearchFrameCount: UInt64? = nil
 
     func validate() throws {
         guard algorithmVersion == Self.currentAlgorithmVersion,
@@ -166,7 +215,7 @@ struct CloudTranscriptionChunkPlanner {
 
     private static let silenceWindowFrameCount: UInt64 = 320
     private static let minimumQuietWindowCount = 10
-    private static let silenceSearchFrameCount: UInt64 = 48_000
+    private static let defaultSilenceSearchFrameCount: UInt64 = 48_000
     private static let quietRMSThreshold: Int64 = 128
 
     func plan(
@@ -176,6 +225,46 @@ struct CloudTranscriptionChunkPlanner {
         multipart: CloudTranscriptionMultipartLayout,
         encodedUploadCeilingBytes: UInt64
     ) throws -> CloudTranscriptionChunkPlan {
+        try plan(
+            fileURL: fileURL,
+            source: source,
+            wavLayout: wavLayout,
+            sizing: .multipart(multipart),
+            ceilingBytes: encodedUploadCeilingBytes,
+            silenceSearchFrameCount: nil
+        )
+    }
+
+    func planLocal(
+        fileURL: URL,
+        source: CloudTranscriptionSourceIdentity,
+        wavLayout: CanonicalPCM16WAVLayout,
+        maximumFrameCount: UInt64 = LocalTranscriptionChunkLimits.maximumFrameCount,
+        silenceSearchFrameCount: UInt64 = LocalTranscriptionChunkLimits.silenceSearchFrameCount
+    ) throws -> CloudTranscriptionChunkPlan {
+        try plan(
+            fileURL: fileURL,
+            source: source,
+            wavLayout: wavLayout,
+            sizing: .rawWAV,
+            ceilingBytes: try TranscriptionChunkSizing.rawWAV.encodedByteCount(
+                frameCount: maximumFrameCount
+            ),
+            silenceSearchFrameCount: silenceSearchFrameCount
+        )
+    }
+
+    func plan(
+        fileURL: URL,
+        source: CloudTranscriptionSourceIdentity,
+        wavLayout: CanonicalPCM16WAVLayout,
+        sizing: TranscriptionChunkSizing,
+        ceilingBytes: UInt64,
+        silenceSearchFrameCount: UInt64?
+    ) throws -> CloudTranscriptionChunkPlan {
+        let encodedUploadCeilingBytes = ceilingBytes
+        let searchFrameCount = silenceSearchFrameCount
+            ?? Self.defaultSilenceSearchFrameCount
         let validatedLayout = try CanonicalPCM16WAV.validateFile(at: fileURL)
         guard validatedLayout == wavLayout,
               source.audioFileName == fileURL.lastPathComponent,
@@ -186,11 +275,7 @@ struct CloudTranscriptionChunkPlanner {
             throw CloudTranscriptionChunkingError.invalidSourceIdentity
         }
 
-        let zeroPayloadEncodedByteCount = try multipart.encodedByteCount(
-            audioDataByteCount: CanonicalPCM16WAV.headerByteCount,
-            fileName: Self.uploadFileName,
-            contentType: "audio/wav"
-        )
+        let zeroPayloadEncodedByteCount = try sizing.encodedByteCount(frameCount: 0)
         let bytesPerFrame = UInt64(CanonicalPCM16WAV.bytesPerFrame)
         guard encodedUploadCeilingBytes >= zeroPayloadEncodedByteCount,
               encodedUploadCeilingBytes - zeroPayloadEncodedByteCount >= bytesPerFrame else {
@@ -219,7 +304,8 @@ struct CloudTranscriptionChunkPlanner {
                     handle: handle,
                     wavLayout: wavLayout,
                     startFrame: startFrame,
-                    nominalEndFrame: nominalEndFrame
+                    nominalEndFrame: nominalEndFrame,
+                    searchFrameCount: searchFrameCount
                 ) ?? nominalEndFrame
             }
             guard endFrame > startFrame else {
@@ -227,11 +313,8 @@ struct CloudTranscriptionChunkPlanner {
             }
 
             let frameCount = endFrame - startFrame
-            let estimatedEncodedByteCount = try multipart.encodedByteCount(
-                audioDataByteCount: CanonicalPCM16WAV.headerByteCount
-                    + frameCount * bytesPerFrame,
-                fileName: Self.uploadFileName,
-                contentType: "audio/wav"
+            let estimatedEncodedByteCount = try sizing.encodedByteCount(
+                frameCount: frameCount
             )
             guard estimatedEncodedByteCount <= encodedUploadCeilingBytes else {
                 throw CloudTranscriptionChunkingError.invalidChunkPlan
@@ -253,8 +336,12 @@ struct CloudTranscriptionChunkPlanner {
             planID: makePlanID(
                 encodedUploadCeilingBytes: encodedUploadCeilingBytes,
                 sourceFrameCount: source.frameCount,
-                chunks: chunks
-            )
+                chunks: chunks,
+                sizing: sizing.kind,
+                silenceSearchFrameCount: silenceSearchFrameCount
+            ),
+            sizing: sizing.kind,
+            silenceSearchFrameCount: silenceSearchFrameCount
         )
         try plan.validate()
         return plan
@@ -264,12 +351,13 @@ struct CloudTranscriptionChunkPlanner {
         handle: FileHandle,
         wavLayout: CanonicalPCM16WAVLayout,
         startFrame: UInt64,
-        nominalEndFrame: UInt64
+        nominalEndFrame: UInt64,
+        searchFrameCount: UInt64
     ) throws -> UInt64? {
         let searchStartFrame = max(
             startFrame,
-            nominalEndFrame > Self.silenceSearchFrameCount
-                ? nominalEndFrame - Self.silenceSearchFrameCount
+            nominalEndFrame > searchFrameCount
+                ? nominalEndFrame - searchFrameCount
                 : 0
         )
         let searchableFrameCount = nominalEndFrame - searchStartFrame
@@ -355,13 +443,21 @@ struct CloudTranscriptionChunkPlanner {
     private func makePlanID(
         encodedUploadCeilingBytes: UInt64,
         sourceFrameCount: UInt64,
-        chunks: [CloudTranscriptionChunk]
+        chunks: [CloudTranscriptionChunk],
+        sizing: TranscriptionChunkSizingKind?,
+        silenceSearchFrameCount: UInt64?
     ) -> String {
         var canonical = "v=\(CloudTranscriptionChunkPlan.currentAlgorithmVersion)"
         canonical += ";ceiling=\(encodedUploadCeilingBytes)"
         canonical += ";frames=\(sourceFrameCount)"
         for chunk in chunks {
             canonical += ";\(chunk.index):\(chunk.startFrame)-\(chunk.endFrame):\(chunk.estimatedEncodedByteCount)"
+        }
+        if let sizing {
+            canonical += ";sizing=\(sizing.rawValue)"
+        }
+        if let silenceSearchFrameCount {
+            canonical += ";search=\(silenceSearchFrameCount)"
         }
         return SHA256.hash(data: Data(canonical.utf8))
             .map { String(format: "%02x", $0) }
@@ -397,6 +493,20 @@ struct CloudTranscriptionChunkMaterializer: Sendable {
         sourceLayout: CanonicalPCM16WAVLayout,
         chunk: CloudTranscriptionChunk,
         multipart: CloudTranscriptionMultipartLayout
+    ) throws -> CloudTranscriptionMaterializedChunk {
+        try materialize(
+            sourceURL: sourceURL,
+            sourceLayout: sourceLayout,
+            chunk: chunk,
+            sizing: .multipart(multipart)
+        )
+    }
+
+    func materialize(
+        sourceURL: URL,
+        sourceLayout: CanonicalPCM16WAVLayout,
+        chunk: CloudTranscriptionChunk,
+        sizing: TranscriptionChunkSizing
     ) throws -> CloudTranscriptionMaterializedChunk {
         guard copyBufferByteCount > 0 else {
             throw CloudTranscriptionChunkingError.invalidReadBufferByteCount
@@ -474,10 +584,8 @@ struct CloudTranscriptionChunkMaterializer: Sendable {
               outputLayout.frameCount == frameCount else {
             throw CloudTranscriptionChunkingError.materializedChunkMismatch
         }
-        let encodedByteCount = try multipart.encodedByteCount(
-            audioDataByteCount: outputLayout.dataOffset + outputLayout.dataByteCount,
-            fileName: CloudTranscriptionChunkPlanner.uploadFileName,
-            contentType: "audio/wav"
+        let encodedByteCount = try sizing.encodedByteCount(
+            frameCount: outputLayout.frameCount
         )
         guard encodedByteCount == chunk.estimatedEncodedByteCount else {
             throw CloudTranscriptionChunkingError.materializedChunkMismatch
