@@ -72,6 +72,37 @@ struct CloudTranscriptionJobIdentity: Codable, Equatable, Sendable {
     let planID: String
 }
 
+enum TranscriptionJobBackend: Equatable, Sendable {
+    case cloud
+    case localAI(modelID: String)
+}
+
+extension CloudTranscriptionJobIdentity {
+    /// Local AI jobs share the job store. Their provider ID carries this prefix
+    /// plus the model package digest, so the record schema does not change and
+    /// an older app treats them as an unknown provider waiting for retry.
+    static let localAIProviderIDPrefix = "local-ai:"
+
+    static func localAIProviderID(packageDigest: String) -> String {
+        localAIProviderIDPrefix + packageDigest
+    }
+
+    var backend: TranscriptionJobBackend {
+        providerID.hasPrefix(Self.localAIProviderIDPrefix)
+            ? .localAI(modelID: model)
+            : .cloud
+    }
+}
+
+struct LocalAITranscriptionResumeIdentity: Equatable, Sendable {
+    let providerID: String
+    let model: String
+    let language: String?
+    let responseFormat: String
+    let ceilingBytes: UInt64
+    let silenceSearchFrameCount: UInt64
+}
+
 struct CloudTranscriptionCheckpoint: Codable, Equatable, Sendable {
     let identity: CloudTranscriptionJobIdentity
     let completedRawTranscripts: [String]

@@ -5,6 +5,7 @@ struct CloudTranscriptionJobStoreTests {
     static func main() async {
         do {
             try roundTripsSchemaVersionOne()
+            try localAIRecordsKeepSchemaAndReportBackend()
             try rejectsUnsupportedSchemaVersion()
             try rejectsFileNameHistoryIDMismatch()
             try rejectsUnsafeSourceBasenames()
@@ -54,6 +55,52 @@ struct CloudTranscriptionJobStoreTests {
             CloudTranscriptionJobRecord.currentSchemaVersion,
             "current schema version"
         )
+    }
+
+    private static func localAIRecordsKeepSchemaAndReportBackend() throws {
+        let cloud = makeRecord()
+        try expectEqual(cloud.identity.backend, .cloud, "cloud backend")
+
+        let base = makeRecord()
+        let local = CloudTranscriptionJobRecord(
+            schemaVersion: base.schemaVersion,
+            historyID: base.historyID,
+            createdAt: base.createdAt,
+            updatedAt: base.updatedAt,
+            phase: base.phase,
+            identity: CloudTranscriptionJobIdentity(
+                providerID: CloudTranscriptionJobIdentity.localAIProviderID(
+                    packageDigest: "abc"
+                ),
+                model: "gemma-4-e4b-it",
+                language: nil,
+                responseFormat: "chat-completions-input-audio",
+                source: base.identity.source,
+                planID: base.plan.planID
+            ),
+            plan: base.plan,
+            completedChunks: [],
+            firstIncompleteChunkIndex: 0,
+            lastFailure: nil,
+            completionPolicy: base.completionPolicy
+        )
+        try local.validate(fileNameID: local.historyID)
+        let decoded = try JSONDecoder().decode(
+            CloudTranscriptionJobRecord.self,
+            from: try JSONEncoder().encode(local)
+        )
+        try expectEqual(decoded.identity.providerID, "local-ai:abc", "local provider id")
+        try expectEqual(
+            decoded.identity.backend,
+            .localAI(modelID: "gemma-4-e4b-it"),
+            "local backend"
+        )
+        try expectEqual(
+            decoded.schemaVersion,
+            CloudTranscriptionJobRecord.currentSchemaVersion,
+            "schema unchanged"
+        )
+        try expectEqual(CloudTranscriptionJobRecord.currentSchemaVersion, 1, "schema stays v1")
     }
 
     private static func rejectsUnsupportedSchemaVersion() throws {

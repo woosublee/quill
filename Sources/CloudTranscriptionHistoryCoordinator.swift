@@ -12,17 +12,20 @@ struct CloudTranscriptionStartupReconciler {
 
     func reconcile(
         history: [PipelineHistoryItem],
-        runtime: CloudTranscriptionExecutionSnapshot
+        runtime: CloudTranscriptionExecutionSnapshot,
+        localAI: LocalAITranscriptionResumeIdentity? = nil
     ) -> CloudTranscriptionStartupReconciliation {
         reconcile(
             store.reconcile(history: history, audioRoot: audioRoot),
-            runtime: runtime
+            runtime: runtime,
+            localAI: localAI
         )
     }
 
     func reconcile(
         _ base: CloudTranscriptionReconciliation,
-        runtime: CloudTranscriptionExecutionSnapshot
+        runtime: CloudTranscriptionExecutionSnapshot,
+        localAI: LocalAITranscriptionResumeIdentity? = nil
     ) -> CloudTranscriptionStartupReconciliation {
         let hasAPIKey = !runtime.apiKey.trimmingCharacters(
             in: .whitespacesAndNewlines
@@ -30,15 +33,33 @@ struct CloudTranscriptionStartupReconciler {
         var resumable: [CloudTranscriptionJobRecord] = []
         var waitingForRetry = base.waitingForRetry
         for record in base.resumable {
-            let compatible = hasAPIKey
-                && record.identity.providerID == runtime.providerID
-                && record.identity.model == runtime.model
-                && record.identity.language == runtime.language
-                && record.identity.responseFormat == runtime.responseFormat
-                && record.plan.algorithmVersion
-                    == CloudTranscriptionChunkPlan.currentAlgorithmVersion
-                && record.plan.encodedUploadCeilingBytes
-                    == runtime.encodedUploadCeilingBytes
+            let compatible: Bool
+            switch record.identity.backend {
+            case .cloud:
+                compatible = hasAPIKey
+                    && record.identity.providerID == runtime.providerID
+                    && record.identity.model == runtime.model
+                    && record.identity.language == runtime.language
+                    && record.identity.responseFormat == runtime.responseFormat
+                    && record.plan.algorithmVersion
+                        == CloudTranscriptionChunkPlan.currentAlgorithmVersion
+                    && record.plan.encodedUploadCeilingBytes
+                        == runtime.encodedUploadCeilingBytes
+            case .localAI:
+                compatible = localAI.map { local in
+                    record.identity.providerID == local.providerID
+                        && record.identity.model == local.model
+                        && record.identity.language == local.language
+                        && record.identity.responseFormat == local.responseFormat
+                        && record.plan.algorithmVersion
+                            == CloudTranscriptionChunkPlan.currentAlgorithmVersion
+                        && record.plan.sizing == .rawWAV
+                        && record.plan.encodedUploadCeilingBytes
+                            == local.ceilingBytes
+                        && record.plan.silenceSearchFrameCount
+                            == local.silenceSearchFrameCount
+                } ?? false
+            }
             if compatible {
                 resumable.append(record)
             } else {
