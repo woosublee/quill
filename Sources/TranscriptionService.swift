@@ -391,9 +391,47 @@ class TranscriptionService {
         }
         defer { prepared.cleanup() }
 
+        // Converted imports and WAV files with extra chunks are valid PCM16
+        // but not the plain 44-byte layout the chunk planner reads, so they
+        // get a canonical temporary copy.
+        let sourceURL: URL
+        var canonicalCopyURL: URL?
+        if (try? CanonicalPCM16WAV.validateFile(at: prepared.fileURL)) != nil {
+            sourceURL = prepared.fileURL
+        } else {
+            let copyURL = cloudDependencies.temporaryRoot
+                .appendingPathComponent("local-ai-source-\(UUID().uuidString).wav")
+            do {
+                try FileManager.default.createDirectory(
+                    at: cloudDependencies.temporaryRoot,
+                    withIntermediateDirectories: true
+                )
+                _ = try CanonicalPCM16WAV.writeCanonicalCopy(
+                    of: prepared.fileURL,
+                    to: copyURL
+                )
+            } catch let error as CancellationError {
+                throw error
+            } catch {
+                throw QuillUserIssueError.local(
+                    code: .audioPreparationFailed,
+                    backend: backend,
+                    modelID: execution.modelID,
+                    diagnostic: String(describing: type(of: error))
+                )
+            }
+            sourceURL = copyURL
+            canonicalCopyURL = copyURL
+        }
+        defer {
+            if let canonicalCopyURL {
+                try? FileManager.default.removeItem(at: canonicalCopyURL)
+            }
+        }
+
         // Only audio stored with the note can be found again after relaunch, so
         // only that uses the durable job store. Converted imports restart.
-        let isDurableSource = prepared.fileURL.standardizedFileURL
+        let isDurableSource = sourceURL.standardizedFileURL
             == fileURL.standardizedFileURL
         let checkpointStore: any CloudTranscriptionCheckpointStore =
             isDurableSource
@@ -402,13 +440,13 @@ class TranscriptionService {
                 : InMemoryCloudTranscriptionCheckpointStore()
 
         do {
-            let layout = try CanonicalPCM16WAV.validateFile(at: prepared.fileURL)
+            let layout = try CanonicalPCM16WAV.validateFile(at: sourceURL)
             let source = try CloudTranscriptionSourceIdentityBuilder.make(
-                fileURL: prepared.fileURL,
+                fileURL: sourceURL,
                 layout: layout
             )
             let plan = try CloudTranscriptionChunkPlanner().planLocal(
-                fileURL: prepared.fileURL,
+                fileURL: sourceURL,
                 source: source,
                 wavLayout: layout
             )
@@ -443,7 +481,7 @@ class TranscriptionService {
             )
             let requestLanguage = language
             let text = try await core.transcribe(
-                sourceURL: prepared.fileURL,
+                sourceURL: sourceURL,
                 sourceLayout: layout,
                 sourceIdentity: source,
                 plan: plan,

@@ -98,6 +98,108 @@ enum CanonicalPCM16WAV {
         return layout
     }
 
+    /// Copies 16 kHz mono 16-bit PCM audio from a WAV file whose header is
+    /// not the plain 44-byte form (for example extra JUNK or LIST chunks, or
+    /// WAVE_FORMAT_EXTENSIBLE) into a canonical WAV. Other formats are rejected
+    /// with `invalidHeader`, and no partial output is left behind.
+    static func writeCanonicalCopy(
+        of sourceURL: URL,
+        to destinationURL: URL,
+        copyBufferByteCount: Int = 1_048_576
+    ) throws -> CanonicalPCM16WAVLayout {
+        let source = try FileHandle(forReadingFrom: sourceURL)
+        defer { try? source.close() }
+        let sourceByteCount = try source.seekToEnd()
+        try source.seek(toOffset: 0)
+        guard let riff = try source.read(upToCount: 12), riff.count == 12,
+              String(bytes: riff.prefix(4), encoding: .ascii) == "RIFF",
+              String(bytes: riff.suffix(4), encoding: .ascii) == "WAVE" else {
+            throw CanonicalPCM16WAVError.invalidHeader
+        }
+
+        var offset: UInt64 = 12
+        var hasSupportedFormat = false
+        var audioRange: (start: UInt64, byteCount: UInt64)?
+        while offset + 8 <= sourceByteCount, audioRange == nil {
+            try source.seek(toOffset: offset)
+            guard let header = try source.read(upToCount: 8), header.count == 8 else {
+                break
+            }
+            let id = String(bytes: header.prefix(4), encoding: .ascii)
+            let size = UInt64(header.readUInt32LE(at: 4))
+            let payloadStart = offset + 8
+            switch id {
+            case "fmt ":
+                guard size >= 16, size <= 64,
+                      let format = try source.read(upToCount: Int(size)),
+                      format.count == Int(size) else {
+                    throw CanonicalPCM16WAVError.invalidHeader
+                }
+                hasSupportedFormat = isSupportedFormat(format)
+            case "data":
+                guard hasSupportedFormat else {
+                    throw CanonicalPCM16WAVError.invalidHeader
+                }
+                audioRange = (payloadStart, min(size, sourceByteCount - payloadStart))
+            default:
+                break
+            }
+            offset = payloadStart + size + (size % 2)
+        }
+        guard let audioRange else {
+            throw CanonicalPCM16WAVError.invalidHeader
+        }
+        let frameCount = audioRange.byteCount / UInt64(bytesPerFrame)
+        guard frameCount > 0 else {
+            throw CanonicalPCM16WAVError.emptyAudio
+        }
+        let payloadByteCount = try dataByteCount(forFrameCount: frameCount)
+
+        var succeeded = false
+        defer {
+            if !succeeded {
+                try? FileManager.default.removeItem(at: destinationURL)
+            }
+        }
+        try header(dataByteCount: payloadByteCount).write(to: destinationURL)
+        let output = try FileHandle(forWritingTo: destinationURL)
+        defer { try? output.close() }
+        try output.seekToEnd()
+        try source.seek(toOffset: audioRange.start)
+        var remaining = UInt64(payloadByteCount)
+        while remaining > 0 {
+            try Task.checkCancellation()
+            let count = Int(min(UInt64(copyBufferByteCount), remaining))
+            guard let chunk = try source.read(upToCount: count), chunk.count == count else {
+                throw CanonicalPCM16WAVError.physicalSizeMismatch
+            }
+            try output.write(contentsOf: chunk)
+            remaining -= UInt64(count)
+        }
+        try output.synchronize()
+        let layout = try validateFile(at: destinationURL)
+        succeeded = true
+        return layout
+    }
+
+    private static func isSupportedFormat(_ format: Data) -> Bool {
+        let tag = format.readUInt16LE(at: 0)
+        let isPCM: Bool
+        if tag == 1 {
+            isPCM = true
+        } else if tag == 0xFFFE, format.count >= 26 {
+            // WAVE_FORMAT_EXTENSIBLE: the sub-format GUID starts with the PCM tag.
+            isPCM = format.readUInt16LE(at: 24) == 1
+        } else {
+            isPCM = false
+        }
+        return isPCM
+            && format.readUInt16LE(at: 2) == channelCount
+            && format.readUInt32LE(at: 4) == sampleRate
+            && format.readUInt16LE(at: 12) == bytesPerFrame
+            && format.readUInt16LE(at: 14) == bitsPerSample
+    }
+
     static func dataByteCount(forFrameCount frameCount: UInt64) throws -> UInt32 {
         let maximumDataByteCount = UInt64(UInt32.max - 36)
         guard frameCount <= maximumDataByteCount / UInt64(bytesPerFrame) else {

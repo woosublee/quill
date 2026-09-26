@@ -10,6 +10,7 @@ struct TranscriptionServiceLocalAITests {
         try await convertedImportUsesInMemoryCheckpointAndCleansUp()
         try await runtimeFailureMapsToLocalIssueWithoutContent()
         try await explicitLanguageIsPassedToEveryChunk()
+        try await convertedWAVWithExtraChunksIsTranscribed()
         print("TranscriptionServiceLocalAITests passed")
     }
 
@@ -112,6 +113,39 @@ struct TranscriptionServiceLocalAITests {
         )
         _ = try await service.transcribe(fileURL: audio)
         try expectEqual(languages.values(), ["ko", "ko"], "language on every chunk")
+    }
+
+    private static func convertedWAVWithExtraChunksIsTranscribed() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let original = root.appendingPathComponent("import.m4a")
+        try Data("not audio".utf8).write(to: original)
+        // AVAudioFile writes a JUNK chunk before "fmt ", so converted imports
+        // are valid PCM16 but not the plain 44-byte canonical layout.
+        let canonical = try writeTone(in: root, seconds: 2)
+        let tone = try Data(contentsOf: canonical)
+        var junked = Data("RIFF".utf8)
+        let body = Data("WAVE".utf8) + Data("JUNK".utf8)
+            + Data([28, 0, 0, 0]) + Data(count: 28) + tone.dropFirst(12)
+        var size = UInt32(body.count).littleEndian
+        junked.append(Data(bytes: &size, count: 4))
+        junked.append(body)
+        let converted = root.appendingPathComponent("converted.wav")
+        try junked.write(to: converted)
+        let frames = CallLog()
+        let execution = makeExecution(
+            prepareAudio: { _ in .init(fileURL: converted, cleanup: {}) },
+            transcribeChunk: { url, _, _ in
+                frames.append("\(try frameCount(url))")
+                return "converted"
+            }
+        )
+        let store = RecordingCheckpointStore()
+        let service = try makeService(execution: execution, checkpointStore: store)
+        let result = try await service.transcribe(fileURL: original)
+        try expectEqual(result.text, "converted", "converted import transcribed")
+        try expectEqual(frames.values(), ["32000"], "all audio frames sent")
+        try expectEqual(store.savedCount(), 0, "converted audio uses in-memory checkpoints")
     }
 
     // MARK: - Helpers
