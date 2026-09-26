@@ -1,6 +1,22 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "On this Mac · Apple Speech · %@ is downloading and will become active when ready.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On this Mac · Apple Speech · %@ is downloading and will become active when ready."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 · Apple Speech · %@ 다운로드 중이며 준비되면 활성화됩니다."
+          }
+        }
+      }
+    },
     "Local AI": {
       "localizations": {
         "en": {

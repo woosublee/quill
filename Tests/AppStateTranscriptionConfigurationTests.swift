@@ -485,6 +485,12 @@ struct AppStateTranscriptionConfigurationTests {
                 appState.localAITranscriptionModelID == nil,
                 "choice not applied before install"
             )
+            appState.cancelLocalAITranscriptionAutoSelection()
+            precondition(
+                appState.pendingLocalAITranscriptionModelID == nil,
+                "choosing another backend cancels auto-selection"
+            )
+            appState.selectLocalAITranscriptionModel("gemma-4-e4b-it")
             appState.cancelLocalAIInstall(LocalAIModelCatalog.gemma4E4B)
             precondition(
                 appState.pendingLocalAITranscriptionModelID == nil,

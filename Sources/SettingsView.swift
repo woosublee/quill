@@ -1590,6 +1590,9 @@ struct ModelsSettingsView: View {
             pendingNativeModelID = nil
             appState.cancelNativeWhisperAutoSelection()
         }
+        if case .localAI = choice {} else {
+            appState.cancelLocalAITranscriptionAutoSelection()
+        }
         if appState.isNoteBrowserTranscriptionChoiceReady(choice) {
             appState.setNoteBrowserTranscriptionChoice(choice)
             appState.transcriptionEnabled = true

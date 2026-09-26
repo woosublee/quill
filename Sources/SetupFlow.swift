@@ -10,6 +10,7 @@ enum SetupFlow {
     enum LocalModel: Equatable {
         case appleSpeech
         case nativeWhisper
+        case localAIModel(id: String)
 
         static let `default`: LocalModel = .appleSpeech
     }
@@ -18,6 +19,7 @@ enum SetupFlow {
         case recordOnly
         case localAppleSpeech
         case localNativeWhisper
+        case localAIModel(id: String)
         case apiStandard
     }
 
@@ -41,6 +43,8 @@ enum SetupFlow {
                 return .localAppleSpeech
             case .nativeWhisper:
                 return .localNativeWhisper
+            case .localAIModel(let id):
+                return .localAIModel(id: id)
             }
         case .apiProvider:
             return .apiStandard
@@ -70,7 +74,7 @@ enum SetupFlow {
                 permissions.insert(.screenRecording)
             }
             return permissions
-        case .localNativeWhisper, .apiStandard:
+        case .localNativeWhisper, .localAIModel, .apiStandard:
             return [.microphone]
         case .localAppleSpeech:
             return [.microphone, .speechRecognition]

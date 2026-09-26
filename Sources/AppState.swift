@@ -1455,6 +1455,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         pendingNativeWhisperAutoSelectionModelID = nil
     }
 
+    /// Stops a pending Local AI transcription choice from applying when its
+    /// download finishes. The download itself continues, like Native Whisper.
+    @MainActor
+    func cancelLocalAITranscriptionAutoSelection() {
+        pendingLocalAITranscriptionModelID = nil
+    }
+
     @MainActor
     func cancelNativeWhisperInstall() {
         pendingNativeWhisperAutoSelectionModelID = nil
@@ -1646,6 +1653,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
             setNoteBrowserTranscriptionChoice(
                 .nativeWhisper(modelID: NativeWhisperModelCatalog.recommended.id)
             )
+            disablePostProcessing = true
+            disableContextCapture = true
+        case .localAIModel(let id):
+            // Like Native Whisper, onboarding sets up transcription only; AI
+            // cleanup and Context stay off until the user turns them on.
+            selectLocalAITranscriptionModel(id)
             disablePostProcessing = true
             disableContextCapture = true
         case .apiStandard:
