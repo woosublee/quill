@@ -69,6 +69,10 @@ struct LocalAIServerProcessTests {
         assert(arguments[arguments.firstIndex(of: "--model")! + 1] == modelURL.path)
         assert(arguments.contains("--ctx-size"))
         assert(arguments[arguments.firstIndex(of: "--ctx-size")! + 1] == "4096")
+        // One slot keeps the whole context for each request, and no RAM prompt
+        // cache grows past the planned model memory (llama.cpp b11046 defaults).
+        assert(arguments[arguments.firstIndex(of: "--parallel")! + 1] == "1")
+        assert(arguments[arguments.firstIndex(of: "--cache-ram")! + 1] == "0")
         assert(!arguments.contains("--mmproj"))
         try waitForProcessExit(process)
     }

@@ -33,11 +33,14 @@ struct LocalAIHealthPoller: Sendable {
     let now: MonotonicNow
     let sleep: Sleep
 
+    // A newly installed llama-server compiles its Metal shaders on first
+    // launch (about 16 s with llama.cpp b11046 on Apple Silicon), and a cold
+    // disk can add more before /health turns ready.
     static let `default` = LocalAIHealthPoller(
-        overallTimeout: 10,
+        overallTimeout: 60,
         probeTimeout: 1,
         cadence: 0.2,
-        maxAttempts: 50,
+        maxAttempts: 300,
         probe: { request in
             try await LLMAPITransport.data(for: request)
         },
@@ -701,7 +704,20 @@ actor LocalAIServerManager {
         let readinessProbe = self.readinessProbe
         let readinessPoller = self.readinessPoller
         let healthTask = Task {
-            guard await pollHealth(launchedPort), !Task.isCancelled else { return false }
+            // The health wait allows a slow first launch, so a server that
+            // exits during startup ends the wait instead of running it out.
+            let healthPoll = Task { await pollHealth(launchedPort) }
+            let exitWatcher = Task {
+                await exitSignal.wait()
+                healthPoll.cancel()
+            }
+            let isHealthy = await withTaskCancellationHandler {
+                await healthPoll.value
+            } onCancel: {
+                healthPoll.cancel()
+            }
+            exitWatcher.cancel()
+            guard isHealthy, !Task.isCancelled else { return false }
             return await readinessPoller.poll(port: launchedPort, using: readinessProbe)
                 && !Task.isCancelled
         }

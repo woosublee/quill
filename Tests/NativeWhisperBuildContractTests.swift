@@ -46,6 +46,22 @@ struct NativeWhisperBuildContractTests {
             !buildScript.contains("otool -L \"$helper\" | grep"),
             "build script no longer duplicates verifier implementation"
         )
+        try expect(
+            buildScript.contains("-DGGML_NATIVE=OFF"),
+            "build does not tune CPU code for the build machine"
+        )
+        try expect(
+            buildScript.contains("-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0"),
+            "helper runs on the app's minimum macOS"
+        )
+        try expect(
+            buildScript.contains("lipo -create"),
+            "universal helper combines per-architecture builds so each keeps its CPU kernels"
+        )
+        try expect(
+            !buildScript.contains(#"-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64""#),
+            "no single multi-architecture ggml build (falls back to generic CPU code)"
+        )
 
         for marker in [
             "lipo -archs",
@@ -55,7 +71,8 @@ struct NativeWhisperBuildContractTests {
             "lib(whisper|ggml)",
             "nm -arch",
             "ggml_metallib_start",
-            "ggml_metallib_end"
+            "ggml_metallib_end",
+            "minos"
         ] {
             try expect(
                 verifier.contains(marker),
@@ -92,6 +109,7 @@ struct NativeWhisperBuildContractTests {
         try verifierRejectsDynamicGGMLDependency(verifierPath: verifierPath)
         try verifierRejectsMissingEmbeddedKernelBoundary(verifierPath: verifierPath)
         try verifierRejectsEmptyHelper(verifierPath: verifierPath)
+        try verifierRejectsHelperRequiringNewerMacOS(verifierPath: verifierPath)
 
         print("NativeWhisperBuildContractTests passed")
     }
@@ -107,6 +125,42 @@ struct NativeWhisperBuildContractTests {
             symbols: embeddedSymbols
         )
         try expect(result.status == 0, "valid universal Metal helper passes")
+    }
+
+    private static func verifierRejectsHelperRequiringNewerMacOS(
+        verifierPath: String
+    ) throws {
+        let result = try runVerifier(
+            verifierPath: verifierPath,
+            expectedArch: "universal",
+            archs: "x86_64 arm64",
+            linkedLibraries: metalLibraries,
+            symbols: embeddedSymbols,
+            minimumMacOS: "26.0"
+        )
+        try expect(result.status != 0, "helper built for a newer macOS than the app fails")
+        try expect(
+            result.stderr.contains("requires macOS 26.0"),
+            "minimum macOS diagnostic"
+        )
+        let minorNewer = try runVerifier(
+            verifierPath: verifierPath,
+            expectedArch: "universal",
+            archs: "x86_64 arm64",
+            linkedLibraries: metalLibraries,
+            symbols: embeddedSymbols,
+            minimumMacOS: "13.3"
+        )
+        try expect(minorNewer.status != 0, "a helper for macOS 13.3 fails; the app supports 13.0")
+        let older = try runVerifier(
+            verifierPath: verifierPath,
+            expectedArch: "universal",
+            archs: "x86_64 arm64",
+            linkedLibraries: metalLibraries,
+            symbols: embeddedSymbols,
+            minimumMacOS: "12.3"
+        )
+        try expect(older.status == 0, "a helper for an older macOS passes")
     }
 
     private static func verifierRejectsMissingUniversalSlice(
@@ -205,7 +259,8 @@ struct NativeWhisperBuildContractTests {
         archs: String,
         linkedLibraries: String,
         symbols: String,
-        helperData: Data = Data([0x01])
+        helperData: Data = Data([0x01]),
+        minimumMacOS: String = "13.0"
     ) throws -> ProcessResult {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -247,7 +302,12 @@ struct NativeWhisperBuildContractTests {
         try writeTool(
             named: "otool",
             in: bin,
-            body: "cat \"$FAKE_LIBRARIES_FILE\""
+            body: """
+            case " $* " in
+              *" -l "*) printf 'Load command 9\\n      cmd LC_BUILD_VERSION\\n    minos %s\\n      sdk 26.5\\n' "$FAKE_MINOS" ;;
+              *) cat "$FAKE_LIBRARIES_FILE" ;;
+            esac
+            """
         )
         try writeTool(
             named: "nm",
@@ -262,7 +322,8 @@ struct NativeWhisperBuildContractTests {
             "PATH": "\(bin.path):/usr/bin:/bin",
             "FAKE_ARCHS": archs,
             "FAKE_LIBRARIES_FILE": librariesFile.path,
-            "FAKE_SYMBOLS_FILE": symbolsFile.path
+            "FAKE_SYMBOLS_FILE": symbolsFile.path,
+            "FAKE_MINOS": minimumMacOS
         ]
         let stdout = Pipe()
         let stderr = Pipe()
