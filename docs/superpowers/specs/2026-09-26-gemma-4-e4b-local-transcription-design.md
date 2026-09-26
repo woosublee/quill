@@ -297,7 +297,7 @@ cloud plan IDs must not change.
 | Chunk timeout | The same retry policy, then waiting for retry |
 | Truncated output | Split and retry (max two levels). Then failure with completed chunks kept |
 | Empty text | Accepted as silence. No retry |
-| Malformed response | Retry under the policy, then failure |
+| Malformed response | Not retried. The job fails with completed chunks kept |
 | User cancel | Cancel the request. The checkpoint stays. The next retry resumes |
 | Relaunch mid-job | Auto-resume when identity matches. Otherwise wait for retry |
 | Model changed or deleted mid-job | The snapshot keeps the running job consistent. The next resume sees the identity mismatch and waits for retry |

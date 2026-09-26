@@ -114,6 +114,7 @@ struct AppStateTranscriptionConfigurationTests {
         await testSelectingUninstalledLocalAIWaitsForInstall()
         await testStartupKeepsLocalAIChoiceBeforeStatusRefresh()
         await testFinishedDownloadDoesNotTurnTranscriptionOn()
+        try await testLocalAIRetryRecordsLocalAIModelID()
         testTranscriptionResponseFormatUsesVerboseJSONForKnownWhisperModels()
         testTranscriptionResponseFormatUsesJSONForOtherModels()
         testTranscriptionHTTP400UsesConfigurationIssue()
@@ -591,6 +592,53 @@ struct AppStateTranscriptionConfigurationTests {
             precondition(
                 !appState.transcriptionEnabled,
                 "finished download keeps transcription off, like Native Whisper"
+            )
+        }
+    }
+
+    private static func testLocalAIRetryRecordsLocalAIModelID() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            resetDefaults()
+            let store = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            let originalItem = try retryHistoryItem(
+                in: environment.storageLayout,
+                filePrefix: "local-ai-retry"
+            )
+            _ = try store.append(originalItem, maxCount: 10)
+            // An empty model folder: the runtime reports the package missing,
+            // so the retry fails fast without starting llama-server.
+            let emptyModels = environment.rootDirectory
+                .appendingPathComponent("local-ai-models", isDirectory: true)
+            var dependencies = localAITranscriptionDependencies(installStatus: .ready)
+            dependencies.storageLayout = environment.storageLayout
+            dependencies.credentialStorageLayout = environment.dependencies.credentialStorageLayout
+            dependencies.makePipelineHistoryStore = { _ in store }
+            dependencies.localAI.makeServerManager = {
+                LocalAIServerManager(store: LocalAIModelStore(rootDirectory: emptyModels))
+            }
+            let configuredDependencies = dependencies
+            let appState = await MainActor.run {
+                AppState(dependencies: configuredDependencies)
+            }
+            await appState.waitForLocalAIInstallStateRefresh()
+            await MainActor.run {
+                appState.setNoteBrowserTranscriptionChoice(.localAI(modelID: "gemma-4-e4b-it"))
+                precondition(
+                    appState.noteBrowserRetryAvailability(for: originalItem) == .ready,
+                    "Local AI retry is available"
+                )
+                appState.retryTranscription(item: originalItem)
+            }
+            await waitUntil {
+                !appState.retryingItemIDs.contains(originalItem.id)
+            }
+            let item = try requireHistoryItem(
+                withID: originalItem.id,
+                in: store.loadAllHistory()
+            )
+            precondition(
+                item.localTranscriptionModelID == "gemma-4-e4b-it",
+                "retry records the Local AI model: \(item.localTranscriptionModelID)"
             )
         }
     }

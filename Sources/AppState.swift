@@ -7054,7 +7054,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 usedContextCapture: false,
                 usedPostProcessing: configuration.postProcessingEnabled,
                 transcriptionLanguageCode: configuration.transcriptionLanguage.code,
-                localTranscriptionModelID: configuration.localTranscriptionModel.id,
+                localTranscriptionModelID: configuration.historyLocalTranscriptionModelID,
                 contextAppName: nil,
                 contextBundleIdentifier: nil,
                 contextWindowTitle: nil
@@ -7476,8 +7476,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 usedLocalTranscription: configuration.useLocalTranscription,
                 usedPostProcessing: completion.postProcessingEnabled,
                 transcriptionLanguageCode: storedTranscriptionLanguage.code,
-                localTranscriptionModelID:
-                    configuration.localTranscriptionModel.id,
+                localTranscriptionModelID: retryLocalAIExecution?.modelID
+                    ?? configuration.localTranscriptionModel.id,
                 successDebugStatus: "Retried"
             ),
             failureContext: failureContext
@@ -10679,7 +10679,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     context: recoveryContext,
                     audioFileName: savedAudioFile.fileName,
                     useLocalTranscription: capturedUseLocalTranscription,
-                    localTranscriptionModelID: capturedLocalTranscriptionModel.id,
+                    localTranscriptionModelID: capturedSettings.historyLocalTranscriptionModelID,
                     transcriptionLanguageCode: capturedTranscriptionLanguage.code,
                     recordingStartedAt: activeJob?.recordingStartedAt,
                     recordingEndedAt: activeJob?.recordingEndedAt,
