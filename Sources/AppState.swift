@@ -2212,6 +2212,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var lastContextSelectedText: String = ""
     @Published var lastContextLLMPrompt: String = ""
     @Published var hasScreenRecordingPermission = false
+    @MainActor private lazy var permissionGuide = PermissionGuideController()
     @Published var speechRecognitionAuthorizationStatus: SFSpeechRecognizerAuthorizationStatus = .notDetermined
     @Published var launchAtLogin: Bool {
         didSet { setLaunchAtLogin(launchAtLogin) }
@@ -7637,12 +7638,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         accessibilityTimer = nil
     }
 
+    /// Opens Accessibility settings with the drag-to-add guide. The system
+    /// "control this computer" dialog is not shown at the same time (#370).
+    @MainActor
     func openAccessibilitySettings() {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-        let trusted = AXIsProcessTrustedWithOptions(options)
-        if !trusted {
-            openPrivacySettingsPane("Privacy_Accessibility")
-        }
+        guidePermission(.accessibility)
     }
 
     /// Shows the native macOS Accessibility prompt directly (the system "wants to
@@ -7705,35 +7705,74 @@ final class AppState: ObservableObject, @unchecked Sendable {
         CGPreflightScreenCaptureAccess()
     }
 
+    /// Recording with system audio needs Screen & System Audio Recording.
+    /// When it is missing, open Settings with the guide instead of the system
+    /// dialog, so one recording start never shows two permission windows (#370).
+    @MainActor
     func requestScreenCapturePermissionForRecordingStart() async -> Bool {
         if CGPreflightScreenCaptureAccess() {
             return true
         }
-        let granted = await Task.detached(priority: .userInitiated) {
-            CGRequestScreenCaptureAccess()
-        }.value
-        return granted || CGPreflightScreenCaptureAccess()
+        guidePermission(.screenRecording)
+        return false
     }
 
+    /// Opens Screen & System Audio Recording settings with the drag-to-add
+    /// guide. The system permission dialog is not shown at the same time (#370).
+    @MainActor
     func requestScreenCapturePermission() {
-        // ScreenCaptureKit triggers the "Screen & System Audio Recording"
-        // permission dialog on macOS Sequoia+, correctly identifying the
-        // running app (unlike the legacy CGWindowListCreateImage path).
-        SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: false) { [weak self] _, _ in
-            DispatchQueue.main.async {
-                let granted = CGPreflightScreenCaptureAccess()
-                self?.hasScreenRecordingPermission = granted
-                if !granted {
-                    self?.openScreenCaptureSettings()
-                }
-            }
-        }
-
         hasScreenRecordingPermission = CGPreflightScreenCaptureAccess()
+        guidePermission(.screenRecording)
     }
 
+    /// Called after a capture actually failed. The preflight can still report
+    /// access until relaunch when it was revoked mid-session, so the pane
+    /// opens either way.
+    @MainActor
     func openScreenCaptureSettings() {
-        openPrivacySettingsPane("Privacy_ScreenCapture")
+        guidePermission(.screenRecording, opensPaneWhenGranted: true)
+    }
+
+    @MainActor
+    var isPermissionGuidePresented: Bool {
+        permissionGuide.isPresented
+    }
+
+    /// Shows System Settings plus the guide panel for a permission that is
+    /// granted by adding Quill to a Settings list.
+    @MainActor
+    func guidePermission(
+        _ kind: PermissionGuideKind,
+        opensPaneWhenGranted: Bool = false
+    ) {
+        let isGranted: @MainActor () -> Bool = switch kind {
+        case .screenRecording: { CGPreflightScreenCaptureAccess() }
+        case .accessibility: { AXIsProcessTrusted() }
+        }
+        guard !isGranted() else {
+            refreshPermissionStatus()
+            if opensPaneWhenGranted {
+                NSWorkspace.shared.open(kind.settingsURL)
+            }
+            return
+        }
+        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? "Quill"
+        permissionGuide.present(
+            kind: kind,
+            appName: appName,
+            appURL: Bundle.main.bundleURL,
+            isGranted: isGranted,
+            onGranted: { [weak self] in self?.refreshPermissionStatus() }
+        )
+    }
+
+    @MainActor
+    private func refreshPermissionStatus() {
+        updatePermissionStatus(
+            accessibility: AXIsProcessTrusted(),
+            screenRecording: CGPreflightScreenCaptureAccess()
+        )
     }
 
     private func openPrivacySettingsPane(_ pane: String) {
@@ -12280,6 +12319,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
             return
         }
+        // The same recording start may already have opened the guide for
+        // system audio; one permission window at a time (#370).
+        if MainActor.assumeIsolated({ isPermissionGuidePresented }) {
+            return
+        }
 
         let alert = NSAlert()
         alert.messageText = localizedCatalogString("Screen Recording Permission Required")
@@ -12291,7 +12335,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         let response = alert.runModal()
         if response == .alertFirstButtonReturn {
-            openScreenCaptureSettings()
+            // The guard above keeps this on the main thread.
+            MainActor.assumeIsolated { openScreenCaptureSettings() }
         }
     }
 
