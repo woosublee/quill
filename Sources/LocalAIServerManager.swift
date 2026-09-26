@@ -704,7 +704,20 @@ actor LocalAIServerManager {
         let readinessProbe = self.readinessProbe
         let readinessPoller = self.readinessPoller
         let healthTask = Task {
-            guard await pollHealth(launchedPort), !Task.isCancelled else { return false }
+            // The health wait allows a slow first launch, so a server that
+            // exits during startup ends the wait instead of running it out.
+            let healthPoll = Task { await pollHealth(launchedPort) }
+            let exitWatcher = Task {
+                await exitSignal.wait()
+                healthPoll.cancel()
+            }
+            let isHealthy = await withTaskCancellationHandler {
+                await healthPoll.value
+            } onCancel: {
+                healthPoll.cancel()
+            }
+            exitWatcher.cancel()
+            guard isHealthy, !Task.isCancelled else { return false }
             return await readinessPoller.poll(port: launchedPort, using: readinessProbe)
                 && !Task.isCancelled
         }

@@ -51,7 +51,11 @@ for required_arch in "${required_archs[@]}"; do
   minos="$(otool -arch "$required_arch" -l "$helper" \
     | awk '/LC_BUILD_VERSION/ {found=1} found && $1 == "minos" {print $2; exit}')"
   [ -n "$minos" ] || fail "missing minimum macOS version for $required_arch"
-  [ "${minos%%.*}" -le 13 ] || fail "helper requires macOS $minos for $required_arch; the app supports macOS 13"
+  # Compare the full version so 13.3 fails on the app's 13.0 floor.
+  awk -v version="$minos" 'BEGIN {
+    split(version, part, ".")
+    exit !(part[1] + 0 < 13 || (part[1] + 0 == 13 && part[2] + 0 == 0 && part[3] + 0 == 0))
+  }' || fail "helper requires macOS $minos for $required_arch; the app supports macOS 13.0"
 
   symbols="$(nm -arch "$required_arch" -gU "$helper")"
   # Older ggml exports ggml_metallib_start/end; newer ggml embeds one

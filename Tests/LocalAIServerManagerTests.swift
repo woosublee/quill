@@ -5,6 +5,7 @@ import Foundation
 struct LocalAIServerManagerTests {
     static func main() async throws {
         try testDefaultHealthPollAllowsFirstLaunchShaderCompilation()
+        try await testProcessExitDuringHealthPollFailsStartupImmediately()
         try await testLazyStartForwardsPrimaryShardAndModelContextWindow()
         try await testQualityModelLaunchesWithDeclared16KContext()
         try await testMissingContextWindowFallsBackTo8K()
@@ -269,6 +270,37 @@ struct LocalAIServerManagerTests {
                 "runtime recovery left a stale transaction backup"
             )
         }
+    }
+
+    // With a 60 s health wait, a server that exits at launch must fail startup at
+    // once instead of making the user wait for the whole health poll.
+    private static func testProcessExitDuringHealthPollFailsStartupImmediately() async throws {
+        let process = FakeProcess()
+        let manager = makeManager(
+            launchProcess: { _, _, port, _ in
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
+                    process.simulateCrash()
+                }
+                return (process, port)
+            },
+            pollHealth: { _ in
+                // Simulates /health refusing connections for the whole wait.
+                for _ in 0..<3_000 {
+                    if Task.isCancelled { return false }
+                    try? await Task.sleep(nanoseconds: 10_000_000)
+                }
+                return true
+            }
+        )
+        let start = Date()
+        do {
+            _ = try await manager.withBaseURL(for: testModel) { $0 }
+            try require(false, "startup must fail when the server exits during the health poll")
+        } catch {
+            try require(!(error is CancellationError), "startup failure is not reported as cancellation")
+        }
+        let elapsed = Date().timeIntervalSince(start)
+        try require(elapsed < 3, "process exit ends the health poll early (took \(elapsed) s)")
     }
 
     // A newly installed llama-server compiles its Metal shaders on first launch,

@@ -143,6 +143,24 @@ struct NativeWhisperBuildContractTests {
             result.stderr.contains("requires macOS 26.0"),
             "minimum macOS diagnostic"
         )
+        let minorNewer = try runVerifier(
+            verifierPath: verifierPath,
+            expectedArch: "universal",
+            archs: "x86_64 arm64",
+            linkedLibraries: metalLibraries,
+            symbols: embeddedSymbols,
+            minimumMacOS: "13.3"
+        )
+        try expect(minorNewer.status != 0, "a helper for macOS 13.3 fails; the app supports 13.0")
+        let older = try runVerifier(
+            verifierPath: verifierPath,
+            expectedArch: "universal",
+            archs: "x86_64 arm64",
+            linkedLibraries: metalLibraries,
+            symbols: embeddedSymbols,
+            minimumMacOS: "12.3"
+        )
+        try expect(older.status == 0, "a helper for an older macOS passes")
     }
 
     private static func verifierRejectsMissingUniversalSlice(
