@@ -2903,6 +2903,8 @@ struct AppStateTranscriptionConfigurationTests {
             customVocabulary: "team terms",
             customSystemPrompt: "custom prompt",
             useLocalTranscription: true,
+            usesJobStore: false,
+            historyLocalTranscriptionModelID: "apple-speech",
             localTranscriptionModel: .find(id: "apple-speech"),
             transcriptionLanguage: .find(code: "en"),
             usedContextCapture: true,
