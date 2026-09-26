@@ -61,15 +61,26 @@ struct LocalASRTranscriptionClient: Sendable {
                 "format": "wav"
             ]
         ]
-        let content: [[String: Any]]
+        var messages: [[String: Any]]
         switch format {
         case .chatCompletionsInputAudio:
-            content = [
-                audioPart,
-                ["type": "text", "text": instruction(languageCode: languageCode)]
-            ]
+            messages = [[
+                "role": "user",
+                "content": [
+                    audioPart,
+                    ["type": "text", "text": instruction(languageCode: languageCode)]
+                ]
+            ]]
         case .qwen3ASRChatCompletions:
-            content = [audioPart]
+            messages = [["role": "user", "content": [audioPart]]]
+            // Qwen3-ASR ignores text instructions but follows a prefilled
+            // "language <Name><asr_text>" reply, which fixes the language.
+            if let name = qwen3ASRLanguageName(for: languageCode) {
+                messages.append([
+                    "role": "assistant",
+                    "content": "language \(name)<asr_text>"
+                ])
+            }
         }
         var request = URLRequest(
             url: baseURL
@@ -84,10 +95,25 @@ struct LocalASRTranscriptionClient: Sendable {
             "temperature": 0,
             "max_tokens": maximumOutputTokens,
             "stream": false,
-            "messages": [["role": "user", "content": content]]
+            "messages": messages
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
+    }
+
+    /// Languages Qwen3-ASR is documented to recognize by name. Others are left
+    /// to the model's own detection rather than forced with an unknown name.
+    private static let qwen3ASRForcedLanguageCodes: Set<String> = [
+        "ar", "de", "en", "es", "fr", "hi", "id", "it", "ja", "ko",
+        "nl", "pt", "ru", "th", "tr", "vi", "zh"
+    ]
+
+    static func qwen3ASRLanguageName(for languageCode: String?) -> String? {
+        guard let languageCode,
+              qwen3ASRForcedLanguageCodes.contains(languageCode) else {
+            return nil
+        }
+        return Locale(identifier: "en").localizedString(forLanguageCode: languageCode)
     }
 
     static func parseResponse(

@@ -6,6 +6,7 @@ struct LocalASRTranscriptionClientTests {
         do {
             try requestCarriesAudioAndInstruction()
             try qwen3ASRRequestSendsAudioOnly()
+            try qwen3ASRRequestForcesChosenLanguage()
             try qwen3ASRResponseDropsLanguageTag()
             try gemmaResponseKeepsTagLikeText()
             try instructionNamesExplicitLanguage()
@@ -73,6 +74,29 @@ struct LocalASRTranscriptionClientTests {
         // Qwen3-ASR ignores text instructions, so only the audio is sent.
         try expectEqual(content?.count, 1, "audio part only")
         try expectEqual(content?.first?["type"] as? String, "input_audio", "audio part")
+    }
+
+    private static func qwen3ASRRequestForcesChosenLanguage() throws {
+        func messages(_ code: String?) throws -> [[String: Any]] {
+            let request = try LocalASRTranscriptionClient.makeRequest(
+                baseURL: baseURL,
+                audioData: Data([1, 2]),
+                format: .qwen3ASRChatCompletions,
+                languageCode: code,
+                timeoutSeconds: 120
+            )
+            let body = try JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any]
+            return body?["messages"] as? [[String: Any]] ?? []
+        }
+        // The model follows a prefilled "language <Name><asr_text>" reply.
+        let korean = try messages("ko")
+        try expectEqual(korean.count, 2, "user audio plus assistant prefill")
+        try expectEqual(korean.last?["role"] as? String, "assistant", "prefill role")
+        try expectEqual(korean.last?["content"] as? String, "language Korean<asr_text>", "Korean prefill")
+        try expectEqual(try messages("en").last?["content"] as? String, "language English<asr_text>", "English prefill")
+        try expectEqual(try messages(nil).count, 1, "Auto lets the model detect")
+        try expectEqual(try messages("auto").count, 1, "auto code lets the model detect")
+        try expectEqual(try messages("sw").count, 1, "unconfirmed languages are not forced")
     }
 
     private static func qwen3ASRResponseDropsLanguageTag() throws {
