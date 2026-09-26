@@ -4,6 +4,7 @@ struct FullSourceTranscriptionTestRunner {
         await CloudTranscriptionHistoryLifecycleTests.main()
         await TranscriptionServiceCloudChunkingTests.main()
         try await TranscriptionServiceLocalIssueTests.main()
+        try await TranscriptionServiceLocalAITests.main()
         try PostProcessingUserIssueTests.main()
         try await PostProcessingBackendTests.main()
         try PostProcessingOutputValidatorTests.main()

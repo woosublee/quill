@@ -130,19 +130,22 @@ struct LocalTranscriptionExecutionSnapshot: Sendable {
     let useLegacyMlxWhisper: Bool
     let language: TranscriptionLanguage
     let nativeWhisperExecution: NativeWhisperExecutionSnapshot?
+    let localAIExecution: LocalAITranscriptionExecutionSnapshot?
 
     init(
         model: TranscriptionModel,
         localWhisperPath: String?,
         useLegacyMlxWhisper: Bool,
         language: TranscriptionLanguage,
-        nativeWhisperExecution: NativeWhisperExecutionSnapshot? = nil
+        nativeWhisperExecution: NativeWhisperExecutionSnapshot? = nil,
+        localAIExecution: LocalAITranscriptionExecutionSnapshot? = nil
     ) {
         self.model = model
         self.localWhisperPath = localWhisperPath
         self.useLegacyMlxWhisper = useLegacyMlxWhisper
         self.language = language
         self.nativeWhisperExecution = nativeWhisperExecution
+        self.localAIExecution = localAIExecution
     }
 }
 

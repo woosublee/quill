@@ -73,6 +73,7 @@ class TranscriptionService {
     private let cloudDependencies: CloudTranscriptionDependencies
     private let cloudExecutionContext: CloudTranscriptionExecutionContext?
     private let nativeWhisperExecution: NativeWhisperExecutionSnapshot?
+    private let localAIExecution: LocalAITranscriptionExecutionSnapshot?
     private var transcriptionResponseFormat: String {
         Self.responseFormat(forModel: transcriptionModel)
     }
@@ -93,6 +94,7 @@ class TranscriptionService {
         transcriptionModel: String = AppState.defaultTranscriptionModel,
         language: String? = nil,
         nativeWhisperExecution: NativeWhisperExecutionSnapshot? = nil,
+        localAIExecution: LocalAITranscriptionExecutionSnapshot? = nil,
         cloudDependencies: CloudTranscriptionDependencies = .live,
         cloudExecutionContext: CloudTranscriptionExecutionContext? = nil
     ) throws {
@@ -114,6 +116,7 @@ class TranscriptionService {
         self.language = effectiveRequestLanguage
         self.requestedLanguageCode = effectiveRequestLanguage ?? "auto"
         self.nativeWhisperExecution = nativeWhisperExecution
+        self.localAIExecution = localAIExecution
         self.cloudDependencies = cloudDependencies
         self.cloudExecutionContext = cloudExecutionContext
     }
@@ -337,12 +340,19 @@ class TranscriptionService {
     }
 
     private var localBackendName: String {
+        if localAIExecution != nil { return LocalAITranscriptionExecutionSnapshot.backendLabel }
         if localTranscriptionModel.isAppleSpeech { return "Apple Speech" }
         return useLegacyMlxWhisper ? "Legacy mlx-whisper" : "Native Whisper"
     }
 
     // Run local transcription: Apple Speech, native Whisper, or legacy mlx_whisper
     private func transcribeAudioLocally(fileURL: URL) async throws -> TranscriptionResult {
+        if let localAIExecution {
+            return try await transcribeWithLocalAI(
+                fileURL: fileURL,
+                execution: localAIExecution
+            )
+        }
         if localTranscriptionModel.isAppleSpeech {
             return try await transcribeWithAppleSpeech(fileURL: fileURL)
         }
@@ -350,6 +360,124 @@ class TranscriptionService {
             return try await transcribeWithMlxWhisper(fileURL: fileURL)
         }
         return try await transcribeWithNativeWhisper(fileURL: fileURL)
+    }
+
+    private func transcribeWithLocalAI(
+        fileURL: URL,
+        execution: LocalAITranscriptionExecutionSnapshot
+    ) async throws -> TranscriptionResult {
+        let backend = LocalAITranscriptionExecutionSnapshot.backendLabel
+        guard execution.modelIsReady() else {
+            throw QuillUserIssueError.local(
+                code: .localModelMissing,
+                backend: backend,
+                modelID: execution.modelID,
+                diagnostic: "Local AI model package is not installed"
+            )
+        }
+
+        let prepared: NativeWhisperExecutionSnapshot.PreparedAudio
+        do {
+            prepared = try await execution.prepareAudio(fileURL)
+        } catch let error as CancellationError {
+            throw error
+        } catch {
+            throw QuillUserIssueError.local(
+                code: .audioPreparationFailed,
+                backend: backend,
+                modelID: execution.modelID,
+                diagnostic: String(describing: type(of: error))
+            )
+        }
+        defer { prepared.cleanup() }
+
+        // Only audio stored with the note can be found again after relaunch, so
+        // only that uses the durable job store. Converted imports restart.
+        let isDurableSource = prepared.fileURL.standardizedFileURL
+            == fileURL.standardizedFileURL
+        let checkpointStore: any CloudTranscriptionCheckpointStore =
+            isDurableSource
+                ? (cloudExecutionContext?.checkpointStore
+                    ?? InMemoryCloudTranscriptionCheckpointStore())
+                : InMemoryCloudTranscriptionCheckpointStore()
+
+        do {
+            let layout = try CanonicalPCM16WAV.validateFile(at: prepared.fileURL)
+            let source = try CloudTranscriptionSourceIdentityBuilder.make(
+                fileURL: prepared.fileURL,
+                layout: layout
+            )
+            let plan = try CloudTranscriptionChunkPlanner().planLocal(
+                fileURL: prepared.fileURL,
+                source: source,
+                wavLayout: layout
+            )
+            let identity = CloudTranscriptionJobIdentity(
+                providerID: execution.providerID,
+                model: execution.modelID,
+                language: language,
+                responseFormat: execution.requestFormat.rawValue,
+                source: source,
+                planID: plan.planID
+            )
+            let core = CloudTranscriptionCore(
+                configuration: CloudTranscriptionConfiguration(
+                    model: execution.modelID,
+                    language: language,
+                    responseFormat: execution.requestFormat.rawValue,
+                    encodedUploadCeilingBytes: plan.encodedUploadCeilingBytes,
+                    minimumAttemptTimeoutSeconds:
+                        LocalAITranscriptionExecutionSnapshot.chunkTimeoutSeconds,
+                    maximumAttemptTimeoutSeconds:
+                        LocalAITranscriptionExecutionSnapshot.chunkTimeoutSeconds
+                ),
+                materializer: CloudTranscriptionChunkMaterializer(
+                    temporaryRoot: cloudDependencies.temporaryRoot,
+                    copyBufferByteCount: 1_048_576
+                ),
+                retryPolicy: CloudTranscriptionRetryPolicy(
+                    maximumAttempts: 3,
+                    jitter: { _ in Double.random(in: 0...0.25) }
+                ),
+                sleep: cloudDependencies.sleep
+            )
+            let requestLanguage = language
+            let text = try await core.transcribe(
+                sourceURL: prepared.fileURL,
+                sourceLayout: layout,
+                sourceIdentity: source,
+                plan: plan,
+                identity: identity,
+                sizing: .rawWAV,
+                checkpointStore: checkpointStore,
+                request: { chunkURL, timeout in
+                    try await execution.transcribeChunk(chunkURL, requestLanguage, timeout)
+                },
+                progress: cloudExecutionContext?.progress ?? { _ in }
+            )
+            return transcriptionResult(
+                text: TranscriptTextNormalizer.normalized(text),
+                engineLanguageCode: nil
+            )
+        } catch let error as CancellationError {
+            throw error
+        } catch is LocalAITranscriptionModelUnavailableFailure {
+            throw QuillUserIssueError.local(
+                code: .localModelMissing,
+                backend: backend,
+                modelID: execution.modelID,
+                diagnostic: "Local AI model package became unavailable"
+            )
+        } catch let issue as QuillUserIssueError {
+            throw issue
+        } catch {
+            throw QuillUserIssueError.local(
+                code: .localTranscriptionFailed,
+                backend: backend,
+                modelID: execution.modelID,
+                diagnostic: String(describing: type(of: error))
+            )
+        }
     }
 
     private func transcribeWithNativeWhisper(fileURL: URL) async throws -> TranscriptionResult {
@@ -1024,8 +1152,13 @@ extension TranscriptionExecutionSnapshot {
                 transcriptionLanguage: local.language,
                 localTranscriptionModel: local.model,
                 nativeWhisperExecution: local.nativeWhisperExecution,
+                localAIExecution: local.localAIExecution,
                 cloudDependencies: cloudDependencies,
-                cloudExecutionContext: nil
+                // Local AI jobs use the shared job store for checkpoints and
+                // progress; other local backends never do.
+                cloudExecutionContext: local.localAIExecution == nil
+                    ? nil
+                    : cloudExecutionContext
             )
         }
     }
