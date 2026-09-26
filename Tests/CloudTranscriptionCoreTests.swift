@@ -17,6 +17,11 @@ struct CloudTranscriptionCoreTests {
             try await terminalFailureSuppressesLaterChunks()
             try await materializationFailureRecordsLocalIOAndSuppressesRequest()
             try await cancellationCleansMaterializedChunk()
+            try classifiesLocalChunkFailures()
+            try await truncatedChunkIsSplitIntoHalves()
+            try await truncationBeyondDepthFailsAndKeepsEarlierChunks()
+            try await runtimeFailureRetriesCurrentChunkAndProgressIsMonotonic()
+            try await emptyChunkTextIsSkippedInAssembly()
             print("CloudTranscriptionCoreTests passed")
         } catch {
             fputs("CloudTranscriptionCoreTests failed: \(error)\n", stderr)
@@ -408,6 +413,143 @@ struct CloudTranscriptionCoreTests {
         try expectEqual(await store.failures(), [.cancelled], "cancellation category")
     }
 
+    private static func classifiesLocalChunkFailures() throws {
+        let policy = makePolicy()
+        let runtime = policy.decision(
+            for: TranscriptionChunkRuntimeFailure(reason: "processExited"),
+            completedAttemptCount: 1
+        )
+        try expectEqual(runtime.shouldRetry, true, "runtime failure retries")
+        try expectEqual(runtime.category, .providerUnavailable, "runtime category")
+
+        let truncated = policy.decision(
+            for: TranscriptionChunkTruncatedFailure(),
+            completedAttemptCount: 1
+        )
+        try expectEqual(truncated.shouldRetry, false, "truncation is not retried as-is")
+        try expectEqual(truncated.category, .invalidResponse, "truncation category")
+    }
+
+    private static func truncatedChunkIsSplitIntoHalves() async throws {
+        let fixture = try makeSplitFixture(frameCount: 8)
+        defer { fixture.cleanup() }
+        let events = EventRecorder()
+        let store = TestCheckpointStore(events: events)
+        let core = makeLocalCore(temporaryRoot: fixture.temporaryRoot)
+        let result = try await core.transcribe(
+            sourceURL: fixture.sourceURL,
+            sourceLayout: fixture.sourceLayout,
+            sourceIdentity: fixture.sourceIdentity,
+            plan: fixture.plan,
+            identity: fixture.identity,
+            sizing: .rawWAV,
+            checkpointStore: store,
+            request: { url, _ in
+                let frames = try frameCount(of: url)
+                await events.append("request:\(frames)")
+                if frames == 8 { throw TranscriptionChunkTruncatedFailure() }
+                return frames == 4 ? "half" : "?"
+            },
+            progress: { _ in }
+        )
+        try expectEqual(result, "half half", "halves joined in order")
+        try expectEqual(
+            await events.values(),
+            ["request:8", "request:4", "request:4", "save:1"],
+            "one checkpoint for the whole chunk"
+        )
+    }
+
+    private static func truncationBeyondDepthFailsAndKeepsEarlierChunks() async throws {
+        let fixture = try makeSplitFixture(frameCount: 8)
+        defer { fixture.cleanup() }
+        let events = EventRecorder()
+        let store = TestCheckpointStore(events: events)
+        let core = makeLocalCore(temporaryRoot: fixture.temporaryRoot)
+        do {
+            _ = try await core.transcribe(
+                sourceURL: fixture.sourceURL,
+                sourceLayout: fixture.sourceLayout,
+                sourceIdentity: fixture.sourceIdentity,
+                plan: fixture.plan,
+                identity: fixture.identity,
+                sizing: .rawWAV,
+                checkpointStore: store,
+                request: { url, _ in
+                    await events.append("request:\(try frameCount(of: url))")
+                    throw TranscriptionChunkTruncatedFailure()
+                },
+                progress: { _ in }
+            )
+            throw TestFailure("expected truncation failure")
+        } catch is TranscriptionChunkTruncatedFailure {
+        }
+        // depth 0: 8 frames; depth 1: 4 frames (first half fails, stop);
+        // depth 2: 2 frames (first quarter fails, depth exhausted -> throw)
+        try expectEqual(
+            await events.values(),
+            ["request:8", "request:4", "request:2", "failure:invalidResponse"],
+            "splits stop at depth 2"
+        )
+    }
+
+    private static func runtimeFailureRetriesCurrentChunkAndProgressIsMonotonic() async throws {
+        let fixture = try makeCoordinatorFixture()
+        defer { fixture.cleanup() }
+        let events = EventRecorder()
+        let store = TestCheckpointStore(events: events)
+        let attempts = AttemptCounter()
+        let progressValues = ProgressRecorder()
+        let core = makeCore(temporaryRoot: fixture.temporaryRoot)
+        let result = try await core.transcribe(
+            sourceURL: fixture.sourceURL,
+            sourceLayout: fixture.sourceLayout,
+            sourceIdentity: fixture.sourceIdentity,
+            plan: fixture.plan,
+            identity: fixture.identity,
+            multipart: fixture.multipart,
+            checkpointStore: store,
+            request: { url, _ in
+                let index = try chunkIndex(from: url)
+                if index == 1, await attempts.next() == 1 {
+                    throw TranscriptionChunkRuntimeFailure(reason: "processExited")
+                }
+                return ["zero", "one", "two"][index]
+            },
+            progress: { progressValues.append($0) }
+        )
+        try expectEqual(result, "zero one two", "retried chunk completes")
+        let completedCounts = progressValues.values().compactMap { event -> Int? in
+            switch event {
+            case .planned(let completed, _): return completed
+            case .uploading(let index, _, _): return index
+            case .completed(let total): return total
+            }
+        }
+        try expectEqual(completedCounts, completedCounts.sorted(), "progress never decreases")
+    }
+
+    private static func emptyChunkTextIsSkippedInAssembly() async throws {
+        let fixture = try makeCoordinatorFixture()
+        defer { fixture.cleanup() }
+        let store = TestCheckpointStore(events: EventRecorder())
+        let core = makeCore(temporaryRoot: fixture.temporaryRoot)
+        let result = try await core.transcribe(
+            sourceURL: fixture.sourceURL,
+            sourceLayout: fixture.sourceLayout,
+            sourceIdentity: fixture.sourceIdentity,
+            plan: fixture.plan,
+            identity: fixture.identity,
+            multipart: fixture.multipart,
+            checkpointStore: store,
+            request: { url, _ in
+                ["zero", "", "two"][try chunkIndex(from: url)]
+            },
+            progress: { _ in }
+        )
+        try expectEqual(result, "zero two", "empty chunk adds no extra space")
+    }
+
     private static func makeCore(
         temporaryRoot: URL,
         sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { _ in }
@@ -506,6 +648,79 @@ struct CloudTranscriptionCoreTests {
         )
     }
 
+    private static func makeLocalCore(temporaryRoot: URL) -> CloudTranscriptionCore {
+        CloudTranscriptionCore(
+            configuration: CloudTranscriptionConfiguration(
+                model: "gemma-4-e4b-it",
+                language: nil,
+                responseFormat: "chat-completions-input-audio",
+                encodedUploadCeilingBytes: CanonicalPCM16WAV.headerByteCount + 16,
+                minimumAttemptTimeoutSeconds: 120,
+                maximumAttemptTimeoutSeconds: 120
+            ),
+            materializer: CloudTranscriptionChunkMaterializer(
+                temporaryRoot: temporaryRoot,
+                copyBufferByteCount: 3
+            ),
+            retryPolicy: CloudTranscriptionRetryPolicy(maximumAttempts: 3, jitter: { _ in 0 }),
+            sleep: { _ in }
+        )
+    }
+
+    private static func makeSplitFixture(frameCount: Int) throws -> CoordinatorFixture {
+        let sourceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+        var data = CanonicalPCM16WAV.header(dataByteCount: UInt32(frameCount * 2))
+        for _ in 0..<frameCount { data.append(contentsOf: [1, 0]) }
+        try data.write(to: sourceURL, options: .atomic)
+        let layout = try CanonicalPCM16WAV.validateFile(at: sourceURL)
+        let identity = try CloudTranscriptionSourceIdentityBuilder.make(
+            fileURL: sourceURL,
+            layout: layout,
+            readBufferByteCount: 3
+        )
+        let chunk = CloudTranscriptionChunk(
+            index: 0,
+            startFrame: 0,
+            endFrame: UInt64(frameCount),
+            estimatedEncodedByteCount: try TranscriptionChunkSizing.rawWAV
+                .encodedByteCount(frameCount: UInt64(frameCount))
+        )
+        let plan = CloudTranscriptionChunkPlan(
+            algorithmVersion: CloudTranscriptionChunkPlan.currentAlgorithmVersion,
+            encodedUploadCeilingBytes: CanonicalPCM16WAV.headerByteCount + 16,
+            sourceFrameCount: UInt64(frameCount),
+            chunks: [chunk],
+            planID: "local-plan",
+            sizing: .rawWAV,
+            silenceSearchFrameCount: 320_000
+        )
+        return CoordinatorFixture(
+            sourceURL: sourceURL,
+            sourceLayout: layout,
+            sourceIdentity: identity,
+            multipart: CloudTranscriptionMultipartLayout(
+                model: "unused", responseFormat: "unused", language: nil
+            ),
+            plan: plan,
+            identity: CloudTranscriptionJobIdentity(
+                providerID: "local-ai:digest",
+                model: "gemma-4-e4b-it",
+                language: nil,
+                responseFormat: "chat-completions-input-audio",
+                source: identity,
+                planID: plan.planID
+            ),
+            temporaryRoot: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        )
+    }
+
+    private static func frameCount(of url: URL) throws -> Int {
+        Int(try CanonicalPCM16WAV.validateFile(at: url).frameCount)
+    }
+
     private static func chunkIndex(from url: URL) throws -> Int {
         let layout = try CanonicalPCM16WAV.validateFile(at: url)
         let handle = try FileHandle(forReadingFrom: url)
@@ -559,6 +774,22 @@ private actor EventRecorder {
 
     func values() -> [String] {
         recorded
+    }
+}
+
+private actor AttemptCounter {
+    private var count = 0
+    func next() -> Int { count += 1; return count }
+}
+
+private final class ProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [CloudTranscriptionProgress] = []
+    func append(_ value: CloudTranscriptionProgress) {
+        lock.lock(); stored.append(value); lock.unlock()
+    }
+    func values() -> [CloudTranscriptionProgress] {
+        lock.lock(); defer { lock.unlock() }; return stored
     }
 }
 
@@ -641,6 +872,7 @@ private actor TestCheckpointStore: CloudTranscriptionCheckpointStore {
         category: CloudTranscriptionFailureCategory
     ) async throws {
         recordedFailures.append(category)
+        await events?.append("failure:\(category.rawValue)")
     }
 
     func failures() -> [CloudTranscriptionFailureCategory] {
