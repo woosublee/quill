@@ -585,6 +585,8 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/OverlayDisplayCopyTests
 	@swiftc -parse-as-library Tests/BuildMetadataTests.swift -o $(TEST_BUILD_DIR)/BuildMetadataTests
 	@$(TEST_BUILD_DIR)/BuildMetadataTests
+	@swiftc -parse-as-library Tests/AppNameDisplaySourceTests.swift -o $(TEST_BUILD_DIR)/AppNameDisplaySourceTests
+	@$(TEST_BUILD_DIR)/AppNameDisplaySourceTests
 	@$(TEST_BUILD_DIR)/LocalizationResourceTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/TranscriptionLanguage.swift Sources/TranscriptionModel.swift Sources/NativeWhisperModel.swift Sources/AudioImportOptions.swift Tests/SettingsLocalizationTests.swift -o $(TEST_BUILD_DIR)/SettingsLocalizationTests
 	@$(TEST_BUILD_DIR)/SettingsLocalizationTests
@@ -734,7 +736,7 @@ _test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSC
 	@$(TEST_BUILD_DIR)/RecordingOverlayGeometryTests
 	@swiftc -parse-as-library Tests/UpstreamMergeBehaviorTests.swift -o $(TEST_BUILD_DIR)/UpstreamMergeBehaviorTests
 	@$(TEST_BUILD_DIR)/UpstreamMergeBehaviorTests
-	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/OverlayDisplayCopy.swift Sources/OverlayScreenGeometry.swift Sources/FixedIntrinsicHostingView.swift Sources/ShortcutCore/ShortcutModels.swift Sources/AudioInputDevice.swift Sources/RecordingOverlay.swift Sources/CalendarIntegrationModels.swift Sources/AppNotificationManager.swift Sources/CalendarRecordingReminderScheduler.swift Sources/MeetingReminderOverlay.swift Tests/MeetingReminderOverlayGeometryTests.swift -o $(TEST_BUILD_DIR)/MeetingReminderOverlayGeometryTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/OverlayDisplayCopy.swift Sources/OverlayScreenGeometry.swift Sources/FixedIntrinsicHostingView.swift Sources/ShortcutCore/ShortcutModels.swift Sources/AudioInputDevice.swift Sources/RecordingOverlay.swift Sources/CalendarIntegrationModels.swift Sources/AppNotificationManager.swift Sources/CalendarRecordingReminderScheduler.swift Sources/AppName.swift Sources/MeetingReminderOverlay.swift Tests/MeetingReminderOverlayGeometryTests.swift -o $(TEST_BUILD_DIR)/MeetingReminderOverlayGeometryTests
 	@$(TEST_BUILD_DIR)/MeetingReminderOverlayGeometryTests
 	@swiftc -parse-as-library Sources/AppBuild.swift Tests/AppBuildTests.swift -o $(TEST_BUILD_DIR)/AppBuildTests
 	@$(TEST_BUILD_DIR)/AppBuildTests
