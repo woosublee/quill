@@ -112,6 +112,8 @@ struct AppStateTranscriptionConfigurationTests {
         await testLocalModeKeepsSelectedLocalAIModel()
         await testReloadHintOnlyWhenLocalModelsDiffer()
         await testSelectingUninstalledLocalAIWaitsForInstall()
+        await testStartupKeepsLocalAIChoiceBeforeStatusRefresh()
+        await testFinishedDownloadDoesNotTurnTranscriptionOn()
         testTranscriptionResponseFormatUsesVerboseJSONForKnownWhisperModels()
         testTranscriptionResponseFormatUsesJSONForOtherModels()
         testTranscriptionHTTP400UsesConfigurationIssue()
@@ -495,6 +497,87 @@ struct AppStateTranscriptionConfigurationTests {
             precondition(
                 appState.pendingLocalAITranscriptionModelID == nil,
                 "cancel clears the pending choice"
+            )
+        }
+    }
+
+    private static func testStartupKeepsLocalAIChoiceBeforeStatusRefresh() async {
+        resetDefaults()
+        UserDefaults.standard.set("gemma-4-e4b-it", forKey: "local_ai_transcription_model")
+        UserDefaults.standard.set(true, forKey: "use_local_transcription")
+        UserDefaults.standard.set(true, forKey: "transcription_enabled")
+        UserDefaults.standard.set(true, forKey: "hasCompletedSetup")
+        // A slow status check keeps the initial refresh running while
+        // initialization normalizes the saved transcription choice.
+        let gate = DispatchSemaphore(value: 0)
+        var dependencies = localAITranscriptionDependencies(installStatus: .ready)
+        dependencies.localAI.installStatus = { _ in
+            _ = gate.wait(timeout: .now() + 2)
+            return .ready
+        }
+        let appState = await MainActor.run { AppState(dependencies: dependencies) }
+        await MainActor.run {
+            precondition(
+                appState.currentNoteBrowserTranscriptionChoice
+                    == .localAI(modelID: "gemma-4-e4b-it"),
+                "saved Local AI choice survives startup normalization"
+            )
+            precondition(appState.transcriptionEnabled, "transcription stays on")
+            precondition(
+                appState.isLocalAITranscriptionModelUsable("gemma-4-e4b-it"),
+                "unknown status is treated as usable until checked"
+            )
+        }
+        gate.signal()
+        gate.signal()
+        await appState.waitForLocalAIInstallStateRefresh()
+        await MainActor.run {
+            precondition(
+                appState.currentNoteBrowserTranscriptionChoice
+                    == .localAI(modelID: "gemma-4-e4b-it"),
+                "choice kept after refresh"
+            )
+        }
+    }
+
+    private static func testFinishedDownloadDoesNotTurnTranscriptionOn() async {
+        resetDefaults()
+        let status = LocalAIStatusBox(.notInstalled)
+        let completions = LocalAICompletionBox()
+        var dependencies = localAITranscriptionDependencies(installStatus: .notInstalled)
+        dependencies.localAI.installStatus = { _ in status.value }
+        dependencies.localAI.startInstall = { _, _, completion in
+            completions.store(completion)
+            return LocalAIInstallTask()
+        }
+        let appState = await MainActor.run { AppState(dependencies: dependencies) }
+        await appState.waitForLocalAIInstallStateRefresh()
+        await MainActor.run {
+            appState.selectLocalAITranscriptionModel("gemma-4-e4b-it")
+            appState.transcriptionEnabled = false
+        }
+        status.value = .ready
+        completions.complete()
+        for _ in 0..<200 {
+            let applied = await MainActor.run {
+                appState.pendingLocalAITranscriptionModelID == nil
+            }
+            if applied { break }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        await MainActor.run {
+            precondition(
+                appState.pendingLocalAITranscriptionModelID == nil,
+                "pending choice consumed"
+            )
+            precondition(
+                appState.currentNoteBrowserTranscriptionChoice
+                    == .localAI(modelID: "gemma-4-e4b-it"),
+                "finished download applies the chosen model"
+            )
+            precondition(
+                !appState.transcriptionEnabled,
+                "finished download keeps transcription off, like Native Whisper"
             )
         }
     }
@@ -4468,5 +4551,27 @@ struct AppStateTranscriptionConfigurationTests {
         let localWhisperPath = mirror.descendant("localWhisperPath") as? String
         let useLegacyMlxWhisper = mirror.descendant("useLegacyMlxWhisper") as? Bool ?? false
         return (useLocalTranscription, localTranscriptionModel.id, transcriptionLanguage.code, localWhisperPath, useLegacyMlxWhisper)
+    }
+}
+
+private final class LocalAIStatusBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: LocalAIInstallStatus
+    init(_ value: LocalAIInstallStatus) { stored = value }
+    var value: LocalAIInstallStatus {
+        get { lock.lock(); defer { lock.unlock() }; return stored }
+        set { lock.lock(); stored = newValue; lock.unlock() }
+    }
+}
+
+private final class LocalAICompletionBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completion: ((Result<Void, LocalAIInstallerError>) -> Void)?
+    func store(_ value: @escaping (Result<Void, LocalAIInstallerError>) -> Void) {
+        lock.lock(); completion = value; lock.unlock()
+    }
+    func complete() {
+        lock.lock(); let completion = completion; lock.unlock()
+        completion?(.success(()))
     }
 }

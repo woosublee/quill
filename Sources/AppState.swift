@@ -1219,7 +1219,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let unavailableReason: String? = if let model, model.supportsTranscription {
                 if !isLocalAIModelAvailable(model) {
                     "This Mac does not meet the model's requirements"
-                } else if !isLocalAITranscriptionModelReady(modelID) {
+                } else if !isLocalAITranscriptionModelUsable(modelID) {
                     "Download this model in Settings to use this option"
                 } else {
                     nil
@@ -1317,6 +1317,23 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return false
         }
         return localAIInstallState(for: model).status == .ready
+    }
+
+    /// Ready, or not yet checked. Install status is verified in the
+    /// background after launch (checksums take a while); until then a saved
+    /// Local AI choice stays usable, and a missing package is reported when
+    /// the runtime starts the model.
+    @MainActor
+    func isLocalAITranscriptionModelUsable(_ modelID: String) -> Bool {
+        guard localAIWorkflow.state.hasCompletedInitialStatusRefresh else {
+            guard let model = LocalAIModelCatalog.model(id: modelID) else {
+                return false
+            }
+            return model.supportsTranscription
+                && isLocalAIModelAvailable(model)
+                && !localAIWorkflow.isDeletionRequested(modelID)
+        }
+        return isLocalAITranscriptionModelReady(modelID)
     }
 
     @MainActor
@@ -1789,7 +1806,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .nativeWhisper:
             return localAIChoices + legacyChoices + [apiStandardChoice, .appleLive, apiRealtimeChoice]
         case .localAI:
-            return [nativeWhisperChoice] + localAIChoices + legacyChoices + [apiStandardChoice, .appleLive, apiRealtimeChoice]
+            // Never swap one Local AI model for another; fall back only to the
+            // backends Native Whisper would.
+            return [nativeWhisperChoice] + legacyChoices + [apiStandardChoice, .appleLive, apiRealtimeChoice]
         case .legacyMlxWhisper(let model):
             let sameLegacy = TranscriptionBackendChoice.legacyMlxWhisper(model: model)
             return [nativeWhisperChoice] + legacyChoices.filter { $0 != sameLegacy } + [apiStandardChoice, .appleLive, apiRealtimeChoice]
@@ -3956,9 +3975,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return
         }
         if pendingLocalAITranscriptionModelID == model.id {
+            // Like Native Whisper auto-selection, apply the model but leave
+            // the transcription on/off setting as the user last set it.
             pendingLocalAITranscriptionModelID = nil
             setNoteBrowserTranscriptionChoice(.localAI(modelID: model.id))
-            transcriptionEnabled = true
         }
         let choice = AIProcessingBackendChoice.localAI(modelID: model.id)
         for feature in waitingFeatures(for: model) {
@@ -4676,7 +4696,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         return LocalAITranscriptionExecutionSnapshot.live(
             model: model,
-            isReady: isLocalAITranscriptionModelReady(modelID),
+            isReady: isLocalAITranscriptionModelUsable(modelID),
             serverManager: localAIServerManager
         )
     }

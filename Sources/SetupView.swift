@@ -435,6 +435,8 @@ struct SetupView: View {
         processingLocation = location
         if location == .apiProvider {
             appState.cancelNativeWhisperAutoSelection()
+        }
+        if location != .onThisMac {
             appState.cancelLocalAITranscriptionAutoSelection()
         }
     }
