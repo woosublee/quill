@@ -635,7 +635,7 @@ private struct DefaultMeetingReminderOverlayView: View {
                         HStack(spacing: 6) {
                             AppIconView(size: 22, cornerRadius: 6)
                                 .matchedGeometryEffect(id: "appIcon", in: animationNamespace)
-                            Text(verbatim: "Quill")
+                            Text(verbatim: AppName.displayName)
                                 .font(.system(size: 11, weight: .bold))
                                 .foregroundStyle(.white.opacity(0.72))
                                 .lineLimit(1)
@@ -719,7 +719,7 @@ private struct CenterMeetingReminderOverlayView: View {
                 HStack(spacing: 6) {
                     AppIconView(size: 22, cornerRadius: 6)
                         .matchedGeometryEffect(id: "appIcon", in: animationNamespace)
-                    Text(verbatim: "Quill")
+                    Text(verbatim: AppName.displayName)
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.white.opacity(0.72))
                         .lineLimit(1)

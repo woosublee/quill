@@ -202,7 +202,7 @@ private func showNoteBrowserWindow() {
             backing: .buffered,
             defer: false
         )
-        window.title = "Quill"
+        window.title = AppName.displayName
         window.contentView = NSHostingView(rootView: view)
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 600, height: 400)

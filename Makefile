@@ -585,6 +585,8 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/OverlayDisplayCopyTests
 	@swiftc -parse-as-library Tests/BuildMetadataTests.swift -o $(TEST_BUILD_DIR)/BuildMetadataTests
 	@$(TEST_BUILD_DIR)/BuildMetadataTests
+	@swiftc -parse-as-library Tests/AppNameDisplaySourceTests.swift -o $(TEST_BUILD_DIR)/AppNameDisplaySourceTests
+	@$(TEST_BUILD_DIR)/AppNameDisplaySourceTests
 	@$(TEST_BUILD_DIR)/LocalizationResourceTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/TranscriptionLanguage.swift Sources/TranscriptionModel.swift Sources/NativeWhisperModel.swift Sources/AudioImportOptions.swift Tests/SettingsLocalizationTests.swift -o $(TEST_BUILD_DIR)/SettingsLocalizationTests
 	@$(TEST_BUILD_DIR)/SettingsLocalizationTests
