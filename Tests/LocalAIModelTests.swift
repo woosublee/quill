@@ -6,6 +6,7 @@ struct LocalAIModelTests {
         try testQualityModelMetadata()
         try testQwenIsTextOnly()
         try testGemmaModelMetadata()
+        try testGemmaSupportsTranscriptionAndQwenDoesNot()
         try testCapabilityLookupUsesStoredModelDescriptors()
         try testCatalogArtifactsAreCompleteAndValid()
         try testCatalogListsQwenThenGemma()
@@ -76,6 +77,21 @@ struct LocalAIModelTests {
         assert(model.approximateResidentRAMBytes > model.approximateBytes)
         // Thinking output must never reach transcripts or summaries.
         assert(model.serverArguments == ["--chat-template-kwargs", #"{"enable_thinking":false}"#])
+    }
+
+    private static func testGemmaSupportsTranscriptionAndQwenDoesNot() throws {
+        let gemma = LocalAIModelCatalog.gemma4E4B
+        assert(gemma.capabilities.supports(.transcription))
+        assert(gemma.capabilities.modalities.contains(.audio))
+        assert(gemma.transcriptionRequestFormat == .chatCompletionsInputAudio)
+        assert(gemma.supportsTranscription)
+
+        let qwen = LocalAIModelCatalog.quality
+        assert(!qwen.capabilities.supports(.transcription))
+        assert(qwen.transcriptionRequestFormat == nil)
+        assert(!qwen.supportsTranscription)
+
+        assert(LocalAIModelCatalog.transcriptionModels.map(\.id) == ["gemma-4-e4b-it"])
     }
 
     private static func testCapabilityLookupUsesStoredModelDescriptors() throws {

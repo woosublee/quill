@@ -157,6 +157,8 @@ struct LocalAIModelRowView: View {
             localizedCatalogString("Context")
         case .meetingSummary:
             localizedCatalogString("Meeting Summary")
+        case .transcription:
+            localizedCatalogString("Transcription")
         }
     }
 
@@ -164,7 +166,8 @@ struct LocalAIModelRowView: View {
         [
             AIModelFeature.postProcessing,
             .contextCapture,
-            .meetingSummary
+            .meetingSummary,
+            .transcription
         ].compactMap { feature in
             model.capabilities.supports(feature)
                 ? localizedFeatureName(feature)

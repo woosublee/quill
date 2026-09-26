@@ -20,6 +20,8 @@ struct LocalAIModel: Identifiable, Hashable, Codable, Sendable {
     let runtime: LocalAIRuntime
     /// Extra `llama-server` arguments this model needs, appended after the shared ones.
     let serverArguments: [String]
+    /// Set when the model can transcribe audio; nil for text and vision models.
+    let transcriptionRequestFormat: LocalASRRequestFormat?
 
     init(
         id: String,
@@ -30,7 +32,8 @@ struct LocalAIModel: Identifiable, Hashable, Codable, Sendable {
         minimumPhysicalMemoryBytes: UInt64 = 0,
         capabilities: AIModelCapabilities = AIModelCapabilityCatalog.qwenTextCapabilities,
         runtime: LocalAIRuntime = .textChat,
-        serverArguments: [String] = []
+        serverArguments: [String] = [],
+        transcriptionRequestFormat: LocalASRRequestFormat? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -41,6 +44,11 @@ struct LocalAIModel: Identifiable, Hashable, Codable, Sendable {
         self.capabilities = capabilities
         self.runtime = runtime
         self.serverArguments = serverArguments
+        self.transcriptionRequestFormat = transcriptionRequestFormat
+    }
+
+    var supportsTranscription: Bool {
+        capabilities.supportsTranscription && transcriptionRequestFormat != nil
     }
 
     var approximateBytes: Int64 {
@@ -111,10 +119,15 @@ struct LocalAIModelCatalog {
         capabilities: AIModelCapabilityCatalog.gemma4LocalCapabilities,
         runtime: .visionChat(projectorArtifactFileName: "gemma-4-e4b-it-mmproj-BF16.gguf"),
         // Gemma 4 can emit its reasoning before the answer; Quill needs only the answer.
-        serverArguments: ["--chat-template-kwargs", #"{"enable_thinking":false}"#]
+        serverArguments: ["--chat-template-kwargs", #"{"enable_thinking":false}"#],
+        transcriptionRequestFormat: .chatCompletionsInputAudio
     )
 
     static let all: [LocalAIModel] = [quality, gemma4E4B]
+
+    static var transcriptionModels: [LocalAIModel] {
+        all.filter(\.supportsTranscription)
+    }
 
     static func model(id: String) -> LocalAIModel? {
         all.first { $0.id == id }
