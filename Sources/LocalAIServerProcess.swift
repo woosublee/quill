@@ -102,6 +102,11 @@ final class RealLocalAIServerProcess: LocalAIServerProcess {
             "--port", String(port),
             "--model", modelURL.path,
             "--ctx-size", String(contextSize),
+            // One slot keeps the whole context for each request; newer
+            // llama.cpp otherwise picks several slots and a RAM prompt cache
+            // of up to 8 GiB on top of the model.
+            "--parallel", "1",
+            "--cache-ram", "0",
             "--no-webui"
         ]
         switch model.runtime {
