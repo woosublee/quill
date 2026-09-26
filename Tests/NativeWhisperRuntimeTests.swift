@@ -6,6 +6,8 @@ struct NativeWhisperRuntimeTests {
         try await testRuntimeReturnsStdoutTranscript()
         try await testRuntimeReadsOutputJSONLanguage()
         try await testRuntimeNormalizesOutputJSONText()
+        try await testRuntimeKeepsOutputJSONWithInvalidUTF8Bytes()
+        try await testRuntimeKeepsStdoutWithInvalidUTF8Bytes()
         try await testRuntimeRejectsPunctuationOnlyOutputJSON()
         try await testRuntimeUsesTimestampDecodingKeepsGPUEnabledAndDisablesTextContext()
         try await testRuntimePassesExplicitLanguage()
@@ -61,6 +63,49 @@ struct NativeWhisperRuntimeTests {
             languageCode: "ko",
             source: .engineDetected
         ))
+    }
+
+    // whisper-cli can emit a multi-byte character cut at a token boundary.
+    // One broken character must not discard the whole transcript.
+    private static func testRuntimeKeepsOutputJSONWithInvalidUTF8Bytes() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let helper = try writeHelper(root: root, body: """
+        #!/bin/sh
+        while [ "$#" -gt 0 ]; do
+          if [ "$1" = "-of" ]; then
+            shift
+            printf '{"result":{"language":"ko"},"transcription":[{"text":"안녕\\355\\225하세요"},{"text":" 반갑습니다"}]}' > "$1.json"
+            exit 0
+          fi
+          shift
+        done
+        exit 2
+        """)
+        let model = try writeFile(root.appendingPathComponent("model.bin"), data: Data([1]))
+        let audio = try writeFile(root.appendingPathComponent("audio.wav"), data: Data([2]))
+        let runtime = NativeWhisperRuntime(runnerURL: helper)
+
+        let result = try await runtime.transcribe(audioURL: audio, modelURL: model, languageCode: "ko")
+
+        assert(result.text == "안녕하세요 반갑습니다", "got \(result.text)")
+        assert(!result.text.contains("\u{FFFD}"))
+    }
+
+    private static func testRuntimeKeepsStdoutWithInvalidUTF8Bytes() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let helper = try writeHelper(root: root, body: """
+        #!/bin/sh
+        printf '안녕\\355\\225하세요\\n'
+        """)
+        let model = try writeFile(root.appendingPathComponent("model.bin"), data: Data([1]))
+        let audio = try writeFile(root.appendingPathComponent("audio.wav"), data: Data([2]))
+        let runtime = NativeWhisperRuntime(runnerURL: helper)
+
+        let result = try await runtime.transcribe(audioURL: audio, modelURL: model, languageCode: "ko")
+
+        assert(result.text == "안녕하세요", "got \(result.text)")
     }
 
     private static func testRuntimeNormalizesOutputJSONText() async throws {
