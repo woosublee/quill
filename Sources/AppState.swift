@@ -3803,19 +3803,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             guard availability.isModelSupported(selectedModel) else {
                 return nil
             }
-            if localAIInstallState(for: selectedModel).status == .ready {
-                return choice
-            }
-            let installed = availability.availableModels.filter {
-                localAIInstallState(for: $0).status == .ready
-            }
-            let preferred = availability.recommendedModel.flatMap { recommended in
-                installed.first { $0.id == recommended.id }
-            } ?? installed.first
-            if let preferred {
-                return .localAI(modelID: preferred.id)
-            }
-            return nil
+            // A selected model that is not ready (partly downloaded, corrupt,
+            // or being replaced) keeps the user's choice; the caller turns the
+            // feature off until it is ready instead of switching to another
+            // installed model.
+            return localAIInstallState(for: selectedModel).status == .ready ? choice : nil
         }
     }
 

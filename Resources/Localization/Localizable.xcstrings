@@ -14805,18 +14805,34 @@
         }
       }
     },
-    "Local Context uses app and window text only. Screenshots stay on this Mac.": {
+    "Local Context reads app and window text and analyzes screenshots on this Mac. Screenshots never leave this Mac.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Local Context uses app and window text only. Screenshots stay on this Mac."
+            "value": "Local Context reads app and window text and analyzes screenshots on this Mac. Screenshots never leave this Mac."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "로컬 Context는 앱과 창의 텍스트 정보만 사용합니다. 스크린샷은 이 Mac을 벗어나지 않습니다."
+            "value": "로컬 Context는 앱과 창의 텍스트를 읽고 스크린샷을 이 Mac에서 분석합니다. 스크린샷은 이 Mac을 벗어나지 않습니다."
+          }
+        }
+      }
+    },
+    "Also reads screen context. One download covers every local feature it supports.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Also reads screen context. One download covers every local feature it supports."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 맥락도 읽을 수 있습니다. 한 번 내려받으면 지원하는 모든 로컬 기능에 사용됩니다."
           }
         }
       }

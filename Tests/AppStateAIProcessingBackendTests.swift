@@ -39,6 +39,8 @@ struct AppStateAIProcessingBackendTests {
         await testDiscardUndownloadedSelectionsPreservesStartedDownloads()
         await testSettingsDismissalDisablesAIWithoutReadyModels()
         await testSettingsDismissalFallsBackToReadyLocalAIModel()
+        await testUninstalledContextModelNeverFallsBackToTextOnlyModel()
+        await testBrokenSelectedLocalModelKeepsTheUsersChoice()
         await testSameModelDownloadCoalescesAndSelectsBothFeatures()
         await testLocalAIProgressCoalescesAndCompletionWins()
         await testChoosingCloudClearsOnlyOnePendingSelection()
@@ -486,7 +488,10 @@ struct AppStateAIProcessingBackendTests {
                 .filter { $0.choice.isLocal && $0.isAvailable }
             precondition(
                 postLocalDisplays.map(\.choice)
-                    == [.localAI(modelID: LocalAIModelCatalog.quality.id)]
+                    == [
+                        .localAI(modelID: LocalAIModelCatalog.quality.id),
+                        .localAI(modelID: LocalAIModelCatalog.gemma4E4B.id)
+                    ]
             )
             precondition(appState.pendingLocalAIModelID(for: .postProcessing) == nil)
             precondition(appState.pendingLocalAIModelID(for: .context) == nil)
@@ -728,6 +733,48 @@ struct AppStateAIProcessingBackendTests {
 
             precondition(appState.disablePostProcessing)
             precondition(appState.disableContextCapture)
+        }
+    }
+
+    // With several local models, falling back from an uninstalled selection
+    // must only pick a model that supports the feature (Context needs images).
+    private static func testUninstalledContextModelNeverFallsBackToTextOnlyModel() async {
+        resetAIProcessingDefaults()
+        let statusHarness = LocalAIStatusHarness(defaultStatus: .notInstalled)
+        statusHarness.set(.ready, for: LocalAIModelCatalog.quality)
+        var dependencies = modelTestDependencies()
+        dependencies.localAI.installStatus = { statusHarness.status(for: $0) }
+        let gemma = AIProcessingBackendChoice.localAI(modelID: LocalAIModelCatalog.gemma4E4B.id)
+        storeChoice(gemma, forKey: "context_backend_choice")
+        UserDefaults.standard.set(false, forKey: "disable_context_capture")
+
+        let appState = await makeRefreshedAppState(dependencies: dependencies)
+        await MainActor.run {
+            precondition(
+                appState.contextBackendChoice != .localAI(modelID: LocalAIModelCatalog.quality.id),
+                "Context must not fall back to the text-only Qwen model"
+            )
+            precondition(appState.contextBackendChoice == gemma, "the Gemma Context choice is preserved")
+            precondition(appState.disableContextCapture, "Context waits for Gemma instead of running without it")
+        }
+    }
+
+    // A selected local model that is corrupt or partly downloaded must not be
+    // silently and permanently replaced by another installed local model.
+    private static func testBrokenSelectedLocalModelKeepsTheUsersChoice() async {
+        resetAIProcessingDefaults()
+        let statusHarness = LocalAIStatusHarness(defaultStatus: .notInstalled)
+        statusHarness.set(.ready, for: LocalAIModelCatalog.quality)
+        statusHarness.set(.corrupt("synthetic projector damage"), for: LocalAIModelCatalog.gemma4E4B)
+        var dependencies = modelTestDependencies()
+        dependencies.localAI.installStatus = { statusHarness.status(for: $0) }
+        let gemma = AIProcessingBackendChoice.localAI(modelID: LocalAIModelCatalog.gemma4E4B.id)
+        storeChoice(gemma, forKey: "post_processing_backend_choice")
+
+        let appState = await makeRefreshedAppState(dependencies: dependencies)
+        await MainActor.run {
+            precondition(appState.postProcessingBackendChoice == gemma, "the Gemma choice is kept for after repair")
+            precondition(appState.disablePostProcessing, "post-processing waits for the selected model")
         }
     }
 

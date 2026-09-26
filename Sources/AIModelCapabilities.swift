@@ -63,6 +63,12 @@ enum AIModelCapabilityCatalog {
         recommendedContextWindow: 16_384
     )
 
+    static let gemma4LocalCapabilities = AIModelCapabilities(
+        features: [.postProcessing, .meetingSummary, .contextCapture],
+        modalities: [.text, .image],
+        recommendedContextWindow: 16_384
+    )
+
     static let qwenCloudVisionCapabilities = AIModelCapabilities(
         features: [.postProcessing, .contextCapture, .meetingSummary],
         modalities: [.text, .image],

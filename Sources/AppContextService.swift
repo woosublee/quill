@@ -286,7 +286,7 @@ Return only two sentences, no labels, no markdown, no extra commentary.
                 } else {
                     [nil]
                 }
-                var lastCloudError: Error?
+                var lastError: Error?
                 for screenshot in attempts {
                     try Task.checkCancellation()
                     do {
@@ -306,14 +306,17 @@ Return only two sentences, no labels, no markdown, no extra commentary.
                         if Self.isCancellation(error) || Task.isCancelled {
                             throw CancellationError()
                         }
-                        if endpoint.kind == .local {
+                        // A local runtime that cannot run fails the same way
+                        // without the screenshot, so only other failures
+                        // (for example a slow screenshot request) retry.
+                        if endpoint.kind == .local, error is LocalAIServerManagerError {
                             throw error
                         }
-                        lastCloudError = error
+                        lastError = error
                     }
                 }
-                if let lastCloudError {
-                    throw lastCloudError
+                if let lastError {
+                    throw lastError
                 }
                 throw AppContextBackendError.unusableResponse
             }

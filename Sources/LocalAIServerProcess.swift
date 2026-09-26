@@ -126,6 +126,7 @@ final class RealLocalAIServerProcess: LocalAIServerProcess {
             }
             arguments.append(contentsOf: ["--mmproj", projectorURL.path])
         }
+        arguments.append(contentsOf: model.serverArguments)
         self.launchArguments = arguments
 
         let diagnostics = LocalAIDiagnosticsBuffer()

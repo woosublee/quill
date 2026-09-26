@@ -6,6 +6,7 @@ import Foundation
 struct AppContextBackendTests {
     static func main() async throws {
         try await testLocalContextOmitsScreenshotAndAuthorization()
+        try await testLocalVisionContextSendsScreenshotAndRetriesTextOnly()
         try await testCloudContextRetriesWithoutScreenshot()
         try await testCloudThrownTransportRetriesWithoutScreenshot()
         try await testCloudRepeatedTransportFailureRecordsStructuredIssue()
@@ -65,6 +66,49 @@ struct AppContextBackendTests {
         try expect(!bodyText.contains("SECRET_IMAGE"), "local omits screenshot data")
         try expect(bodyText.contains("Selected"), "local includes selected text")
         try expect(recorder.count() == 1, "local sends one text-only request")
+    }
+
+    // Gemma 4 E4B reads screenshots on this Mac. If the screenshot request fails
+    // (for example a timeout), Context retries with text only, like Cloud does.
+    private static func testLocalVisionContextSendsScreenshotAndRetriesTextOnly() async throws {
+        let recorder = ContextRequestRecorder()
+        let service = AppContextService(
+            backendExecutor: localExecutor(
+                manager: readyManager(),
+                model: LocalAIModelCatalog.gemma4E4B
+            ),
+            customContextPrompt: "",
+            contextModel: LocalAIModelCatalog.gemma4E4B.id,
+            screenshotMaxDimension: 1024,
+            transport: { request in
+                recorder.record(request)
+                if recorder.count() == 1 {
+                    throw URLError(.timedOut)
+                }
+                return try successResponse(
+                    request,
+                    "User is reviewing a checklist. They likely want to confirm release steps."
+                )
+            }
+        )
+
+        let result = await service.inferActivityWithLLM(
+            appName: "Notes",
+            bundleIdentifier: "test.notes",
+            windowTitle: "Checklist",
+            selectedText: nil,
+            screenshotDataURL: "data:image/jpeg;base64,SYNTHETIC_IMAGE",
+            contextSystemPrompt: AppContextService.defaultContextPrompt
+        )
+
+        try expect(result != nil, "local vision context recovers with text only")
+        try expect(recorder.count() == 2, "local vision context retries once")
+        let firstRequest = try recorder.request(at: 0)
+        try expect(firstRequest.url?.host == "127.0.0.1", "screenshot goes to the local server only")
+        let firstBody = try bodyText(for: firstRequest)
+        let retryBody = try bodyText(for: recorder.request(at: 1))
+        try expect(firstBody.contains("SYNTHETIC_IMAGE"), "first request carries the screenshot")
+        try expect(!retryBody.contains("image_url"), "retry omits the screenshot")
     }
 
     private static func testCloudContextRetriesWithoutScreenshot() async throws {
@@ -716,9 +760,12 @@ struct AppContextBackendTests {
         try expect(issues.last()?.record.code == .localAIProcessExited, "process exit records dedicated issue")
     }
 
-    private static func localExecutor(manager: LocalAIServerManager) -> AIProcessingBackendExecutor {
+    private static func localExecutor(
+        manager: LocalAIServerManager,
+        model: LocalAIModel = LocalAIModelCatalog.quality
+    ) -> AIProcessingBackendExecutor {
         AIProcessingBackendExecutor(
-            choice: .localAI(modelID: LocalAIModelCatalog.quality.id),
+            choice: .localAI(modelID: model.id),
             cloudBaseURL: AppState.defaultAPIBaseURL,
             cloudAPIKey: "cloud-secret",
             localServerManager: manager,
