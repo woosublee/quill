@@ -13,6 +13,7 @@ enum TranscriptionBackendChoice: Hashable, Identifiable {
     case apiRealtime(modelID: String?)
     case nativeWhisper(modelID: String)
     case legacyMlxWhisper(model: TranscriptionModel)
+    case localAI(modelID: String)
     case appleLive
 
     var id: String {
@@ -25,6 +26,8 @@ enum TranscriptionBackendChoice: Hashable, Identifiable {
             return "native-whisper:\(modelID)"
         case .legacyMlxWhisper(let model):
             return "legacy-mlx-whisper:\(model.id)"
+        case .localAI(let modelID):
+            return "local-ai:\(modelID)"
         case .appleLive:
             return "apple-live"
         }
@@ -36,7 +39,7 @@ enum TranscriptionBackendChoice: Hashable, Identifiable {
             return .apiStandard
         case .apiRealtime:
             return .apiRealtime
-        case .nativeWhisper, .legacyMlxWhisper:
+        case .nativeWhisper, .legacyMlxWhisper, .localAI:
             return .localWhisper
         case .appleLive:
             return .localAppleLive
@@ -45,7 +48,7 @@ enum TranscriptionBackendChoice: Hashable, Identifiable {
 
     var isImportable: Bool {
         switch self {
-        case .apiStandard, .nativeWhisper, .legacyMlxWhisper:
+        case .apiStandard, .nativeWhisper, .legacyMlxWhisper, .localAI:
             return true
         case .apiRealtime, .appleLive:
             return false
@@ -56,7 +59,7 @@ enum TranscriptionBackendChoice: Hashable, Identifiable {
         switch self {
         case .apiStandard, .apiRealtime:
             return true
-        case .nativeWhisper, .legacyMlxWhisper, .appleLive:
+        case .nativeWhisper, .legacyMlxWhisper, .localAI, .appleLive:
             return false
         }
     }
@@ -93,6 +96,8 @@ struct TranscriptionChoiceDisplay: Identifiable, Equatable {
             return "\(localizedStaticLabel("Native Whisper", language: language, bundle: bundle)) · \(nativeModelName())"
         case .legacyMlxWhisper(let model):
             return "\(localizedStaticLabel("Legacy", language: language, bundle: bundle)) · \(model.displayName)"
+        case .localAI(let modelID):
+            return "\(localizedStaticLabel("Local AI", language: language, bundle: bundle)) · \(subtitle ?? modelID)"
         case .apiRealtime(let modelID):
             return "\(localizedStaticLabel("Realtime", language: language, bundle: bundle)) · \(modelID ?? "provider-default")"
         case .appleLive:
@@ -113,6 +118,7 @@ struct TranscriptionChoiceDisplay: Identifiable, Equatable {
         case .apiRealtime(let modelID): return "\(localizedCatalogString("Cloud", language: language, bundle: bundle)) · \(localizedStaticLabel("Realtime", language: language, bundle: bundle)) · \(modelID ?? "provider-default")"
         case .nativeWhisper: return "\(localizedCatalogString("On This Mac", language: language, bundle: bundle)) · \(localizedStaticLabel("Native Whisper", language: language, bundle: bundle)) · \(nativeModelName())"
         case .legacyMlxWhisper(let model): return "\(localizedCatalogString("On This Mac", language: language, bundle: bundle)) · \(localizedStaticLabel("Legacy", language: language, bundle: bundle)) · \(model.displayName)"
+        case .localAI(let modelID): return "\(localizedCatalogString("On This Mac", language: language, bundle: bundle)) · \(localizedStaticLabel("Local AI", language: language, bundle: bundle)) · \(subtitle ?? modelID)"
         case .appleLive: return "\(localizedCatalogString("On This Mac", language: language, bundle: bundle)) · \(localizedStaticLabel("Apple Live", language: language, bundle: bundle))"
         }
     }
@@ -127,6 +133,13 @@ struct TranscriptionChoiceDisplay: Identifiable, Equatable {
     private func localizedStaticLabel(_ value: String, language: String, bundle: Bundle) -> String {
         localizedCatalogString(value, language: language, bundle: bundle)
     }
+}
+
+/// A transcription-capable Local AI model as the import rules see it.
+struct AudioImportLocalAIModel: Equatable {
+    let id: String
+    let displayName: String
+    let isReady: Bool
 }
 
 struct AudioImportOptions {
@@ -157,6 +170,7 @@ struct AudioImportOptions {
     let hasAPIKey: Bool
     let hasNativeLocalWhisperModel: Bool
     let legacyLocalWhisperModels: [TranscriptionModel]
+    let localAIModels: [AudioImportLocalAIModel]
     let nativeWhisperModelID: String
     let nativeWhisperDisplayName: String
     let allowsOversizedCanonicalCloud: Bool
@@ -169,6 +183,7 @@ struct AudioImportOptions {
         hasAPIKey: Bool = true,
         hasNativeLocalWhisperModel: Bool = true,
         legacyLocalWhisperModels: [TranscriptionModel] = [],
+        localAIModels: [AudioImportLocalAIModel] = [],
         nativeWhisperModelID: String = Self.fallbackNativeWhisperModelID,
         nativeWhisperDisplayName: String = Self.fallbackNativeWhisperDisplayName,
         allowsOversizedCanonicalCloud: Bool = false
@@ -180,6 +195,7 @@ struct AudioImportOptions {
         self.hasAPIKey = hasAPIKey
         self.hasNativeLocalWhisperModel = hasNativeLocalWhisperModel
         self.legacyLocalWhisperModels = legacyLocalWhisperModels
+        self.localAIModels = localAIModels
         self.nativeWhisperModelID = nativeWhisperModelID
         self.nativeWhisperDisplayName = nativeWhisperDisplayName
         self.allowsOversizedCanonicalCloud = allowsOversizedCanonicalCloud
@@ -216,7 +232,7 @@ struct AudioImportOptions {
     }
 
     var displayRows: [TranscriptionChoiceDisplay] {
-        [apiStandardDisplay, nativeWhisperDisplay] + legacyWhisperDisplays
+        [apiStandardDisplay, nativeWhisperDisplay] + localAIDisplays + legacyWhisperDisplays
     }
 
     var supportedChoices: [TranscriptionBackendChoice] {
@@ -249,6 +265,9 @@ struct AudioImportOptions {
         case .legacyMlxWhisper(let model):
             let matchingLegacy = TranscriptionBackendChoice.legacyMlxWhisper(model: model)
             preferredChoices = [matchingLegacy, nativeChoice] + legacyChoices.filter { $0 != matchingLegacy } + [apiChoice]
+        case .localAI(let modelID):
+            let current = TranscriptionBackendChoice.localAI(modelID: modelID)
+            preferredChoices = [current, nativeChoice] + legacyChoices + [apiChoice]
         case .appleLive:
             preferredChoices = [nativeChoice] + legacyChoices + [apiChoice]
         }
@@ -335,6 +354,31 @@ struct AudioImportOptions {
             isAvailable: unavailableReason == nil,
             unavailableReason: unavailableReason
         )
+    }
+
+    private var localAIDisplays: [TranscriptionChoiceDisplay] {
+        localAIModels.map { model in
+            let choice = TranscriptionBackendChoice.localAI(modelID: model.id)
+            let unavailableReason: String? = if !isBroadlySupported {
+                "This file type is not supported for import"
+            } else if !Self.nativeLocalWhisperExtensions.contains(normalizedExtension) {
+                "Local AI supports MP3, MP4, M4A, MPEG, MPGA, and WAV imports"
+            } else if !model.isReady {
+                "Install \(model.displayName) in Settings to import locally"
+            } else {
+                nil
+            }
+            return TranscriptionChoiceDisplay(
+                choice: choice,
+                section: "On This Mac",
+                title: "Local AI",
+                subtitle: model.displayName,
+                compactLabel: "Local AI · \(model.displayName)",
+                currentLabel: "On This Mac · Local AI · \(model.displayName)",
+                isAvailable: unavailableReason == nil,
+                unavailableReason: unavailableReason
+            )
+        }
     }
 
     private var legacyWhisperDisplays: [TranscriptionChoiceDisplay] {
