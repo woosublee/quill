@@ -8,6 +8,20 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.2.0] - 2026-09-26
+
+### Added
+
+- Added Gemma 4 E4B as a second on-device model next to Qwen2.5 7B. One download (about 6 GB) makes it available for post-processing, meeting summaries, screen Context, and transcription. Screen Context runs on this Mac, screenshots included. Gemma 4 E4B needs a Mac with at least 16 GB of memory.
+- Transcribed on this Mac with Gemma 4 E4B, the same way as Native Whisper: in Settings, the Note Browser, audio import, retranscription, and onboarding. Long recordings are split at pauses into short parts, and a recording interrupted by a quit or crash resumes transcription from where it stopped.
+
+### Improved
+
+- Showed the transcription model's name in the Note Browser, such as "Gemma 4 E4B" or "Whisper Large v3 Turbo", instead of only the method.
+- Added a Settings hint when transcription uses an on-device AI model and another feature uses a different one, since each recording then reloads a model.
+- Retried a failed on-device screen Context request with text only, as Cloud already does.
+- Kept your chosen on-device model when it is partly downloaded or damaged; the feature stays off until the model is ready instead of switching to another model.
+
 ## [0.1.45] - 2026-09-26
 
 ### Fixed
