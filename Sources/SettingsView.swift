@@ -1606,11 +1606,47 @@ struct ModelsSettingsView: View {
     }
 
     private func transcriptionChoiceMenuLabel(_ display: TranscriptionChoiceDisplay) -> String {
-        guard case .nativeWhisper = display.choice, !display.isAvailable else {
+        guard !display.isAvailable else {
             return display.localizedCompactLabel()
         }
-        let status = appState.isInstallingNativeWhisper ? "Downloading..." : "Download required"
+        let isDownloading: Bool
+        switch display.choice {
+        case .nativeWhisper:
+            isDownloading = appState.isInstallingNativeWhisper
+        case .localAI(let modelID):
+            // Only a missing download gets the suffix; an unsupported model
+            // keeps its plain label and shows its reason below the picker.
+            guard let model = LocalAIModelCatalog.model(id: modelID),
+                  appState.isLocalAIModelAvailable(model) else {
+                return display.localizedCompactLabel()
+            }
+            isDownloading = appState.localAIInstallState(for: model).isInstalling
+        case .apiStandard, .apiRealtime, .legacyMlxWhisper, .appleLive:
+            return display.localizedCompactLabel()
+        }
+        let status = isDownloading ? "Downloading..." : "Download required"
         return "\(display.localizedCompactLabel()) — \(localizedCatalogString(status))"
+    }
+
+    private var managedLocalAITranscriptionModel: LocalAIModel? {
+        guard case .localAI(let modelID) = settingsTranscriptionChoice else {
+            return nil
+        }
+        return LocalAIModelCatalog.model(id: modelID)
+    }
+
+    @ViewBuilder
+    private func localAIModelReloadHint(for label: String? = nil) -> some View {
+        let features = appState.localAIModelReloadHintFeatures
+        if !features.isEmpty, label.map(features.contains) ?? true {
+            Label(
+                "Different on-device models reload for each recording, which is slower. Using the same model for all features avoids this.",
+                systemImage: "info.circle"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     @ViewBuilder
@@ -2029,6 +2065,16 @@ struct ModelsSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                if let model = managedLocalAITranscriptionModel {
+                    LocalAIModelRowView(
+                        feature: nil,
+                        model: model,
+                        isSelected: appState.localAITranscriptionModelID == model.id
+                    )
+                }
+
+                localAIModelReloadHint()
+
                 if transcriptionEnabledDraft,
                    currentTranscriptionUsesAPI,
                    !appState.hasTranscriptionAPIKey {
@@ -2110,6 +2156,7 @@ struct ModelsSettingsView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 aiProcessingChoicePicker(for: .postProcessing)
+                localAIModelReloadHint(for: "Post-processing")
 
                 if let model = managedLocalAIModel(for: .postProcessing) {
                     LocalAIModelRowView(
@@ -2199,6 +2246,7 @@ struct ModelsSettingsView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 aiProcessingChoicePicker(for: .context)
+                localAIModelReloadHint(for: "Context")
 
                 Text("Used for context inference, with a text-only retry when screenshot analysis fails. Screenshot analysis requires a model that accepts image input.")
                     .font(.caption)
@@ -2304,6 +2352,7 @@ struct ModelsSettingsView: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 aiProcessingChoicePicker(for: .meetingSummary)
+                localAIModelReloadHint(for: "Meeting Summary")
 
                 if let model = managedLocalAIModel(for: .meetingSummary) {
                     LocalAIModelRowView(

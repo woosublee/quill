@@ -1220,7 +1220,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 if !isLocalAIModelAvailable(model) {
                     "This Mac does not meet the model's requirements"
                 } else if !isLocalAITranscriptionModelReady(modelID) {
-                    "Install \(name) in Settings to use this option"
+                    "Download this model in Settings to use this option"
                 } else {
                     nil
                 }
@@ -1330,6 +1330,50 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     isReady: isLocalAITranscriptionModelReady($0.id)
                 )
             }
+    }
+
+    /// A Local AI model the user picked for transcription while it was still
+    /// downloading. Applied when its install finishes, like Native Whisper.
+    @Published var pendingLocalAITranscriptionModelID: String?
+
+    @MainActor
+    func selectLocalAITranscriptionModel(_ modelID: String) {
+        guard let model = LocalAIModelCatalog.model(id: modelID),
+              model.supportsTranscription,
+              isLocalAIModelAvailable(model) else {
+            return
+        }
+        if isLocalAITranscriptionModelReady(modelID) {
+            pendingLocalAITranscriptionModelID = nil
+            setNoteBrowserTranscriptionChoice(.localAI(modelID: modelID))
+            transcriptionEnabled = true
+            return
+        }
+        pendingLocalAITranscriptionModelID = modelID
+        installLocalAIModel(model)
+    }
+
+    /// Enabled features whose Local AI model differs from transcription's, so
+    /// each recording reloads a model. Settings shows a hint for these.
+    @MainActor
+    var localAIModelReloadHintFeatures: [String] {
+        guard useLocalTranscription,
+              let transcriptionModelID = localAITranscriptionModelID else {
+            return []
+        }
+        let features: [(AIProcessingFeature, String, Bool)] = [
+            (.postProcessing, "Post-processing", !disablePostProcessing),
+            (.context, "Context", !disableContextCapture),
+            (.meetingSummary, "Meeting Summary", !disableMeetingSummary)
+        ]
+        return features.compactMap { feature, label, enabled in
+            guard enabled,
+                  case .localAI(let modelID) = currentAIProcessingChoice(for: feature),
+                  modelID != transcriptionModelID else {
+                return nil
+            }
+            return label
+        }
     }
 
     @MainActor
@@ -3438,6 +3482,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func clearPendingLocalAISelections(forModelID modelID: String) {
+        if pendingLocalAITranscriptionModelID == modelID {
+            pendingLocalAITranscriptionModelID = nil
+        }
         let filtered = pendingLocalAISelections.filter { $0.value != modelID }
         guard filtered != pendingLocalAISelections else { return }
         pendingLocalAISelections = filtered
@@ -3894,6 +3941,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             clearPendingLocalAISelections(forModelID: model.id)
             localAIWorkflow.markUnavailable(model)
             return
+        }
+        if pendingLocalAITranscriptionModelID == model.id {
+            pendingLocalAITranscriptionModelID = nil
+            setNoteBrowserTranscriptionChoice(.localAI(modelID: model.id))
+            transcriptionEnabled = true
         }
         let choice = AIProcessingBackendChoice.localAI(modelID: model.id)
         for feature in waitingFeatures(for: model) {

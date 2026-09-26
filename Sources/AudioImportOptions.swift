@@ -364,7 +364,7 @@ struct AudioImportOptions {
             } else if !Self.nativeLocalWhisperExtensions.contains(normalizedExtension) {
                 "Local AI supports MP3, MP4, M4A, MPEG, MPGA, and WAV imports"
             } else if !model.isReady {
-                "Install \(model.displayName) in Settings to import locally"
+                "Download this model in Settings to import locally"
             } else {
                 nil
             }

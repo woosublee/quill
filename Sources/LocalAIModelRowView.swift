@@ -62,7 +62,8 @@ enum LocalAIModelRowPresentation {
 struct LocalAIModelRowView: View {
     @EnvironmentObject var appState: AppState
 
-    let feature: AIProcessingFeature
+    /// The AI feature this row selects for, or nil for transcription.
+    let feature: AIProcessingFeature?
     let model: LocalAIModel
     let isSelected: Bool
     let presentation: LocalAIModelRowPresentation
@@ -72,7 +73,7 @@ struct LocalAIModelRowView: View {
     @FocusState private var isCancelFocused: Bool
 
     init(
-        feature: AIProcessingFeature,
+        feature: AIProcessingFeature?,
         model: LocalAIModel,
         isSelected: Bool,
         presentation: LocalAIModelRowPresentation = .managed
@@ -96,8 +97,7 @@ struct LocalAIModelRowView: View {
                 actionView
             }
 
-            if presentation == .managed,
-               appState.pendingLocalAIModelID(for: feature) == model.id {
+            if presentation == .managed, isPendingSelection {
                 Text("This model will become active when the download finishes.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -237,9 +237,20 @@ struct LocalAIModelRowView: View {
         }
     }
 
+    private var isPendingSelection: Bool {
+        if let feature {
+            return appState.pendingLocalAIModelID(for: feature) == model.id
+        }
+        return appState.pendingLocalAITranscriptionModelID == model.id
+    }
+
     private var downloadButton: some View {
         Button("Download") {
-            appState.installLocalAIModel(model, autoSelectFor: feature)
+            if feature == nil {
+                appState.selectLocalAITranscriptionModel(model.id)
+            } else {
+                appState.installLocalAIModel(model, autoSelectFor: feature)
+            }
         }
         .font(.caption)
         .buttonStyle(.bordered)

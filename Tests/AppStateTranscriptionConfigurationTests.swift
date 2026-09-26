@@ -110,6 +110,8 @@ struct AppStateTranscriptionConfigurationTests {
         await testUninstalledLocalAIChoiceIsUnavailableNotSwitched()
         await testUnknownStoredLocalAIModelResolvesUnavailable()
         await testLocalModeKeepsSelectedLocalAIModel()
+        await testReloadHintOnlyWhenLocalModelsDiffer()
+        await testSelectingUninstalledLocalAIWaitsForInstall()
         testTranscriptionResponseFormatUsesVerboseJSONForKnownWhisperModels()
         testTranscriptionResponseFormatUsesJSONForOtherModels()
         testTranscriptionHTTP400UsesConfigurationIssue()
@@ -312,6 +314,8 @@ struct AppStateTranscriptionConfigurationTests {
     ) -> AppStateDependencies {
         var dependencies = transcriptionTestDependencies(status: { _ in nativeWhisperStatus })
         dependencies.localAI.installStatus = { _ in installStatus }
+        // Never download in tests: installs start and stay pending.
+        dependencies.localAI.startInstall = { _, _, _ in LocalAIInstallTask() }
         dependencies.localAI.processingAvailability = {
             LocalAIProcessingAvailability(
                 isAppleSilicon: true,
@@ -423,6 +427,68 @@ struct AppStateTranscriptionConfigurationTests {
             precondition(
                 appState.currentNoteBrowserTranscriptionChoice == choice,
                 "local mode keeps the Local AI choice"
+            )
+        }
+    }
+
+    private static func testReloadHintOnlyWhenLocalModelsDiffer() async {
+        resetDefaults()
+        let appState = await makeLocalAIAppState(installStatus: .ready)
+        await MainActor.run {
+            appState.disablePostProcessing = false
+            precondition(
+                appState.localAIModelReloadHintFeatures.isEmpty,
+                "no hint without local transcription"
+            )
+
+            appState.setNoteBrowserTranscriptionChoice(.localAI(modelID: "gemma-4-e4b-it"))
+            appState.selectAIProcessingBackendChoice(
+                .localAI(modelID: "qwen2.5-7b-instruct"),
+                for: .postProcessing
+            )
+            precondition(
+                appState.localAIModelReloadHintFeatures == ["Post-processing"],
+                "hint names the feature: \(appState.localAIModelReloadHintFeatures)"
+            )
+
+            appState.selectAIProcessingBackendChoice(
+                .localAI(modelID: "gemma-4-e4b-it"),
+                for: .postProcessing
+            )
+            precondition(
+                appState.localAIModelReloadHintFeatures.isEmpty,
+                "same model, no hint"
+            )
+
+            appState.selectAIProcessingBackendChoice(
+                .localAI(modelID: "qwen2.5-7b-instruct"),
+                for: .postProcessing
+            )
+            appState.disablePostProcessing = true
+            precondition(
+                appState.localAIModelReloadHintFeatures.isEmpty,
+                "disabled feature, no hint"
+            )
+        }
+    }
+
+    private static func testSelectingUninstalledLocalAIWaitsForInstall() async {
+        resetDefaults()
+        let appState = await makeLocalAIAppState(installStatus: .notInstalled)
+        await MainActor.run {
+            appState.selectLocalAITranscriptionModel("gemma-4-e4b-it")
+            precondition(
+                appState.pendingLocalAITranscriptionModelID == "gemma-4-e4b-it",
+                "pending until ready"
+            )
+            precondition(
+                appState.localAITranscriptionModelID == nil,
+                "choice not applied before install"
+            )
+            appState.cancelLocalAIInstall(LocalAIModelCatalog.gemma4E4B)
+            precondition(
+                appState.pendingLocalAITranscriptionModelID == nil,
+                "cancel clears the pending choice"
             )
         }
     }
