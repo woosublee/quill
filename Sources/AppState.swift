@@ -7725,9 +7725,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guidePermission(.screenRecording)
     }
 
+    /// Called after a capture actually failed. The preflight can still report
+    /// access until relaunch when it was revoked mid-session, so the pane
+    /// opens either way.
     @MainActor
     func openScreenCaptureSettings() {
-        guidePermission(.screenRecording)
+        guidePermission(.screenRecording, opensPaneWhenGranted: true)
     }
 
     @MainActor
@@ -7738,13 +7741,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// Shows System Settings plus the guide panel for a permission that is
     /// granted by adding Quill to a Settings list.
     @MainActor
-    func guidePermission(_ kind: PermissionGuideKind) {
+    func guidePermission(
+        _ kind: PermissionGuideKind,
+        opensPaneWhenGranted: Bool = false
+    ) {
         let isGranted: @MainActor () -> Bool = switch kind {
         case .screenRecording: { CGPreflightScreenCaptureAccess() }
         case .accessibility: { AXIsProcessTrusted() }
         }
         guard !isGranted() else {
             refreshPermissionStatus()
+            if opensPaneWhenGranted {
+                NSWorkspace.shared.open(kind.settingsURL)
+            }
             return
         }
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String

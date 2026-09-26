@@ -23,6 +23,9 @@ final class PermissionGuideController {
     private var isGranted: (@MainActor () -> Bool)?
     private var onGranted: (@MainActor () -> Void)?
     private var isClosingAfterGrant = false
+    /// Identifies the current guide, so a delayed close scheduled by an
+    /// earlier guide cannot close a newer one.
+    private var presentationID = UUID()
     private var hasSeenSettingsWindow = false
     private var windowMissingSince: Date?
     private var windowObserver: AXObserver?
@@ -50,6 +53,7 @@ final class PermissionGuideController {
         self.isGranted = isGranted
         self.onGranted = onGranted
         isClosingAfterGrant = false
+        presentationID = UUID()
         hasSeenSettingsWindow = false
         windowMissingSince = nil
         presentedAt = Date()
@@ -98,8 +102,9 @@ final class PermissionGuideController {
             isClosingAfterGrant = true
             model.isGranted = true
             onGranted?()
+            let grantedPresentation = presentationID
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.grantedDisplayDuration) { [weak self] in
-                guard let self else { return }
+                guard let self, self.presentationID == grantedPresentation else { return }
                 let previous = self.previousApplication
                 self.dismiss()
                 previous?.activate()

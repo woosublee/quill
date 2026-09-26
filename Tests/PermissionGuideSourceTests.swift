@@ -14,7 +14,10 @@ struct PermissionGuideSourceTests {
         try expect(!screen.contains("CGRequestScreenCaptureAccess"), "Screen Recording request does not call the system prompt")
 
         let openScreen = block(source, from: "func openScreenCaptureSettings()", to: "\n    }\n")
-        try expect(openScreen.contains("guidePermission(.screenRecording)"), "opening Screen Recording settings uses the guide")
+        try expect(
+            openScreen.contains("guidePermission(.screenRecording, opensPaneWhenGranted: true)"),
+            "after a capture failure the pane opens even if the preflight still reports access"
+        )
 
         let accessibility = block(source, from: "func openAccessibilitySettings()", to: "\n    }\n")
         try expect(accessibility.contains("guidePermission(.accessibility)"), "Accessibility request opens the guide")
