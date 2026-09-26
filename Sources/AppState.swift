@@ -1087,8 +1087,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    /// The Note Browser button shows only the model, so people can tell which
+    /// model transcribes; the menu sections show Cloud or On This Mac.
     var noteBrowserTranscriptionChoiceLabel: String {
-        noteBrowserTranscriptionDisplay(for: currentNoteBrowserTranscriptionChoice).localizedTitle()
+        let choice = currentNoteBrowserTranscriptionChoice
+        let display = noteBrowserTranscriptionDisplay(for: choice)
+        if case .apiRealtime(nil) = display.choice {
+            return display.localizedTitle()
+        }
+        return display.subtitle ?? display.localizedTitle()
     }
 
     @MainActor

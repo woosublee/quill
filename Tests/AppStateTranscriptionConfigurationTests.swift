@@ -360,6 +360,10 @@ struct AppStateTranscriptionConfigurationTests {
                 "persisted key"
             )
             precondition(
+                appState.noteBrowserTranscriptionChoiceLabel == "Gemma 4 E4B",
+                "Note Browser names the model, like Native Whisper: \(appState.noteBrowserTranscriptionChoiceLabel)"
+            )
+            precondition(
                 appState.isNoteBrowserTranscriptionChoiceReady(.localAI(modelID: "gemma-4-e4b-it")),
                 "installed model is ready"
             )
@@ -369,7 +373,16 @@ struct AppStateTranscriptionConfigurationTests {
                 .apiStandard(modelID: "whisper-large-v3")
             )
             precondition(appState.localAITranscriptionModelID == nil, "cleared by other choice")
+            precondition(
+                appState.noteBrowserTranscriptionChoiceLabel == "whisper-large-v3",
+                "Cloud Standard shows its model: \(appState.noteBrowserTranscriptionChoiceLabel)"
+            )
             precondition(!appState.useLocalTranscription, "cloud choice applied")
+            appState.setNoteBrowserTranscriptionChoice(.appleLive)
+            precondition(
+                appState.noteBrowserTranscriptionChoiceLabel == "Apple Speech",
+                "Apple Live shows its engine: \(appState.noteBrowserTranscriptionChoiceLabel)"
+            )
         }
     }
 
@@ -1856,7 +1869,7 @@ struct AppStateTranscriptionConfigurationTests {
 
             appState.useLocalTranscription = false
             appState.realtimeStreamingEnabled = false
-            precondition(appState.noteBrowserTranscriptionChoiceLabel == "Standard")
+            precondition(appState.noteBrowserTranscriptionChoiceLabel == "whisper-large-v3-turbo")
             precondition(appState.noteBrowserTranscriptionChoiceDetailLabel == "Cloud · Standard · whisper-large-v3-turbo")
         }
     }
