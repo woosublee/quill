@@ -40,6 +40,12 @@ for required_arch in "${required_archs[@]}"; do
     fail "helper links dynamic whisper.cpp/ggml libraries for $required_arch"
   fi
 
+  # The helper must not require a newer macOS than the app (macOS 13).
+  minos="$(otool -arch "$required_arch" -l "$helper" \
+    | awk '/LC_BUILD_VERSION/ {found=1} found && $1 == "minos" {print $2; exit}')"
+  [ -n "$minos" ] || fail "missing minimum macOS version for $required_arch"
+  [ "${minos%%.*}" -le 13 ] || fail "helper requires macOS $minos for $required_arch; the app supports macOS 13"
+
   symbols="$(nm -arch "$required_arch" -gU "$helper")"
   for symbol in ggml_metallib_start ggml_metallib_end; do
     grep -F "$symbol" <<<"$symbols" >/dev/null \
