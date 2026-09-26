@@ -759,6 +759,10 @@ _test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSC
 	@$(TEST_BUILD_DIR)/CalendarRecordingReminderSchedulerTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/TranscriptionModel.swift Sources/AudioInputDevice.swift Sources/SetupFlow.swift Tests/SetupFlowTests.swift -o $(TEST_BUILD_DIR)/SetupFlowTests
 	@$(TEST_BUILD_DIR)/SetupFlowTests
+	@swiftc -parse-as-library Sources/PermissionGuide.swift Tests/PermissionGuideTests.swift -o $(TEST_BUILD_DIR)/PermissionGuideTests
+	@$(TEST_BUILD_DIR)/PermissionGuideTests
+	@swiftc -parse-as-library Tests/PermissionGuideSourceTests.swift -o $(TEST_BUILD_DIR)/PermissionGuideSourceTests
+	@$(TEST_BUILD_DIR)/PermissionGuideSourceTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/TranscriptionModel.swift Tests/TranscriptionModelCacheTests.swift -o $(TEST_BUILD_DIR)/TranscriptionModelCacheTests
 	@$(TEST_BUILD_DIR)/TranscriptionModelCacheTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/TranscriptionModel.swift Sources/AudioImportOptions.swift Tests/AudioImportOptionsTests.swift -o $(TEST_BUILD_DIR)/AudioImportOptionsTests

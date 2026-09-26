@@ -1,6 +1,86 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Drag %@ into the list above": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag %@ into the list above"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 아이콘을 위 목록으로 끌어다 놓으세요"
+          }
+        }
+      }
+    },
+    "Drag %@ to System Settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drag %@ to System Settings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 아이콘을 시스템 설정으로 끌기"
+          }
+        }
+      }
+    },
+    "Then turn on the switch next to it.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Then turn on the switch next to it."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "목록에 추가되면 스위치를 켜 주세요."
+          }
+        }
+      }
+    },
+    "You may need to reopen the app after turning this on.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You may need to reopen the app after turning this on."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켠 뒤 앱을 다시 열어야 적용될 수 있어요."
+          }
+        }
+      }
+    },
+    "This guide closes in a moment.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This guide closes in a moment."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠시 후 이 안내가 닫힙니다."
+          }
+        }
+      }
+    },
     "Transcription only. Light and fast, and leaves silence empty.": {
       "localizations": {
         "en": {
