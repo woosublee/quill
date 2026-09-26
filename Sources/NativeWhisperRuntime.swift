@@ -136,10 +136,10 @@ struct NativeWhisperRuntime {
                 processState.terminateIfRunning()
             }
             let stdoutReader = Task.detached {
-                String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                Self.decodedOutput(stdout.fileHandleForReading.readDataToEndOfFile())
             }
             let stderrReader = Task.detached {
-                String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                Self.decodedOutput(stderr.fileHandleForReading.readDataToEndOfFile())
             }
             await withTaskCancellationHandler {
                 await exitObserver.wait()
@@ -277,7 +277,7 @@ struct NativeWhisperRuntime {
         guard let data = try? Data(contentsOf: url),
               let payload = try? JSONDecoder().decode(
                 WhisperCLIJSONV191.self,
-                from: data
+                from: Data(decodedOutput(data).utf8)
               ) else {
             return nil
         }
@@ -289,6 +289,16 @@ struct NativeWhisperRuntime {
             text: normalizedTranscript(rawText),
             languageCode: payload.result?.language ?? payload.language
         )
+    }
+
+    /// whisper-cli can cut a multi-byte character at a token boundary and
+    /// write invalid UTF-8. Strict decoding would reject the whole output, so
+    /// decode leniently and drop the broken character instead. A character
+    /// split across two segments (or output lines) is dropped as well; losing
+    /// one character is preferred to failing the whole transcription.
+    private static func decodedOutput(_ data: Data) -> String {
+        String(decoding: data, as: UTF8.self)
+            .replacingOccurrences(of: "\u{FFFD}", with: "")
     }
 
     private static func normalizedTranscript(_ text: String) -> String {
