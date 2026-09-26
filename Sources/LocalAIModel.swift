@@ -18,6 +18,8 @@ struct LocalAIModel: Identifiable, Hashable, Codable, Sendable {
     let minimumPhysicalMemoryBytes: UInt64
     let capabilities: AIModelCapabilities
     let runtime: LocalAIRuntime
+    /// Extra `llama-server` arguments this model needs, appended after the shared ones.
+    let serverArguments: [String]
 
     init(
         id: String,
@@ -27,7 +29,8 @@ struct LocalAIModel: Identifiable, Hashable, Codable, Sendable {
         approximateResidentRAMBytes: Int64,
         minimumPhysicalMemoryBytes: UInt64 = 0,
         capabilities: AIModelCapabilities = AIModelCapabilityCatalog.qwenTextCapabilities,
-        runtime: LocalAIRuntime = .textChat
+        runtime: LocalAIRuntime = .textChat,
+        serverArguments: [String] = []
     ) {
         self.id = id
         self.displayName = displayName
@@ -37,6 +40,7 @@ struct LocalAIModel: Identifiable, Hashable, Codable, Sendable {
         self.minimumPhysicalMemoryBytes = minimumPhysicalMemoryBytes
         self.capabilities = capabilities
         self.runtime = runtime
+        self.serverArguments = serverArguments
     }
 
     var approximateBytes: Int64 {
@@ -79,7 +83,38 @@ struct LocalAIModelCatalog {
         runtime: .textChat
     )
 
-    static let all: [LocalAIModel] = [quality]
+    static let gemma4E4B = LocalAIModel(
+        id: "gemma-4-e4b-it",
+        displayName: "Gemma 4 E4B",
+        description: "Also reads screen context. One download covers every local feature it supports.",
+        artifacts: [
+            LocalAIModelArtifact(
+                downloadURL: URL(string: "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf")!,
+                expectedFileName: "gemma-4-E4B-it-Q4_K_M.gguf",
+                approximateBytes: 4_977_171_584,
+                checksumSHA256: "85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87"
+            ),
+            // BF16 is recommended for Gemma 4; F16 and Q8_0 projectors are
+            // reported to cause repetition. Stored under a model-specific name
+            // so another model's projector cannot collide in the shared folder.
+            LocalAIModelArtifact(
+                downloadURL: URL(string: "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/mmproj-BF16.gguf")!,
+                expectedFileName: "gemma-4-e4b-it-mmproj-BF16.gguf",
+                approximateBytes: 991_552_320,
+                checksumSHA256: "ee01cba03fd9c71ea2ea722225d24a84f72e7197714367e550ef705ef8851bc6"
+            )
+        ],
+        // Measured about 6.4 GB resident with the projector loaded (llama.cpp
+        // b11046, 16K context, one slot); rounded up for headroom.
+        approximateResidentRAMBytes: 7_000_000_000,
+        minimumPhysicalMemoryBytes: 16 * 1024 * 1024 * 1024,
+        capabilities: AIModelCapabilityCatalog.gemma4LocalCapabilities,
+        runtime: .visionChat(projectorArtifactFileName: "gemma-4-e4b-it-mmproj-BF16.gguf"),
+        // Gemma 4 can emit its reasoning before the answer; Quill needs only the answer.
+        serverArguments: ["--chat-template-kwargs", #"{"enable_thinking":false}"#]
+    )
+
+    static let all: [LocalAIModel] = [quality, gemma4E4B]
 
     static func model(id: String) -> LocalAIModel? {
         all.first { $0.id == id }

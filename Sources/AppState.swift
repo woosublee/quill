@@ -3806,8 +3806,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             if localAIInstallState(for: selectedModel).status == .ready {
                 return choice
             }
+            // Only a model that supports this feature may replace the
+            // selection (a text-only model cannot serve Context).
             let installed = availability.availableModels.filter {
                 localAIInstallState(for: $0).status == .ready
+                    && isAIProcessingChoiceCompatible(.localAI(modelID: $0.id), for: feature)
             }
             let preferred = availability.recommendedModel.flatMap { recommended in
                 installed.first { $0.id == recommended.id }

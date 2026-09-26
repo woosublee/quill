@@ -4,10 +4,11 @@ import Foundation
 struct LocalAIModelTests {
     static func main() throws {
         try testQualityModelMetadata()
-        try testModelsDeclareTextOnlyCapabilitiesAndRuntime()
+        try testQwenIsTextOnly()
+        try testGemmaModelMetadata()
         try testCapabilityLookupUsesStoredModelDescriptors()
         try testCatalogArtifactsAreCompleteAndValid()
-        try testCatalogContainsOnlyQualityModel()
+        try testCatalogListsQwenThenGemma()
         try testRetiredModelDoesNotHaveProductStorageMetadata()
         try testDownloadProgressDisplayText()
         try testLocalizedModelMetadataAndDownloadProgress()
@@ -37,13 +38,44 @@ struct LocalAIModelTests {
         assert(model.approximateResidentRAMBytes > model.approximateBytes)
     }
 
-    private static func testModelsDeclareTextOnlyCapabilitiesAndRuntime() throws {
-        for model in LocalAIModelCatalog.all {
-            assert(model.runtime == .textChat)
-            assert(model.capabilities.supports(.postProcessing))
-            assert(model.capabilities.supports(.meetingSummary))
-            assert(!model.capabilities.supportsContextCapture)
-        }
+    private static func testQwenIsTextOnly() throws {
+        let model = LocalAIModelCatalog.quality
+        assert(model.runtime == .textChat)
+        assert(model.capabilities.supports(.postProcessing))
+        assert(model.capabilities.supports(.meetingSummary))
+        assert(!model.capabilities.supportsContextCapture)
+        assert(model.serverArguments.isEmpty)
+    }
+
+    // One download serves post-processing, meeting summaries, and screen context.
+    private static func testGemmaModelMetadata() throws {
+        let model = LocalAIModelCatalog.gemma4E4B
+        assert(model.id == "gemma-4-e4b-it")
+        assert(model.displayName == "Gemma 4 E4B")
+        assert(model.artifacts.count == 2)
+
+        let weights = model.artifacts[0]
+        assert(weights.downloadURL.absoluteString == "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf")
+        assert(weights.expectedFileName == "gemma-4-E4B-it-Q4_K_M.gguf")
+        assert(weights.approximateBytes == 4_977_171_584)
+        assert(weights.checksumSHA256 == "85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87")
+
+        let projector = model.artifacts[1]
+        assert(projector.downloadURL.absoluteString == "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/mmproj-BF16.gguf")
+        assert(projector.expectedFileName == "gemma-4-e4b-it-mmproj-BF16.gguf")
+        assert(projector.approximateBytes == 991_552_320)
+        assert(projector.checksumSHA256 == "ee01cba03fd9c71ea2ea722225d24a84f72e7197714367e550ef705ef8851bc6")
+
+        assert(model.primaryArtifact == weights)
+        assert(model.runtime == .visionChat(projectorArtifactFileName: "gemma-4-e4b-it-mmproj-BF16.gguf"))
+        assert(model.capabilities.supports(.postProcessing))
+        assert(model.capabilities.supports(.meetingSummary))
+        assert(model.capabilities.supportsContextCapture)
+        assert(model.capabilities.recommendedContextWindow == 16_384)
+        assert(model.minimumPhysicalMemoryBytes == 16 * 1024 * 1024 * 1024)
+        assert(model.approximateResidentRAMBytes > model.approximateBytes)
+        // Thinking output must never reach transcripts or summaries.
+        assert(model.serverArguments == ["--chat-template-kwargs", #"{"enable_thinking":false}"#])
     }
 
     private static func testCapabilityLookupUsesStoredModelDescriptors() throws {
@@ -64,8 +96,9 @@ struct LocalAIModelTests {
         }
     }
 
-    private static func testCatalogContainsOnlyQualityModel() throws {
-        assert(LocalAIModelCatalog.all.map(\.id) == ["qwen2.5-7b-instruct"])
+    private static func testCatalogListsQwenThenGemma() throws {
+        assert(LocalAIModelCatalog.all.map(\.id) == ["qwen2.5-7b-instruct", "gemma-4-e4b-it"])
+        assert(LocalAIModelCatalog.model(id: "gemma-4-e4b-it") == LocalAIModelCatalog.gemma4E4B)
         assert(LocalAIModelCatalog.model(id: "qwen2.5-7b-instruct") == LocalAIModelCatalog.quality)
         assert(LocalAIModelCatalog.model(id: "does-not-exist") == nil)
     }

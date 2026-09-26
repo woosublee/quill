@@ -2215,7 +2215,7 @@ struct ModelsSettingsView: View {
                 }
 
                 if contextUsesLocal {
-                    Text("Local Context uses app and window text only. Screenshots stay on this Mac.")
+                    Text("Local Context reads app and window text and analyzes screenshots on this Mac. Screenshots never leave this Mac.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

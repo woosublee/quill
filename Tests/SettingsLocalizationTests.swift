@@ -224,7 +224,7 @@ struct SettingsLocalizationTests {
             "This removes the downloaded Local AI model. You can download it again later.": "다운로드한 로컬 AI 모델을 삭제합니다. 나중에 다시 다운로드할 수 있습니다.",
             "Cancel Local AI model download": "로컬 AI 모델 다운로드 취소",
             "Cloud fallback is only used when Post-processing uses a cloud model.": "클라우드 fallback은 후처리에서 클라우드 모델을 사용할 때만 적용됩니다.",
-            "Local Context uses app and window text only. Screenshots stay on this Mac.": "로컬 Context는 앱과 창의 텍스트 정보만 사용합니다. 스크린샷은 이 Mac을 벗어나지 않습니다.",
+            "Local Context reads app and window text and analyzes screenshots on this Mac. Screenshots never leave this Mac.": "로컬 Context는 앱과 창의 텍스트를 읽고 스크린샷을 이 Mac에서 분석합니다. 스크린샷은 이 Mac을 벗어나지 않습니다.",
             "Best quality. Needs more memory.": "최고 품질입니다. 더 많은 메모리가 필요합니다.",
             "The previously selected on-device model is no longer available. Explicitly select Qwen2.5 7B to continue locally.": "이전에 선택한 온디바이스 모델을 더 이상 사용할 수 없습니다. 로컬에서 계속하려면 Qwen2.5 7B를 직접 선택하세요.",
             "The previously selected on-device model is no longer available. Context requires an image-capable model.": "이전에 선택한 온디바이스 모델을 더 이상 사용할 수 없습니다. Context에는 이미지 지원 모델이 필요합니다.",

@@ -95,8 +95,8 @@ struct LocalizationResourceTests {
             "Cancel Local AI model download": "로컬 AI 모델 다운로드 취소",
             "Cloud fallback is only used when Post-processing uses a cloud model.":
                 "클라우드 fallback은 후처리에서 클라우드 모델을 사용할 때만 적용됩니다.",
-            "Local Context uses app and window text only. Screenshots stay on this Mac.":
-                "로컬 Context는 앱과 창의 텍스트 정보만 사용합니다. 스크린샷은 이 Mac을 벗어나지 않습니다.",
+            "Local Context reads app and window text and analyzes screenshots on this Mac. Screenshots never leave this Mac.":
+                "로컬 Context는 앱과 창의 텍스트를 읽고 스크린샷을 이 Mac에서 분석합니다. 스크린샷은 이 Mac을 벗어나지 않습니다.",
             "Quit while models are downloading?": "모델 다운로드가 진행 중입니다. Quill을 종료할까요?",
             "Quill will cancel unfinished model downloads and delete partial files before quitting.":
                 "종료하면 완료되지 않은 모델 다운로드가 취소되고 부분 다운로드 파일이 삭제됩니다.",

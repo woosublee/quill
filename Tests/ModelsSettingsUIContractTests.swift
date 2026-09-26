@@ -840,7 +840,7 @@ struct ModelsSettingsUIContractTests {
         precondition(context.contains("managedLocalAIModel(for: .context)"))
         precondition(context.contains("feature: .context"))
         precondition(context.contains("settingsAIProcessingChoice(for: .context)"))
-        precondition(context.contains("Local Context uses app and window text only. Screenshots stay on this Mac."))
+        precondition(context.contains("Local Context reads app and window text and analyzes screenshots on this Mac. Screenshots never leave this Mac."))
         precondition(
             activeLocalAI.contains("isAIProcessingChoiceCompatible(choice, for: feature)")
                 && activeLocalAI.contains("appState.isAIProcessingChoiceAvailable(choice, for: feature)"),

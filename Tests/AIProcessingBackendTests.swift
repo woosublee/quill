@@ -64,7 +64,8 @@ struct AIProcessingBackendTests {
         )
         assert(atThreshold.isSupported)
         assert(atThreshold.isModelSupported(LocalAIModelCatalog.quality))
-        assert(atThreshold.availableModels == [LocalAIModelCatalog.quality])
+        assert(atThreshold.availableModels == [LocalAIModelCatalog.quality, LocalAIModelCatalog.gemma4E4B])
+        // Gemma is an additional choice; Qwen stays recommended.
         assert(atThreshold.recommendedModel == LocalAIModelCatalog.quality)
 
         let smallerFutureModel = LocalAIModel(

@@ -74,6 +74,7 @@ struct LocalAIServerProcessTests {
         assert(arguments[arguments.firstIndex(of: "--parallel")! + 1] == "1")
         assert(arguments[arguments.firstIndex(of: "--cache-ram")! + 1] == "0")
         assert(!arguments.contains("--mmproj"))
+        assert(!arguments.contains("--chat-template-kwargs"))
         try waitForProcessExit(process)
     }
 
@@ -100,6 +101,8 @@ struct LocalAIServerProcessTests {
         let arguments = process.launchArguments
 
         assert(arguments[arguments.firstIndex(of: "--mmproj")! + 1] == projectorURL.path)
+        // Model-specific server arguments follow the shared ones.
+        assert(arguments[arguments.firstIndex(of: "--chat-template-kwargs")! + 1] == #"{"enable_thinking":false}"#)
         try waitForProcessExit(process)
     }
 
@@ -202,7 +205,8 @@ struct LocalAIServerProcessTests {
             description: "Test model",
             artifacts: [artifact(named: "model.gguf"), artifact(named: "projector.gguf")],
             approximateResidentRAMBytes: 16,
-            runtime: .visionChat(projectorArtifactFileName: "projector.gguf")
+            runtime: .visionChat(projectorArtifactFileName: "projector.gguf"),
+            serverArguments: ["--chat-template-kwargs", #"{"enable_thinking":false}"#]
         )
     }
 
