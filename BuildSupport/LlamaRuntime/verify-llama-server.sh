@@ -39,11 +39,20 @@ for required_arch in "${required_archs[@]}"; do
   if grep -E '(@rpath/)?lib(llama|ggml)' <<<"$linked_libraries" >/dev/null; then
     fail "helper links dynamic llama.cpp/ggml libraries for $required_arch"
   fi
+  # Only macOS system libraries exist on every user's Mac.
+  non_system_libraries="$(tail -n +2 <<<"$linked_libraries" \
+    | awk '{print $1}' \
+    | grep -Ev '^(/usr/lib/|/System/Library/)' || true)"
+  if [ -n "$non_system_libraries" ]; then
+    fail "helper links a non-system library for $required_arch: $(tr '\n' ' ' <<<"$non_system_libraries")"
+  fi
 
   symbols="$(nm -arch "$required_arch" -gU "$helper")"
-  for symbol in ggml_metallib_start ggml_metallib_end; do
-    grep -F "$symbol" <<<"$symbols" >/dev/null \
-      || fail "missing embedded Metal kernel symbol $symbol for $required_arch"
+  # Older ggml exports ggml_metallib_start/end; newer ggml embeds one
+  # library per kernel module (ggml_metallib_<module>_start/end).
+  for pattern in 'ggml_metallib(_[a-z0-9_]+)?_start' 'ggml_metallib(_[a-z0-9_]+)?_end'; do
+    grep -Eq "_${pattern}\$" <<<"$symbols" \
+      || fail "missing embedded Metal kernel symbol ${pattern} for $required_arch"
   done
 done
 

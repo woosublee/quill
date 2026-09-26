@@ -20,6 +20,9 @@ struct LocalAIBuildContractTests {
         try expect(buildScript.contains("-DGGML_METAL=ON"), "build explicitly enables Metal")
         try expect(buildScript.contains("-DGGML_METAL_EMBED_LIBRARY=ON"), "build explicitly embeds Metal kernels")
         try expect(buildScript.contains("-DGGML_NATIVE=OFF"), "build disables host-native CPU tuning for distribution")
+        try expect(makefile.contains("LLAMA_CPP_VERSION ?= b11046"), "llama.cpp is pinned to the Gemma 4 capable release")
+        try expect(buildScript.contains("-DLLAMA_OPENSSL=OFF"), "build does not link OpenSSL from the build machine")
+        try expect(buildScript.contains("-DBUILD_SHARED_LIBS=OFF"), "build links llama.cpp statically")
         try expect(buildScript.contains("-DBUILD_SHARED_LIBS=OFF"), "build links llama/ggml statically")
         try expect(buildScript.contains("-DLLAMA_BUILD_EXAMPLES=ON"), "build enables the examples tree containing llama-server")
         try expect(buildScript.contains("-DLLAMA_BUILD_SERVER=ON"), "build enables the llama-server tool subdirectory")
@@ -45,8 +48,9 @@ struct LocalAIBuildContractTests {
             "MetalKit.framework",
             "lib(llama|ggml)",
             "nm -arch",
-            "ggml_metallib_start",
-            "ggml_metallib_end"
+            "ggml_metallib(_[a-z0-9_]+)?_start",
+            "ggml_metallib(_[a-z0-9_]+)?_end",
+            "non-system library"
         ] {
             try expect(verifier.contains(marker), "verifier contains contract marker: \(marker)")
         }
