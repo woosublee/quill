@@ -141,6 +141,7 @@ private struct AudioImportTaskConfiguration {
     let postProcessingEnabled: Bool
     let pressEnterCommandEnabled: Bool
     let nativeWhisperExecution: NativeWhisperExecutionSnapshot?
+    let localAIExecution: LocalAITranscriptionExecutionSnapshot?
     let cloudDependencies: CloudTranscriptionDependencies
     let postProcessingService: PostProcessingService
 
@@ -156,6 +157,7 @@ private struct AudioImportTaskConfiguration {
         postProcessingEnabled: Bool,
         pressEnterCommandEnabled: Bool,
         nativeWhisperExecution: NativeWhisperExecutionSnapshot?,
+        localAIExecution: LocalAITranscriptionExecutionSnapshot?,
         cloudDependencies: CloudTranscriptionDependencies,
         postProcessingService: PostProcessingService
     ) {
@@ -174,8 +176,21 @@ private struct AudioImportTaskConfiguration {
         self.postProcessingEnabled = postProcessingEnabled
         self.pressEnterCommandEnabled = pressEnterCommandEnabled
         self.nativeWhisperExecution = nativeWhisperExecution
+        self.localAIExecution = localAIExecution
         self.cloudDependencies = cloudDependencies
         self.postProcessingService = postProcessingService
+    }
+
+    /// Cloud and Local AI transcription keep chunk checkpoints in the job store.
+    var usesJobStore: Bool {
+        AppState.usesTranscriptionJobStore(
+            useLocalTranscription: useLocalTranscription,
+            localAIExecution: localAIExecution
+        )
+    }
+
+    var historyLocalTranscriptionModelID: String {
+        localAIExecution?.modelID ?? localTranscriptionModel.id
     }
 
     var systemPrompt: String {
@@ -199,6 +214,7 @@ private struct AudioImportTaskConfiguration {
             localTranscriptionModel: localTranscriptionModel,
             transcriptionModel: transcriptionModel,
             nativeWhisperExecution: nativeWhisperExecution,
+            localAIExecution: localAIExecution,
             cloudDependencies: cloudDependencies,
             cloudExecutionContext: cloudExecutionContext
         )
@@ -245,6 +261,10 @@ struct StoppedTranscriptionSettingsSnapshot {
     let customVocabulary: String
     let customSystemPrompt: String
     let useLocalTranscription: Bool
+    /// True for Cloud and Local AI, which keep chunk checkpoints in the job store.
+    var usesJobStore: Bool
+    /// The model recorded on the note: the Local AI model when one was used.
+    var historyLocalTranscriptionModelID: String
     let localTranscriptionModel: TranscriptionModel
     let transcriptionLanguage: TranscriptionLanguage
     let usedContextCapture: Bool
@@ -470,6 +490,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let transcriptionLanguageStorageKey = "transcription_language"
     private let outputLanguageStorageKey = "output_language"
     private let localTranscriptionModelStorageKey = AppState.localTranscriptionModelStorageKeyName
+    private let localAITranscriptionModelStorageKey = "local_ai_transcription_model"
     private let noteBrowserEnabledStorageKey = "note_browser_enabled"
     private let commandModeEnabledStorageKey = "command_mode_enabled"
     private let commandModeStyleStorageKey = "command_mode_style"
@@ -1031,6 +1052,24 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// The Local AI model used for transcription, or nil when transcription
+    /// uses another backend. Kept even if the model later becomes unavailable,
+    /// so the choice shows as unavailable instead of silently switching.
+    @Published var localAITranscriptionModelID: String? {
+        didSet {
+            if let localAITranscriptionModelID {
+                UserDefaults.standard.set(
+                    localAITranscriptionModelID,
+                    forKey: localAITranscriptionModelStorageKey
+                )
+            } else {
+                UserDefaults.standard.removeObject(
+                    forKey: localAITranscriptionModelStorageKey
+                )
+            }
+        }
+    }
+
     @Published private(set) var nativeWhisperInstallStatus: NativeWhisperInstallStatus
     @Published private(set) var nativeWhisperInstallProgress: NativeWhisperDownloadProgress
     @Published private(set) var isInstallingNativeWhisper = false
@@ -1048,8 +1087,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    /// The Note Browser button shows only the model, so people can tell which
+    /// model transcribes; the menu sections show Cloud or On This Mac.
     var noteBrowserTranscriptionChoiceLabel: String {
-        noteBrowserTranscriptionDisplay(for: currentNoteBrowserTranscriptionChoice).localizedTitle()
+        let choice = currentNoteBrowserTranscriptionChoice
+        let display = noteBrowserTranscriptionDisplay(for: choice)
+        if case .apiRealtime(nil) = display.choice {
+            return display.localizedTitle()
+        }
+        return display.subtitle ?? display.localizedTitle()
     }
 
     @MainActor
@@ -1060,6 +1106,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     var currentNoteBrowserTranscriptionChoice: TranscriptionBackendChoice {
         if useLocalTranscription {
+            if let localAITranscriptionModelID {
+                return .localAI(modelID: localAITranscriptionModelID)
+            }
             if localTranscriptionModel.isAppleSpeech {
                 return .appleLive
             }
@@ -1100,7 +1149,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             ? [noteBrowserTranscriptionDisplay(for: apiRealtimeChoice)]
             : []
         return standardDisplays + realtimeDisplays + [
-            noteBrowserTranscriptionDisplay(for: nativeWhisperChoice),
+            noteBrowserTranscriptionDisplay(for: nativeWhisperChoice)
+        ] + localAITranscriptionChoices.map {
+            noteBrowserTranscriptionDisplay(for: $0)
+        } + [
             noteBrowserTranscriptionDisplay(for: .appleLive)
         ] + installedLegacyLocalWhisperModels.map { model in
             noteBrowserTranscriptionDisplay(for: .legacyMlxWhisper(model: model))
@@ -1168,6 +1220,30 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 isAvailable: unavailableReason == nil,
                 unavailableReason: unavailableReason
             )
+        case .localAI(let modelID):
+            let model = LocalAIModelCatalog.model(id: modelID)
+            let name = model?.displayName ?? modelID
+            let unavailableReason: String? = if let model, model.supportsTranscription {
+                if !isLocalAIModelAvailable(model) {
+                    "This Mac does not meet the model's requirements"
+                } else if !isLocalAITranscriptionModelUsable(modelID) {
+                    "Download this model in Settings to use this option"
+                } else {
+                    nil
+                }
+            } else {
+                "This model is no longer available for transcription"
+            }
+            return TranscriptionChoiceDisplay(
+                choice: .localAI(modelID: modelID),
+                section: "On This Mac",
+                title: "Local AI",
+                subtitle: name,
+                compactLabel: "Local AI · \(name)",
+                currentLabel: "On This Mac · Local AI · \(name)",
+                isAvailable: unavailableReason == nil,
+                unavailableReason: unavailableReason
+            )
         case .appleLive:
             let unavailableReason = AudioInputDevice.isSystemDefaultAndSystemAudio(selectedMicrophoneID)
                 ? "Apple Live is unavailable with Microphone + System Audio"
@@ -1229,6 +1305,107 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private var nativeWhisperChoice: TranscriptionBackendChoice {
         .nativeWhisper(modelID: NativeWhisperModelCatalog.recommended.id)
+    }
+
+    /// Transcription-capable Local AI models this Mac can run, installed or not.
+    @MainActor
+    var localAITranscriptionChoices: [TranscriptionBackendChoice] {
+        LocalAIModelCatalog.transcriptionModels
+            .filter { isLocalAIModelAvailable($0) }
+            .map { .localAI(modelID: $0.id) }
+    }
+
+    @MainActor
+    func isLocalAITranscriptionModelReady(_ modelID: String) -> Bool {
+        guard let model = LocalAIModelCatalog.model(id: modelID),
+              model.supportsTranscription,
+              isLocalAIModelAvailable(model),
+              !localAIWorkflow.isDeletionRequested(modelID) else {
+            return false
+        }
+        return localAIInstallState(for: model).status == .ready
+    }
+
+    /// Ready, or not yet checked. Install status is verified in the
+    /// background after launch (checksums take a while); until then a saved
+    /// Local AI choice stays usable, and a missing package is reported when
+    /// the runtime starts the model.
+    @MainActor
+    func isLocalAITranscriptionModelUsable(_ modelID: String) -> Bool {
+        guard localAIWorkflow.state.hasCompletedInitialStatusRefresh else {
+            guard let model = LocalAIModelCatalog.model(id: modelID) else {
+                return false
+            }
+            return model.supportsTranscription
+                && isLocalAIModelAvailable(model)
+                && !localAIWorkflow.isDeletionRequested(modelID)
+        }
+        return isLocalAITranscriptionModelReady(modelID)
+    }
+
+    @MainActor
+    var audioImportLocalAIModels: [AudioImportLocalAIModel] {
+        LocalAIModelCatalog.transcriptionModels
+            .filter { isLocalAIModelAvailable($0) }
+            .map {
+                AudioImportLocalAIModel(
+                    id: $0.id,
+                    displayName: $0.displayName,
+                    isReady: isLocalAITranscriptionModelReady($0.id)
+                )
+            }
+    }
+
+    /// A Local AI model the user picked for transcription while it was still
+    /// downloading. Applied when its install finishes, like Native Whisper.
+    @Published var pendingLocalAITranscriptionModelID: String?
+
+    @MainActor
+    func selectLocalAITranscriptionModel(_ modelID: String) {
+        guard let model = LocalAIModelCatalog.model(id: modelID),
+              model.supportsTranscription,
+              isLocalAIModelAvailable(model) else {
+            return
+        }
+        if isLocalAITranscriptionModelReady(modelID) {
+            pendingLocalAITranscriptionModelID = nil
+            setNoteBrowserTranscriptionChoice(.localAI(modelID: modelID))
+            transcriptionEnabled = true
+            return
+        }
+        pendingLocalAITranscriptionModelID = modelID
+        installLocalAIModel(model)
+    }
+
+    /// Enabled features whose Local AI model differs from transcription's, so
+    /// each recording reloads a model. Settings shows a hint for these.
+    @MainActor
+    var localAIModelReloadHintFeatures: [String] {
+        guard useLocalTranscription,
+              let transcriptionModelID = localAITranscriptionModelID else {
+            return []
+        }
+        let features: [(AIProcessingFeature, String, Bool)] = [
+            (.postProcessing, "Post-processing", !disablePostProcessing),
+            (.context, "Context", !disableContextCapture),
+            (.meetingSummary, "Meeting Summary", !disableMeetingSummary)
+        ]
+        return features.compactMap { feature, label, enabled in
+            guard enabled,
+                  case .localAI(let modelID) = currentAIProcessingChoice(for: feature),
+                  modelID != transcriptionModelID else {
+                return nil
+            }
+            return label
+        }
+    }
+
+    @MainActor
+    var transcriptionLocalAIModelID: String? {
+        if case .localAI(let modelID) = currentNoteBrowserTranscriptionChoice {
+            return modelID
+        }
+        return nil
     }
 
     private var nativeWhisperDisplayName: String {
@@ -1300,6 +1477,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func cancelNativeWhisperAutoSelection() {
         pendingNativeWhisperAutoSelectionModelID = nil
+    }
+
+    /// Stops a pending Local AI transcription choice from applying when its
+    /// download finishes. The download itself continues, like Native Whisper.
+    @MainActor
+    func cancelLocalAITranscriptionAutoSelection() {
+        pendingLocalAITranscriptionModelID = nil
     }
 
     @MainActor
@@ -1380,6 +1564,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 useLocalTranscription: true,
                 localTranscriptionModel: model,
                 useLegacyMlxWhisper: true,
+                transcriptionModel: resolvedStandardTranscriptionModelID
+            )
+        case .localAI:
+            return AudioImportTranscriptionConfiguration(
+                mode: .localWhisper,
+                useLocalTranscription: true,
+                localTranscriptionModel: nativeLocalWhisperSelectionModel,
+                useLegacyMlxWhisper: false,
                 transcriptionModel: resolvedStandardTranscriptionModelID
             )
         case .appleLive:
@@ -1487,6 +1679,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
             )
             disablePostProcessing = true
             disableContextCapture = true
+        case .localAIModel(let id):
+            // Like Native Whisper, onboarding sets up transcription only; AI
+            // cleanup and Context stay off until the user turns them on.
+            selectLocalAITranscriptionModel(id)
+            disablePostProcessing = true
+            disableContextCapture = true
         case .apiStandard:
             transcriptionEnabled = true
             setNoteBrowserTranscriptionChoice(
@@ -1566,6 +1764,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .apiRealtime:
             return apiRealtimeChoice
         case .localWhisper:
+            if let localAITranscriptionModelID {
+                return .localAI(modelID: localAITranscriptionModelID)
+            }
             if useLegacyMlxWhisper, !localTranscriptionModel.isAppleSpeech {
                 return .legacyMlxWhisper(model: localTranscriptionModel)
             }
@@ -1581,6 +1782,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .apiStandard, .apiRealtime:
             return apiStandardChoice
         case .localWhisper, .localAppleLive:
+            if let localAITranscriptionModelID,
+               isLocalAITranscriptionModelReady(localAITranscriptionModelID) {
+                return .localAI(modelID: localAITranscriptionModelID)
+            }
             if useLegacyMlxWhisper, !localTranscriptionModel.isAppleSpeech, localTranscriptionModel.isInstalled {
                 return .legacyMlxWhisper(model: localTranscriptionModel)
             }
@@ -1597,15 +1802,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     private func noteBrowserFallbackChoices(for choice: TranscriptionBackendChoice) -> [TranscriptionBackendChoice] {
         let legacyChoices = installedLegacyLocalWhisperModels.map { TranscriptionBackendChoice.legacyMlxWhisper(model: $0) }
+        let localAIChoices = localAITranscriptionChoices.filter { $0 != choice }
         switch choice {
         case .apiRealtime:
-            return [apiStandardChoice, nativeWhisperChoice] + legacyChoices + [.appleLive]
+            return [apiStandardChoice, nativeWhisperChoice] + localAIChoices + legacyChoices + [.appleLive]
         case .apiStandard:
-            return [nativeWhisperChoice] + legacyChoices + [.appleLive, apiRealtimeChoice]
+            return [nativeWhisperChoice] + localAIChoices + legacyChoices + [.appleLive, apiRealtimeChoice]
         case .appleLive:
-            return [nativeWhisperChoice] + legacyChoices + [apiStandardChoice, apiRealtimeChoice]
+            return [nativeWhisperChoice] + localAIChoices + legacyChoices + [apiStandardChoice, apiRealtimeChoice]
         case .nativeWhisper:
-            return legacyChoices + [apiStandardChoice, .appleLive, apiRealtimeChoice]
+            return localAIChoices + legacyChoices + [apiStandardChoice, .appleLive, apiRealtimeChoice]
+        case .localAI:
+            // Never swap one Local AI model for another; fall back only to the
+            // backends Native Whisper would.
+            return [nativeWhisperChoice] + legacyChoices + [apiStandardChoice, .appleLive, apiRealtimeChoice]
         case .legacyMlxWhisper(let model):
             let sameLegacy = TranscriptionBackendChoice.legacyMlxWhisper(model: model)
             return [nativeWhisperChoice] + legacyChoices.filter { $0 != sameLegacy } + [apiStandardChoice, .appleLive, apiRealtimeChoice]
@@ -1628,7 +1838,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
         isApplyingNoteBrowserTranscriptionChoice = true
         defer { isApplyingNoteBrowserTranscriptionChoice = false }
 
+        if case .localAI = choice {} else {
+            update(\AppState.localAITranscriptionModelID, to: nil)
+        }
         switch choice {
+        case .localAI(let modelID):
+            update(\AppState.useLocalTranscription, to: true)
+            update(\AppState.realtimeStreamingEnabled, to: false)
+            update(\AppState.useLegacyMlxWhisper, to: false)
+            update(\AppState.localTranscriptionModel, to: nativeLocalWhisperSelectionModel)
+            update(\AppState.localAITranscriptionModelID, to: modelID)
         case .apiStandard(let modelID):
             update(\AppState.transcriptionModel, to: nonEmptyModelID(modelID) ?? resolvedStandardTranscriptionModelID)
             update(\AppState.useLocalTranscription, to: false)
@@ -2106,7 +2325,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         switch currentNoteBrowserTranscriptionChoice {
         case .appleLive, .apiRealtime:
             return true
-        case .apiStandard, .nativeWhisper, .legacyMlxWhisper:
+        case .apiStandard, .nativeWhisper, .legacyMlxWhisper, .localAI:
             return false
         }
     }
@@ -3004,6 +3223,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.transcriptionLanguage = transcriptionLanguage
         self.outputLanguage = outputLanguage
         self.localTranscriptionModel = localTranscriptionModel
+        self.localAITranscriptionModelID = UserDefaults.standard
+            .string(forKey: localAITranscriptionModelStorageKey)
         self.soundVolume = soundVolume
         self.voiceMacros = initialMacros
         self.pipelineHistory = savedHistory
@@ -3300,6 +3521,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func clearPendingLocalAISelections(forModelID modelID: String) {
+        if pendingLocalAITranscriptionModelID == modelID {
+            pendingLocalAITranscriptionModelID = nil
+        }
         let filtered = pendingLocalAISelections.filter { $0.value != modelID }
         guard filtered != pendingLocalAISelections else { return }
         pendingLocalAISelections = filtered
@@ -3756,6 +3980,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
             clearPendingLocalAISelections(forModelID: model.id)
             localAIWorkflow.markUnavailable(model)
             return
+        }
+        if pendingLocalAITranscriptionModelID == model.id {
+            // Like Native Whisper auto-selection, apply the model but leave
+            // the transcription on/off setting as the user last set it.
+            pendingLocalAITranscriptionModelID = nil
+            setNoteBrowserTranscriptionChoice(.localAI(modelID: model.id))
         }
         let choice = AIProcessingBackendChoice.localAI(modelID: model.id)
         for feature in waitingFeatures(for: model) {
@@ -4461,6 +4691,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
     ) -> NativeWhisperExecutionSnapshot? {
         guard case .nativeWhisper = choice else { return nil }
         return dependencies.nativeWhisper.makeExecutionSnapshot()
+    }
+
+    @MainActor
+    private func localAITranscriptionExecutionSnapshot(
+        for choice: TranscriptionBackendChoice
+    ) -> LocalAITranscriptionExecutionSnapshot? {
+        guard case .localAI(let modelID) = choice,
+              let model = LocalAIModelCatalog.model(id: modelID) else {
+            return nil
+        }
+        return LocalAITranscriptionExecutionSnapshot.live(
+            model: model,
+            isReady: isLocalAITranscriptionModelUsable(modelID),
+            serverManager: localAIServerManager
+        )
+    }
+
+    fileprivate static func usesTranscriptionJobStore(
+        useLocalTranscription: Bool,
+        localAIExecution: LocalAITranscriptionExecutionSnapshot?
+    ) -> Bool {
+        !useLocalTranscription || localAIExecution != nil
     }
 
     private func nativeWhisperExecutionSnapshot(
@@ -5916,6 +6168,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .legacyMlxWhisper(let model):
             transcriptionBackend = .legacyMlxWhisper
             transcriptionModelID = model.id
+        case .localAI(let modelID):
+            transcriptionBackend = .localAI
+            transcriptionModelID = modelID
         case .appleLive:
             transcriptionBackend = .appleLive
             transcriptionModelID = nil
@@ -6747,6 +7002,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             postProcessingEnabled: !disablePostProcessing,
             pressEnterCommandEnabled: isPressEnterVoiceCommandEnabled,
             nativeWhisperExecution: nativeWhisperExecutionSnapshot(for: choice),
+            localAIExecution: localAITranscriptionExecutionSnapshot(for: choice),
             cloudDependencies: Self
                 .audioImportCloudTranscriptionDependenciesFactory(),
             postProcessingService: makePostProcessingService()
@@ -6798,7 +7054,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 usedContextCapture: false,
                 usedPostProcessing: configuration.postProcessingEnabled,
                 transcriptionLanguageCode: configuration.transcriptionLanguage.code,
-                localTranscriptionModelID: configuration.localTranscriptionModel.id,
+                localTranscriptionModelID: configuration.historyLocalTranscriptionModelID,
                 contextAppName: nil,
                 contextBundleIdentifier: nil,
                 contextWindowTitle: nil
@@ -6834,7 +7090,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
             let cloudExecutionContext = self.prepareCloudTranscriptionJob(
                 historyID: noteID,
-                useLocalTranscription: configuration.useLocalTranscription,
+                usesJobStore: configuration.usesJobStore,
                 completionPolicy: TranscriptionCompletionSnapshot(
                     postProcessingEnabled: configuration.postProcessingEnabled,
                     outputLanguage: configuration.outputLanguage,
@@ -6882,7 +7138,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     guard isCurrentCloudTranscriptionExecution(
                         historyID: noteID,
                         context: cloudExecutionContext,
-                        requiresCloudExecution: !configuration.useLocalTranscription
+                        requiresCloudExecution: configuration.usesJobStore
                     ) else {
                         self.finishTranscriptionJob(jobID)
                         return
@@ -6903,7 +7159,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         intent: .dictation,
                         audioFileName: savedAudioFile.fileName,
                         useLocalTranscriptionOverride: configuration.useLocalTranscription,
-                        localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id,
+                        localTranscriptionModelIDOverride: configuration.historyLocalTranscriptionModelID,
                         usedContextCaptureOverride: false,
                         usedPostProcessingOverride: configuration.postProcessingEnabled,
                         transcriptionLanguageCodeOverride: configuration.transcriptionLanguage.code,
@@ -6922,7 +7178,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     guard isCurrentCloudTranscriptionExecution(
                         historyID: noteID,
                         context: cloudExecutionContext,
-                        requiresCloudExecution: !configuration.useLocalTranscription
+                        requiresCloudExecution: configuration.usesJobStore
                     ) else {
                         self.finishTranscriptionJob(jobID)
                         return
@@ -6946,7 +7202,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                           isCurrentCloudTranscriptionExecution(
                             historyID: noteID,
                             context: cloudExecutionContext,
-                            requiresCloudExecution: !configuration.useLocalTranscription
+                            requiresCloudExecution: configuration.usesJobStore
                           ) else {
                         self.finishTranscriptionJob(jobID)
                         return
@@ -6966,7 +7222,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         intent: .dictation,
                         audioFileName: savedAudioFile.fileName,
                         useLocalTranscriptionOverride: configuration.useLocalTranscription,
-                        localTranscriptionModelIDOverride: configuration.localTranscriptionModel.id,
+                        localTranscriptionModelIDOverride: configuration.historyLocalTranscriptionModelID,
                         usedContextCaptureOverride: false,
                         usedPostProcessingOverride: configuration.postProcessingEnabled,
                         transcriptionLanguageCodeOverride: configuration.transcriptionLanguage.code,
@@ -7029,6 +7285,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             hasAPIKey: hasTranscriptionAPIKey,
             hasNativeLocalWhisperModel: hasNativeLocalWhisperModel,
             legacyLocalWhisperModels: installedLegacyLocalWhisperModels,
+            localAIModels: audioImportLocalAIModels,
             nativeWhisperModelID: NativeWhisperModelCatalog.recommended.id,
             nativeWhisperDisplayName: NativeWhisperModelCatalog.recommended.displayName,
             allowsOversizedCanonicalCloud: allowsOversizedCanonicalCloud
@@ -7131,6 +7388,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         let execution: TranscriptionExecutionSnapshot
         let failureContext: TranscriptionRetryFailureContext
+        let retryLocalAIExecution = localAITranscriptionExecutionSnapshot(
+            for: retryChoice
+        )
         if configuration.useLocalTranscription {
             execution = .local(
                 LocalTranscriptionExecutionSnapshot(
@@ -7142,17 +7402,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     language: storedTranscriptionLanguage,
                     nativeWhisperExecution: nativeWhisperExecutionSnapshot(
                         for: retryChoice
-                    )
+                    ),
+                    localAIExecution: retryLocalAIExecution
                 ),
                 completion
             )
             failureContext = TranscriptionRetryFailureContext(
                 fallbackCode: .localTranscriptionFailed,
                 providerHost: nil,
-                modelID: configuration.localTranscriptionModel.id,
-                localBackend: configuration.useLegacyMlxWhisper
-                    ? "Legacy MLX Whisper"
-                    : "Native Whisper"
+                modelID: retryLocalAIExecution?.modelID
+                    ?? configuration.localTranscriptionModel.id,
+                localBackend: retryLocalAIExecution != nil
+                    ? LocalAITranscriptionExecutionSnapshot.backendLabel
+                    : configuration.useLegacyMlxWhisper
+                        ? "Legacy MLX Whisper"
+                        : "Native Whisper"
             )
         } else {
             let cloud = try CloudTranscriptionExecutionSnapshot(
@@ -7212,8 +7476,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 usedLocalTranscription: configuration.useLocalTranscription,
                 usedPostProcessing: completion.postProcessingEnabled,
                 transcriptionLanguageCode: storedTranscriptionLanguage.code,
-                localTranscriptionModelID:
-                    configuration.localTranscriptionModel.id,
+                localTranscriptionModelID: retryLocalAIExecution?.modelID
+                    ?? configuration.localTranscriptionModel.id,
                 successDebugStatus: "Retried"
             ),
             failureContext: failureContext
@@ -9980,12 +10244,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 ?? jobID
             let cloudContext = activeCloudTranscriptionContext(
                 historyID: historyID,
-                useLocalTranscription: settings.useLocalTranscription
+                usesJobStore: settings.usesJobStore
             )
             guard isCurrentCloudTranscriptionExecution(
                 historyID: historyID,
                 context: cloudContext,
-                requiresCloudExecution: !settings.useLocalTranscription
+                requiresCloudExecution: settings.usesJobStore
             ) else {
                 finishTranscriptionJob(jobID, overlayID: overlayID)
                 return
@@ -10001,7 +10265,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 intent: intent,
                 audioFileName: audioFileName,
                 useLocalTranscriptionOverride: settings.useLocalTranscription,
-                localTranscriptionModelIDOverride: settings.localTranscriptionModel.id,
+                localTranscriptionModelIDOverride: settings.historyLocalTranscriptionModelID,
                 usedContextCaptureOverride: settings.usedContextCapture,
                 usedPostProcessingOverride: settings.usedPostProcessing,
                 transcriptionLanguageCodeOverride: settings.transcriptionLanguage.code,
@@ -10209,6 +10473,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
             localTranscriptionModel: capturedLocalTranscriptionModel,
             useLegacyMlxWhisper: capturedUseLegacyMlxWhisper
         )
+        let capturedLocalAIExecution = capturedUseLocalTranscription
+            ? localAITranscriptionExecutionSnapshot(
+                for: currentNoteBrowserTranscriptionChoice
+            )
+            : nil
+        let capturedUsesJobStore = Self.usesTranscriptionJobStore(
+            useLocalTranscription: capturedUseLocalTranscription,
+            localAIExecution: capturedLocalAIExecution
+        )
         let capturedCustomVocabulary = customVocabulary
         let capturedCustomSystemPrompt = customSystemPrompt
         let capturedOutputLanguage = outputLanguage
@@ -10216,6 +10489,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             customVocabulary: capturedCustomVocabulary,
             customSystemPrompt: capturedCustomSystemPrompt,
             useLocalTranscription: capturedUseLocalTranscription,
+            usesJobStore: capturedUsesJobStore,
+            historyLocalTranscriptionModelID: capturedLocalAIExecution?.modelID
+                ?? capturedLocalTranscriptionModel.id,
             localTranscriptionModel: capturedLocalTranscriptionModel,
             transcriptionLanguage: capturedTranscriptionLanguage,
             usedContextCapture: !disableContextCapture,
@@ -10318,7 +10594,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             intent: sessionIntent,
                             audioFileName: errorAudioFile?.fileName,
                             useLocalTranscriptionOverride: capturedSettings.useLocalTranscription,
-                            localTranscriptionModelIDOverride: capturedSettings.localTranscriptionModel.id,
+                            localTranscriptionModelIDOverride: capturedSettings.historyLocalTranscriptionModelID,
                             usedContextCaptureOverride: capturedSettings.usedContextCapture,
                             usedPostProcessingOverride: capturedSettings.usedPostProcessing,
                             transcriptionLanguageCodeOverride: capturedSettings.transcriptionLanguage.code,
@@ -10403,7 +10679,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     context: recoveryContext,
                     audioFileName: savedAudioFile.fileName,
                     useLocalTranscription: capturedUseLocalTranscription,
-                    localTranscriptionModelID: capturedLocalTranscriptionModel.id,
+                    localTranscriptionModelID: capturedSettings.historyLocalTranscriptionModelID,
                     transcriptionLanguageCode: capturedTranscriptionLanguage.code,
                     recordingStartedAt: activeJob?.recordingStartedAt,
                     recordingEndedAt: activeJob?.recordingEndedAt,
@@ -10433,7 +10709,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 ?? jobID
             let cloudExecutionContext = self.prepareCloudTranscriptionJob(
                 historyID: cloudHistoryID,
-                useLocalTranscription: capturedUseLocalTranscription,
+                usesJobStore: capturedUsesJobStore,
                 completionPolicy: TranscriptionCompletionSnapshot(
                     postProcessingEnabled: capturedSettings.usedPostProcessing,
                     outputLanguage: capturedOutputLanguage,
@@ -10482,6 +10758,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             localTranscriptionModel: capturedLocalTranscriptionModel,
                             transcriptionModel: capturedTranscriptionModel,
                             nativeWhisperExecution: capturedNativeWhisperExecution,
+                            localAIExecution: capturedLocalAIExecution,
                             cloudExecutionContext: cloudExecutionContext
                         )
                         transcription = try await Self.resolveRawTranscript(
@@ -10497,7 +10774,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.isCurrentCloudTranscriptionExecution(
                             historyID: cloudHistoryID,
                             context: cloudExecutionContext,
-                            requiresCloudExecution: !capturedUseLocalTranscription
+                            requiresCloudExecution: capturedUsesJobStore
                         )
                     }
                     guard isCurrentCloudExecution else { return }
@@ -10559,7 +10836,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         guard self.isCurrentCloudTranscriptionExecution(
                             historyID: cloudHistoryID,
                             context: cloudExecutionContext,
-                            requiresCloudExecution: !capturedUseLocalTranscription
+                            requiresCloudExecution: capturedUsesJobStore
                         ) else {
                             self.finishTranscriptionJob(
                                 jobID,
@@ -10582,7 +10859,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                             intent: sessionIntent,
                             audioFileName: savedAudioFile?.fileName,
                             useLocalTranscriptionOverride: capturedSettings.useLocalTranscription,
-                            localTranscriptionModelIDOverride: capturedSettings.localTranscriptionModel.id,
+                            localTranscriptionModelIDOverride: capturedSettings.historyLocalTranscriptionModelID,
                             usedContextCaptureOverride: capturedSettings.usedContextCapture,
                             usedPostProcessingOverride: capturedSettings.usedPostProcessing,
                             transcriptionLanguageCodeOverride: capturedSettings.transcriptionLanguage.code,
@@ -10710,8 +10987,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         postProcessingService: PostProcessingService,
         voiceMacros: [VoiceMacro]
     ) {
-        guard hasTranscriptionAPIKey else { return }
-
         let runtime: CloudTranscriptionExecutionSnapshot
         do {
             runtime = try CloudTranscriptionExecutionSnapshot(
@@ -10725,7 +11000,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return
         }
 
-        let input = TranscriptionRetryStartupInput(
+        // The reconciler leaves cloud jobs waiting when no API key is set, so
+        // Local AI jobs can still resume without one.
+        let resumeLocalAI = localAITranscriptionExecutionSnapshot(
+            for: currentNoteBrowserTranscriptionChoice
+        )
+        let resumeLocalExecution = resumeLocalAI.map {
+            LocalTranscriptionExecutionSnapshot(
+                model: localTranscriptionModel,
+                localWhisperPath: nil,
+                useLegacyMlxWhisper: false,
+                language: transcriptionLanguage,
+                localAIExecution: $0
+            )
+        }
+        var input = TranscriptionRetryStartupInput(
             reconciliation: reconciliation,
             runtime: runtime,
             history: pipelineHistory,
@@ -10767,6 +11056,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             }
         )
+        input.localAIExecution = resumeLocalExecution
+        input.localAIResumeIdentity = resumeLocalAI?.resumeIdentity(
+            language: transcriptionLanguage.whisperArgument
+        )
         transcriptionRetryWorkflow.resumeAtStartup(
             input: input,
             runtime: transcriptionRetryWorkflowRuntime()
@@ -10803,10 +11096,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     private func prepareCloudTranscriptionJob(
         historyID: UUID,
-        useLocalTranscription: Bool,
+        usesJobStore: Bool,
         completionPolicy: TranscriptionCompletionSnapshot
     ) -> CloudTranscriptionExecutionContext? {
-        guard !useLocalTranscription else { return nil }
+        guard usesJobStore else { return nil }
         let session = cloudTranscriptionJobStore.beginSession(
             historyID: historyID
         )
@@ -10837,9 +11130,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     private func activeCloudTranscriptionContext(
         historyID: UUID,
-        useLocalTranscription: Bool
+        usesJobStore: Bool
     ) -> CloudTranscriptionExecutionContext? {
-        guard !useLocalTranscription else { return nil }
+        guard usesJobStore else { return nil }
         return cloudTranscriptionHistoryCoordinator.context(
             historyID: historyID,
             store: cloudTranscriptionJobStore

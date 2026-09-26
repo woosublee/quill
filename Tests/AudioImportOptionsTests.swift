@@ -19,6 +19,8 @@ struct AudioImportOptionsTests {
         testRetryKeepsExplicitAPIChoiceWhenCanonicalWAVIsOversized()
         testRetryDoesNotFallBackWhenExplicitAPIChoiceIsUnavailable()
         testRetryUsesExplicitLocalChoiceWithoutCloudFallback()
+        testLocalAIChoiceBehavesLikeNativeWhisperForImports()
+        testLocalAIChoiceLabels()
         print("AudioImportOptionsTests passed")
     }
 
@@ -26,6 +28,57 @@ struct AudioImportOptionsTests {
     private static let nativeChoice = TranscriptionBackendChoice.nativeWhisper(modelID: AudioImportOptions.fallbackNativeWhisperModelID)
     private static let legacyTurbo = TranscriptionModel.find(id: "mlx-community/whisper-large-v3-turbo")
     private static let legacyMedium = TranscriptionModel.find(id: "mlx-community/whisper-medium-mlx")
+
+    private static func testLocalAIChoiceBehavesLikeNativeWhisperForImports() {
+        let gemma = AudioImportLocalAIModel(id: "gemma-4-e4b-it", displayName: "Gemma 4 E4B", isReady: true)
+        let choice = TranscriptionBackendChoice.localAI(modelID: gemma.id)
+        assert(choice.isImportable)
+        assert(!choice.usesCloudAPI)
+        assert(choice.mode == .localWhisper)
+        assert(choice.id == "local-ai:gemma-4-e4b-it")
+
+        let mp3 = AudioImportOptions(
+            fileExtension: "mp3",
+            currentChoice: choice,
+            apiStandardModelID: "whisper-large-v3",
+            localAIModels: [gemma]
+        )
+        assert(mp3.supportedChoices.contains(choice))
+        assert(mp3.defaultChoice == choice)
+        assert(mp3.explicitRetryChoice == choice)
+
+        let flac = AudioImportOptions(
+            fileExtension: "flac",
+            currentChoice: choice,
+            apiStandardModelID: "whisper-large-v3",
+            localAIModels: [gemma]
+        )
+        assert(!flac.supportedChoices.contains(choice))
+
+        let notReady = AudioImportOptions(
+            fileExtension: "wav",
+            currentChoice: choice,
+            apiStandardModelID: "whisper-large-v3",
+            localAIModels: [AudioImportLocalAIModel(id: gemma.id, displayName: gemma.displayName, isReady: false)]
+        )
+        assert(!notReady.supportedChoices.contains(choice))
+        assert(notReady.explicitRetryChoice == nil)
+    }
+
+    private static func testLocalAIChoiceLabels() {
+        let display = TranscriptionChoiceDisplay(
+            choice: .localAI(modelID: "gemma-4-e4b-it"),
+            section: "On This Mac",
+            title: "Local AI",
+            subtitle: "Gemma 4 E4B",
+            compactLabel: "Local AI · Gemma 4 E4B",
+            currentLabel: "On This Mac · Local AI · Gemma 4 E4B",
+            isAvailable: true,
+            unavailableReason: nil
+        )
+        assert(display.localizedCompactLabel(language: "en") == "Local AI · Gemma 4 E4B")
+        assert(display.localizedCurrentLabel(language: "en") == "On This Mac · Local AI · Gemma 4 E4B")
+    }
 
     private static func makeOptions(
         fileExtension: String = "mp3",

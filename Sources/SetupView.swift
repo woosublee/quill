@@ -352,6 +352,13 @@ struct SetupView: View {
                     }
                 )
                 .environmentObject(appState)
+
+                ForEach(appState.localAITranscriptionChoices) { choice in
+                    if case .localAI(let modelID) = choice,
+                       let model = LocalAIModelCatalog.model(id: modelID) {
+                        localAITranscriptionCard(model)
+                    }
+                }
             }
 
             Label(
@@ -429,11 +436,15 @@ struct SetupView: View {
         if location == .apiProvider {
             appState.cancelNativeWhisperAutoSelection()
         }
+        if location != .onThisMac {
+            appState.cancelLocalAITranscriptionAutoSelection()
+        }
     }
 
     private func selectAppleSpeech() {
         localModel = .appleSpeech
         appState.cancelNativeWhisperAutoSelection()
+        appState.cancelLocalAITranscriptionAutoSelection()
     }
 
     var permissionsStep: some View {
@@ -841,6 +852,8 @@ struct SetupView: View {
             case .localNativeWhisper:
                 return appState.nativeWhisperInstallStatus == .ready
                     && !appState.isInstallingNativeWhisper
+            case .localAIModel(let id):
+                return appState.isLocalAITranscriptionModelReady(id)
             case .apiStandard:
                 return isAPIKeyValidated && !isValidatingKey
             }
@@ -854,6 +867,13 @@ struct SetupView: View {
         case .recordOnly:
             return localizedCatalogString("Record only · Audio notes")
         case .localAppleSpeech:
+            if let pendingID = appState.pendingLocalAITranscriptionModelID,
+               let model = LocalAIModelCatalog.model(id: pendingID) {
+                return localizedCatalogFormat(
+                    "On this Mac · Apple Speech · %@ is downloading and will become active when ready.",
+                    model.displayName
+                )
+            }
             if appState.willAutoSelectNativeWhisperWhenReady {
                 return localizedCatalogString(
                     "On this Mac · Apple Speech · Whisper is downloading and will become active when ready."
@@ -864,6 +884,11 @@ struct SetupView: View {
             return localizedCatalogFormat(
                 "On this Mac · %@",
                 NativeWhisperModelCatalog.recommended.displayName
+            )
+        case .localAIModel(let id):
+            return localizedCatalogFormat(
+                "On this Mac · %@",
+                LocalAIModelCatalog.model(id: id)?.displayName ?? id
             )
         case .apiStandard:
             return localizedCatalogString("API Provider · Standard")
@@ -953,6 +978,74 @@ struct SetupView: View {
                     )
                 }
             }
+        }
+    }
+
+    /// Mirrors the Native Whisper card: select when installed, otherwise
+    /// download while Apple Speech stays active, then switch when ready.
+    @ViewBuilder
+    private func localAITranscriptionCard(_ model: LocalAIModel) -> some View {
+        let isSelected = localModel == .localAIModel(id: model.id)
+        let isReady = appState.isLocalAITranscriptionModelReady(model.id)
+        let state = appState.localAIInstallState(for: model)
+        HStack(spacing: 10) {
+            Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.displayName)
+                    .font(.callout.weight(isSelected ? .semibold : .regular))
+                Text(model.localizedDescription())
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            if isReady {
+                Label("Ready", systemImage: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            } else if state.isInstalling {
+                Text(state.progress.localizedDisplayText())
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Button("Download") {
+                    appState.selectLocalAITranscriptionModel(model.id)
+                    processingLocation = .onThisMac
+                    localModel = .appleSpeech
+                }
+                .font(.caption)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+        }
+        .padding(12)
+        .background(
+            isSelected
+                ? Color.accentColor.opacity(0.08)
+                : Color(nsColor: .controlBackgroundColor)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(
+                    isSelected ? Color.accentColor.opacity(0.3) : Color.clear,
+                    lineWidth: 1
+                )
+        )
+        .cornerRadius(8)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            guard isReady else { return }
+            localModel = .localAIModel(id: model.id)
+        }
+        .onChange(of: appState.localAITranscriptionModelID) { selectedID in
+            guard processingLocation != .recordOnly,
+                  selectedID == model.id,
+                  appState.isLocalAITranscriptionModelReady(model.id) else {
+                return
+            }
+            processingLocation = .onThisMac
+            localModel = .localAIModel(id: model.id)
         }
     }
 

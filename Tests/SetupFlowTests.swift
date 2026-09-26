@@ -6,6 +6,7 @@ struct SetupFlowTests {
     static func main() throws {
         testProcessingStartsWithoutSelection()
         testLocalDefaultsToAppleSpeech()
+        testLocalAIModelPresetMatchesNativeWhisperPermissions()
         testRecordOnlyPresetAndPermissions()
         testRecordOnlyRequiresExplicitAudioSource()
         testPermissionsFollowRecordOnlyAudioSource()
@@ -29,6 +30,22 @@ struct SetupFlowTests {
                 location: nil,
                 localModel: .appleSpeech
             ) == nil
+        )
+    }
+
+    private static func testLocalAIModelPresetMatchesNativeWhisperPermissions() {
+        let preset = SetupFlow.processingPreset(
+            location: .onThisMac,
+            localModel: .localAIModel(id: "gemma-4-e4b-it")
+        )
+        assert(preset == .localAIModel(id: "gemma-4-e4b-it"))
+        assert(
+            SetupFlow.requiredPermissions(for: .localAIModel(id: "gemma-4-e4b-it"))
+                == SetupFlow.requiredPermissions(for: .localNativeWhisper)
+        )
+        assert(
+            SetupFlow.requiredPermissions(for: .localAIModel(id: "gemma-4-e4b-it"))
+                == [.microphone]
         )
     }
 

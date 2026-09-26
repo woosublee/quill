@@ -264,6 +264,7 @@ private struct PendingAudioImport: Identifiable {
     let hasAPIKey: Bool
     let hasNativeLocalWhisperModel: Bool
     let legacyLocalWhisperModels: [TranscriptionModel]
+    let localAIModels: [AudioImportLocalAIModel]
     let fileSizeBytes: Int64?
 
     init(
@@ -272,7 +273,8 @@ private struct PendingAudioImport: Identifiable {
         apiStandardModelID: String,
         hasAPIKey: Bool,
         hasNativeLocalWhisperModel: Bool,
-        legacyLocalWhisperModels: [TranscriptionModel]
+        legacyLocalWhisperModels: [TranscriptionModel],
+        localAIModels: [AudioImportLocalAIModel]
     ) {
         self.fileURL = fileURL
         self.currentChoice = currentChoice
@@ -280,6 +282,7 @@ private struct PendingAudioImport: Identifiable {
         self.hasAPIKey = hasAPIKey
         self.hasNativeLocalWhisperModel = hasNativeLocalWhisperModel
         self.legacyLocalWhisperModels = legacyLocalWhisperModels
+        self.localAIModels = localAIModels
         let accessGranted = fileURL.startAccessingSecurityScopedResource()
         self.fileSizeBytes = accessGranted ? AppState.fileSizeBytes(for: fileURL) : nil
         if accessGranted {
@@ -296,6 +299,7 @@ private struct PendingAudioImport: Identifiable {
             hasAPIKey: hasAPIKey,
             hasNativeLocalWhisperModel: hasNativeLocalWhisperModel,
             legacyLocalWhisperModels: legacyLocalWhisperModels,
+            localAIModels: localAIModels,
             nativeWhisperModelID: NativeWhisperModelCatalog.recommended.id,
             nativeWhisperDisplayName: NativeWhisperModelCatalog.recommended.displayName
         )
@@ -1048,7 +1052,8 @@ struct NoteBrowserView: View {
                 apiStandardModelID: appState.transcriptionModel,
                 hasAPIKey: appState.hasTranscriptionAPIKey,
                 hasNativeLocalWhisperModel: appState.hasNativeLocalWhisperModel,
-                legacyLocalWhisperModels: appState.installedLegacyLocalWhisperModels
+                legacyLocalWhisperModels: appState.installedLegacyLocalWhisperModels,
+                localAIModels: appState.audioImportLocalAIModels
             )
         }
     }

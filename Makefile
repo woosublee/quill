@@ -57,10 +57,15 @@ LOCAL_AI_INTEGRATION_SHARD_ONE = qwen2.5-7b-instruct-q4_k_m-00001-of-00002.gguf
 LOCAL_AI_INTEGRATION_SHARD_TWO = qwen2.5-7b-instruct-q4_k_m-00002-of-00002.gguf
 LOCAL_AI_INTEGRATION_SHARD_ONE_SHA256 = dfce12e3862a5283ccfb88221b48480e58745165de856439950d0f22590580db
 LOCAL_AI_INTEGRATION_SHARD_TWO_SHA256 = 539cf93f78e887edea1c04e2d7d8cdaca9d01dae9c9025bcb8accbe29df3d72a
+LOCAL_ASR_INTEGRATION_MODEL = gemma-4-E4B-it-Q4_K_M.gguf
+LOCAL_ASR_INTEGRATION_PROJECTOR = gemma-4-e4b-it-mmproj-BF16.gguf
+LOCAL_ASR_INTEGRATION_MODEL_SHA256 = 85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87
+LOCAL_ASR_INTEGRATION_PROJECTOR_SHA256 = ee01cba03fd9c71ea2ea722225d24a84f72e7197714367e550ef705ef8851bc6
 FULL_SOURCE_TRANSCRIPTION_TESTS = \
 	Tests/CloudTranscriptionHistoryLifecycleTests.swift \
 	Tests/TranscriptionServiceCloudChunkingTests.swift \
 	Tests/TranscriptionServiceLocalIssueTests.swift \
+	Tests/TranscriptionServiceLocalAITests.swift \
 	Tests/PostProcessingUserIssueTests.swift \
 	Tests/PostProcessingBackendTests.swift \
 	Tests/PostProcessingOutputValidatorTests.swift \
@@ -106,7 +111,7 @@ ICON_ICNS = Resources/AppIcon.icns
 endif
 
 # Usage: make install CODESIGN_IDENTITY="Apple Development: you@example.com (TEAMID)"
-.PHONY: all check clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test test-core test-recording test-transcription test-app-state test-local-ai-integration _test-core _test-recording _test-transcription _test-app-state localization-bundle-test native-whisper-helper-test llama-server-helper-test print-app-version print-build-number print-build-tag print-version-metadata validate FORCE
+.PHONY: all check clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test test-core test-recording test-transcription test-app-state test-local-ai-integration test-local-asr-integration _test-core _test-recording _test-transcription _test-app-state localization-bundle-test native-whisper-helper-test llama-server-helper-test print-app-version print-build-number print-build-tag print-version-metadata validate FORCE
 
 all: $(APP_EXECUTABLE_TARGET)
 
@@ -378,7 +383,7 @@ FORCE:
 check-test-wiring:
 	@plan_file="$$(mktemp -t quill-test-plan)"; \
 		trap 'rm -f "$$plan_file"' EXIT; \
-		$(MAKE) -Bn --no-print-directory _test-core _test-recording _test-transcription _test-app-state test-local-ai-integration > "$$plan_file"; \
+		$(MAKE) -Bn --no-print-directory _test-core _test-recording _test-transcription _test-app-state test-local-ai-integration test-local-asr-integration > "$$plan_file"; \
 		grouped_sources=" $(GROUPED_TEST_SOURCES) $(GROUPED_RUNNER_SOURCES) "; \
 		for test_file in Tests/*.swift; do \
 			compile_count="$$(grep -F -- "$$test_file" "$$plan_file" | grep -c 'swiftc ' || true)"; \
@@ -443,8 +448,8 @@ $(FULL_SOURCE_TRANSCRIPTION_RUNNER): $(filter-out Sources/App.swift,$(SOURCES)) 
 $(FULL_SOURCE_APP_STATE_RUNNER): $(filter-out Sources/App.swift,$(SOURCES)) $(FULL_SOURCE_APP_STATE_TESTS) Tests/FullSourceAppStateTestRunner.swift Makefile $(SPARKLE_STAMP) | $(TEST_BUILD_DIR)
 	@framework="$$(cat "$(SPARKLE_STAMP)")"; framework_parent="$$(dirname "$$framework")"; swiftc -parse-as-library -D QUILL_GROUPED_TEST_RUNNER -F "$$framework_parent" -framework Sparkle -Xlinker -rpath -Xlinker "$$framework_parent" -target $(TEST_ARCH)-apple-macosx13.0 $(filter-out Sources/App.swift,$(SOURCES)) $(FULL_SOURCE_APP_STATE_TESTS) Tests/FullSourceAppStateTestRunner.swift -o "$@"
 
-$(TEST_BUILD_DIR)/LocalAIIntegrationTests: Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/AIProcessingEnvelope.swift Sources/ProtectedAtomScanner.swift Sources/AIOutputLanguageValidator.swift Sources/PostProcessingPromptPolicy.swift Sources/PostProcessingOutputValidator.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/MeetingSummaryModels.swift Sources/MeetingSummaryPrompt.swift Sources/MeetingSummaryTextChunker.swift Sources/MeetingSummaryOutputValidator.swift Sources/LocalAITokenBudgeter.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LLMAPITransport.swift Sources/LocalAIServerManager.swift Sources/ModelConfiguration.swift Sources/QuillUserIssue.swift Sources/LLMCooldownManager.swift Sources/AIProcessingBackend.swift Sources/MeetingSummaryService.swift Tests/LocalAIIntegrationTests.swift | $(TEST_BUILD_DIR)
-	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/AIProcessingEnvelope.swift Sources/ProtectedAtomScanner.swift Sources/AIOutputLanguageValidator.swift Sources/PostProcessingPromptPolicy.swift Sources/PostProcessingOutputValidator.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/MeetingSummaryModels.swift Sources/MeetingSummaryPrompt.swift Sources/MeetingSummaryTextChunker.swift Sources/MeetingSummaryOutputValidator.swift Sources/LocalAITokenBudgeter.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LLMAPITransport.swift Sources/LocalAIServerManager.swift Sources/ModelConfiguration.swift Sources/QuillUserIssue.swift Sources/LLMCooldownManager.swift Sources/AIProcessingBackend.swift Sources/MeetingSummaryService.swift Tests/LocalAIIntegrationTests.swift -o "$@"
+$(TEST_BUILD_DIR)/LocalAIIntegrationTests: Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/AIProcessingEnvelope.swift Sources/ProtectedAtomScanner.swift Sources/AIOutputLanguageValidator.swift Sources/PostProcessingPromptPolicy.swift Sources/PostProcessingOutputValidator.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/MeetingSummaryModels.swift Sources/MeetingSummaryPrompt.swift Sources/MeetingSummaryTextChunker.swift Sources/MeetingSummaryOutputValidator.swift Sources/LocalAITokenBudgeter.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LLMAPITransport.swift Sources/LocalAIServerManager.swift Sources/ModelConfiguration.swift Sources/QuillUserIssue.swift Sources/LLMCooldownManager.swift Sources/AIProcessingBackend.swift Sources/MeetingSummaryService.swift Tests/LocalAIIntegrationTests.swift | $(TEST_BUILD_DIR)
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/AIProcessingEnvelope.swift Sources/ProtectedAtomScanner.swift Sources/AIOutputLanguageValidator.swift Sources/PostProcessingPromptPolicy.swift Sources/PostProcessingOutputValidator.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/MeetingSummaryModels.swift Sources/MeetingSummaryPrompt.swift Sources/MeetingSummaryTextChunker.swift Sources/MeetingSummaryOutputValidator.swift Sources/LocalAITokenBudgeter.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LLMAPITransport.swift Sources/LocalAIServerManager.swift Sources/ModelConfiguration.swift Sources/QuillUserIssue.swift Sources/LLMCooldownManager.swift Sources/AIProcessingBackend.swift Sources/MeetingSummaryService.swift Tests/LocalAIIntegrationTests.swift -o "$@"
 
 localization-bundle-test: $(TEST_BUILD_DIR)/LocalizationResourceTests $(APP_EXECUTABLE_TARGET)
 	@$(TEST_BUILD_DIR)/LocalizationResourceTests --bundle "$(APP_BUNDLE)"
@@ -460,6 +465,9 @@ test-transcription: check-test-wiring
 
 test-app-state: check-test-wiring
 	@$(call RUN_TIMED_TARGET,_test-app-state,app-state)
+
+$(TEST_BUILD_DIR)/LocalASRIntegrationTests: Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/CanonicalPCM16WAV.swift Sources/CloudTranscriptionChunking.swift Sources/CloudTranscriptionCore.swift Sources/LLMAPITransport.swift Sources/LocalASRTranscriptionClient.swift Tests/LocalASRIntegrationTests.swift | $(TEST_BUILD_DIR)
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/CanonicalPCM16WAV.swift Sources/CloudTranscriptionChunking.swift Sources/CloudTranscriptionCore.swift Sources/LLMAPITransport.swift Sources/LocalASRTranscriptionClient.swift Tests/LocalASRIntegrationTests.swift -o "$@"
 
 test-local-ai-integration: $(TEST_BUILD_DIR)/LocalAIIntegrationTests
 	@set -eu; \
@@ -513,6 +521,63 @@ test-local-ai-integration: $(TEST_BUILD_DIR)/LocalAIIntegrationTests
 		fi; \
 		export QUILL_LOCAL_AI_INTEGRATION_BASE_URL="http://127.0.0.1:$$port/v1"; \
 		$(TEST_BUILD_DIR)/LocalAIIntegrationTests
+
+test-local-asr-integration: $(TEST_BUILD_DIR)/LocalASRIntegrationTests
+	@set -eu; \
+		if ! command -v python3 >/dev/null 2>&1 || ! command -v curl >/dev/null 2>&1 || ! command -v shasum >/dev/null 2>&1; then \
+			printf '[skip] Local ASR integration prerequisites unavailable: python3, curl, and shasum are required.\n'; \
+			exit 0; \
+		fi; \
+		if [ -z "$${QUILL_ASR_FIXTURE_DIR:-}" ]; then \
+			printf '[skip] Local ASR integration needs QUILL_ASR_FIXTURE_DIR with synthetic .wav recordings.\n'; \
+			exit 0; \
+		fi; \
+		helper="$(APP_BUNDLE)/Contents/Resources/llama/llama-server"; \
+		if [ ! -x "$$helper" ]; then \
+			printf '[skip] Local ASR integration prerequisite unavailable: built app llama-server is missing or not executable at %s.\n' "$$helper"; \
+			exit 0; \
+		fi; \
+		model_dir="$(LOCAL_AI_INTEGRATION_MODEL_DIR)"; \
+		model="$$model_dir/$(LOCAL_ASR_INTEGRATION_MODEL)"; \
+		projector="$$model_dir/$(LOCAL_ASR_INTEGRATION_PROJECTOR)"; \
+		for artifact in "$$model" "$$projector"; do \
+			if [ ! -f "$$artifact" ]; then \
+				printf '[skip] Local ASR integration prerequisite unavailable: Gemma 4 E4B artifact is missing at %s.\n' "$$artifact"; \
+				exit 0; \
+			fi; \
+		done; \
+		actual_model="$$(shasum -a 256 "$$model" | cut -d ' ' -f 1)"; \
+		actual_projector="$$(shasum -a 256 "$$projector" | cut -d ' ' -f 1)"; \
+		if [ "$$actual_model" != "$(LOCAL_ASR_INTEGRATION_MODEL_SHA256)" ] || [ "$$actual_projector" != "$(LOCAL_ASR_INTEGRATION_PROJECTOR_SHA256)" ]; then \
+			printf '[skip] Local ASR integration prerequisite unavailable: Gemma 4 E4B checksum does not match the catalog.\n'; \
+			exit 0; \
+		fi; \
+		port="$$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"; \
+		log_file="$$(mktemp -t quill-local-asr-integration)"; \
+		server_pid=''; \
+		cleanup() { \
+			if [ -n "$$server_pid" ] && kill -0 "$$server_pid" 2>/dev/null; then \
+				kill "$$server_pid" 2>/dev/null || true; \
+				wait "$$server_pid" 2>/dev/null || true; \
+			fi; \
+			rm -f "$$log_file"; \
+		}; \
+		trap cleanup EXIT INT TERM; \
+		"$$helper" --host 127.0.0.1 --port "$$port" --model "$$model" --mmproj "$$projector" --ctx-size 16384 --parallel 1 --cache-ram 0 --no-webui --chat-template-kwargs '{"enable_thinking":false}' >"$$log_file" 2>&1 & \
+		server_pid="$$!"; \
+		ready=0; \
+		for attempt in $$(seq 1 150); do \
+			if curl --fail --silent --show-error --max-time 1 "http://127.0.0.1:$$port/health" >/dev/null 2>&1; then ready=1; break; fi; \
+			if ! kill -0 "$$server_pid" 2>/dev/null; then break; fi; \
+			sleep 1; \
+		done; \
+		if [ "$$ready" -ne 1 ]; then \
+			printf 'Local ASR integration server did not become healthy.\n' >&2; \
+			cat "$$log_file" >&2; \
+			exit 1; \
+		fi; \
+		export QUILL_LOCAL_AI_INTEGRATION_BASE_URL="http://127.0.0.1:$$port/v1"; \
+		$(TEST_BUILD_DIR)/LocalASRIntegrationTests
 
 check: validate test
 
@@ -604,9 +669,9 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/CloudTranscriptionCoreTests
 	@swiftc -parse-as-library Sources/CalendarIntegrationModels.swift Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/LocalizedStringLookup.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/TranscriptionModel.swift Sources/CanonicalPCM16WAV.swift Sources/CloudTranscriptionChunking.swift Sources/CloudTranscriptionCore.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/CloudTranscriptionJobStore.swift Tests/CloudTranscriptionJobStoreTests.swift -o $(TEST_BUILD_DIR)/CloudTranscriptionJobStoreTests
 	@$(TEST_BUILD_DIR)/CloudTranscriptionJobStoreTests
-	@swiftc -parse-as-library -framework AVFoundation Sources/CalendarIntegrationModels.swift Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/LocalizedStringLookup.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/TranscriptionModel.swift Sources/CanonicalPCM16WAV.swift Sources/CloudTranscriptionChunking.swift Sources/CloudTranscriptionCore.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/CloudTranscriptionJobStore.swift Sources/NativeWhisperModel.swift Sources/NativeWhisperRuntime.swift Sources/AudioImportConversionService.swift Sources/NativeWhisperExecutionSnapshot.swift Sources/TranscriptionExecutionSnapshot.swift Tests/TranscriptionExecutionSnapshotTests.swift -o $(TEST_BUILD_DIR)/TranscriptionExecutionSnapshotTests
+	@swiftc -parse-as-library -framework AVFoundation Sources/CalendarIntegrationModels.swift Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/LocalizedStringLookup.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/TranscriptionModel.swift Sources/CanonicalPCM16WAV.swift Sources/CloudTranscriptionChunking.swift Sources/CloudTranscriptionCore.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/CloudTranscriptionJobStore.swift Sources/NativeWhisperModel.swift Sources/NativeWhisperRuntime.swift Sources/AudioImportConversionService.swift Sources/NativeWhisperExecutionSnapshot.swift Sources/LocalASRRequestFormat.swift Sources/LocalAITranscriptionExecution.swift Sources/TranscriptionExecutionSnapshot.swift Tests/TranscriptionExecutionSnapshotTests.swift -o $(TEST_BUILD_DIR)/TranscriptionExecutionSnapshotTests
 	@$(TEST_BUILD_DIR)/TranscriptionExecutionSnapshotTests
-	@swiftc -parse-as-library -framework AVFoundation Sources/CalendarIntegrationModels.swift Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/LocalizedStringLookup.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/TranscriptionModel.swift Sources/CanonicalPCM16WAV.swift Sources/CloudTranscriptionChunking.swift Sources/CloudTranscriptionCore.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/CloudTranscriptionJobStore.swift Sources/NoteTitleResolver.swift Sources/NoteListRowDisplayData.swift Sources/NativeWhisperModel.swift Sources/NativeWhisperRuntime.swift Sources/AudioImportConversionService.swift Sources/NativeWhisperExecutionSnapshot.swift Sources/TranscriptionExecutionSnapshot.swift Sources/CloudTranscriptionExecutionContext.swift Sources/CloudTranscriptionHistoryCoordinator.swift Tests/CloudTranscriptionHistoryCoordinatorTests.swift -o $(TEST_BUILD_DIR)/CloudTranscriptionHistoryCoordinatorTests
+	@swiftc -parse-as-library -framework AVFoundation Sources/CalendarIntegrationModels.swift Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/LocalizedStringLookup.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/TranscriptionModel.swift Sources/CanonicalPCM16WAV.swift Sources/CloudTranscriptionChunking.swift Sources/CloudTranscriptionCore.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/CloudTranscriptionJobStore.swift Sources/NoteTitleResolver.swift Sources/NoteListRowDisplayData.swift Sources/NativeWhisperModel.swift Sources/NativeWhisperRuntime.swift Sources/AudioImportConversionService.swift Sources/NativeWhisperExecutionSnapshot.swift Sources/LocalASRRequestFormat.swift Sources/LocalAITranscriptionExecution.swift Sources/TranscriptionExecutionSnapshot.swift Sources/CloudTranscriptionExecutionContext.swift Sources/CloudTranscriptionHistoryCoordinator.swift Tests/CloudTranscriptionHistoryCoordinatorTests.swift -o $(TEST_BUILD_DIR)/CloudTranscriptionHistoryCoordinatorTests
 	@$(TEST_BUILD_DIR)/CloudTranscriptionHistoryCoordinatorTests
 	@swiftc -parse-as-library Tests/AppStateCloudTranscriptionIntegrationSourceTests.swift -o $(TEST_BUILD_DIR)/AppStateCloudTranscriptionIntegrationSourceTests
 	@$(TEST_BUILD_DIR)/AppStateCloudTranscriptionIntegrationSourceTests
@@ -700,15 +765,15 @@ _test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSC
 	@$(TEST_BUILD_DIR)/AudioImportOptionsTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/NativeWhisperModel.swift Tests/NativeWhisperModelTests.swift -o $(TEST_BUILD_DIR)/NativeWhisperModelTests
 	@$(TEST_BUILD_DIR)/NativeWhisperModelTests
-	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/ModelConfiguration.swift Tests/AIModelCapabilitiesTests.swift -o $(TEST_BUILD_DIR)/AIModelCapabilitiesTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/ModelConfiguration.swift Tests/AIModelCapabilitiesTests.swift -o $(TEST_BUILD_DIR)/AIModelCapabilitiesTests
 	@$(TEST_BUILD_DIR)/AIModelCapabilitiesTests
-	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Tests/LocalAIModelTests.swift -o $(TEST_BUILD_DIR)/LocalAIModelTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Tests/LocalAIModelTests.swift -o $(TEST_BUILD_DIR)/LocalAIModelTests
 	@$(TEST_BUILD_DIR)/LocalAIModelTests
-	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Tests/LocalAIModelStoreTests.swift -o $(TEST_BUILD_DIR)/LocalAIModelStoreTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Tests/LocalAIModelStoreTests.swift -o $(TEST_BUILD_DIR)/LocalAIModelStoreTests
 	@$(TEST_BUILD_DIR)/LocalAIModelStoreTests
-	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalAIInstaller.swift Tests/LocalAIInstallerTests.swift -o $(TEST_BUILD_DIR)/LocalAIInstallerTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/LocalAIInstaller.swift Tests/LocalAIInstallerTests.swift -o $(TEST_BUILD_DIR)/LocalAIInstallerTests
 	@$(TEST_BUILD_DIR)/LocalAIInstallerTests
-	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Tests/LocalAIServerProcessTests.swift -o $(TEST_BUILD_DIR)/LocalAIServerProcessTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Tests/LocalAIServerProcessTests.swift -o $(TEST_BUILD_DIR)/LocalAIServerProcessTests
 	@$(TEST_BUILD_DIR)/LocalAIServerProcessTests
 	@swiftc -parse-as-library Sources/LocalAIDiagnostics.swift Tests/LocalAIDiagnosticsTests.swift -o $(TEST_BUILD_DIR)/LocalAIDiagnosticsTests
 	@$(TEST_BUILD_DIR)/LocalAIDiagnosticsTests
@@ -720,9 +785,11 @@ _test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSC
 	@$(TEST_BUILD_DIR)/TranscriptCleanupModeTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/ProtectedAtomScanner.swift Sources/AIOutputLanguageValidator.swift Sources/PostProcessingPromptPolicy.swift Sources/PostProcessingOutputValidator.swift Tests/AIOutputLanguageValidatorTests.swift -o $(TEST_BUILD_DIR)/AIOutputLanguageValidatorTests
 	@$(TEST_BUILD_DIR)/AIOutputLanguageValidatorTests
-	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LLMAPITransport.swift Sources/LocalAIServerManager.swift Tests/LocalAIServerManagerTests.swift -o $(TEST_BUILD_DIR)/LocalAIServerManagerTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LLMAPITransport.swift Sources/LocalAIServerManager.swift Tests/LocalAIServerManagerTests.swift -o $(TEST_BUILD_DIR)/LocalAIServerManagerTests
 	@$(TEST_BUILD_DIR)/LocalAIServerManagerTests
-	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/QuillUserIssue.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LLMAPITransport.swift Sources/LocalAIServerManager.swift Sources/ModelConfiguration.swift Sources/AIProcessingBackend.swift Tests/AIProcessingBackendTests.swift -o $(TEST_BUILD_DIR)/AIProcessingBackendTests
+	@swiftc -parse-as-library Sources/CanonicalPCM16WAV.swift Sources/CloudTranscriptionChunking.swift Sources/CloudTranscriptionCore.swift Sources/LLMAPITransport.swift Sources/LocalASRRequestFormat.swift Sources/LocalASRTranscriptionClient.swift Tests/LocalASRTranscriptionClientTests.swift -o $(TEST_BUILD_DIR)/LocalASRTranscriptionClientTests
+	@$(TEST_BUILD_DIR)/LocalASRTranscriptionClientTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/QuillUserIssue.swift Sources/AIModelCapabilities.swift Sources/LocalAIModel.swift Sources/LocalASRRequestFormat.swift Sources/LocalAIDiagnostics.swift Sources/LocalAIServerProcess.swift Sources/LLMAPITransport.swift Sources/LocalAIServerManager.swift Sources/ModelConfiguration.swift Sources/AIProcessingBackend.swift Tests/AIProcessingBackendTests.swift -o $(TEST_BUILD_DIR)/AIProcessingBackendTests
 	@$(TEST_BUILD_DIR)/AIProcessingBackendTests
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/QuillUserIssue.swift Sources/NativeWhisperModel.swift Sources/NativeWhisperRuntime.swift Tests/NativeWhisperRuntimeTests.swift -o $(TEST_BUILD_DIR)/NativeWhisperRuntimeTests
 	@$(TEST_BUILD_DIR)/NativeWhisperRuntimeTests

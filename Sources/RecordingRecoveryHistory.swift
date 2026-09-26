@@ -124,7 +124,7 @@ struct RecordingRecoveryHistory {
         _ backend: RecordingTranscriptionBackendSnapshot
     ) -> Bool {
         switch backend {
-        case .nativeWhisper, .legacyMlxWhisper, .appleLive:
+        case .nativeWhisper, .legacyMlxWhisper, .localAI, .appleLive:
             return true
         case .apiStandard, .apiRealtime, .unknown:
             return false

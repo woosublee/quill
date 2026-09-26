@@ -255,18 +255,19 @@ struct AppStateCloudTranscriptionIntegrationSourceTests {
             from: "private func scheduleCloudTranscriptionAutoResume(",
             to: "private func installCloudTranscriptionTask("
         )
-        guard let providerGuard = autoResume.range(
-            of: "guard hasTranscriptionAPIKey else { return }"
-        ), let runtimeSnapshot = autoResume.range(
-            of: "runtime = try CloudTranscriptionExecutionSnapshot("
-        ) else {
-            throw TestFailure(
-                "startup resume checks provider readiness before creating runtime state"
-            )
-        }
+        // Keyless startup still leaves cloud sidecars for manual retry: the
+        // startup reconciler requires an API key for cloud records
+        // (TranscriptionRetryWorkflowTests
+        // .testStartupFilterPreservesKeylessAndIncompatibleRecordsForRetry).
+        // Startup no longer returns early without a key so Local AI jobs,
+        // which need no key, can resume.
         try expect(
-            providerGuard.lowerBound < runtimeSnapshot.lowerBound,
-            "keyless startup leaves the persisted cloud sidecar for manual retry"
+            autoResume.contains("runtime = try CloudTranscriptionExecutionSnapshot("),
+            "startup resume captures the cloud runtime"
+        )
+        try expect(
+            autoResume.contains("input.localAIResumeIdentity = "),
+            "startup resume passes the Local AI resume identity"
         )
         try expect(
             autoResume.contains("TranscriptionRetryStartupInput("),

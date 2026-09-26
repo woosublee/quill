@@ -10,6 +10,9 @@ struct TranscriptionRetryWorkflowTests {
         try await testWorkflowInstancesUseIndependentTranscriberDependencies()
         try await testManualRequestCapturesExecutionProcessingAndCloudDependencies()
         try await testManualRejectsInMemoryHistoryBeforeStateMutation()
+        try await testLocalAIManualRetryGetsJobStoreContext()
+        try await testLocalAIStartupResumeUsesLocalExecution()
+        try await testLocalAIRecordWaitsWhenLocalModelChanged()
         try await testManualSuccessPersistsBeforeEffectsAndDelivery()
         try await testManualFallbackUsesFallbackOutcome()
         try await testCommandFallbackUsesCapturedDispositionAndReason()
@@ -2435,6 +2438,248 @@ struct TranscriptionRetryWorkflowTests {
         try expect(workflow.state.progressByNoteID[item.id] == nil, "startup progress cleared")
     }
 
+    nonisolated private static func fakeLocalAISnapshot(
+        digest: String = "digest"
+    ) -> LocalAITranscriptionExecutionSnapshot {
+        LocalAITranscriptionExecutionSnapshot(
+            modelID: "gemma-4-e4b-it",
+            displayName: "Gemma 4 E4B",
+            packageDigest: digest,
+            requestFormat: .chatCompletionsInputAudio,
+            modelIsReady: { true },
+            prepareAudio: { url in .init(fileURL: url, cleanup: {}) },
+            transcribeChunk: { _, _, _ in "unused" }
+        )
+    }
+
+    nonisolated private static func makeLocalAIExecution(
+        digest: String = "digest"
+    ) -> LocalTranscriptionExecutionSnapshot {
+        LocalTranscriptionExecutionSnapshot(
+            model: .default,
+            localWhisperPath: nil,
+            useLegacyMlxWhisper: false,
+            language: .find(code: "en"),
+            localAIExecution: fakeLocalAISnapshot(digest: digest)
+        )
+    }
+
+    private static func makeLocalAIRecord(
+        historyID: UUID,
+        fixture: TranscriptionRetryFixture
+    ) throws -> CloudTranscriptionJobRecord {
+        let cloud = try makeCloudState(
+            historyID: historyID,
+            fixture: fixture,
+            configuration: defaultCloudConfiguration(fixture: fixture),
+            completedPrefix: ["stored local prefix"]
+        )
+        var plan = cloud.record.plan
+        plan.sizing = .rawWAV
+        plan.silenceSearchFrameCount = LocalTranscriptionChunkLimits.silenceSearchFrameCount
+        let local = fakeLocalAISnapshot()
+        let identity = local.resumeIdentity(language: "en")
+        let localPlan = CloudTranscriptionChunkPlan(
+            algorithmVersion: plan.algorithmVersion,
+            encodedUploadCeilingBytes: identity.ceilingBytes,
+            sourceFrameCount: plan.sourceFrameCount,
+            chunks: plan.chunks,
+            planID: "local-" + plan.planID,
+            sizing: .rawWAV,
+            silenceSearchFrameCount: identity.silenceSearchFrameCount
+        )
+        return CloudTranscriptionJobRecord(
+            schemaVersion: CloudTranscriptionJobRecord.currentSchemaVersion,
+            historyID: historyID,
+            createdAt: cloud.record.createdAt,
+            updatedAt: cloud.record.updatedAt,
+            phase: cloud.record.phase,
+            identity: CloudTranscriptionJobIdentity(
+                providerID: identity.providerID,
+                model: identity.model,
+                language: identity.language,
+                responseFormat: identity.responseFormat,
+                source: cloud.record.identity.source,
+                planID: localPlan.planID
+            ),
+            plan: localPlan,
+            completedChunks: cloud.record.completedChunks,
+            firstIncompleteChunkIndex: cloud.record.firstIncompleteChunkIndex,
+            lastFailure: nil,
+            completionPolicy: cloud.record.completionPolicy
+        )
+    }
+
+    @MainActor
+    private static func testLocalAIManualRetryGetsJobStoreContext() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let item = makeHistoryItem()
+        let invocation = TranscriptionRetryLocalContextRecorder()
+        await invocation.record(contextWasNil: true)
+        let history = TranscriptionRetryHistoryRecorder(item: item)
+        let events = TranscriptionRetryEventRecorder()
+        let workflow = TranscriptionRetryWorkflow(
+            dependencies: TranscriptionRetryWorkflowDependencies(
+                transcribe: { _, _, _, context in
+                    await invocation.record(contextWasNil: context == nil)
+                    return transcriptionResult(text: "local ai")
+                },
+                makeAttemptToken: { UUID() }
+            )
+        )
+        workflow.onEvent = events.record
+
+        _ = workflow.startManual(
+            request: try makeRequest(
+                item: item,
+                fixture: fixture,
+                execution: .local(
+                    makeLocalAIExecution(),
+                    TranscriptionCompletionSnapshot(
+                        postProcessingEnabled: true,
+                        outputLanguage: "en",
+                        pressEnterCommandEnabled: false
+                    )
+                ),
+                processing: processingBehaviorFromTranscription(),
+                historyMetadata: localHistoryMetadata(),
+                failureContext: localFailureContext()
+            ),
+            runtime: fixture.runtime(
+                history: history.access(),
+                assets: TranscriptionRetryAssetRecorder().access()
+            )
+        )
+
+        try await waitUntil { events.outcomes.count == 1 }
+        let contextWasNil = await invocation.contextWasNil()
+        try expect(!contextWasNil, "Local AI retry gets a job-store context")
+    }
+
+    @MainActor
+    private static func testLocalAIStartupResumeUsesLocalExecution() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let item = makeHistoryItem()
+        let record = try makeLocalAIRecord(historyID: item.id, fixture: fixture)
+        try createStoredRecord(record, in: fixture.jobStore)
+        let captured = TranscriptionRetryExecutionRecorder()
+        let history = TranscriptionRetryHistoryRecorder(item: item)
+        let events = TranscriptionRetryEventRecorder()
+        let workflow = TranscriptionRetryWorkflow(
+            dependencies: TranscriptionRetryWorkflowDependencies(
+                transcribe: { execution, _, _, context in
+                    await captured.record(execution: execution, hasContext: context != nil)
+                    return transcriptionResult(text: "resumed local")
+                },
+                makeAttemptToken: { UUID() }
+            )
+        )
+        workflow.onEvent = events.record
+        let processing = TranscriptionRetryStartupProcessingRecorder(
+            result: processingResult(raw: "resumed local", final: "resumed local")
+        )
+        let local = fakeLocalAISnapshot()
+
+        workflow.resumeAtStartup(
+            input: try makeLocalAIStartupInput(
+                record: record,
+                item: item,
+                fixture: fixture,
+                processing: processing,
+                localIdentity: local.resumeIdentity(language: "en")
+            ),
+            runtime: fixture.runtime(
+                history: history.access(),
+                assets: TranscriptionRetryAssetRecorder().access()
+            )
+        )
+
+        try await waitUntil { events.outcomes.count == 1 }
+        let summary = await captured.summary()
+        try expectEqual(summary, ["local-ai:digest context:true"], "local execution with context")
+        try expectEqual(
+            history.persistedItems.last?.usedLocalTranscription,
+            true,
+            "resume records local transcription"
+        )
+    }
+
+    @MainActor
+    private static func testLocalAIRecordWaitsWhenLocalModelChanged() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let item = makeHistoryItem()
+        let record = try makeLocalAIRecord(historyID: item.id, fixture: fixture)
+        try createStoredRecord(record, in: fixture.jobStore)
+        let captured = TranscriptionRetryExecutionRecorder()
+        let workflow = TranscriptionRetryWorkflow(
+            dependencies: TranscriptionRetryWorkflowDependencies(
+                transcribe: { execution, _, _, context in
+                    await captured.record(execution: execution, hasContext: context != nil)
+                    return transcriptionResult(text: "must not run")
+                },
+                makeAttemptToken: { UUID() }
+            )
+        )
+        let changed = fakeLocalAISnapshot(digest: "other")
+
+        workflow.resumeAtStartup(
+            input: try makeLocalAIStartupInput(
+                record: record,
+                item: item,
+                fixture: fixture,
+                processing: TranscriptionRetryStartupProcessingRecorder(
+                    result: processingResult(raw: "x", final: "x")
+                ),
+                localIdentity: changed.resumeIdentity(language: "en"),
+                localDigest: "other"
+            ),
+            runtime: fixture.runtime(
+                history: TranscriptionRetryHistoryRecorder(item: item).access(),
+                assets: TranscriptionRetryAssetRecorder().access()
+            )
+        )
+
+        try await Task.sleep(nanoseconds: 200_000_000)
+        let summary = await captured.summary()
+        try expectEqual(summary, [], "changed package does not resume")
+    }
+
+    private static func makeLocalAIStartupInput(
+        record: CloudTranscriptionJobRecord,
+        item: PipelineHistoryItem,
+        fixture: TranscriptionRetryFixture,
+        processing: TranscriptionRetryStartupProcessingRecorder,
+        localIdentity: LocalAITranscriptionResumeIdentity,
+        localDigest: String = "digest"
+    ) throws -> TranscriptionRetryStartupInput {
+        let cloud = try makeCloudState(
+            historyID: UUID(),
+            fixture: fixture,
+            configuration: defaultCloudConfiguration(fixture: fixture)
+        )
+        return TranscriptionRetryStartupInput(
+            reconciliation: CloudTranscriptionReconciliation(
+                resumable: [record],
+                waitingForRetry: [],
+                invalid: []
+            ),
+            runtime: try requireCloudRuntime(cloud.execution),
+            history: [item],
+            audioDirectory: fixture.audioURL.deletingLastPathComponent(),
+            cloudDependenciesFactory: {
+                makeCloudDependencies(temporaryRoot: fixture.temporaryRoot)
+            },
+            makeProcessingBehavior: { item, completion in
+                processing.behavior(item: item, completion: completion)
+            },
+            localAIExecution: makeLocalAIExecution(digest: localDigest),
+            localAIResumeIdentity: localIdentity
+        )
+    }
+
     @MainActor
     private static func makeStartupInput(
         cloud: TranscriptionRetryCloudTestState,
@@ -3264,6 +3509,24 @@ private actor TranscriptionRetryCloudContextRecorder {
 
     func snapshot() -> Snapshot? {
         latest
+    }
+}
+
+private actor TranscriptionRetryExecutionRecorder {
+    private var recorded: [String] = []
+
+    func record(execution: TranscriptionExecutionSnapshot, hasContext: Bool) {
+        switch execution {
+        case .cloud:
+            recorded.append("cloud context:\(hasContext)")
+        case .local(let local, _):
+            let provider = local.localAIExecution?.providerID ?? "local"
+            recorded.append("\(provider) context:\(hasContext)")
+        }
+    }
+
+    func summary() -> [String] {
+        recorded
     }
 }
 

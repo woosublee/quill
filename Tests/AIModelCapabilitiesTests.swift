@@ -5,6 +5,7 @@ struct AIModelCapabilitiesTests {
     static func main() throws {
         try testContextRequiresImageModality()
         try testQualityQwenFeatures()
+        try testTranscriptionRequiresAudioModality()
         try testRetiredQwenHasNoCapabilities()
         try testCloudCapabilitiesAreExplicit()
         try testCuratedCloudModelCatalog()
@@ -21,6 +22,22 @@ struct AIModelCapabilitiesTests {
 
         try expect(!textOnly.supportsContextCapture,
                    "text-only models cannot support Context")
+    }
+
+    private static func testTranscriptionRequiresAudioModality() throws {
+        try expect(!AIModelCapabilityCatalog.qwenTextCapabilities.supportsTranscription,
+                   "Qwen text cannot transcribe")
+        try expect(AIModelCapabilityCatalog.gemma4LocalCapabilities.supportsTranscription,
+                   "Gemma 4 local transcribes")
+        try expect(!AIModelCapabilityCatalog.qwenCloudVisionCapabilities.supportsTranscription,
+                   "cloud vision models are not transcription backends")
+        let featureWithoutAudio = AIModelCapabilities(
+            features: [.transcription],
+            modalities: [.text],
+            recommendedContextWindow: nil
+        )
+        try expect(!featureWithoutAudio.supportsTranscription,
+                   "transcription needs audio modality")
     }
 
     private static func testQualityQwenFeatures() throws {

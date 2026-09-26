@@ -79,6 +79,10 @@ struct TranscriptionRetryStartupInput {
             PipelineHistoryItem,
             TranscriptionCompletionSnapshot
         ) -> TranscriptionRetryProcessingBehavior
+    /// The current Local AI transcription setup, when one is selected. Local AI
+    /// jobs resume only when it matches the stored job.
+    var localAIExecution: LocalTranscriptionExecutionSnapshot? = nil
+    var localAIResumeIdentity: LocalAITranscriptionResumeIdentity? = nil
 }
 
 struct TranscriptionRetryHistoryAccess {
@@ -328,7 +332,8 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
             audioRoot: input.audioDirectory
         ).reconcile(
             input.reconciliation,
-            runtime: input.runtime
+            runtime: input.runtime,
+            localAI: input.localAIResumeIdentity
         )
         let historyByID = Dictionary(
             input.history.map { ($0.id, $0) },
@@ -349,6 +354,36 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
                 pressEnterCommandEnabled:
                     record.completionPolicy.pressEnterCommandEnabled
             )
+            let execution: TranscriptionExecutionSnapshot
+            let failureContext: TranscriptionRetryFailureContext
+            let usedLocalTranscription: Bool
+            let localTranscriptionModelID: String
+            switch record.identity.backend {
+            case .cloud:
+                execution = .cloud(input.runtime, completion)
+                failureContext = TranscriptionRetryFailureContext(
+                    fallbackCode: .providerConfigurationInvalid,
+                    providerHost: input.runtime.baseURL.host,
+                    modelID: input.runtime.model,
+                    localBackend: nil
+                )
+                usedLocalTranscription = false
+                localTranscriptionModelID = item.localTranscriptionModelID
+            case .localAI(let modelID):
+                guard let local = input.localAIExecution,
+                      local.localAIExecution != nil else {
+                    continue
+                }
+                execution = .local(local, completion)
+                failureContext = TranscriptionRetryFailureContext(
+                    fallbackCode: .localTranscriptionFailed,
+                    providerHost: nil,
+                    modelID: modelID,
+                    localBackend: LocalAITranscriptionExecutionSnapshot.backendLabel
+                )
+                usedLocalTranscription = true
+                localTranscriptionModelID = modelID
+            }
             let processing = input.makeProcessingBehavior(
                 item,
                 completion
@@ -366,26 +401,20 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
                     audioFileName,
                     isDirectory: false
                 ),
-                execution: .cloud(input.runtime, completion),
+                execution: execution,
                 cloudDependencies: input.cloudDependenciesFactory(),
                 processing: processing,
                 historyMetadata: TranscriptionRetryHistoryMetadata(
                     customVocabulary: item.customVocabulary,
                     customSystemPrompt: item.customSystemPrompt,
-                    usedLocalTranscription: false,
+                    usedLocalTranscription: usedLocalTranscription,
                     usedPostProcessing: completion.postProcessingEnabled,
                     transcriptionLanguageCode:
                         item.transcriptionLanguageCode,
-                    localTranscriptionModelID:
-                        item.localTranscriptionModelID,
+                    localTranscriptionModelID: localTranscriptionModelID,
                     successDebugStatus: "Resumed after relaunch"
                 ),
-                failureContext: TranscriptionRetryFailureContext(
-                    fallbackCode: .providerConfigurationInvalid,
-                    providerHost: input.runtime.baseURL.host,
-                    modelID: input.runtime.model,
-                    localBackend: nil
-                )
+                failureContext: failureContext
             )
             _ = start(
                 request: request,
@@ -465,15 +494,25 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
         store: CloudTranscriptionJobStore,
         session: CloudTranscriptionJobSession
     ) {
-        guard case .cloud(let cloud, let completion) = request.execution,
-              let existingRecord,
-              !Self.isCompatibleRetry(
+        guard let existingRecord else { return }
+        let isCompatible: Bool
+        switch request.execution {
+        case .cloud(let cloud, let completion):
+            isCompatible = Self.isCompatibleRetry(
                 existingRecord,
                 cloud: cloud,
                 completion: completion
-              ) else {
-            return
+            )
+        case .local(let local, let completion):
+            guard let localAI = local.localAIExecution else { return }
+            isCompatible = Self.isCompatibleLocalAIRetry(
+                existingRecord,
+                localAI: localAI,
+                language: local.language.whisperArgument,
+                completion: completion
+            )
         }
+        guard !isCompatible else { return }
         let staleSession = CloudTranscriptionJobSession(
             historyID: request.sourceIdentity.noteID,
             token: UUID()
@@ -499,6 +538,20 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
             && record.completionPolicy == completion.cloudJobPolicy
     }
 
+    private static func isCompatibleLocalAIRetry(
+        _ record: CloudTranscriptionJobRecord,
+        localAI: LocalAITranscriptionExecutionSnapshot,
+        language: String?,
+        completion: TranscriptionCompletionSnapshot
+    ) -> Bool {
+        record.identity.providerID == localAI.providerID
+            && record.identity.model == localAI.modelID
+            && record.identity.language == language
+            && record.identity.responseFormat == localAI.requestFormat.rawValue
+            && record.plan.sizing == .rawWAV
+            && record.completionPolicy == completion.cloudJobPolicy
+    }
+
     @MainActor
     private func makeCloudContext(
         request: TranscriptionRetryWorkflowRequest,
@@ -507,7 +560,13 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
         token: UUID,
         revision: UInt64
     ) -> CloudTranscriptionExecutionContext? {
-        guard case .cloud(_, let completion) = request.execution else {
+        let completion: TranscriptionCompletionSnapshot
+        switch request.execution {
+        case .cloud(_, let value):
+            completion = value
+        case .local(let local, let value) where local.localAIExecution != nil:
+            completion = value
+        case .local:
             return nil
         }
         let noteID = request.sourceIdentity.noteID

@@ -104,6 +104,7 @@ enum RecordingTranscriptionBackendSnapshot: String, Codable, Equatable {
     case apiRealtime
     case nativeWhisper
     case legacyMlxWhisper
+    case localAI
     case appleLive
     case unknown
 }

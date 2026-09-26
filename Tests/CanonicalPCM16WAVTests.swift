@@ -11,10 +11,125 @@ struct CanonicalPCM16WAVTests {
             try rejectsEmptyAndMisalignedAudio()
             try validatesPhysicalFileSize()
             try convertsFrameCountsWithoutOverflow()
+            try canonicalCopySkipsExtraChunks()
+            try canonicalCopyAcceptsExtensiblePCM()
+            try canonicalCopyRejectsOtherFormats()
             print("CanonicalPCM16WAVTests passed")
         } catch {
             fputs("CanonicalPCM16WAVTests failed: \(error)\n", stderr)
             exit(1)
+        }
+    }
+
+    private static func chunk(_ id: String, _ payload: Data) -> Data {
+        var data = Data(id.utf8)
+        var size = UInt32(payload.count).littleEndian
+        data.append(Data(bytes: &size, count: 4))
+        data.append(payload)
+        if payload.count % 2 == 1 { data.append(0) }
+        return data
+    }
+
+    private static func fmtPayload(
+        tag: UInt16 = 1,
+        channels: UInt16 = 1,
+        rate: UInt32 = 16_000,
+        bits: UInt16 = 16,
+        extensible: Bool = false
+    ) -> Data {
+        var data = Data()
+        func u16(_ v: UInt16) { var x = v.littleEndian; data.append(Data(bytes: &x, count: 2)) }
+        func u32(_ v: UInt32) { var x = v.littleEndian; data.append(Data(bytes: &x, count: 4)) }
+        u16(extensible ? 0xFFFE : tag)
+        u16(channels)
+        u32(rate)
+        u32(rate * UInt32(channels) * UInt32(bits / 8))
+        u16(channels * (bits / 8))
+        u16(bits)
+        if extensible {
+            u16(22)
+            u16(bits)
+            u32(4)
+            // KSDATAFORMAT_SUBTYPE_PCM
+            data.append(contentsOf: [0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x00,
+                                     0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71])
+        }
+        return data
+    }
+
+    private static func riff(_ chunks: [Data]) -> Data {
+        let body = chunks.reduce(Data("WAVE".utf8), +)
+        var data = Data("RIFF".utf8)
+        var size = UInt32(body.count).littleEndian
+        data.append(Data(bytes: &size, count: 4))
+        data.append(body)
+        return data
+    }
+
+    private static func temporaryURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("wav")
+    }
+
+    private static func canonicalCopySkipsExtraChunks() throws {
+        let samples = Data([1, 0, 2, 0, 3, 0, 4, 0])
+        let source = temporaryURL()
+        let destination = temporaryURL()
+        defer {
+            try? FileManager.default.removeItem(at: source)
+            try? FileManager.default.removeItem(at: destination)
+        }
+        try riff([
+            chunk("JUNK", Data(count: 28)),
+            chunk("fmt ", fmtPayload()),
+            chunk("LIST", Data("INFOISFT".utf8) + Data([1])),
+            chunk("data", samples),
+            chunk("LIST", Data(count: 6))
+        ]).write(to: source)
+
+        let layout = try CanonicalPCM16WAV.writeCanonicalCopy(of: source, to: destination)
+        try expectEqual(layout.frameCount, 4, "frames copied")
+        try expectEqual(try CanonicalPCM16WAV.validateFile(at: destination), layout, "copy is canonical")
+        let copied = try Data(contentsOf: destination)
+        try expectEqual(copied.suffix(8), samples, "samples preserved")
+    }
+
+    private static func canonicalCopyAcceptsExtensiblePCM() throws {
+        let source = temporaryURL()
+        let destination = temporaryURL()
+        defer {
+            try? FileManager.default.removeItem(at: source)
+            try? FileManager.default.removeItem(at: destination)
+        }
+        try riff([
+            chunk("fmt ", fmtPayload(extensible: true)),
+            chunk("data", Data([9, 0, 8, 0]))
+        ]).write(to: source)
+        let layout = try CanonicalPCM16WAV.writeCanonicalCopy(of: source, to: destination)
+        try expectEqual(layout.frameCount, 2, "extensible PCM accepted")
+    }
+
+    private static func canonicalCopyRejectsOtherFormats() throws {
+        for fmt in [fmtPayload(channels: 2), fmtPayload(rate: 44_100), fmtPayload(tag: 3, bits: 32)] {
+            let source = temporaryURL()
+            let destination = temporaryURL()
+            defer {
+                try? FileManager.default.removeItem(at: source)
+                try? FileManager.default.removeItem(at: destination)
+            }
+            try riff([chunk("fmt ", fmt), chunk("data", Data([1, 0, 2, 0, 3, 0, 4, 0]))])
+                .write(to: source)
+            do {
+                _ = try CanonicalPCM16WAV.writeCanonicalCopy(of: source, to: destination)
+                throw TestFailure("non-16 kHz mono PCM16 accepted")
+            } catch CanonicalPCM16WAVError.invalidHeader {
+            }
+            try expectEqual(
+                FileManager.default.fileExists(atPath: destination.path),
+                false,
+                "no partial output"
+            )
         }
     }
 

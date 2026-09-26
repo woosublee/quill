@@ -2,11 +2,13 @@ enum AIModelFeature: Hashable, Sendable, Codable {
     case postProcessing
     case contextCapture
     case meetingSummary
+    case transcription
 }
 
 enum AIModelModality: Hashable, Sendable, Codable {
     case text
     case image
+    case audio
 }
 
 struct AIModelCapabilities: Hashable, Sendable, Codable {
@@ -26,6 +28,10 @@ struct AIModelCapabilities: Hashable, Sendable, Codable {
 
     var supportsContextCapture: Bool {
         supports(.contextCapture) && modalities.contains(.image)
+    }
+
+    var supportsTranscription: Bool {
+        supports(.transcription) && modalities.contains(.audio)
     }
 }
 
@@ -64,8 +70,8 @@ enum AIModelCapabilityCatalog {
     )
 
     static let gemma4LocalCapabilities = AIModelCapabilities(
-        features: [.postProcessing, .meetingSummary, .contextCapture],
-        modalities: [.text, .image],
+        features: [.postProcessing, .meetingSummary, .contextCapture, .transcription],
+        modalities: [.text, .image, .audio],
         recommendedContextWindow: 16_384
     )
 

@@ -2,6 +2,16 @@ import Foundation
 
 struct CloudTranscriptionInvalidResponseFailure: Error, Equatable, Sendable {}
 
+/// A local speech model stopped at its output limit before the chunk ended.
+struct TranscriptionChunkTruncatedFailure: Error, Equatable, Sendable {}
+
+/// The local runtime could not serve a chunk (start failed or the process
+/// exited). Retried like an unavailable provider. `reason` is a fixed code,
+/// never user content.
+struct TranscriptionChunkRuntimeFailure: Error, Equatable, Sendable {
+    let reason: String
+}
+
 struct CloudTranscriptionHTTPFailure: Error, Equatable, Sendable {
     let statusCode: Int
     let retryAfterSeconds: TimeInterval?
@@ -60,6 +70,37 @@ struct CloudTranscriptionJobIdentity: Codable, Equatable, Sendable {
     let responseFormat: String
     let source: CloudTranscriptionSourceIdentity
     let planID: String
+}
+
+enum TranscriptionJobBackend: Equatable, Sendable {
+    case cloud
+    case localAI(modelID: String)
+}
+
+extension CloudTranscriptionJobIdentity {
+    /// Local AI jobs share the job store. Their provider ID carries this prefix
+    /// plus the model package digest, so the record schema does not change and
+    /// an older app treats them as an unknown provider waiting for retry.
+    static let localAIProviderIDPrefix = "local-ai:"
+
+    static func localAIProviderID(packageDigest: String) -> String {
+        localAIProviderIDPrefix + packageDigest
+    }
+
+    var backend: TranscriptionJobBackend {
+        providerID.hasPrefix(Self.localAIProviderIDPrefix)
+            ? .localAI(modelID: model)
+            : .cloud
+    }
+}
+
+struct LocalAITranscriptionResumeIdentity: Equatable, Sendable {
+    let providerID: String
+    let model: String
+    let language: String?
+    let responseFormat: String
+    let ceilingBytes: UInt64
+    let silenceSearchFrameCount: UInt64
 }
 
 struct CloudTranscriptionCheckpoint: Codable, Equatable, Sendable {
@@ -186,6 +227,12 @@ struct CloudTranscriptionRetryPolicy: Sendable {
         if error is CancellationError {
             return .cancelled
         }
+        if error is TranscriptionChunkRuntimeFailure {
+            return .providerUnavailable
+        }
+        if error is TranscriptionChunkTruncatedFailure {
+            return .invalidResponse
+        }
         if error is CloudTranscriptionInvalidResponseFailure {
             return .invalidResponse
         }
@@ -255,6 +302,8 @@ struct CloudTranscriptionRetryPolicy: Sendable {
 }
 
 struct CloudTranscriptionCore: Sendable {
+    static let maximumTruncationSplitDepth = 2
+
     let configuration: CloudTranscriptionConfiguration
     let materializer: CloudTranscriptionChunkMaterializer
     let retryPolicy: CloudTranscriptionRetryPolicy
@@ -267,6 +316,34 @@ struct CloudTranscriptionCore: Sendable {
         plan: CloudTranscriptionChunkPlan,
         identity: CloudTranscriptionJobIdentity,
         multipart: CloudTranscriptionMultipartLayout,
+        checkpointStore: any CloudTranscriptionCheckpointStore,
+        request: @escaping @Sendable (URL, TimeInterval) async throws -> String,
+        engineLanguageCode: @escaping @Sendable () async -> String? = { nil },
+        restoreEngineLanguageCode: @escaping @Sendable (String?) async -> Void = { _ in },
+        progress: @escaping @Sendable (CloudTranscriptionProgress) -> Void
+    ) async throws -> String {
+        try await transcribe(
+            sourceURL: sourceURL,
+            sourceLayout: sourceLayout,
+            sourceIdentity: sourceIdentity,
+            plan: plan,
+            identity: identity,
+            sizing: .multipart(multipart),
+            checkpointStore: checkpointStore,
+            request: request,
+            engineLanguageCode: engineLanguageCode,
+            restoreEngineLanguageCode: restoreEngineLanguageCode,
+            progress: progress
+        )
+    }
+
+    func transcribe(
+        sourceURL: URL,
+        sourceLayout: CanonicalPCM16WAVLayout,
+        sourceIdentity: CloudTranscriptionSourceIdentity,
+        plan: CloudTranscriptionChunkPlan,
+        identity: CloudTranscriptionJobIdentity,
+        sizing: TranscriptionChunkSizing,
         checkpointStore: any CloudTranscriptionCheckpointStore,
         request: @escaping @Sendable (URL, TimeInterval) async throws -> String,
         engineLanguageCode: @escaping @Sendable () async -> String? = { nil },
@@ -313,21 +390,13 @@ struct CloudTranscriptionCore: Sendable {
                     attempt: completedAttemptCount
                 ))
                 do {
-                    let materialized = try materializer.materialize(
+                    let rawTranscript = try await transcribeRange(
                         sourceURL: sourceURL,
                         sourceLayout: sourceLayout,
                         chunk: chunk,
-                        multipart: multipart
-                    )
-                    defer { materialized.cleanup() }
-                    let timeout = retryPolicy.attemptTimeout(
-                        encodedByteCount: materialized.encodedByteCount,
-                        minimum: configuration.minimumAttemptTimeoutSeconds,
-                        maximum: configuration.maximumAttemptTimeoutSeconds
-                    )
-                    let rawTranscript = try await request(
-                        materialized.fileURL,
-                        timeout
+                        sizing: sizing,
+                        depth: 0,
+                        request: request
                     )
                     completedRawTranscripts.append(normalizedText(rawTranscript))
                     try await checkpointStore.save(
@@ -357,7 +426,60 @@ struct CloudTranscriptionCore: Sendable {
         }
 
         progress(.completed(total: plan.chunks.count))
-        return normalizedText(completedRawTranscripts.joined(separator: " "))
+        return normalizedText(
+            completedRawTranscripts.filter { !$0.isEmpty }.joined(separator: " ")
+        )
+    }
+
+    private func transcribeRange(
+        sourceURL: URL,
+        sourceLayout: CanonicalPCM16WAVLayout,
+        chunk: CloudTranscriptionChunk,
+        sizing: TranscriptionChunkSizing,
+        depth: Int,
+        request: @escaping @Sendable (URL, TimeInterval) async throws -> String
+    ) async throws -> String {
+        do {
+            let materialized = try materializer.materialize(
+                sourceURL: sourceURL,
+                sourceLayout: sourceLayout,
+                chunk: chunk,
+                sizing: sizing
+            )
+            defer { materialized.cleanup() }
+            let timeout = retryPolicy.attemptTimeout(
+                encodedByteCount: materialized.encodedByteCount,
+                minimum: configuration.minimumAttemptTimeoutSeconds,
+                maximum: configuration.maximumAttemptTimeoutSeconds
+            )
+            return try await request(materialized.fileURL, timeout)
+        } catch is TranscriptionChunkTruncatedFailure
+            where depth < Self.maximumTruncationSplitDepth
+                && chunk.endFrame - chunk.startFrame >= 2 {
+            // Halves are requested in order and joined into this chunk's one
+            // result; they are not checkpointed or reported as progress.
+            let middle = chunk.startFrame + (chunk.endFrame - chunk.startFrame) / 2
+            var parts: [String] = []
+            for (start, end) in [(chunk.startFrame, middle), (middle, chunk.endFrame)] {
+                let half = CloudTranscriptionChunk(
+                    index: chunk.index,
+                    startFrame: start,
+                    endFrame: end,
+                    estimatedEncodedByteCount: try sizing.encodedByteCount(
+                        frameCount: end - start
+                    )
+                )
+                parts.append(normalizedText(try await transcribeRange(
+                    sourceURL: sourceURL,
+                    sourceLayout: sourceLayout,
+                    chunk: half,
+                    sizing: sizing,
+                    depth: depth + 1,
+                    request: request
+                )))
+            }
+            return parts.filter { !$0.isEmpty }.joined(separator: " ")
+        }
     }
 
     private func normalizedText(_ text: String) -> String {

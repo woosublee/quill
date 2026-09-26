@@ -1,6 +1,134 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "On this Mac · Apple Speech · %@ is downloading and will become active when ready.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On this Mac · Apple Speech · %@ is downloading and will become active when ready."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 · Apple Speech · %@ 다운로드 중이며 준비되면 활성화됩니다."
+          }
+        }
+      }
+    },
+    "Local AI": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local AI"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 AI"
+          }
+        }
+      }
+    },
+    "Local AI supports MP3, MP4, M4A, MPEG, MPGA, and WAV imports": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local AI supports MP3, MP4, M4A, MPEG, MPGA, and WAV imports"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 AI는 MP3, MP4, M4A, MPEG, MPGA, WAV 가져오기를 지원합니다"
+          }
+        }
+      }
+    },
+    "This model is no longer available for transcription": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This model is no longer available for transcription"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 모델은 더 이상 전사에 사용할 수 없습니다"
+          }
+        }
+      }
+    },
+    "This Mac does not meet the model's requirements": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac does not meet the model's requirements"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac은 모델 요구 사항을 충족하지 않습니다"
+          }
+        }
+      }
+    },
+    "Download this model in Settings to use this option": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download this model in Settings to use this option"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 옵션을 사용하려면 설정에서 모델을 다운로드하세요"
+          }
+        }
+      }
+    },
+    "Download this model in Settings to import locally": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download this model in Settings to import locally"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬로 가져오려면 설정에서 모델을 다운로드하세요"
+          }
+        }
+      }
+    },
+    "Different on-device models reload for each recording, which is slower. Using the same model for all features avoids this.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Different on-device models reload for each recording, which is slower. Using the same model for all features avoids this."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기능마다 다른 기기 내 모델을 쓰면 녹음할 때마다 모델을 다시 불러와 느려집니다. 모든 기능에 같은 모델을 쓰면 이를 피할 수 있습니다."
+          }
+        }
+      }
+    },
     "Validate": {
       "localizations": {
         "en": {

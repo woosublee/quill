@@ -6,6 +6,7 @@ struct CloudTranscriptionHistoryCoordinatorTests {
     static func main() async {
         do {
             try replacementCancelsOldTaskAndRejectsOldSession()
+            try localRecordsResumeOnlyWithMatchingLocalIdentity()
             try duplicateInstallForSameSessionKeepsOriginalTask()
             try staleProgressAndFinishCannotReplaceCurrentState()
             try activeSessionCheckRejectsReplacedAndCancelledSessions()
@@ -342,6 +343,118 @@ struct CloudTranscriptionHistoryCoordinatorTests {
                 try? await Task.sleep(for: .seconds(60))
             }
         }
+    }
+
+    private static func localRecordsResumeOnlyWithMatchingLocalIdentity() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let cloudRecord = makeRecord()
+        let cloudRuntime = try CloudTranscriptionExecutionSnapshot(
+            baseURL: "https://api.example.invalid/openai/v1",
+            apiKey: "test-key",
+            model: cloudRecord.identity.model,
+            language: cloudRecord.identity.language,
+            responseFormat: cloudRecord.identity.responseFormat,
+            encodedUploadCeilingBytes: cloudRecord.plan.encodedUploadCeilingBytes
+        )
+        let matchedCloud = CloudTranscriptionJobRecord(
+            schemaVersion: cloudRecord.schemaVersion,
+            historyID: cloudRecord.historyID,
+            createdAt: cloudRecord.createdAt,
+            updatedAt: cloudRecord.updatedAt,
+            phase: cloudRecord.phase,
+            identity: CloudTranscriptionJobIdentity(
+                providerID: cloudRuntime.providerID,
+                model: cloudRecord.identity.model,
+                language: cloudRecord.identity.language,
+                responseFormat: cloudRecord.identity.responseFormat,
+                source: cloudRecord.identity.source,
+                planID: cloudRecord.plan.planID
+            ),
+            plan: cloudRecord.plan,
+            completedChunks: [],
+            firstIncompleteChunkIndex: 0,
+            lastFailure: nil,
+            completionPolicy: cloudRecord.completionPolicy
+        )
+        var localPlan = cloudRecord.plan
+        localPlan.sizing = .rawWAV
+        localPlan.silenceSearchFrameCount = 320_000
+        let localRecord = CloudTranscriptionJobRecord(
+            schemaVersion: cloudRecord.schemaVersion,
+            historyID: UUID(),
+            createdAt: cloudRecord.createdAt,
+            updatedAt: cloudRecord.updatedAt,
+            phase: cloudRecord.phase,
+            identity: CloudTranscriptionJobIdentity(
+                providerID: CloudTranscriptionJobIdentity.localAIProviderID(
+                    packageDigest: "digest"
+                ),
+                model: "gemma-4-e4b-it",
+                language: nil,
+                responseFormat: "chat-completions-input-audio",
+                source: cloudRecord.identity.source,
+                planID: localPlan.planID
+            ),
+            plan: localPlan,
+            completedChunks: [],
+            firstIncompleteChunkIndex: 0,
+            lastFailure: nil,
+            completionPolicy: cloudRecord.completionPolicy
+        )
+        let base = CloudTranscriptionReconciliation(
+            resumable: [matchedCloud, localRecord],
+            waitingForRetry: [],
+            invalid: []
+        )
+        let reconciler = CloudTranscriptionStartupReconciler(
+            store: fixture.store,
+            audioRoot: fixture.root
+        )
+
+        let noLocal = reconciler.reconcile(base, runtime: cloudRuntime)
+        try expectEqual(
+            noLocal.resumable.map(\.historyID),
+            [matchedCloud.historyID],
+            "local waits without local runtime"
+        )
+
+        let matching = LocalAITranscriptionResumeIdentity(
+            providerID: localRecord.identity.providerID,
+            model: localRecord.identity.model,
+            language: localRecord.identity.language,
+            responseFormat: localRecord.identity.responseFormat,
+            ceilingBytes: localRecord.plan.encodedUploadCeilingBytes,
+            silenceSearchFrameCount: 320_000
+        )
+        let withLocal = reconciler.reconcile(
+            base,
+            runtime: cloudRuntime,
+            localAI: matching
+        )
+        try expectEqual(
+            Set(withLocal.resumable.map(\.historyID)),
+            [matchedCloud.historyID, localRecord.historyID],
+            "matching local identity resumes"
+        )
+
+        let otherPackage = LocalAITranscriptionResumeIdentity(
+            providerID: "local-ai:other",
+            model: matching.model,
+            language: matching.language,
+            responseFormat: matching.responseFormat,
+            ceilingBytes: matching.ceilingBytes,
+            silenceSearchFrameCount: matching.silenceSearchFrameCount
+        )
+        let mismatch = reconciler.reconcile(
+            base,
+            runtime: cloudRuntime,
+            localAI: otherPackage
+        )
+        try expect(
+            mismatch.waitingForRetry.map(\.historyID).contains(localRecord.historyID),
+            "package digest mismatch waits"
+        )
     }
 
     private static func makeFixture() throws -> CoordinatorFixture {
