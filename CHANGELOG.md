@@ -8,6 +8,19 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.1.45] - 2026-09-26
+
+### Fixed
+
+- Fixed Local AI and Native Whisper failing to start on macOS 13–15. Their bundled helpers had required a newer macOS than the app supports.
+- Fixed Local AI failing on its first use after an update while the new runtime prepared itself; Quill now waits for it instead of keeping the raw transcript.
+- Reported Local AI startup failures right away when the on-device runtime exits during launch, instead of after a long wait.
+
+### Improved
+
+- Updated the on-device AI runtime, preparing for additional local models.
+- Used processor-specific acceleration in the Local AI and Native Whisper helpers on both Apple Silicon and Intel Macs, and limited Local AI memory use.
+
 ## [0.1.44] - 2026-09-26
 
 ### Added
