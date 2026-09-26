@@ -4,6 +4,7 @@ import Foundation
 @main
 struct LocalAIServerManagerTests {
     static func main() async throws {
+        try testDefaultHealthPollAllowsFirstLaunchShaderCompilation()
         try await testLazyStartForwardsPrimaryShardAndModelContextWindow()
         try await testQualityModelLaunchesWithDeclared16KContext()
         try await testMissingContextWindowFallsBackTo8K()
@@ -268,6 +269,18 @@ struct LocalAIServerManagerTests {
                 "runtime recovery left a stale transaction backup"
             )
         }
+    }
+
+    // A newly installed llama-server compiles its Metal shaders on first launch,
+    // which took about 16 s with llama.cpp b11046 on an M4 Max, then under 1 s.
+    private static func testDefaultHealthPollAllowsFirstLaunchShaderCompilation() throws {
+        let poller = LocalAIHealthPoller.default
+        precondition(poller.overallTimeout >= 60, "first launch after an update needs more than 10 s")
+        precondition(
+            Double(poller.maxAttempts) * poller.cadence >= poller.overallTimeout,
+            "the attempt limit must not end polling before the overall timeout"
+        )
+        precondition(poller.probeTimeout == 1, "each health probe stays short")
     }
 
     private static func testDefaultHealthPollUsesExplicitShortRequestTimeout() async throws {

@@ -33,11 +33,14 @@ struct LocalAIHealthPoller: Sendable {
     let now: MonotonicNow
     let sleep: Sleep
 
+    // A newly installed llama-server compiles its Metal shaders on first
+    // launch (about 16 s with llama.cpp b11046 on Apple Silicon), and a cold
+    // disk can add more before /health turns ready.
     static let `default` = LocalAIHealthPoller(
-        overallTimeout: 10,
+        overallTimeout: 60,
         probeTimeout: 1,
         cadence: 0.2,
-        maxAttempts: 50,
+        maxAttempts: 300,
         probe: { request in
             try await LLMAPITransport.data(for: request)
         },
