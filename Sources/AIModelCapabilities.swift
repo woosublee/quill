@@ -75,6 +75,13 @@ enum AIModelCapabilityCatalog {
         recommendedContextWindow: 16_384
     )
 
+    /// Speech recognition only; never offered for cleanup, summaries, or Context.
+    static let qwen3ASRCapabilities = AIModelCapabilities(
+        features: [.transcription],
+        modalities: [.audio],
+        recommendedContextWindow: 4_096
+    )
+
     static let qwenCloudVisionCapabilities = AIModelCapabilities(
         features: [.postProcessing, .contextCapture, .meetingSummary],
         modalities: [.text, .image],

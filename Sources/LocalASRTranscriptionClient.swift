@@ -31,7 +31,7 @@ struct LocalASRTranscriptionClient: Sendable {
             timeoutSeconds: timeoutSeconds
         )
         let (data, response) = try await send(request)
-        return try Self.parseResponse(data: data, response: response)
+        return try Self.parseResponse(data: data, response: response, format: format)
     }
 
     static func instruction(languageCode: String?) -> String {
@@ -54,44 +54,73 @@ struct LocalASRTranscriptionClient: Sendable {
         languageCode: String?,
         timeoutSeconds: TimeInterval
     ) throws -> URLRequest {
+        let audioPart: [String: Any] = [
+            "type": "input_audio",
+            "input_audio": [
+                "data": audioData.base64EncodedString(),
+                "format": "wav"
+            ]
+        ]
+        var messages: [[String: Any]]
         switch format {
         case .chatCompletionsInputAudio:
-            var request = URLRequest(
-                url: baseURL
-                    .appendingPathComponent("chat")
-                    .appendingPathComponent("completions")
-            )
-            request.httpMethod = "POST"
-            request.timeoutInterval = timeoutSeconds
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            let body: [String: Any] = [
-                "model": "local",
-                "temperature": 0,
-                "max_tokens": maximumOutputTokens,
-                "stream": false,
-                "messages": [[
-                    "role": "user",
-                    "content": [
-                        [
-                            "type": "input_audio",
-                            "input_audio": [
-                                "data": audioData.base64EncodedString(),
-                                "format": "wav"
-                            ]
-                        ],
-                        [
-                            "type": "text",
-                            "text": instruction(languageCode: languageCode)
-                        ]
-                    ]
-                ]]
-            ]
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            return request
+            messages = [[
+                "role": "user",
+                "content": [
+                    audioPart,
+                    ["type": "text", "text": instruction(languageCode: languageCode)]
+                ]
+            ]]
+        case .qwen3ASRChatCompletions:
+            messages = [["role": "user", "content": [audioPart]]]
+            // Qwen3-ASR ignores text instructions but follows a prefilled
+            // "language <Name><asr_text>" reply, which fixes the language.
+            if let name = qwen3ASRLanguageName(for: languageCode) {
+                messages.append([
+                    "role": "assistant",
+                    "content": "language \(name)<asr_text>"
+                ])
+            }
         }
+        var request = URLRequest(
+            url: baseURL
+                .appendingPathComponent("chat")
+                .appendingPathComponent("completions")
+        )
+        request.httpMethod = "POST"
+        request.timeoutInterval = timeoutSeconds
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = [
+            "model": "local",
+            "temperature": 0,
+            "max_tokens": maximumOutputTokens,
+            "stream": false,
+            "messages": messages
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
     }
 
-    static func parseResponse(data: Data, response: URLResponse) throws -> String {
+    /// Languages Qwen3-ASR is documented to recognize by name. Others are left
+    /// to the model's own detection rather than forced with an unknown name.
+    private static let qwen3ASRForcedLanguageCodes: Set<String> = [
+        "ar", "de", "en", "es", "fr", "hi", "id", "it", "ja", "ko",
+        "nl", "pt", "ru", "th", "tr", "vi", "zh"
+    ]
+
+    static func qwen3ASRLanguageName(for languageCode: String?) -> String? {
+        guard let languageCode,
+              qwen3ASRForcedLanguageCodes.contains(languageCode) else {
+            return nil
+        }
+        return Locale(identifier: "en").localizedString(forLanguageCode: languageCode)
+    }
+
+    static func parseResponse(
+        data: Data,
+        response: URLResponse,
+        format: LocalASRRequestFormat = .chatCompletionsInputAudio
+    ) throws -> String {
         guard let http = response as? HTTPURLResponse else {
             throw CloudTranscriptionInvalidResponseFailure()
         }
@@ -105,8 +134,12 @@ struct LocalASRTranscriptionClient: Sendable {
         if choice.finishReason == "length" {
             throw TranscriptionChunkTruncatedFailure()
         }
-        return (choice.message.content ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var text = choice.message.content ?? ""
+        if format == .qwen3ASRChatCompletions,
+           let tag = text.range(of: "<asr_text>") {
+            text = String(text[tag.upperBound...])
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private struct ChatResponse: Decodable {

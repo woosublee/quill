@@ -1,6 +1,22 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Transcription only. Light and fast, and leaves silence empty.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription only. Light and fast, and leaves silence empty."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사 전용입니다. 가볍고 빠르며 무음 구간을 비워 둡니다."
+          }
+        }
+      }
+    },
     "On this Mac · Apple Speech · %@ is downloading and will become active when ready.": {
       "localizations": {
         "en": {

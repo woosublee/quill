@@ -54,7 +54,9 @@ struct AIProcessingBackendTests {
         )
         assert(belowThreshold.isSupported)
         assert(!belowThreshold.isModelSupported(LocalAIModelCatalog.quality))
-        assert(belowThreshold.availableModels.isEmpty)
+        // Only the 8 GB transcription model fits, and it is never recommended
+        // for AI processing.
+        assert(belowThreshold.availableModels == [LocalAIModelCatalog.qwen3ASR06B])
         assert(belowThreshold.recommendedModel == nil)
 
         let atThreshold = LocalAIProcessingAvailability(
@@ -64,7 +66,11 @@ struct AIProcessingBackendTests {
         )
         assert(atThreshold.isSupported)
         assert(atThreshold.isModelSupported(LocalAIModelCatalog.quality))
-        assert(atThreshold.availableModels == [LocalAIModelCatalog.quality, LocalAIModelCatalog.gemma4E4B])
+        assert(atThreshold.availableModels == [
+            LocalAIModelCatalog.quality,
+            LocalAIModelCatalog.gemma4E4B,
+            LocalAIModelCatalog.qwen3ASR06B
+        ])
         // Gemma is an additional choice; Qwen stays recommended.
         assert(atThreshold.recommendedModel == LocalAIModelCatalog.quality)
 

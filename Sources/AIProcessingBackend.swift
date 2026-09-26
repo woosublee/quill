@@ -113,9 +113,16 @@ struct LocalAIProcessingAvailability: Equatable, Sendable {
         LocalAIModelCatalog.all.filter(isModelSupported)
     }
 
+    /// The model recommended for AI processing (cleanup, summaries,
+    /// Context). Transcription-only models are never recommended here.
     var recommendedModel: LocalAIModel? {
-        availableModels.first { $0.id == LocalAIModelCatalog.quality.id }
-            ?? availableModels.first
+        let processingModels = availableModels.filter {
+            !$0.capabilities.features.isDisjoint(
+                with: [.postProcessing, .meetingSummary, .contextCapture]
+            )
+        }
+        return processingModels.first { $0.id == LocalAIModelCatalog.quality.id }
+            ?? processingModels.first
     }
 
     static func live(

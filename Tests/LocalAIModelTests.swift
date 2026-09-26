@@ -10,6 +10,7 @@ struct LocalAIModelTests {
         try testCapabilityLookupUsesStoredModelDescriptors()
         try testCatalogArtifactsAreCompleteAndValid()
         try testCatalogListsQwenThenGemma()
+        try testQwen3ASRModelMetadata()
         try testRetiredModelDoesNotHaveProductStorageMetadata()
         try testDownloadProgressDisplayText()
         try testLocalizedModelMetadataAndDownloadProgress()
@@ -49,6 +50,37 @@ struct LocalAIModelTests {
     }
 
     // One download serves post-processing, meeting summaries, and screen context.
+    private static func testQwen3ASRModelMetadata() throws {
+        let model = LocalAIModelCatalog.qwen3ASR06B
+        assert(model.id == "qwen3-asr-0.6b")
+        assert(model.displayName == "Qwen3-ASR 0.6B")
+        assert(model.artifacts.count == 2)
+
+        let weights = model.artifacts[0]
+        assert(weights.downloadURL.absoluteString == "https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/main/Qwen3-ASR-0.6B-Q8_0.gguf")
+        assert(weights.expectedFileName == "Qwen3-ASR-0.6B-Q8_0.gguf")
+        assert(weights.approximateBytes == 804_749_248)
+        assert(weights.checksumSHA256 == "bca259818b50ca7c4c05e9bdb35a5dc04fa039653a6d6f3f0f331f96f6aa1971")
+
+        let projector = model.artifacts[1]
+        assert(projector.downloadURL.absoluteString == "https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/main/mmproj-Qwen3-ASR-0.6B-Q8_0.gguf")
+        assert(projector.expectedFileName == "qwen3-asr-0.6b-mmproj-Q8_0.gguf")
+        assert(projector.approximateBytes == 214_392_480)
+        assert(projector.checksumSHA256 == "41a342b5e4c514e968cb756de6cd1b7be39eff43c44c57a2ef5fc6522e36603d")
+
+        assert(model.runtime == .visionChat(projectorArtifactFileName: "qwen3-asr-0.6b-mmproj-Q8_0.gguf"))
+        // Transcription only: never offered for cleanup, summaries, or Context.
+        assert(model.supportsTranscription)
+        assert(model.transcriptionRequestFormat == .qwen3ASRChatCompletions)
+        assert(!model.capabilities.supports(.postProcessing))
+        assert(!model.capabilities.supports(.meetingSummary))
+        assert(!model.capabilities.supportsContextCapture)
+        assert(model.capabilities.recommendedContextWindow == 4_096)
+        assert(model.minimumPhysicalMemoryBytes == 8 * 1024 * 1024 * 1024)
+        assert(model.approximateResidentRAMBytes > model.approximateBytes)
+        assert(model.serverArguments.isEmpty)
+    }
+
     private static func testGemmaModelMetadata() throws {
         let model = LocalAIModelCatalog.gemma4E4B
         assert(model.id == "gemma-4-e4b-it")
@@ -91,7 +123,7 @@ struct LocalAIModelTests {
         assert(qwen.transcriptionRequestFormat == nil)
         assert(!qwen.supportsTranscription)
 
-        assert(LocalAIModelCatalog.transcriptionModels.map(\.id) == ["gemma-4-e4b-it"])
+        assert(LocalAIModelCatalog.transcriptionModels.map(\.id) == ["gemma-4-e4b-it", "qwen3-asr-0.6b"])
     }
 
     private static func testCapabilityLookupUsesStoredModelDescriptors() throws {
@@ -113,7 +145,8 @@ struct LocalAIModelTests {
     }
 
     private static func testCatalogListsQwenThenGemma() throws {
-        assert(LocalAIModelCatalog.all.map(\.id) == ["qwen2.5-7b-instruct", "gemma-4-e4b-it"])
+        assert(LocalAIModelCatalog.all.map(\.id) == ["qwen2.5-7b-instruct", "gemma-4-e4b-it", "qwen3-asr-0.6b"])
+        assert(LocalAIModelCatalog.model(id: "qwen3-asr-0.6b") == LocalAIModelCatalog.qwen3ASR06B)
         assert(LocalAIModelCatalog.model(id: "gemma-4-e4b-it") == LocalAIModelCatalog.gemma4E4B)
         assert(LocalAIModelCatalog.model(id: "qwen2.5-7b-instruct") == LocalAIModelCatalog.quality)
         assert(LocalAIModelCatalog.model(id: "does-not-exist") == nil)
