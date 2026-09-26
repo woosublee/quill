@@ -31,7 +31,7 @@ struct LocalASRTranscriptionClient: Sendable {
             timeoutSeconds: timeoutSeconds
         )
         let (data, response) = try await send(request)
-        return try Self.parseResponse(data: data, response: response)
+        return try Self.parseResponse(data: data, response: response, format: format)
     }
 
     static func instruction(languageCode: String?) -> String {
@@ -54,44 +54,47 @@ struct LocalASRTranscriptionClient: Sendable {
         languageCode: String?,
         timeoutSeconds: TimeInterval
     ) throws -> URLRequest {
+        let audioPart: [String: Any] = [
+            "type": "input_audio",
+            "input_audio": [
+                "data": audioData.base64EncodedString(),
+                "format": "wav"
+            ]
+        ]
+        let content: [[String: Any]]
         switch format {
         case .chatCompletionsInputAudio:
-            var request = URLRequest(
-                url: baseURL
-                    .appendingPathComponent("chat")
-                    .appendingPathComponent("completions")
-            )
-            request.httpMethod = "POST"
-            request.timeoutInterval = timeoutSeconds
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            let body: [String: Any] = [
-                "model": "local",
-                "temperature": 0,
-                "max_tokens": maximumOutputTokens,
-                "stream": false,
-                "messages": [[
-                    "role": "user",
-                    "content": [
-                        [
-                            "type": "input_audio",
-                            "input_audio": [
-                                "data": audioData.base64EncodedString(),
-                                "format": "wav"
-                            ]
-                        ],
-                        [
-                            "type": "text",
-                            "text": instruction(languageCode: languageCode)
-                        ]
-                    ]
-                ]]
+            content = [
+                audioPart,
+                ["type": "text", "text": instruction(languageCode: languageCode)]
             ]
-            request.httpBody = try JSONSerialization.data(withJSONObject: body)
-            return request
+        case .qwen3ASRChatCompletions:
+            content = [audioPart]
         }
+        var request = URLRequest(
+            url: baseURL
+                .appendingPathComponent("chat")
+                .appendingPathComponent("completions")
+        )
+        request.httpMethod = "POST"
+        request.timeoutInterval = timeoutSeconds
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = [
+            "model": "local",
+            "temperature": 0,
+            "max_tokens": maximumOutputTokens,
+            "stream": false,
+            "messages": [["role": "user", "content": content]]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        return request
     }
 
-    static func parseResponse(data: Data, response: URLResponse) throws -> String {
+    static func parseResponse(
+        data: Data,
+        response: URLResponse,
+        format: LocalASRRequestFormat = .chatCompletionsInputAudio
+    ) throws -> String {
         guard let http = response as? HTTPURLResponse else {
             throw CloudTranscriptionInvalidResponseFailure()
         }
@@ -105,8 +108,12 @@ struct LocalASRTranscriptionClient: Sendable {
         if choice.finishReason == "length" {
             throw TranscriptionChunkTruncatedFailure()
         }
-        return (choice.message.content ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var text = choice.message.content ?? ""
+        if format == .qwen3ASRChatCompletions,
+           let tag = text.range(of: "<asr_text>") {
+            text = String(text[tag.upperBound...])
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private struct ChatResponse: Decodable {

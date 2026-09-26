@@ -58,9 +58,11 @@ struct LocalASRIntegrationTests {
             }
         }
 
-        let model = LocalAIModelCatalog.gemma4E4B
-        guard let format = model.transcriptionRequestFormat else {
-            throw IntegrationFailure("Gemma has no transcription request format")
+        let modelID = ProcessInfo.processInfo.environment["QUILL_ASR_MODEL_ID"]
+            ?? LocalAIModelCatalog.gemma4E4B.id
+        guard let model = LocalAIModelCatalog.model(id: modelID),
+              let format = model.transcriptionRequestFormat else {
+            throw IntegrationFailure("\(modelID) is not a transcription model")
         }
         let client = LocalASRTranscriptionClient()
         let language = languageCode(for: fileURL)

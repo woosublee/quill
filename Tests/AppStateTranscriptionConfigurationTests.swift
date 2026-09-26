@@ -110,6 +110,7 @@ struct AppStateTranscriptionConfigurationTests {
         await testUninstalledLocalAIChoiceIsUnavailableNotSwitched()
         await testUnknownStoredLocalAIModelResolvesUnavailable()
         await testLocalModeKeepsSelectedLocalAIModel()
+        await testEightGigabyteMacListsOnlyLightTranscriptionModel()
         await testReloadHintOnlyWhenLocalModelsDiffer()
         await testSelectingUninstalledLocalAIWaitsForInstall()
         await testStartupKeepsLocalAIChoiceBeforeStatusRefresh()
@@ -395,7 +396,10 @@ struct AppStateTranscriptionConfigurationTests {
                 if case .localAI(let id) = display.choice { return id }
                 return nil
             }
-            precondition(ids == ["gemma-4-e4b-it"], "gemma listed, qwen not: \(ids)")
+            precondition(
+                ids == ["gemma-4-e4b-it", "qwen3-asr-0.6b"],
+                "transcription models listed, Qwen2.5 not: \(ids)"
+            )
         }
     }
 
@@ -424,6 +428,26 @@ struct AppStateTranscriptionConfigurationTests {
             precondition(
                 !appState.noteBrowserTranscriptionDisplay(for: .localAI(modelID: "retired-model")).isAvailable,
                 "unknown model unavailable"
+            )
+        }
+    }
+
+    private static func testEightGigabyteMacListsOnlyLightTranscriptionModel() async {
+        resetDefaults()
+        var dependencies = localAITranscriptionDependencies(installStatus: .ready)
+        dependencies.localAI.processingAvailability = {
+            LocalAIProcessingAvailability(
+                isAppleSilicon: true,
+                runnerIsExecutable: true,
+                physicalMemory: 8 * 1024 * 1024 * 1024
+            )
+        }
+        let appState = await MainActor.run { AppState(dependencies: dependencies) }
+        await appState.waitForLocalAIInstallStateRefresh()
+        await MainActor.run {
+            precondition(
+                appState.localAITranscriptionChoices == [.localAI(modelID: "qwen3-asr-0.6b")],
+                "8 GB Macs get Qwen3-ASR 0.6B but not Gemma: \(appState.localAITranscriptionChoices)"
             )
         }
     }

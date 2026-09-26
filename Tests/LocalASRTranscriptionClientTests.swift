@@ -5,6 +5,9 @@ struct LocalASRTranscriptionClientTests {
     static func main() async {
         do {
             try requestCarriesAudioAndInstruction()
+            try qwen3ASRRequestSendsAudioOnly()
+            try qwen3ASRResponseDropsLanguageTag()
+            try gemmaResponseKeepsTagLikeText()
             try instructionNamesExplicitLanguage()
             try parsesTranscriptText()
             try treatsEmptyContentAsSilence()
@@ -52,6 +55,54 @@ struct LocalASRTranscriptionClientTests {
             LocalASRTranscriptionClient.instruction(languageCode: nil),
             "instruction text"
         )
+    }
+
+    private static func qwen3ASRRequestSendsAudioOnly() throws {
+        let request = try LocalASRTranscriptionClient.makeRequest(
+            baseURL: baseURL,
+            audioData: Data([1, 2]),
+            format: .qwen3ASRChatCompletions,
+            languageCode: "ko",
+            timeoutSeconds: 120
+        )
+        try expectEqual(request.url?.absoluteString, "http://127.0.0.1:50123/v1/chat/completions", "endpoint")
+        let body = try JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any]
+        try expectEqual(body?["max_tokens"] as? Int, 1_536, "token budget")
+        let messages = body?["messages"] as? [[String: Any]]
+        let content = messages?.first?["content"] as? [[String: Any]]
+        // Qwen3-ASR ignores text instructions, so only the audio is sent.
+        try expectEqual(content?.count, 1, "audio part only")
+        try expectEqual(content?.first?["type"] as? String, "input_audio", "audio part")
+    }
+
+    private static func qwen3ASRResponseDropsLanguageTag() throws {
+        let tagged = try LocalASRTranscriptionClient.parseResponse(
+            data: responseBody(content: "language Korean<asr_text>안녕하세요.", finishReason: "stop"),
+            response: http(200),
+            format: .qwen3ASRChatCompletions
+        )
+        try expectEqual(tagged, "안녕하세요.", "language tag removed")
+        let silent = try LocalASRTranscriptionClient.parseResponse(
+            data: responseBody(content: "language None<asr_text>", finishReason: "stop"),
+            response: http(200),
+            format: .qwen3ASRChatCompletions
+        )
+        try expectEqual(silent, "", "no speech is empty")
+        let untagged = try LocalASRTranscriptionClient.parseResponse(
+            data: responseBody(content: " plain text ", finishReason: "stop"),
+            response: http(200),
+            format: .qwen3ASRChatCompletions
+        )
+        try expectEqual(untagged, "plain text", "untagged text kept")
+    }
+
+    private static func gemmaResponseKeepsTagLikeText() throws {
+        let text = try LocalASRTranscriptionClient.parseResponse(
+            data: responseBody(content: "language Korean<asr_text>x", finishReason: "stop"),
+            response: http(200),
+            format: .chatCompletionsInputAudio
+        )
+        try expectEqual(text, "language Korean<asr_text>x", "other formats unchanged")
     }
 
     private static func instructionNamesExplicitLanguage() throws {

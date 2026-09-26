@@ -123,7 +123,36 @@ struct LocalAIModelCatalog {
         transcriptionRequestFormat: .chatCompletionsInputAudio
     )
 
-    static let all: [LocalAIModel] = [quality, gemma4E4B]
+    static let qwen3ASR06B = LocalAIModel(
+        id: "qwen3-asr-0.6b",
+        displayName: "Qwen3-ASR 0.6B",
+        description: "Transcription only. Light and fast, and leaves silence empty.",
+        artifacts: [
+            LocalAIModelArtifact(
+                downloadURL: URL(string: "https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/main/Qwen3-ASR-0.6B-Q8_0.gguf")!,
+                expectedFileName: "Qwen3-ASR-0.6B-Q8_0.gguf",
+                approximateBytes: 804_749_248,
+                checksumSHA256: "bca259818b50ca7c4c05e9bdb35a5dc04fa039653a6d6f3f0f331f96f6aa1971"
+            ),
+            // Stored under a model-specific name so another model's generic
+            // projector file cannot collide in the shared folder.
+            LocalAIModelArtifact(
+                downloadURL: URL(string: "https://huggingface.co/ggml-org/Qwen3-ASR-0.6B-GGUF/resolve/main/mmproj-Qwen3-ASR-0.6B-Q8_0.gguf")!,
+                expectedFileName: "qwen3-asr-0.6b-mmproj-Q8_0.gguf",
+                approximateBytes: 214_392_480,
+                checksumSHA256: "41a342b5e4c514e968cb756de6cd1b7be39eff43c44c57a2ef5fc6522e36603d"
+            )
+        ],
+        // Measured about 1.6 GB resident with the projector loaded (llama.cpp
+        // b11046, 4K context, one slot); rounded up for headroom.
+        approximateResidentRAMBytes: 2_000_000_000,
+        minimumPhysicalMemoryBytes: 8 * 1024 * 1024 * 1024,
+        capabilities: AIModelCapabilityCatalog.qwen3ASRCapabilities,
+        runtime: .visionChat(projectorArtifactFileName: "qwen3-asr-0.6b-mmproj-Q8_0.gguf"),
+        transcriptionRequestFormat: .qwen3ASRChatCompletions
+    )
+
+    static let all: [LocalAIModel] = [quality, gemma4E4B, qwen3ASR06B]
 
     static var transcriptionModels: [LocalAIModel] {
         all.filter(\.supportsTranscription)
