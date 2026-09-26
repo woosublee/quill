@@ -8,6 +8,17 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.3.0] - 2026-09-27
+
+### Added
+
+- Added Qwen3-ASR 0.6B as an on-device transcription model. It is transcription only, downloads about 1 GB, runs on Macs with 8 GB of memory, leaves silence empty instead of inventing text, and follows the transcription language you choose for the major languages it supports.
+- Guided Screen & System Audio Recording and Accessibility permissions with a small panel next to System Settings: drag Quill's icon into the list and turn it on. Quill no longer opens a system permission dialog and System Settings at the same time, and the panel closes once access is granted. Starting a system audio recording without that access now opens the same guide instead of recording.
+
+### Fixed
+
+- Fixed Native Whisper failing an entire transcription when its output contained one broken character; the transcript is now kept without that character.
+
 ## [0.2.0] - 2026-09-26
 
 ### Added
