@@ -18,6 +18,10 @@ struct QuillUserIssueView: View {
     // Only meaningful for .warningBanner: set on the first banner of a
     // group to show a "+N" pill that reveals the rest.
     var expansion: QuillBannerExpansion?
+    // A different symbol and tint for a state that is not an error, such as
+    // a recovered recording.
+    var systemImageOverride: String?
+    var tintOverride: Color?
 
     @State private var showsDetails = false
 
@@ -36,22 +40,26 @@ struct QuillUserIssueView: View {
     // border, severity only in the icon color, one neutral action, and the
     // suggestion and diagnostics behind an info popover.
 
-    /// A small centered card for a note with nothing else to show.
+    /// A centered empty state for a note with nothing else to show, drawn
+    /// like the app's other empty states: no surface, just the icon, the
+    /// title, one line, and the action.
     private var fullView: some View {
         VStack(spacing: 8) {
             Image(systemName: iconName)
-                .font(.system(size: 18, weight: .semibold))
+                .font(.system(size: 24, weight: .medium))
                 .foregroundStyle(accentColor)
-                .frame(width: 40, height: 40)
-                .background(accentColor.opacity(0.12), in: Circle())
+                .frame(width: 64, height: 64)
+                .background(accentColor.opacity(0.1), in: Circle())
+                .padding(.bottom, 4)
 
             Text(presentation.title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
             Text(presentation.body)
                 .font(.system(size: 12))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -59,12 +67,9 @@ struct QuillUserIssueView: View {
                 actionButton
                 detailsButton
             }
-            .padding(.top, 4)
+            .padding(.top, 6)
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 22)
-        .frame(maxWidth: 420)
-        .background(issueSurface(cornerRadius: 14))
+        .frame(maxWidth: 380)
         .frame(maxWidth: .infinity)
     }
 
@@ -244,7 +249,8 @@ struct QuillUserIssueView: View {
     }
 
     private var iconName: String {
-        presentation.severity == .warning
+        if let systemImageOverride { return systemImageOverride }
+        return presentation.severity == .warning
             ? "exclamationmark.triangle.fill"
             : "exclamationmark.circle.fill"
     }
@@ -252,7 +258,8 @@ struct QuillUserIssueView: View {
     /// Muted amber for warnings and a softened red for errors, so severity
     /// reads from the icon without tinting the whole surface.
     private var accentColor: Color {
-        presentation.severity == .warning
+        if let tintOverride { return tintOverride }
+        return presentation.severity == .warning
             ? Color(red: 0.95, green: 0.70, blue: 0.36)
             : Color(red: 1.0, green: 0.48, blue: 0.44)
     }

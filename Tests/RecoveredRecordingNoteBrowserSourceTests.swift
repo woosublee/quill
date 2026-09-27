@@ -16,11 +16,17 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("private var recoveredRecordingContext: RecoveredRecordingContext"))
         precondition(source.contains("item.recoveredRecordingContext"))
         precondition(source.contains("private var recoveryTitle: String"))
-        precondition(source.contains("private var recoveryDescription: String"))
+        precondition(source.contains("private var recoveryPresentation: QuillUserIssuePresentation"))
         precondition(source.contains("localizedCatalogString(recoveredRecordingContext.titleLocalizationKey)"))
-        precondition(source.contains("recoveredRecordingContext.localizedDescription()"))
-        precondition(source.contains("Text(recoveryTitle)"))
-        precondition(source.contains("Text(recoveryDescription)"))
+        precondition(source.contains("body: recoveredRecordingContext.localizedResult()"))
+        precondition(source.contains("suggestion: recoveredRecordingContext.localizedCause() ?? \"\""))
+        // A recovered recording uses the same centered empty state as a
+        // failed note, with the recovery icon and a Transcribe action.
+        precondition(source.contains("presentation: recoveryPresentation"))
+        precondition(source.contains("actionTitleOverride: \"Transcribe\""))
+        precondition(source.contains("systemImageOverride: \"arrow.clockwise\""))
+        // A failed note has no header indicator; its empty state explains.
+        precondition(!source.contains(".help(\"Transcription failed\")"))
         precondition(source.contains("NoteAudioPlayerView(audioURL: storedAudioURL)"))
         precondition(source.contains("appState.retryTranscription(item: item)"))
         precondition(source.contains("case .needsModelSelection, .needsProviderConfiguration:"))

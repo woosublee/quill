@@ -519,7 +519,7 @@ struct NoteListRowDisplayDataTests {
         let data = NoteListRowDisplayData(item: item, retryingIDs: [])
 
         assert(data.status == .fail)
-        assert(data.preview == "This older history item does not include a safe error category.")
+        assert(data.preview == "Couldn't transcribe", "Unexpected preview: \(data.preview)")
         assert(!data.preview.contains("Network unavailable"))
     }
 
@@ -533,7 +533,7 @@ struct NoteListRowDisplayDataTests {
 
         assert(data.status == .fail)
         assert(
-            data.preview == "This older history item does not include a safe error category.",
+            data.preview == "Couldn't transcribe",
             "Unexpected failure preview: \(data.preview)"
         )
         assert(!data.preview.contains("Network unavailable"))

@@ -81,12 +81,11 @@ enum NoteTitleResolver {
                     bundle: bundle
                 )
             }
+            // A failed note keeps a plain name; the list preview and the
+            // note detail say what went wrong.
             if case .failed = item.machineStatus {
-                return item.userIssuePresentation(
-                    language: language,
-                    bundle: bundle
-                )?.title ?? localizedCatalogString(
-                    "Transcription failed",
+                return localizedCatalogString(
+                    "New Recording",
                     language: language,
                     bundle: bundle
                 )

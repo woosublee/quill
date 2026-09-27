@@ -17924,6 +17924,22 @@
           }
         }
       }
+    },
+    "Couldn't transcribe": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't transcribe"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사하지 못함"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -2044,8 +2044,16 @@ private struct NoteDetailView: View {
     private var recoveryTitle: String {
         localizedCatalogString(recoveredRecordingContext.titleLocalizationKey)
     }
-    private var recoveryDescription: String {
-        recoveredRecordingContext.localizedDescription()
+    private var recoveryPresentation: QuillUserIssuePresentation {
+        QuillUserIssuePresentation(
+            title: recoveryTitle,
+            body: recoveredRecordingContext.localizedResult(),
+            suggestion: recoveredRecordingContext.localizedCause() ?? "",
+            compactMessage: recoveryTitle,
+            detailsRows: [],
+            recoveryAction: .retryTranscription,
+            severity: .warning
+        )
     }
     private var isLiveRecording: Bool { item.postProcessingStatus == "live-recording" }
     private var displayContent: String {
@@ -2426,12 +2434,9 @@ private struct NoteDetailView: View {
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.orange.opacity(0.7))
                 .help("Recording recovered after an unexpected shutdown")
-        } else if isError {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 10, weight: .light))
-                .foregroundStyle(.red.opacity(0.6))
-                .help("Transcription failed")
         }
+        // A failed note shows no header indicator: its centered empty
+        // state already says what happened.
     }
 
     @ViewBuilder
@@ -2862,22 +2867,16 @@ private struct NoteDetailView: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.secondary)
             } else if isRecoveredRecording {
-                ZStack {
-                    Circle()
-                        .fill(Color.orange.opacity(0.08))
-                        .frame(width: 80, height: 80)
-                    Image(systemName: "arrow.clockwise.circle")
-                        .font(.system(size: 30, weight: .ultraLight))
-                        .foregroundStyle(.orange.opacity(0.7))
-                }
-                Text(recoveryTitle)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                Text(recoveryDescription)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.tertiary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 60)
+                // Same empty state as a failed note, with the recovery icon
+                // and an action that transcribes the recovered audio.
+                QuillUserIssueView(
+                    presentation: recoveryPresentation,
+                    action: { retryTranscription() },
+                    actionTitleOverride: "Transcribe",
+                    systemImageOverride: "arrow.clockwise",
+                    tintOverride: .orange
+                )
+                .padding(.horizontal, 60)
             } else if isAudioOnly {
                 ZStack {
                     Circle()
