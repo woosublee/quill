@@ -489,6 +489,18 @@ private struct NoteListTopOffsetKey: PreferenceKey {
     }
 }
 
+/// Hides the focus ring where focus is shown another way, such as the
+/// accent-colored open row in the note list. macOS 13 keeps the ring.
+private struct NoFocusRing: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 14.0, *) {
+            content.focusEffectDisabled()
+        } else {
+            content
+        }
+    }
+}
+
 private struct DimmedWhenDisabled: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
     func body(content: Content) -> some View {
@@ -536,6 +548,36 @@ struct NoteBrowserView: View {
 
     /// The note shown in the detail pane when one note is selected.
     private var selectedItemID: UUID? { selection.focusedID }
+    /// True while the note list has keyboard focus: ↑/↓ move the open note
+    /// and the open row is drawn in the accent color, like Finder.
+    @FocusState private var isNoteListFocused: Bool
+
+    /// Opens the note above or below the open one and keeps it in view.
+    private func moveListFocus(_ direction: MoveCommandDirection, proxy: ScrollViewProxy) {
+        guard !selection.showsSelectionUI else { return }
+        let ids = filteredHistory.map(\.id)
+        guard !ids.isEmpty else { return }
+        let step: Int
+        switch direction {
+        case .up: step = -1
+        case .down: step = 1
+        default: return
+        }
+        let current = selectedItemID.flatMap { ids.firstIndex(of: $0) }
+        let nextIndex = current.map { min(max($0 + step, 0), ids.count - 1) } ?? 0
+        let nextID = ids[nextIndex]
+        selection.click(
+            nextID,
+            modifier: .none,
+            orderedIDs: ids,
+            isSelectable: isBulkSelectable
+        )
+        // Center it: the header covers the list's top and the Record
+        // button its bottom, so a row scrolled just into view can be hidden.
+        withAnimation(.easeOut(duration: 0.12)) {
+            proxy.scrollTo(nextID, anchor: .center)
+        }
+    }
 
     private func isBulkSelectable(_ id: UUID) -> Bool {
         guard let item = appState.pipelineHistory.first(where: { $0.id == id }) else { return false }
@@ -969,8 +1011,8 @@ struct NoteBrowserView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .focusable(false)
         .help(help)
+        .accessibilityLabel(Text(help))
         .overrideCursor(.arrow)
     }
 
@@ -1173,10 +1215,20 @@ struct NoteBrowserView: View {
                                     isSelected: selection.showsSelectionUI
                                         ? selection.selectedIDs.contains(item.id)
                                         : selectedItemID == item.id,
+                                    isKeyboardHighlighted: isNoteListFocused
+                                        && !selection.showsSelectionUI
+                                        && selectedItemID == item.id,
                                     selectionMark: selectionMark(for: item.id)
                                 )
                                 .id(item.id)
                                 .onTapGesture { handleRowClick(item.id) }
+                                .accessibilityAction { handleRowClick(item.id) }
+                                .accessibilityAction(named: Text("Select")) {
+                                    beginSelection(including: item.id)
+                                }
+                                .accessibilityAction(named: Text("Delete…")) {
+                                    requestDeletion(of: item.id)
+                                }
                                 .contextMenu {
                                     Button("Select") { beginSelection(including: item.id) }
                                     Divider()
@@ -1203,6 +1255,14 @@ struct NoteBrowserView: View {
                         .padding(.bottom, selection.showsSelectionUI ? 6 : 72)
                     }
                     .coordinateSpace(name: "noteList")
+                    // Tab reaches the list; ↑/↓ then move the open note.
+                    .focusable()
+                    .focused($isNoteListFocused)
+                    .modifier(NoFocusRing())
+                    .onMoveCommand { direction in
+                        moveListFocus(direction, proxy: proxy)
+                    }
+                    .accessibilityLabel(Text("Notes"))
                     .onPreferenceChange(NoteListTopOffsetKey.self) { noteListTopOffset = $0 }
                     .onAppear {
                         restoreRecoveryScrollPosition(
@@ -1608,6 +1668,8 @@ private struct NoteListRow: View {
 
     let displayData: NoteListRowDisplayData
     let isSelected: Bool
+    /// The open row while the list has keyboard focus.
+    var isKeyboardHighlighted: Bool = false
     var selectionMark: SelectionMark? = nil
 
     @EnvironmentObject private var exportManager: ObsidianExportManager
@@ -1678,7 +1740,9 @@ private struct NoteListRow: View {
         .background {
             RoundedRectangle(cornerRadius: 8)
                 .fill(
-                    isSelected
+                    isKeyboardHighlighted
+                        ? Color.accentColor.opacity(0.85)
+                        : isSelected
                         ? (colorScheme == .dark ? Color.white.opacity(0.07) : Color.primary.opacity(0.08))
                         : (isHovered
                             ? (colorScheme == .dark ? Color.white.opacity(0.03) : Color.primary.opacity(0.05))
@@ -1687,7 +1751,9 @@ private struct NoteListRow: View {
                 .overlay {
                     RoundedRectangle(cornerRadius: 8)
                         .strokeBorder(
-                            isSelected
+                            isKeyboardHighlighted
+                                ? Color.accentColor
+                                : isSelected
                                 ? (colorScheme == .dark ? Color.white.opacity(0.14) : Color.primary.opacity(0.12))
                                 : (colorScheme == .dark
                                     ? Color.white.opacity(isHovered ? 0.07 : 0)
@@ -1699,22 +1765,41 @@ private struct NoteListRow: View {
         .shadow(color: isSelected ? .black.opacity(colorScheme == .dark ? 0.08 : 0.04) : .clear, radius: 6, x: 0, y: 1)
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
+        // One element for VoiceOver, with the state in words.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: NoteListRowAccessibility.label(
+            title: displayData.displayTitle,
+            date: displayData.rowDate,
+            status: displayData.status,
+            hasSummary: displayData.hasMeetingSummary,
+            selection: selectionMark.map { mark in
+                switch mark {
+                case .selected: return .checked
+                case .unselected: return .unchecked
+                case .unavailable: return .unavailable
+                }
+            }
+        )))
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
     private var selectedMetaColor: Color {
-        isSelected
+        if isKeyboardHighlighted { return Color.white.opacity(0.85) }
+        return isSelected
             ? (colorScheme == .dark ? Color.white.opacity(0.72) : Color.primary.opacity(0.55))
             : Color.secondary.opacity(0.7)
     }
 
     private var selectedTitleColor: Color {
-        isSelected
+        if isKeyboardHighlighted { return .white }
+        return isSelected
             ? (colorScheme == .dark ? .white : .primary)
             : .primary
     }
 
     private var selectedPreviewColor: Color {
-        isSelected
+        if isKeyboardHighlighted { return Color.white.opacity(0.85) }
+        return isSelected
             ? (colorScheme == .dark ? Color.white.opacity(0.78) : Color.primary.opacity(0.72))
             : .secondary
     }
@@ -1725,6 +1810,21 @@ private struct NoteListRow: View {
 
     @ViewBuilder
     private var statusIndicator: some View {
+        statusIndicatorContent
+            // On the accent-colored row, a thin white ring keeps a dot of the
+            // same color as the accent visible.
+            .overlay {
+                if isKeyboardHighlighted,
+                   [.done, .audioOnly, .fail].contains(displayData.status) {
+                    Circle()
+                        .strokeBorder(Color.white.opacity(0.9), lineWidth: 1)
+                        .frame(width: 8, height: 8)
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var statusIndicatorContent: some View {
         switch displayData.status {
         case .done:
             Circle()

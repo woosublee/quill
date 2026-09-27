@@ -57,6 +57,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         try testInputPickerSwitchesActiveRecordingInput(source)
         try testInputMenuCatcherDisablesAndLocalizesSources(source)
         try testNoteDetailAccessibility(source)
+        testNoteListKeyboardAndVoiceOver(source)
         testMenuPillsAreKeyboardAndVoiceOverAccessible(source)
         try testRecoveryImportPreservesSelectedListPosition(source)
 
@@ -247,6 +248,36 @@ struct RecoveredRecordingNoteBrowserSourceTests {
 
         let summary = try String(contentsOfFile: "Sources/MeetingSummaryView.swift", encoding: .utf8)
         precondition(summary.contains(".accessibilityAddTraits(.isHeader)"), "Summary sections are headings")
+    }
+
+    /// The note list is reachable with Tab, ↑/↓ move the open note, the
+    /// open row turns accent-colored while the list has focus, and each row
+    /// reads as one element with its state in words (#389).
+    private static func testNoteListKeyboardAndVoiceOver(_ source: String) {
+        let headerButton = block(
+            source,
+            from: "private func headerIconButton(",
+            to: "/// The first row shares the title bar"
+        )
+        precondition(!headerButton.contains(".focusable(false)"), "Search and Import are keyboard reachable")
+        precondition(headerButton.contains(".accessibilityLabel(Text(help))"))
+        for expected in [
+            "@FocusState private var isNoteListFocused: Bool",
+            ".focused($isNoteListFocused)",
+            ".onMoveCommand { direction in\n                        moveListFocus(direction, proxy: proxy)",
+            "isKeyboardHighlighted: isNoteListFocused",
+            ".accessibilityAction(named: Text(\"Select\"))",
+            ".accessibilityAction(named: Text(\"Delete…\"))",
+            "? Color.accentColor.opacity(0.85)",
+            "NoteListRowAccessibility.label(",
+            ".accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)",
+            // The moved-to row stays visible between the header and Record button.
+            "proxy.scrollTo(nextID, anchor: .center)",
+            // A dot matching the accent color stays visible on the focused row.
+            ".strokeBorder(Color.white.opacity(0.9), lineWidth: 1)"
+        ] {
+            precondition(source.contains(expected), "Missing note list accessibility: \(expected)")
+        }
     }
 
     private static func testInputMenuCatcherDisablesAndLocalizesSources(

@@ -329,3 +329,44 @@ struct NoteListRowDisplayData: Equatable {
         return String(content.prefix(100))
     }
 }
+
+/// What VoiceOver reads for a note list row: the name, the date, the state
+/// in words (not only the dot's color), the Summary badge, and, while
+/// selecting several notes, whether this one is checked.
+enum NoteListRowAccessibility {
+    enum SelectionState: Equatable {
+        case checked, unchecked, unavailable
+    }
+
+    static func statusKey(for status: TranscriptStatus) -> String {
+        switch status {
+        case .done: return "Transcription complete"
+        case .recording: return "Recording..."
+        case .transcribing: return "Transcribing..."
+        case .audioOnly: return "Audio only"
+        case .recovered: return "Recovered recording"
+        case .fail: return "Transcription failed"
+        }
+    }
+
+    static func label(
+        title: String,
+        date: String,
+        status: TranscriptStatus,
+        hasSummary: Bool,
+        selection: SelectionState?,
+        localize: (String) -> String = { localizedCatalogString($0) }
+    ) -> String {
+        var parts = [title, date, localize(statusKey(for: status))]
+        if hasSummary {
+            parts.append(localize("Summary"))
+        }
+        switch selection {
+        case .checked: parts.append(localize("Selected"))
+        case .unchecked: parts.append(localize("Not selected"))
+        case .unavailable: parts.append(localize("Can't be selected while recording or processing"))
+        case nil: break
+        }
+        return parts.joined(separator: ", ")
+    }
+}
