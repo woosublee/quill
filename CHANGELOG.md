@@ -8,6 +8,32 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.4.0] - 2026-09-27
+
+### Added
+
+- Added Retry Post-processing for notes whose post-processing failed. It cleans up the stored transcript again without transcribing the recording again, and explains when it can't run, such as when post-processing is off.
+- Showed a new note in the Note Browser as soon as recording starts, for every transcription method. The list shows the running recording time, and the same note becomes the transcript when you stop.
+- Asked which model to use when you transcribe or retry a note while transcription is off, or when the selected model can't transcribe files. The model you pick is used for that note only.
+
+### Improved
+
+- Redesigned the Note Browser header: the window controls share the sidebar's first row, and the audio source and transcription model for the next recording sit right below. Search opens from the magnifier or ⌘F and closes with Esc; while searching or selecting, it takes the place of that row. Recording starts from a round red button at the bottom of the list, which turns into a Stop button while recording.
+- Showed a loading layer over a note while it is transcribed again, without the note blinking.
+- Made issue messages calmer and more consistent. Warnings above a transcript or summary take one line, with details behind an ⓘ button and a close button. Failed and recovered notes show a simple centered message with one action.
+- Showed "Nothing to clean up" as a quiet note instead of a warning when post-processing has nothing to change.
+- Kept a failed note's name in the list, with a short "Couldn't transcribe" preview.
+- Grouped the Summary tab's notices into one line with a "+N" button, and moved Delete Summary into the toolbar trash, which asks whether to delete only the summary or the whole note.
+- Listed transcription choices by model name and marked the ones that transcribe live.
+- Showed the Note Browser's empty state once instead of twice.
+- Made the audio source and model buttons open from anywhere on the button, from the keyboard, and with VoiceOver.
+- Stopped highlighting a button when the Note Browser opens.
+
+### Fixed
+
+- Removed subtitle-style dialogue dashes from Native Whisper transcripts.
+- Fixed the note title being clipped under the title bar, and the note toolbar showing a text cursor instead of an arrow.
+
 ## [0.3.0] - 2026-09-27
 
 ### Added
