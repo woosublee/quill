@@ -342,7 +342,7 @@ private struct AudioImportSheet: View {
             }
 
             if options.supportedChoices.isEmpty {
-                Text("No transcription method is available. Configure an API key or install a Local Whisper model, then try again.")
+                Text("No transcription model is ready. Set one up in Settings, then try again.")
                     .font(.system(size: 12))
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
@@ -2662,19 +2662,19 @@ private struct NoteDetailView: View {
         case .needsModelSelection:
             showToast(
                 localizedCatalogString(
-                    "Choose Local Whisper or API Standard to retry this recording."
+                    "Choose a model to retry transcription."
                 )
             )
         case .needsModelSetup:
             showToast(
                 localizedCatalogString(
-                    "Set up Local Whisper or API Standard to retry this recording."
+                    "Set up a model in Settings to retry transcription."
                 )
             )
         case .needsProviderConfiguration:
             showToast(
                 localizedCatalogString(
-                    "No transcription method is available. Configure an API key or install a Local Whisper model, then try again."
+                    "No transcription model is ready. Set one up in Settings, then try again."
                 )
             )
         case .noAudio:

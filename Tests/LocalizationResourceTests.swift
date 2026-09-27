@@ -278,8 +278,8 @@ struct LocalizationResourceTests {
         let noteBrowserKeys = [
             "Choose a model for retranscription",
             "Set up a model for retranscription",
-            "Choose Local Whisper or API Standard to retry this recording.",
-            "Set up Local Whisper or API Standard to retry this recording.",
+            "Choose a model to retry transcription.",
+            "Set up a model in Settings to retry transcription.",
             "Your recording is safely stored.",
             "Ready to retry transcription",
             "Choose Retry Transcription to try again.",

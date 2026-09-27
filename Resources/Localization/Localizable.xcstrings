@@ -1697,22 +1697,6 @@
         }
       }
     },
-    "No transcription method is available. Configure an API key or install a Local Whisper model, then try again.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No transcription method is available. Configure an API key or install a Local Whisper model, then try again."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사용 가능한 전사 방법이 없습니다. API 키를 설정하거나 Local Whisper 모델을 설치한 후 다시 시도하세요."
-          }
-        }
-      }
-    },
     "Transcription Method": {
       "localizations": {
         "en": {
@@ -14821,38 +14805,6 @@
         }
       }
     },
-    "Choose Local Whisper or API Standard to retry this recording.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose Local Whisper or API Standard to retry this recording."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "재전사를 위해 Local Whisper 또는 API Standard로 변경해 주세요."
-          }
-        }
-      }
-    },
-    "Set up Local Whisper or API Standard to retry this recording.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Set up Local Whisper or API Standard to retry this recording."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "재전사를 위해 Local Whisper를 설치하거나 API Standard를 설정해 주세요."
-          }
-        }
-      }
-    },
     "The cloud AI base URL is invalid.": {
       "localizations": {
         "en": {
@@ -17777,6 +17729,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "녹음을 마치면 바로 전사를 시작합니다."
+          }
+        }
+      }
+    },
+    "Choose a model to retry transcription.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a model to retry transcription."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재전사할 모델을 선택해 주세요."
+          }
+        }
+      }
+    },
+    "Set up a model in Settings to retry transcription.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up a model in Settings to retry transcription."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정에서 재전사할 모델을 준비해 주세요."
+          }
+        }
+      }
+    },
+    "No transcription model is ready. Set one up in Settings, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No transcription model is ready. Set one up in Settings, then try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용할 수 있는 전사 모델이 없습니다. 설정에서 모델을 준비한 뒤 다시 시도해 주세요."
           }
         }
       }

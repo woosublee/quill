@@ -66,7 +66,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(providerBranch.contains("showToast("))
         precondition(
             providerBranch.contains(
-                "No transcription method is available. Configure an API key or install a Local Whisper model, then try again."
+                "No transcription model is ready. Set one up in Settings, then try again."
             )
         )
         precondition(!providerBranch.contains("appState.openProviderSettings()"))
