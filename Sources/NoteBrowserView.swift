@@ -342,7 +342,7 @@ private struct AudioImportSheet: View {
             }
 
             if options.supportedChoices.isEmpty {
-                Text("No transcription method is available. Configure an API key or install a Local Whisper model, then try again.")
+                Text("No transcription model is ready. Set one up in Settings, then try again.")
                     .font(.system(size: 12))
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1407,10 +1407,16 @@ private struct NoteListRow: View {
                     statusIndicator
                 }
 
-                Text(displayData.displayTitle)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(selectedTitleColor)
-                    .lineLimit(1)
+                Group {
+                    if let recordingStartedAt = displayData.recordingStartedAt {
+                        RecordingElapsedTitle(startedAt: recordingStartedAt)
+                    } else {
+                        Text(displayData.displayTitle)
+                    }
+                }
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(selectedTitleColor)
+                .lineLimit(1)
 
                 Text(displayData.preview.isEmpty ? " " : displayData.preview)
                     .font(.system(size: 11.5))
@@ -2098,7 +2104,7 @@ private struct NoteDetailView: View {
     @ViewBuilder
     private var noteStateIndicator: some View {
         if isLiveRecording {
-            LiveRecordingBadge()
+            LiveRecordingBadge(startedAt: item.recordingStartedAt)
         } else if isCloudTranscribing {
             ProgressView()
                 .controlSize(.mini)
@@ -2354,10 +2360,40 @@ private struct NoteDetailView: View {
     private var emptyContentState: some View {
         VStack(spacing: 14) {
             Spacer()
-            if isCloudTranscribing {
+            if isLiveRecording {
+                ZStack {
+                    Circle()
+                        .fill(Color.red.opacity(0.08))
+                        .frame(width: 80, height: 80)
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 28, weight: .light))
+                        .foregroundStyle(.red.opacity(0.75))
+                }
+                Group {
+                    if let startedAt = item.recordingStartedAt {
+                        RecordingElapsedTitle(startedAt: startedAt)
+                    } else {
+                        Text("Recording...")
+                    }
+                }
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.secondary)
+                Text(verbatim: appState.activeRecordingNoteHint)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 60)
+            } else if isCloudTranscribing {
                 ProgressView()
                     .controlSize(.regular)
                 Text(cloudProgressText)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            } else if item.postProcessingStatus
+                        == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus {
+                ProgressView()
+                    .controlSize(.regular)
+                Text("Transcribing...")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.secondary)
             } else if isRecoveredRecording {
@@ -2626,19 +2662,19 @@ private struct NoteDetailView: View {
         case .needsModelSelection:
             showToast(
                 localizedCatalogString(
-                    "Choose Local Whisper or API Standard to retry this recording."
+                    "Choose a model to retry transcription."
                 )
             )
         case .needsModelSetup:
             showToast(
                 localizedCatalogString(
-                    "Set up Local Whisper or API Standard to retry this recording."
+                    "Set up a model in Settings to retry transcription."
                 )
             )
         case .needsProviderConfiguration:
             showToast(
                 localizedCatalogString(
-                    "No transcription method is available. Configure an API key or install a Local Whisper model, then try again."
+                    "No transcription model is ready. Set one up in Settings, then try again."
                 )
             )
         case .noAudio:
@@ -3617,6 +3653,7 @@ private struct YellowSpinner: View {
 // MARK: - Live Recording Badge
 
 private struct LiveRecordingBadge: View {
+    var startedAt: Date?
     @State private var pulsing = false
 
     var body: some View {
@@ -3628,10 +3665,31 @@ private struct LiveRecordingBadge: View {
                 .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulsing)
                 .onAppear { pulsing = true }
             Text("REC")
-                .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.red.opacity(0.7))
+            if let startedAt {
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text(verbatim: RecordingElapsedFormatter.string(from: startedAt, to: context.date))
+                        .monospacedDigit()
+                }
+            }
         }
-        .help("Live transcription in progress")
+        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+        .foregroundStyle(.red.opacity(0.7))
+        .help("Recording in progress")
+    }
+}
+
+/// "Recording · 03:12", updated every second.
+private struct RecordingElapsedTitle: View {
+    let startedAt: Date
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            Text(verbatim: localizedCatalogFormat(
+                "Recording · %@",
+                RecordingElapsedFormatter.string(from: startedAt, to: context.date)
+            ))
+            .monospacedDigit()
+        }
     }
 }
 

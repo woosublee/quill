@@ -2312,6 +2312,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
         activeRecordingTranscriptionEnabled ?? transcriptionEnabled
     }
 
+    /// The line under "Recording · 03:12" in a recording note: what happens
+    /// when the user stops.
+    @MainActor
+    var activeRecordingNoteHint: String {
+        guard shouldTranscribeActiveRecording else {
+            return localizedCatalogString("The audio is saved when you finish recording.")
+        }
+        if liveTranscriptionSession != nil {
+            return localizedCatalogString("Text appears here as you speak.")
+        }
+        return localizedCatalogString("Transcription starts when you finish recording.")
+    }
+
     /// Whether the transcription choice that would actually run right now
     /// (the active recording's choice while recording, otherwise the choice
     /// queued up for the next recording) streams live audio (Apple Live,
@@ -5115,6 +5128,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 print("Failed to recover recording journal at \(candidate.recordingDirectory.path): \(message)")
             }
         }
+        // No recording is active at launch. A recording note that journal
+        // recovery did not turn into a placeholder has nothing to recover.
+        for item in historyStore.loadAllHistory() where item.isUnfinishedRecordingNote {
+            _ = try? historyStore.delete(id: item.id)
+        }
     }
 
     private static func protectedInflightAudioFileNames(
@@ -5359,6 +5377,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func finishTranscriptionJob(_ id: UUID) {
+        if let noteID = activeTranscriptionJobs[id]?.liveNoteID {
+            removeUnfinishedRecordingNote(id: noteID)
+        }
         activeTranscriptionJobs.removeValue(forKey: id)
         if let noteID = postProcessingNoteIDByJobID.removeValue(forKey: id) {
             postProcessingNoteIDs.remove(noteID)
@@ -5876,9 +5897,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .success(let recovered):
             if let liveNoteID = currentRecordingLiveNoteID {
                 currentRecordingLiveNoteID = nil
-                pipelineHistory.removeAll { $0.id == liveNoteID }
-                if let deletedAssets = try? pipelineHistoryStore.delete(id: liveNoteID) {
-                    cleanupDeletedPipelineHistoryAssets(deletedAssets)
+                // The recovered placeholder takes over a note with the same
+                // ID in place, keeping a title typed while recording.
+                if liveNoteID != recovered.recordingID {
+                    pipelineHistory.removeAll { $0.id == liveNoteID }
+                    if let deletedAssets = try? pipelineHistoryStore.delete(id: liveNoteID) {
+                        cleanupDeletedPipelineHistoryAssets(deletedAssets)
+                    }
                 }
             }
             do {
@@ -5907,9 +5932,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 statusText = localizedCatalogString(context.titleLocalizationKey)
                 errorMessage = context.localizedDescription()
             } catch {
+                removeUnfinishedRecordingNote(id: recovered.recordingID)
                 showRecordingStorageRecoveryFailure(error)
             }
         case .failure(let error):
+            discardCurrentRecordingNote()
             showRecordingStorageRecoveryFailure(error)
         }
     }
@@ -9713,6 +9740,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     }
                     self.finishPhysicalAudioStart(recordingSessionID)
                     self.markRecordingStarted(actualRecordingStartedAt)
+                    self.createRecordingNoteIfNeeded(recordingSessionID: recordingSessionID)
                     onStarted?()
                     if shouldTranscribe {
                         self.startContextCapture()
@@ -10413,6 +10441,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             finishTranscriptionJob(jobID, overlayID: overlayID)
         case .audioOnly(let recordingID):
             pendingAudioOnlyStopIDs.remove(recordingID)
+            removeUnfinishedRecordingNote(id: recordingID)
             terminateIfReady()
         }
     }
@@ -11273,14 +11302,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     // 라이브 전사 시작 시 Note Browser에 즉시 표시될 예비 노트 생성
+    @discardableResult
     @MainActor
-    private func createLiveNote(jobID: UUID, noteID: UUID) {
+    private func createLiveNote(jobID: UUID, noteID: UUID) -> Bool {
         updateTranscriptionJob(jobID) { $0.liveNoteID = noteID }
         let job = activeTranscriptionJobs[jobID]
         let entry = PipelineHistoryItem(
             id: noteID,
             timestamp: Date(),
-            recordingStartedAt: job?.recordingStartedAt,
+            recordingStartedAt: job?.recordingStartedAt ?? activeRecordingStartedAt ?? Date(),
             recordingEndedAt: job?.recordingEndedAt,
             calendarMatch: nil,
             rawTranscript: "",
@@ -11305,8 +11335,45 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 cleanupDeletedPipelineHistoryAssets(removedAssets)
             }
             pipelineHistory = pipelineHistoryStore.loadAllHistory()
+            return true
         } catch {
             updateTranscriptionJob(jobID) { $0.liveNoteID = nil }
+            return false
+        }
+    }
+
+    /// Batch backends and record-only have no live transcriber, so their note
+    /// is created here once audio capture starts. The note uses the recording
+    /// session ID, which the stop path, the transcription job, and journal
+    /// recovery all share, so the same note carries through to the result.
+    @MainActor
+    private func createRecordingNoteIfNeeded(recordingSessionID: UUID) {
+        guard isCurrentRecordingSession(recordingSessionID),
+              currentRecordingLiveNoteID == nil else { return }
+        if createLiveNote(jobID: recordingSessionID, noteID: recordingSessionID) {
+            currentRecordingLiveNoteID = recordingSessionID
+        }
+    }
+
+    /// Detaches the recording note from a recording that stopped without a
+    /// normal stop, so the next recording starts its own note. An empty note
+    /// is removed; the saved audio comes back through journal recovery.
+    @MainActor
+    private func discardCurrentRecordingNote() {
+        guard let noteID = currentRecordingLiveNoteID else { return }
+        currentRecordingLiveNoteID = nil
+        removeUnfinishedRecordingNote(id: noteID)
+    }
+
+    /// Removes a recording note that never received a transcript or audio,
+    /// such as one left by an empty recording or a failed save.
+    @MainActor
+    private func removeUnfinishedRecordingNote(id: UUID) {
+        guard let item = pipelineHistory.first(where: { $0.id == id }),
+              item.isUnfinishedRecordingNote else { return }
+        pipelineHistory.removeAll { $0.id == id }
+        if let deletedAssets = try? pipelineHistoryStore.delete(id: id) {
+            cleanupDeletedPipelineHistoryAssets(deletedAssets)
         }
     }
 
@@ -11365,6 +11432,23 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func appendPipelineHistoryItem(_ item: PipelineHistoryItem) throws -> [DeletedPipelineHistoryAssets] {
+        // The note created when recording started shares this ID. Replace it,
+        // keeping a title typed while recording, instead of adding a second row.
+        if let recordingNote = pipelineHistory.first(where: { $0.id == item.id }),
+           recordingNote.isUnfinishedRecordingNote {
+            let replacement = item.withCustomTitle(recordingNote.customTitle)
+            let removedStoredFiles = try pipelineHistoryStore.upsert(
+                replacement,
+                maxCount: maxPipelineHistoryCount
+            )
+            for removedAssets in removedStoredFiles {
+                cleanupDeletedPipelineHistoryAssets(removedAssets)
+            }
+            // Move it to the top, where a newly saved note would appear.
+            pipelineHistory.removeAll { $0.id == replacement.id }
+            updatePipelineHistoryItem(replacement)
+            return []
+        }
         let removedStoredFiles = try pipelineHistoryStore.append(item, maxCount: maxPipelineHistoryCount)
         pipelineHistory.insert(item, at: 0)
         if pipelineHistory.count > maxPipelineHistoryCount {
@@ -11463,7 +11547,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         && historyIsStillAvailableAndDurable,
                     historyIsReadable: historyWasReadable,
                     recordingIDExistsInHistory: history.contains {
-                        $0.id == recordingID
+                        $0.id == recordingID && !$0.isUnfinishedRecordingNote
                     } || audioFileIsReferenced
                 )
             if cleanupDecision == .deleteUnreferencedAudio {
@@ -11589,7 +11673,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
             contextBundleIdentifier: context.bundleIdentifier,
             contextWindowTitle: context.windowTitle,
             postProcessingStatusOverride: postProcessingStatusOverride
+        ).withCustomTitle(
+            pipelineHistory.first(where: { $0.id == noteID })?.customTitle
         )
+        let replacesRecordingNote = pipelineHistory.contains {
+            $0.id == noteID && $0.isUnfinishedRecordingNote
+        }
         do {
             let removedStoredFiles = try pipelineHistoryStore.upsert(
                 item,
@@ -11598,6 +11687,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             )
             for removedAssets in removedStoredFiles {
                 cleanupDeletedPipelineHistoryAssets(removedAssets)
+            }
+            if replacesRecordingNote {
+                // Move it to the top, where a newly saved note would appear.
+                pipelineHistory.removeAll { $0.id == noteID }
             }
             updatePipelineHistoryItem(item)
             updateTranscriptionJob(jobID) {
@@ -12282,6 +12375,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             // Permission errors are fatal — preserve committed audio for recovery.
             tearDownRealtimeService()
             preserveActiveSegmentedJournalForRecovery()
+            discardCurrentRecordingNote()
             cancelActiveAudioRecorder()
             audioLevelCancellable?.cancel()
             audioLevelCancellable = nil

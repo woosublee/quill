@@ -113,6 +113,16 @@ struct PipelineHistoryItem: Identifiable, Codable {
         recoveredRecordingContext != nil
     }
 
+    /// A note created when recording started that never received a
+    /// transcript or audio. Nothing in it is worth keeping.
+    var isUnfinishedRecordingNote: Bool {
+        postProcessingStatus == "live-recording"
+            && rawTranscript.isEmpty
+            && postProcessedTranscript.isEmpty
+            && audioFileName == nil
+            && transcriptFileName == nil
+    }
+
     var isIncompleteTranscription: Bool {
         RecoveredRecordingContext.placeholderContext(for: postProcessingStatus) != nil
             || postProcessingStatus == "importing"

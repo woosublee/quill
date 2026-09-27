@@ -86,11 +86,11 @@ struct QuillUserIssueUIContractTests {
             "retry visibility no longer depends on the issue primary action"
         )
         try expect(
-            source.contains("Choose Local Whisper or API Standard to retry this recording."),
+            source.contains("Choose a model to retry transcription."),
             "retry with an unsupported selection guides model selection"
         )
         try expect(
-            source.contains("Set up Local Whisper or API Standard to retry this recording."),
+            source.contains("Set up a model in Settings to retry transcription."),
             "retry without a prepared backend guides model setup"
         )
         try expect(

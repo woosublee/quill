@@ -185,6 +185,20 @@ enum NoteTimestampFormatter {
     }
 }
 
+/// Elapsed recording time as `mm:ss`, or `h:mm:ss` past an hour.
+enum RecordingElapsedFormatter {
+    static func string(from start: Date, to now: Date) -> String {
+        let total = max(0, Int(now.timeIntervalSince(start)))
+        let hours = total / 3600
+        let minutes = (total % 3600) / 60
+        let seconds = total % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+        return String(format: "%02d:%02d", minutes, seconds)
+    }
+}
+
 struct NoteListRowDisplayData: Equatable {
     let id: UUID
     let status: TranscriptStatus
@@ -192,6 +206,9 @@ struct NoteListRowDisplayData: Equatable {
     let displayTitle: String
     let preview: String
     let hasMeetingSummary: Bool
+    /// Set while the row still shows the "Recording" placeholder title, so the
+    /// row can show a running elapsed time instead.
+    let recordingStartedAt: Date?
 
     init(
         item: PipelineHistoryItem,
@@ -229,6 +246,14 @@ struct NoteListRowDisplayData: Equatable {
         self.rowDate = NoteTimestampFormatter.rowTimestamp(for: item, locale: locale)
         self.displayTitle = displayTitle
         self.hasMeetingSummary = item.meetingSummaryJSON != nil
+        // Same conditions under which NoteTitleResolver falls back to its
+        // automatic "Recording..." title.
+        self.recordingStartedAt = status == .recording
+            && customTitle == nil
+            && item.calendarMatch?.appliedTitle == nil
+            && content.isEmpty
+            ? item.recordingStartedAt
+            : nil
         self.preview = Self.preview(
             for: item,
             status: status,

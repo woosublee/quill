@@ -35,7 +35,9 @@ struct RecordingRecoveryHistory {
                 $0.id == recovered.recordingID
             }
             if existingHistory?.isIncompleteTranscription != false {
+                // Keep a title typed into the note while it was recording.
                 let item = makePlaceholder(from: recovered)
+                    .withCustomTitle(existingHistory?.customTitle)
                 deletedAssets = try historyStore.upsert(
                     item,
                     maxCount: maxCount,

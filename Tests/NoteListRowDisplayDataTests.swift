@@ -38,7 +38,76 @@ struct NoteListRowDisplayDataTests {
         testAudioOnlyRowUsesBlueStateAndNotTranscribedPreview()
         testHasMeetingSummaryReflectsStoredSummaryPresence()
         testOnlyFinishedNotesAreBulkSelectable()
+        testRecordingPlaceholderRowCarriesRecordingStart()
+        testRecordingElapsedFormatter()
+        testUnfinishedRecordingNoteNeedsNoContentOrAudio()
         print("NoteListRowDisplayDataTests passed")
+    }
+
+    private static func testRecordingPlaceholderRowCarriesRecordingStart() {
+        let startedAt = Date(timeIntervalSince1970: 1_000)
+        let recording = historyItem(
+            recordingStartedAt: startedAt,
+            transcript: "",
+            postProcessingStatus: "live-recording"
+        )
+        let data = NoteListRowDisplayData(item: recording, retryingIDs: [])
+        assert(data.status == .recording)
+        assert(data.recordingStartedAt == startedAt, "Recording row shows a running elapsed time")
+
+        let titled = historyItem(
+            recordingStartedAt: startedAt,
+            transcript: "",
+            postProcessingStatus: "live-recording",
+            customTitle: "Weekly sync"
+        )
+        let titledData = NoteListRowDisplayData(item: titled, retryingIDs: [])
+        assert(titledData.displayTitle == "Weekly sync")
+        assert(titledData.recordingStartedAt == nil, "A title typed during recording replaces the elapsed title")
+
+        let titledLikePlaceholder = historyItem(
+            recordingStartedAt: startedAt,
+            transcript: "",
+            postProcessingStatus: "live-recording",
+            customTitle: "Recording..."
+        )
+        let titledLikePlaceholderData = NoteListRowDisplayData(item: titledLikePlaceholder, retryingIDs: [])
+        assert(
+            titledLikePlaceholderData.recordingStartedAt == nil,
+            "A typed title that matches the placeholder text is still the user's title"
+        )
+
+        let liveText = historyItem(
+            recordingStartedAt: startedAt,
+            transcript: "Let's review the roadmap.",
+            postProcessingStatus: "live-recording"
+        )
+        assert(NoteListRowDisplayData(item: liveText, retryingIDs: []).recordingStartedAt == nil)
+
+        let finished = historyItem(recordingStartedAt: startedAt, transcript: "Done.")
+        assert(NoteListRowDisplayData(item: finished, retryingIDs: []).recordingStartedAt == nil)
+    }
+
+    private static func testRecordingElapsedFormatter() {
+        let start = Date(timeIntervalSince1970: 10_000)
+        assert(RecordingElapsedFormatter.string(from: start, to: start) == "00:00")
+        assert(RecordingElapsedFormatter.string(from: start, to: start.addingTimeInterval(192.9)) == "03:12")
+        assert(RecordingElapsedFormatter.string(from: start, to: start.addingTimeInterval(3_725)) == "1:02:05")
+        assert(RecordingElapsedFormatter.string(from: start, to: start.addingTimeInterval(-5)) == "00:00")
+    }
+
+    private static func testUnfinishedRecordingNoteNeedsNoContentOrAudio() {
+        let empty = historyItem(transcript: "", postProcessingStatus: "live-recording")
+        assert(empty.isUnfinishedRecordingNote)
+
+        let withText = historyItem(transcript: "Partial words", postProcessingStatus: "live-recording")
+        assert(!withText.isUnfinishedRecordingNote, "Live text is kept")
+
+        let placeholder = historyItem(
+            transcript: "",
+            postProcessingStatus: PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus
+        )
+        assert(!placeholder.isUnfinishedRecordingNote, "A saved recording waiting for transcription is kept")
     }
 
     private static func testHasMeetingSummaryReflectsStoredSummaryPresence() {
