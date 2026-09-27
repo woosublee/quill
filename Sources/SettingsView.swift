@@ -45,6 +45,16 @@ struct SettingsView: View {
     @EnvironmentObject var appState: AppState
 
     var body: some View {
+        // The window's title bar is transparent and has no separator. The
+        // sidebar and pages run under it, starting below its height, and its
+        // empty space drags the window like a title bar.
+        GeometryReader { proxy in
+            settingsContent(titleBarHeight: proxy.safeAreaInsets.top)
+                .ignoresSafeArea(.container, edges: .top)
+        }
+    }
+
+    private func settingsContent(titleBarHeight: CGFloat) -> some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(SettingsTab.orderedCases.filter { tab in
@@ -69,7 +79,14 @@ struct SettingsView: View {
                 Spacer()
             }
             .padding(10)
+            // The first row sits just under the traffic lights.
+            .padding(.top, max(0, titleBarHeight - 12))
             .frame(width: 180)
+            // The empty strip above the first row drags the window.
+            .overlay(alignment: .top) {
+                WindowDragArea()
+                    .frame(height: max(0, titleBarHeight - 12) + 10)
+            }
             .background(Color(nsColor: .windowBackgroundColor))
 
             Divider()
@@ -104,7 +121,16 @@ struct SettingsView: View {
                     GeneralSettingsView()
                 }
             }
+            // Pages keep their own top margin, so the first card starts just
+            // under the title bar instead of a full title bar lower.
+            .padding(.top, 16)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // Only the page's empty top margin drags, so buttons near the
+            // top of a page stay clickable.
+            .overlay(alignment: .top) {
+                WindowDragArea()
+                    .frame(height: 16)
+            }
         }
     }
 }

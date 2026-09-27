@@ -31,6 +31,7 @@ struct NoteListRowDisplayDataTests {
         testStorageInterruptionPreviewCombinesCauseAndMode()
         testTranscribingTitleAndEmptyPreview()
         testPostProcessingNoteShowsPostProcessingTitle()
+        testRetriedNoteKeepsItsNameInsteadOfTheStage()
         testCloudChunkProgressDisplaysActiveChunk()
         testRestoredCloudProgressDisplaysWaitingCopy()
         testCloudProgressCopyLocalizesInKorean()
@@ -634,6 +635,27 @@ struct NoteListRowDisplayDataTests {
             retryingIDs: []
         )
         assert(importing.displayTitle == "Imported Audio")
+
+        // A cloud-transcribed import has the cloud status, not "importing" (#386).
+        let cloudImport = NoteListRowDisplayData(
+            item: historyItem(
+                transcript: "",
+                postProcessingStatus: PipelineHistoryItem.cloudTranscribingStatus,
+                debugStatus: PipelineHistoryItem.importingDebugStatus
+            ),
+            retryingIDs: []
+        )
+        assert(cloudImport.displayTitle == "Imported Audio", "Unexpected title: \(cloudImport.displayTitle)")
+
+        // A cloud-transcribed recording is still a new recording.
+        let cloudRecording = NoteListRowDisplayData(
+            item: historyItem(
+                transcript: "",
+                postProcessingStatus: PipelineHistoryItem.cloudTranscribingStatus
+            ),
+            retryingIDs: []
+        )
+        assert(cloudRecording.displayTitle == "New Recording")
     }
 
     private static func testPostProcessingNoteShowsPostProcessingTitle() {
@@ -646,22 +668,56 @@ struct NoteListRowDisplayDataTests {
 
         let transcribing = NoteListRowDisplayData(item: item, retryingIDs: [])
         assert(transcribing.displayTitle == "New Recording")
+        assert(transcribing.preview.isEmpty)
+    }
 
-        let postProcessing = NoteListRowDisplayData(
-            item: item,
-            retryingIDs: [],
-            postProcessingIDs: [id]
-        )
-        assert(postProcessing.status == .transcribing)
-        assert(postProcessing.displayTitle == "New Recording", "Post-processing shows in the detail, not the row")
-        assert(postProcessing.preview.isEmpty)
+    /// A retried note keeps its resting name in the list; the spinner and
+    /// the note detail show the stage (#387).
+    private static func testRetriedNoteKeepsItsNameInsteadOfTheStage() {
+        let stageTitles = ["Transcribing...", "Post-processing..."]
 
-        let otherNote = NoteListRowDisplayData(
-            item: item,
-            retryingIDs: [],
-            postProcessingIDs: [UUID()]
+        let audioOnly = PipelineHistoryItem.audioOnly(
+            timestamp: Date(timeIntervalSince1970: 10),
+            recordingStartedAt: Date(timeIntervalSince1970: 1),
+            recordingEndedAt: Date(timeIntervalSince1970: 10),
+            calendarMatch: nil,
+            audioFileName: "recording.wav",
+            transcriptionLanguageCode: "auto",
+            localTranscriptionModelID: "remembered-model"
         )
-        assert(otherNote.displayTitle == "New Recording")
+        let retriedAudioOnly = NoteListRowDisplayData(item: audioOnly, retryingIDs: [audioOnly.id])
+        assert(retriedAudioOnly.status == .transcribing)
+        assert(
+            retriedAudioOnly.displayTitle == "Audio recording",
+            "Unexpected title: \(retriedAudioOnly.displayTitle)"
+        )
+
+        let failedID = UUID()
+        let failed = historyItem(
+            id: failedID,
+            transcript: "",
+            postProcessingStatus: QuillUserIssueRecord(code: .localTranscriptionFailed).persistedStatus
+        )
+        let retriedFailed = NoteListRowDisplayData(item: failed, retryingIDs: [failedID])
+        assert(retriedFailed.status == .transcribing)
+        assert(
+            retriedFailed.displayTitle == "New Recording",
+            "Unexpected title: \(retriedFailed.displayTitle)"
+        )
+
+        let titledID = UUID()
+        let titled = historyItem(id: titledID, transcript: "", customTitle: "Design review")
+        let retriedTitled = NoteListRowDisplayData(item: titled, retryingIDs: [titledID])
+        assert(retriedTitled.displayTitle == "Design review")
+
+        let withTextID = UUID()
+        let withText = historyItem(id: withTextID, transcript: "Weekly sync\nNotes follow")
+        let retriedWithText = NoteListRowDisplayData(item: withText, retryingIDs: [withTextID])
+        assert(retriedWithText.displayTitle == "Weekly sync")
+
+        for data in [retriedAudioOnly, retriedFailed, retriedTitled, retriedWithText] {
+            assert(!stageTitles.contains(data.displayTitle), "Row must not name the stage")
+        }
     }
 
     private static func testOnlyFinishedNotesAreBulkSelectable() {
@@ -794,6 +850,7 @@ struct NoteListRowDisplayDataTests {
         recordingEndedAt: Date? = nil,
         transcript: String,
         postProcessingStatus: String = "Post-processing succeeded",
+        debugStatus: String = "Done",
         customTitle: String? = nil,
         meetingSummaryJSON: Data? = nil
     ) -> PipelineHistoryItem {
@@ -810,7 +867,7 @@ struct NoteListRowDisplayDataTests {
             contextScreenshotDataURL: nil,
             contextScreenshotStatus: "No screenshot",
             postProcessingStatus: postProcessingStatus,
-            debugStatus: "Done",
+            debugStatus: debugStatus,
             customVocabulary: "",
             customTitle: customTitle,
             meetingSummaryJSON: meetingSummaryJSON
