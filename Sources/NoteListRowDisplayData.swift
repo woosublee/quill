@@ -303,11 +303,8 @@ struct NoteListRowDisplayData: Equatable {
             )
         }
         if status == .fail {
-            return item.userIssuePresentation(
-                language: localizationLanguage,
-                bundle: localizationBundle
-            )?.body ?? localizedCatalogString(
-                "Quill could not complete this transcription.",
+            return localizedCatalogString(
+                "Couldn't transcribe",
                 language: localizationLanguage,
                 bundle: localizationBundle
             )

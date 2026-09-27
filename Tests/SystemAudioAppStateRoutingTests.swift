@@ -53,8 +53,7 @@ struct SystemAudioAppStateRoutingTests {
         precondition(accessibleSelectionBody.contains("startRequestID: startRequestID"))
         precondition(accessibleSelectionBody.contains("selection == currentRecordingAudioSelection()"))
 
-        precondition(noteBrowserSource.contains("ForEach(transcriptionChoiceDisplays(in: \"Cloud\"))"))
-        precondition(noteBrowserSource.contains("ForEach(transcriptionChoiceDisplays(in: \"On This Mac\"))"))
+        precondition(noteBrowserSource.contains("sections: [\"Cloud\", \"On This Mac\"].map"))
         precondition(!noteBrowserSource.contains("transcriptionChoiceDisplays(in: \"Legacy mlx-whisper\")"))
         precondition(noteBrowserSource.contains(".disabled(!display.isAvailable)"))
         precondition(source.contains("private struct PendingRecordingPermissionContext"))

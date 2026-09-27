@@ -41,6 +41,21 @@ struct RecoveredRecordingContext: Equatable {
         return cause + " " + localizedCatalogString(resultKey)
     }
 
+    /// What interrupted the recording, when known.
+    func localizedCause() -> String? {
+        interruptionReason.map {
+            localizedCatalogString($0.causeDescriptionLocalizationKey)
+        }
+    }
+
+    /// What the user can do with the recovered audio.
+    func localizedResult() -> String {
+        let resultKey = interruptionReason != nil && mode == .complete
+            ? "Audio saved before the interruption is available for playback or transcription."
+            : mode.descriptionLocalizationKey
+        return localizedCatalogString(resultKey)
+    }
+
     private func encodedStatus(prefix: String) -> String {
         var components = [prefix]
         if let interruptionReason {

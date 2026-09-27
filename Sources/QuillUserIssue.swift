@@ -184,6 +184,8 @@ struct QuillUserIssueContext: Codable, Equatable, Sendable {
 
 enum QuillUserRecoveryAction: Equatable, Sendable {
     case retryTranscription
+    /// Re-run only post-processing on the stored raw transcript.
+    case retryPostProcessing
     case openModelsSettings
     case openProviderSettings
     case openMicrophoneSettings
@@ -215,7 +217,7 @@ enum MeetingSummaryIssueAction: Equatable {
         _ presentation: QuillUserIssuePresentation
     ) -> MeetingSummaryIssueAction {
         switch presentation.recoveryAction {
-        case .none, .retryTranscription:
+        case .none, .retryTranscription, .retryPostProcessing:
             return .retrySummary
         default:
             return .recovery(presentation.recoveryAction)
@@ -263,6 +265,16 @@ struct QuillUserIssueRecord: Codable, Equatable, Sendable {
            context.postProcessingFailureReason == .contextBudgetExceeded {
             return .none
         }
+        // Only cleanup failed; the transcript is fine, so a retry re-runs
+        // cleanup alone. Fixes that need settings keep their settings action.
+        let action = defaultRecoveryAction
+        if context.operation == .postProcessing, action == .retryTranscription {
+            return .retryPostProcessing
+        }
+        return action
+    }
+
+    private var defaultRecoveryAction: QuillUserRecoveryAction {
         switch code {
         case .authenticationFailed, .quotaExceeded,
              .providerConfigurationInvalid:

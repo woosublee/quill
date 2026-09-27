@@ -42,11 +42,14 @@ struct PipelineHistoryUserIssueTests {
             localizationLanguage: "ko",
             localizationBundle: bundle
         )
-        try expect(title == "제공자 인증 확인 필요", "failed title is localized")
+        // The row keeps a plain note name and a short preview; the note
+        // detail shows the issue title and reason.
+        try expect(title == "새 녹음", "failed note keeps a localized plain name")
         try expect(row.status == .fail, "error record uses failure styling")
+        try expect(row.preview == "전사하지 못함", "failure preview is short and localized")
         try expect(
-            row.preview == "Quill이 선택한 제공자에 인증하지 못했습니다.",
-            "failure preview uses friendly localized body"
+            item.userIssuePresentation(language: "ko", bundle: bundle)?.title == "제공자 인증 확인 필요",
+            "the issue title stays localized for the note detail"
         )
     }
 
@@ -99,11 +102,8 @@ struct PipelineHistoryUserIssueTests {
             localizationLanguage: "en",
             localizationBundle: bundle
         )
-        try expect(title == "Transcription failed", "legacy title stays familiar")
-        try expect(
-            row.preview == "This older history item does not include a safe error category.",
-            "legacy preview is generic"
-        )
+        try expect(title == "New Recording", "a failed note keeps a plain name")
+        try expect(row.preview == "Couldn't transcribe", "failed row preview is short")
         try expect(!title.contains(rawLegacyDetail), "title hides legacy raw detail")
         try expect(!row.preview.contains(rawLegacyDetail), "preview hides legacy raw detail")
     }

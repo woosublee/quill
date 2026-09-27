@@ -16,11 +16,17 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("private var recoveredRecordingContext: RecoveredRecordingContext"))
         precondition(source.contains("item.recoveredRecordingContext"))
         precondition(source.contains("private var recoveryTitle: String"))
-        precondition(source.contains("private var recoveryDescription: String"))
+        precondition(source.contains("private var recoveryPresentation: QuillUserIssuePresentation"))
         precondition(source.contains("localizedCatalogString(recoveredRecordingContext.titleLocalizationKey)"))
-        precondition(source.contains("recoveredRecordingContext.localizedDescription()"))
-        precondition(source.contains("Text(recoveryTitle)"))
-        precondition(source.contains("Text(recoveryDescription)"))
+        precondition(source.contains("body: recoveredRecordingContext.localizedResult()"))
+        precondition(source.contains("suggestion: recoveredRecordingContext.localizedCause() ?? \"\""))
+        // A recovered recording uses the same centered empty state as a
+        // failed note, with the recovery icon and a Transcribe action.
+        precondition(source.contains("presentation: recoveryPresentation"))
+        precondition(source.contains("actionTitleOverride: \"Transcribe\""))
+        precondition(source.contains("systemImageOverride: \"arrow.clockwise\""))
+        // A failed note has no header indicator; its empty state explains.
+        precondition(!source.contains(".help(\"Transcription failed\")"))
         precondition(source.contains("NoteAudioPlayerView(audioURL: storedAudioURL)"))
         precondition(source.contains("appState.retryTranscription(item: item)"))
         precondition(source.contains("case .needsModelSelection, .needsProviderConfiguration:"))
@@ -50,6 +56,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         try testAudioOnlyNoteUsesDedicatedNormalState()
         try testInputPickerSwitchesActiveRecordingInput(source)
         try testInputMenuCatcherDisablesAndLocalizesSources(source)
+        testMenuPillsAreKeyboardAndVoiceOverAccessible(source)
         try testRecoveryImportPreservesSelectedListPosition(source)
 
         print("RecoveredRecordingNoteBrowserSourceTests passed")
@@ -81,7 +88,8 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         // Fixed-width source and model controls, Select All under Done, and a
         // header that is always translucent so fast scrolls never show through.
         precondition(header.contains("inputPickerMenu\n                    transcriptionModelMenu"))
-        precondition(header.contains("if selection.showsSelectionUI {\n                    Text(verbatim: selectedCountText)"))
+        precondition(header.contains("if isSearchOpen && !selection.showsSelectionUI {\n                    searchField"))
+        precondition(header.contains("} else if selection.showsSelectionUI {\n                    Text(verbatim: selectedCountText)"))
         precondition(header.contains("Button(\"Select All\")"))
         precondition(header.contains("Text(verbatim: selectedCountText)"))
         precondition(header.contains(".background(.ultraThinMaterial)"))
@@ -91,7 +99,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
 
         let search = block(
             source,
-            from: "private var searchRow: some View {",
+            from: "private var searchField: some View {",
             to: "private func selectionMark(for id: UUID)"
         )
         precondition(search.contains(".onExitCommand { closeSearch() }"))
@@ -203,7 +211,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
     ) throws {
         let catcher = block(
             source,
-            from: "final class CatcherView: NSView {",
+            from: "private struct InputMenuCatcher: NSViewRepresentable {",
             to: "@objc private func pickSource("
         )
         // NSMenu defaults to auto-enabling every item with a valid target/action,
@@ -216,6 +224,36 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(catcher.contains("option.isStaticQuillName"))
         precondition(catcher.contains("localizedCatalogString(option.name)"))
         precondition(catcher.contains(": option.name"))
+        precondition(catcher.contains("final class CatcherView: MenuButtonCatcherView {"))
+        precondition(catcher.contains("menuAccessibilityValue = configuration.accessibilityValue"))
+    }
+
+    /// The source and model pills open their menus from the keyboard and
+    /// VoiceOver too, not only on a click.
+    private static func testMenuPillsAreKeyboardAndVoiceOverAccessible(
+        _ source: String
+    ) {
+        let base = block(
+            source,
+            from: "class MenuButtonCatcherView: NSView {",
+            to: "/// Transparent click target over the whole model pill"
+        )
+        for expected in [
+            "override var acceptsFirstResponder: Bool { isMenuEnabled }",
+            "isMenuEnabled && NSApp.isFullKeyboardAccessEnabled",
+            "case 49, 36, 76, 125: // Space, Return, Enter, Down Arrow",
+            "override func drawFocusRingMask()",
+            "override func accessibilityRole() -> NSAccessibility.Role? { .popUpButton }",
+            "override func accessibilityLabel() -> String? { menuAccessibilityLabel }",
+            "override func accessibilityValue() -> Any? { menuAccessibilityValue }",
+            "override func accessibilityPerformPress() -> Bool {"
+        ] {
+            precondition(base.contains(expected), "Missing menu pill accessibility: \(expected)")
+        }
+        precondition(source.contains("accessibilityLabel: localizedCatalogString(\"Audio Source\")"))
+        precondition(source.contains("accessibilityLabel: localizedCatalogString(\"Transcription Method\")"))
+        precondition(source.contains("accessibilityValue: transcriptionSelectionDetailLabel"))
+        precondition(source.contains("accessibilityValue: audioInputSummary"))
     }
 
     private static func testAudioOnlyNoteUsesDedicatedNormalState() throws {
@@ -271,7 +309,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         let restore = block(
             source,
             from: "private func restoreRecoveryScrollPosition(",
-            to: "private func transcriptionChoiceMenuItem"
+            to: "private var transcriptionSelectionLabel: String"
         )
         try expect(
             restore.contains("filteredHistory.contains(where: { $0.id == request.itemID })")
@@ -283,7 +321,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         let reader = block(
             source,
             from: "ScrollViewReader { proxy in",
-            to: "private var searchRow: some View {"
+            to: "private var searchField: some View {"
         )
         try expect(
             reader.contains(".id(item.id)")

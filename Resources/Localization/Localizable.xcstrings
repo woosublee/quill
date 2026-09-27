@@ -1105,54 +1105,6 @@
         }
       }
     },
-    "Delete Summary": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete Summary"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "요약 삭제"
-          }
-        }
-      }
-    },
-    "Delete this summary?": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete this summary?"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 요약을 삭제할까요?"
-          }
-        }
-      }
-    },
-    "This removes the saved meeting summary. You can create a new one from the transcript.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This removes the saved meeting summary. You can create a new one from the transcript."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "저장된 회의 요약을 삭제합니다. 전사문에서 새로 만들 수 있습니다."
-          }
-        }
-      }
-    },
     "Could not delete summary.": {
       "localizations": {
         "en": {
@@ -9362,22 +9314,6 @@
         }
       }
     },
-    "Transcription method: %@": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Transcription method: %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "전사 방법: %@"
-          }
-        }
-      }
-    },
     "Both dictation shortcuts are disabled.": {
       "localizations": {
         "en": {
@@ -11904,7 +11840,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "선택한 온디바이스 모델을 사용할 수 없거나 다운로드가 완료되지 않아 Quill이 원본 받아쓰기를 유지했습니다."
+            "value": "선택한 온디바이스 모델을 사용할 수 없거나 다운로드가 완료되지 않았습니다."
           }
         }
       }
@@ -11952,7 +11888,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "온디바이스 처리 런타임이 준비되지 않아 Quill이 원본 받아쓰기를 유지했습니다."
+            "value": "온디바이스 처리 런타임이 준비되지 않았습니다."
           }
         }
       }
@@ -12000,7 +11936,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "요청 처리 중 온디바이스 런타임이 중지되어 Quill이 원본 받아쓰기를 유지했습니다."
+            "value": "요청 처리 중 온디바이스 런타임이 중지되었습니다."
           }
         }
       }
@@ -12016,7 +11952,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "정리를 다시 시도하세요. 문제가 계속되면 다른 모델을 선택하세요."
+            "value": "후처리를 다시 시도하세요. 문제가 계속되면 다른 모델을 선택하세요."
           }
         }
       }
@@ -12224,7 +12160,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "전사문 정리 지침 또는 문맥이 너무 큽니다"
+            "value": "후처리 설정이 너무 깁니다"
           }
         }
       }
@@ -12240,7 +12176,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "정리 지침 또는 문맥이 선택한 모델에 안전하게 들어가지 않아 Quill이 원본 전사문을 유지했습니다."
+            "value": "원본 전사문을 표시합니다."
           }
         }
       }
@@ -12256,7 +12192,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다시 시도하기 전에 정리 프롬프트, 문맥, 사용자 지정 어휘를 검토하세요."
+            "value": "다시 시도하기 전에 후처리 프롬프트, 문맥, 사용자 지정 어휘를 줄여 보세요."
           }
         }
       }
@@ -12272,7 +12208,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "전사문 정리 결과가 비어 있습니다"
+            "value": "후처리로 바꿀 부분이 없었습니다"
           }
         }
       }
@@ -12288,7 +12224,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "모델이 사용할 수 있는 정리 결과를 반환하지 않아 Quill이 원본 전사문을 유지했습니다."
+            "value": "원본 전사문을 표시합니다."
           }
         }
       }
@@ -12304,7 +12240,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "전사문 정리 응답을 읽을 수 없습니다"
+            "value": "후처리 결과를 읽지 못했습니다"
           }
         }
       }
@@ -12320,7 +12256,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "모델 응답을 사용할 수 없어 Quill이 원본 전사문을 유지했습니다."
+            "value": "원본 전사문을 표시합니다."
           }
         }
       }
@@ -12336,7 +12272,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "전사문 정리 요청에 실패했습니다"
+            "value": "후처리하지 못했습니다"
           }
         }
       }
@@ -12352,7 +12288,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "정리 서비스가 요청을 처리하지 못해 Quill이 원본 전사문을 유지했습니다."
+            "value": "원본 전사문을 표시합니다."
           }
         }
       }
@@ -12384,7 +12320,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "전사문 정리"
+            "value": "후처리"
           }
         }
       }
@@ -12448,7 +12384,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "정리 지침 또는 문맥이 너무 큽니다"
+            "value": "후처리 지침 또는 문맥이 너무 큽니다"
           }
         }
       }
@@ -12464,7 +12400,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "모델이 정리 결과를 반환하지 않았습니다"
+            "value": "모델이 후처리 결과를 반환하지 않았습니다"
           }
         }
       }
@@ -12496,7 +12432,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "정리 서비스 요청에 실패했습니다"
+            "value": "후처리 서비스 요청에 실패했습니다"
           }
         }
       }
@@ -12512,7 +12448,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "전사문 정리를 건너뜀"
+            "value": "후처리를 건너뛰었습니다"
           }
         }
       }
@@ -12528,7 +12464,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "정리를 완료하지 못해 Quill이 원본 전사문을 유지했습니다."
+            "value": "원본 전사문을 표시합니다."
           }
         }
       }
@@ -12544,7 +12480,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "전사문을 그대로 사용하거나 나중에 정리를 다시 시도할 수 있습니다."
+            "value": "전사문을 그대로 쓰거나 후처리를 다시 시도하세요."
           }
         }
       }
@@ -12560,7 +12496,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "전사문 정리 시간이 초과되었습니다"
+            "value": "후처리가 시간 안에 끝나지 않았습니다"
           }
         }
       }
@@ -12576,7 +12512,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "정리가 제시간에 끝나지 않아 Quill이 원본 전사문을 유지했습니다."
+            "value": "원본 전사문을 표시합니다."
           }
         }
       }
@@ -12592,7 +12528,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "원본 전사문을 사용하거나 나중에 다시 정리해 보세요."
+            "value": "원본 전사문을 그대로 쓰거나 후처리를 다시 시도하세요."
           }
         }
       }
@@ -12656,7 +12592,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "전사문 정리가 일시적으로 제한됨"
+            "value": "후처리가 잠시 제한되었습니다"
           }
         }
       }
@@ -12672,7 +12608,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "모델의 요청이 제한되어 Quill이 원본 전사문을 유지했습니다."
+            "value": "원본 전사문을 표시합니다."
           }
         }
       }
@@ -12688,7 +12624,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "잠시 기다린 후 정리를 다시 시도하세요."
+            "value": "잠시 기다린 뒤 후처리를 다시 시도하세요."
           }
         }
       }
@@ -12720,7 +12656,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "정리 과정에서 의도한 의미가 바뀌었을 수 있어 Quill이 원본을 유지했습니다."
+            "value": "후처리가 의도한 의미를 바꿨을 수 있어 원본을 유지했습니다."
           }
         }
       }
@@ -12736,7 +12672,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "후처리를 적용하지 않고 원문을 유지했습니다."
+            "value": "후처리 결과를 쓰지 않고 원본 전사문을 표시합니다."
           }
         }
       }
@@ -17488,7 +17424,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "정리하기엔 전사문이 너무 길어요"
+            "value": "후처리하기에 전사문이 너무 깁니다"
           }
         }
       }
@@ -17504,7 +17440,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "선택한 제공업체가 한 번에 정리할 수 없을 만큼 커서 Quill이 원본 전사문을 유지했습니다."
+            "value": "원본 전사문을 표시합니다."
           }
         }
       }
@@ -17520,7 +17456,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "원본 전사문을 사용하거나, 정리에 다른 제공업체나 모델을 선택해 보세요."
+            "value": "원본 전사문을 그대로 쓰거나 후처리에 다른 제공업체나 모델을 선택해 보세요."
           }
         }
       }
@@ -17825,6 +17761,198 @@
           "stringUnit": {
             "state": "translated",
             "value": "가져온 오디오"
+          }
+        }
+      }
+    },
+    "Nothing to clean up; showing the original transcript.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing to clean up; showing the original transcript."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후처리로 바꿀 부분이 없어 원본 전사문을 그대로 표시합니다."
+          }
+        }
+      }
+    },
+    "Issue Details": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세부 정보"
+          }
+        }
+      }
+    },
+    "Retry Post-processing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry Post-processing"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후처리 다시 시도"
+          }
+        }
+      }
+    },
+    "What do you want to delete?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What do you want to delete?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "무엇을 삭제할까요?"
+          }
+        }
+      }
+    },
+    "Delete Summary Only": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Summary Only"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약만 삭제"
+          }
+        }
+      }
+    },
+    "Delete Entire Note": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Entire Note"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 전체 삭제"
+          }
+        }
+      }
+    },
+    "Deleting the entire note removes its recording, transcript, and summary, and cannot be undone.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleting the entire note removes its recording, transcript, and summary, and cannot be undone."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워지며 되돌릴 수 없습니다."
+          }
+        }
+      }
+    },
+    "Show Less": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Less"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접기"
+          }
+        }
+      }
+    },
+    "Show All Notices": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show All Notices"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나머지 알림 보기"
+          }
+        }
+      }
+    },
+    "Couldn't transcribe": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't transcribe"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사하지 못함"
+          }
+        }
+      }
+    },
+    "Turn on post-processing in Settings to retry.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on post-processing in Settings to retry."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정에서 후처리를 켜면 다시 시도할 수 있습니다."
+          }
+        }
+      }
+    },
+    "There is no transcript to post-process.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no transcript to post-process."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후처리할 전사문이 없습니다."
           }
         }
       }

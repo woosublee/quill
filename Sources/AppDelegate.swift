@@ -174,6 +174,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         showSettingsWindow()
     }
 
+
 private func showNoteBrowserWindow() {
         NSApp.setActivationPolicy(.regular)
 
@@ -185,9 +186,19 @@ private func showNoteBrowserWindow() {
 
         if noteBrowserWindow == nil {
             presentNoteBrowserWindow()
-        } else {
-            noteBrowserWindow?.makeKeyAndOrderFront(nil)
+        } else if let noteBrowserWindow {
+            noteBrowserWindow.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            clearInitialFocus(in: noteBrowserWindow)
+        }
+    }
+
+    /// Opening the window should not put a focus ring on its first control.
+    /// Keyboard focus still moves there with Tab. SwiftUI picks a first
+    /// responder after the window appears, so this clears it on the next pass.
+    private func clearInitialFocus(in window: NSWindow) {
+        DispatchQueue.main.async { [weak window] in
+            window?.makeFirstResponder(nil)
         }
     }
 
@@ -218,6 +229,7 @@ private func showNoteBrowserWindow() {
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        clearInitialFocus(in: window)
 
         noteBrowserWindow = window
 

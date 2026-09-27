@@ -43,14 +43,25 @@ struct QuillUserIssueUIContractTests {
             "presentation.body",
             "presentation.suggestion",
             "presentation.detailsRows",
-            "DisclosureGroup(\"Details\")",
-            "presentation.recoveryAction"
+            "presentation.recoveryAction",
+            // Suggestion and diagnostics live behind an info popover.
+            ".popover(isPresented: $showsDetails",
+            "struct QuillInfoNotice: View",
+            "case .retryPostProcessing:"
         ] {
             try expect(source.contains(marker), "shared issue renderer contains \(marker)")
         }
         try expect(
+            !source.contains("DisclosureGroup(\"Details\")"),
+            "the details disclosure row is replaced by the info popover"
+        )
+        try expect(
             source.contains("if !presentation.suggestion.isEmpty"),
             "shared issue renderer omits empty recovery suggestions"
+        )
+        try expect(
+            source.contains("ViewThatFits(in: .horizontal)"),
+            "the one-line banner hides a reason that would be cut off"
         )
     }
 
@@ -192,8 +203,8 @@ struct QuillUserIssueUIContractTests {
         )
         try expect(bannerView.contains("dismissButton"), "banner style renders the dismiss control")
         try expect(
-            bannerView.contains("detailsView"),
-            "banner style renders shared structured details"
+            bannerView.contains("detailsButton"),
+            "banner style offers shared structured details behind the info button"
         )
         let fullView = block(
             issueView,

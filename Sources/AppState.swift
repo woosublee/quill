@@ -7397,32 +7397,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
         writeDictationStringToPasteboard(trimmedTranscript)
     }
 
+    /// The context, intent, vocabulary, and prompt a retry restores from a
+    /// note. Audio-only notes never captured context, so they use current
+    /// settings instead.
     @MainActor
-    private func transcriptionRetryWorkflowRequest(
-        for item: PipelineHistoryItem,
-        choice: TranscriptionBackendChoice? = nil
-    ) throws -> TranscriptionRetryWorkflowRequest {
-        guard let audioFileName = item.audioFileName,
-              let audioURL = noteBrowserStoredAudioURL(for: item) else {
-            throw TranscriptionError.submissionFailed(
-                "Audio file not found for retry."
-            )
-        }
-
-        let options = retryOptions(for: audioURL)
-        guard let retryChoice = Self.resolvedRetryChoice(
-            picked: choice,
-            stored: options.explicitRetryChoice,
-            transcriptionEnabled: transcriptionEnabled,
-            supportedChoices: options.supportedChoices
-        ) else {
-            let reason = options.displayRows.first(where: {
-                $0.choice == currentNoteBrowserTranscriptionChoice
-            })?.unavailableReason
-                ?? "Selected transcription method is unavailable."
-            throw TranscriptionError.submissionFailed(reason)
-        }
-        let configuration = audioImportConfiguration(for: retryChoice)
+    private func restoredRetryInputs(for item: PipelineHistoryItem) -> (
+        context: AppContext,
+        intent: SessionIntent,
+        customVocabulary: String,
+        customSystemPrompt: String
+    ) {
         let isAudioOnly = item.machineStatus == .audioOnly
         let usesStoredContext = !isAudioOnly && !disableContextCapture
         let storedContextIsUsable = usesStoredContext
@@ -7455,6 +7439,142 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let retryCustomSystemPrompt = isAudioOnly
             ? customSystemPrompt
             : item.customSystemPrompt
+        return (restoredContext, restoredIntent, retryCustomVocabulary, retryCustomSystemPrompt)
+    }
+
+    /// Why Retry Post-processing can't run for a note right now, so the note
+    /// can say so instead of the button doing nothing.
+    enum PostProcessingRetryBlocker: Equatable {
+        case postProcessingOff
+        case noTranscript
+    }
+
+    func postProcessingRetryBlocker(
+        for item: PipelineHistoryItem
+    ) -> PostProcessingRetryBlocker? {
+        if disablePostProcessing { return .postProcessingOff }
+        if item.rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .noTranscript
+        }
+        return nil
+    }
+
+    /// Runs post-processing again on a note's stored raw transcript, without
+    /// transcribing the audio again. Used when only cleanup failed.
+    @MainActor
+    func retryPostProcessing(item: PipelineHistoryItem) {
+        guard requireAvailableHistoryForMutation(),
+              postProcessingRetryBlocker(for: item) == nil,
+              !retryingItemIDs.contains(item.id) else { return }
+        let rawTranscript = item.rawTranscript
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let restored = restoredRetryInputs(for: item)
+        let completion = TranscriptionCompletionSnapshot(
+            postProcessingEnabled: true,
+            outputLanguage: outputLanguage,
+            pressEnterCommandEnabled: isPressEnterVoiceCommandEnabled
+        )
+        let service = makePostProcessingService()
+        let macros = voiceMacros
+        let noteID = item.id
+        let spokenLanguage = item.spokenLanguage ?? SpokenLanguageResolver.resolve(
+            requestedLanguageCode: item.transcriptionLanguageCode,
+            engineLanguageCode: nil,
+            transcript: rawTranscript
+        )
+        retryingItemIDs.insert(noteID)
+        postProcessingNoteIDs.insert(noteID)
+
+        Task { @MainActor [weak self] in
+            let processing = await Self.processRetryTranscription(
+                TranscriptionResult(text: rawTranscript, spokenLanguage: spokenLanguage),
+                intent: restored.intent,
+                context: restored.context,
+                postProcessingService: service,
+                voiceMacros: macros,
+                customVocabulary: restored.customVocabulary,
+                customSystemPrompt: restored.customSystemPrompt,
+                completion: completion,
+                trimsFinalTranscript: true
+            )
+            guard let self else { return }
+            defer {
+                self.retryingItemIDs.remove(noteID)
+                self.postProcessingNoteIDs.remove(noteID)
+            }
+            guard let current = self.pipelineHistory.first(where: { $0.id == noteID }) else { return }
+            // Keep the note's raw transcript and audio; replace only the
+            // cleaned text and its outcome.
+            let replacement = PipelineHistoryTranscriptionReplacement(
+                rawTranscript: current.rawTranscript,
+                postProcessedTranscript: processing.finalTranscript,
+                postProcessingPrompt: processing.prompt,
+                postProcessingStatus: processing.postProcessingStatus,
+                aiProcessingOutcome: processing.aiProcessingOutcome.pipelineHistoryStatus,
+                debugStatus: current.debugStatus,
+                customVocabulary: restored.customVocabulary,
+                customSystemPrompt: restored.customSystemPrompt,
+                usedLocalTranscription: current.usedLocalTranscription,
+                usedPostProcessing: true,
+                transcriptionLanguageCode: current.transcriptionLanguageCode,
+                spokenLanguage: processing.spokenLanguage,
+                localTranscriptionModelID: current.localTranscriptionModelID,
+                transcriptFileName: current.transcriptFileName
+            )
+            let updated = current.replacingTranscription(with: replacement)
+            // Keep the transcript file in step, as editing does, so a
+            // fallback load after a restart shows the cleaned text too.
+            if let fileName = current.transcriptFileName {
+                let fileURL = self.storageLayout.transcriptDirectory
+                    .appendingPathComponent(fileName)
+                try? processing.finalTranscript.write(
+                    to: fileURL,
+                    atomically: true,
+                    encoding: .utf8
+                )
+            }
+            do {
+                try self.pipelineHistoryStore.update(updated)
+                self.updatePipelineHistoryItem(updated)
+            } catch {
+                self.errorMessage = QuillUserIssueRecord(code: .historyPersistenceUnavailable)
+                    .presentation().compactMessage
+            }
+        }
+    }
+
+    @MainActor
+    private func transcriptionRetryWorkflowRequest(
+        for item: PipelineHistoryItem,
+        choice: TranscriptionBackendChoice? = nil
+    ) throws -> TranscriptionRetryWorkflowRequest {
+        guard let audioFileName = item.audioFileName,
+              let audioURL = noteBrowserStoredAudioURL(for: item) else {
+            throw TranscriptionError.submissionFailed(
+                "Audio file not found for retry."
+            )
+        }
+
+        let options = retryOptions(for: audioURL)
+        guard let retryChoice = Self.resolvedRetryChoice(
+            picked: choice,
+            stored: options.explicitRetryChoice,
+            transcriptionEnabled: transcriptionEnabled,
+            supportedChoices: options.supportedChoices
+        ) else {
+            let reason = options.displayRows.first(where: {
+                $0.choice == currentNoteBrowserTranscriptionChoice
+            })?.unavailableReason
+                ?? "Selected transcription method is unavailable."
+            throw TranscriptionError.submissionFailed(reason)
+        }
+        let configuration = audioImportConfiguration(for: retryChoice)
+        let restored = restoredRetryInputs(for: item)
+        let restoredContext = restored.context
+        let restoredIntent = restored.intent
+        let retryCustomVocabulary = restored.customVocabulary
+        let retryCustomSystemPrompt = restored.customSystemPrompt
         let storedTranscriptionLanguage = TranscriptionLanguage.find(
             code: item.transcriptionLanguageCode
         )
@@ -7463,6 +7583,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             outputLanguage: outputLanguage,
             pressEnterCommandEnabled: isPressEnterVoiceCommandEnabled
         )
+
 
         let execution: TranscriptionExecutionSnapshot
         let failureContext: TranscriptionRetryFailureContext

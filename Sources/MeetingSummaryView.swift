@@ -1,99 +1,39 @@
 import SwiftUI
 
-struct MeetingSummaryView: View {
+struct MeetingSummaryView<Notices: View>: View {
     let envelope: MeetingSummaryEnvelope
-    let availability: MeetingSummaryAvailability
-    let isStale: Bool
     let sourceQuoteIsValid: (String) -> Bool
     let onToggleAction: (UUID, Bool) -> Void
     let onViewSource: (String) -> Void
-    let onDelete: () -> Void
+    /// One-line notices above the summary, such as a stale transcript.
+    let notices: Notices
+
+    init(
+        envelope: MeetingSummaryEnvelope,
+        sourceQuoteIsValid: @escaping (String) -> Bool,
+        onToggleAction: @escaping (UUID, Bool) -> Void,
+        onViewSource: @escaping (String) -> Void,
+        @ViewBuilder notices: () -> Notices
+    ) {
+        self.envelope = envelope
+        self.sourceQuoteIsValid = sourceQuoteIsValid
+        self.onToggleAction = onToggleAction
+        self.onViewSource = onViewSource
+        self.notices = notices()
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                topBar
-                statusMessages
+                notices
                 summaryContent(envelope)
             }
             .frame(maxWidth: 760, alignment: .leading)
             .padding(.horizontal, 40)
-            .padding(.top, 24)
+            .padding(.top, 14)
             .padding(.bottom, 96)
             .frame(maxWidth: .infinity, alignment: .center)
         }
-    }
-
-    private var topBar: some View {
-        HStack {
-            Spacer()
-            Button(role: .destructive, action: onDelete) {
-                Label("Delete Summary", systemImage: "trash")
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .help("Delete Summary")
-        }
-    }
-
-    @ViewBuilder
-    private var statusMessages: some View {
-        if envelope.effectiveEvidenceVerification == .unverified {
-            statusBanner(
-                icon: "exclamationmark.triangle",
-                title: "Some evidence could not be verified.",
-                detail: "Review the summary before sharing it.",
-                color: .orange
-            )
-        }
-        if isStale {
-            statusBanner(
-                icon: "exclamationmark.triangle",
-                title: "Transcript changed after this summary was generated.",
-                detail: "Regenerate to align the draft with the current transcript.",
-                color: .orange
-            )
-        }
-        if availability == .featureDisabled {
-            statusBanner(
-                icon: "pause.circle",
-                title: "Meeting Summary is off",
-                detail: "This saved summary is still available. Turn the feature on to regenerate it.",
-                color: .secondary
-            )
-        } else if availability == .modelUnavailable {
-            statusBanner(
-                icon: "exclamationmark.circle",
-                title: "Summary model is unavailable.",
-                detail: "This saved summary remains available for review and copying.",
-                color: .secondary
-            )
-        }
-    }
-
-    private func statusBanner(
-        icon: String,
-        title: LocalizedStringKey,
-        detail: LocalizedStringKey,
-        color: Color
-    ) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon)
-                .foregroundStyle(color)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.caption.weight(.semibold))
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 12)
-        .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(title)
     }
 
     private func summaryContent(

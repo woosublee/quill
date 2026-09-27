@@ -670,36 +670,6 @@ struct NoteBrowserView: View {
         }
     }
 
-    private func transcriptionChoiceMenuItem(_ display: TranscriptionChoiceDisplay) -> some View {
-        Toggle(isOn: Binding<Bool>(
-            get: {
-                appState.transcriptionEnabled
-                    && appState.currentNoteBrowserTranscriptionChoice == display.choice
-            },
-            set: { isSelected in
-                if isSelected {
-                    appState.setNoteBrowserTranscriptionSelection(display.choice)
-                }
-            }
-        )) {
-            Text(display.localizedCompactLabel())
-        }
-        .disabled(!appState.isNoteBrowserTranscriptionChoiceReady(display.choice))
-    }
-
-    private var transcriptionOffMenuItem: some View {
-        Toggle(isOn: Binding<Bool>(
-            get: { !appState.transcriptionEnabled },
-            set: { isSelected in
-                if isSelected {
-                    appState.setNoteBrowserTranscriptionSelection(nil)
-                }
-            }
-        )) {
-            Text(localizedCatalogString("Off"))
-        }
-    }
-
     private var transcriptionSelectionLabel: String {
         appState.transcriptionEnabled
             ? appState.noteBrowserTranscriptionChoiceLabel
@@ -864,6 +834,8 @@ struct NoteBrowserView: View {
         .frame(width: 66, height: 26)
         .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
         .contentShape(Rectangle())
+        // The overlay below is the control VoiceOver reads.
+        .accessibilityHidden(true)
         .overlay {
             InputMenuCatcher(configuration: AudioInputMenuConfiguration(
                 sources: AudioRecordingSource.allCases.map {
@@ -894,12 +866,13 @@ struct NoteBrowserView: View {
                 selectedSourceID: appState.selectedAudioSourceID,
                 selectedMicrophoneID: appState.selectedMicrophoneDeviceID,
                 microphoneSelectionEnabled: !appState.isRecording,
+                accessibilityLabel: localizedCatalogString("Audio Source"),
+                accessibilityValue: audioInputSummary,
                 onSelectSource: appState.selectAudioSource(withID:),
                 onSelectMicrophone: appState.selectMicrophoneDevice
             ))
         }
         .help(Text(verbatim: audioInputSummary))
-        .accessibilityLabel(Text(verbatim: audioInputSummary))
         .overrideCursor(.arrow)
     }
 
@@ -925,53 +898,76 @@ struct NoteBrowserView: View {
     }
 
     /// The transcription model control. It fills the space beside the source
-    /// control, so its size never changes with the selected model.
+    /// control, so its size never changes with the selected model. Like the
+    /// source control, the whole pill opens the menu, not only its label.
     private var transcriptionModelMenu: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 7)
-                .fill(Color.primary.opacity(0.06))
-            HStack(spacing: 0) {
-                Menu {
-                    transcriptionOffMenuItem
-                    Divider()
-                    Section("Cloud") {
-                        ForEach(transcriptionChoiceDisplays(in: "Cloud")) { display in
-                            transcriptionChoiceMenuItem(display)
-                        }
-                    }
-                    Section("On This Mac") {
-                        ForEach(transcriptionChoiceDisplays(in: "On This Mac")) { display in
-                            transcriptionChoiceMenuItem(display)
-                        }
-                    }
-                } label: {
-                    Label {
-                        Text(transcriptionSelectionLabel)
-                    } icon: {
-                        Image(systemName: "waveform")
-                    }
-                    .font(.system(size: 12, weight: .semibold))
-                    .lineLimit(1)
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .allowsHitTesting(false)
-            }
-            .padding(.horizontal, 8)
+        let isEnabled = !appState.isRecording && !appState.isTranscribing
+        return HStack(spacing: 6) {
+            Image(systemName: "waveform")
+            Text(transcriptionSelectionLabel)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 4)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(.secondary)
         }
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 8)
         .frame(height: 26)
         .frame(maxWidth: .infinity)
-        .accessibilityLabel(
-            String(
-                localized: "Transcription method: \(transcriptionSelectionDetailLabel)"
-            )
-        )
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+        .opacity(isEnabled ? 1 : 0.45)
+        .contentShape(Rectangle())
+        // The overlay below is the control VoiceOver reads.
+        .accessibilityHidden(true)
+        .overlay {
+            TranscriptionMenuCatcher(configuration: TranscriptionMenuConfiguration(
+                off: TranscriptionMenuOption(
+                    id: Self.transcriptionOffMenuID,
+                    title: localizedCatalogString("Off"),
+                    isSelected: !appState.transcriptionEnabled,
+                    isEnabled: true
+                ),
+                sections: ["Cloud", "On This Mac"].map { section in
+                    TranscriptionMenuSection(
+                        title: localizedCatalogString(section),
+                        options: transcriptionChoiceDisplays(in: section)
+                            .map(transcriptionMenuOption)
+                    )
+                },
+                isEnabled: isEnabled,
+                accessibilityLabel: localizedCatalogString("Transcription Method"),
+                accessibilityValue: transcriptionSelectionDetailLabel,
+                onSelect: selectTranscriptionMenuOption
+            ))
+        }
         .help(Text(verbatim: transcriptionSelectionDetailLabel))
-        .disabled(appState.isRecording || appState.isTranscribing)
+        .overrideCursor(.arrow)
+    }
+
+    private static let transcriptionOffMenuID = "transcription-off"
+
+    private func transcriptionMenuOption(
+        _ display: TranscriptionChoiceDisplay
+    ) -> TranscriptionMenuOption {
+        TranscriptionMenuOption(
+            id: display.choice.id,
+            title: display.localizedCompactLabel(),
+            isSelected: appState.transcriptionEnabled
+                && appState.currentNoteBrowserTranscriptionChoice == display.choice,
+            isEnabled: appState.isNoteBrowserTranscriptionChoiceReady(display.choice)
+        )
+    }
+
+    private func selectTranscriptionMenuOption(_ id: String) {
+        if id == Self.transcriptionOffMenuID {
+            appState.setNoteBrowserTranscriptionSelection(nil)
+        } else if let display = appState.noteBrowserTranscriptionChoiceDisplays
+            .first(where: { $0.choice.id == id }) {
+            appState.setNoteBrowserTranscriptionSelection(display.choice)
+        }
     }
 
     /// "3 selected", shown beside Select All in selection mode.
@@ -1048,10 +1044,13 @@ struct NoteBrowserView: View {
     private var sidebarHeader: some View {
         VStack(spacing: 0) {
             sidebarTitleRow
-            // Selection mode swaps the source and model row for the selected
-            // count and Select All, so the header keeps its height.
+            // Selection mode and search swap the source and model row for the
+            // selected count and Select All, or the search field, so the
+            // header keeps its height.
             HStack(spacing: 6) {
-                if selection.showsSelectionUI {
+                if isSearchOpen && !selection.showsSelectionUI {
+                    searchField
+                } else if selection.showsSelectionUI {
                     Text(verbatim: selectedCountText)
                         .font(.system(size: 12, weight: .semibold))
                         .monospacedDigit()
@@ -1069,9 +1068,6 @@ struct NoteBrowserView: View {
             .frame(height: 26)
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
-            if isSearchOpen && !selection.showsSelectionUI {
-                searchRow
-            }
         }
         // Always translucent, so notes never show through unblurred even when
         // a fast scroll outruns the scroll-offset update. Only the hairline
@@ -1247,7 +1243,7 @@ struct NoteBrowserView: View {
 
     /// Opened by the magnifier or ⌘F. With an empty query it closes when focus
     /// leaves; Esc or the clear button clears the query and closes it.
-    private var searchRow: some View {
+    private var searchField: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11, weight: .medium))
@@ -1268,10 +1264,8 @@ struct NoteBrowserView: View {
             }
         }
         .padding(.horizontal, 9)
-        .padding(.vertical, 6)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
+        .frame(height: 26)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
         .onChange(of: isSearchFieldFocused) { isFocused in
             if !isFocused && searchText.isEmpty {
                 isSearchOpen = false
@@ -1995,11 +1989,13 @@ private struct NoteDetailView: View {
     @State private var isRetrying = false
     @State private var titleDebounceTimer: Timer?
     @State private var showDeleteConfirmation = false
-    @State private var showDeleteSummaryConfirmation = false
+    @State private var showDeleteChoice = false
     @State private var selectedContentMode: NoteContentMode = .transcript
     @State private var summaryIssue: QuillUserIssueRecord?
     @State private var isSummaryIssueBannerDismissed = false
     @State private var dismissedSummaryAttemptAt: Date?
+    @State private var dismissedSummaryNoticeKeys: Set<String> = []
+    @State private var areSummaryNoticesExpanded = false
     @State private var highlightedSourceQuote: String?
 
     private var isError: Bool {
@@ -2044,8 +2040,16 @@ private struct NoteDetailView: View {
     private var recoveryTitle: String {
         localizedCatalogString(recoveredRecordingContext.titleLocalizationKey)
     }
-    private var recoveryDescription: String {
-        recoveredRecordingContext.localizedDescription()
+    private var recoveryPresentation: QuillUserIssuePresentation {
+        QuillUserIssuePresentation(
+            title: recoveryTitle,
+            body: recoveredRecordingContext.localizedResult(),
+            suggestion: recoveredRecordingContext.localizedCause() ?? "",
+            compactMessage: recoveryTitle,
+            detailsRows: [],
+            recoveryAction: .retryTranscription,
+            severity: .warning
+        )
     }
     private var isLiveRecording: Bool { item.postProcessingStatus == "live-recording" }
     private var displayContent: String {
@@ -2157,10 +2161,18 @@ private struct NoteDetailView: View {
     }
     private var warningPresentation: QuillUserIssuePresentation? {
         guard let issuePresentation,
-              issuePresentation.severity == .warning else {
+              issuePresentation.severity == .warning,
+              !isNothingToPostProcess else {
             return nil
         }
         return issuePresentation
+    }
+    /// Post-processing returned nothing to change. The original transcript is
+    /// the result, so this is a quiet notice rather than a warning.
+    private var isNothingToPostProcess: Bool {
+        guard let record = item.userIssueRecord else { return false }
+        return record.code == .postProcessingFailed
+            && record.context.postProcessingFailureReason == .emptyOutput
     }
     private var warningBannerCode: QuillUserIssueCode? {
         item.userIssueRecord?.code
@@ -2279,11 +2291,16 @@ private struct NoteDetailView: View {
         } message: {
             Text("Deleted notes cannot be recovered.")
         }
-        .confirmationDialog("Delete this summary?", isPresented: $showDeleteSummaryConfirmation, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) { deleteSummary() }
+        // With a summary, the one trash button asks what to delete. The
+        // buttons keep the same order in either tab, and Cancel stays the
+        // default so Return never deletes anything.
+        .confirmationDialog("What do you want to delete?", isPresented: $showDeleteChoice, titleVisibility: .visible) {
+            Button("Delete Summary Only") { deleteSummary() }
+            Button("Delete Entire Note", role: .destructive) { onDelete() }
             Button("Cancel", role: .cancel) {}
+                .keyboardShortcut(.defaultAction)
         } message: {
-            Text("This removes the saved meeting summary. You can create a new one from the transcript.")
+            Text("Deleting the entire note removes its recording, transcript, and summary, and cannot be undone.")
         }
     }
 
@@ -2413,12 +2430,9 @@ private struct NoteDetailView: View {
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.orange.opacity(0.7))
                 .help("Recording recovered after an unexpected shutdown")
-        } else if isError {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 10, weight: .light))
-                .foregroundStyle(.red.opacity(0.6))
-                .help("Transcription failed")
         }
+        // A failed note shows no header indicator: its centered empty
+        // state already says what happened.
     }
 
     @ViewBuilder
@@ -2492,10 +2506,11 @@ private struct NoteDetailView: View {
         .pickerStyle(.segmented)
         .controlSize(.small)
         .frame(maxWidth: 220)
+        .accessibilityLabel("Note Content")
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, 40)
         .padding(.top, 12)
         .padding(.bottom, 4)
-        .accessibilityLabel("Note Content")
     }
 
     private var contentArea: some View {
@@ -2521,6 +2536,25 @@ private struct NoteDetailView: View {
             emptyContentState
         } else {
             VStack(spacing: 0) {
+                if isNothingToPostProcess,
+                   !isWarningBannerDismissed,
+                   !appState.retryingItemIDs.contains(item.id) {
+                    QuillInfoNotice(
+                        text: localizedCatalogString(
+                            "Nothing to clean up; showing the original transcript."
+                        ),
+                        onDismiss: {
+                            if let warningBannerCode {
+                                appState.dismissWarningBanner(
+                                    noteID: item.id,
+                                    code: warningBannerCode
+                                )
+                            }
+                        }
+                    )
+                    .padding(.horizontal, 40)
+                    .padding(.top, 14)
+                }
                 if !isWarningBannerDismissed,
                    !appState.retryingItemIDs.contains(item.id),
                    let warningPresentation {
@@ -2559,58 +2593,30 @@ private struct NoteDetailView: View {
     private var summaryContentArea: some View {
         Group {
             if let summaryEnvelope {
-                VStack(spacing: 0) {
-                    let failedAttemptPresentation = currentSummaryAttempt?.outcome == .failed
-                        ? currentSummaryAttempt?.issuePresentation()
-                        : nil
-                    if let presentation = summaryIssue?.presentation()
-                        ?? failedAttemptPresentation,
-                       summaryIssue != nil
-                           ? !isSummaryIssueBannerDismissed
-                           : !isSummaryAttemptBannerDismissed {
-                        let summaryAction = summaryIssueAction(for: presentation)
-                        QuillUserIssueView(
-                            presentation: presentation,
-                            style: .warningBanner,
-                            action: summaryAction.action,
-                            actionTitleOverride: summaryAction.actionTitleOverride,
-                            onDismiss: {
-                                if summaryIssue != nil {
-                                    isSummaryIssueBannerDismissed = true
-                                } else {
-                                    dismissedSummaryAttemptAt = currentSummaryAttempt?.occurredAt
-                                }
-                            }
-                        )
-                        .padding(.horizontal, 40)
-                        .padding(.top, 16)
-                    }
-                    MeetingSummaryView(
-                        envelope: summaryEnvelope,
-                        availability: summaryAvailability,
-                        isStale: isSummaryStale,
-                        sourceQuoteIsValid: { quote in
-                            MeetingSummarySourceLocator.range(
-                                of: quote,
-                                in: displayContent
-                            ) != nil
-                        },
-                        onToggleAction: { actionID, isCompleted in
-                            do {
-                                try appState.setMeetingSummaryActionCompleted(
-                                    noteID: item.id,
-                                    actionID: actionID,
-                                    isCompleted: isCompleted
-                                )
-                            } catch {
-                                showToast(localizedCatalogString(
-                                    "Could not update action item."
-                                ))
-                            }
-                        },
-                        onViewSource: viewSource,
-                        onDelete: { showDeleteSummaryConfirmation = true }
-                    )
+                MeetingSummaryView(
+                    envelope: summaryEnvelope,
+                    sourceQuoteIsValid: { quote in
+                        MeetingSummarySourceLocator.range(
+                            of: quote,
+                            in: displayContent
+                        ) != nil
+                    },
+                    onToggleAction: { actionID, isCompleted in
+                        do {
+                            try appState.setMeetingSummaryActionCompleted(
+                                noteID: item.id,
+                                actionID: actionID,
+                                isCompleted: isCompleted
+                            )
+                        } catch {
+                            showToast(localizedCatalogString(
+                                "Could not update action item."
+                            ))
+                        }
+                    },
+                    onViewSource: viewSource
+                ) {
+                    summaryNotices
                 }
             } else if let attempt = currentSummaryAttempt,
                       let presentation = attempt.issuePresentation() {
@@ -2622,26 +2628,191 @@ private struct NoteDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    // MARK: Summary notices
+
+    /// The saved summary's notices, most important first. Several at once
+    /// show as one line with a "+N" pill that reveals the rest.
+    private enum SummaryNoticeKind: Hashable {
+        case failure
+        case stale
+        case unverifiedEvidence
+        case featureDisabled
+        case modelUnavailable
+    }
+
+    /// A newer failed attempt, or an issue from this session, shown above
+    /// the summary that is still saved.
+    private var summaryFailureNoticePresentation: QuillUserIssuePresentation? {
+        let failedAttemptPresentation = currentSummaryAttempt?.outcome == .failed
+            ? currentSummaryAttempt?.issuePresentation()
+            : nil
+        guard let presentation = summaryIssue?.presentation()
+            ?? failedAttemptPresentation else {
+            return nil
+        }
+        let isDismissed = summaryIssue != nil
+            ? isSummaryIssueBannerDismissed
+            : isSummaryAttemptBannerDismissed
+        return isDismissed ? nil : presentation
+    }
+
+    /// A dismissal lasts while the condition is unchanged: another
+    /// transcript edit or a new summary brings the notice back.
+    private func summaryNoticeDismissalKey(_ kind: SummaryNoticeKind) -> String {
+        switch kind {
+        case .failure:
+            return "failure"
+        case .stale:
+            return "stale:\(appState.meetingSummarySource(for: item).fingerprint)"
+        case .unverifiedEvidence:
+            let generatedAt = summaryEnvelope?.generatedAt.timeIntervalSince1970 ?? 0
+            return "evidence:\(generatedAt)"
+        case .featureDisabled:
+            return "featureDisabled"
+        case .modelUnavailable:
+            return "modelUnavailable"
+        }
+    }
+
+    private var visibleSummaryNotices: [SummaryNoticeKind] {
+        guard let summaryEnvelope else { return [] }
+        var kinds: [SummaryNoticeKind] = []
+        if summaryFailureNoticePresentation != nil {
+            kinds.append(.failure)
+        }
+        if isSummaryStale {
+            kinds.append(.stale)
+        }
+        if summaryEnvelope.effectiveEvidenceVerification == .unverified {
+            kinds.append(.unverifiedEvidence)
+        }
+        if summaryAvailability == .featureDisabled {
+            kinds.append(.featureDisabled)
+        } else if summaryAvailability == .modelUnavailable {
+            kinds.append(.modelUnavailable)
+        }
+        return kinds.filter { kind in
+            kind == .failure
+                || !dismissedSummaryNoticeKeys.contains(summaryNoticeDismissalKey(kind))
+        }
+    }
+
+    @ViewBuilder
+    private var summaryNotices: some View {
+        let notices = visibleSummaryNotices
+        if let first = notices.first {
+            VStack(alignment: .leading, spacing: 6) {
+                summaryNoticeRow(
+                    first,
+                    expansion: notices.count > 1
+                        ? QuillBannerExpansion(
+                            hiddenCount: notices.count - 1,
+                            isExpanded: areSummaryNoticesExpanded,
+                            toggle: {
+                                withAnimation(.easeOut(duration: 0.16)) {
+                                    areSummaryNoticesExpanded.toggle()
+                                }
+                            }
+                        )
+                        : nil
+                )
+                if areSummaryNoticesExpanded {
+                    ForEach(Array(notices.dropFirst()), id: \.self) { kind in
+                        summaryNoticeRow(kind, expansion: nil)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func summaryNoticeRow(
+        _ kind: SummaryNoticeKind,
+        expansion: QuillBannerExpansion?
+    ) -> some View {
+        switch kind {
+        case .failure:
+            if let presentation = summaryFailureNoticePresentation {
+                let summaryAction = summaryIssueAction(for: presentation)
+                QuillUserIssueView(
+                    presentation: presentation,
+                    style: .warningBanner,
+                    action: summaryAction.action,
+                    actionTitleOverride: summaryAction.actionTitleOverride,
+                    onDismiss: {
+                        if summaryIssue != nil {
+                            isSummaryIssueBannerDismissed = true
+                        } else {
+                            dismissedSummaryAttemptAt = currentSummaryAttempt?.occurredAt
+                        }
+                    },
+                    expansion: expansion
+                )
+            }
+        case .stale:
+            summaryStatusNotice(
+                kind,
+                systemImage: "exclamationmark.triangle.fill",
+                tint: QuillStatusBanner.warningTint,
+                title: "Transcript changed after this summary was generated.",
+                detail: "Regenerate to align the draft with the current transcript.",
+                expansion: expansion
+            )
+        case .unverifiedEvidence:
+            summaryStatusNotice(
+                kind,
+                systemImage: "exclamationmark.triangle.fill",
+                tint: QuillStatusBanner.warningTint,
+                title: "Some evidence could not be verified.",
+                detail: "Review the summary before sharing it.",
+                expansion: expansion
+            )
+        case .featureDisabled:
+            summaryStatusNotice(
+                kind,
+                systemImage: "pause.circle",
+                tint: .secondary,
+                title: "Meeting Summary is off",
+                detail: "This saved summary is still available. Turn the feature on to regenerate it.",
+                expansion: expansion
+            )
+        case .modelUnavailable:
+            summaryStatusNotice(
+                kind,
+                systemImage: "exclamationmark.circle",
+                tint: .secondary,
+                title: "Summary model is unavailable.",
+                detail: "This saved summary remains available for review and copying.",
+                expansion: expansion
+            )
+        }
+    }
+
+    private func summaryStatusNotice(
+        _ kind: SummaryNoticeKind,
+        systemImage: String,
+        tint: Color,
+        title: String,
+        detail: String,
+        expansion: QuillBannerExpansion?
+    ) -> some View {
+        QuillStatusBanner(
+            systemImage: systemImage,
+            tint: tint,
+            title: localizedCatalogString(title),
+            detail: localizedCatalogString(detail),
+            expansion: expansion,
+            onDismiss: {
+                dismissedSummaryNoticeKeys.insert(summaryNoticeDismissalKey(kind))
+            }
+        )
+    }
+
     private func summaryFailureContent(
         presentation: QuillUserIssuePresentation
     ) -> some View {
         let summaryAction = summaryIssueAction(for: presentation)
         return VStack(spacing: 0) {
-            if canDeleteSummary {
-                HStack {
-                    Spacer()
-                    Button(role: .destructive) {
-                        showDeleteSummaryConfirmation = true
-                    } label: {
-                        Label("Delete Summary", systemImage: "trash")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help("Delete Summary")
-                }
-                .padding(.horizontal, 40)
-                .padding(.top, 24)
-            }
             Spacer()
             QuillUserIssueView(
                 presentation: presentation,
@@ -2652,8 +2823,17 @@ private struct NoteDetailView: View {
             .padding(.horizontal, 60)
             Spacer()
         }
+        .padding(.bottom, Self.floatingToolbarClearance)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    /// The floating toolbar's height plus its bottom margin. Centered empty
+    /// states leave this much room so they sit in the middle of what is
+    /// visible above the toolbar, not of the whole pane.
+    private static let floatingToolbarHeight: CGFloat = 48
+    private static let floatingToolbarBottomMargin: CGFloat = 20
+    private static let floatingToolbarClearance =
+        floatingToolbarHeight + floatingToolbarBottomMargin
 
     @ViewBuilder
     private var emptyContentState: some View {
@@ -2692,22 +2872,16 @@ private struct NoteDetailView: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.secondary)
             } else if isRecoveredRecording {
-                ZStack {
-                    Circle()
-                        .fill(Color.orange.opacity(0.08))
-                        .frame(width: 80, height: 80)
-                    Image(systemName: "arrow.clockwise.circle")
-                        .font(.system(size: 30, weight: .ultraLight))
-                        .foregroundStyle(.orange.opacity(0.7))
-                }
-                Text(recoveryTitle)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                Text(recoveryDescription)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.tertiary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 60)
+                // Same empty state as a failed note, with the recovery icon
+                // and an action that transcribes the recovered audio.
+                QuillUserIssueView(
+                    presentation: recoveryPresentation,
+                    action: { retryTranscription() },
+                    actionTitleOverride: "Transcribe",
+                    systemImageOverride: "arrow.clockwise",
+                    tintOverride: .orange
+                )
+                .padding(.horizontal, 60)
             } else if isAudioOnly {
                 ZStack {
                     Circle()
@@ -2751,6 +2925,7 @@ private struct NoteDetailView: View {
             }
             Spacer()
         }
+        .padding(.bottom, Self.floatingToolbarClearance)
         .frame(maxWidth: .infinity)
     }
 
@@ -2896,7 +3071,13 @@ private struct NoteDetailView: View {
 
             // Delete
             toolbarButton(
-                action: { showDeleteConfirmation = true },
+                action: {
+                    if canDeleteSummary {
+                        showDeleteChoice = true
+                    } else {
+                        showDeleteConfirmation = true
+                    }
+                },
                 label: {
                     Image(systemName: "trash")
                         .font(.system(size: 13, weight: .medium))
@@ -2907,7 +3088,7 @@ private struct NoteDetailView: View {
             )
         }
         .padding(.horizontal, 8)
-        .frame(height: 48)
+        .frame(height: Self.floatingToolbarHeight)
         .background {
             #if compiler(>=6.2)
             if #available(macOS 26.0, *) {
@@ -2923,7 +3104,7 @@ private struct NoteDetailView: View {
         .compositingGroup()
         .shadow(color: .black.opacity(0.085), radius: 14, x: 0, y: 4)
         .shadow(color: .white.opacity(0.05), radius: 4, x: 0, y: -1)
-        .padding(.bottom, 20)
+        .padding(.bottom, Self.floatingToolbarBottomMargin)
         .zIndex(100)
         .contentShape(Capsule())
         .allowsHitTesting(true)
@@ -2980,6 +3161,19 @@ private struct NoteDetailView: View {
         switch action {
         case .retryTranscription:
             retryTranscription()
+        case .retryPostProcessing:
+            switch appState.postProcessingRetryBlocker(for: item) {
+            case .postProcessingOff:
+                showToast(localizedCatalogString(
+                    "Turn on post-processing in Settings to retry."
+                ))
+            case .noTranscript:
+                showToast(localizedCatalogString(
+                    "There is no transcript to post-process."
+                ))
+            case nil:
+                appState.retryPostProcessing(item: item)
+            }
         case .openModelsSettings:
             appState.selectedSettingsTab = .models
             NotificationCenter.default.post(name: .showSettings, object: nil)
@@ -4045,8 +4239,156 @@ private struct AudioInputMenuConfiguration {
     let selectedSourceID: String
     let selectedMicrophoneID: String
     let microphoneSelectionEnabled: Bool
+    let accessibilityLabel: String
+    let accessibilityValue: String
     let onSelectSource: (String) -> Void
     let onSelectMicrophone: (String) -> Void
+}
+
+private struct TranscriptionMenuOption {
+    let id: String
+    let title: String
+    let isSelected: Bool
+    let isEnabled: Bool
+}
+
+private struct TranscriptionMenuSection {
+    let title: String
+    let options: [TranscriptionMenuOption]
+}
+
+private struct TranscriptionMenuConfiguration {
+    let off: TranscriptionMenuOption
+    let sections: [TranscriptionMenuSection]
+    let isEnabled: Bool
+    let accessibilityLabel: String
+    let accessibilityValue: String
+    let onSelect: (String) -> Void
+}
+
+/// A transparent control over a custom pill that opens a native menu. The
+/// pill is drawn in SwiftUI; this view makes the whole pill clickable and
+/// gives it what a pop-up button has: a Tab stop when keyboard navigation
+/// is on, a focus ring, Space/Return/Down Arrow to open, and a VoiceOver
+/// pop-up button with a label and the current value.
+class MenuButtonCatcherView: NSView {
+    var isMenuEnabled = true
+    var menuAccessibilityLabel = ""
+    var menuAccessibilityValue = ""
+
+    /// Subclasses build the menu each time it opens.
+    func makeMenu() -> NSMenu? { nil }
+
+    override var isFlipped: Bool { true }
+    // Open the menu on the first click even when the window is in the background.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override var acceptsFirstResponder: Bool { isMenuEnabled }
+    override var canBecomeKeyView: Bool {
+        isMenuEnabled && NSApp.isFullKeyboardAccessEnabled
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        showMenu()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 49, 36, 76, 125: // Space, Return, Enter, Down Arrow
+            showMenu()
+        default:
+            super.keyDown(with: event)
+        }
+    }
+
+    private func showMenu() {
+        guard isMenuEnabled, let menu = makeMenu() else { return }
+        // Flipped view: y == bounds.height is the bottom edge, so the menu
+        // drops just below the pill.
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 2), in: self)
+    }
+
+    override var focusRingMaskBounds: NSRect { bounds }
+
+    override func drawFocusRingMask() {
+        NSBezierPath(roundedRect: bounds, xRadius: 7, yRadius: 7).fill()
+    }
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .popUpButton }
+    override func accessibilityLabel() -> String? { menuAccessibilityLabel }
+    override func accessibilityValue() -> Any? { menuAccessibilityValue }
+    override func isAccessibilityEnabled() -> Bool { isMenuEnabled }
+
+    override func accessibilityPerformPress() -> Bool {
+        showMenu()
+        return true
+    }
+
+    override func accessibilityPerformShowMenu() -> Bool {
+        showMenu()
+        return true
+    }
+}
+
+/// Transparent click target over the whole model pill that pops up a native
+/// NSMenu of transcription choices, matching the source control beside it.
+private struct TranscriptionMenuCatcher: NSViewRepresentable {
+    let configuration: TranscriptionMenuConfiguration
+
+    func makeNSView(context: Context) -> CatcherView {
+        let view = CatcherView()
+        view.configuration = configuration
+        return view
+    }
+
+    func updateNSView(_ nsView: CatcherView, context: Context) {
+        nsView.configuration = configuration
+    }
+
+    final class CatcherView: MenuButtonCatcherView {
+        var configuration: TranscriptionMenuConfiguration? {
+            didSet {
+                isMenuEnabled = configuration?.isEnabled ?? false
+                menuAccessibilityLabel = configuration?.accessibilityLabel ?? ""
+                menuAccessibilityValue = configuration?.accessibilityValue ?? ""
+            }
+        }
+
+        override func makeMenu() -> NSMenu? {
+            guard let configuration, configuration.isEnabled else { return nil }
+            let menu = NSMenu()
+            menu.autoenablesItems = false
+            menu.addItem(makeItem(configuration.off))
+            for section in configuration.sections where !section.options.isEmpty {
+                menu.addItem(.separator())
+                let header = NSMenuItem(title: section.title, action: nil, keyEquivalent: "")
+                header.isEnabled = false
+                menu.addItem(header)
+                for option in section.options {
+                    menu.addItem(makeItem(option))
+                }
+            }
+            return menu
+        }
+
+        private func makeItem(_ option: TranscriptionMenuOption) -> NSMenuItem {
+            let item = NSMenuItem(
+                title: option.title,
+                action: #selector(pick(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = option.id
+            item.state = option.isSelected ? .on : .off
+            item.isEnabled = option.isEnabled
+            return item
+        }
+
+        @objc private func pick(_ sender: NSMenuItem) {
+            guard let id = sender.representedObject as? String else { return }
+            configuration?.onSelect(id)
+        }
+    }
 }
 
 /// Transparent click target that pops up a native NSMenu of audio inputs.
@@ -4065,19 +4407,17 @@ private struct InputMenuCatcher: NSViewRepresentable {
         nsView.apply(configuration)
     }
 
-    final class CatcherView: NSView {
+    final class CatcherView: MenuButtonCatcherView {
         private var configuration: AudioInputMenuConfiguration?
-
-        override var isFlipped: Bool { true }
-        // Open the menu on the first click even when the window is in the background.
-        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
         func apply(_ configuration: AudioInputMenuConfiguration) {
             self.configuration = configuration
+            menuAccessibilityLabel = configuration.accessibilityLabel
+            menuAccessibilityValue = configuration.accessibilityValue
         }
 
-        override func mouseDown(with event: NSEvent) {
-            guard let configuration else { return }
+        override func makeMenu() -> NSMenu? {
+            guard let configuration else { return nil }
             let menu = NSMenu()
             // Honor our per-item isEnabled; otherwise AppKit auto-enables every
             // item whose target responds to the action, masking the disabled state.
@@ -4105,9 +4445,7 @@ private struct InputMenuCatcher: NSViewRepresentable {
                     menu.addItem(item)
                 }
             }
-            // Flipped view: y == bounds.height is the bottom edge, so the menu
-            // drops just below the chevron.
-            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 2), in: self)
+            return menu
         }
 
         private func sectionHeader(_ title: String) -> NSMenuItem {
