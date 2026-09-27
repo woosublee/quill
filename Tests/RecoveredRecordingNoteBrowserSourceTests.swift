@@ -35,20 +35,75 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("} else if isError {"))
         precondition(source.contains("appState.cloudTranscriptionProgressByHistoryID[item.id]"))
         precondition(source.contains("cloudProgress: appState.cloudTranscriptionProgressByHistoryID[item.id]"))
-        precondition(source.contains("if isCloudTranscribing {"))
-        precondition(source.contains("Text(cloudProgressText)"))
+        // Cloud chunk progress, "Transcribing…", and "Post-processing…" share
+        // one stage label in the note detail.
+        precondition(source.contains("Text(verbatim: processingStatusText)"))
+        precondition(source.contains("? cloudProgressText"))
+        precondition(source.contains("appState.postProcessingNoteIDs.contains(item.id)"))
         precondition(source.contains("actionState.showsRetryButton"))
         precondition(source.contains("NoteFileExportView("))
         precondition(source.contains("Image(systemName: \"square.and.arrow.down\")"))
         precondition(source.contains("Image(systemName: \"ellipsis\")"))
         try testRetryWithoutReadyModelUsesToast(source)
         testEmptyHistoryShowsOneEmptyState(source)
+        testNoteBrowserHeaderLayout(source)
         try testAudioOnlyNoteUsesDedicatedNormalState()
         try testInputPickerSwitchesActiveRecordingInput(source)
         try testInputMenuCatcherDisablesAndLocalizesSources(source)
         try testRecoveryImportPreservesSelectedListPosition(source)
 
         print("RecoveredRecordingNoteBrowserSourceTests passed")
+    }
+
+    private static func testNoteBrowserHeaderLayout(_ source: String) {
+        let titleRow = block(
+            source,
+            from: "private var sidebarTitleRow: some View {",
+            to: "private var sidebarHeader: some View {"
+        )
+        // First row shares the title bar: count, search, import, Select/Done.
+        precondition(!titleRow.contains("selectedCountText"))
+        precondition(!source.contains("noteCountText"))
+        precondition(titleRow.contains("headerIconButton(\"magnifyingglass\""))
+        precondition(titleRow.contains(".keyboardShortcut(\"f\", modifiers: .command)"))
+        precondition(titleRow.contains("headerIconButton(\"waveform.badge.plus\", help: \"Import Audio File\")"))
+        precondition(titleRow.contains("Button(\"Done\") { selection.endSelectionMode() }"))
+        precondition(titleRow.contains("Button(\"Select\") { beginSelection() }"))
+        precondition(titleRow.contains(".disabled(selection.showsSelectionUI)"))
+        precondition(titleRow.contains(".background(WindowDragArea())"))
+        precondition(!source.contains("Text(verbatim: \"Recordings\")"))
+
+        let header = block(
+            source,
+            from: "private var sidebarHeader: some View {",
+            to: "/// True once the first note has scrolled under the header."
+        )
+        // Fixed-width source and model controls, Select All under Done, and a
+        // header that is always translucent so fast scrolls never show through.
+        precondition(header.contains("inputPickerMenu\n                    transcriptionModelMenu"))
+        precondition(header.contains("if selection.showsSelectionUI {\n                    Text(verbatim: selectedCountText)"))
+        precondition(header.contains("Button(\"Select All\")"))
+        precondition(header.contains("Text(verbatim: selectedCountText)"))
+        precondition(header.contains(".background(.ultraThinMaterial)"))
+        precondition(source.contains(".frame(width: 66, height: 26)"))
+        precondition(source.contains("if appState.selectedAudioSource == .microphoneAndSystemAudio {"))
+        precondition(source.contains(".ignoresSafeArea(.container, edges: .top)"))
+
+        let search = block(
+            source,
+            from: "private var searchRow: some View {",
+            to: "private func selectionMark(for id: UUID)"
+        )
+        precondition(search.contains(".onExitCommand { closeSearch() }"))
+        precondition(search.contains("if !isFocused && searchText.isEmpty"))
+
+        let panel = block(
+            source,
+            from: "private var sidebarPanel: some View {",
+            to: "private var noteList: some View {"
+        )
+        precondition(panel.contains("if !selection.showsSelectionUI {\n                floatingRecordButton"))
+        precondition(source.contains(".padding(.bottom, selection.showsSelectionUI ? 6 : 72)"))
     }
 
     private static func testEmptyHistoryShowsOneEmptyState(_ source: String) {
@@ -228,7 +283,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         let reader = block(
             source,
             from: "ScrollViewReader { proxy in",
-            to: ".frame(width: 280)"
+            to: "private var searchRow: some View {"
         )
         try expect(
             reader.contains(".id(item.id)")

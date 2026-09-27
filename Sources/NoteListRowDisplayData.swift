@@ -206,8 +206,8 @@ struct NoteListRowDisplayData: Equatable {
     let displayTitle: String
     let preview: String
     let hasMeetingSummary: Bool
-    /// Set while the row still shows the "Recording" placeholder title, so the
-    /// row can show a running elapsed time instead.
+    /// Set while recording, so the row's status corner can show a running
+    /// elapsed time next to the red dot.
     let recordingStartedAt: Date?
 
     init(
@@ -233,27 +233,41 @@ struct NoteListRowDisplayData: Equatable {
         let trimmedCustomTitle = item.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
         let customTitle = trimmedCustomTitle?.isEmpty == true ? nil : trimmedCustomTitle
         let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayTitle = NoteTitleResolver.displayTitle(
-            for: item,
-            isTranscribing: status == .transcribing,
-            isPostProcessing: postProcessingIDs.contains(item.id),
-            language: localizationLanguage,
-            bundle: localizationBundle
+        // The row names the note; the stage ("Transcribing…", "Post-
+        // processing…") is shown once, in the note detail. A recording or
+        // import with no title or transcript yet gets a neutral name; a note
+        // being retried keeps its own name.
+        let hasOwnTitle = customTitle != nil || item.calendarMatch?.appliedTitle != nil
+        let isUnnamed = !hasOwnTitle && content.isEmpty && !retryingIDs.contains(item.id)
+        let isNewRecording = isUnnamed && (
+            status == .recording
+                || item.postProcessingStatus == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus
+                || item.machineStatus == .cloudTranscribing
         )
+        let isImporting = isUnnamed && item.machineStatus == .importing
+        let displayTitle: String
+        if isNewRecording || isImporting {
+            displayTitle = localizedCatalogString(
+                isImporting ? "Imported Audio" : "New Recording",
+                language: localizationLanguage,
+                bundle: localizationBundle
+            )
+        } else {
+            displayTitle = NoteTitleResolver.displayTitle(
+                for: item,
+                isTranscribing: status == .transcribing,
+                isPostProcessing: postProcessingIDs.contains(item.id),
+                language: localizationLanguage,
+                bundle: localizationBundle
+            )
+        }
 
         self.id = item.id
         self.status = status
         self.rowDate = NoteTimestampFormatter.rowTimestamp(for: item, locale: locale)
         self.displayTitle = displayTitle
         self.hasMeetingSummary = item.meetingSummaryJSON != nil
-        // Same conditions under which NoteTitleResolver falls back to its
-        // automatic "Recording..." title.
-        self.recordingStartedAt = status == .recording
-            && customTitle == nil
-            && item.calendarMatch?.appliedTitle == nil
-            && content.isEmpty
-            ? item.recordingStartedAt
-            : nil
+        self.recordingStartedAt = status == .recording ? item.recordingStartedAt : nil
         self.preview = Self.preview(
             for: item,
             status: status,
@@ -301,22 +315,9 @@ struct NoteListRowDisplayData: Equatable {
         if status == .recovered {
             return item.recoveredRecordingContext?.localizedDescription() ?? ""
         }
-        if status == .transcribing {
-            guard item.machineStatus == .cloudTranscribing,
-                  let cloudProgress else {
-                return ""
-            }
-            guard cloudProgress.activeAttempt != nil else {
-                return localization("Resuming cloud transcription…", [])
-            }
-            let activeChunkNumber = min(
-                cloudProgress.completedChunkCount + 1,
-                cloudProgress.totalChunkCount
-            )
-            return localization(
-                "Transcribing %d of %d…",
-                [activeChunkNumber, cloudProgress.totalChunkCount]
-            )
+        if status == .transcribing || (status == .recording && content.isEmpty) {
+            // Progress lives in the note detail and the row's spinner.
+            return ""
         }
         if customTitle != nil || item.calendarMatch?.appliedTitle != nil {
             return String(content.prefix(100))

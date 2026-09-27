@@ -8,11 +8,36 @@ import UniformTypeIdentifiers
 private class CursorNSView: NSView {
     var cursor: NSCursor
 
+    /// Cursor overrides currently in a window. Text views underneath one
+    /// (such as the transcript under the floating toolbar) defer to it.
+    private static let liveViews = NSHashTable<CursorNSView>.weakObjects()
+
     init(cursor: NSCursor) {
         self.cursor = cursor
         super.init(frame: .zero)
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            Self.liveViews.remove(self)
+        } else {
+            Self.liveViews.add(self)
+        }
+    }
+
+    /// The override cursor for a point in window coordinates, if one covers it.
+    static func cursor(atWindowPoint point: NSPoint, in window: NSWindow?) -> NSCursor? {
+        guard let window else { return nil }
+        for view in liveViews.allObjects
+        where view.window === window && !view.isHiddenOrHasHiddenAncestor {
+            if view.convert(view.bounds, to: nil).contains(point) {
+                return view.cursor
+            }
+        }
+        return nil
+    }
 
     override func layout() {
         super.layout()
@@ -457,6 +482,39 @@ struct TranscriptionChoiceSheet: View {
 
 // MARK: - Note Browser View
 
+private struct NoteListTopOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = .greatestFiniteMagnitude
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = min(value, nextValue())
+    }
+}
+
+private struct DimmedWhenDisabled: ViewModifier {
+    @Environment(\.isEnabled) private var isEnabled
+    func body(content: Content) -> some View {
+        content.opacity(isEnabled ? 1 : 0.35)
+    }
+}
+
+/// Empty title bar space that drags the window, and zooms it on double-click,
+/// now that the content extends under the transparent title bar.
+private struct WindowDragArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { DragView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    final class DragView: NSView {
+        override var mouseDownCanMoveWindow: Bool { true }
+
+        override func mouseDown(with event: NSEvent) {
+            if event.clickCount == 2 {
+                window?.performZoom(nil)
+            } else {
+                window?.performDrag(with: event)
+            }
+        }
+    }
+}
+
 struct RetryChoiceRequest: Identifiable {
     let id = UUID()
     let options: AudioImportOptions
@@ -477,7 +535,10 @@ struct NoteBrowserView: View {
     @State private var knownHistoryIDs: Set<UUID> = []
     @State private var recoveryScrollRestoreRequest: RecoveryScrollRestoreRequest?
     @State private var pendingAudioImport: PendingAudioImport?
-    @State private var recordingPulse = false
+    @State private var isSearchOpen = false
+    @FocusState private var isSearchFieldFocused: Bool
+    @State private var noteListTopOffset: CGFloat = 0
+    @State private var sidebarHeaderHeight: CGFloat = 0
 
     private var filteredHistory: [PipelineHistoryItem] {
         guard !searchText.isEmpty else { return appState.pipelineHistory }
@@ -663,6 +724,13 @@ struct NoteBrowserView: View {
                 HStack(spacing: 0) {
             sidebarPanel
             detailPanel
+                // The note runs under the title bar too; its date line lines
+                // up with the traffic lights, and the space around it drags.
+                .ignoresSafeArea(.container, edges: .top)
+                .overlay(alignment: .top) {
+                    WindowDragArea()
+                        .frame(height: 16)
+                }
         }
         .frame(minWidth: 800, minHeight: 520)
         .onAppear {
@@ -764,162 +832,105 @@ struct NoteBrowserView: View {
 
     // MARK: - Sidebar
 
-    // Down-chevron beside the Rec button to choose the audio input. Mirrors the
-    // menu bar Microphone submenu. While recording, selecting an input switches
-    // the active recording's input (same capability as the recording overlay's
-    // switcher) instead of only setting the preference for the next recording.
-    // Starts/stops the Rec dot pulse. Stopping is wrapped in a finite animation
-    // so the repeatForever context is cleanly torn down (no idle CPU), and this
-    // is also called from onAppear so the pulse runs if the view opens while a
-    // recording is already in progress.
-    private func updateRecordingPulse(_ isRecording: Bool) {
-        if isRecording {
-            recordingPulse = false
-            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-                recordingPulse = true
+    /// Fixed-width source control: icons for what the next recording
+    /// captures (microphone, System Audio, or both). Clicking opens an AppKit
+    /// NSMenu with the audio source and microphone choices, mirroring the menu
+    /// bar Microphone submenu. While recording, selecting an input switches the
+    /// active recording's input instead of only setting the next recording's.
+    private var inputPickerMenu: some View {
+        HStack(spacing: 2) {
+            HStack(spacing: 2) {
+                if appState.selectedAudioSource.requiresMicrophonePermission {
+                    Image(systemName: "mic")
+                }
+                if appState.selectedAudioSource == .microphoneAndSystemAudio {
+                    Text(verbatim: "+")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                if appState.selectedAudioSource != .microphone {
+                    // "This Mac": sound playing on the computer.
+                    Image(systemName: "macbook")
+                }
             }
+            .font(.system(size: 11, weight: .medium))
+            .frame(maxWidth: .infinity)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(.secondary)
+        }
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 7)
+        .frame(width: 66, height: 26)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+        .contentShape(Rectangle())
+        .overlay {
+            InputMenuCatcher(configuration: AudioInputMenuConfiguration(
+                sources: AudioRecordingSource.allCases.map {
+                    AudioInputMenuOption(
+                        id: $0.id,
+                        name: $0.titleKey,
+                        isStaticQuillName: true
+                    )
+                },
+                disabledSourceIDs: Set(
+                    AudioRecordingSource.allCases
+                        .filter { !appState.isAudioSourceSelectable($0) }
+                        .map(\.id)
+                ),
+                microphones: [
+                    AudioInputMenuOption(
+                        id: AudioInputDevice.defaultMicrophoneID,
+                        name: appState.systemDefaultMicrophoneDisplayName(),
+                        isStaticQuillName: false
+                    )
+                ] + appState.availableMicrophones.map {
+                    AudioInputMenuOption(
+                        id: $0.uid,
+                        name: $0.name,
+                        isStaticQuillName: false
+                    )
+                },
+                selectedSourceID: appState.selectedAudioSourceID,
+                selectedMicrophoneID: appState.selectedMicrophoneDeviceID,
+                microphoneSelectionEnabled: !appState.isRecording,
+                onSelectSource: appState.selectAudioSource(withID:),
+                onSelectMicrophone: appState.selectMicrophoneDevice
+            ))
+        }
+        .help(Text(verbatim: audioInputSummary))
+        .accessibilityLabel(Text(verbatim: audioInputSummary))
+        .overrideCursor(.arrow)
+    }
+
+    /// The microphone name and source, such as "MacBook Pro Microphone +
+    /// System Audio", for the source control's tooltip.
+    private var audioInputSummary: String {
+        let microphoneName: String
+        if appState.selectedMicrophoneDeviceID == AudioInputDevice.defaultMicrophoneID {
+            microphoneName = appState.systemDefaultMicrophoneDisplayName()
         } else {
-            withAnimation(.default) {
-                recordingPulse = false
-            }
+            microphoneName = appState.availableMicrophones
+                .first(where: { $0.uid == appState.selectedMicrophoneDeviceID })?
+                .name ?? appState.systemDefaultMicrophoneDisplayName()
+        }
+        switch appState.selectedAudioSource {
+        case .microphone:
+            return microphoneName
+        case .systemAudio:
+            return localizedCatalogString("System Audio")
+        case .microphoneAndSystemAudio:
+            return localizedCatalogFormat("%@ + System Audio", microphoneName)
         }
     }
 
-    private var inputPickerMenu: some View {
-        // Custom chevron + an AppKit NSMenu on click, so the glyph is fully ours
-        // (SwiftUI Menu draws its own fixed indicator that ignores label sizing)
-        // and the selected input gets a native checkmark.
-        Image(systemName: "chevron.down")
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(.secondary)
-            .frame(width: 11, height: 22)
-            .contentShape(Rectangle())
-            .padding(.leading, -2)
-            .overlay {
-                InputMenuCatcher(configuration: AudioInputMenuConfiguration(
-                    sources: AudioRecordingSource.allCases.map {
-                        AudioInputMenuOption(
-                            id: $0.id,
-                            name: $0.titleKey,
-                            isStaticQuillName: true
-                        )
-                    },
-                    disabledSourceIDs: Set(
-                        AudioRecordingSource.allCases
-                            .filter { !appState.isAudioSourceSelectable($0) }
-                            .map(\.id)
-                    ),
-                    microphones: [
-                        AudioInputMenuOption(
-                            id: AudioInputDevice.defaultMicrophoneID,
-                            name: appState.systemDefaultMicrophoneDisplayName(),
-                            isStaticQuillName: false
-                        )
-                    ] + appState.availableMicrophones.map {
-                        AudioInputMenuOption(
-                            id: $0.uid,
-                            name: $0.name,
-                            isStaticQuillName: false
-                        )
-                    },
-                    selectedSourceID: appState.selectedAudioSourceID,
-                    selectedMicrophoneID: appState.selectedMicrophoneDeviceID,
-                    microphoneSelectionEnabled: !appState.isRecording,
-                    onSelectSource: appState.selectAudioSource(withID:),
-                    onSelectMicrophone: appState.selectMicrophoneDevice
-                ))
-            }
-            .help(
-                appState.isRecording
-                    ? "Switch the active recording's audio input"
-                    : "Choose audio input for the next recording"
-            )
-            .overrideCursor(.arrow)
-    }
-
-    private var sidebarPanel: some View {
-        VStack(spacing: 0) {
-            // Title row
-            HStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    Text(verbatim: "Recordings")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                    if !appState.pipelineHistory.isEmpty {
-                        Text("\(appState.pipelineHistory.count)")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.primary.opacity(0.08), in: Capsule())
-                    }
-                }
-                .layoutPriority(1)
-
-                Spacer(minLength: 8)
-
-                HStack(spacing: 8) {
-                    Button {
-                        showAudioImportPicker()
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 12, weight: .bold))
-                            .frame(width: 24, height: 24)
-                            .background(Color.primary.opacity(0.06), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Import audio file")
-                    .disabled(appState.isRecording)
-                    .overrideCursor(.arrow)
-
-                    // Record button
-                    Button {
-                        appState.toggleRecording()
-                    } label: {
-                        HStack(spacing: 5) {
-                            Circle()
-                                .fill(.white)
-                                .frame(width: 6, height: 6)
-                                // Pulse opacity only (via recordingPulse) so the dot blinks
-                                // in place and isn't dragged by the Rec/Stop layout change.
-                                .opacity(appState.isRecording ? (recordingPulse ? 0.35 : 1.0) : 1.0)
-                            Text(appState.isRecording ? "Stop" : "Rec")
-                                .font(.system(size: 11, weight: .semibold))
-                                .lineLimit(1)
-                        }
-                        .onChange(of: appState.isRecording) { isRecording in
-                            updateRecordingPulse(isRecording)
-                        }
-                        .onAppear { updateRecordingPulse(appState.isRecording) }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(appState.isRecording ? Color.orange : Color.red, in: Capsule())
-                        .foregroundStyle(.white)
-                    }
-                    .buttonStyle(.plain)
-                    .overrideCursor(.arrow)
-
-                    inputPickerMenu
-                }
-                .fixedSize(horizontal: true, vertical: false)
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 14)
-            .padding(.bottom, 10)
-
-            HStack(spacing: 8) {
-                Text(verbatim: "Transcription")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.tertiary)
-                    .textCase(.uppercase)
-                    .kerning(0.4)
-
-                Spacer()
-
+    /// The transcription model control. It fills the space beside the source
+    /// control, so its size never changes with the selected model.
+    private var transcriptionModelMenu: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 7)
+                .fill(Color.primary.opacity(0.06))
+            HStack(spacing: 0) {
                 Menu {
                     transcriptionOffMenuItem
                     Divider()
@@ -934,36 +945,231 @@ struct NoteBrowserView: View {
                         }
                     }
                 } label: {
-                    Text(transcriptionSelectionLabel)
-                        .font(.system(size: 11, weight: .semibold))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Color.primary.opacity(0.06), in: Capsule())
+                    Label {
+                        Text(transcriptionSelectionLabel)
+                    } icon: {
+                        Image(systemName: "waveform")
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
                 }
                 .menuStyle(.borderlessButton)
-                .accessibilityLabel(
-                    String(
-                        localized: "Transcription method: \(transcriptionSelectionDetailLabel)"
-                    )
-                )
-                .disabled(appState.isRecording || appState.isTranscribing)
+                .menuIndicator(.hidden)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .allowsHitTesting(false)
             }
+            .padding(.horizontal, 8)
+        }
+        .frame(height: 26)
+        .frame(maxWidth: .infinity)
+        .accessibilityLabel(
+            String(
+                localized: "Transcription method: \(transcriptionSelectionDetailLabel)"
+            )
+        )
+        .help(Text(verbatim: transcriptionSelectionDetailLabel))
+        .disabled(appState.isRecording || appState.isTranscribing)
+    }
+
+    /// "3 selected", shown beside Select All in selection mode.
+    private var selectedCountText: String {
+        localizedCatalogFormat("%lld selected", selection.selectedIDs.count)
+    }
+
+    private func headerIconButton(
+        _ systemImage: String,
+        help: LocalizedStringKey,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 13, weight: .medium))
+                .frame(width: 26, height: 24)
+                .modifier(DimmedWhenDisabled())
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusable(false)
+        .help(help)
+        .overrideCursor(.arrow)
+    }
+
+    /// The first row shares the title bar with the traffic lights: search,
+    /// import, and Select on the right. Empty space in it drags the window.
+    private var sidebarTitleRow: some View {
+        HStack(spacing: 4) {
+            Spacer(minLength: 6)
+            headerIconButton("magnifyingglass", help: "Search Notes") {
+                toggleSearch()
+            }
+            .foregroundStyle(searchText.isEmpty ? Color.secondary : Color.accentColor)
+            .background {
+                // ⌘F opens or focuses search and keeps the query; only the
+                // magnifier itself closes an open search.
+                Button("") { openSearch() }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .opacity(0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+            // Search and import stay in place but pause while selecting.
+            .disabled(selection.showsSelectionUI)
+            headerIconButton("waveform.badge.plus", help: "Import Audio File") {
+                showAudioImportPicker()
+            }
+            .foregroundStyle(.secondary)
+            .disabled(appState.isRecording || selection.showsSelectionUI)
+            // One button in one place: Select, then Done in selection mode.
+            if selection.showsSelectionUI {
+                Button("Done") { selection.endSelectionMode() }
+                    .buttonStyle(SidebarCapsuleButtonStyle())
+                    .overrideCursor(.arrow)
+            } else {
+                Button("Select") { beginSelection() }
+                    .buttonStyle(SidebarCapsuleButtonStyle())
+                    .help("Select multiple notes")
+                    .disabled(appState.pipelineHistory.isEmpty)
+                    .overrideCursor(.arrow)
+            }
+        }
+        .padding(.leading, 90)
+        .padding(.trailing, 10)
+        // Matches the unified toolbar's title bar height, where the traffic
+        // lights are vertically centered.
+        .frame(height: 52)
+        .background(WindowDragArea())
+    }
+
+    /// Everything above the note list. It sits in the list's top safe area,
+    /// so notes scroll beneath it once the list is scrolled.
+    private var sidebarHeader: some View {
+        VStack(spacing: 0) {
+            sidebarTitleRow
+            // Selection mode swaps the source and model row for the selected
+            // count and Select All, so the header keeps its height.
+            HStack(spacing: 6) {
+                if selection.showsSelectionUI {
+                    Text(verbatim: selectedCountText)
+                        .font(.system(size: 12, weight: .semibold))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .padding(.leading, 2)
+                    Spacer()
+                    Button("Select All") { _ = selectAllVisibleNotes() }
+                        .buttonStyle(SidebarCapsuleButtonStyle())
+                        .overrideCursor(.arrow)
+                } else {
+                    inputPickerMenu
+                    transcriptionModelMenu
+                }
+            }
+            .frame(height: 26)
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
-
-            if selection.showsSelectionUI {
-                selectionBar
-            } else {
+            if isSearchOpen && !selection.showsSelectionUI {
                 searchRow
             }
+        }
+        // Always translucent, so notes never show through unblurred even when
+        // a fast scroll outruns the scroll-offset update. Only the hairline
+        // follows the scroll position.
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.1))
+                .frame(height: 0.5)
+                .opacity(isNoteListScrolled ? 1 : 0)
+        }
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { sidebarHeaderHeight = proxy.size.height }
+                    .onChange(of: proxy.size.height) { sidebarHeaderHeight = $0 }
+            }
+        )
+    }
 
-            Divider().opacity(0.5)
+    /// True once the first note has scrolled under the header.
+    private var isNoteListScrolled: Bool {
+        !filteredHistory.isEmpty && noteListTopOffset < sidebarHeaderHeight + 5
+    }
 
-            // List
+    private func toggleSearch() {
+        if isSearchOpen && isSearchFieldFocused {
+            closeSearch()
+        } else {
+            openSearch()
+        }
+    }
+
+    private func openSearch() {
+        guard !selection.showsSelectionUI else { return }
+        isSearchOpen = true
+        DispatchQueue.main.async { isSearchFieldFocused = true }
+    }
+
+    private func closeSearch() {
+        searchText = ""
+        isSearchFieldFocused = false
+        isSearchOpen = false
+    }
+
+    private var floatingRecordButton: some View {
+        Button {
+            appState.toggleRecording()
+        } label: {
+            ZStack {
+                Circle()
+                    .fill(appState.isRecording ? Color.orange : Color.red)
+                if appState.isRecording {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(.white)
+                        .frame(width: 14, height: 14)
+                }
+            }
+            .frame(width: 44, height: 44)
+            .overlay(Circle().strokeBorder(Color.white.opacity(0.18), lineWidth: 1))
+            .shadow(color: .black.opacity(0.28), radius: 8, y: 3)
+            .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help(appState.isRecording ? "Stop recording" : "Start recording")
+        .accessibilityLabel(appState.isRecording ? "Stop recording" : "Start recording")
+        .padding(.bottom, 16)
+        .overrideCursor(.arrow)
+    }
+
+    private var sidebarPanel: some View {
+        ZStack(alignment: .bottom) {
+            // The header overlays the list, and the list reserves the header's
+            // height at its top, so notes scroll beneath the header.
+            noteList
+                .overlay(alignment: .top) { sidebarHeader }
+            if !selection.showsSelectionUI {
+                floatingRecordButton
+            }
+        }
+        .frame(width: 280)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .trailing) {
+            Rectangle()
+                .fill(Color.primary.opacity(0.07))
+                .frame(width: 0.5)
+        }
+        // The sidebar runs under the transparent title bar, so its first row
+        // shares the title bar with the traffic lights.
+        .ignoresSafeArea(.container, edges: .top)
+    }
+
+    @ViewBuilder
+    private var noteList: some View {
+        Group {
             if appState.pipelineHistory.isEmpty {
                 emptyListState
+                    .padding(.top, sidebarHeaderHeight)
             } else if filteredHistory.isEmpty {
                 VStack(spacing: 8) {
                     Spacer()
@@ -975,6 +1181,7 @@ struct NoteBrowserView: View {
                         .foregroundStyle(.tertiary)
                     Spacer()
                 }
+                .padding(.top, sidebarHeaderHeight)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView(.vertical, showsIndicators: false) {
@@ -1004,8 +1211,23 @@ struct NoteBrowserView: View {
                             }
                         }
                         .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
+                        // Tracks where the list's top sits relative to the
+                        // header. Measured on the whole stack, which stays
+                        // alive however far the list scrolls.
+                        .background(
+                            GeometryReader { geometry in
+                                Color.clear.preference(
+                                    key: NoteListTopOffsetKey.self,
+                                    value: geometry.frame(in: .named("noteList")).minY
+                                )
+                            }
+                        )
+                        .padding(.top, sidebarHeaderHeight + 6)
+                        // Room for the floating Record button.
+                        .padding(.bottom, selection.showsSelectionUI ? 6 : 72)
                     }
+                    .coordinateSpace(name: "noteList")
+                    .onPreferenceChange(NoteListTopOffsetKey.self) { noteListTopOffset = $0 }
                     .onAppear {
                         restoreRecoveryScrollPosition(
                             request: recoveryScrollRestoreRequest,
@@ -1021,63 +1243,40 @@ struct NoteBrowserView: View {
                 }
             }
         }
-        .frame(width: 280)
-        .background(.ultraThinMaterial)
-        .overlay(alignment: .trailing) {
-            Rectangle()
-                .fill(Color.primary.opacity(0.07))
-                .frame(width: 0.5)
-        }
     }
 
+    /// Opened by the magnifier or ⌘F. With an empty query it closes when focus
+    /// leaves; Esc or the clear button clears the query and closes it.
     private var searchRow: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.tertiary)
-                TextField("Search", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                if !searchText.isEmpty {
-                    Button { searchText = "" } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .buttonStyle(.plain)
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.tertiary)
+            TextField("Search Notes", text: $searchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .focused($isSearchFieldFocused)
+                .onExitCommand { closeSearch() }
+            if !searchText.isEmpty {
+                Button { closeSearch() } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
                 }
+                .buttonStyle(.plain)
+                .help("Clear Search")
             }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
-            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-
-            Button("Select") { beginSelection() }
-                .buttonStyle(SidebarCapsuleButtonStyle())
-                .help("Select multiple notes")
-                .disabled(appState.pipelineHistory.isEmpty)
-                .overrideCursor(.arrow)
         }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
-    }
-
-    private var selectionBar: some View {
-        HStack(spacing: 8) {
-            Text(localizedCatalogFormat("%lld selected", selection.selectedIDs.count))
-                .font(.system(size: 12, weight: .semibold))
-                .monospacedDigit()
-            Spacer(minLength: 8)
-            Button("Select All") { _ = selectAllVisibleNotes() }
-                .buttonStyle(SidebarCapsuleButtonStyle())
-                .overrideCursor(.arrow)
-            Button("Done") { selection.endSelectionMode() }
-                .buttonStyle(SidebarCapsuleButtonStyle())
-                .overrideCursor(.arrow)
+        .onChange(of: isSearchFieldFocused) { isFocused in
+            if !isFocused && searchText.isEmpty {
+                isSearchOpen = false
+            }
         }
-        .padding(.horizontal, 12)
-        .frame(minHeight: 28)
-        .padding(.bottom, 8)
     }
 
     private func selectionMark(for id: UUID) -> NoteListRow.SelectionMark? {
@@ -1209,6 +1408,10 @@ private struct HorizontallyScrollableTitleField: NSViewRepresentable {
         let scrollView = TitleHorizontalScrollView()
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
+        // The note runs under the transparent title bar; without this the
+        // scroll view insets its text by the title bar height and clips it.
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsetsZero
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
@@ -1337,6 +1540,26 @@ private final class TitleHorizontalScrollView: NSScrollView {
     }
 }
 
+/// A text view that keeps its I-beam cursor except where a view on top of it
+/// (the floating note toolbar) asks for its own cursor.
+private final class CursorDeferringTextView: NSTextView {
+    override func mouseMoved(with event: NSEvent) {
+        if let cursor = CursorNSView.cursor(atWindowPoint: event.locationInWindow, in: window) {
+            cursor.set()
+            return
+        }
+        super.mouseMoved(with: event)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        if let cursor = CursorNSView.cursor(atWindowPoint: event.locationInWindow, in: window) {
+            cursor.set()
+            return
+        }
+        super.cursorUpdate(with: event)
+    }
+}
+
 private final class TitleSingleLineTextView: NSTextView {
     var placeholder: String = ""
 
@@ -1449,13 +1672,7 @@ private struct NoteListRow: View {
                     statusIndicator
                 }
 
-                Group {
-                    if let recordingStartedAt = displayData.recordingStartedAt {
-                        RecordingElapsedTitle(startedAt: recordingStartedAt)
-                    } else {
-                        Text(displayData.displayTitle)
-                    }
-                }
+                Text(displayData.displayTitle)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(selectedTitleColor)
                 .lineLimit(1)
@@ -1527,7 +1744,21 @@ private struct NoteListRow: View {
             Circle()
                 .fill(Color.green)
                 .frame(width: 6, height: 6)
-        case .recording, .transcribing:
+        case .recording:
+            // A red dot and the running time; the stage text is in the detail.
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 6, height: 6)
+                if let startedAt = displayData.recordingStartedAt {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(verbatim: RecordingElapsedFormatter.string(from: startedAt, to: context.date))
+                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.red.opacity(0.8))
+                    }
+                }
+            }
+        case .transcribing:
             YellowSpinner(color: .orange)
         case .audioOnly:
             Circle()
@@ -2129,7 +2360,8 @@ private struct NoteDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 40)
-        .padding(.top, 28)
+        // Under the transparent title bar, just below the traffic lights' row.
+        .padding(.top, 32)
         .padding(.bottom, 14)
         .overlay(alignment: .bottom) {
             Divider().opacity(0.4)
@@ -2450,17 +2682,13 @@ private struct NoteDetailView: View {
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 60)
-            } else if isCloudTranscribing {
-                ProgressView()
-                    .controlSize(.regular)
-                Text(cloudProgressText)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            } else if item.postProcessingStatus
+            } else if isCloudTranscribing
+                        || item.machineStatus == .importing
+                        || item.postProcessingStatus
                         == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus {
                 ProgressView()
                     .controlSize(.regular)
-                Text("Transcribing...")
+                Text(verbatim: processingStatusText)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.secondary)
             } else if isRecoveredRecording {
@@ -2524,6 +2752,17 @@ private struct NoteDetailView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// The same stage the note list shows: "Post-processing…" once the
+    /// transcript is being cleaned up, cloud chunk progress, or "Transcribing…".
+    private var processingStatusText: String {
+        if appState.postProcessingNoteIDs.contains(item.id) {
+            return localizedCatalogString("Post-processing...")
+        }
+        return isCloudTranscribing
+            ? cloudProgressText
+            : localizedCatalogString("Transcribing...")
     }
 
     /// "Retranscribing…", or "Transcribing…" for an audio-only note that was
@@ -3603,8 +3842,12 @@ private struct NoteTextView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
+        // SwiftUI lays this out below the note header; don't let AppKit add
+        // the transparent title bar's height as an extra top inset.
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsetsZero
 
-        let textView = NSTextView()
+        let textView = CursorDeferringTextView()
         configureForTranscriptDisplay(textView)
         textView.isEditable = true
         textView.isSelectable = true

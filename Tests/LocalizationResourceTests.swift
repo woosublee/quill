@@ -789,8 +789,10 @@ struct LocalizationResourceTests {
         catalogStrings: [String: Any]
     ) throws {
         let noteBrowser = try managedSource("Sources/NoteBrowserView.swift", root: root)
-        assert(noteBrowser.contains("Text(verbatim: \"Recordings\")"))
-        assert(noteBrowser.contains("Text(verbatim: \"Transcription\")"))
+        // The Note Browser header no longer has English section titles; the
+        // source and model controls speak for themselves (#382).
+        assert(!noteBrowser.contains("Text(verbatim: \"Recordings\")"))
+        assert(!noteBrowser.contains("Text(verbatim: \"Transcription\")"))
         assert(!noteBrowser.contains("Text(\"Recordings\")"))
         assert(!noteBrowser.contains("Text(\"Transcription\")"))
 
