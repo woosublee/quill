@@ -283,6 +283,7 @@ struct NativeWhisperRuntime {
         }
         let rawText = payload.text ?? payload.transcription?
             .compactMap(\.text)
+            .map(WhisperDialogueDashes.removed(from:))
             .joined(separator: " ")
         guard let rawText else { return nil }
         return JSONTranscript(
@@ -303,7 +304,7 @@ struct NativeWhisperRuntime {
 
     private static func normalizedTranscript(_ text: String) -> String {
         TranscriptTextNormalizer.normalized(
-            text,
+            WhisperDialogueDashes.removed(from: text),
             removingTimestampPrefixes: true
         )
     }
@@ -315,5 +316,36 @@ struct NativeWhisperRuntime {
         let head = lines.prefix(4)
         let tail = lines.suffix(4)
         return (head + ["... (\(lines.count - 8) more lines)"] + tail).joined(separator: "\n")
+    }
+}
+
+/// Whisper marks speaker turns subtitle-style: "-네, 확인했습니다. -그럼 …".
+/// Remove those dashes and keep real hyphens.
+///
+/// Only the ASCII hyphen-minus is a turn marker; en and em dashes are real
+/// punctuation. It is removed only where a speaker turn starts: at the start
+/// of a segment or output line (after an optional `[timestamp]`), or after a
+/// sentence end (`.`, `?`, `!`, `…`) and whitespace. A dash before a digit,
+/// even with a space between, is kept, so "-5도" and "- 5도" survive. Hyphens
+/// inside words and ranges ("e-mail", "Wi-Fi", "3-4") are never at those
+/// positions. Whisper does not produce Markdown, so a leading "- " is a turn
+/// marker too.
+enum WhisperDialogueDashes {
+    static func removed(from text: String) -> String {
+        text.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { line in
+                String(line)
+                    .replacingOccurrences(
+                        of: #"^(\s*(?:\[[^\]]*\]\s*)?)-+(?!\s*\d)\s*"#,
+                        with: "$1",
+                        options: .regularExpression
+                    )
+                    .replacingOccurrences(
+                        of: #"([.?!…])\s+-+(?!\s*\d)\s*"#,
+                        with: "$1 ",
+                        options: .regularExpression
+                    )
+            }
+            .joined(separator: "\n")
     }
 }
