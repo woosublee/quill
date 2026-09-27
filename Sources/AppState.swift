@@ -7309,6 +7309,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
             : .needsModelSelection
     }
 
+    /// The model a retry runs: the one picked for this note, otherwise the
+    /// selected model while transcription is on. Off never falls back to the
+    /// stored model, and a model that can't transcribe the file is rejected.
+    static func resolvedRetryChoice(
+        picked: TranscriptionBackendChoice?,
+        stored: TranscriptionBackendChoice?,
+        transcriptionEnabled: Bool,
+        supportedChoices: [TranscriptionBackendChoice]
+    ) -> TranscriptionBackendChoice? {
+        guard let choice = picked ?? (transcriptionEnabled ? stored : nil),
+              supportedChoices.contains(choice) else { return nil }
+        return choice
+    }
+
     /// The models the transcription picker offers for this note's stored audio.
     @MainActor
     func noteBrowserRetryOptions(for item: PipelineHistoryItem) -> AudioImportOptions? {
@@ -7396,9 +7410,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         let options = retryOptions(for: audioURL)
-        let storedChoice = transcriptionEnabled ? options.explicitRetryChoice : nil
-        guard let retryChoice = choice ?? storedChoice,
-              options.supportedChoices.contains(retryChoice) else {
+        guard let retryChoice = Self.resolvedRetryChoice(
+            picked: choice,
+            stored: options.explicitRetryChoice,
+            transcriptionEnabled: transcriptionEnabled,
+            supportedChoices: options.supportedChoices
+        ) else {
             let reason = options.displayRows.first(where: {
                 $0.choice == currentNoteBrowserTranscriptionChoice
             })?.unavailableReason

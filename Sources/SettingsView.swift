@@ -4242,13 +4242,20 @@ struct RunLogEntryView: View {
                 .buttonStyle(.plain)
 
                 HStack(spacing: 4) {
-                    if isError && item.audioFileName != nil {
+                    if isError && appState.noteBrowserStoredAudioURL(for: item) != nil {
                         Button {
-                            if appState.noteBrowserRetryAvailability(for: item) == .ready {
+                            switch appState.noteBrowserRetryAvailability(for: item) {
+                            case .ready:
                                 appState.retryTranscription(item: item)
-                            } else if let options = appState.noteBrowserRetryOptions(for: item),
-                                      !options.supportedChoices.isEmpty {
-                                retryChoiceRequest = RetryChoiceRequest(options: options)
+                            case .needsModelSelection, .needsProviderConfiguration:
+                                if let options = appState.noteBrowserRetryOptions(for: item) {
+                                    retryChoiceRequest = RetryChoiceRequest(options: options)
+                                }
+                            case .needsModelSetup:
+                                // No model can transcribe this file yet.
+                                appState.selectedSettingsTab = .models
+                            case .noAudio:
+                                break
                             }
                         } label: {
                             if isRetrying {
