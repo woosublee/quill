@@ -79,6 +79,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             name: .showSettings,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleShowIssueStylePreview),
+            name: .showIssueStylePreview,
+            object: nil
+        )
 
         // noteBrowserEnabled 변경 시 독 아이콘 상태 갱신
         NotificationCenter.default.addObserver(
@@ -172,6 +178,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func handleShowSettings() {
         showSettingsWindow()
+    }
+
+    private var issueStylePreviewWindow: NSWindow?
+
+    @objc private func handleShowIssueStylePreview() {
+        NSApp.setActivationPolicy(.regular)
+        if let issueStylePreviewWindow {
+            issueStylePreviewWindow.makeKeyAndOrderFront(nil)
+        } else {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 640, height: 720),
+                styleMask: [.titled, .closable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Issue Style Preview"
+            window.contentView = NSHostingView(rootView: IssueStylePreviewView())
+            window.isReleasedWhenClosed = false
+            window.center()
+            window.makeKeyAndOrderFront(nil)
+            issueStylePreviewWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
     }
 
 private func showNoteBrowserWindow() {

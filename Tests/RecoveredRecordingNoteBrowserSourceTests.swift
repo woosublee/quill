@@ -81,7 +81,8 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         // Fixed-width source and model controls, Select All under Done, and a
         // header that is always translucent so fast scrolls never show through.
         precondition(header.contains("inputPickerMenu\n                    transcriptionModelMenu"))
-        precondition(header.contains("if selection.showsSelectionUI {\n                    Text(verbatim: selectedCountText)"))
+        precondition(header.contains("if isSearchOpen && !selection.showsSelectionUI {\n                    searchField"))
+        precondition(header.contains("} else if selection.showsSelectionUI {\n                    Text(verbatim: selectedCountText)"))
         precondition(header.contains("Button(\"Select All\")"))
         precondition(header.contains("Text(verbatim: selectedCountText)"))
         precondition(header.contains(".background(.ultraThinMaterial)"))
@@ -91,7 +92,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
 
         let search = block(
             source,
-            from: "private var searchRow: some View {",
+            from: "private var searchField: some View {",
             to: "private func selectionMark(for id: UUID)"
         )
         precondition(search.contains(".onExitCommand { closeSearch() }"))
@@ -283,7 +284,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         let reader = block(
             source,
             from: "ScrollViewReader { proxy in",
-            to: "private var searchRow: some View {"
+            to: "private var searchField: some View {"
         )
         try expect(
             reader.contains(".id(item.id)")

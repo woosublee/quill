@@ -235,6 +235,7 @@ struct AppStateTranscriptionConfigurationTests {
         await testRetryAvailabilityAsksForModelWhenTranscriptionIsOff()
         testResolvedRetryChoiceFollowsTranscriptionOffPolicy()
         try await testPickedRetryModelLeavesTranscriptionSettingsUnchanged()
+        try await testRetryPostProcessingCleansStoredTranscriptWithoutTranscribing()
         try await testRetryPreservesMeetingSummaryMetadata()
         try await testAudioImportTimeoutPreservesRawTranscriptAndFailedOutcome()
         try await testRetryTimeoutPreservesRawTranscriptAndFailedOutcome()
@@ -1667,11 +1668,13 @@ struct AppStateTranscriptionConfigurationTests {
     // carry the stop-time placeholder sentence).
     private static func testRetryRequestGatesStoredContextByCurrentToggleAndUsability() throws {
         let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        // Transcription retry and post-processing retry share this restore step.
         let requestBody = sourceBlock(
             in: source,
-            from: "private func transcriptionRetryWorkflowRequest(",
-            to: "\n    @MainActor\n    private func transcriptionRetryWorkflowRuntime"
+            from: "private func restoredRetryInputs(",
+            to: "func retryPostProcessing(item: PipelineHistoryItem)"
         )
+        precondition(source.contains("let restored = restoredRetryInputs(for: item)"))
 
         precondition(
             requestBody.contains("disableContextCapture"),
@@ -3715,6 +3718,73 @@ struct AppStateTranscriptionConfigurationTests {
         return retryHistoryItem(audioFileName: fileName)
     }
 
+    private static func testRetryPostProcessingCleansStoredTranscriptWithoutTranscribing() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            resetDefaults()
+            let rawTranscript = "그럼 다음 주 목요일에 다시 확인해요"
+            let cleanedTranscript = "그럼 다음 주 목요일에 다시 확인해요."
+            let store = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            var dependencies = environment.dependencies
+            dependencies.makePipelineHistoryStore = { _ in store }
+            // No audio file: a cleanup retry must not need or touch the audio.
+            let originalItem = PipelineHistoryItem(
+                timestamp: Date(timeIntervalSince1970: 1),
+                rawTranscript: rawTranscript,
+                postProcessedTranscript: rawTranscript,
+                postProcessingPrompt: nil,
+                contextSummary: "",
+                contextScreenshotDataURL: nil,
+                contextScreenshotStatus: "No screenshot",
+                postProcessingStatus: QuillUserIssueRecord(
+                    code: .postProcessingFailed,
+                    context: QuillUserIssueContext(
+                        operation: .postProcessing,
+                        postProcessingFailureReason: .serviceRequestFailed
+                    )
+                ).persistedStatus,
+                debugStatus: "Done",
+                customVocabulary: "",
+                usedLocalTranscription: true
+            )
+            _ = try store.append(originalItem, maxCount: 10)
+
+            let originalTransport = AppState.postProcessingTransport
+            defer { AppState.postProcessingTransport = originalTransport }
+            AppState.postProcessingTransport = { request in
+                let data = try JSONSerialization.data(withJSONObject: [
+                    "choices": [["message": ["content": cleanedTranscript]]]
+                ])
+                return (
+                    data,
+                    HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                )
+            }
+
+            let configuredDependencies = dependencies
+            let appState = await MainActor.run { AppState(dependencies: configuredDependencies) }
+            await MainActor.run {
+                appState.apiKey = "post-processing-key"
+                appState.postProcessingBackendChoice = .cloud(modelID: "provider/model")
+                let issue = originalItem.userIssueRecord
+                precondition(issue?.recoveryAction == .retryPostProcessing)
+                appState.retryPostProcessing(item: originalItem)
+                precondition(appState.retryingItemIDs.contains(originalItem.id))
+                precondition(appState.postProcessingNoteIDs.contains(originalItem.id))
+            }
+
+            await waitUntil(timeoutNanoseconds: 5_000_000_000) {
+                !appState.retryingItemIDs.contains(originalItem.id)
+            }
+            let item = try requireHistoryItem(withID: originalItem.id, in: store.loadAllHistory())
+            precondition(item.rawTranscript == rawTranscript, "The raw transcript is kept")
+            precondition(item.postProcessedTranscript == cleanedTranscript, "Only the cleaned text is replaced")
+            precondition(item.userIssueRecord == nil, "A successful cleanup clears the warning")
+            await MainActor.run {
+                precondition(!appState.postProcessingNoteIDs.contains(originalItem.id))
+            }
+        }
+    }
+
     private static func testRetryTranscriptionFailurePreservesExistingAIOutcome() async throws {
         try await AppStateTestStorage.withIsolatedStorage { environment in
             try FileManager.default.createDirectory(
@@ -4016,20 +4086,28 @@ struct AppStateTranscriptionConfigurationTests {
             to: "\n    @MainActor\n    private func transcriptionRetryWorkflowRuntime"
         )
 
-        assert(retryRequest.contains("let isAudioOnly = item.machineStatus == .audioOnly"))
+        // The note's context, vocabulary, and prompt are restored by a helper
+        // shared with post-processing retry.
+        let restoredInputs = sourceBlock(
+            in: source,
+            from: "private func restoredRetryInputs(",
+            to: "func retryPostProcessing(item: PipelineHistoryItem)"
+        )
+        assert(retryRequest.contains("let restored = restoredRetryInputs(for: item)"))
+        assert(restoredInputs.contains("let isAudioOnly = item.machineStatus == .audioOnly"))
         assert(retryRequest.contains("postProcessingEnabled: !disablePostProcessing"))
         assert(!retryRequest.contains("item.usedPostProcessing"))
-        assert(retryRequest.contains("? customVocabulary"))
-        assert(retryRequest.contains(": item.customVocabulary"))
-        assert(retryRequest.contains("? customSystemPrompt"))
-        assert(retryRequest.contains(": item.customSystemPrompt"))
+        assert(restoredInputs.contains("? customVocabulary"))
+        assert(restoredInputs.contains(": item.customVocabulary"))
+        assert(restoredInputs.contains("? customSystemPrompt"))
+        assert(restoredInputs.contains(": item.customSystemPrompt"))
         // Retry no longer injects the stored contextSummary unconditionally:
         // it is gated by the current context toggle and by whether the
         // stored summary is actually usable (see
         // testRetryRequestGatesStoredContextByCurrentToggleAndUsability).
-        assert(retryRequest.contains("let usesStoredContext = !isAudioOnly && !disableContextCapture"))
+        assert(restoredInputs.contains("let usesStoredContext = !isAudioOnly && !disableContextCapture"))
         assert(
-            retryRequest.contains(
+            restoredInputs.contains(
                 "currentActivity: storedContextIsUsable ? item.contextSummary : \"\""
             )
         )
@@ -4063,7 +4141,8 @@ struct AppStateTranscriptionConfigurationTests {
             to: "\n    @MainActor\n    private static func processRetryTranscription"
         )
 
-        assert(request.contains("let isAudioOnly = item.machineStatus == .audioOnly"))
+        assert(source.contains("let isAudioOnly = item.machineStatus == .audioOnly"))
+        assert(request.contains("let restored = restoredRetryInputs(for: item)"))
         assert(request.contains("initialItem: item"))
         assert(request.contains("TranscriptionRetryHistoryMetadata("))
         assert(runtime.contains("TranscriptionRetryAssetAccess("))

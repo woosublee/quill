@@ -2014,7 +2014,7 @@ struct ModelsSettingsView: View {
         retry: @escaping () -> Void
     ) -> (() -> Void)? {
         switch issue.recoveryAction {
-        case .retryTranscription:
+        case .retryTranscription, .retryPostProcessing:
             return retry
         case .openProviderSettings, .openModelsSettings,
              .openMicrophoneSettings, .openSpeechRecognitionSettings,
@@ -3035,7 +3035,7 @@ struct PromptsSettingsView: View {
         retry: @escaping () -> Void
     ) -> (() -> Void)? {
         switch issue.recoveryAction {
-        case .retryTranscription:
+        case .retryTranscription, .retryPostProcessing:
             return retry
         case .openProviderSettings, .openModelsSettings,
              .openMicrophoneSettings, .openSpeechRecognitionSettings,

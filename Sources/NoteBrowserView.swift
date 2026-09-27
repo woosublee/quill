@@ -1048,10 +1048,13 @@ struct NoteBrowserView: View {
     private var sidebarHeader: some View {
         VStack(spacing: 0) {
             sidebarTitleRow
-            // Selection mode swaps the source and model row for the selected
-            // count and Select All, so the header keeps its height.
+            // Selection mode and search swap the source and model row for the
+            // selected count and Select All, or the search field, so the
+            // header keeps its height.
             HStack(spacing: 6) {
-                if selection.showsSelectionUI {
+                if isSearchOpen && !selection.showsSelectionUI {
+                    searchField
+                } else if selection.showsSelectionUI {
                     Text(verbatim: selectedCountText)
                         .font(.system(size: 12, weight: .semibold))
                         .monospacedDigit()
@@ -1069,9 +1072,6 @@ struct NoteBrowserView: View {
             .frame(height: 26)
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
-            if isSearchOpen && !selection.showsSelectionUI {
-                searchRow
-            }
         }
         // Always translucent, so notes never show through unblurred even when
         // a fast scroll outruns the scroll-offset update. Only the hairline
@@ -1247,7 +1247,7 @@ struct NoteBrowserView: View {
 
     /// Opened by the magnifier or ⌘F. With an empty query it closes when focus
     /// leaves; Esc or the clear button clears the query and closes it.
-    private var searchRow: some View {
+    private var searchField: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11, weight: .medium))
@@ -1268,10 +1268,8 @@ struct NoteBrowserView: View {
             }
         }
         .padding(.horizontal, 9)
-        .padding(.vertical, 6)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-        .padding(.horizontal, 12)
-        .padding(.bottom, 8)
+        .frame(height: 26)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
         .onChange(of: isSearchFieldFocused) { isFocused in
             if !isFocused && searchText.isEmpty {
                 isSearchOpen = false
@@ -2157,10 +2155,18 @@ private struct NoteDetailView: View {
     }
     private var warningPresentation: QuillUserIssuePresentation? {
         guard let issuePresentation,
-              issuePresentation.severity == .warning else {
+              issuePresentation.severity == .warning,
+              !isNothingToPostProcess else {
             return nil
         }
         return issuePresentation
+    }
+    /// Post-processing returned nothing to change. The original transcript is
+    /// the result, so this is a quiet notice rather than a warning.
+    private var isNothingToPostProcess: Bool {
+        guard let record = item.userIssueRecord else { return false }
+        return record.code == .postProcessingFailed
+            && record.context.postProcessingFailureReason == .emptyOutput
     }
     private var warningBannerCode: QuillUserIssueCode? {
         item.userIssueRecord?.code
@@ -2521,6 +2527,25 @@ private struct NoteDetailView: View {
             emptyContentState
         } else {
             VStack(spacing: 0) {
+                if isNothingToPostProcess,
+                   !isWarningBannerDismissed,
+                   !appState.retryingItemIDs.contains(item.id) {
+                    QuillInfoNotice(
+                        text: localizedCatalogString(
+                            "Nothing to clean up; showing the original transcript."
+                        ),
+                        onDismiss: {
+                            if let warningBannerCode {
+                                appState.dismissWarningBanner(
+                                    noteID: item.id,
+                                    code: warningBannerCode
+                                )
+                            }
+                        }
+                    )
+                    .padding(.horizontal, 40)
+                    .padding(.top, 14)
+                }
                 if !isWarningBannerDismissed,
                    !appState.retryingItemIDs.contains(item.id),
                    let warningPresentation {
@@ -2980,6 +3005,8 @@ private struct NoteDetailView: View {
         switch action {
         case .retryTranscription:
             retryTranscription()
+        case .retryPostProcessing:
+            appState.retryPostProcessing(item: item)
         case .openModelsSettings:
             appState.selectedSettingsTab = .models
             NotificationCenter.default.post(name: .showSettings, object: nil)

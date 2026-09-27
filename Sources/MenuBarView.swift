@@ -423,6 +423,15 @@ struct MenuBarView: View {
             }
             .keyboardShortcut(",", modifiers: .command)
 
+            // Development builds only: review every issue style at once.
+            if Bundle.main.bundleIdentifier?.hasSuffix(".dev") == true {
+                Button {
+                    NotificationCenter.default.post(name: .showIssueStylePreview, object: nil)
+                } label: {
+                    Text(verbatim: "Issue Style Preview")
+                }
+            }
+
             Button {
                 Task {
                     await updateManager.checkForUpdates(userInitiated: true)

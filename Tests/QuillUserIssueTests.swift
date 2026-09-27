@@ -224,7 +224,7 @@ struct QuillUserIssueTests {
             "empty cleanup output has a specific English title"
         )
         try expect(
-            korean.title == "전사문 정리 결과가 비어 있습니다",
+            korean.title == "후처리로 바꿀 부분이 없었습니다",
             "empty cleanup output has a specific Korean title"
         )
         try expect(
@@ -240,11 +240,30 @@ struct QuillUserIssueTests {
             korean.detailsRows.contains(
                 QuillUserIssueDetailsRow(
                     label: "실패 원인",
-                    value: "모델이 정리 결과를 반환하지 않았습니다"
+                    value: "모델이 후처리 결과를 반환하지 않았습니다"
                 )
             ),
             "empty cleanup output exposes a safe Korean reason"
         )
+        // Only cleanup failed, so the recovery re-runs post-processing, not
+        // transcription; oversized cleanup instructions offer no retry.
+        try expect(
+            emptyOutput.recoveryAction == .retryPostProcessing,
+            "cleanup failures retry post-processing only"
+        )
+        let transcriptionFailure = QuillUserIssueRecord(code: .localTranscriptionFailed)
+        try expect(
+            transcriptionFailure.recoveryAction == .retryTranscription,
+            "transcription failures still retry transcription"
+        )
+        let oversized = QuillUserIssueRecord(
+            code: .postProcessingFailed,
+            context: QuillUserIssueContext(
+                operation: .postProcessing,
+                postProcessingFailureReason: .contextBudgetExceeded
+            )
+        )
+        try expect(oversized.recoveryAction == .none, "oversized cleanup has no retry")
     }
 
     private static func testPostProcessingDiagnosticFieldsRemainBackwardCompatible(

@@ -18,12 +18,12 @@ struct PostProcessingUserIssueTests {
     private static func testPostProcessingErrorsMapToWarningRecords() throws {
         let cases: [(PostProcessingError, QuillUserIssueCode, QuillUserRecoveryAction)] = [
             (.requestFailed(statusCode: 401, providerCode: "invalid_api_key"), .authenticationFailed, .openProviderSettings),
-            (.requestFailed(statusCode: 500, providerCode: nil), .postProcessingFailed, .retryTranscription),
+            (.requestFailed(statusCode: 500, providerCode: nil), .postProcessingFailed, .retryPostProcessing),
             (.requestFailed(statusCode: 413, providerCode: nil), .postProcessingPayloadTooLarge, .none),
-            (.rateLimited(model: "provider/model", retryAfter: 10), .postProcessingRateLimited, .retryTranscription),
-            (.invalidResponse("missing content"), .postProcessingFailed, .retryTranscription),
-            (.emptyOutput, .postProcessingFailed, .retryTranscription),
-            (.requestTimedOut(30), .requestTimedOut, .retryTranscription),
+            (.rateLimited(model: "provider/model", retryAfter: 10), .postProcessingRateLimited, .retryPostProcessing),
+            (.invalidResponse("missing content"), .postProcessingFailed, .retryPostProcessing),
+            (.emptyOutput, .postProcessingFailed, .retryPostProcessing),
+            (.requestTimedOut(30), .requestTimedOut, .retryPostProcessing),
             (.suspectedInstructionExecution, .postProcessingGuardFallback, .none),
             (.outputRejected(.languageMismatch), .postProcessingGuardFallback, .none)
         ]
