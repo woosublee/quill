@@ -1395,6 +1395,8 @@ private struct HorizontallyScrollableTitleField: NSViewRepresentable {
         let textView = TitleSingleLineTextView()
         textView.delegate = context.coordinator
         textView.placeholder = placeholder
+        textView.setAccessibilityLabel(localizedCatalogString("Note Title"))
+        textView.setAccessibilityPlaceholderValue(placeholder)
         textView.string = text
         textView.font = .systemFont(ofSize: 28, weight: .bold)
         textView.textColor = .labelColor
@@ -1543,6 +1545,16 @@ private final class TitleSingleLineTextView: NSTextView {
 
     override func insertNewline(_ sender: Any?) {
         window?.makeFirstResponder(nil)
+    }
+
+    // A one-line field: Tab and Shift-Tab move focus like a text field
+    // instead of typing a tab into the title.
+    override func insertTab(_ sender: Any?) {
+        window?.selectNextKeyView(sender)
+    }
+
+    override func insertBacktab(_ sender: Any?) {
+        window?.selectPreviousKeyView(sender)
     }
 
     override func insertText(_ insertString: Any, replacementRange: NSRange) {
@@ -2405,11 +2417,13 @@ private struct NoteDetailView: View {
             ProgressView()
                 .controlSize(.mini)
                 .help(isCloudTranscribing ? cloudProgressText : retryingStatusText)
+                .accessibilityLabel(Text(verbatim: isCloudTranscribing ? cloudProgressText : retryingStatusText))
         } else if isRecoveredRecording {
             Image(systemName: "arrow.clockwise.circle")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.orange.opacity(0.7))
                 .help("Recording recovered after an unexpected shutdown")
+                .accessibilityLabel(Text("Recording recovered after an unexpected shutdown"))
         }
         // A failed note shows no header indicator: its centered empty
         // state already says what happened.
@@ -2453,6 +2467,35 @@ private struct NoteDetailView: View {
             }
         }
         .fixedSize(horizontal: true, vertical: false)
+        // VoiceOver reads the row once, in words, not the abbreviations.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: statusBadgesSpokenText))
+    }
+
+    /// The metadata row spelled out, such as "Local transcription, Context
+    /// capture disabled, LLM post-processing enabled, Transcription language: KO".
+    private var statusBadgesSpokenText: String {
+        var parts: [String] = []
+        if isAudioOnly {
+            parts.append(localizedCatalogString("Audio-only recording"))
+        } else {
+            parts.append(localizedCatalogString(
+                item.usedLocalTranscription ? "Local transcription" : "Cloud transcription"
+            ))
+        }
+        parts.append(localizedCatalogString(
+            item.usedContextCapture ? "Context capture enabled" : "Context capture disabled"
+        ))
+        parts.append(localizedCatalogString(
+            item.usedPostProcessing ? "LLM post-processing enabled" : "LLM post-processing disabled"
+        ))
+        if item.transcriptionLanguageCode != "auto" {
+            parts.append(localizedCatalogFormat(
+                "Transcription language: %@",
+                item.transcriptionLanguageCode.uppercased()
+            ))
+        }
+        return parts.joined(separator: ", ")
     }
 
     private var metaDot: some View {
@@ -2461,16 +2504,16 @@ private struct NoteDetailView: View {
             .foregroundStyle(.quaternary)
     }
 
+    /// A label with a tooltip. It is plain text, not a button, so Tab and
+    /// VoiceOver don't stop on it; the row above reads it in words.
     private func metaTag(_ label: String, active: Bool, help tooltip: LocalizedStringKey) -> some View {
-        Button(action: {}) {
-            Text(label)
-                .font(.system(size: 9, weight: .medium, design: .monospaced))
-                .foregroundStyle(active ? Color.secondary.opacity(0.7) : Color.secondary.opacity(0.35))
-                .padding(.vertical, 3)
-                .padding(.horizontal, 2)
-        }
-        .buttonStyle(.plain)
-        .help(tooltip)
+        Text(label)
+            .font(.system(size: 9, weight: .medium, design: .monospaced))
+            .foregroundStyle(active ? Color.secondary.opacity(0.7) : Color.secondary.opacity(0.5))
+            .padding(.vertical, 3)
+            .padding(.horizontal, 2)
+            .contentShape(Rectangle())
+            .help(tooltip)
     }
 
     // MARK: Content
@@ -3331,6 +3374,15 @@ private struct NoteDetailView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(content, forType: .string)
         withAnimation { isCopied = true }
+        // The checkmark is visual only; tell VoiceOver too.
+        NSAccessibility.post(
+            element: NSApplication.shared,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: localizedCatalogString("Copied"),
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue
+            ]
+        )
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             withAnimation { isCopied = false }
         }
@@ -3418,6 +3470,7 @@ struct NoteAudioPlayerView: View {
                 }
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(Text(isPlaying ? "Pause" : "Play"))
 
             // Waveform — border-radius:1px, opacity:0.45 unplayed, accent played
             GeometryReader { geo in
@@ -3449,6 +3502,30 @@ struct NoteAudioPlayerView: View {
                 )
             }
             .frame(height: 44)
+            // Keyboard and VoiceOver can move the position too: ←/→ when the
+            // waveform has focus, and VoiceOver's adjust gestures, by 5 s.
+            .focusable()
+            .onMoveCommand { direction in
+                switch direction {
+                case .left: seek(by: -Self.keyboardSeekStep)
+                case .right: seek(by: Self.keyboardSeekStep)
+                default: break
+                }
+            }
+            .accessibilityElement()
+            .accessibilityLabel(Text("Playback position"))
+            .accessibilityValue(Text(verbatim: localizedCatalogFormat(
+                "%@ of %@",
+                formatDuration(elapsed),
+                formatDuration(duration)
+            )))
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: seek(by: Self.keyboardSeekStep)
+                case .decrement: seek(by: -Self.keyboardSeekStep)
+                @unknown default: break
+                }
+            }
 
             // Time — monospaced, tabular, intrinsic width so the waveform flexes with label length.
             Text("\(formatDuration(elapsed)) / \(formatDuration(duration))")
@@ -3467,6 +3544,8 @@ struct NoteAudioPlayerView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .help("Volume")
+            .accessibilityLabel(Text("Volume"))
             .popover(isPresented: $showVolumePopover, arrowEdge: .bottom) {
                 HStack(spacing: 8) {
                     Image(systemName: "speaker.fill")
@@ -3623,6 +3702,13 @@ struct NoteAudioPlayerView: View {
 
     /// Moves the playhead to `fraction` (0...1) of the duration. Works whether or
     /// not playback is currently running.
+    private static let keyboardSeekStep: TimeInterval = 5
+
+    private func seek(by seconds: TimeInterval) {
+        guard duration > 0 else { return }
+        seek(toFraction: (elapsed + seconds) / duration)
+    }
+
     private func seek(toFraction fraction: Double) {
         // `fraction` comes from location.x / width; guard against a 0-width
         // layout (NaN/Infinity) so we never set a bad AVAudioPlayer.currentTime.
@@ -4023,6 +4109,7 @@ private struct NoteTextView: NSViewRepresentable {
 
         let textView = CursorDeferringTextView()
         configureForTranscriptDisplay(textView)
+        textView.setAccessibilityLabel(localizedCatalogString("Transcript"))
         textView.isEditable = true
         textView.isSelectable = true
         textView.drawsBackground = false
