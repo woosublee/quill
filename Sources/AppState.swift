@@ -7286,7 +7286,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return .noAudio
         }
         let options = retryOptions(for: audioURL)
-        if let retryChoice = options.explicitRetryChoice {
+        // Transcription Off means record-only: a transcription the user starts
+        // by hand asks which model to use instead of running the stored one.
+        if transcriptionEnabled, let retryChoice = options.explicitRetryChoice {
             return options.isChoiceReady(retryChoice)
                 ? .ready
                 : .needsProviderConfiguration
@@ -7294,6 +7296,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return options.supportedChoices.isEmpty
             ? .needsModelSetup
             : .needsModelSelection
+    }
+
+    /// The models the transcription picker offers for this note's stored audio.
+    @MainActor
+    func noteBrowserRetryOptions(for item: PipelineHistoryItem) -> AudioImportOptions? {
+        guard let audioURL = noteBrowserStoredAudioURL(for: item) else { return nil }
+        return retryOptions(for: audioURL)
     }
 
     @MainActor
@@ -7318,12 +7327,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func retryTranscription(item: PipelineHistoryItem) {
+        retryTranscription(item: item, choice: nil)
+    }
+
+    /// Retries with the selected model, or with `choice` from the picker. A
+    /// picked model is used for this note only; settings stay unchanged.
+    @MainActor
+    func retryTranscription(
+        item: PipelineHistoryItem,
+        choice: TranscriptionBackendChoice?
+    ) {
         guard requireAvailableHistoryForMutation() else { return }
         guard !retryingItemIDs.contains(item.id) else { return }
-        guard noteBrowserRetryAvailability(for: item) == .ready else { return }
+        if let choice {
+            guard noteBrowserRetryOptions(for: item)?.isChoiceReady(choice) == true else { return }
+        } else {
+            guard noteBrowserRetryAvailability(for: item) == .ready else { return }
+        }
 
         do {
-            let request = try transcriptionRetryWorkflowRequest(for: item)
+            let request = try transcriptionRetryWorkflowRequest(for: item, choice: choice)
             if transcriptionRetryWorkflow.startManual(
                 request: request,
                 runtime: transcriptionRetryWorkflowRuntime()
@@ -7351,7 +7374,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func transcriptionRetryWorkflowRequest(
-        for item: PipelineHistoryItem
+        for item: PipelineHistoryItem,
+        choice: TranscriptionBackendChoice? = nil
     ) throws -> TranscriptionRetryWorkflowRequest {
         guard let audioFileName = item.audioFileName,
               let audioURL = noteBrowserStoredAudioURL(for: item) else {
@@ -7361,7 +7385,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         let options = retryOptions(for: audioURL)
-        guard let retryChoice = options.explicitRetryChoice else {
+        let storedChoice = transcriptionEnabled ? options.explicitRetryChoice : nil
+        guard let retryChoice = choice ?? storedChoice,
+              options.supportedChoices.contains(retryChoice) else {
             let reason = options.displayRows.first(where: {
                 $0.choice == currentNoteBrowserTranscriptionChoice
             })?.unavailableReason

@@ -86,8 +86,9 @@ struct QuillUserIssueUIContractTests {
             "retry visibility no longer depends on the issue primary action"
         )
         try expect(
-            source.contains("Choose a model to retry transcription."),
-            "retry with an unsupported selection guides model selection"
+            source.contains("case .needsModelSelection, .needsProviderConfiguration:")
+                && source.contains("retryChoiceRequest = RetryChoiceRequest(options: options)"),
+            "retry without a usable selected model opens the transcription picker"
         )
         try expect(
             source.contains("Set up a model in Settings to retry transcription."),

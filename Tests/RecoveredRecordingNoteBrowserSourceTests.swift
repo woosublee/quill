@@ -23,7 +23,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("Text(recoveryDescription)"))
         precondition(source.contains("NoteAudioPlayerView(audioURL: storedAudioURL)"))
         precondition(source.contains("appState.retryTranscription(item: item)"))
-        precondition(source.contains("case .needsProviderConfiguration:"))
+        precondition(source.contains("case .needsModelSelection, .needsProviderConfiguration:"))
         precondition(source.contains("appState.openProviderSettings()"))
         precondition(appStateSource.contains("func openProviderSettings()"))
         precondition(appStateSource.contains("selectedSettingsTab = .models"))
@@ -58,18 +58,23 @@ struct RecoveredRecordingNoteBrowserSourceTests {
             from: "private func retryTranscription()",
             to: "private func showToast("
         )
-        let providerBranch = block(
+        // An unready or unusable selected model opens the transcription
+        // picker; only "no model at all" falls back to a toast.
+        let pickerBranch = block(
             retryAction,
-            from: "case .needsProviderConfiguration:",
+            from: "case .needsModelSelection, .needsProviderConfiguration:",
+            to: "case .needsModelSetup:"
+        )
+        precondition(pickerBranch.contains("appState.noteBrowserRetryOptions(for: item)"))
+        precondition(pickerBranch.contains("retryChoiceRequest = RetryChoiceRequest(options: options)"))
+        precondition(!pickerBranch.contains("appState.openProviderSettings()"))
+        let setupBranch = block(
+            retryAction,
+            from: "case .needsModelSetup:",
             to: "case .noAudio:"
         )
-        precondition(providerBranch.contains("showToast("))
-        precondition(
-            providerBranch.contains(
-                "No transcription model is ready. Set one up in Settings, then try again."
-            )
-        )
-        precondition(!providerBranch.contains("appState.openProviderSettings()"))
+        precondition(setupBranch.contains("showToast("))
+        precondition(setupBranch.contains("Set up a model in Settings to retry transcription."))
     }
 
     private static func testInputPickerSwitchesActiveRecordingInput(
