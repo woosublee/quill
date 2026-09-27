@@ -17796,6 +17796,22 @@
           }
         }
       }
+    },
+    "New Recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 녹음"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

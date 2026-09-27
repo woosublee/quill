@@ -8,11 +8,36 @@ import UniformTypeIdentifiers
 private class CursorNSView: NSView {
     var cursor: NSCursor
 
+    /// Cursor overrides currently in a window. Text views underneath one
+    /// (such as the transcript under the floating toolbar) defer to it.
+    private static let liveViews = NSHashTable<CursorNSView>.weakObjects()
+
     init(cursor: NSCursor) {
         self.cursor = cursor
         super.init(frame: .zero)
     }
     required init?(coder: NSCoder) { fatalError() }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            Self.liveViews.remove(self)
+        } else {
+            Self.liveViews.add(self)
+        }
+    }
+
+    /// The override cursor for a point in window coordinates, if one covers it.
+    static func cursor(atWindowPoint point: NSPoint, in window: NSWindow?) -> NSCursor? {
+        guard let window else { return nil }
+        for view in liveViews.allObjects
+        where view.window === window && !view.isHiddenOrHasHiddenAncestor {
+            if view.convert(view.bounds, to: nil).contains(point) {
+                return view.cursor
+            }
+        }
+        return nil
+    }
 
     override func layout() {
         super.layout()
@@ -699,6 +724,13 @@ struct NoteBrowserView: View {
                 HStack(spacing: 0) {
             sidebarPanel
             detailPanel
+                // The note runs under the title bar too; its date line lines
+                // up with the traffic lights, and the space around it drags.
+                .ignoresSafeArea(.container, edges: .top)
+                .overlay(alignment: .top) {
+                    WindowDragArea()
+                        .frame(height: 16)
+                }
         }
         .frame(minWidth: 800, minHeight: 520)
         .onAppear {
@@ -942,7 +974,7 @@ struct NoteBrowserView: View {
         .disabled(appState.isRecording || appState.isTranscribing)
     }
 
-    /// "3 selected", shown only in selection mode.
+    /// "3 selected", shown beside Select All in selection mode.
     private var selectedCountText: String {
         localizedCatalogFormat("%lld selected", selection.selectedIDs.count)
     }
@@ -966,17 +998,9 @@ struct NoteBrowserView: View {
     }
 
     /// The first row shares the title bar with the traffic lights: search,
-    /// import, and Select on the right (the selected count on the left while
-    /// selecting). Empty space in it drags the window.
+    /// import, and Select on the right. Empty space in it drags the window.
     private var sidebarTitleRow: some View {
         HStack(spacing: 4) {
-            if selection.showsSelectionUI {
-                Text(verbatim: selectedCountText)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-                    .lineLimit(1)
-            }
             Spacer(minLength: 6)
             headerIconButton("magnifyingglass", help: "Search Notes") {
                 toggleSearch()
@@ -1016,23 +1040,28 @@ struct NoteBrowserView: View {
     private var sidebarHeader: some View {
         VStack(spacing: 0) {
             sidebarTitleRow
+            // Selection mode swaps the source and model row for the selected
+            // count and Select All, so the header keeps its height.
             HStack(spacing: 6) {
-                inputPickerMenu
-                transcriptionModelMenu
-            }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 8)
-            if selection.showsSelectionUI {
-                // Select All sits under Done while selecting.
-                HStack {
+                if selection.showsSelectionUI {
+                    Text(verbatim: selectedCountText)
+                        .font(.system(size: 12, weight: .semibold))
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .padding(.leading, 2)
                     Spacer()
                     Button("Select All") { _ = selectAllVisibleNotes() }
                         .buttonStyle(SidebarCapsuleButtonStyle())
                         .overrideCursor(.arrow)
+                } else {
+                    inputPickerMenu
+                    transcriptionModelMenu
                 }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 8)
-            } else if isSearchOpen {
+            }
+            .frame(height: 26)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+            if isSearchOpen && !selection.showsSelectionUI {
                 searchRow
             }
         }
@@ -1364,6 +1393,10 @@ private struct HorizontallyScrollableTitleField: NSViewRepresentable {
         let scrollView = TitleHorizontalScrollView()
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
+        // The note runs under the transparent title bar; without this the
+        // scroll view insets its text by the title bar height and clips it.
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsetsZero
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
@@ -1492,6 +1525,26 @@ private final class TitleHorizontalScrollView: NSScrollView {
     }
 }
 
+/// A text view that keeps its I-beam cursor except where a view on top of it
+/// (the floating note toolbar) asks for its own cursor.
+private final class CursorDeferringTextView: NSTextView {
+    override func mouseMoved(with event: NSEvent) {
+        if let cursor = CursorNSView.cursor(atWindowPoint: event.locationInWindow, in: window) {
+            cursor.set()
+            return
+        }
+        super.mouseMoved(with: event)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        if let cursor = CursorNSView.cursor(atWindowPoint: event.locationInWindow, in: window) {
+            cursor.set()
+            return
+        }
+        super.cursorUpdate(with: event)
+    }
+}
+
 private final class TitleSingleLineTextView: NSTextView {
     var placeholder: String = ""
 
@@ -1604,13 +1657,7 @@ private struct NoteListRow: View {
                     statusIndicator
                 }
 
-                Group {
-                    if let recordingStartedAt = displayData.recordingStartedAt {
-                        RecordingElapsedTitle(startedAt: recordingStartedAt)
-                    } else {
-                        Text(displayData.displayTitle)
-                    }
-                }
+                Text(displayData.displayTitle)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(selectedTitleColor)
                 .lineLimit(1)
@@ -1682,7 +1729,21 @@ private struct NoteListRow: View {
             Circle()
                 .fill(Color.green)
                 .frame(width: 6, height: 6)
-        case .recording, .transcribing:
+        case .recording:
+            // A red dot and the running time; the stage text is in the detail.
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 6, height: 6)
+                if let startedAt = displayData.recordingStartedAt {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(verbatim: RecordingElapsedFormatter.string(from: startedAt, to: context.date))
+                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.red.opacity(0.8))
+                    }
+                }
+            }
+        case .transcribing:
             YellowSpinner(color: .orange)
         case .audioOnly:
             Circle()
@@ -2284,8 +2345,8 @@ private struct NoteDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 40)
-        // The window's title bar already sits above the note.
-        .padding(.top, 10)
+        // Under the transparent title bar, just below the traffic lights' row.
+        .padding(.top, 32)
         .padding(.bottom, 14)
         .overlay(alignment: .bottom) {
             Divider().opacity(0.4)
@@ -2606,17 +2667,12 @@ private struct NoteDetailView: View {
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 60)
-            } else if isCloudTranscribing {
-                ProgressView()
-                    .controlSize(.regular)
-                Text(cloudProgressText)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            } else if item.postProcessingStatus
+            } else if isCloudTranscribing
+                        || item.postProcessingStatus
                         == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus {
                 ProgressView()
                     .controlSize(.regular)
-                Text("Transcribing...")
+                Text(verbatim: processingStatusText)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.secondary)
             } else if isRecoveredRecording {
@@ -2680,6 +2736,17 @@ private struct NoteDetailView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// The same stage the note list shows: "Post-processing…" once the
+    /// transcript is being cleaned up, cloud chunk progress, or "Transcribing…".
+    private var processingStatusText: String {
+        if appState.postProcessingNoteIDs.contains(item.id) {
+            return localizedCatalogString("Post-processing...")
+        }
+        return isCloudTranscribing
+            ? cloudProgressText
+            : localizedCatalogString("Transcribing...")
     }
 
     /// "Retranscribing…", or "Transcribing…" for an audio-only note that was
@@ -3759,8 +3826,12 @@ private struct NoteTextView: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
+        // SwiftUI lays this out below the note header; don't let AppKit add
+        // the transparent title bar's height as an extra top inset.
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsetsZero
 
-        let textView = NSTextView()
+        let textView = CursorDeferringTextView()
         configureForTranscriptDisplay(textView)
         textView.isEditable = true
         textView.isSelectable = true

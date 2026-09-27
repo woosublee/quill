@@ -54,6 +54,8 @@ struct NoteListRowDisplayDataTests {
         let data = NoteListRowDisplayData(item: recording, retryingIDs: [])
         assert(data.status == .recording)
         assert(data.recordingStartedAt == startedAt, "Recording row shows a running elapsed time")
+        assert(data.displayTitle == "New Recording")
+        assert(data.preview.isEmpty)
 
         let titled = historyItem(
             recordingStartedAt: startedAt,
@@ -63,7 +65,7 @@ struct NoteListRowDisplayDataTests {
         )
         let titledData = NoteListRowDisplayData(item: titled, retryingIDs: [])
         assert(titledData.displayTitle == "Weekly sync")
-        assert(titledData.recordingStartedAt == nil, "A title typed during recording replaces the elapsed title")
+        assert(titledData.recordingStartedAt == startedAt, "The elapsed time stays in the status corner")
 
         let titledLikePlaceholder = historyItem(
             recordingStartedAt: startedAt,
@@ -73,7 +75,7 @@ struct NoteListRowDisplayDataTests {
         )
         let titledLikePlaceholderData = NoteListRowDisplayData(item: titledLikePlaceholder, retryingIDs: [])
         assert(
-            titledLikePlaceholderData.recordingStartedAt == nil,
+            titledLikePlaceholderData.displayTitle == "Recording...",
             "A typed title that matches the placeholder text is still the user's title"
         )
 
@@ -82,7 +84,9 @@ struct NoteListRowDisplayDataTests {
             transcript: "Let's review the roadmap.",
             postProcessingStatus: "live-recording"
         )
-        assert(NoteListRowDisplayData(item: liveText, retryingIDs: []).recordingStartedAt == nil)
+        let liveTextData = NoteListRowDisplayData(item: liveText, retryingIDs: [])
+        assert(liveTextData.recordingStartedAt == startedAt)
+        assert(liveTextData.displayTitle != "New Recording", "Live text names the note")
 
         let finished = historyItem(recordingStartedAt: startedAt, transcript: "Done.")
         assert(NoteListRowDisplayData(item: finished, retryingIDs: []).recordingStartedAt == nil)
@@ -620,7 +624,8 @@ struct NoteListRowDisplayDataTests {
         let data = NoteListRowDisplayData(item: item, retryingIDs: [id])
 
         assert(data.status == .transcribing)
-        assert(data.displayTitle == "Transcribing...")
+        // The row names the note; the stage text lives in the note detail.
+        assert(data.displayTitle == "New Recording")
         assert(data.preview.isEmpty)
     }
 
@@ -633,7 +638,7 @@ struct NoteListRowDisplayDataTests {
         )
 
         let transcribing = NoteListRowDisplayData(item: item, retryingIDs: [])
-        assert(transcribing.displayTitle == "Transcribing...")
+        assert(transcribing.displayTitle == "New Recording")
 
         let postProcessing = NoteListRowDisplayData(
             item: item,
@@ -641,7 +646,7 @@ struct NoteListRowDisplayDataTests {
             postProcessingIDs: [id]
         )
         assert(postProcessing.status == .transcribing)
-        assert(postProcessing.displayTitle == "Post-processing...")
+        assert(postProcessing.displayTitle == "New Recording", "Post-processing shows in the detail, not the row")
         assert(postProcessing.preview.isEmpty)
 
         let otherNote = NoteListRowDisplayData(
@@ -649,7 +654,7 @@ struct NoteListRowDisplayDataTests {
             retryingIDs: [],
             postProcessingIDs: [UUID()]
         )
-        assert(otherNote.displayTitle == "Transcribing...")
+        assert(otherNote.displayTitle == "New Recording")
     }
 
     private static func testOnlyFinishedNotesAreBulkSelectable() {
@@ -686,8 +691,9 @@ struct NoteListRowDisplayDataTests {
         )
 
         assert(data.status == .transcribing)
-        assert(data.displayTitle == "Transcribing...")
-        assert(data.preview == "Transcribing 3 of 7…", "Unexpected progress: \(data.preview)")
+        assert(data.displayTitle == "New Recording")
+        // Chunk progress is shown in the note detail only.
+        assert(data.preview.isEmpty, "Unexpected progress: \(data.preview)")
     }
 
     private static func testRestoredCloudProgressDisplaysWaitingCopy() {
@@ -708,7 +714,7 @@ struct NoteListRowDisplayDataTests {
             localization: { key, _ in key }
         )
 
-        assert(data.preview == "Resuming cloud transcription…")
+        assert(data.preview.isEmpty)
     }
 
     private static func testCloudProgressCopyLocalizesInKorean() {
@@ -739,7 +745,7 @@ struct NoteListRowDisplayDataTests {
             }
         )
 
-        assert(data.preview == "3/7 청크 전사 중…")
+        assert(data.preview.isEmpty)
     }
 
     private static func testRetryingItemHidesExistingPreview() {

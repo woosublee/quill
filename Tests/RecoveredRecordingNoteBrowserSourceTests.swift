@@ -35,8 +35,11 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("} else if isError {"))
         precondition(source.contains("appState.cloudTranscriptionProgressByHistoryID[item.id]"))
         precondition(source.contains("cloudProgress: appState.cloudTranscriptionProgressByHistoryID[item.id]"))
-        precondition(source.contains("if isCloudTranscribing {"))
-        precondition(source.contains("Text(cloudProgressText)"))
+        // Cloud chunk progress, "Transcribing…", and "Post-processing…" share
+        // one stage label in the note detail.
+        precondition(source.contains("Text(verbatim: processingStatusText)"))
+        precondition(source.contains("? cloudProgressText"))
+        precondition(source.contains("appState.postProcessingNoteIDs.contains(item.id)"))
         precondition(source.contains("actionState.showsRetryButton"))
         precondition(source.contains("NoteFileExportView("))
         precondition(source.contains("Image(systemName: \"square.and.arrow.down\")"))
@@ -59,7 +62,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
             to: "private var sidebarHeader: some View {"
         )
         // First row shares the title bar: count, search, import, Select/Done.
-        precondition(titleRow.contains("Text(verbatim: selectedCountText)"))
+        precondition(!titleRow.contains("selectedCountText"))
         precondition(!source.contains("noteCountText"))
         precondition(titleRow.contains("headerIconButton(\"magnifyingglass\""))
         precondition(titleRow.contains(".keyboardShortcut(\"f\", modifiers: .command)"))
@@ -77,8 +80,10 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         )
         // Fixed-width source and model controls, Select All under Done, and a
         // header that is always translucent so fast scrolls never show through.
-        precondition(header.contains("inputPickerMenu\n                transcriptionModelMenu"))
+        precondition(header.contains("inputPickerMenu\n                    transcriptionModelMenu"))
+        precondition(header.contains("if selection.showsSelectionUI {\n                    Text(verbatim: selectedCountText)"))
         precondition(header.contains("Button(\"Select All\")"))
+        precondition(header.contains("Text(verbatim: selectedCountText)"))
         precondition(header.contains(".background(.ultraThinMaterial)"))
         precondition(source.contains(".frame(width: 66, height: 26)"))
         precondition(source.contains("if appState.selectedAudioSource == .microphoneAndSystemAudio {"))
