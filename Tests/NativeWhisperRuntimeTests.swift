@@ -6,6 +6,9 @@ struct NativeWhisperRuntimeTests {
         try await testRuntimeReturnsStdoutTranscript()
         try await testRuntimeReadsOutputJSONLanguage()
         try await testRuntimeNormalizesOutputJSONText()
+        try await testRuntimeRemovesDialogueDashesFromOutputJSON()
+        try await testRuntimeRemovesDialogueDashesFromStdout()
+        testDialogueDashCleanupKeepsRealHyphens()
         try await testRuntimeKeepsOutputJSONWithInvalidUTF8Bytes()
         try await testRuntimeKeepsStdoutWithInvalidUTF8Bytes()
         try await testRuntimeRejectsPunctuationOnlyOutputJSON()
@@ -130,6 +133,63 @@ struct NativeWhisperRuntimeTests {
         let result = try await runtime.transcribe(audioURL: audio, modelURL: model, languageCode: nil)
 
         assert(result.text == "Wait. really?!")
+    }
+
+    private static func testRuntimeRemovesDialogueDashesFromOutputJSON() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let helper = try writeHelper(root: root, body: """
+        #!/bin/sh
+        while [ "$#" -gt 0 ]; do
+          if [ "$1" = "-of" ]; then
+            shift
+            printf '{"result":{"language":"ko"},"transcription":[{"text":"-네, 확인했습니다. -그럼 다음 안건으로."},{"text":" - 좋아요."},{"text":" 메일은 e-mail로 3-4개 보낼게요."}]}' > "$1.json"
+            exit 0
+          fi
+          shift
+        done
+        exit 2
+        """)
+        let model = try writeFile(root.appendingPathComponent("model.bin"), data: Data([1]))
+        let audio = try writeFile(root.appendingPathComponent("audio.wav"), data: Data([2]))
+        let runtime = NativeWhisperRuntime(runnerURL: helper)
+
+        let result = try await runtime.transcribe(audioURL: audio, modelURL: model, languageCode: "ko")
+
+        assert(result.text == "네, 확인했습니다. 그럼 다음 안건으로. 좋아요. 메일은 e-mail로 3-4개 보낼게요.")
+    }
+
+    private static func testRuntimeRemovesDialogueDashesFromStdout() async throws {
+        let root = try temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let helper = try writeHelper(root: root, body: """
+        #!/bin/sh
+        echo "[00:00:00.000 --> 00:00:02.000]   -네, 확인했습니다."
+        echo "[00:00:02.000 --> 00:00:04.000]   -그럼 기온은 -5도예요."
+        """)
+        let model = try writeFile(root.appendingPathComponent("model.bin"), data: Data([1]))
+        let audio = try writeFile(root.appendingPathComponent("audio.wav"), data: Data([2]))
+        let runtime = NativeWhisperRuntime(runnerURL: helper)
+
+        let result = try await runtime.transcribe(audioURL: audio, modelURL: model, languageCode: "ko")
+
+        assert(result.text == "네, 확인했습니다. 그럼 기온은 -5도예요.")
+    }
+
+    private static func testDialogueDashCleanupKeepsRealHyphens() {
+        let cases: [(String, String)] = [
+            ("-네. -그럼요!", "네. 그럼요!"),
+            ("– 네? — 맞아요.", "네? 맞아요."),
+            ("정말요… -네", "정말요… 네"),
+            ("Wi-Fi and e-mail", "Wi-Fi and e-mail"),
+            ("Pages 3-4 and 10 - 12", "Pages 3-4 and 10 - 12"),
+            ("-5도까지 내려가요. -3도는 괜찮아요.", "-5도까지 내려가요. -3도는 괜찮아요."),
+            ("well - maybe", "well - maybe"),
+        ]
+        for (input, expected) in cases {
+            let output = WhisperDialogueDashes.removed(from: input)
+            assert(output == expected, "\(input) -> \(output)")
+        }
     }
 
     private static func testRuntimeRejectsPunctuationOnlyOutputJSON() async throws {
