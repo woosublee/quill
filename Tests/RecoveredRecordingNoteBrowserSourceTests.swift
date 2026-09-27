@@ -278,7 +278,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         let restore = block(
             source,
             from: "private func restoreRecoveryScrollPosition(",
-            to: "private func transcriptionChoiceMenuItem"
+            to: "private var transcriptionSelectionLabel: String"
         )
         try expect(
             restore.contains("filteredHistory.contains(where: { $0.id == request.itemID })")

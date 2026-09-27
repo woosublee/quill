@@ -1759,29 +1759,38 @@ struct AppStateTranscriptionConfigurationTests {
 
     private static func testNoteBrowserTranscriptionMenuUsesFlatNativeCheckedItems() throws {
         let source = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
-        guard let itemStart = source.range(of: "private func transcriptionChoiceMenuItem")?.lowerBound,
-              let itemEnd = source.range(of: "\n    private func transcriptionChoiceDisplays", range: itemStart..<source.endIndex)?.lowerBound else {
-            preconditionFailure("Expected transcription choice menu item block")
-        }
-        let menuItemSource = String(source[itemStart..<itemEnd])
-
-        precondition(source.contains("ForEach(transcriptionChoiceDisplays(in: \"Cloud\"))"))
-        precondition(source.contains("ForEach(transcriptionChoiceDisplays(in: \"On This Mac\"))"))
-        precondition(!source.contains("transcriptionChoiceDisplays(in: \"Legacy mlx-whisper\")"))
-        precondition(menuItemSource.contains("Toggle(isOn: Binding<Bool>("))
-        precondition(menuItemSource.contains("appState.transcriptionEnabled"))
-        precondition(menuItemSource.contains("appState.currentNoteBrowserTranscriptionChoice == display.choice"))
-        precondition(menuItemSource.contains("appState.setNoteBrowserTranscriptionSelection(display.choice)"))
-        precondition(
-            menuItemSource.contains(
-                ".disabled(!appState.isNoteBrowserTranscriptionChoiceReady(display.choice))"
-            )
+        let menu = sourceBlock(
+            in: source,
+            from: "private var transcriptionModelMenu: some View {",
+            to: "/// \"3 selected\", shown beside Select All in selection mode."
         )
-        precondition(!menuItemSource.contains(".disabled(!display.isAvailable)"))
-        precondition(source.contains("appState.setNoteBrowserTranscriptionSelection(nil)"))
-        precondition(source.contains("localizedCatalogString(\"Off\")"))
-        precondition(!menuItemSource.contains("Picker(\"Transcription\", selection:"))
-        precondition(!menuItemSource.contains("Image(systemName: \"checkmark\")"))
+        let catcher = sourceBlock(
+            in: source,
+            from: "private struct TranscriptionMenuCatcher: NSViewRepresentable {",
+            to: "/// Transparent click target that pops up a native NSMenu of audio inputs."
+        )
+
+        // Cloud and On This Mac sections, no legacy section.
+        precondition(menu.contains("sections: [\"Cloud\", \"On This Mac\"].map"))
+        precondition(menu.contains("transcriptionChoiceDisplays(in: section)"))
+        precondition(!source.contains("transcriptionChoiceDisplays(in: \"Legacy mlx-whisper\")"))
+        // A choice is checked only while transcription is on, and enabled
+        // only when it is ready to run.
+        precondition(menu.contains("appState.transcriptionEnabled\n                && appState.currentNoteBrowserTranscriptionChoice == display.choice"))
+        precondition(menu.contains("isEnabled: appState.isNoteBrowserTranscriptionChoiceReady(display.choice)"))
+        precondition(!menu.contains("isEnabled: display.isAvailable"))
+        precondition(menu.contains("appState.setNoteBrowserTranscriptionSelection(display.choice)"))
+        precondition(menu.contains("appState.setNoteBrowserTranscriptionSelection(nil)"))
+        precondition(menu.contains("title: localizedCatalogString(\"Off\")"))
+        // The whole pill opens the menu, with native checkmarks, and it does
+        // nothing while recording or transcribing.
+        precondition(menu.contains(".overlay {\n            TranscriptionMenuCatcher("))
+        precondition(menu.contains("let isEnabled = !appState.isRecording && !appState.isTranscribing"))
+        precondition(catcher.contains("guard let configuration, configuration.isEnabled else { return }"))
+        precondition(catcher.contains("item.state = option.isSelected ? .on : .off"))
+        precondition(catcher.contains("item.isEnabled = option.isEnabled"))
+        precondition(catcher.contains("menu.autoenablesItems = false"))
+        precondition(!menu.contains("Menu {"))
     }
 
     private static func testAudioImportConfigurationUsesChoiceDerivedBackend() async {
@@ -1833,7 +1842,7 @@ struct AppStateTranscriptionConfigurationTests {
         let sheetBody = sourceBlock(
             in: source,
             from: "struct TranscriptionChoiceSheet: View",
-            to: "private func transcriptionChoiceMenuItem"
+            to: "private struct NoteListTopOffsetKey: PreferenceKey"
         )
 
         // Import and retry share one picker, grouped like the Note Browser

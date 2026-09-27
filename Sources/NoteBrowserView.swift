@@ -670,36 +670,6 @@ struct NoteBrowserView: View {
         }
     }
 
-    private func transcriptionChoiceMenuItem(_ display: TranscriptionChoiceDisplay) -> some View {
-        Toggle(isOn: Binding<Bool>(
-            get: {
-                appState.transcriptionEnabled
-                    && appState.currentNoteBrowserTranscriptionChoice == display.choice
-            },
-            set: { isSelected in
-                if isSelected {
-                    appState.setNoteBrowserTranscriptionSelection(display.choice)
-                }
-            }
-        )) {
-            Text(display.localizedCompactLabel())
-        }
-        .disabled(!appState.isNoteBrowserTranscriptionChoiceReady(display.choice))
-    }
-
-    private var transcriptionOffMenuItem: some View {
-        Toggle(isOn: Binding<Bool>(
-            get: { !appState.transcriptionEnabled },
-            set: { isSelected in
-                if isSelected {
-                    appState.setNoteBrowserTranscriptionSelection(nil)
-                }
-            }
-        )) {
-            Text(localizedCatalogString("Off"))
-        }
-    }
-
     private var transcriptionSelectionLabel: String {
         appState.transcriptionEnabled
             ? appState.noteBrowserTranscriptionChoiceLabel
@@ -925,53 +895,79 @@ struct NoteBrowserView: View {
     }
 
     /// The transcription model control. It fills the space beside the source
-    /// control, so its size never changes with the selected model.
+    /// control, so its size never changes with the selected model. Like the
+    /// source control, the whole pill opens the menu, not only its label.
     private var transcriptionModelMenu: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 7)
-                .fill(Color.primary.opacity(0.06))
-            HStack(spacing: 0) {
-                Menu {
-                    transcriptionOffMenuItem
-                    Divider()
-                    Section("Cloud") {
-                        ForEach(transcriptionChoiceDisplays(in: "Cloud")) { display in
-                            transcriptionChoiceMenuItem(display)
-                        }
-                    }
-                    Section("On This Mac") {
-                        ForEach(transcriptionChoiceDisplays(in: "On This Mac")) { display in
-                            transcriptionChoiceMenuItem(display)
-                        }
-                    }
-                } label: {
-                    Label {
-                        Text(transcriptionSelectionLabel)
-                    } icon: {
-                        Image(systemName: "waveform")
-                    }
-                    .font(.system(size: 12, weight: .semibold))
-                    .lineLimit(1)
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .allowsHitTesting(false)
-            }
-            .padding(.horizontal, 8)
+        let isEnabled = !appState.isRecording && !appState.isTranscribing
+        return HStack(spacing: 6) {
+            Image(systemName: "waveform")
+            Text(transcriptionSelectionLabel)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 4)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(.secondary)
         }
+        .font(.system(size: 12, weight: .semibold))
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 8)
         .frame(height: 26)
         .frame(maxWidth: .infinity)
+        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+        .opacity(isEnabled ? 1 : 0.45)
+        .contentShape(Rectangle())
+        .overlay {
+            TranscriptionMenuCatcher(configuration: TranscriptionMenuConfiguration(
+                off: TranscriptionMenuOption(
+                    id: Self.transcriptionOffMenuID,
+                    title: localizedCatalogString("Off"),
+                    isSelected: !appState.transcriptionEnabled,
+                    isEnabled: true
+                ),
+                sections: ["Cloud", "On This Mac"].map { section in
+                    TranscriptionMenuSection(
+                        title: localizedCatalogString(section),
+                        options: transcriptionChoiceDisplays(in: section)
+                            .map(transcriptionMenuOption)
+                    )
+                },
+                isEnabled: isEnabled,
+                onSelect: selectTranscriptionMenuOption
+            ))
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
         .accessibilityLabel(
             String(
                 localized: "Transcription method: \(transcriptionSelectionDetailLabel)"
             )
         )
         .help(Text(verbatim: transcriptionSelectionDetailLabel))
-        .disabled(appState.isRecording || appState.isTranscribing)
+        .overrideCursor(.arrow)
+    }
+
+    private static let transcriptionOffMenuID = "transcription-off"
+
+    private func transcriptionMenuOption(
+        _ display: TranscriptionChoiceDisplay
+    ) -> TranscriptionMenuOption {
+        TranscriptionMenuOption(
+            id: display.choice.id,
+            title: display.localizedCompactLabel(),
+            isSelected: appState.transcriptionEnabled
+                && appState.currentNoteBrowserTranscriptionChoice == display.choice,
+            isEnabled: appState.isNoteBrowserTranscriptionChoiceReady(display.choice)
+        )
+    }
+
+    private func selectTranscriptionMenuOption(_ id: String) {
+        if id == Self.transcriptionOffMenuID {
+            appState.setNoteBrowserTranscriptionSelection(nil)
+        } else if let display = appState.noteBrowserTranscriptionChoiceDisplays
+            .first(where: { $0.choice.id == id }) {
+            appState.setNoteBrowserTranscriptionSelection(display.choice)
+        }
     }
 
     /// "3 selected", shown beside Select All in selection mode.
@@ -2827,8 +2823,17 @@ private struct NoteDetailView: View {
             .padding(.horizontal, 60)
             Spacer()
         }
+        .padding(.bottom, Self.floatingToolbarClearance)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    /// The floating toolbar's height plus its bottom margin. Centered empty
+    /// states leave this much room so they sit in the middle of what is
+    /// visible above the toolbar, not of the whole pane.
+    private static let floatingToolbarHeight: CGFloat = 48
+    private static let floatingToolbarBottomMargin: CGFloat = 20
+    private static let floatingToolbarClearance =
+        floatingToolbarHeight + floatingToolbarBottomMargin
 
     @ViewBuilder
     private var emptyContentState: some View {
@@ -2920,6 +2925,7 @@ private struct NoteDetailView: View {
             }
             Spacer()
         }
+        .padding(.bottom, Self.floatingToolbarClearance)
         .frame(maxWidth: .infinity)
     }
 
@@ -3082,7 +3088,7 @@ private struct NoteDetailView: View {
             )
         }
         .padding(.horizontal, 8)
-        .frame(height: 48)
+        .frame(height: Self.floatingToolbarHeight)
         .background {
             #if compiler(>=6.2)
             if #available(macOS 26.0, *) {
@@ -3098,7 +3104,7 @@ private struct NoteDetailView: View {
         .compositingGroup()
         .shadow(color: .black.opacity(0.085), radius: 14, x: 0, y: 4)
         .shadow(color: .white.opacity(0.05), radius: 4, x: 0, y: -1)
-        .padding(.bottom, 20)
+        .padding(.bottom, Self.floatingToolbarBottomMargin)
         .zIndex(100)
         .contentShape(Capsule())
         .allowsHitTesting(true)
@@ -4224,6 +4230,83 @@ private struct AudioInputMenuConfiguration {
     let microphoneSelectionEnabled: Bool
     let onSelectSource: (String) -> Void
     let onSelectMicrophone: (String) -> Void
+}
+
+private struct TranscriptionMenuOption {
+    let id: String
+    let title: String
+    let isSelected: Bool
+    let isEnabled: Bool
+}
+
+private struct TranscriptionMenuSection {
+    let title: String
+    let options: [TranscriptionMenuOption]
+}
+
+private struct TranscriptionMenuConfiguration {
+    let off: TranscriptionMenuOption
+    let sections: [TranscriptionMenuSection]
+    let isEnabled: Bool
+    let onSelect: (String) -> Void
+}
+
+/// Transparent click target over the whole model pill that pops up a native
+/// NSMenu of transcription choices, matching the source control beside it.
+private struct TranscriptionMenuCatcher: NSViewRepresentable {
+    let configuration: TranscriptionMenuConfiguration
+
+    func makeNSView(context: Context) -> CatcherView {
+        let view = CatcherView()
+        view.configuration = configuration
+        return view
+    }
+
+    func updateNSView(_ nsView: CatcherView, context: Context) {
+        nsView.configuration = configuration
+    }
+
+    final class CatcherView: NSView {
+        var configuration: TranscriptionMenuConfiguration?
+
+        override var isFlipped: Bool { true }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func mouseDown(with event: NSEvent) {
+            guard let configuration, configuration.isEnabled else { return }
+            let menu = NSMenu()
+            menu.autoenablesItems = false
+            menu.addItem(makeItem(configuration.off))
+            for section in configuration.sections where !section.options.isEmpty {
+                menu.addItem(.separator())
+                let header = NSMenuItem(title: section.title, action: nil, keyEquivalent: "")
+                header.isEnabled = false
+                menu.addItem(header)
+                for option in section.options {
+                    menu.addItem(makeItem(option))
+                }
+            }
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 2), in: self)
+        }
+
+        private func makeItem(_ option: TranscriptionMenuOption) -> NSMenuItem {
+            let item = NSMenuItem(
+                title: option.title,
+                action: #selector(pick(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = option.id
+            item.state = option.isSelected ? .on : .off
+            item.isEnabled = option.isEnabled
+            return item
+        }
+
+        @objc private func pick(_ sender: NSMenuItem) {
+            guard let id = sender.representedObject as? String else { return }
+            configuration?.onSelect(id)
+        }
+    }
 }
 
 /// Transparent click target that pops up a native NSMenu of audio inputs.
