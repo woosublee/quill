@@ -10587,6 +10587,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 scheduleOverlayDismissAfterFailureIndicator(after: 2.5)
             } else {
                 dismissTranscribingOverlay()
+                // Fixed confirmation only; never the transcript itself.
+                OverlayAccessibilityAnnouncer.announce(.done)
             }
             let pendingClipboardRestore = writeTranscriptToPasteboard(completion.finalTranscript)
             if !disableAutoPaste {

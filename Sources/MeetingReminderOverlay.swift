@@ -342,6 +342,8 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
 
         if markPresented {
             reminder.onPresented(schedule)
+            // Announce only the calendar title already shown on the card.
+            OverlayAccessibilityAnnouncer.announce(.meetingStarting(title: displayData.title))
         }
         return true
     }
@@ -574,6 +576,15 @@ private struct MeetingReminderOverlayRootView: View {
         )
         .frame(width: viewModel.frameSize.width, height: viewModel.frameSize.height)
         .animation(meetingReminderContentTransitionAnimation, value: viewModel.displayData)
+        // VoiceOver actions on the card so Start and Close are reachable
+        // without pointing at the buttons. No visual or panel changes.
+        .accessibilityElement(children: .contain)
+        .accessibilityActions {
+            if viewModel.displayData.showsStartButton {
+                Button("Start", action: onStart)
+            }
+            Button("Close", action: onDismiss)
+        }
     }
 }
 

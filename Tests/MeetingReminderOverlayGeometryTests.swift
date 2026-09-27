@@ -23,6 +23,7 @@ struct MeetingReminderOverlayGeometryTests {
         try testMeetingReminderObservesScreenParameterChanges()
         try testMeetingReminderKeepsPersistentAnimationHost()
         try testMeetingReminderDefersNextReminderWhileHiding()
+        try testMeetingReminderAccessibility()
         try testHostingViewsUseFixedIntrinsicContentSize()
         await testPresenterFailureWhenScreenUnavailableFallsBack()
         print("MeetingReminderOverlayGeometryTests passed")
@@ -257,6 +258,23 @@ struct MeetingReminderOverlayGeometryTests {
         assert(source.contains("let screen = panel.screen ?? screenProvider() ?? NSScreen.main"))
         assert(source.contains("meetingReminderPanelResizeDuration"))
         assert(source.contains("animationContext.duration = meetingReminderPanelResizeDuration"))
+    }
+
+    private static func testMeetingReminderAccessibility() throws {
+        let source = try String(contentsOfFile: "Sources/MeetingReminderOverlay.swift", encoding: .utf8)
+        // Announce only the calendar title already shown on the card.
+        assert(source.contains("OverlayAccessibilityAnnouncer.announce(.meetingStarting(title: displayData.title))"))
+        assert(source.contains(".accessibilityActions {"))
+        assert(source.contains("if viewModel.displayData.showsStartButton {\n                Button(\"Start\", action: onStart)"))
+        assert(source.contains("Button(\"Close\", action: onDismiss)"))
+        // Panel activation, level, and look stay unchanged.
+        assert(source.contains("styleMask: [.borderless, .nonactivatingPanel]"))
+        assert(source.contains("panel.level = .screenSaver"))
+        assert(!source.contains("makeKey"))
+
+        let message = OverlayAccessibilityAnnouncement.meetingStarting(title: "Synthetic Planning")
+            .message(language: "en", bundle: Bundle(path: FileManager.default.currentDirectoryPath)!)
+        assert(message == "Meeting starting: Synthetic Planning")
     }
 
     private static func testMeetingReminderDefersNextReminderWhileHiding() throws {
