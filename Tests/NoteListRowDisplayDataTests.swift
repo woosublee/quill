@@ -31,6 +31,7 @@ struct NoteListRowDisplayDataTests {
         testStorageInterruptionPreviewCombinesCauseAndMode()
         testTranscribingTitleAndEmptyPreview()
         testPostProcessingNoteShowsPostProcessingTitle()
+        testRowAccessibilityLabelSpellsOutState()
         testRetriedNoteKeepsItsNameInsteadOfTheStage()
         testCloudChunkProgressDisplaysActiveChunk()
         testRestoredCloudProgressDisplaysWaitingCopy()
@@ -656,6 +657,41 @@ struct NoteListRowDisplayDataTests {
             retryingIDs: []
         )
         assert(cloudRecording.displayTitle == "New Recording")
+    }
+
+    /// VoiceOver hears the state in words, not only the dot's color (#389).
+    private static func testRowAccessibilityLabelSpellsOutState() {
+        let identity: (String) -> String = { $0 }
+        let failed = NoteListRowAccessibility.label(
+            title: "New Recording",
+            date: "Sep 27, 7:34 PM",
+            status: .fail,
+            hasSummary: false,
+            selection: nil,
+            localize: identity
+        )
+        assert(failed == "New Recording, Sep 27, 7:34 PM, Transcription failed", failed)
+
+        let done = NoteListRowAccessibility.label(
+            title: "Weekly sync",
+            date: "Sep 27, 4:56 PM",
+            status: .done,
+            hasSummary: true,
+            selection: .checked,
+            localize: identity
+        )
+        assert(done == "Weekly sync, Sep 27, 4:56 PM, Transcription complete, Summary, Selected", done)
+
+        let busy = NoteListRowAccessibility.label(
+            title: "New Recording",
+            date: "Sep 27, 7:40 PM",
+            status: .recording,
+            hasSummary: false,
+            selection: .unavailable,
+            localize: identity
+        )
+        assert(busy.hasSuffix("Can't be selected while recording or processing"), busy)
+        assert(NoteListRowAccessibility.statusKey(for: .done) != NoteListRowAccessibility.statusKey(for: .fail))
     }
 
     private static func testPostProcessingNoteShowsPostProcessingTitle() {
