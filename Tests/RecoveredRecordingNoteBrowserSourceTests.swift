@@ -42,12 +42,32 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("Image(systemName: \"square.and.arrow.down\")"))
         precondition(source.contains("Image(systemName: \"ellipsis\")"))
         try testRetryWithoutReadyModelUsesToast(source)
+        testEmptyHistoryShowsOneEmptyState(source)
         try testAudioOnlyNoteUsesDedicatedNormalState()
         try testInputPickerSwitchesActiveRecordingInput(source)
         try testInputMenuCatcherDisablesAndLocalizesSources(source)
         try testRecoveryImportPreservesSelectedListPosition(source)
 
         print("RecoveredRecordingNoteBrowserSourceTests passed")
+    }
+
+    private static func testEmptyHistoryShowsOneEmptyState(_ source: String) {
+        let listEmpty = block(
+            source,
+            from: "private var emptyListState: some View {",
+            to: "// MARK: - Detail"
+        )
+        // The sidebar shows one quiet line; the detail pane has the icon and hint.
+        precondition(listEmpty.contains("Text(\"No recordings yet\")"))
+        precondition(!listEmpty.contains("Image(systemName:"))
+        precondition(!listEmpty.contains("No Recordings"))
+        let detailEmpty = block(
+            source,
+            from: "private var emptyDetailNoRecordings: some View {",
+            to: "// MARK: - Horizontally Scrollable Title Field"
+        )
+        precondition(detailEmpty.contains("Image(systemName: \"mic\")"))
+        precondition(detailEmpty.contains("Start your first recording with the Record button or your shortcut."))
     }
 
     private static func testRetryWithoutReadyModelUsesToast(

@@ -1457,38 +1457,6 @@
         }
       }
     },
-    "Press the shortcut to start recording": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Press the shortcut to start recording"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "단축키를 눌러 녹음을 시작하세요"
-          }
-        }
-      }
-    },
-    "Press the shortcut to start your first recording.\nYour transcript will appear here.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Press the shortcut to start your first recording.\nYour transcript will appear here."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "단축키를 눌러 첫 번째 녹음을 시작하세요.\n전사된 내용이 여기에 나타납니다."
-          }
-        }
-      }
-    },
     "Prompt": {
       "localizations": {
         "en": {
@@ -17809,6 +17777,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "재전사 중..."
+          }
+        }
+      }
+    },
+    "No recordings yet": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No recordings yet"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 녹음이 없습니다"
+          }
+        }
+      }
+    },
+    "Start your first recording with the Record button or your shortcut.\nYour transcript will appear here.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start your first recording with the Record button or your shortcut.\nYour transcript will appear here."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 버튼이나 단축키로 첫 녹음을 시작하세요.\n전사된 내용이 여기에 나타납니다."
           }
         }
       }
