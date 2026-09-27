@@ -65,6 +65,18 @@ struct NoteListRowDisplayDataTests {
         assert(titledData.displayTitle == "Weekly sync")
         assert(titledData.recordingStartedAt == nil, "A title typed during recording replaces the elapsed title")
 
+        let titledLikePlaceholder = historyItem(
+            recordingStartedAt: startedAt,
+            transcript: "",
+            postProcessingStatus: "live-recording",
+            customTitle: "Recording..."
+        )
+        let titledLikePlaceholderData = NoteListRowDisplayData(item: titledLikePlaceholder, retryingIDs: [])
+        assert(
+            titledLikePlaceholderData.recordingStartedAt == nil,
+            "A typed title that matches the placeholder text is still the user's title"
+        )
+
         let liveText = historyItem(
             recordingStartedAt: startedAt,
             transcript: "Let's review the roadmap.",

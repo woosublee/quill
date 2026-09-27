@@ -246,12 +246,12 @@ struct NoteListRowDisplayData: Equatable {
         self.rowDate = NoteTimestampFormatter.rowTimestamp(for: item, locale: locale)
         self.displayTitle = displayTitle
         self.hasMeetingSummary = item.meetingSummaryJSON != nil
+        // Same conditions under which NoteTitleResolver falls back to its
+        // automatic "Recording..." title.
         self.recordingStartedAt = status == .recording
-            && displayTitle == localizedCatalogString(
-                "Recording...",
-                language: localizationLanguage,
-                bundle: localizationBundle
-            )
+            && customTitle == nil
+            && item.calendarMatch?.appliedTitle == nil
+            && content.isEmpty
             ? item.recordingStartedAt
             : nil
         self.preview = Self.preview(
