@@ -7081,7 +7081,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 postProcessingStatus: configuration.useLocalTranscription
                     ? "importing"
                     : PipelineHistoryItem.cloudTranscribingStatus,
-                debugStatus: "Importing audio",
+                debugStatus: PipelineHistoryItem.importingDebugStatus,
                 customVocabulary: configuration.customVocabulary,
                 customSystemPrompt: configuration.customSystemPrompt,
                 audioFileName: savedAudioFile.fileName,

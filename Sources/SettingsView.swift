@@ -45,6 +45,16 @@ struct SettingsView: View {
     @EnvironmentObject var appState: AppState
 
     var body: some View {
+        // The window's title bar is transparent and has no separator. The
+        // sidebar and pages run under it, starting below its height, and its
+        // empty space drags the window like a title bar.
+        GeometryReader { proxy in
+            settingsContent(titleBarHeight: proxy.safeAreaInsets.top)
+                .ignoresSafeArea(.container, edges: .top)
+        }
+    }
+
+    private func settingsContent(titleBarHeight: CGFloat) -> some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(SettingsTab.orderedCases.filter { tab in
@@ -69,6 +79,7 @@ struct SettingsView: View {
                 Spacer()
             }
             .padding(10)
+            .padding(.top, titleBarHeight)
             .frame(width: 180)
             .background(Color(nsColor: .windowBackgroundColor))
 
@@ -104,7 +115,12 @@ struct SettingsView: View {
                     GeneralSettingsView()
                 }
             }
+            .padding(.top, titleBarHeight)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .overlay(alignment: .top) {
+            WindowDragArea()
+                .frame(height: titleBarHeight)
         }
     }
 }

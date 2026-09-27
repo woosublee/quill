@@ -496,25 +496,6 @@ private struct DimmedWhenDisabled: ViewModifier {
     }
 }
 
-/// Empty title bar space that drags the window, and zooms it on double-click,
-/// now that the content extends under the transparent title bar.
-private struct WindowDragArea: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView { DragView() }
-    func updateNSView(_ nsView: NSView, context: Context) {}
-
-    final class DragView: NSView {
-        override var mouseDownCanMoveWindow: Bool { true }
-
-        override func mouseDown(with event: NSEvent) {
-            if event.clickCount == 2 {
-                window?.performZoom(nil)
-            } else {
-                window?.performDrag(with: event)
-            }
-        }
-    }
-}
-
 struct RetryChoiceRequest: Identifiable {
     let id = UUID()
     let options: AudioImportOptions
@@ -1187,7 +1168,6 @@ struct NoteBrowserView: View {
                                     displayData: NoteListRowDisplayData(
                                         item: item,
                                         retryingIDs: appState.retryingItemIDs,
-                                        postProcessingIDs: appState.postProcessingNoteIDs,
                                         cloudProgress: appState.cloudTranscriptionProgressByHistoryID[item.id]
                                     ),
                                     isSelected: selection.showsSelectionUI

@@ -213,7 +213,6 @@ struct NoteListRowDisplayData: Equatable {
     init(
         item: PipelineHistoryItem,
         retryingIDs: Set<UUID>,
-        postProcessingIDs: Set<UUID> = [],
         cloudProgress: CloudTranscriptionDisplayProgress? = nil,
         locale: Locale = .current,
         localizationLanguage: String = preferredLocalizedStringLanguage(),
@@ -234,17 +233,23 @@ struct NoteListRowDisplayData: Equatable {
         let customTitle = trimmedCustomTitle?.isEmpty == true ? nil : trimmedCustomTitle
         let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         // The row names the note; the stage ("Transcribing…", "Post-
-        // processing…") is shown once, in the note detail. A recording or
-        // import with no title or transcript yet gets a neutral name; a note
-        // being retried keeps its own name.
+        // processing…") is shown once, in the note detail, and by the row's
+        // spinner. A recording or import with no title or transcript yet
+        // gets a neutral name; a note being retried keeps its own name, such
+        // as "Audio recording" or "New Recording", never the stage.
         let hasOwnTitle = customTitle != nil || item.calendarMatch?.appliedTitle != nil
         let isUnnamed = !hasOwnTitle && content.isEmpty && !retryingIDs.contains(item.id)
-        let isNewRecording = isUnnamed && (
+        // An import transcribed by a cloud model has the cloud status, not
+        // "importing", so its import mark comes from the debug status.
+        let isImporting = isUnnamed && (
+            item.machineStatus == .importing
+                || item.debugStatus == PipelineHistoryItem.importingDebugStatus
+        )
+        let isNewRecording = isUnnamed && !isImporting && (
             status == .recording
                 || item.postProcessingStatus == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus
                 || item.machineStatus == .cloudTranscribing
         )
-        let isImporting = isUnnamed && item.machineStatus == .importing
         let displayTitle: String
         if isNewRecording || isImporting {
             displayTitle = localizedCatalogString(
@@ -255,8 +260,6 @@ struct NoteListRowDisplayData: Equatable {
         } else {
             displayTitle = NoteTitleResolver.displayTitle(
                 for: item,
-                isTranscribing: status == .transcribing,
-                isPostProcessing: postProcessingIDs.contains(item.id),
                 language: localizationLanguage,
                 bundle: localizationBundle
             )

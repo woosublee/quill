@@ -236,6 +236,8 @@ struct AppStateTranscriptionConfigurationTests {
         testResolvedRetryChoiceFollowsTranscriptionOffPolicy()
         try await testPickedRetryModelLeavesTranscriptionSettingsUnchanged()
         try await testRetryPostProcessingCleansStoredTranscriptWithoutTranscribing()
+        testTitleBarDoubleClickFollowsSystemSetting()
+        try testSettingsWindowUsesUnifiedTitleBar()
         try await testRetryPreservesMeetingSummaryMetadata()
         try await testAudioImportTimeoutPreservesRawTranscriptAndFailedOutcome()
         try await testRetryTimeoutPreservesRawTranscriptAndFailedOutcome()
@@ -3726,6 +3728,46 @@ struct AppStateTranscriptionConfigurationTests {
             at: storageLayout.audioDirectory.appendingPathComponent(fileName)
         )
         return retryHistoryItem(audioFileName: fileName)
+    }
+
+    /// The custom title bar areas do what the system title bar would on a
+    /// double-click (#388). No real defaults are read.
+    private static func testTitleBarDoubleClickFollowsSystemSetting() {
+        let resolve = TitleBarDoubleClickAction.resolve
+        precondition(resolve("Maximize", false) == .zoom)
+        precondition(resolve("Fill", false) == .zoom)
+        precondition(resolve("Minimize", false) == .minimize)
+        precondition(resolve("None", true) == .none)
+        precondition(resolve(nil, false) == .zoom, "Missing setting zooms, the system default")
+        precondition(resolve(nil, true) == .minimize, "Older minimize flag is honored")
+        precondition(resolve("Unexpected", false) == .zoom)
+    }
+
+    /// Settings shares the Note Browser's unified title bar (#399).
+    private static func testSettingsWindowUsesUnifiedTitleBar() throws {
+        let appDelegate = try String(contentsOfFile: "Sources/AppDelegate.swift", encoding: .utf8)
+        let settingsWindow = sourceBlock(
+            in: appDelegate,
+            from: "private func presentSettingsWindow() {",
+            to: "func showSetupWindow() {"
+        )
+        for expected in [
+            ".fullSizeContentView",
+            "window.titleVisibility = .hidden",
+            "window.titlebarAppearsTransparent = true",
+            "window.titlebarSeparatorStyle = .none",
+            "window.toolbarStyle = .unified",
+            "window.title = AppName.displayName"
+        ] {
+            precondition(settingsWindow.contains(expected), "Missing Settings title bar setup: \(expected)")
+        }
+        let settings = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
+        precondition(settings.contains("settingsContent(titleBarHeight: proxy.safeAreaInsets.top)"))
+        precondition(settings.contains(".ignoresSafeArea(.container, edges: .top)"))
+        precondition(settings.contains("WindowDragArea()\n                .frame(height: titleBarHeight)"))
+        let dragArea = try String(contentsOfFile: "Sources/WindowDragArea.swift", encoding: .utf8)
+        precondition(dragArea.contains("switch TitleBarDoubleClickAction.current {"))
+        precondition(!dragArea.contains("if event.clickCount == 2 {\n                window?.performZoom(nil)"))
     }
 
     private static func testRetryPostProcessingCleansStoredTranscriptWithoutTranscribing() async throws {

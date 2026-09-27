@@ -493,7 +493,9 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         let finish = try body(startingWith: "private func finishTranscriptionJob(_ id: UUID)", in: source)
         precondition(finish.contains("postProcessingNoteIDByJobID.removeValue(forKey: id)"))
         precondition(finish.contains("postProcessingNoteIDs.remove(noteID)"))
-        precondition(noteBrowser.contains("postProcessingIDs: appState.postProcessingNoteIDs"))
+        // The row never names the stage; the note detail reads postProcessingNoteIDs.
+        precondition(!noteBrowser.contains("postProcessingIDs: appState.postProcessingNoteIDs"))
+        precondition(noteBrowser.contains("appState.postProcessingNoteIDs.contains(item.id)"))
         precondition(menuBar.contains("Label(appState.transcribingStatusTitle"))
         precondition(!menuBar.contains("Label(appState.debugStatusMessage"))
         // The menu bar describes the foreground job, not any job that is post-processing.

@@ -267,11 +267,19 @@ private func showNoteBrowserWindow() {
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 780, height: 540),
-            styleMask: [.titled, .closable, .resizable, .miniaturizable],
+            styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
+        // Same unified title bar as the Note Browser: no title text or
+        // separator, traffic lights on the sidebar's first row. The title
+        // stays set for Mission Control and the Window menu.
         window.title = AppName.displayName
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.toolbar = NSToolbar(identifier: "Settings")
+        window.toolbarStyle = .unified
         window.contentView = hostingView
         window.isReleasedWhenClosed = false
         window.center()

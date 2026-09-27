@@ -39,6 +39,9 @@ struct PipelineHistoryItem: Identifiable, Codable {
     static let recoveredRecordingStatus =
         RecoveredRecordingMode.complete.recoveredStatus
     static let cloudTranscribingStatus = "cloud-transcribing"
+    /// Set on an imported file's note until transcription replaces it. It is
+    /// the only mark of an import while a cloud model transcribes the file.
+    static let importingDebugStatus = "Importing audio"
     static let audioOnlyStatus = "audio-only"
 
     var spokenLanguage: SpokenLanguageResolution? {
