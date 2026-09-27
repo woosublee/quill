@@ -179,7 +179,9 @@ struct NativeWhisperRuntimeTests {
     private static func testDialogueDashCleanupKeepsRealHyphens() {
         let cases: [(String, String)] = [
             ("-네. -그럼요!", "네. 그럼요!"),
-            ("– 네? — 맞아요.", "네? 맞아요."),
+            ("- 네? - 맞아요.", "네? 맞아요."),
+            ("— well, anyway. the U.S. — and Canada", "— well, anyway. the U.S. — and Canada"),
+            ("- 5도예요. - 3도는요?", "- 5도예요. - 3도는요?"),
             ("정말요… -네", "정말요… 네"),
             ("Wi-Fi and e-mail", "Wi-Fi and e-mail"),
             ("Pages 3-4 and 10 - 12", "Pages 3-4 and 10 - 12"),
