@@ -970,6 +970,27 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         assert(finish.contains("removeUnfinishedRecordingNote(id: noteID)"))
         assert(completion.contains("removeUnfinishedRecordingNote(id: recordingID)"))
         assert(startup.contains("where item.isUnfinishedRecordingNote"))
+
+        // Abnormal stops detach the note so the next recording gets its own.
+        let discard = try body(startingWith: "private func discardCurrentRecordingNote(", in: source)
+        let screenshot = try body(startingWith: "private func handleScreenshotCaptureIssue(", in: source)
+        let storageRecovery = try body(
+            startingWith: "private func completeRecordingStorageFailureRecovery(",
+            in: source
+        )
+        assert(discard.contains("currentRecordingLiveNoteID = nil"))
+        assert(discard.contains("removeUnfinishedRecordingNote(id: noteID)"))
+        assert(screenshot.contains("discardCurrentRecordingNote()"))
+        assert(storageRecovery.contains("discardCurrentRecordingNote()"))
+        assert(storageRecovery.contains("if liveNoteID != recovered.recordingID"))
+        assert(storageRecovery.contains("removeUnfinishedRecordingNote(id: recovered.recordingID)"))
+
+        // An empty recording note is not a reference that keeps failed audio.
+        assert(persist.contains("$0.id == recordingID && !$0.isUnfinishedRecordingNote"))
+
+        // A replaced recording note moves to the top like a newly saved note.
+        assert(append.contains("pipelineHistory.removeAll { $0.id == replacement.id }"))
+        assert(placeholder.contains("if replacesRecordingNote"))
     }
 
     private static func testAudioOnlyCompletionOwnsForegroundUIAndTermination() throws {
