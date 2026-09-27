@@ -3705,7 +3705,10 @@ struct NoteAudioPlayerView: View {
 
     private func seek(by seconds: TimeInterval) {
         guard duration > 0 else { return }
-        seek(toFraction: (elapsed + seconds) / duration)
+        // `elapsed` only updates every 0.1 s while playing; start from the
+        // player's actual position so each step is exactly 5 s.
+        let current = player?.currentTime ?? elapsed
+        seek(toFraction: (current + seconds) / duration)
     }
 
     /// Moves the playhead to `fraction` (0...1) of the duration. Works whether or
