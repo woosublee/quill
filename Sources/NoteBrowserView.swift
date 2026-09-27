@@ -1110,26 +1110,16 @@ struct NoteBrowserView: View {
         }
     }
 
+    /// One quiet line; the detail pane carries the full empty state.
     private var emptyListState: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            ZStack {
-                Circle()
-                    .fill(Color.primary.opacity(0.04))
-                    .frame(width: 64, height: 64)
-                Image(systemName: "mic")
-                    .font(.system(size: 26, weight: .ultraLight))
-                    .foregroundStyle(.tertiary)
-            }
-            Text("No Recordings")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.secondary)
-            Text("Press the shortcut to start recording")
-                .font(.system(size: 11))
+        VStack {
+            Text("No recordings yet")
+                .font(.system(size: 12))
                 .foregroundStyle(.tertiary)
-                .multilineTextAlignment(.center)
+                .padding(.top, 24)
             Spacer()
         }
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, 20)
     }
 
@@ -1194,7 +1184,7 @@ struct NoteBrowserView: View {
             Text("No Recordings")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(.secondary)
-            Text("Press the shortcut to start your first recording.\nYour transcript will appear here.")
+            Text("Start your first recording with the Record button or your shortcut.\nYour transcript will appear here.")
                 .font(.system(size: 13))
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
