@@ -171,6 +171,7 @@ struct MeetingSummaryView<Notices: View>: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.title3.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
             content()
         }
     }

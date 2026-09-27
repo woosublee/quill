@@ -56,6 +56,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         try testAudioOnlyNoteUsesDedicatedNormalState()
         try testInputPickerSwitchesActiveRecordingInput(source)
         try testInputMenuCatcherDisablesAndLocalizesSources(source)
+        try testNoteDetailAccessibility(source)
         testMenuPillsAreKeyboardAndVoiceOverAccessible(source)
         try testRecoveryImportPreservesSelectedListPosition(source)
 
@@ -204,6 +205,48 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(inputPickerMenu.contains("selectedMicrophoneID: appState.selectedMicrophoneDeviceID"))
         precondition(inputPickerMenu.contains("microphoneSelectionEnabled: !appState.isRecording"))
         precondition(inputPickerMenu.contains("filter { !appState.isAudioSourceSelectable($0) }"))
+    }
+
+    /// Note detail controls are real controls for Tab and VoiceOver, and
+    /// informational ones are read in words (#390).
+    private static func testNoteDetailAccessibility(_ source: String) throws {
+        let metaTag = block(
+            source,
+            from: "private func metaTag(_ label: String, active: Bool, help tooltip: LocalizedStringKey) -> some View {",
+            to: "// MARK: Content"
+        )
+        precondition(!metaTag.contains("Button("), "Metadata tags are plain text, not no-op buttons")
+        precondition(metaTag.contains(".help(tooltip)"))
+        precondition(!source.contains("Button(action: {})"), "No no-op buttons in the Note Browser")
+        precondition(source.contains(".accessibilityLabel(Text(verbatim: statusBadgesSpokenText))"))
+        precondition(source.contains("\"Transcription language: %@\""))
+        precondition(source.contains(".accessibilityLabel(Text(\"Recording recovered after an unexpected shutdown\"))"))
+        precondition(source.contains("textView.setAccessibilityLabel(localizedCatalogString(\"Note Title\"))"))
+        precondition(source.contains("textView.setAccessibilityPlaceholderValue(placeholder)"))
+        // Tab leaves the one-line title instead of typing a tab.
+        precondition(source.contains("override func insertTab(_ sender: Any?) {\n        window?.selectNextKeyView(sender)"))
+        precondition(source.contains("override func insertBacktab(_ sender: Any?) {\n        window?.selectPreviousKeyView(sender)"))
+        precondition(source.contains("textView.setAccessibilityLabel(localizedCatalogString(\"Transcript\"))"))
+        precondition(source.contains(".announcement: localizedCatalogString(\"Copied\")"))
+
+        let player = block(
+            source,
+            from: "struct NoteAudioPlayerView: View {",
+            to: "private func seek(toFraction fraction: Double) {"
+        )
+        for expected in [
+            ".accessibilityLabel(Text(isPlaying ? \"Pause\" : \"Play\"))",
+            ".accessibilityLabel(Text(\"Playback position\"))",
+            ".accessibilityAdjustableAction { direction in",
+            ".onMoveCommand { direction in",
+            ".accessibilityLabel(Text(\"Volume\"))",
+            "private func seek(by seconds: TimeInterval) {"
+        ] {
+            precondition(player.contains(expected), "Missing audio player accessibility: \(expected)")
+        }
+
+        let summary = try String(contentsOfFile: "Sources/MeetingSummaryView.swift", encoding: .utf8)
+        precondition(summary.contains(".accessibilityAddTraits(.isHeader)"), "Summary sections are headings")
     }
 
     private static func testInputMenuCatcherDisablesAndLocalizesSources(
