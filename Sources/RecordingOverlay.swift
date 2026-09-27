@@ -51,8 +51,10 @@ enum OverlayPhase {
 /// to a fixed UI string, an existing localized error message, or a calendar
 /// title already shown on screen. Never add transcript text, selected text,
 /// clipboard contents, window titles, or other app context here.
+///
+/// Nothing is announced when recording starts: the microphone is already
+/// open, and a spoken phrase could end up in the recording and transcript.
 enum OverlayAccessibilityAnnouncement: Equatable {
-    case recordingStarted
     case transcribing
     case done
     case failed
@@ -63,8 +65,6 @@ enum OverlayAccessibilityAnnouncement: Equatable {
 
     func message(language: String = preferredLocalizedStringLanguage(), bundle: Bundle = .main) -> String {
         switch self {
-        case .recordingStarted:
-            return localizedCatalogString("Recording started", language: language, bundle: bundle)
         case .transcribing:
             return localizedCatalogString("Transcribing...", language: language, bundle: bundle)
         case .done:
@@ -87,7 +87,7 @@ enum OverlayAccessibilityAnnouncement: Equatable {
         switch self {
         case .failed, .error, .meetingStarting:
             return .high
-        case .recordingStarted, .transcribing, .done:
+        case .transcribing, .done:
             return .medium
         }
     }
@@ -543,12 +543,6 @@ final class RecordingOverlayManager {
             || overlayState.phase == .updateAvailable
     }
 
-    /// Whether the pill is already on screen in the recording phase, so a
-    /// repeated show/transition does not repeat the VoiceOver announcement.
-    private var isShowingRecordingPhase: Bool {
-        overlayWindow != nil && overlayState.phase == .recording
-    }
-
     func showInitializing(mode: RecordingTriggerMode = .hold, isCommandMode: Bool = false) {
         DispatchQueue.main.async {
             self.lockedOverlayWidth = nil
@@ -566,7 +560,6 @@ final class RecordingOverlayManager {
         noticeSessionID: UUID? = nil
     ) {
         DispatchQueue.main.async {
-            let wasShowingRecording = self.isShowingRecordingPhase
             self.lockedOverlayWidth = nil
             self.overlayState.recordingTriggerMode = mode
             self.overlayState.isCommandMode = isCommandMode
@@ -574,9 +567,6 @@ final class RecordingOverlayManager {
             self.overlayState.audioLevel = 0
             self.showOverlayPanel(animatedResize: true)
             self.markDegradedCaptureNoticePresentationReady(sessionID: noticeSessionID)
-            if !wasShowingRecording {
-                OverlayAccessibilityAnnouncer.announce(.recordingStarted)
-            }
         }
     }
 
@@ -586,16 +576,12 @@ final class RecordingOverlayManager {
         noticeSessionID: UUID? = nil
     ) {
         DispatchQueue.main.async {
-            let wasShowingRecording = self.isShowingRecordingPhase
             self.lockedOverlayWidth = nil
             self.overlayState.recordingTriggerMode = mode
             self.overlayState.isCommandMode = isCommandMode
             self.overlayState.phase = .recording
             self.updateOverlayLayout(animated: true)
             self.markDegradedCaptureNoticePresentationReady(sessionID: noticeSessionID)
-            if !wasShowingRecording {
-                OverlayAccessibilityAnnouncer.announce(.recordingStarted)
-            }
         }
     }
 

@@ -238,7 +238,6 @@ struct RecordingOverlayGeometryTests {
             announcement.message(language: "en", bundle: bundle)
         }
 
-        assert(message(.recordingStarted) == "Recording started")
         assert(message(.transcribing) == "Transcribing...")
         assert(message(.done) == "Done")
         assert(message(.failed) == "Recording failed")
@@ -253,7 +252,6 @@ struct RecordingOverlayGeometryTests {
         assert(OverlayAccessibilityAnnouncement.error("x").priority == .high)
         assert(OverlayAccessibilityAnnouncement.failed.priority == .high)
         assert(OverlayAccessibilityAnnouncement.meetingStarting(title: "x").priority == .high)
-        assert(OverlayAccessibilityAnnouncement.recordingStarted.priority == .medium)
         assert(OverlayAccessibilityAnnouncement.done.priority == .medium)
     }
 
@@ -268,7 +266,8 @@ struct RecordingOverlayGeometryTests {
 
         // Phase changes and errors are announced; errors use the full message,
         // not the truncated copy shown in the pill.
-        assert(source.contains("OverlayAccessibilityAnnouncer.announce(.recordingStarted)"))
+        // Nothing is spoken when recording starts; it could be recorded.
+        assert(!source.contains("case recordingStarted"))
         assert(source.contains("OverlayAccessibilityAnnouncer.announce(.transcribing)"))
         assert(source.contains("OverlayAccessibilityAnnouncer.announce(.failed)"))
         assert(source.contains("OverlayAccessibilityAnnouncer.announce(.error(message))"))

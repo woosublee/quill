@@ -557,7 +557,7 @@ struct LocalizationResourceTests {
             "Switch audio input",
             "Starts at %@", "Input changed to %@", "Update available", "Update available: %@",
             "Start", "Close",
-            "Recording started", "Recording failed", "Audio input", "Meeting starting: %@",
+            "Recording failed", "Audio input", "Meeting starting: %@",
             "Stop recording", "Dismiss", "Transcribing...", "Done"
         ] {
             assertCatalogTranslations(for: key, catalogStrings: catalogStrings)

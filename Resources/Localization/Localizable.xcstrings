@@ -18133,22 +18133,6 @@
         }
       }
     },
-    "Recording started": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Recording started"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "녹음 시작됨"
-          }
-        }
-      }
-    },
     "Recording failed": {
       "localizations": {
         "en": {
