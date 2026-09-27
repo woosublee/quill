@@ -7,6 +7,7 @@ struct SettingsLocalizationTests {
         try testTranscriptionModelKeepsIdentityAndLocalizesDescription()
         try testNativeWhisperModelKeepsIdentityAndLocalizesDescription()
         try testAudioImportDisplayKeepsModelIDAndLocalizesStaticLabels()
+        try testTranscriptionChoiceLabelsShowModelAndMarkLive()
         try testSystemDefaultMicrophoneLabelLocalization()
         try testSettingsSectionTitlePolicy()
         try testGoogleCalendarHealthMessagesLocalizeWithoutChangingDetail()
@@ -54,6 +55,49 @@ struct SettingsLocalizationTests {
         assert(model.localizedDescription(language: "ko", bundle: localizationBundle) == "빠르고 정확한 로컬 받아쓰기. 추천.")
     }
 
+    /// Every transcription choice lists by model name; the section shows Cloud
+    /// or On This Mac, and only live choices carry a marker.
+    private static func testTranscriptionChoiceLabelsShowModelAndMarkLive() throws {
+        let bundle = try compiledLocalizationBundle()
+        func display(_ choice: TranscriptionBackendChoice, subtitle: String?) -> TranscriptionChoiceDisplay {
+            TranscriptionChoiceDisplay(
+                choice: choice,
+                section: "",
+                title: "",
+                subtitle: subtitle,
+                compactLabel: "",
+                currentLabel: "",
+                isAvailable: true,
+                unavailableReason: nil
+            )
+        }
+        let legacy = TranscriptionModel.find(id: "mlx-community/whisper-medium-mlx")
+        let cases: [(TranscriptionChoiceDisplay, String, String)] = [
+            (display(.apiStandard(modelID: "whisper-large-v3"), subtitle: "whisper-large-v3"),
+             "whisper-large-v3", "whisper-large-v3"),
+            (display(.apiRealtime(modelID: "gpt-4o-transcribe"), subtitle: "gpt-4o-transcribe"),
+             "gpt-4o-transcribe · Realtime", "gpt-4o-transcribe · 실시간"),
+            (display(.apiRealtime(modelID: nil), subtitle: "Provider default"),
+             "Realtime", "실시간"),
+            (display(.nativeWhisper(modelID: "whisper-large-v3-turbo"), subtitle: "Whisper Large v3 Turbo"),
+             "Whisper Large v3 Turbo", "Whisper Large v3 Turbo"),
+            (display(.localAI(modelID: "gemma-4-e4b-it"), subtitle: "Gemma 4 E4B"),
+             "Gemma 4 E4B", "Gemma 4 E4B"),
+            (display(.localAI(modelID: "qwen3-asr-0.6b"), subtitle: "Qwen3-ASR 0.6B"),
+             "Qwen3-ASR 0.6B", "Qwen3-ASR 0.6B"),
+            (display(.appleLive, subtitle: "Apple Speech"),
+             "Apple Speech · Realtime", "Apple 음성 인식 · 실시간"),
+            (display(.legacyMlxWhisper(model: legacy), subtitle: legacy.displayName),
+             "Whisper Medium · Legacy", "Whisper Medium · 레거시")
+        ]
+        for (display, english, korean) in cases {
+            let en = display.localizedCompactLabel(language: "en", bundle: bundle)
+            let ko = display.localizedCompactLabel(language: "ko", bundle: bundle)
+            precondition(en == english, "en label for \(display.choice.id): \(en)")
+            precondition(ko == korean, "ko label for \(display.choice.id): \(ko)")
+        }
+    }
+
     private static func testAudioImportDisplayKeepsModelIDAndLocalizesStaticLabels() throws {
         let legacyModel = TranscriptionModel.find(id: "mlx-community/whisper-medium-mlx")
         let options = AudioImportOptions(
@@ -70,7 +114,7 @@ struct SettingsLocalizationTests {
         assert(display.section == "Cloud")
         assert(display.localizedTitle(language: "en", bundle: localizationBundle) == "API Standard")
         assert(display.localizedTitle(language: "ko", bundle: localizationBundle) == "API 표준")
-        assert(display.localizedCompactLabel(language: "ko", bundle: localizationBundle) == "표준 · whisper-large-v3")
+        assert(display.localizedCompactLabel(language: "ko", bundle: localizationBundle) == "whisper-large-v3")
         assert(display.localizedCurrentLabel(language: "en", bundle: localizationBundle) == "Cloud · Standard · whisper-large-v3")
         assert(display.localizedCurrentLabel(language: "ko", bundle: localizationBundle) == "클라우드 · 표준 · whisper-large-v3")
 

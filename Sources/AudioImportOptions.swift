@@ -85,23 +85,45 @@ struct TranscriptionChoiceDisplay: Identifiable, Equatable {
         localizedStaticLabel(title, language: language, bundle: bundle)
     }
 
+    /// The label in transcription pickers: the model name, since the section
+    /// already says Cloud or On This Mac. Live choices, which transcribe while
+    /// recording and cannot import files, carry a "Realtime" marker.
     func localizedCompactLabel(
+        language: String = preferredLocalizedStringLanguage(),
+        bundle: Bundle = .main
+    ) -> String {
+        let name = localizedModelName(language: language, bundle: bundle)
+        switch choice {
+        case .apiRealtime(let modelID):
+            guard modelID != nil else { return name }
+            return "\(name) · \(localizedStaticLabel("Realtime", language: language, bundle: bundle))"
+        case .appleLive:
+            return "\(name) · \(localizedStaticLabel("Realtime", language: language, bundle: bundle))"
+        case .legacyMlxWhisper:
+            return "\(name) · \(localizedStaticLabel("Legacy", language: language, bundle: bundle))"
+        case .apiStandard, .nativeWhisper, .localAI:
+            return name
+        }
+    }
+
+    /// Just the model, as the Note Browser transcription button shows it.
+    func localizedModelName(
         language: String = preferredLocalizedStringLanguage(),
         bundle: Bundle = .main
     ) -> String {
         switch choice {
         case .apiStandard(let modelID):
-            return "\(localizedStaticLabel("Standard", language: language, bundle: bundle)) · \(modelID)"
-        case .nativeWhisper:
-            return "\(localizedStaticLabel("Native Whisper", language: language, bundle: bundle)) · \(nativeModelName())"
-        case .legacyMlxWhisper(let model):
-            return "\(localizedStaticLabel("Legacy", language: language, bundle: bundle)) · \(model.displayName)"
-        case .localAI(let modelID):
-            return "\(localizedStaticLabel("Local AI", language: language, bundle: bundle)) · \(subtitle ?? modelID)"
+            return modelID
         case .apiRealtime(let modelID):
-            return "\(localizedStaticLabel("Realtime", language: language, bundle: bundle)) · \(modelID ?? "provider-default")"
+            return modelID ?? localizedStaticLabel("Realtime", language: language, bundle: bundle)
+        case .nativeWhisper:
+            return nativeModelName()
+        case .localAI(let modelID):
+            return subtitle ?? modelID
+        case .legacyMlxWhisper(let model):
+            return model.displayName
         case .appleLive:
-            return localizedStaticLabel("Apple Live", language: language, bundle: bundle)
+            return localizedStaticLabel("Apple Speech", language: language, bundle: bundle)
         }
     }
 

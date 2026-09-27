@@ -76,7 +76,7 @@ struct AudioImportOptionsTests {
             isAvailable: true,
             unavailableReason: nil
         )
-        assert(display.localizedCompactLabel(language: "en") == "Local AI · Gemma 4 E4B")
+        assert(display.localizedCompactLabel(language: "en") == "Gemma 4 E4B")
         assert(display.localizedCurrentLabel(language: "en") == "On This Mac · Local AI · Gemma 4 E4B")
     }
 
