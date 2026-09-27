@@ -78,7 +78,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
 
         // Retrying covers the body with a loading layer instead of replacing it.
         precondition(source.contains("if isRetrying {\n                            retryingOverlay"))
-        precondition(source.contains(".fill(.ultraThinMaterial)"))
+        precondition(source.contains(".fill(Color(nsColor: .textBackgroundColor).opacity(0.35))"))
 
         // The Settings run log offers the same picker when retry needs a model.
         let settingsSource = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)

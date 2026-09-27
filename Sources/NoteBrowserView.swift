@@ -2540,15 +2540,21 @@ private struct NoteDetailView: View {
     /// existing content visible underneath.
     private var retryingOverlay: some View {
         ZStack {
+            // A light wash, not a blur, so the text underneath stays readable.
             Rectangle()
-                .fill(.ultraThinMaterial)
-            VStack(spacing: 10) {
+                .fill(Color(nsColor: .textBackgroundColor).opacity(0.35))
+            HStack(spacing: 8) {
                 ProgressView()
-                    .controlSize(.regular)
+                    .controlSize(.small)
                 Text("Transcribing...")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(.regularMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
+            .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
             .padding(.bottom, 60)
         }
         .transition(.opacity)
