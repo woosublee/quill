@@ -247,6 +247,7 @@ private struct ShortcutPresetRow: View {
             HStack {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(isSelected ? .blue : .secondary)
+                    .accessibilityHidden(true)
                 Text(title)
                     .foregroundStyle(.primary)
                 Spacer()
@@ -260,6 +261,8 @@ private struct ShortcutPresetRow: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityValue(localizedCatalogString(isSelected ? "Selected" : "Not selected"))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -274,6 +277,14 @@ private struct ShortcutCaptureRow: View {
     @State private var captureInputState = ShortcutInputState()
     @State private var currentBinding: ShortcutBinding?
 
+    private var captureHintKey: String? {
+        guard isCapturing else { return nil }
+        // Separate announcement keys keep the visible hint text unchanged.
+        return currentBinding == nil
+            ? "Recording a shortcut. Press and hold the shortcut you want."
+            : "Shortcut entered. Press Esc or Enter to save."
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 10) {
@@ -287,6 +298,7 @@ private struct ShortcutCaptureRow: View {
                     HStack(alignment: .center, spacing: 10) {
                         Image(systemName: isSelected ? "checkmark.circle.fill" : (savedBinding == nil ? "plus.circle" : "circle"))
                             .foregroundStyle(isSelected ? .blue : .secondary)
+                            .accessibilityHidden(true)
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(displayedBindingName)
@@ -308,6 +320,9 @@ private struct ShortcutCaptureRow: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityElement(children: .combine)
+                .accessibilityValue(localizedCatalogString(isSelected ? "Selected" : "Not selected"))
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
                 .disabled(isCapturing)
 
                 Button(isCapturing ? "Done" : "Record…") {
@@ -342,6 +357,18 @@ private struct ShortcutCaptureRow: View {
             if !isCapturing {
                 stopCapture(clearCaptureState: false)
             }
+        }
+        // The capture hint appears silently, so announce it for VoiceOver.
+        .onChange(of: captureHintKey) { key in
+            guard let key else { return }
+            NSAccessibility.post(
+                element: NSApplication.shared,
+                notification: .announcementRequested,
+                userInfo: [
+                    .announcement: localizedCatalogString(key),
+                    .priority: NSAccessibilityPriorityLevel.high.rawValue
+                ]
+            )
         }
         .onDisappear {
             stopCapture(clearCaptureState: true)

@@ -18132,6 +18132,54 @@
           }
         }
       }
+    },
+    "Cancel model download": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel model download"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델 다운로드 취소"
+          }
+        }
+      }
+    },
+    "Recording a shortcut. Press and hold the shortcut you want.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording a shortcut. Press and hold the shortcut you want."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단축키를 기록하는 중입니다. 원하는 단축키를 길게 누르세요."
+          }
+        }
+      }
+    },
+    "Shortcut entered. Press Esc or Enter to save.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shortcut entered. Press Esc or Enter to save."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단축키가 입력되었습니다. Esc 또는 Enter를 눌러 저장하세요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
