@@ -17733,38 +17733,6 @@
         }
       }
     },
-    "Stop to save the audio.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stop to save the audio."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "중지하면 오디오를 저장합니다."
-          }
-        }
-      }
-    },
-    "Stop to transcribe with %@.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stop to transcribe with %@."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "중지하면 %@ 모델로 전사합니다."
-          }
-        }
-      }
-    },
     "Text appears here as you speak.": {
       "localizations": {
         "en": {
@@ -17777,6 +17745,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "말하는 내용이 여기에 나타납니다."
+          }
+        }
+      }
+    },
+    "The audio is saved when you finish recording.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The audio is saved when you finish recording."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음을 마치면 오디오를 저장합니다."
+          }
+        }
+      }
+    },
+    "Transcription starts when you finish recording.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription starts when you finish recording."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음을 마치면 바로 전사를 시작합니다."
           }
         }
       }

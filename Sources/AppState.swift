@@ -2317,15 +2317,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     var activeRecordingNoteHint: String {
         guard shouldTranscribeActiveRecording else {
-            return localizedCatalogString("Stop to save the audio.")
+            return localizedCatalogString("The audio is saved when you finish recording.")
         }
         if liveTranscriptionSession != nil {
             return localizedCatalogString("Text appears here as you speak.")
         }
-        return localizedCatalogFormat(
-            "Stop to transcribe with %@.",
-            noteBrowserTranscriptionChoiceLabel
-        )
+        return localizedCatalogString("Transcription starts when you finish recording.")
     }
 
     /// Whether the transcription choice that would actually run right now
