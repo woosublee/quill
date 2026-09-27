@@ -9314,22 +9314,6 @@
         }
       }
     },
-    "Transcription method: %@": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Transcription method: %@"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "전사 방법: %@"
-          }
-        }
-      }
-    },
     "Both dictation shortcuts are disabled.": {
       "localizations": {
         "en": {

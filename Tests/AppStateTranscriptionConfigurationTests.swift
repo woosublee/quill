@@ -1786,7 +1786,8 @@ struct AppStateTranscriptionConfigurationTests {
         // nothing while recording or transcribing.
         precondition(menu.contains(".overlay {\n            TranscriptionMenuCatcher("))
         precondition(menu.contains("let isEnabled = !appState.isRecording && !appState.isTranscribing"))
-        precondition(catcher.contains("guard let configuration, configuration.isEnabled else { return }"))
+        precondition(catcher.contains("guard let configuration, configuration.isEnabled else { return nil }"))
+        precondition(catcher.contains("isMenuEnabled = configuration?.isEnabled ?? false"))
         precondition(catcher.contains("item.state = option.isSelected ? .on : .off"))
         precondition(catcher.contains("item.isEnabled = option.isEnabled"))
         precondition(catcher.contains("menu.autoenablesItems = false"))

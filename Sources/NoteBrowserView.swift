@@ -834,6 +834,8 @@ struct NoteBrowserView: View {
         .frame(width: 66, height: 26)
         .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
         .contentShape(Rectangle())
+        // The overlay below is the control VoiceOver reads.
+        .accessibilityHidden(true)
         .overlay {
             InputMenuCatcher(configuration: AudioInputMenuConfiguration(
                 sources: AudioRecordingSource.allCases.map {
@@ -864,12 +866,13 @@ struct NoteBrowserView: View {
                 selectedSourceID: appState.selectedAudioSourceID,
                 selectedMicrophoneID: appState.selectedMicrophoneDeviceID,
                 microphoneSelectionEnabled: !appState.isRecording,
+                accessibilityLabel: localizedCatalogString("Audio Source"),
+                accessibilityValue: audioInputSummary,
                 onSelectSource: appState.selectAudioSource(withID:),
                 onSelectMicrophone: appState.selectMicrophoneDevice
             ))
         }
         .help(Text(verbatim: audioInputSummary))
-        .accessibilityLabel(Text(verbatim: audioInputSummary))
         .overrideCursor(.arrow)
     }
 
@@ -917,6 +920,8 @@ struct NoteBrowserView: View {
         .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
         .opacity(isEnabled ? 1 : 0.45)
         .contentShape(Rectangle())
+        // The overlay below is the control VoiceOver reads.
+        .accessibilityHidden(true)
         .overlay {
             TranscriptionMenuCatcher(configuration: TranscriptionMenuConfiguration(
                 off: TranscriptionMenuOption(
@@ -933,16 +938,11 @@ struct NoteBrowserView: View {
                     )
                 },
                 isEnabled: isEnabled,
+                accessibilityLabel: localizedCatalogString("Transcription Method"),
+                accessibilityValue: transcriptionSelectionDetailLabel,
                 onSelect: selectTranscriptionMenuOption
             ))
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(
-            String(
-                localized: "Transcription method: \(transcriptionSelectionDetailLabel)"
-            )
-        )
         .help(Text(verbatim: transcriptionSelectionDetailLabel))
         .overrideCursor(.arrow)
     }
@@ -4228,6 +4228,8 @@ private struct AudioInputMenuConfiguration {
     let selectedSourceID: String
     let selectedMicrophoneID: String
     let microphoneSelectionEnabled: Bool
+    let accessibilityLabel: String
+    let accessibilityValue: String
     let onSelectSource: (String) -> Void
     let onSelectMicrophone: (String) -> Void
 }
@@ -4248,7 +4250,73 @@ private struct TranscriptionMenuConfiguration {
     let off: TranscriptionMenuOption
     let sections: [TranscriptionMenuSection]
     let isEnabled: Bool
+    let accessibilityLabel: String
+    let accessibilityValue: String
     let onSelect: (String) -> Void
+}
+
+/// A transparent control over a custom pill that opens a native menu. The
+/// pill is drawn in SwiftUI; this view makes the whole pill clickable and
+/// gives it what a pop-up button has: a Tab stop when keyboard navigation
+/// is on, a focus ring, Space/Return/Down Arrow to open, and a VoiceOver
+/// pop-up button with a label and the current value.
+class MenuButtonCatcherView: NSView {
+    var isMenuEnabled = true
+    var menuAccessibilityLabel = ""
+    var menuAccessibilityValue = ""
+
+    /// Subclasses build the menu each time it opens.
+    func makeMenu() -> NSMenu? { nil }
+
+    override var isFlipped: Bool { true }
+    // Open the menu on the first click even when the window is in the background.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override var acceptsFirstResponder: Bool { isMenuEnabled }
+    override var canBecomeKeyView: Bool {
+        isMenuEnabled && NSApp.isFullKeyboardAccessEnabled
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        showMenu()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        switch event.keyCode {
+        case 49, 36, 76, 125: // Space, Return, Enter, Down Arrow
+            showMenu()
+        default:
+            super.keyDown(with: event)
+        }
+    }
+
+    private func showMenu() {
+        guard isMenuEnabled, let menu = makeMenu() else { return }
+        // Flipped view: y == bounds.height is the bottom edge, so the menu
+        // drops just below the pill.
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 2), in: self)
+    }
+
+    override var focusRingMaskBounds: NSRect { bounds }
+
+    override func drawFocusRingMask() {
+        NSBezierPath(roundedRect: bounds, xRadius: 7, yRadius: 7).fill()
+    }
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .popUpButton }
+    override func accessibilityLabel() -> String? { menuAccessibilityLabel }
+    override func accessibilityValue() -> Any? { menuAccessibilityValue }
+    override func isAccessibilityEnabled() -> Bool { isMenuEnabled }
+
+    override func accessibilityPerformPress() -> Bool {
+        showMenu()
+        return true
+    }
+
+    override func accessibilityPerformShowMenu() -> Bool {
+        showMenu()
+        return true
+    }
 }
 
 /// Transparent click target over the whole model pill that pops up a native
@@ -4266,14 +4334,17 @@ private struct TranscriptionMenuCatcher: NSViewRepresentable {
         nsView.configuration = configuration
     }
 
-    final class CatcherView: NSView {
-        var configuration: TranscriptionMenuConfiguration?
+    final class CatcherView: MenuButtonCatcherView {
+        var configuration: TranscriptionMenuConfiguration? {
+            didSet {
+                isMenuEnabled = configuration?.isEnabled ?? false
+                menuAccessibilityLabel = configuration?.accessibilityLabel ?? ""
+                menuAccessibilityValue = configuration?.accessibilityValue ?? ""
+            }
+        }
 
-        override var isFlipped: Bool { true }
-        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-        override func mouseDown(with event: NSEvent) {
-            guard let configuration, configuration.isEnabled else { return }
+        override func makeMenu() -> NSMenu? {
+            guard let configuration, configuration.isEnabled else { return nil }
             let menu = NSMenu()
             menu.autoenablesItems = false
             menu.addItem(makeItem(configuration.off))
@@ -4286,7 +4357,7 @@ private struct TranscriptionMenuCatcher: NSViewRepresentable {
                     menu.addItem(makeItem(option))
                 }
             }
-            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 2), in: self)
+            return menu
         }
 
         private func makeItem(_ option: TranscriptionMenuOption) -> NSMenuItem {
@@ -4325,19 +4396,17 @@ private struct InputMenuCatcher: NSViewRepresentable {
         nsView.apply(configuration)
     }
 
-    final class CatcherView: NSView {
+    final class CatcherView: MenuButtonCatcherView {
         private var configuration: AudioInputMenuConfiguration?
-
-        override var isFlipped: Bool { true }
-        // Open the menu on the first click even when the window is in the background.
-        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
         func apply(_ configuration: AudioInputMenuConfiguration) {
             self.configuration = configuration
+            menuAccessibilityLabel = configuration.accessibilityLabel
+            menuAccessibilityValue = configuration.accessibilityValue
         }
 
-        override func mouseDown(with event: NSEvent) {
-            guard let configuration else { return }
+        override func makeMenu() -> NSMenu? {
+            guard let configuration else { return nil }
             let menu = NSMenu()
             // Honor our per-item isEnabled; otherwise AppKit auto-enables every
             // item whose target responds to the action, masking the disabled state.
@@ -4365,9 +4434,7 @@ private struct InputMenuCatcher: NSViewRepresentable {
                     menu.addItem(item)
                 }
             }
-            // Flipped view: y == bounds.height is the bottom edge, so the menu
-            // drops just below the chevron.
-            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 2), in: self)
+            return menu
         }
 
         private func sectionHeader(_ title: String) -> NSMenuItem {

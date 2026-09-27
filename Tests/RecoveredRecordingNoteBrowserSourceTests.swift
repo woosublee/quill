@@ -56,6 +56,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         try testAudioOnlyNoteUsesDedicatedNormalState()
         try testInputPickerSwitchesActiveRecordingInput(source)
         try testInputMenuCatcherDisablesAndLocalizesSources(source)
+        testMenuPillsAreKeyboardAndVoiceOverAccessible(source)
         try testRecoveryImportPreservesSelectedListPosition(source)
 
         print("RecoveredRecordingNoteBrowserSourceTests passed")
@@ -210,7 +211,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
     ) throws {
         let catcher = block(
             source,
-            from: "final class CatcherView: NSView {",
+            from: "private struct InputMenuCatcher: NSViewRepresentable {",
             to: "@objc private func pickSource("
         )
         // NSMenu defaults to auto-enabling every item with a valid target/action,
@@ -223,6 +224,36 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(catcher.contains("option.isStaticQuillName"))
         precondition(catcher.contains("localizedCatalogString(option.name)"))
         precondition(catcher.contains(": option.name"))
+        precondition(catcher.contains("final class CatcherView: MenuButtonCatcherView {"))
+        precondition(catcher.contains("menuAccessibilityValue = configuration.accessibilityValue"))
+    }
+
+    /// The source and model pills open their menus from the keyboard and
+    /// VoiceOver too, not only on a click.
+    private static func testMenuPillsAreKeyboardAndVoiceOverAccessible(
+        _ source: String
+    ) {
+        let base = block(
+            source,
+            from: "class MenuButtonCatcherView: NSView {",
+            to: "/// Transparent click target over the whole model pill"
+        )
+        for expected in [
+            "override var acceptsFirstResponder: Bool { isMenuEnabled }",
+            "isMenuEnabled && NSApp.isFullKeyboardAccessEnabled",
+            "case 49, 36, 76, 125: // Space, Return, Enter, Down Arrow",
+            "override func drawFocusRingMask()",
+            "override func accessibilityRole() -> NSAccessibility.Role? { .popUpButton }",
+            "override func accessibilityLabel() -> String? { menuAccessibilityLabel }",
+            "override func accessibilityValue() -> Any? { menuAccessibilityValue }",
+            "override func accessibilityPerformPress() -> Bool {"
+        ] {
+            precondition(base.contains(expected), "Missing menu pill accessibility: \(expected)")
+        }
+        precondition(source.contains("accessibilityLabel: localizedCatalogString(\"Audio Source\")"))
+        precondition(source.contains("accessibilityLabel: localizedCatalogString(\"Transcription Method\")"))
+        precondition(source.contains("accessibilityValue: transcriptionSelectionDetailLabel"))
+        precondition(source.contains("accessibilityValue: audioInputSummary"))
     }
 
     private static func testAudioOnlyNoteUsesDedicatedNormalState() throws {
