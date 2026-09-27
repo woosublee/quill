@@ -4858,17 +4858,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func applyTranscriptionRetryWorkflowState(
         _ state: TranscriptionRetryWorkflowState
     ) {
-        retryingItemIDs.subtract(transcriptionRetryWorkflowItemIDs)
-        retryingItemIDs.formUnion(state.retryingNoteIDs)
+        // Build each published value first and assign it once. Removing and
+        // re-adding in place publishes an intermediate value in which a note
+        // that is still retrying looks idle, which made its loading layer blink.
+        var retryingIDs = retryingItemIDs
+        retryingIDs.subtract(transcriptionRetryWorkflowItemIDs)
+        retryingIDs.formUnion(state.retryingNoteIDs)
+        if retryingIDs != retryingItemIDs {
+            retryingItemIDs = retryingIDs
+        }
         transcriptionRetryWorkflowItemIDs = state.retryingNoteIDs
 
+        var progressByHistoryID = cloudTranscriptionProgressByHistoryID
         for noteID in transcriptionRetryWorkflowProgressIDs {
-            cloudTranscriptionProgressByHistoryID.removeValue(forKey: noteID)
+            progressByHistoryID.removeValue(forKey: noteID)
         }
-        cloudTranscriptionProgressByHistoryID.merge(
+        progressByHistoryID.merge(
             state.progressByNoteID,
             uniquingKeysWith: { _, workflowProgress in workflowProgress }
         )
+        if progressByHistoryID != cloudTranscriptionProgressByHistoryID {
+            cloudTranscriptionProgressByHistoryID = progressByHistoryID
+        }
         transcriptionRetryWorkflowProgressIDs = Set(
             state.progressByNoteID.keys
         )
@@ -7492,8 +7503,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let capturedVocabulary = retryCustomVocabulary
         let capturedSystemPrompt = retryCustomSystemPrompt
         let capturedCompletion = completion
-        let processing = TranscriptionRetryProcessingBehavior { transcription in
-            await Self.processRetryTranscription(
+        let retryNoteID = item.id
+        let processing = TranscriptionRetryProcessingBehavior { [weak self] transcription in
+            // Mark the note as post-processing while the retry cleans up the
+            // transcript, so the Note Browser says "Post-processing…".
+            let marksPostProcessing = capturedCompletion.postProcessingEnabled
+            if marksPostProcessing {
+                self?.postProcessingNoteIDs.insert(retryNoteID)
+            }
+            defer {
+                if marksPostProcessing {
+                    self?.postProcessingNoteIDs.remove(retryNoteID)
+                }
+            }
+            return await Self.processRetryTranscription(
                 transcription,
                 intent: capturedIntent,
                 context: capturedContext,

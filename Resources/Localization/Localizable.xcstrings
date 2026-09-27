@@ -17796,6 +17796,22 @@
           }
         }
       }
+    },
+    "Retranscribing...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retranscribing..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재전사 중..."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

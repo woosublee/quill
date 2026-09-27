@@ -2185,7 +2185,7 @@ private struct NoteDetailView: View {
         } else if isRetrying || isCloudTranscribing {
             ProgressView()
                 .controlSize(.mini)
-                .help(isCloudTranscribing ? cloudProgressText : localizedCatalogString("Transcribing..."))
+                .help(isCloudTranscribing ? cloudProgressText : retryingStatusText)
         } else if isRecoveredRecording {
             Image(systemName: "arrow.clockwise.circle")
                 .font(.system(size: 10, weight: .medium))
@@ -2536,6 +2536,16 @@ private struct NoteDetailView: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// "Retranscribing…", or "Transcribing…" for an audio-only note that was
+    /// never transcribed, then "Post-processing…" once the new transcript is
+    /// being cleaned up.
+    private var retryingStatusText: String {
+        if appState.postProcessingNoteIDs.contains(item.id) {
+            return localizedCatalogString("Post-processing...")
+        }
+        return localizedCatalogString(isAudioOnly ? "Transcribing..." : "Retranscribing...")
+    }
+
     /// Covers the note body while it is transcribed again, keeping the
     /// existing content visible underneath.
     private var retryingOverlay: some View {
@@ -2546,7 +2556,7 @@ private struct NoteDetailView: View {
             HStack(spacing: 8) {
                 ProgressView()
                     .controlSize(.small)
-                Text("Transcribing...")
+                Text(retryingStatusText)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.secondary)
             }

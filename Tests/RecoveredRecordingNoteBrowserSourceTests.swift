@@ -80,6 +80,25 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("if isRetrying {\n                            retryingOverlay"))
         precondition(source.contains(".fill(Color(nsColor: .textBackgroundColor).opacity(0.35))"))
 
+        // The layer says "Post-processing…" while a retry cleans up its transcript.
+        precondition(source.contains("appState.postProcessingNoteIDs.contains(item.id)"))
+        precondition(source.contains("Text(retryingStatusText)"))
+        precondition(source.contains("isAudioOnly ? \"Transcribing...\" : \"Retranscribing...\""))
+
+        // Retry state is published once per update, so the layer does not blink.
+        let appStateSource = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let applyState = block(
+            appStateSource,
+            from: "private func applyTranscriptionRetryWorkflowState(",
+            to: "private func applyHistoryWorkflowEvent("
+        )
+        precondition(!applyState.contains("retryingItemIDs.subtract("))
+        precondition(!applyState.contains("retryingItemIDs.formUnion("))
+        precondition(applyState.contains("retryingItemIDs = retryingIDs"))
+        precondition(applyState.contains("cloudTranscriptionProgressByHistoryID = progressByHistoryID"))
+        precondition(appStateSource.contains("self?.postProcessingNoteIDs.insert(retryNoteID)"))
+        precondition(appStateSource.contains("self?.postProcessingNoteIDs.remove(retryNoteID)"))
+
         // The Settings run log offers the same picker when retry needs a model.
         let settingsSource = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
         precondition(settingsSource.contains("retryChoiceRequest = RetryChoiceRequest(options: options)"))
