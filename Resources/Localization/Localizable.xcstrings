@@ -17733,22 +17733,6 @@
         }
       }
     },
-    "Choose a model to retry transcription.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose a model to retry transcription."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "재전사할 모델을 선택해 주세요."
-          }
-        }
-      }
-    },
     "Set up a model in Settings to retry transcription.": {
       "localizations": {
         "en": {
@@ -17777,6 +17761,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "사용할 수 있는 전사 모델이 없습니다. 설정에서 모델을 준비한 뒤 다시 시도해 주세요."
+          }
+        }
+      }
+    },
+    "Transcribe Recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcribe Recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 전사"
+          }
+        }
+      }
+    },
+    "The selected model is used for this transcription only. Your transcription setting stays the same.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The selected model is used for this transcription only. Your transcription setting stays the same."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 모델은 이번 전사에만 사용되며, 전사 설정은 바뀌지 않습니다."
+          }
+        }
+      }
+    },
+    "Retranscribing...": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retranscribing..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재전사 중..."
           }
         }
       }

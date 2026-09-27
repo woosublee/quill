@@ -278,7 +278,8 @@ struct LocalizationResourceTests {
         let noteBrowserKeys = [
             "Choose a model for retranscription",
             "Set up a model for retranscription",
-            "Choose a model to retry transcription.",
+            "Transcribe Recording",
+            "The selected model is used for this transcription only. Your transcription setting stays the same.",
             "Set up a model in Settings to retry transcription.",
             "Your recording is safely stored.",
             "Ready to retry transcription",

@@ -306,39 +306,68 @@ private struct PendingAudioImport: Identifiable {
     }
 }
 
-private struct AudioImportSheet: View {
-    let importRequest: PendingAudioImport
-    let onImport: (TranscriptionBackendChoice) -> Void
+/// Picks the model for one transcription the user starts by hand: an audio
+/// import, or transcribing a saved note when no usable model is selected.
+/// The choice applies to that transcription only.
+struct TranscriptionChoiceSheet: View {
+    let title: LocalizedStringKey
+    let subtitle: String
+    let showsSettingNote: Bool
+    let options: AudioImportOptions
+    let onConfirm: (TranscriptionBackendChoice) -> Void
     let onOpenProviderSettings: () -> Void
     let onCancel: () -> Void
 
     @State private var selectedChoice: TranscriptionBackendChoice
 
     init(
-        importRequest: PendingAudioImport,
-        onImport: @escaping (TranscriptionBackendChoice) -> Void,
+        title: LocalizedStringKey,
+        subtitle: String,
+        showsSettingNote: Bool,
+        options: AudioImportOptions,
+        fallbackChoice: TranscriptionBackendChoice,
+        onConfirm: @escaping (TranscriptionBackendChoice) -> Void,
         onOpenProviderSettings: @escaping () -> Void,
         onCancel: @escaping () -> Void
     ) {
-        self.importRequest = importRequest
-        self.onImport = onImport
+        self.title = title
+        self.subtitle = subtitle
+        self.showsSettingNote = showsSettingNote
+        self.options = options
+        self.onConfirm = onConfirm
         self.onOpenProviderSettings = onOpenProviderSettings
         self.onCancel = onCancel
-        let fallbackChoice = TranscriptionBackendChoice.apiStandard(modelID: importRequest.apiStandardModelID)
-        _selectedChoice = State(initialValue: importRequest.options.defaultChoice ?? fallbackChoice)
+        _selectedChoice = State(initialValue: options.defaultChoice ?? fallbackChoice)
+    }
+
+    private var cloudRows: [TranscriptionChoiceDisplay] {
+        options.displayRows.filter { $0.choice.usesCloudAPI }
+    }
+
+    private var onThisMacRows: [TranscriptionChoiceDisplay] {
+        options.displayRows.filter { !$0.choice.usesCloudAPI }
     }
 
     var body: some View {
-        let options = importRequest.options
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Import Audio File")
+                Text(title)
                     .font(.system(size: 18, weight: .semibold))
-                Text(importRequest.fileURL.lastPathComponent)
+                Text(verbatim: subtitle)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+            }
+
+            if showsSettingNote {
+                Label(
+                    "The selected model is used for this transcription only. Your transcription setting stays the same.",
+                    systemImage: "info.circle"
+                )
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             if options.supportedChoices.isEmpty {
@@ -360,31 +389,11 @@ private struct AudioImportSheet: View {
                 Text("Transcription Method")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
-                ForEach(options.displayRows) { display in
-                    Button {
-                        selectedChoice = display.choice
-                    } label: {
-                        HStack {
-                            Image(systemName: selectedChoice == display.choice ? "largecircle.fill.circle" : "circle")
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(display.localizedTitle())
-                                if let subtitle = display.subtitle {
-                                    Text(verbatim: subtitle)
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(.secondary)
-                                }
-                                if let unavailableReason = display.unavailableReason {
-                                    Text(display.localizedUnavailableReason() ?? unavailableReason)
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(.tertiary)
-                                }
-                            }
-                            Spacer()
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!display.isAvailable)
-                    .opacity(display.isAvailable ? 1 : 0.45)
+                if !cloudRows.isEmpty {
+                    section("Cloud", rows: cloudRows)
+                }
+                if !onThisMacRows.isEmpty {
+                    section("On This Mac", rows: onThisMacRows)
                 }
             }
 
@@ -393,7 +402,7 @@ private struct AudioImportSheet: View {
                     .keyboardShortcut(.cancelAction)
                 Spacer()
                 if options.isChoiceReady(selectedChoice) {
-                    Button("Transcribe") { onImport(selectedChoice) }
+                    Button("Transcribe") { onConfirm(selectedChoice) }
                         .keyboardShortcut(.defaultAction)
                         .buttonStyle(.borderedProminent)
                 } else {
@@ -412,9 +421,46 @@ private struct AudioImportSheet: View {
         .padding(24)
         .frame(width: 420)
     }
+
+    private func section(
+        _ heading: LocalizedStringKey,
+        rows: [TranscriptionChoiceDisplay]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(heading)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.tertiary)
+            ForEach(rows) { display in
+                Button {
+                    selectedChoice = display.choice
+                } label: {
+                    HStack(alignment: .firstTextBaseline) {
+                        Image(systemName: selectedChoice == display.choice ? "largecircle.fill.circle" : "circle")
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(verbatim: display.localizedCompactLabel())
+                            if let unavailableReason = display.unavailableReason {
+                                Text(display.localizedUnavailableReason() ?? unavailableReason)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(!display.isAvailable)
+                .opacity(display.isAvailable ? 1 : 0.45)
+            }
+        }
+    }
 }
 
 // MARK: - Note Browser View
+
+struct RetryChoiceRequest: Identifiable {
+    let id = UUID()
+    let options: AudioImportOptions
+}
 
 private struct RecoveryScrollRestoreRequest: Identifiable {
     let id = UUID()
@@ -627,7 +673,13 @@ struct NoteBrowserView: View {
             }
         }
         .sheet(item: $pendingAudioImport) { importRequest in
-            AudioImportSheet(importRequest: importRequest) { choice in
+            TranscriptionChoiceSheet(
+                title: "Import Audio File",
+                subtitle: importRequest.fileURL.lastPathComponent,
+                showsSettingNote: false,
+                options: importRequest.options,
+                fallbackChoice: .apiStandard(modelID: importRequest.apiStandardModelID)
+            ) { choice in
                 pendingAudioImport = nil
                 appState.importAudioFile(importRequest.fileURL, choice: choice)
             } onOpenProviderSettings: {
@@ -1715,6 +1767,7 @@ private struct NoteDetailView: View {
     @State private var isCopied = false
     @State private var showFileExportSheet = false
     @State private var showObsidianExportSheet = false
+    @State private var retryChoiceRequest: RetryChoiceRequest?
     @State private var toastMessage: String?
     @State private var toastID: UUID?
     @State private var titleDraft = ""
@@ -1907,6 +1960,11 @@ private struct NoteDetailView: View {
                     contentModePicker
                 }
                 contentArea
+                    .overlay {
+                        if isRetrying {
+                            retryingOverlay
+                        }
+                    }
             }
             floatingToolbar
             if let toastMessage {
@@ -1963,6 +2021,23 @@ private struct NoteDetailView: View {
                 onSaved: { showToast($0) }
             )
         }
+        .sheet(item: $retryChoiceRequest) { request in
+            TranscriptionChoiceSheet(
+                title: "Transcribe Recording",
+                subtitle: NoteTitleResolver.displayTitle(for: item),
+                showsSettingNote: true,
+                options: request.options,
+                fallbackChoice: appState.currentNoteBrowserTranscriptionChoice
+            ) { choice in
+                retryChoiceRequest = nil
+                appState.retryTranscription(item: item, choice: choice)
+            } onOpenProviderSettings: {
+                retryChoiceRequest = nil
+                appState.openProviderSettings()
+            } onCancel: {
+                retryChoiceRequest = nil
+            }
+        }
         .sheet(isPresented: $showObsidianExportSheet) {
             ObsidianExportSheet(
                 item: item,
@@ -1973,7 +2048,9 @@ private struct NoteDetailView: View {
             )
         }
         .onReceive(appState.$retryingItemIDs) { ids in
-            isRetrying = ids.contains(item.id)
+            withAnimation(.easeOut(duration: 0.16)) {
+                isRetrying = ids.contains(item.id)
+            }
         }
         .confirmationDialog("Delete this note?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { onDelete() }
@@ -2105,10 +2182,10 @@ private struct NoteDetailView: View {
     private var noteStateIndicator: some View {
         if isLiveRecording {
             LiveRecordingBadge(startedAt: item.recordingStartedAt)
-        } else if isCloudTranscribing {
+        } else if isRetrying || isCloudTranscribing {
             ProgressView()
                 .controlSize(.mini)
-                .help(cloudProgressText)
+                .help(isCloudTranscribing ? cloudProgressText : retryingStatusText)
         } else if isRecoveredRecording {
             Image(systemName: "arrow.clockwise.circle")
                 .font(.system(size: 10, weight: .medium))
@@ -2459,6 +2536,41 @@ private struct NoteDetailView: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// "Retranscribing…", or "Transcribing…" for an audio-only note that was
+    /// never transcribed, then "Post-processing…" once the new transcript is
+    /// being cleaned up.
+    private var retryingStatusText: String {
+        if appState.postProcessingNoteIDs.contains(item.id) {
+            return localizedCatalogString("Post-processing...")
+        }
+        return localizedCatalogString(isAudioOnly ? "Transcribing..." : "Retranscribing...")
+    }
+
+    /// Covers the note body while it is transcribed again, keeping the
+    /// existing content visible underneath.
+    private var retryingOverlay: some View {
+        ZStack {
+            // A light wash, not a blur, so the text underneath stays readable.
+            Rectangle()
+                .fill(Color(nsColor: .textBackgroundColor).opacity(0.35))
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(retryingStatusText)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(.regularMaterial, in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
+            .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+            .padding(.bottom, 60)
+        }
+        .transition(.opacity)
+        .allowsHitTesting(true)
+    }
+
     // MARK: Floating Toolbar
 
     private var floatingToolbar: some View {
@@ -2659,22 +2771,16 @@ private struct NoteDetailView: View {
         switch retryAvailability {
         case .ready:
             appState.retryTranscription(item: item)
-        case .needsModelSelection:
-            showToast(
-                localizedCatalogString(
-                    "Choose a model to retry transcription."
-                )
-            )
+        case .needsModelSelection, .needsProviderConfiguration:
+            // Transcription is off, or the selected model can't transcribe
+            // this file or isn't ready: ask which model to use for this note.
+            if let options = appState.noteBrowserRetryOptions(for: item) {
+                retryChoiceRequest = RetryChoiceRequest(options: options)
+            }
         case .needsModelSetup:
             showToast(
                 localizedCatalogString(
                     "Set up a model in Settings to retry transcription."
-                )
-            )
-        case .needsProviderConfiguration:
-            showToast(
-                localizedCatalogString(
-                    "No transcription model is ready. Set one up in Settings, then try again."
                 )
             )
         case .noAudio:

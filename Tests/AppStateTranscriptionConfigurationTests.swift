@@ -232,6 +232,9 @@ struct AppStateTranscriptionConfigurationTests {
         await testRetryAvailabilityRequiresModelSelection()
         await testRetryAvailabilityRequiresProviderConfiguration()
         await testRetryAvailabilityAcceptsConfiguredAPIStandard()
+        await testRetryAvailabilityAsksForModelWhenTranscriptionIsOff()
+        testResolvedRetryChoiceFollowsTranscriptionOffPolicy()
+        try await testPickedRetryModelLeavesTranscriptionSettingsUnchanged()
         try await testRetryPreservesMeetingSummaryMetadata()
         try await testAudioImportTimeoutPreservesRawTranscriptAndFailedOutcome()
         try await testRetryTimeoutPreservesRawTranscriptAndFailedOutcome()
@@ -1826,14 +1829,19 @@ struct AppStateTranscriptionConfigurationTests {
         let source = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
         let sheetBody = sourceBlock(
             in: source,
-            from: "private struct AudioImportSheet",
+            from: "struct TranscriptionChoiceSheet: View",
             to: "private func transcriptionChoiceMenuItem"
         )
 
-        precondition(sheetBody.contains("ForEach(options.displayRows)"))
+        // Import and retry share one picker, grouped like the Note Browser
+        // menu (Cloud / On This Mac) and labeled by model name.
+        precondition(sheetBody.contains("options.displayRows.filter { $0.choice.usesCloudAPI }"))
+        precondition(sheetBody.contains("options.displayRows.filter { !$0.choice.usesCloudAPI }"))
+        precondition(sheetBody.contains("section(\"Cloud\", rows: cloudRows)"))
+        precondition(sheetBody.contains("section(\"On This Mac\", rows: onThisMacRows)"))
         precondition(sheetBody.contains("@State private var selectedChoice: TranscriptionBackendChoice"))
-        precondition(sheetBody.contains("onImport: (TranscriptionBackendChoice) -> Void"))
-        precondition(sheetBody.contains("Text(display.localizedTitle())"))
+        precondition(sheetBody.contains("onConfirm: (TranscriptionBackendChoice) -> Void"))
+        precondition(sheetBody.contains("Text(verbatim: display.localizedCompactLabel())"))
         precondition(sheetBody.contains("Text(display.localizedUnavailableReason() ?? unavailableReason)"))
         precondition(sheetBody.contains("onOpenProviderSettings: () -> Void"))
         precondition(sheetBody.contains("options.isChoiceReady(selectedChoice)"))
@@ -1854,7 +1862,7 @@ struct AppStateTranscriptionConfigurationTests {
         )
         let retryBody = sourceBlock(
             in: source,
-            from: "func retryTranscription(item: PipelineHistoryItem)",
+            from: "func retryTranscription(",
             to: "\n    @MainActor\n    private func copyRetryTranscriptToPasteboardIfNeeded"
         )
 
@@ -1871,7 +1879,7 @@ struct AppStateTranscriptionConfigurationTests {
         guard let retryGuard = retryBody.range(
             of: "guard noteBrowserRetryAvailability(for: item) == .ready else"
         ), let retryRequest = retryBody.range(
-            of: "let request = try transcriptionRetryWorkflowRequest(for: item)"
+            of: "let request = try transcriptionRetryWorkflowRequest(for: item, choice: choice)"
         ) else {
             preconditionFailure("Expected retry readiness guard")
         }
@@ -3231,6 +3239,116 @@ struct AppStateTranscriptionConfigurationTests {
         }
     }
 
+    private static func testRetryAvailabilityAsksForModelWhenTranscriptionIsOff() async {
+        resetDefaults()
+        await MainActor.run {
+            let appState = makeAppState()
+            appState.apiKey = "test-api-key"
+            appState.setNoteBrowserTranscriptionChoice(
+                .apiStandard(modelID: "whisper-large-v3")
+            )
+            let fileName = "retry-off-\(UUID().uuidString).wav"
+            let audioURL = appState.storageLayout.audioDirectory.appendingPathComponent(fileName)
+            try! Data([0]).write(to: audioURL)
+            defer { try? FileManager.default.removeItem(at: audioURL) }
+            let item = retryHistoryItem(audioFileName: fileName)
+
+            precondition(appState.noteBrowserRetryAvailability(for: item) == .ready)
+            appState.transcriptionEnabled = false
+            // Off is record-only: the stored model is not used silently.
+            precondition(appState.noteBrowserRetryAvailability(for: item) == .needsModelSelection)
+            let options = appState.noteBrowserRetryOptions(for: item)
+            precondition(options?.isChoiceReady(.apiStandard(modelID: "whisper-large-v3")) == true)
+            precondition(appState.transcriptionEnabled == false)
+        }
+    }
+
+    private static func testResolvedRetryChoiceFollowsTranscriptionOffPolicy() {
+        let stored = TranscriptionBackendChoice.apiStandard(modelID: "whisper-large-v3")
+        let picked = TranscriptionBackendChoice.localAI(modelID: "qwen3-asr-0.6b")
+        let supported = [stored, picked]
+
+        // On: the selected model runs, unless a model was picked for this note.
+        precondition(AppState.resolvedRetryChoice(
+            picked: nil, stored: stored, transcriptionEnabled: true, supportedChoices: supported
+        ) == stored)
+        precondition(AppState.resolvedRetryChoice(
+            picked: picked, stored: stored, transcriptionEnabled: true, supportedChoices: supported
+        ) == picked)
+        // Off: never the stored model; only a picked one.
+        precondition(AppState.resolvedRetryChoice(
+            picked: nil, stored: stored, transcriptionEnabled: false, supportedChoices: supported
+        ) == nil)
+        precondition(AppState.resolvedRetryChoice(
+            picked: picked, stored: stored, transcriptionEnabled: false, supportedChoices: supported
+        ) == picked)
+        // A model that can't transcribe the file is rejected.
+        precondition(AppState.resolvedRetryChoice(
+            picked: .appleLive, stored: stored, transcriptionEnabled: false, supportedChoices: supported
+        ) == nil)
+    }
+
+    private static func testPickedRetryModelLeavesTranscriptionSettingsUnchanged() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try FileManager.default.createDirectory(
+                at: environment.storageLayout.audioDirectory,
+                withIntermediateDirectories: true
+            )
+            resetDefaults()
+            let rawTranscript = "선택한 모델로 전사한 문장"
+            let store = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            var dependencies = environment.dependencies
+            dependencies.makePipelineHistoryStore = { _ in store }
+            dependencies.makeRetryCloudTranscriptionDependencies = {
+                successfulCloudDependencies(transcript: rawTranscript)
+            }
+            let fileName = "retry-picked-\(UUID().uuidString).wav"
+            try writeTestWAV(
+                at: environment.storageLayout.audioDirectory.appendingPathComponent(fileName)
+            )
+            let originalItem = retryHistoryItem(audioFileName: fileName)
+            _ = try store.append(originalItem, maxCount: 10)
+
+            let configuredDependencies = dependencies
+            let appState = await MainActor.run {
+                AppState(dependencies: configuredDependencies)
+            }
+            await MainActor.run {
+                appState.transcriptionAPIKey = "transcription-key"
+                appState.transcriptionAPIURL = "https://api.example.com/openai/v1"
+                appState.setNoteBrowserTranscriptionChoice(.appleLive)
+                appState.transcriptionEnabled = false
+                precondition(
+                    appState.noteBrowserRetryAvailability(for: originalItem)
+                        == .needsModelSelection
+                )
+                // Pick the Cloud row the picker offers for this note.
+                guard let picked = appState.noteBrowserRetryOptions(for: originalItem)?
+                    .supportedChoices.first(where: \.usesCloudAPI) else {
+                    preconditionFailure("The picker offers a ready Cloud model")
+                }
+                appState.retryTranscription(item: originalItem, choice: picked)
+                precondition(
+                    appState.retryingItemIDs.contains(originalItem.id),
+                    "A picked model starts the retry while transcription is Off"
+                )
+            }
+
+            await waitUntil {
+                !appState.retryingItemIDs.contains(originalItem.id)
+            }
+            let item = try requireHistoryItem(
+                withID: originalItem.id,
+                in: store.loadAllHistory()
+            )
+            precondition(item.rawTranscript == rawTranscript, "The picked Cloud model ran")
+            await MainActor.run {
+                precondition(appState.transcriptionEnabled == false, "The picker leaves transcription Off")
+                precondition(appState.currentNoteBrowserTranscriptionChoice == .appleLive)
+            }
+        }
+    }
+
     private static func testRetryAvailabilityAcceptsConfiguredAPIStandard() async {
         resetDefaults()
         await MainActor.run {
@@ -4334,7 +4452,7 @@ struct AppStateTranscriptionConfigurationTests {
         let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
         let retry = sourceBlock(
             in: source,
-            from: "func retryTranscription(item: PipelineHistoryItem)",
+            from: "func retryTranscription(",
             to: "\n    @MainActor\n    private func copyRetryTranscriptToPasteboardIfNeeded"
         )
         let runtime = sourceBlock(

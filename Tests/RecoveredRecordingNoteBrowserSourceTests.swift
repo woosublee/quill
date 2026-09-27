@@ -23,7 +23,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("Text(recoveryDescription)"))
         precondition(source.contains("NoteAudioPlayerView(audioURL: storedAudioURL)"))
         precondition(source.contains("appState.retryTranscription(item: item)"))
-        precondition(source.contains("case .needsProviderConfiguration:"))
+        precondition(source.contains("case .needsModelSelection, .needsProviderConfiguration:"))
         precondition(source.contains("appState.openProviderSettings()"))
         precondition(appStateSource.contains("func openProviderSettings()"))
         precondition(appStateSource.contains("selectedSettingsTab = .models"))
@@ -58,18 +58,51 @@ struct RecoveredRecordingNoteBrowserSourceTests {
             from: "private func retryTranscription()",
             to: "private func showToast("
         )
-        let providerBranch = block(
+        // An unready or unusable selected model opens the transcription
+        // picker; only "no model at all" falls back to a toast.
+        let pickerBranch = block(
             retryAction,
-            from: "case .needsProviderConfiguration:",
+            from: "case .needsModelSelection, .needsProviderConfiguration:",
+            to: "case .needsModelSetup:"
+        )
+        precondition(pickerBranch.contains("appState.noteBrowserRetryOptions(for: item)"))
+        precondition(pickerBranch.contains("retryChoiceRequest = RetryChoiceRequest(options: options)"))
+        precondition(!pickerBranch.contains("appState.openProviderSettings()"))
+        let setupBranch = block(
+            retryAction,
+            from: "case .needsModelSetup:",
             to: "case .noAudio:"
         )
-        precondition(providerBranch.contains("showToast("))
-        precondition(
-            providerBranch.contains(
-                "No transcription model is ready. Set one up in Settings, then try again."
-            )
+        precondition(setupBranch.contains("showToast("))
+        precondition(setupBranch.contains("Set up a model in Settings to retry transcription."))
+
+        // Retrying covers the body with a loading layer instead of replacing it.
+        precondition(source.contains("if isRetrying {\n                            retryingOverlay"))
+        precondition(source.contains(".fill(Color(nsColor: .textBackgroundColor).opacity(0.35))"))
+
+        // The layer says "Post-processing…" while a retry cleans up its transcript.
+        precondition(source.contains("appState.postProcessingNoteIDs.contains(item.id)"))
+        precondition(source.contains("Text(retryingStatusText)"))
+        precondition(source.contains("isAudioOnly ? \"Transcribing...\" : \"Retranscribing...\""))
+
+        // Retry state is published once per update, so the layer does not blink.
+        let appStateSource = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let applyState = block(
+            appStateSource,
+            from: "private func applyTranscriptionRetryWorkflowState(",
+            to: "private func applyHistoryWorkflowEvent("
         )
-        precondition(!providerBranch.contains("appState.openProviderSettings()"))
+        precondition(!applyState.contains("retryingItemIDs.subtract("))
+        precondition(!applyState.contains("retryingItemIDs.formUnion("))
+        precondition(applyState.contains("retryingItemIDs = retryingIDs"))
+        precondition(applyState.contains("cloudTranscriptionProgressByHistoryID = progressByHistoryID"))
+        precondition(appStateSource.contains("self?.postProcessingNoteIDs.insert(retryNoteID)"))
+        precondition(appStateSource.contains("self?.postProcessingNoteIDs.remove(retryNoteID)"))
+
+        // The Settings run log offers the same picker when retry needs a model.
+        let settingsSource = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
+        precondition(settingsSource.contains("retryChoiceRequest = RetryChoiceRequest(options: options)"))
+        precondition(settingsSource.contains("appState.retryTranscription(item: item, choice: choice)"))
     }
 
     private static func testInputPickerSwitchesActiveRecordingInput(

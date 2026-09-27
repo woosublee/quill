@@ -4858,17 +4858,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func applyTranscriptionRetryWorkflowState(
         _ state: TranscriptionRetryWorkflowState
     ) {
-        retryingItemIDs.subtract(transcriptionRetryWorkflowItemIDs)
-        retryingItemIDs.formUnion(state.retryingNoteIDs)
+        // Build each published value first and assign it once. Removing and
+        // re-adding in place publishes an intermediate value in which a note
+        // that is still retrying looks idle, which made its loading layer blink.
+        var retryingIDs = retryingItemIDs
+        retryingIDs.subtract(transcriptionRetryWorkflowItemIDs)
+        retryingIDs.formUnion(state.retryingNoteIDs)
+        if retryingIDs != retryingItemIDs {
+            retryingItemIDs = retryingIDs
+        }
         transcriptionRetryWorkflowItemIDs = state.retryingNoteIDs
 
+        var progressByHistoryID = cloudTranscriptionProgressByHistoryID
         for noteID in transcriptionRetryWorkflowProgressIDs {
-            cloudTranscriptionProgressByHistoryID.removeValue(forKey: noteID)
+            progressByHistoryID.removeValue(forKey: noteID)
         }
-        cloudTranscriptionProgressByHistoryID.merge(
+        progressByHistoryID.merge(
             state.progressByNoteID,
             uniquingKeysWith: { _, workflowProgress in workflowProgress }
         )
+        if progressByHistoryID != cloudTranscriptionProgressByHistoryID {
+            cloudTranscriptionProgressByHistoryID = progressByHistoryID
+        }
         transcriptionRetryWorkflowProgressIDs = Set(
             state.progressByNoteID.keys
         )
@@ -7286,7 +7297,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return .noAudio
         }
         let options = retryOptions(for: audioURL)
-        if let retryChoice = options.explicitRetryChoice {
+        // Transcription Off means record-only: a transcription the user starts
+        // by hand asks which model to use instead of running the stored one.
+        if transcriptionEnabled, let retryChoice = options.explicitRetryChoice {
             return options.isChoiceReady(retryChoice)
                 ? .ready
                 : .needsProviderConfiguration
@@ -7294,6 +7307,27 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return options.supportedChoices.isEmpty
             ? .needsModelSetup
             : .needsModelSelection
+    }
+
+    /// The model a retry runs: the one picked for this note, otherwise the
+    /// selected model while transcription is on. Off never falls back to the
+    /// stored model, and a model that can't transcribe the file is rejected.
+    static func resolvedRetryChoice(
+        picked: TranscriptionBackendChoice?,
+        stored: TranscriptionBackendChoice?,
+        transcriptionEnabled: Bool,
+        supportedChoices: [TranscriptionBackendChoice]
+    ) -> TranscriptionBackendChoice? {
+        guard let choice = picked ?? (transcriptionEnabled ? stored : nil),
+              supportedChoices.contains(choice) else { return nil }
+        return choice
+    }
+
+    /// The models the transcription picker offers for this note's stored audio.
+    @MainActor
+    func noteBrowserRetryOptions(for item: PipelineHistoryItem) -> AudioImportOptions? {
+        guard let audioURL = noteBrowserStoredAudioURL(for: item) else { return nil }
+        return retryOptions(for: audioURL)
     }
 
     @MainActor
@@ -7318,12 +7352,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func retryTranscription(item: PipelineHistoryItem) {
+        retryTranscription(item: item, choice: nil)
+    }
+
+    /// Retries with the selected model, or with `choice` from the picker. A
+    /// picked model is used for this note only; settings stay unchanged.
+    @MainActor
+    func retryTranscription(
+        item: PipelineHistoryItem,
+        choice: TranscriptionBackendChoice?
+    ) {
         guard requireAvailableHistoryForMutation() else { return }
         guard !retryingItemIDs.contains(item.id) else { return }
-        guard noteBrowserRetryAvailability(for: item) == .ready else { return }
+        if let choice {
+            guard noteBrowserRetryOptions(for: item)?.isChoiceReady(choice) == true else { return }
+        } else {
+            guard noteBrowserRetryAvailability(for: item) == .ready else { return }
+        }
 
         do {
-            let request = try transcriptionRetryWorkflowRequest(for: item)
+            let request = try transcriptionRetryWorkflowRequest(for: item, choice: choice)
             if transcriptionRetryWorkflow.startManual(
                 request: request,
                 runtime: transcriptionRetryWorkflowRuntime()
@@ -7351,7 +7399,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func transcriptionRetryWorkflowRequest(
-        for item: PipelineHistoryItem
+        for item: PipelineHistoryItem,
+        choice: TranscriptionBackendChoice? = nil
     ) throws -> TranscriptionRetryWorkflowRequest {
         guard let audioFileName = item.audioFileName,
               let audioURL = noteBrowserStoredAudioURL(for: item) else {
@@ -7361,7 +7410,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         let options = retryOptions(for: audioURL)
-        guard let retryChoice = options.explicitRetryChoice else {
+        guard let retryChoice = Self.resolvedRetryChoice(
+            picked: choice,
+            stored: options.explicitRetryChoice,
+            transcriptionEnabled: transcriptionEnabled,
+            supportedChoices: options.supportedChoices
+        ) else {
             let reason = options.displayRows.first(where: {
                 $0.choice == currentNoteBrowserTranscriptionChoice
             })?.unavailableReason
@@ -7466,8 +7520,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let capturedVocabulary = retryCustomVocabulary
         let capturedSystemPrompt = retryCustomSystemPrompt
         let capturedCompletion = completion
-        let processing = TranscriptionRetryProcessingBehavior { transcription in
-            await Self.processRetryTranscription(
+        let retryNoteID = item.id
+        let processing = TranscriptionRetryProcessingBehavior { [weak self] transcription in
+            // Mark the note as post-processing while the retry cleans up the
+            // transcript, so the Note Browser says "Post-processing…".
+            let marksPostProcessing = capturedCompletion.postProcessingEnabled
+            if marksPostProcessing {
+                self?.postProcessingNoteIDs.insert(retryNoteID)
+            }
+            defer {
+                if marksPostProcessing {
+                    self?.postProcessingNoteIDs.remove(retryNoteID)
+                }
+            }
+            return await Self.processRetryTranscription(
                 transcription,
                 intent: capturedIntent,
                 context: capturedContext,
