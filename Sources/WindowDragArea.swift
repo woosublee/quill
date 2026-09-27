@@ -22,8 +22,11 @@ enum TitleBarDoubleClickAction: Equatable {
             return .none
         case "Maximize", "Fill":
             return .zoom
-        default:
+        case nil:
+            // Only older systems without the newer setting use this flag.
             return miniaturizeOnDoubleClick ? .minimize : .zoom
+        default:
+            return .zoom
         }
     }
 

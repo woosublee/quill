@@ -82,6 +82,11 @@ struct SettingsView: View {
             // The first row sits just under the traffic lights.
             .padding(.top, max(0, titleBarHeight - 12))
             .frame(width: 180)
+            // The empty strip above the first row drags the window.
+            .overlay(alignment: .top) {
+                WindowDragArea()
+                    .frame(height: max(0, titleBarHeight - 12) + 10)
+            }
             .background(Color(nsColor: .windowBackgroundColor))
 
             Divider()
@@ -120,10 +125,12 @@ struct SettingsView: View {
             // under the title bar instead of a full title bar lower.
             .padding(.top, 16)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .overlay(alignment: .top) {
-            WindowDragArea()
-                .frame(height: titleBarHeight)
+            // Only the page's empty top margin drags, so buttons near the
+            // top of a page stay clickable.
+            .overlay(alignment: .top) {
+                WindowDragArea()
+                    .frame(height: 16)
+            }
         }
     }
 }

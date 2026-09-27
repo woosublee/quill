@@ -3741,6 +3741,7 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(resolve(nil, false) == .zoom, "Missing setting zooms, the system default")
         precondition(resolve(nil, true) == .minimize, "Older minimize flag is honored")
         precondition(resolve("Unexpected", false) == .zoom)
+        precondition(resolve("Unexpected", true) == .zoom, "The older flag applies only when the setting is missing")
     }
 
     /// Settings shares the Note Browser's unified title bar (#399).
@@ -3764,7 +3765,10 @@ struct AppStateTranscriptionConfigurationTests {
         let settings = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
         precondition(settings.contains("settingsContent(titleBarHeight: proxy.safeAreaInsets.top)"))
         precondition(settings.contains(".ignoresSafeArea(.container, edges: .top)"))
-        precondition(settings.contains("WindowDragArea()\n                .frame(height: titleBarHeight)"))
+        // Drag areas cover only empty space, never a page's top buttons.
+        precondition(settings.contains("WindowDragArea()\n                    .frame(height: 16)"))
+        precondition(settings.contains("WindowDragArea()\n                    .frame(height: max(0, titleBarHeight - 12) + 10)"))
+        precondition(!settings.contains("WindowDragArea()\n                .frame(height: titleBarHeight)"))
         let dragArea = try String(contentsOfFile: "Sources/WindowDragArea.swift", encoding: .utf8)
         precondition(dragArea.contains("switch TitleBarDoubleClickAction.current {"))
         precondition(!dragArea.contains("if event.clickCount == 2 {\n                window?.performZoom(nil)"))
