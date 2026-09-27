@@ -1521,22 +1521,6 @@
         }
       }
     },
-    "Search": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "검색"
-          }
-        }
-      }
-    },
     "Select a folder": {
       "localizations": {
         "en": {
@@ -1703,54 +1687,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Recordings"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "녹음"
-          }
-        }
-      }
-    },
-    "Import audio file": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Import audio file"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오디오 파일 가져오기"
-          }
-        }
-      }
-    },
-    "Stop": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Stop"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "중지"
-          }
-        }
-      }
-    },
-    "Rec": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rec"
           }
         },
         "ko": {
@@ -17809,6 +17745,54 @@
           "stringUnit": {
             "state": "translated",
             "value": "녹음 버튼이나 단축키로 첫 녹음을 시작하세요.\n전사된 내용이 여기에 나타납니다."
+          }
+        }
+      }
+    },
+    "Search Notes": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search Notes"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 검색"
+          }
+        }
+      }
+    },
+    "Clear Search": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Search"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검색 지우기"
+          }
+        }
+      }
+    },
+    "Start recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 시작"
           }
         }
       }

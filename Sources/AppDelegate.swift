@@ -198,11 +198,20 @@ private func showNoteBrowserWindow() {
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 700),
-            styleMask: [.titled, .closable, .resizable, .miniaturizable],
+            styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
+        // Unified title bar: the traffic lights sit on the sidebar's first row.
+        // The title stays set for Mission Control and the Window menu.
         window.title = AppName.displayName
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        // An empty unified toolbar gives the taller title bar, so the traffic
+        // lights get the standard inset from the top and left edges.
+        window.toolbar = NSToolbar(identifier: "NoteBrowser")
+        window.toolbarStyle = .unified
         window.contentView = NSHostingView(rootView: view)
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 600, height: 400)
