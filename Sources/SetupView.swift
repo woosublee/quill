@@ -1015,7 +1015,10 @@ struct SetupView: View {
     private func localAITranscriptionCard(_ model: LocalAIModel) -> some View {
         let isSelected = localModel == .localAIModel(id: model.id)
         let isReady = appState.isLocalAITranscriptionModelReady(model.id)
-        Group {
+        // A real container, not a Group: a Group would copy `.onChange` onto
+        // each branch, and the handler could miss the model ID change when
+        // the card turns into a button the moment its download finishes.
+        VStack(spacing: 0) {
             if isReady {
                 Button {
                     localModel = .localAIModel(id: model.id)

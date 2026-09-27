@@ -383,6 +383,12 @@ struct SetupFlowTests {
         assert(!card.contains("onTapGesture"), "Local AI card must not rely on a tap gesture for selection")
         assert(card.contains("Button {\n                    localModel = .localAIModel(id: model.id)"))
         assert(card.contains(".buttonStyle(SetupUnstyledCardButtonStyle())"))
+        // The download-finished handler sits on a stable container, not a
+        // Group, so it can't miss the model ID change when the card turns
+        // into a button.
+        assert(!card.contains("Group {"))
+        assert(card.contains("VStack(spacing: 0) {"))
+        assert(card.contains(".onChange(of: appState.localAITranscriptionModelID) { selectedID in"))
         assert(card.contains(".accessibilityValue(isSelected ? Text(\"Selected\") : Text(\"Not selected\"))"))
 
         let content = sourceBlock(
