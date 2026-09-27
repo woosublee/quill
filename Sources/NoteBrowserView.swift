@@ -572,7 +572,11 @@ struct NoteBrowserView: View {
             orderedIDs: ids,
             isSelectable: isBulkSelectable
         )
-        proxy.scrollTo(nextID)
+        // Center it: the header covers the list's top and the Record
+        // button its bottom, so a row scrolled just into view can be hidden.
+        withAnimation(.easeOut(duration: 0.12)) {
+            proxy.scrollTo(nextID, anchor: .center)
+        }
     }
 
     private func isBulkSelectable(_ id: UUID) -> Bool {
@@ -1806,6 +1810,21 @@ private struct NoteListRow: View {
 
     @ViewBuilder
     private var statusIndicator: some View {
+        statusIndicatorContent
+            // On the accent-colored row, a thin white ring keeps a dot of the
+            // same color as the accent visible.
+            .overlay {
+                if isKeyboardHighlighted,
+                   [.done, .audioOnly, .fail].contains(displayData.status) {
+                    Circle()
+                        .strokeBorder(Color.white.opacity(0.9), lineWidth: 1)
+                        .frame(width: 8, height: 8)
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var statusIndicatorContent: some View {
         switch displayData.status {
         case .done:
             Circle()

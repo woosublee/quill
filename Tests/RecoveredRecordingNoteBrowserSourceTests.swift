@@ -248,6 +248,8 @@ struct RecoveredRecordingNoteBrowserSourceTests {
 
         let summary = try String(contentsOfFile: "Sources/MeetingSummaryView.swift", encoding: .utf8)
         precondition(summary.contains(".accessibilityAddTraits(.isHeader)"), "Summary sections are headings")
+    }
+
     /// The note list is reachable with Tab, ↑/↓ move the open note, the
     /// open row turns accent-colored while the list has focus, and each row
     /// reads as one element with its state in words (#389).
@@ -268,7 +270,11 @@ struct RecoveredRecordingNoteBrowserSourceTests {
             ".accessibilityAction(named: Text(\"Delete…\"))",
             "? Color.accentColor.opacity(0.85)",
             "NoteListRowAccessibility.label(",
-            ".accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)"
+            ".accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)",
+            // The moved-to row stays visible between the header and Record button.
+            "proxy.scrollTo(nextID, anchor: .center)",
+            // A dot matching the accent color stays visible on the focused row.
+            ".strokeBorder(Color.white.opacity(0.9), lineWidth: 1)"
         ] {
             precondition(source.contains(expected), "Missing note list accessibility: \(expected)")
         }
