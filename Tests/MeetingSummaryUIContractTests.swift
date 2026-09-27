@@ -108,8 +108,11 @@ struct MeetingSummaryUIContractTests {
             "summaryEnvelope != nil || (currentSummaryAttempt?.outcome == .failed && currentSummaryAttempt?.issue != nil) || summaryIssue != nil",
             "summaryActionIsDisabled",
             "handleSummaryAction",
-            "@State private var showDeleteSummaryConfirmation = false",
-            "\"Delete this summary?\"",
+            "@State private var showDeleteChoice = false",
+            "\"What do you want to delete?\"",
+            "Button(\"Delete Summary Only\") { deleteSummary() }",
+            "Button(\"Delete Entire Note\", role: .destructive) { onDelete() }",
+            ".keyboardShortcut(.defaultAction)",
             "sourceQuoteIsValid:",
             "consumeMeetingSummaryPendingReveal(id: item.id)",
             ".onChange(of: selectedContentMode) { newValue in",
@@ -162,7 +165,8 @@ struct MeetingSummaryUIContractTests {
         )
 
         for expected in [
-            "struct MeetingSummaryView: View",
+            "struct MeetingSummaryView<Notices: View>: View",
+            "@ViewBuilder notices: () -> Notices",
             "Overview",
             "Key Points",
             "Decisions",
@@ -171,15 +175,16 @@ struct MeetingSummaryUIContractTests {
             "Label(\"View in Transcript\"",
             ".accessibilityLabel(item.task)",
             "sourceQuoteIsValid: (String) -> Bool",
-            "onDelete: () -> Void",
-            "Label(\"Delete Summary\", systemImage: \"trash\")",
-            "effectiveEvidenceVerification == .unverified",
-            "Some evidence could not be verified."
+            "summaryContent(envelope)"
         ] {
             precondition(summaryView.contains(expected), "Missing Summary view contract: \(expected)")
         }
         for unexpected in [
             "Quick review draft",
+            "onDelete",
+            "Delete Summary",
+            "availability",
+            "isStale",
             "onCreate",
             "onOpenModelSettings",
             "onCopyText",
@@ -213,10 +218,8 @@ struct MeetingSummaryUIContractTests {
             "Retry Summary",
             "case .retry, .regenerate:",
             "arrow.triangle.2.circlepath",
-            "Delete Summary",
             "private var canDeleteSummary:",
-            "if canDeleteSummary",
-            "showDeleteSummaryConfirmation",
+            "if canDeleteSummary {\n                        showDeleteChoice = true\n                    } else {\n                        showDeleteConfirmation = true\n                    }",
             "deleteMeetingSummary(noteID: item.id)",
             ".frame(maxWidth: .infinity, maxHeight: .infinity)"
         ] {
@@ -227,7 +230,9 @@ struct MeetingSummaryUIContractTests {
             "View Transcript",
             "Clear Summary Failure",
             "showClearSummaryFailureConfirmation",
-            "clearMeetingSummaryState("
+            "clearMeetingSummaryState(",
+            "showDeleteSummaryConfirmation",
+            "\"Delete this summary?\""
         ] {
             precondition(
                 !noteBrowser.contains(unexpected),
@@ -270,20 +275,54 @@ struct MeetingSummaryUIContractTests {
             from: "if let summaryEnvelope {",
             to: "} else if let attempt = currentSummaryAttempt,"
         )
+        precondition(
+            savedSummaryArea.contains("summaryNotices"),
+            "A saved summary shows its notices above the content"
+        )
+        let notices = block(
+            in: noteBrowser,
+            from: "private enum SummaryNoticeKind: Hashable {",
+            to: "\n    private func summaryFailureContent("
+        )
         for expected in [
             "summaryIssue?.presentation()",
-            "if let presentation =",
             "let summaryAction = summaryIssueAction(for: presentation)",
             "style: .warningBanner",
             "action: summaryAction.action",
             "actionTitleOverride: summaryAction.actionTitleOverride",
-            "isSummaryIssueBannerDismissed = true"
+            "isSummaryIssueBannerDismissed = true",
+            "effectiveEvidenceVerification == .unverified",
+            "Some evidence could not be verified.",
+            "Transcript changed after this summary was generated.",
+            "QuillStatusBanner(",
+            "onDismiss: {",
+            "QuillBannerExpansion(",
+            "hiddenCount: notices.count - 1",
+            "if areSummaryNoticesExpanded {"
         ] {
             precondition(
-                savedSummaryArea.contains(expected),
-                "A transient summary issue must remain visible above a saved summary: \(expected)"
+                notices.contains(expected),
+                "Summary notices must stay visible, dismissible, and grouped: \(expected)"
             )
         }
+        // Most important first: a failed attempt, then a stale transcript,
+        // then unverified evidence, then availability.
+        let order = [
+            "kinds.append(.failure)",
+            "kinds.append(.stale)",
+            "kinds.append(.unverifiedEvidence)",
+            "kinds.append(.featureDisabled)"
+        ].map { marker -> String.Index in
+            guard let range = notices.range(of: marker) else {
+                preconditionFailure("Missing summary notice: \(marker)")
+            }
+            return range.lowerBound
+        }
+        precondition(order == order.sorted(), "Summary notices must keep their priority order")
+        precondition(
+            notices.contains("\"stale:\\(appState.meetingSummarySource(for: item).fingerprint)\""),
+            "Dismissing the stale notice must last only until the transcript changes again"
+        )
     }
 
     private static func block(

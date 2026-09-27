@@ -15,6 +15,9 @@ struct QuillUserIssueView: View {
     // renders at the end of the banner. The centered error card (.full /
     // .inline styles) never passes this, so it never gets a dismiss control.
     var onDismiss: (() -> Void)?
+    // Only meaningful for .warningBanner: set on the first banner of a
+    // group to show a "+N" pill that reveals the rest.
+    var expansion: QuillBannerExpansion?
 
     @State private var showsDetails = false
 
@@ -73,19 +76,25 @@ struct QuillUserIssueView: View {
             Image(systemName: iconName)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(accentColor)
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    bannerTitle
-                    Text(presentation.body)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .fixedSize()
-                    Spacer(minLength: 0)
-                }
-                HStack(spacing: 0) {
-                    bannerTitle
-                    Spacer(minLength: 0)
+            if let expansion {
+                bannerTitle
+                Spacer(minLength: 0)
+                QuillBannerExpansionButton(expansion: expansion)
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        bannerTitle
+                        Text(presentation.body)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize()
+                        Spacer(minLength: 0)
+                    }
+                    HStack(spacing: 0) {
+                        bannerTitle
+                        Spacer(minLength: 0)
+                    }
                 }
             }
             actionButton
@@ -142,15 +151,7 @@ struct QuillUserIssueView: View {
     @ViewBuilder
     private var dismissButton: some View {
         if let onDismiss {
-            Button(action: onDismiss) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20, height: 20)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(localizedCatalogString("Dismiss"))
+            QuillBannerDismissButton(action: onDismiss)
         }
     }
 
@@ -306,5 +307,127 @@ struct QuillInfoNotice: View {
             }
         }
         .foregroundStyle(.secondary)
+    }
+}
+
+/// A one-line status banner in the shared issue look, for notes that are
+/// not tied to an issue record (for example, a summary's review reminders).
+/// The detail shows beside the title when it fits, and as a tooltip always.
+struct QuillStatusBanner: View {
+    let systemImage: String
+    let tint: Color
+    let title: String
+    let detail: String
+    var expansion: QuillBannerExpansion?
+    var onDismiss: (() -> Void)?
+
+    static let warningTint = Color(red: 0.95, green: 0.70, blue: 0.36)
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(tint)
+            if let expansion {
+                titleText
+                Spacer(minLength: 0)
+                QuillBannerExpansionButton(expansion: expansion)
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        titleText
+                        Text(detail)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize()
+                        Spacer(minLength: 0)
+                    }
+                    HStack(spacing: 0) {
+                        titleText
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+            if let onDismiss {
+                QuillBannerDismissButton(action: onDismiss)
+            }
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, onDismiss == nil ? 10 : 6)
+        .padding(.vertical, onDismiss == nil ? 7 : 6)
+        .background(
+            RoundedRectangle(cornerRadius: 9)
+                .fill(Color.primary.opacity(0.045))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9)
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
+        )
+        .help(Text(verbatim: detail))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(verbatim: "\(title) \(detail)"))
+    }
+
+    private var titleText: some View {
+        Text(title)
+            .font(.system(size: 12, weight: .semibold))
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
+}
+
+/// Lets the first banner of a group reveal or hide the rest.
+struct QuillBannerExpansion {
+    let hiddenCount: Int
+    let isExpanded: Bool
+    let toggle: () -> Void
+}
+
+/// The "+N" / "Show Less" pill on the first banner of a group.
+struct QuillBannerExpansionButton: View {
+    let expansion: QuillBannerExpansion
+
+    var body: some View {
+        Button(action: expansion.toggle) {
+            Group {
+                if expansion.isExpanded {
+                    Text("Show Less")
+                } else {
+                    Text(verbatim: "+\(expansion.hiddenCount)")
+                }
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(Color.primary.opacity(0.08)))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(expansion.isExpanded
+            ? localizedCatalogString("Show Less")
+            : localizedCatalogString("Show All Notices"))
+        .accessibilityLabel(expansion.isExpanded
+            ? localizedCatalogString("Show Less")
+            : localizedCatalogString("Show All Notices"))
+    }
+}
+
+/// The close button shared by every one-line banner.
+struct QuillBannerDismissButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 20, height: 20)
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(localizedCatalogString("Dismiss"))
     }
 }

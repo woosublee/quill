@@ -1993,11 +1993,13 @@ private struct NoteDetailView: View {
     @State private var isRetrying = false
     @State private var titleDebounceTimer: Timer?
     @State private var showDeleteConfirmation = false
-    @State private var showDeleteSummaryConfirmation = false
+    @State private var showDeleteChoice = false
     @State private var selectedContentMode: NoteContentMode = .transcript
     @State private var summaryIssue: QuillUserIssueRecord?
     @State private var isSummaryIssueBannerDismissed = false
     @State private var dismissedSummaryAttemptAt: Date?
+    @State private var dismissedSummaryNoticeKeys: Set<String> = []
+    @State private var areSummaryNoticesExpanded = false
     @State private var highlightedSourceQuote: String?
 
     private var isError: Bool {
@@ -2285,11 +2287,16 @@ private struct NoteDetailView: View {
         } message: {
             Text("Deleted notes cannot be recovered.")
         }
-        .confirmationDialog("Delete this summary?", isPresented: $showDeleteSummaryConfirmation, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) { deleteSummary() }
+        // With a summary, the one trash button asks what to delete. The
+        // buttons keep the same order in either tab, and Cancel stays the
+        // default so Return never deletes anything.
+        .confirmationDialog("What do you want to delete?", isPresented: $showDeleteChoice, titleVisibility: .visible) {
+            Button("Delete Summary Only") { deleteSummary() }
+            Button("Delete Entire Note", role: .destructive) { onDelete() }
             Button("Cancel", role: .cancel) {}
+                .keyboardShortcut(.defaultAction)
         } message: {
-            Text("This removes the saved meeting summary. You can create a new one from the transcript.")
+            Text("Deleting the entire note removes its recording, transcript, and summary, and cannot be undone.")
         }
     }
 
@@ -2498,10 +2505,11 @@ private struct NoteDetailView: View {
         .pickerStyle(.segmented)
         .controlSize(.small)
         .frame(maxWidth: 220)
+        .accessibilityLabel("Note Content")
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, 40)
         .padding(.top, 12)
         .padding(.bottom, 4)
-        .accessibilityLabel("Note Content")
     }
 
     private var contentArea: some View {
@@ -2584,58 +2592,30 @@ private struct NoteDetailView: View {
     private var summaryContentArea: some View {
         Group {
             if let summaryEnvelope {
-                VStack(spacing: 0) {
-                    let failedAttemptPresentation = currentSummaryAttempt?.outcome == .failed
-                        ? currentSummaryAttempt?.issuePresentation()
-                        : nil
-                    if let presentation = summaryIssue?.presentation()
-                        ?? failedAttemptPresentation,
-                       summaryIssue != nil
-                           ? !isSummaryIssueBannerDismissed
-                           : !isSummaryAttemptBannerDismissed {
-                        let summaryAction = summaryIssueAction(for: presentation)
-                        QuillUserIssueView(
-                            presentation: presentation,
-                            style: .warningBanner,
-                            action: summaryAction.action,
-                            actionTitleOverride: summaryAction.actionTitleOverride,
-                            onDismiss: {
-                                if summaryIssue != nil {
-                                    isSummaryIssueBannerDismissed = true
-                                } else {
-                                    dismissedSummaryAttemptAt = currentSummaryAttempt?.occurredAt
-                                }
-                            }
-                        )
-                        .padding(.horizontal, 40)
-                        .padding(.top, 16)
-                    }
-                    MeetingSummaryView(
-                        envelope: summaryEnvelope,
-                        availability: summaryAvailability,
-                        isStale: isSummaryStale,
-                        sourceQuoteIsValid: { quote in
-                            MeetingSummarySourceLocator.range(
-                                of: quote,
-                                in: displayContent
-                            ) != nil
-                        },
-                        onToggleAction: { actionID, isCompleted in
-                            do {
-                                try appState.setMeetingSummaryActionCompleted(
-                                    noteID: item.id,
-                                    actionID: actionID,
-                                    isCompleted: isCompleted
-                                )
-                            } catch {
-                                showToast(localizedCatalogString(
-                                    "Could not update action item."
-                                ))
-                            }
-                        },
-                        onViewSource: viewSource,
-                        onDelete: { showDeleteSummaryConfirmation = true }
-                    )
+                MeetingSummaryView(
+                    envelope: summaryEnvelope,
+                    sourceQuoteIsValid: { quote in
+                        MeetingSummarySourceLocator.range(
+                            of: quote,
+                            in: displayContent
+                        ) != nil
+                    },
+                    onToggleAction: { actionID, isCompleted in
+                        do {
+                            try appState.setMeetingSummaryActionCompleted(
+                                noteID: item.id,
+                                actionID: actionID,
+                                isCompleted: isCompleted
+                            )
+                        } catch {
+                            showToast(localizedCatalogString(
+                                "Could not update action item."
+                            ))
+                        }
+                    },
+                    onViewSource: viewSource
+                ) {
+                    summaryNotices
                 }
             } else if let attempt = currentSummaryAttempt,
                       let presentation = attempt.issuePresentation() {
@@ -2647,26 +2627,191 @@ private struct NoteDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    // MARK: Summary notices
+
+    /// The saved summary's notices, most important first. Several at once
+    /// show as one line with a "+N" pill that reveals the rest.
+    private enum SummaryNoticeKind: Hashable {
+        case failure
+        case stale
+        case unverifiedEvidence
+        case featureDisabled
+        case modelUnavailable
+    }
+
+    /// A newer failed attempt, or an issue from this session, shown above
+    /// the summary that is still saved.
+    private var summaryFailureNoticePresentation: QuillUserIssuePresentation? {
+        let failedAttemptPresentation = currentSummaryAttempt?.outcome == .failed
+            ? currentSummaryAttempt?.issuePresentation()
+            : nil
+        guard let presentation = summaryIssue?.presentation()
+            ?? failedAttemptPresentation else {
+            return nil
+        }
+        let isDismissed = summaryIssue != nil
+            ? isSummaryIssueBannerDismissed
+            : isSummaryAttemptBannerDismissed
+        return isDismissed ? nil : presentation
+    }
+
+    /// A dismissal lasts while the condition is unchanged: another
+    /// transcript edit or a new summary brings the notice back.
+    private func summaryNoticeDismissalKey(_ kind: SummaryNoticeKind) -> String {
+        switch kind {
+        case .failure:
+            return "failure"
+        case .stale:
+            return "stale:\(appState.meetingSummarySource(for: item).fingerprint)"
+        case .unverifiedEvidence:
+            let generatedAt = summaryEnvelope?.generatedAt.timeIntervalSince1970 ?? 0
+            return "evidence:\(generatedAt)"
+        case .featureDisabled:
+            return "featureDisabled"
+        case .modelUnavailable:
+            return "modelUnavailable"
+        }
+    }
+
+    private var visibleSummaryNotices: [SummaryNoticeKind] {
+        guard let summaryEnvelope else { return [] }
+        var kinds: [SummaryNoticeKind] = []
+        if summaryFailureNoticePresentation != nil {
+            kinds.append(.failure)
+        }
+        if isSummaryStale {
+            kinds.append(.stale)
+        }
+        if summaryEnvelope.effectiveEvidenceVerification == .unverified {
+            kinds.append(.unverifiedEvidence)
+        }
+        if summaryAvailability == .featureDisabled {
+            kinds.append(.featureDisabled)
+        } else if summaryAvailability == .modelUnavailable {
+            kinds.append(.modelUnavailable)
+        }
+        return kinds.filter { kind in
+            kind == .failure
+                || !dismissedSummaryNoticeKeys.contains(summaryNoticeDismissalKey(kind))
+        }
+    }
+
+    @ViewBuilder
+    private var summaryNotices: some View {
+        let notices = visibleSummaryNotices
+        if let first = notices.first {
+            VStack(alignment: .leading, spacing: 6) {
+                summaryNoticeRow(
+                    first,
+                    expansion: notices.count > 1
+                        ? QuillBannerExpansion(
+                            hiddenCount: notices.count - 1,
+                            isExpanded: areSummaryNoticesExpanded,
+                            toggle: {
+                                withAnimation(.easeOut(duration: 0.16)) {
+                                    areSummaryNoticesExpanded.toggle()
+                                }
+                            }
+                        )
+                        : nil
+                )
+                if areSummaryNoticesExpanded {
+                    ForEach(Array(notices.dropFirst()), id: \.self) { kind in
+                        summaryNoticeRow(kind, expansion: nil)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func summaryNoticeRow(
+        _ kind: SummaryNoticeKind,
+        expansion: QuillBannerExpansion?
+    ) -> some View {
+        switch kind {
+        case .failure:
+            if let presentation = summaryFailureNoticePresentation {
+                let summaryAction = summaryIssueAction(for: presentation)
+                QuillUserIssueView(
+                    presentation: presentation,
+                    style: .warningBanner,
+                    action: summaryAction.action,
+                    actionTitleOverride: summaryAction.actionTitleOverride,
+                    onDismiss: {
+                        if summaryIssue != nil {
+                            isSummaryIssueBannerDismissed = true
+                        } else {
+                            dismissedSummaryAttemptAt = currentSummaryAttempt?.occurredAt
+                        }
+                    },
+                    expansion: expansion
+                )
+            }
+        case .stale:
+            summaryStatusNotice(
+                kind,
+                systemImage: "exclamationmark.triangle.fill",
+                tint: QuillStatusBanner.warningTint,
+                title: "Transcript changed after this summary was generated.",
+                detail: "Regenerate to align the draft with the current transcript.",
+                expansion: expansion
+            )
+        case .unverifiedEvidence:
+            summaryStatusNotice(
+                kind,
+                systemImage: "exclamationmark.triangle.fill",
+                tint: QuillStatusBanner.warningTint,
+                title: "Some evidence could not be verified.",
+                detail: "Review the summary before sharing it.",
+                expansion: expansion
+            )
+        case .featureDisabled:
+            summaryStatusNotice(
+                kind,
+                systemImage: "pause.circle",
+                tint: .secondary,
+                title: "Meeting Summary is off",
+                detail: "This saved summary is still available. Turn the feature on to regenerate it.",
+                expansion: expansion
+            )
+        case .modelUnavailable:
+            summaryStatusNotice(
+                kind,
+                systemImage: "exclamationmark.circle",
+                tint: .secondary,
+                title: "Summary model is unavailable.",
+                detail: "This saved summary remains available for review and copying.",
+                expansion: expansion
+            )
+        }
+    }
+
+    private func summaryStatusNotice(
+        _ kind: SummaryNoticeKind,
+        systemImage: String,
+        tint: Color,
+        title: String,
+        detail: String,
+        expansion: QuillBannerExpansion?
+    ) -> some View {
+        QuillStatusBanner(
+            systemImage: systemImage,
+            tint: tint,
+            title: localizedCatalogString(title),
+            detail: localizedCatalogString(detail),
+            expansion: expansion,
+            onDismiss: {
+                dismissedSummaryNoticeKeys.insert(summaryNoticeDismissalKey(kind))
+            }
+        )
+    }
+
     private func summaryFailureContent(
         presentation: QuillUserIssuePresentation
     ) -> some View {
         let summaryAction = summaryIssueAction(for: presentation)
         return VStack(spacing: 0) {
-            if canDeleteSummary {
-                HStack {
-                    Spacer()
-                    Button(role: .destructive) {
-                        showDeleteSummaryConfirmation = true
-                    } label: {
-                        Label("Delete Summary", systemImage: "trash")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help("Delete Summary")
-                }
-                .padding(.horizontal, 40)
-                .padding(.top, 24)
-            }
             Spacer()
             QuillUserIssueView(
                 presentation: presentation,
@@ -2921,7 +3066,13 @@ private struct NoteDetailView: View {
 
             // Delete
             toolbarButton(
-                action: { showDeleteConfirmation = true },
+                action: {
+                    if canDeleteSummary {
+                        showDeleteChoice = true
+                    } else {
+                        showDeleteConfirmation = true
+                    }
+                },
                 label: {
                     Image(systemName: "trash")
                         .font(.system(size: 13, weight: .medium))

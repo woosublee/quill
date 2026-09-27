@@ -1105,54 +1105,6 @@
         }
       }
     },
-    "Delete Summary": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete Summary"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "요약 삭제"
-          }
-        }
-      }
-    },
-    "Delete this summary?": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete this summary?"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 요약을 삭제할까요?"
-          }
-        }
-      }
-    },
-    "This removes the saved meeting summary. You can create a new one from the transcript.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This removes the saved meeting summary. You can create a new one from the transcript."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "저장된 회의 요약을 삭제합니다. 전사문에서 새로 만들 수 있습니다."
-          }
-        }
-      }
-    },
     "Could not delete summary.": {
       "localizations": {
         "en": {
@@ -17845,22 +17797,6 @@
         }
       }
     },
-    "Try Again": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Try Again"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "다시 시도"
-          }
-        }
-      }
-    },
     "Issue Details": {
       "localizations": {
         "en": {
@@ -17889,6 +17825,102 @@
           "stringUnit": {
             "state": "translated",
             "value": "후처리 다시 시도"
+          }
+        }
+      }
+    },
+    "What do you want to delete?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What do you want to delete?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "무엇을 삭제할까요?"
+          }
+        }
+      }
+    },
+    "Delete Summary Only": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Summary Only"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약만 삭제"
+          }
+        }
+      }
+    },
+    "Delete Entire Note": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Entire Note"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 전체 삭제"
+          }
+        }
+      }
+    },
+    "Deleting the entire note removes its recording, transcript, and summary, and cannot be undone.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleting the entire note removes its recording, transcript, and summary, and cannot be undone."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워지며 되돌릴 수 없습니다."
+          }
+        }
+      }
+    },
+    "Show Less": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Less"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접기"
+          }
+        }
+      }
+    },
+    "Show All Notices": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show All Notices"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나머지 알림 보기"
           }
         }
       }

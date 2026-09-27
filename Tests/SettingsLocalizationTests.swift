@@ -329,10 +329,12 @@ struct SettingsLocalizationTests {
             "View in Transcript": "전사문에서 보기",
             "Owner needs review": "담당자 확인 필요",
             "Due date needs review": "기한 확인 필요",
-            "Delete Summary": "요약 삭제",
-            "Delete this summary?": "이 요약을 삭제할까요?",
-            "This removes the saved meeting summary. You can create a new one from the transcript.":
-                "저장된 회의 요약을 삭제합니다. 전사문에서 새로 만들 수 있습니다.",
+            "What do you want to delete?": "무엇을 삭제할까요?",
+            "Delete Summary Only": "요약만 삭제",
+            "Delete Entire Note": "노트 전체 삭제",
+            "Deleting the entire note removes its recording, transcript, and summary, and cannot be undone.":
+                "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워지며 되돌릴 수 없습니다.",
+            "Show Less": "접기",
             "Could not delete summary.": "요약을 삭제하지 못했습니다.",
             "Meeting Summary is off. Turn it on in Model Settings to create a summary.":
                 "회의 요약이 꺼져 있습니다. 모델 설정에서 켜면 요약을 만들 수 있습니다.",
