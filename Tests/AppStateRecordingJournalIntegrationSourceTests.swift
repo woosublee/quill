@@ -469,6 +469,7 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         try testAudioOnlyStopDismissesRecordingOverlayOnErrors()
         try testAudioOnlyHistoryFailureCleansOnlyUnreferencedNonJournalAudio()
         try testAudioOnlyCompletionOwnsForegroundUIAndTermination()
+        try testBatchRecordingCreatesItsNoteAtStartAndKeepsOneRow()
         try testPostProcessingStageIsTrackedPerNote()
         try testAppleLiveKeepsMainThreadUpdatesBounded()
         try testInputSwitchRestartsLiveTranscription()
@@ -913,6 +914,62 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         assert(catchBody.contains("fileName: audioFileName"))
         assert(!catchBody.contains("deleteStoredFiles("))
         assert(!catchBody.contains("deleteAudioFile("))
+    }
+
+    private static func testBatchRecordingCreatesItsNoteAtStartAndKeepsOneRow() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let begin = try body(startingWith: "private func beginRecording(", in: source)
+        let createNote = try body(
+            startingWith: "private func createRecordingNoteIfNeeded(",
+            in: source
+        )
+        let removeNote = try body(
+            startingWith: "private func removeUnfinishedRecordingNote(",
+            in: source
+        )
+        let persist = try body(startingWith: "private func persistAudioOnlyRecording(", in: source)
+        let append = try body(startingWith: "private func appendPipelineHistoryItem(", in: source)
+        let completion = try body(startingWith: "private func completeStoppedRecording(", in: source)
+        let finish = try body(startingWith: "private func finishTranscriptionJob(_ id: UUID)", in: source)
+        let placeholder = try body(
+            startingWith: "private func createTranscriptionRecoveryPlaceholder(",
+            in: source
+        )
+        let startup = try body(
+            startingWith: "private static func recoverRecordingJournalsBeforeHistoryLoad(",
+            in: source
+        )
+        let recovery = try String(
+            contentsOfFile: "Sources/RecordingRecoveryHistory.swift",
+            encoding: .utf8
+        )
+
+        // Batch backends and record-only get their note once capture starts,
+        // keyed by the recording session ID shared with the job and journal.
+        let started = try requiredRange(
+            of: "self.markRecordingStarted(actualRecordingStartedAt)\n                    self.createRecordingNoteIfNeeded(recordingSessionID: recordingSessionID)",
+            in: begin
+        )
+        assert(!started.isEmpty)
+        assert(createNote.contains("currentRecordingLiveNoteID == nil"))
+        assert(createNote.contains("createLiveNote(jobID: recordingSessionID, noteID: recordingSessionID)"))
+        assert(createNote.contains("currentRecordingLiveNoteID = recordingSessionID"))
+
+        // Stopping reuses that note instead of adding a second row.
+        assert(persist.contains("appendPipelineHistoryItem(item)"))
+        assert(append.contains("pipelineHistory.first(where: { $0.id == item.id })"))
+        assert(append.contains("recordingNote.isUnfinishedRecordingNote"))
+        assert(append.contains("item.withCustomTitle(recordingNote.customTitle)"))
+        assert(append.contains("pipelineHistoryStore.upsert("))
+        assert(placeholder.contains("pipelineHistory.first(where: { $0.id == noteID })?.customTitle"))
+        assert(recovery.contains(".withCustomTitle(existingHistory?.customTitle)"))
+
+        // A recording that ends without content or audio leaves no empty note.
+        assert(removeNote.contains("item.isUnfinishedRecordingNote"))
+        assert(removeNote.contains("pipelineHistoryStore.delete(id: id)"))
+        assert(finish.contains("removeUnfinishedRecordingNote(id: noteID)"))
+        assert(completion.contains("removeUnfinishedRecordingNote(id: recordingID)"))
+        assert(startup.contains("where item.isUnfinishedRecordingNote"))
     }
 
     private static func testAudioOnlyCompletionOwnsForegroundUIAndTermination() throws {
