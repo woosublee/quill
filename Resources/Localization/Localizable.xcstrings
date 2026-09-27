@@ -18132,6 +18132,150 @@
           }
         }
       }
+    },
+    "Microphone access granted": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Microphone access granted"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마이크 접근이 허용되었습니다"
+          }
+        }
+      }
+    },
+    "Accessibility access granted": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accessibility access granted"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "손쉬운 사용 접근이 허용되었습니다"
+          }
+        }
+      }
+    },
+    "Speech Recognition access granted": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speech Recognition access granted"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음성 인식 접근이 허용되었습니다"
+          }
+        }
+      }
+    },
+    "Screen & System Audio Recording access granted": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screen & System Audio Recording access granted"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 및 시스템 오디오 녹음 접근이 허용되었습니다"
+          }
+        }
+      }
+    },
+    "Notifications allowed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications allowed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알림이 허용되었습니다"
+          }
+        }
+      }
+    },
+    "%@ permission guide": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ permission guide"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 권한 안내"
+          }
+        }
+      }
+    },
+    "Access granted. This guide closes in a moment.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access granted. This guide closes in a moment."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접근이 허용되었습니다. 잠시 후 이 안내가 닫힙니다."
+          }
+        }
+      }
+    },
+    "Press to show %@ in Finder. You can also add it with the + button below the list in System Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Press to show %@ in Finder. You can also add it with the + button below the list in System Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "누르면 Finder에서 %@을(를) 보여 줍니다. 시스템 설정의 목록 아래에 있는 + 버튼으로 추가할 수도 있습니다."
+          }
+        }
+      }
+    },
+    "Show %@ in Finder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show %@ in Finder"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder에서 %@ 보기"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

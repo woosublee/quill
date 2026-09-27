@@ -13,9 +13,6 @@ final class PermissionGuideController {
     /// Quill has Accessibility access, window move/resize notifications
     /// update it immediately as well.
     private static let trackingInterval: TimeInterval = 1.0 / 30.0
-    /// System Settings can take a moment to launch before its window exists.
-    private static let grantedDisplayDuration: TimeInterval = 1.5
-
     private var panel: NSPanel?
     private var model: PermissionGuideModel?
     private var trackingTimer: Timer?
@@ -62,6 +59,7 @@ final class PermissionGuideController {
             == SystemSettingsWindowLocator.bundleIdentifier ? nil : frontmost
 
         let panel = Self.makePanel()
+        panel.setAccessibilityTitle(localizedCatalogFormat("%@ permission guide", appName))
         panel.contentView = FixedHostingContainer(
             rootView: AnyView(PermissionGuideView(model: model) { [weak self] in
                 self?.dismiss()
@@ -102,8 +100,19 @@ final class PermissionGuideController {
             isClosingAfterGrant = true
             model.isGranted = true
             onGranted?()
+            NSAccessibility.post(
+                element: NSApplication.shared,
+                notification: .announcementRequested,
+                userInfo: [
+                    .announcement: localizedCatalogString("Access granted. This guide closes in a moment."),
+                    .priority: NSAccessibilityPriorityLevel.high.rawValue
+                ]
+            )
             let grantedPresentation = presentationID
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.grantedDisplayDuration) { [weak self] in
+            let displayDuration = PermissionGuideTiming.grantedDisplayDuration(
+                voiceOverRunning: NSWorkspace.shared.isVoiceOverEnabled
+            )
+            DispatchQueue.main.asyncAfter(deadline: .now() + displayDuration) { [weak self] in
                 guard let self, self.presentationID == grantedPresentation else { return }
                 let previous = self.previousApplication
                 self.dismiss()
@@ -286,11 +295,23 @@ private struct PermissionGuideView: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            AppIconDragSource(url: model.dragURL)
+            AppIconDragSource(
+                url: model.dragURL,
+                accessibilityLabel: localizedCatalogFormat("Drag %@ to System Settings", model.appName),
+                accessibilityHelp: localizedCatalogFormat(
+                    "Press to show %@ in Finder. You can also add it with the + button below the list in System Settings.",
+                    model.appName
+                )
+            )
                 .frame(width: 56, height: 56)
                 .accessibilityLabel(
                     localizedCatalogFormat("Drag %@ to System Settings", model.appName)
                 )
+                .accessibilityAction(
+                    named: Text(localizedCatalogFormat("Show %@ in Finder", model.appName))
+                ) {
+                    NSWorkspace.shared.activateFileViewerSelecting([model.dragURL])
+                }
 
             VStack(alignment: .leading, spacing: 3) {
                 if model.isGranted {
@@ -342,13 +363,20 @@ private struct PermissionGuideView: View {
 /// dragging works from a non-activating panel while Quill is in the background.
 private struct AppIconDragSource: NSViewRepresentable {
     let url: URL
+    let accessibilityLabel: String
+    let accessibilityHelp: String
 
     func makeNSView(context: Context) -> AppIconDragView {
-        AppIconDragView(url: url)
+        let view = AppIconDragView(url: url)
+        view.setAccessibilityLabel(accessibilityLabel)
+        view.setAccessibilityHelp(accessibilityHelp)
+        return view
     }
 
     func updateNSView(_ nsView: AppIconDragView, context: Context) {
         nsView.url = url
+        nsView.setAccessibilityLabel(accessibilityLabel)
+        nsView.setAccessibilityHelp(accessibilityHelp)
     }
 }
 
@@ -360,6 +388,15 @@ final class AppIconDragView: NSView, NSDraggingSource {
         self.url = url
         super.init(frame: .zero)
         wantsLayer = true
+        // Dragging needs a pointer, so VoiceOver gets a button that shows the
+        // app in Finder instead. Mouse dragging is unchanged.
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+    }
+
+    override func accessibilityPerformPress() -> Bool {
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+        return true
     }
 
     @available(*, unavailable)
