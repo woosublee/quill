@@ -335,8 +335,11 @@ struct QuillStatusBanner: View {
             Image(systemName: systemImage)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(tint)
+                .accessibilityHidden(true)
             if let expansion {
                 titleText
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Text(verbatim: spokenText))
                 Spacer(minLength: 0)
                 QuillBannerExpansionButton(expansion: expansion)
             } else {
@@ -355,6 +358,10 @@ struct QuillStatusBanner: View {
                         Spacer(minLength: 0)
                     }
                 }
+                // Title and detail read as one element; the close button
+                // stays a separate control.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(verbatim: spokenText))
             }
             if let onDismiss {
                 QuillBannerDismissButton(action: onDismiss)
@@ -373,9 +380,9 @@ struct QuillStatusBanner: View {
                 .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
         )
         .help(Text(verbatim: detail))
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(Text(verbatim: "\(title) \(detail)"))
     }
+
+    private var spokenText: String { "\(title) \(detail)" }
 
     private var titleText: some View {
         Text(title)

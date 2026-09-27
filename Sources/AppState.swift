@@ -7523,6 +7523,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 transcriptFileName: current.transcriptFileName
             )
             let updated = current.replacingTranscription(with: replacement)
+            // Keep the transcript file in step, as editing does, so a
+            // fallback load after a restart shows the cleaned text too.
+            if let fileName = current.transcriptFileName {
+                let fileURL = self.storageLayout.transcriptDirectory
+                    .appendingPathComponent(fileName)
+                try? processing.finalTranscript.write(
+                    to: fileURL,
+                    atomically: true,
+                    encoding: .utf8
+                )
+            }
             do {
                 try self.pipelineHistoryStore.update(updated)
                 self.updatePipelineHistoryItem(updated)

@@ -3737,6 +3737,14 @@ struct AppStateTranscriptionConfigurationTests {
             var dependencies = environment.dependencies
             dependencies.makePipelineHistoryStore = { _ in store }
             // No audio file: a cleanup retry must not need or touch the audio.
+            let transcriptFileName = "retry-post-processing-note.txt"
+            let transcriptDirectory = environment.storageLayout.transcriptDirectory
+            try FileManager.default.createDirectory(
+                at: transcriptDirectory,
+                withIntermediateDirectories: true
+            )
+            let transcriptFileURL = transcriptDirectory.appendingPathComponent(transcriptFileName)
+            try rawTranscript.write(to: transcriptFileURL, atomically: true, encoding: .utf8)
             let originalItem = PipelineHistoryItem(
                 timestamp: Date(timeIntervalSince1970: 1),
                 rawTranscript: rawTranscript,
@@ -3754,7 +3762,8 @@ struct AppStateTranscriptionConfigurationTests {
                 ).persistedStatus,
                 debugStatus: "Done",
                 customVocabulary: "",
-                usedLocalTranscription: true
+                usedLocalTranscription: true,
+                transcriptFileName: transcriptFileName
             )
             _ = try store.append(originalItem, maxCount: 10)
 
@@ -3814,6 +3823,11 @@ struct AppStateTranscriptionConfigurationTests {
             precondition(item.rawTranscript == rawTranscript, "The raw transcript is kept")
             precondition(item.postProcessedTranscript == cleanedTranscript, "Only the cleaned text is replaced")
             precondition(item.userIssueRecord == nil, "A successful cleanup clears the warning")
+            let storedTranscriptFile = try String(contentsOf: transcriptFileURL, encoding: .utf8)
+            precondition(
+                storedTranscriptFile == cleanedTranscript,
+                "The transcript file is kept in step with the cleaned text"
+            )
             await MainActor.run {
                 precondition(!appState.postProcessingNoteIDs.contains(originalItem.id))
             }
