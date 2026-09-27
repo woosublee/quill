@@ -36,6 +36,14 @@ struct MenuBarLabel: View {
         return "waveform"
     }
 
+    /// VoiceOver name for the status item; the icon itself stays unchanged.
+    private var accessibilityStatusLabel: Text {
+        if appState.isRecording { return Text("Quill, recording") }
+        if appState.isTranscribing { return Text("Quill, transcribing") }
+        if notificationManager.showCheckmark { return Text("Quill, word added to vocabulary") }
+        return Text("Quill")
+    }
+
     var body: some View {
         HStack(spacing: 4) {
             if notificationManager.showCheckmark {
@@ -49,6 +57,8 @@ struct MenuBarLabel: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: notificationManager.showCheckmark)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityStatusLabel)
     }
 }
 
@@ -77,6 +87,7 @@ enum StampedMenuBarIcon {
             return true
         }
         image.isTemplate = true
+        image.accessibilityDescription = String(localized: "Quill")
         return image
     }()
 }

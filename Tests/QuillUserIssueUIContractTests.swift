@@ -33,6 +33,7 @@ struct QuillUserIssueUIContractTests {
             historyRecovery
         )
         try testRecoveryCountGrammarUsesSingularCatalogKeys(historyRecovery)
+        try testMenuBarStatusItemHasAccessibilityLabel(try source("Sources/App.swift"))
         print("QuillUserIssueUIContractTests passed")
     }
 
@@ -450,6 +451,36 @@ struct QuillUserIssueUIContractTests {
                 && !historyRecovery.contains("History Recovery"),
             "recovery UI omits archive notices and internal paths"
         )
+    }
+
+    private static func testMenuBarStatusItemHasAccessibilityLabel(_ app: String) throws {
+        let label = block(app, from: "struct MenuBarLabel: View", to: "enum StampedMenuBarIcon")
+        for marker in [
+            ".accessibilityElement(children: .ignore)",
+            ".accessibilityLabel(accessibilityStatusLabel)",
+            "if appState.isRecording { return Text(\"Quill, recording\") }",
+            "if appState.isTranscribing { return Text(\"Quill, transcribing\") }",
+            "return Text(\"Quill, word added to vocabulary\")",
+            "return Text(\"Quill\")",
+        ] {
+            guard label.contains(marker) else {
+                throw TestFailure("Menu bar status item accessibility label is missing: \(marker)")
+            }
+        }
+        // The visible icons must stay exactly as before.
+        for marker in [
+            "if appState.isRecording { return \"record.circle\" }",
+            "if appState.isTranscribing { return \"ellipsis.circle\" }",
+            "return \"waveform\"",
+            "Image(systemName: \"checkmark\")",
+        ] {
+            guard label.contains(marker) else {
+                throw TestFailure("Menu bar status item icon changed: \(marker)")
+            }
+        }
+        guard app.contains("image.accessibilityDescription = String(localized: \"Quill\")") else {
+            throw TestFailure("Stamped dev menu bar icon needs an accessibility description")
+        }
     }
 
     private static func source(_ path: String) throws -> String {
