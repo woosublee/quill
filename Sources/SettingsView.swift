@@ -79,7 +79,8 @@ struct SettingsView: View {
                 Spacer()
             }
             .padding(10)
-            .padding(.top, titleBarHeight)
+            // The first row sits just under the traffic lights.
+            .padding(.top, max(0, titleBarHeight - 12))
             .frame(width: 180)
             .background(Color(nsColor: .windowBackgroundColor))
 
@@ -115,7 +116,9 @@ struct SettingsView: View {
                     GeneralSettingsView()
                 }
             }
-            .padding(.top, titleBarHeight)
+            // Pages keep their own top margin, so the first card starts just
+            // under the title bar instead of a full title bar lower.
+            .padding(.top, 16)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .overlay(alignment: .top) {
