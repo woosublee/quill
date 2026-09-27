@@ -3700,8 +3700,7 @@ struct NoteAudioPlayerView: View {
         elapsed = 0
     }
 
-    /// Moves the playhead to `fraction` (0...1) of the duration. Works whether or
-    /// not playback is currently running.
+    /// How far arrow keys and VoiceOver's adjust gestures move the playhead.
     private static let keyboardSeekStep: TimeInterval = 5
 
     private func seek(by seconds: TimeInterval) {
@@ -3709,6 +3708,8 @@ struct NoteAudioPlayerView: View {
         seek(toFraction: (elapsed + seconds) / duration)
     }
 
+    /// Moves the playhead to `fraction` (0...1) of the duration. Works whether or
+    /// not playback is currently running.
     private func seek(toFraction fraction: Double) {
         // `fraction` comes from location.x / width; guard against a 0-width
         // layout (NaN/Infinity) so we never set a bad AVAudioPlayer.currentTime.
