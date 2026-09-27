@@ -625,8 +625,15 @@ struct NoteListRowDisplayDataTests {
 
         assert(data.status == .transcribing)
         // The row names the note; the stage text lives in the note detail.
-        assert(data.displayTitle == "New Recording")
+        // A note being retried keeps its own name rather than "New Recording".
+        assert(data.displayTitle != "New Recording")
         assert(data.preview.isEmpty)
+
+        let importing = NoteListRowDisplayData(
+            item: historyItem(transcript: "", postProcessingStatus: "importing"),
+            retryingIDs: []
+        )
+        assert(importing.displayTitle == "Imported Audio")
     }
 
     private static func testPostProcessingNoteShowsPostProcessingTitle() {

@@ -234,23 +234,33 @@ struct NoteListRowDisplayData: Equatable {
         let customTitle = trimmedCustomTitle?.isEmpty == true ? nil : trimmedCustomTitle
         let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
         // The row names the note; the stage ("Transcribing…", "Post-
-        // processing…") is shown once, in the note detail. A note without a
-        // title or transcript yet is a "New Recording".
-        let isInProgress = status == .recording || status == .transcribing
+        // processing…") is shown once, in the note detail. A recording or
+        // import with no title or transcript yet gets a neutral name; a note
+        // being retried keeps its own name.
         let hasOwnTitle = customTitle != nil || item.calendarMatch?.appliedTitle != nil
-        let displayTitle = isInProgress && !hasOwnTitle && content.isEmpty
-            ? localizedCatalogString(
-                "New Recording",
+        let isUnnamed = !hasOwnTitle && content.isEmpty && !retryingIDs.contains(item.id)
+        let isNewRecording = isUnnamed && (
+            status == .recording
+                || item.postProcessingStatus == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus
+                || item.machineStatus == .cloudTranscribing
+        )
+        let isImporting = isUnnamed && item.machineStatus == .importing
+        let displayTitle: String
+        if isNewRecording || isImporting {
+            displayTitle = localizedCatalogString(
+                isImporting ? "Imported Audio" : "New Recording",
                 language: localizationLanguage,
                 bundle: localizationBundle
             )
-            : NoteTitleResolver.displayTitle(
+        } else {
+            displayTitle = NoteTitleResolver.displayTitle(
                 for: item,
                 isTranscribing: status == .transcribing,
                 isPostProcessing: postProcessingIDs.contains(item.id),
                 language: localizationLanguage,
                 bundle: localizationBundle
             )
+        }
 
         self.id = item.id
         self.status = status

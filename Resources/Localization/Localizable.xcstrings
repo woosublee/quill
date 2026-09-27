@@ -17812,6 +17812,22 @@
           }
         }
       }
+    },
+    "Imported Audio": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imported Audio"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져온 오디오"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

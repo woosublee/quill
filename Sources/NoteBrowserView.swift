@@ -1006,7 +1006,15 @@ struct NoteBrowserView: View {
                 toggleSearch()
             }
             .foregroundStyle(searchText.isEmpty ? Color.secondary : Color.accentColor)
-            .keyboardShortcut("f", modifiers: .command)
+            .background {
+                // ⌘F opens or focuses search and keeps the query; only the
+                // magnifier itself closes an open search.
+                Button("") { openSearch() }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .opacity(0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
             // Search and import stay in place but pause while selecting.
             .disabled(selection.showsSelectionUI)
             headerIconButton("waveform.badge.plus", help: "Import Audio File") {
@@ -1093,9 +1101,14 @@ struct NoteBrowserView: View {
         if isSearchOpen && isSearchFieldFocused {
             closeSearch()
         } else {
-            isSearchOpen = true
-            DispatchQueue.main.async { isSearchFieldFocused = true }
+            openSearch()
         }
+    }
+
+    private func openSearch() {
+        guard !selection.showsSelectionUI else { return }
+        isSearchOpen = true
+        DispatchQueue.main.async { isSearchFieldFocused = true }
     }
 
     private func closeSearch() {
@@ -1173,15 +1186,6 @@ struct NoteBrowserView: View {
                 ScrollViewReader { proxy in
                     ScrollView(.vertical, showsIndicators: false) {
                         LazyVStack(spacing: 2) {
-                            // Tracks how far the first note sits below the
-                            // header, so the header turns translucent on scroll.
-                            GeometryReader { geometry in
-                                Color.clear.preference(
-                                    key: NoteListTopOffsetKey.self,
-                                    value: geometry.frame(in: .named("noteList")).minY
-                                )
-                            }
-                            .frame(height: 0)
                             ForEach(filteredHistory) { item in
                                 NoteListRow(
                                     displayData: NoteListRowDisplayData(
@@ -1207,6 +1211,17 @@ struct NoteBrowserView: View {
                             }
                         }
                         .padding(.horizontal, 8)
+                        // Tracks where the list's top sits relative to the
+                        // header. Measured on the whole stack, which stays
+                        // alive however far the list scrolls.
+                        .background(
+                            GeometryReader { geometry in
+                                Color.clear.preference(
+                                    key: NoteListTopOffsetKey.self,
+                                    value: geometry.frame(in: .named("noteList")).minY
+                                )
+                            }
+                        )
                         .padding(.top, sidebarHeaderHeight + 6)
                         // Room for the floating Record button.
                         .padding(.bottom, selection.showsSelectionUI ? 6 : 72)
@@ -2668,6 +2683,7 @@ private struct NoteDetailView: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 60)
             } else if isCloudTranscribing
+                        || item.machineStatus == .importing
                         || item.postProcessingStatus
                         == PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus {
                 ProgressView()
