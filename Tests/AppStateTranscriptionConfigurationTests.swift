@@ -1827,7 +1827,7 @@ struct AppStateTranscriptionConfigurationTests {
         let source = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
         let sheetBody = sourceBlock(
             in: source,
-            from: "private struct TranscriptionChoiceSheet",
+            from: "struct TranscriptionChoiceSheet: View",
             to: "private func transcriptionChoiceMenuItem"
         )
 

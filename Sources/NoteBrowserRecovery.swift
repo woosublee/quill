@@ -155,7 +155,8 @@ enum NoteBrowserRecoveryPresentation {
                     bundle: bundle
                 ),
                 detailsRows: [],
-                recoveryAction: .openModelsSettings,
+                // Retry opens the transcription picker for this note.
+                recoveryAction: .retryTranscription,
                 severity: original.severity
             )
         case .needsProviderConfiguration:

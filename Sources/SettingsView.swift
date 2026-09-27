@@ -4096,6 +4096,7 @@ struct RunLogEntryView: View {
     @EnvironmentObject var appState: AppState
     @State private var isExpanded = false
     @State private var isRetrying = false
+    @State private var retryChoiceRequest: RetryChoiceRequest?
     @State private var showContextPrompt = false
     @State private var showPostProcessingPrompt = false
     @State private var loadedTranscript: String? = nil
@@ -4243,7 +4244,12 @@ struct RunLogEntryView: View {
                 HStack(spacing: 4) {
                     if isError && item.audioFileName != nil {
                         Button {
-                            appState.retryTranscription(item: item)
+                            if appState.noteBrowserRetryAvailability(for: item) == .ready {
+                                appState.retryTranscription(item: item)
+                            } else if let options = appState.noteBrowserRetryOptions(for: item),
+                                      !options.supportedChoices.isEmpty {
+                                retryChoiceRequest = RetryChoiceRequest(options: options)
+                            }
                         } label: {
                             if isRetrying {
                                 ProgressView()
@@ -4258,6 +4264,24 @@ struct RunLogEntryView: View {
                             }
                         }
                         .buttonStyle(.plain)
+                        .sheet(item: $retryChoiceRequest) { request in
+                            TranscriptionChoiceSheet(
+                                title: "Transcribe Recording",
+                                subtitle: NoteTitleResolver.displayTitle(for: item),
+                                showsSettingNote: true,
+                                options: request.options,
+                                fallbackChoice: appState.currentNoteBrowserTranscriptionChoice
+                            ) { choice in
+                                retryChoiceRequest = nil
+                                appState.retryTranscription(item: item, choice: choice)
+                            } onOpenProviderSettings: {
+                                // Settings is already open; switch to the Models tab.
+                                retryChoiceRequest = nil
+                                appState.selectedSettingsTab = .models
+                            } onCancel: {
+                                retryChoiceRequest = nil
+                            }
+                        }
                         .disabled(isRetrying)
                         .help("Retry transcription")
                     } else {

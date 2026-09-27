@@ -309,7 +309,7 @@ private struct PendingAudioImport: Identifiable {
 /// Picks the model for one transcription the user starts by hand: an audio
 /// import, or transcribing a saved note when no usable model is selected.
 /// The choice applies to that transcription only.
-private struct TranscriptionChoiceSheet: View {
+struct TranscriptionChoiceSheet: View {
     let title: LocalizedStringKey
     let subtitle: String
     let showsSettingNote: Bool
@@ -457,7 +457,7 @@ private struct TranscriptionChoiceSheet: View {
 
 // MARK: - Note Browser View
 
-private struct RetryChoiceRequest: Identifiable {
+struct RetryChoiceRequest: Identifiable {
     let id = UUID()
     let options: AudioImportOptions
 }
@@ -1960,6 +1960,11 @@ private struct NoteDetailView: View {
                     contentModePicker
                 }
                 contentArea
+                    .overlay {
+                        if isRetrying {
+                            retryingOverlay
+                        }
+                    }
             }
             floatingToolbar
             if let toastMessage {
@@ -2043,7 +2048,9 @@ private struct NoteDetailView: View {
             )
         }
         .onReceive(appState.$retryingItemIDs) { ids in
-            isRetrying = ids.contains(item.id)
+            withAnimation(.easeOut(duration: 0.16)) {
+                isRetrying = ids.contains(item.id)
+            }
         }
         .confirmationDialog("Delete this note?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { onDelete() }
@@ -2175,10 +2182,10 @@ private struct NoteDetailView: View {
     private var noteStateIndicator: some View {
         if isLiveRecording {
             LiveRecordingBadge(startedAt: item.recordingStartedAt)
-        } else if isCloudTranscribing {
+        } else if isRetrying || isCloudTranscribing {
             ProgressView()
                 .controlSize(.mini)
-                .help(cloudProgressText)
+                .help(isCloudTranscribing ? cloudProgressText : localizedCatalogString("Transcribing..."))
         } else if isRecoveredRecording {
             Image(systemName: "arrow.clockwise.circle")
                 .font(.system(size: 10, weight: .medium))
@@ -2527,6 +2534,25 @@ private struct NoteDetailView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// Covers the note body while it is transcribed again, keeping the
+    /// existing content visible underneath.
+    private var retryingOverlay: some View {
+        ZStack {
+            Rectangle()
+                .fill(.ultraThinMaterial)
+            VStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.regular)
+                Text("Transcribing...")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.bottom, 60)
+        }
+        .transition(.opacity)
+        .allowsHitTesting(true)
     }
 
     // MARK: Floating Toolbar

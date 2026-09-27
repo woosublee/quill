@@ -7,7 +7,7 @@ struct NoteBrowserRecoveryTests {
         testSummaryOnlyEnablesFileSaving()
         testNoContentDisablesFileSaving()
         testModelSetupPresentationOpensSettings()
-        testModelSelectionPresentationOpensSettings()
+        testModelSelectionPresentationOpensPicker()
         testProviderConfigurationPresentationOpensProviderSettings()
         testReadyMissingModelSwitchesToRetry()
         testMissingAudioKeepsGenericIssuePresentation()
@@ -85,7 +85,7 @@ struct NoteBrowserRecoveryTests {
         precondition(presentation.recoveryAction == .openModelsSettings)
     }
 
-    private static func testModelSelectionPresentationOpensSettings() {
+    private static func testModelSelectionPresentationOpensPicker() {
         let state = NoteBrowserActionState(
             hasStoredAudio: true,
             transcript: "",
@@ -102,7 +102,9 @@ struct NoteBrowserRecoveryTests {
         precondition(presentation.body == "Your recording is safely stored.")
         precondition(presentation.suggestion.isEmpty)
         precondition(presentation.detailsRows.isEmpty)
-        precondition(presentation.recoveryAction == .openModelsSettings)
+        // Retry opens the transcription picker; choosing a model in Settings
+        // would not help while transcription is off.
+        precondition(presentation.recoveryAction == .retryTranscription)
     }
 
     private static func testProviderConfigurationPresentationOpensProviderSettings() {

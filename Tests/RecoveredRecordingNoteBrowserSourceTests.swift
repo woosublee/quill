@@ -75,6 +75,15 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         )
         precondition(setupBranch.contains("showToast("))
         precondition(setupBranch.contains("Set up a model in Settings to retry transcription."))
+
+        // Retrying covers the body with a loading layer instead of replacing it.
+        precondition(source.contains("if isRetrying {\n                            retryingOverlay"))
+        precondition(source.contains(".fill(.ultraThinMaterial)"))
+
+        // The Settings run log offers the same picker when retry needs a model.
+        let settingsSource = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
+        precondition(settingsSource.contains("retryChoiceRequest = RetryChoiceRequest(options: options)"))
+        precondition(settingsSource.contains("appState.retryTranscription(item: item, choice: choice)"))
     }
 
     private static func testInputPickerSwitchesActiveRecordingInput(
