@@ -3162,7 +3162,18 @@ private struct NoteDetailView: View {
         case .retryTranscription:
             retryTranscription()
         case .retryPostProcessing:
-            appState.retryPostProcessing(item: item)
+            switch appState.postProcessingRetryBlocker(for: item) {
+            case .postProcessingOff:
+                showToast(localizedCatalogString(
+                    "Turn on post-processing in Settings to retry."
+                ))
+            case .noTranscript:
+                showToast(localizedCatalogString(
+                    "There is no transcript to post-process."
+                ))
+            case nil:
+                appState.retryPostProcessing(item: item)
+            }
         case .openModelsSettings:
             appState.selectedSettingsTab = .models
             NotificationCenter.default.post(name: .showSettings, object: nil)

@@ -7442,16 +7442,32 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return (restoredContext, restoredIntent, retryCustomVocabulary, retryCustomSystemPrompt)
     }
 
+    /// Why Retry Post-processing can't run for a note right now, so the note
+    /// can say so instead of the button doing nothing.
+    enum PostProcessingRetryBlocker: Equatable {
+        case postProcessingOff
+        case noTranscript
+    }
+
+    func postProcessingRetryBlocker(
+        for item: PipelineHistoryItem
+    ) -> PostProcessingRetryBlocker? {
+        if disablePostProcessing { return .postProcessingOff }
+        if item.rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .noTranscript
+        }
+        return nil
+    }
+
     /// Runs post-processing again on a note's stored raw transcript, without
     /// transcribing the audio again. Used when only cleanup failed.
     @MainActor
     func retryPostProcessing(item: PipelineHistoryItem) {
         guard requireAvailableHistoryForMutation(),
-              !disablePostProcessing,
+              postProcessingRetryBlocker(for: item) == nil,
               !retryingItemIDs.contains(item.id) else { return }
         let rawTranscript = item.rawTranscript
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !rawTranscript.isEmpty else { return }
 
         let restored = restoredRetryInputs(for: item)
         let completion = TranscriptionCompletionSnapshot(

@@ -3777,6 +3777,31 @@ struct AppStateTranscriptionConfigurationTests {
                 appState.postProcessingBackendChoice = .cloud(modelID: "provider/model")
                 let issue = originalItem.userIssueRecord
                 precondition(issue?.recoveryAction == .retryPostProcessing)
+
+                // With post-processing off, the note explains instead of the
+                // button silently doing nothing, and nothing starts.
+                appState.disablePostProcessing = true
+                precondition(appState.postProcessingRetryBlocker(for: originalItem) == .postProcessingOff)
+                appState.retryPostProcessing(item: originalItem)
+                precondition(!appState.retryingItemIDs.contains(originalItem.id))
+                appState.disablePostProcessing = false
+
+                let emptyItem = PipelineHistoryItem(
+                    timestamp: Date(timeIntervalSince1970: 2),
+                    rawTranscript: "  ",
+                    postProcessedTranscript: "",
+                    postProcessingPrompt: nil,
+                    contextSummary: "",
+                    contextScreenshotDataURL: nil,
+                    contextScreenshotStatus: "No screenshot",
+                    postProcessingStatus: originalItem.postProcessingStatus,
+                    debugStatus: "Done",
+                    customVocabulary: "",
+                    usedLocalTranscription: true
+                )
+                precondition(appState.postProcessingRetryBlocker(for: emptyItem) == .noTranscript)
+
+                precondition(appState.postProcessingRetryBlocker(for: originalItem) == nil)
                 appState.retryPostProcessing(item: originalItem)
                 precondition(appState.retryingItemIDs.contains(originalItem.id))
                 precondition(appState.postProcessingNoteIDs.contains(originalItem.id))

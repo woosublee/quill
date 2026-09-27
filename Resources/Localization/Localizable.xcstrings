@@ -17924,6 +17924,38 @@
           }
         }
       }
+    },
+    "Turn on post-processing in Settings to retry.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on post-processing in Settings to retry."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정에서 후처리를 켜면 다시 시도할 수 있습니다."
+          }
+        }
+      }
+    },
+    "There is no transcript to post-process.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There is no transcript to post-process."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "후처리할 전사문이 없습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
