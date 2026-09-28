@@ -8,6 +8,26 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.4.1] - 2026-09-28
+
+### Improved
+
+- Kept a note's own name in the note list while it is transcribed again, instead of showing "Transcribing..." or "Post-processing...". Imported files transcribed by a cloud model are shown as "Imported Audio" while they transcribe, instead of "New Recording".
+- Gave the Settings window the same clean title bar as the Note Browser, with no title text or separator line.
+- Made double-clicking the top of the Note Browser and Settings follow your macOS setting for double-clicking a window's title bar (zoom, minimize, or do nothing).
+- Made Tab move to the next field from a note's title instead of typing a tab.
+- Made the note list usable from the keyboard: Tab reaches it, and ↑/↓ open the note above or below.
+- Improved VoiceOver across the app:
+  - Note list rows read the name, date, and status.
+  - The note detail's audio player, title, and transcript are labeled, and ←/→ move playback by 5 seconds.
+  - Copy announces "Copied", and summary sections are headings.
+  - The recording overlay labels its Stop button and announces transcribing, done, failures, and full error messages.
+  - Meeting reminders are announced, with Start and Close available.
+  - Setup and the permission guide can be used with VoiceOver and the keyboard.
+  - Settings reports the selected tab and options.
+  - The menu bar icon reads Quill's current state.
+- Followed macOS accessibility display settings: Reduce Motion stops looping animations, Increase Contrast strengthens faint text and lines, Differentiate Without Color marks failed notes with a symbol, and Reduce Transparency makes the Note Browser's translucent bars solid.
+
 ## [0.4.0] - 2026-09-27
 
 ### Added
