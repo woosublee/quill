@@ -4408,6 +4408,9 @@ private struct YellowSpinner: View {
             .frame(width: 8, height: 8)
             .rotationEffect(.degrees(rotation))
             .onAppear {
+                // Start from 0 each time: after Reduce Motion is turned off
+                // again, the ring reappears with rotation still at 360.
+                rotation = 0
                 withAnimation(.linear(duration: 0.75).repeatForever(autoreverses: false)) {
                     rotation = 360
                 }

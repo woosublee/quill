@@ -410,6 +410,10 @@ struct RecoveredRecordingNoteBrowserSourceTests {
     /// #395: Reduce Motion, Increase Contrast, Differentiate Without Color,
     /// and Reduce Transparency each change the Note Browser only when on.
     private static func testNoteBrowserRespectsDisplayPreferences(_ source: String) {
+        // The spinner restarts from 0 when it reappears after Reduce Motion
+        // is turned off, so it can't stay frozen at 360.
+        precondition(source.contains("rotation = 0\n                withAnimation(.linear(duration: 0.75).repeatForever(autoreverses: false))"))
+
         // Reduce Motion: the list spinner and the REC dot stop looping.
         let spinner = block(source, from: "private struct YellowSpinner: View {", to: "// MARK: - Live Recording Badge")
         precondition(spinner.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
