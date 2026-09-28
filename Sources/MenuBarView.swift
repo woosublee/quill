@@ -433,7 +433,11 @@ struct MenuBarView: View {
                         ProgressView()
                             .controlSize(.small)
                     }
-                    Text(updateManager.isChecking ? String(localized: "Checking for Updates...") : String(localized: "Check for Updates"))
+                    Text(updateManager.isChecking
+                        ? String(localized: "Checking for Updates...")
+                        : updateManager.hasPendingInstall
+                        ? String(localized: "Restart to Update")
+                        : String(localized: "Check for Updates"))
                 }
             }
             .disabled(updateManager.isChecking)
@@ -450,6 +454,20 @@ struct MenuBarView: View {
                             .font(.caption.weight(.semibold))
                     }
                     .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.blue)
+
+                case .readyToInstall:
+                    Button {
+                        updateManager.installReadyUpdateNow()
+                    } label: {
+                        Label("Restart to Update", systemImage: "arrow.down.circle.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .font(.caption.weight(.semibold))
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity)

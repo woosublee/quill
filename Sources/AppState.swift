@@ -12742,7 +12742,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         NotificationCenter.default.post(name: .showSettings, object: nil)
 
         DispatchQueue.main.async {
-            if UpdateManager.shared.updateAvailable {
+            if UpdateManager.shared.hasPendingInstall {
+                // Already downloaded and verified: restart to install it.
+                UpdateManager.shared.installReadyUpdateNow()
+            } else if UpdateManager.shared.updateAvailable {
                 UpdateManager.shared.showUpdateAlert()
             }
         }

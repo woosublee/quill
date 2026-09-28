@@ -9,8 +9,49 @@ enum UpdateStatus: Equatable {
     case idle
     case downloading
     case installing
+    /// Downloaded in the background and waiting to install. Sparkle installs
+    /// it when Quill quits; the user can also restart to install it now.
+    case readyToInstall
     case readyToRelaunch
     case error(String)
+}
+
+// MARK: - Install Handoff
+
+/// Sparkle's install-on-quit handoff, kept apart from Sparkle so its rules can
+/// be tested without a real updater. With automatic installation on, Sparkle
+/// downloads and verifies an update, then offers a handler that installs it
+/// and relaunches. Quill keeps that handler until it runs or the update cycle
+/// ends in failure.
+struct UpdateInstallHandoff {
+    /// Answer to Sparkle's `willInstallUpdateOnQuit`: Quill takes control so it
+    /// can offer Restart to Update. Sparkle still installs on quit, and pauses
+    /// new checks until then.
+    static let takesControlOfInstallOnQuit = true
+
+    private var install: (() -> Void)?
+
+    var isPending: Bool { install != nil }
+
+    mutating func receive(_ handler: @escaping () -> Void) {
+        install = handler
+    }
+
+    /// Starts the install. Returns false when nothing is pending. The handler
+    /// stays, because Sparkle allows it again after a canceled quit (for
+    /// example during a recording).
+    @discardableResult
+    func installNow() -> Bool {
+        guard let install else { return false }
+        install()
+        return true
+    }
+
+    /// Drops the handler when the update cycle ends in failure, so later
+    /// checks start a fresh cycle instead of calling a finished one.
+    mutating func clear() {
+        install = nil
+    }
 }
 
 // MARK: - Update Manager
@@ -66,6 +107,7 @@ final class UpdateManager: NSObject, ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: "updateLastPostTranscriptionReminderDate") }
     }
     private var releaseNotesURL: URL?
+    private var installHandoff = UpdateInstallHandoff()
     private var hasStartedUpdater = false
     private var updaterObservationCancellables: Set<AnyCancellable> = []
 
@@ -155,6 +197,13 @@ final class UpdateManager: NSObject, ObservableObject {
             return
         }
 
+        // While a downloaded update waits (Sparkle pauses new checks until
+        // it installs), a manual check installs it instead of doing nothing.
+        if userInitiated, hasPendingInstall {
+            installReadyUpdateNow()
+            return
+        }
+
         startUpdaterIfNeeded()
         guard updaterController.updater.canCheckForUpdates else { return }
 
@@ -170,13 +219,36 @@ final class UpdateManager: NSObject, ObservableObject {
         }
     }
 
-    func showReleaseNotes() {
-        if let releaseNotesURL {
-            NSWorkspace.shared.open(releaseNotesURL)
-        } else {
+    /// True while Sparkle holds a downloaded, verified update for Quill to
+    /// install; Sparkle runs no new checks until it installs.
+    var hasPendingInstall: Bool { installHandoff.isPending }
+
+    /// False when the update has no release notes or info link; then "What's
+    /// New" is hidden rather than falling back to a check.
+    var hasReleaseNotes: Bool { releaseNotesURL != nil }
+
+    /// Installs the update Sparkle already downloaded and verified, then
+    /// relaunches. The status changes only when Sparkle actually relaunches
+    /// (`updaterWillRelaunchApplication`), so canceling the quit prompt (for
+    /// example during a recording) keeps Restart to Update available; the
+    /// handler can be called again. With nothing pending, this runs a normal
+    /// manual check.
+    func installReadyUpdateNow() {
+        if !installHandoff.installNow() {
             showUpdateAlert()
         }
     }
+
+    func showReleaseNotes() {
+        if let releaseNotesURL {
+            NSWorkspace.shared.open(releaseNotesURL)
+        } else if !hasPendingInstall {
+            // Without notes, fall back to a check, but never to installing
+            // a waiting update from a "What's New" click.
+            showUpdateAlert()
+        }
+    }
+
 
     func showUpToDateAlert() {
         let alert = NSAlert()
@@ -197,7 +269,7 @@ final class UpdateManager: NSObject, ObservableObject {
 
     func shouldShowPostTranscriptionReminder() -> Bool {
         guard updateAvailable,
-              updateStatus == .idle,
+              updateStatus == .idle || updateStatus == .readyToInstall,
               !latestReleaseVersion.isEmpty else {
             return false
         }
@@ -330,6 +402,7 @@ final class UpdateManager: NSObject, ObservableObject {
 extension UpdateManager: SPUUpdaterDelegate {
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
         applyAvailableUpdate(item)
+        lastCheckDate = Date()
     }
 
     func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) {
@@ -386,11 +459,29 @@ extension UpdateManager: SPUUpdaterDelegate {
         updateStatus = .readyToRelaunch
     }
 
+    /// With automatic installation on, Sparkle downloads in the background and
+    /// waits to install until Quill quits. A menu-bar app rarely quits, so
+    /// without this the status stayed "Preparing update..." forever. Take the
+    /// handoff and offer Restart to Update; Sparkle still installs on quit.
+    func updater(
+        _ updater: SPUUpdater,
+        willInstallUpdateOnQuit item: SUAppcastItem,
+        immediateInstallationBlock immediateInstallHandler: @escaping () -> Void
+    ) -> Bool {
+        applyAvailableUpdate(item)
+        installHandoff.receive(immediateInstallHandler)
+        updateStatus = .readyToInstall
+        isChecking = false
+        lastCheckDate = Date()
+        return UpdateInstallHandoff.takesControlOfInstallOnQuit
+    }
+
     func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
         updateStatus = .readyToRelaunch
     }
 
     func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        installHandoff.clear()
         updateStatus = .error(LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Update failed"), providerDetail: error.localizedDescription))
         isChecking = false
     }
@@ -402,8 +493,13 @@ extension UpdateManager: SPUUpdaterDelegate {
             let nsError = error as NSError
             if nsError.domain == SUSparkleErrorDomain, nsError.code == SUError.noUpdateError.rawValue {
                 clearAvailableUpdate()
-            } else if updateStatus == .idle {
-                updateStatus = .error(LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Update failed"), providerDetail: error.localizedDescription))
+            } else {
+                // The cycle ended in failure; a stored handler would point at
+                // a finished cycle, so later checks must start fresh.
+                installHandoff.clear()
+                if updateStatus == .idle || updateStatus == .readyToInstall {
+                    updateStatus = .error(LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Update failed"), providerDetail: error.localizedDescription))
+                }
             }
         }
     }
