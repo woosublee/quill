@@ -18133,6 +18133,70 @@
         }
       }
     },
+    "Quill": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill"
+          }
+        }
+      }
+    },
+    "Quill, recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill, recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill, 녹음 중"
+          }
+        }
+      }
+    },
+    "Quill, transcribing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill, transcribing"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill, 전사 중"
+          }
+        }
+      }
+    },
+    "Quill, word added to vocabulary": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill, word added to vocabulary"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill, 어휘에 단어 추가됨"
+          }
+        }
+      }
+    },
     "Cancel model download": {
       "localizations": {
         "en": {
