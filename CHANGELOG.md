@@ -8,6 +8,16 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.4.2] - 2026-09-28
+
+### Fixed
+
+- Fixed automatic updates getting stuck on "Preparing update..." when Quill downloads an update in the background. Settings now says the update is ready to install, and Settings and the menu bar offer Restart to Update. The update still installs when you quit Quill. Updating to this version may still need Check for Updates or quitting Quill once.
+
+### Improved
+
+- Removed the technical note about how updates are delivered from the Updates settings.
+
 ## [0.4.1] - 2026-09-28
 
 ### Improved
