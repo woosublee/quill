@@ -36,7 +36,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(appStateSource.contains("NotificationCenter.default.post(name: .showSettings, object: nil)"))
         precondition(source.contains("appState.deleteHistoryEntry(id: id)"))
         precondition(source.contains("Image(systemName: \"arrow.clockwise.circle\")"))
-        precondition(source.contains(".foregroundStyle(.orange.opacity(0.7))"))
+        precondition(source.contains(".foregroundStyle(.orange.opacity(QuillContrast.opacity(0.7, increased: increasesContrast)))"))
         precondition(source.contains("if isRecoveredRecording {"))
         precondition(source.contains("} else if isError {"))
         precondition(source.contains("appState.cloudTranscriptionProgressByHistoryID[item.id]"))
@@ -58,6 +58,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         try testInputMenuCatcherDisablesAndLocalizesSources(source)
         try testNoteDetailAccessibility(source)
         testNoteListKeyboardAndVoiceOver(source)
+        testNoteBrowserRespectsDisplayPreferences(source)
         testMenuPillsAreKeyboardAndVoiceOverAccessible(source)
         try testRecoveryImportPreservesSelectedListPosition(source)
 
@@ -94,7 +95,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(header.contains("} else if selection.showsSelectionUI {\n                    Text(verbatim: selectedCountText)"))
         precondition(header.contains("Button(\"Select All\")"))
         precondition(header.contains("Text(verbatim: selectedCountText)"))
-        precondition(header.contains(".background(.ultraThinMaterial)"))
+        precondition(header.contains(".background(QuillTransparency.background(.ultraThinMaterial, reduceTransparency: reduceTransparency))"))
         precondition(source.contains(".frame(width: 66, height: 26)"))
         precondition(source.contains("if appState.selectedAudioSource == .microphoneAndSystemAudio {"))
         precondition(source.contains(".ignoresSafeArea(.container, edges: .top)"))
@@ -404,6 +405,55 @@ struct RecoveredRecordingNoteBrowserSourceTests {
                 && reader.contains("request: recoveryScrollRestoreRequest"),
             "ScrollViewReader observes the scheduled recovery request and restores the matching row"
         )
+    }
+
+    /// #395: Reduce Motion, Increase Contrast, Differentiate Without Color,
+    /// and Reduce Transparency each change the Note Browser only when on.
+    private static func testNoteBrowserRespectsDisplayPreferences(_ source: String) {
+        // Reduce Motion: the list spinner and the REC dot stop looping.
+        let spinner = block(source, from: "private struct YellowSpinner: View {", to: "// MARK: - Live Recording Badge")
+        precondition(spinner.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
+        precondition(spinner.contains("if reduceMotion {"))
+        precondition(spinner.contains("Image(systemName: \"hourglass\")"))
+        precondition(spinner.contains(".repeatForever(autoreverses: false)"))
+        let badge = block(source, from: "private struct LiveRecordingBadge: View {", to: "private struct RecordingElapsedTitle")
+        precondition(badge.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
+        precondition(badge.contains("if reduceMotion {"))
+        precondition(badge.contains(".repeatForever(autoreverses: true)"))
+
+        // Increase Contrast: row date, badges, and detail metadata strengthen.
+        let row = block(source, from: "private struct NoteListRow: View {", to: "private struct SidebarCapsuleButtonStyle")
+        precondition(row.contains("@Environment(\\.colorSchemeContrast) private var colorSchemeContrast"))
+        precondition(row.contains(": Color.secondary.opacity(metaOpacity(0.7))"))
+        precondition(row.contains("QuillContrast.fillOpacity(0.08, increased: increasesContrast)"))
+        let detail = block(source, from: "private struct NoteDetailView: View {", to: "private struct SummaryIssueViewAction")
+        precondition(detail.contains("@Environment(\\.colorSchemeContrast) private var colorSchemeContrast"))
+        precondition(detail.contains("QuillContrast.hierarchicalStyle(.tertiary, increased: increasesContrast)"))
+        precondition(detail.contains("QuillContrast.hierarchicalStyle(.quaternary, increased: increasesContrast)"))
+        precondition(detail.contains("QuillContrast.opacity(active ? 0.7 : 0.5, increased: increasesContrast)"))
+        precondition(!detail.contains(".foregroundStyle(.quaternary)"))
+
+        // Differentiate Without Color: failed gets a symbol only when on; the
+        // default red dot stays.
+        precondition(row.contains("@Environment(\\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor"))
+        precondition(row.contains(
+            "case .fail:\n            if differentiateWithoutColor {\n"
+                + "                // Differentiate Without Color"
+        ))
+        precondition(row.contains("Image(systemName: \"exclamationmark.triangle.fill\")"))
+        precondition(row.contains(
+            "            } else {\n                Circle()\n                    .fill(Color.red)\n                    .frame(width: 6, height: 6)"
+        ))
+
+        // Reduce Transparency: sidebar, header, and floating toolbars are opaque.
+        let materialSwaps = source.components(
+            separatedBy: "QuillTransparency.background(.ultraThinMaterial, reduceTransparency: reduceTransparency)"
+        ).count - 1
+        precondition(materialSwaps == 3, "Header, sidebar, and multi-select delete button")
+        precondition(!source.contains(".background(.ultraThinMaterial)"))
+        precondition(detail.contains(
+            "if reduceTransparency {\n                Capsule().fill(QuillTransparency.opaqueBackgroundColor)"
+        ))
     }
 
     private static func expect(

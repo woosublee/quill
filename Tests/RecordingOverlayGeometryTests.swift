@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import SwiftUI
 
 @main
 struct RecordingOverlayGeometryTests {
@@ -18,6 +19,9 @@ struct RecordingOverlayGeometryTests {
         try testHostingViewsUseFixedIntrinsicContentSize()
         testOverlayAccessibilityAnnouncementMessages()
         try testOverlayAccessibilitySourceContract()
+        testMotionHelperWithInjectedReduceMotion()
+        testContrastHelperWithInjectedIncreaseContrast()
+        try testOverlaysRespectReduceMotionSourceContract()
         print("RecordingOverlayGeometryTests passed")
     }
 
@@ -319,5 +323,105 @@ struct RecordingOverlayGeometryTests {
         assert(catcher.contains("override func accessibilityPerformPress() -> Bool {\n            showInputMenu()"))
         assert(catcher.contains("override func accessibilityPerformShowMenu() -> Bool {\n            showInputMenu()"))
         assert(catcher.contains("override func mouseDown(with event: NSEvent) {\n            showInputMenu()"))
+    }
+
+    /// #395: Reduce Motion is injected, never read from the live system setting.
+    private static func testMotionHelperWithInjectedReduceMotion() {
+        let base = Animation.spring(response: 0.28, dampingFraction: 0.8)
+        precondition(QuillMotion.animation(base, reduceMotion: false) == base)
+        precondition(QuillMotion.animation(base, reduceMotion: true) == nil)
+        precondition(QuillMotion.animation(nil, reduceMotion: false) == nil)
+
+        precondition(QuillMotion.animatesPanel(true, reduceMotion: false))
+        precondition(!QuillMotion.animatesPanel(true, reduceMotion: true))
+        precondition(!QuillMotion.animatesPanel(false, reduceMotion: false))
+        precondition(!QuillMotion.animatesPanel(false, reduceMotion: true))
+    }
+
+    /// #395: with Increase Contrast off every value is unchanged; on, faint
+    /// values strengthen and keep their order.
+    private static func testContrastHelperWithInjectedIncreaseContrast() {
+        for value in [0.0, 0.04, 0.35, 0.5, 0.55, 0.7, 0.85, 1.0] {
+            precondition(QuillContrast.opacity(value, increased: false) == value)
+            precondition(QuillContrast.fillOpacity(value, increased: false) == value)
+            precondition(QuillContrast.opacity(value, increased: true) >= value)
+            precondition(QuillContrast.fillOpacity(value, increased: true) >= value)
+        }
+        precondition(abs(QuillContrast.opacity(0.35, increased: true) - 0.675) < 0.0001)
+        precondition(abs(QuillContrast.opacity(0.5, increased: true) - 0.75) < 0.0001)
+        precondition(abs(QuillContrast.opacity(0.7, increased: true) - 0.85) < 0.0001)
+        precondition(QuillContrast.opacity(1.0, increased: true) == 1.0)
+        precondition(
+            QuillContrast.opacity(0.5, increased: true) < QuillContrast.opacity(0.7, increased: true),
+            "Inactive tags stay fainter than active tags"
+        )
+        precondition(abs(QuillContrast.fillOpacity(0.08, increased: true) - 0.16) < 0.0001)
+        precondition(QuillContrast.fillOpacity(0.8, increased: true) == 1.0)
+
+        precondition(QuillContrast.emphasis(.tertiary, increased: false) == .tertiary)
+        precondition(QuillContrast.emphasis(.quaternary, increased: false) == .quaternary)
+        precondition(QuillContrast.emphasis(.tertiary, increased: true) == .secondary)
+        precondition(QuillContrast.emphasis(.quaternary, increased: true) == .secondary)
+    }
+
+    /// #395: each moving part of the recording and reminder overlays reads
+    /// Reduce Motion, and the default animations are still present.
+    private static func testOverlaysRespectReduceMotionSourceContract() throws {
+        let source = try String(contentsOfFile: "Sources/RecordingOverlay.swift", encoding: .utf8)
+        let reminder = try String(contentsOfFile: "Sources/MeetingReminderOverlay.swift", encoding: .utf8)
+
+        func view(_ start: String, _ end: String) -> Substring {
+            guard let lower = source.range(of: start)?.lowerBound,
+                  let upper = source.range(of: end, range: lower..<source.endIndex)?.lowerBound else {
+                preconditionFailure("Expected source block \(start)")
+            }
+            return source[lower..<upper]
+        }
+
+        let waveform = view("struct WaveformView: View", "struct CompactWaveformView")
+        precondition(waveform.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
+        precondition(waveform.contains("if showsActivityPulse && !reduceMotion {"))
+        precondition(waveform.contains("TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false))"))
+
+        let processing = view("struct ProcessingWaveformView: View", "private struct ProcessingPill")
+        precondition(processing.contains("if reduceMotion {\n            ReducedMotionProcessingIndicator()"))
+        precondition(processing.contains("Image(systemName: \"hourglass\")"))
+
+        let indicator = view("struct ProcessingIndicatorView: View", "struct InitializingDotsView")
+        precondition(indicator.contains("if showsExtendedSpinner && !reduceMotion {"))
+        precondition(indicator.contains(".repeatForever(autoreverses: false)"))
+
+        let dots = view("struct InitializingDotsView: View", "private struct NotchExtensionBackground")
+        precondition(dots.contains("reduceMotion ? 0.6 : (activeDot == index ? 0.9 : 0.25)"))
+
+        let notch = view("private struct NotchSideOverlayView", "struct RecordingOverlayView")
+        let pill = view("struct RecordingOverlayView: View", "struct InputSwitchMenu")
+        for block in [notch, pill] {
+            precondition(block.contains("@Environment(\\.accessibilityReduceMotion) private var reduceMotion"))
+            precondition(block.contains(".animation(phaseAnimation, value: state.phase)"))
+            precondition(block.contains(
+                "QuillMotion.animation(.spring(response: 0.28, dampingFraction: 0.8), reduceMotion: reduceMotion)"
+            ))
+            precondition(!block.contains(" .animation(.spring("))
+        }
+
+        // Panel slide-in and resize skip their motion under Reduce Motion.
+        precondition(source.contains(
+            "guard QuillMotion.animatesPanel(true, reduceMotion: QuillMotion.systemReduceMotion) else {"
+        ))
+        precondition(source.contains(
+            "guard QuillMotion.animatesPanel(animated, reduceMotion: QuillMotion.systemReduceMotion) else {"
+        ))
+        let reminderPanelGuards = reminder.components(
+            separatedBy: "guard QuillMotion.animatesPanel(animated, reduceMotion: QuillMotion.systemReduceMotion) else {"
+        ).count - 1
+        precondition(reminderPanelGuards == 2, "Reminder slide-in and resize both skip motion")
+        precondition(reminder.contains("let hiddenFrame = QuillMotion.systemReduceMotion\n            ? currentFrame"))
+        precondition(reminder.contains(
+            "if QuillMotion.animatesPanel(animated, reduceMotion: QuillMotion.systemReduceMotion) {"
+        ))
+        precondition(reminder.contains(
+            "QuillMotion.animation(meetingReminderContentTransitionAnimation, reduceMotion: reduceMotion)"
+        ))
     }
 }

@@ -532,6 +532,10 @@ struct NoteBrowserView: View {
     @FocusState private var isSearchFieldFocused: Bool
     @State private var noteListTopOffset: CGFloat = 0
     @State private var sidebarHeaderHeight: CGFloat = 0
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    private var increasesContrast: Bool { colorSchemeContrast == .increased }
 
     private var filteredHistory: [PipelineHistoryItem] {
         guard !searchText.isEmpty else { return appState.pipelineHistory }
@@ -855,7 +859,10 @@ struct NoteBrowserView: View {
         .foregroundStyle(.primary)
         .padding(.horizontal, 7)
         .frame(width: 66, height: 26)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+        .background(
+            Color.primary.opacity(QuillContrast.fillOpacity(0.06, increased: increasesContrast)),
+            in: RoundedRectangle(cornerRadius: 7)
+        )
         .contentShape(Rectangle())
         // The overlay below is the control VoiceOver reads.
         .accessibilityHidden(true)
@@ -940,7 +947,10 @@ struct NoteBrowserView: View {
         .padding(.horizontal, 8)
         .frame(height: 26)
         .frame(maxWidth: .infinity)
-        .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+        .background(
+            Color.primary.opacity(QuillContrast.fillOpacity(0.06, increased: increasesContrast)),
+            in: RoundedRectangle(cornerRadius: 7)
+        )
         .opacity(isEnabled ? 1 : 0.45)
         .contentShape(Rectangle())
         // The overlay below is the control VoiceOver reads.
@@ -1094,11 +1104,11 @@ struct NoteBrowserView: View {
         }
         // Always translucent, so notes never show through unblurred even when
         // a fast scroll outruns the scroll-offset update. Only the hairline
-        // follows the scroll position.
-        .background(.ultraThinMaterial)
+        // follows the scroll position. Opaque under Reduce Transparency.
+        .background(QuillTransparency.background(.ultraThinMaterial, reduceTransparency: reduceTransparency))
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(Color.primary.opacity(0.1))
+                .fill(Color.primary.opacity(QuillContrast.fillOpacity(0.1, increased: increasesContrast)))
                 .frame(height: 0.5)
                 .opacity(isNoteListScrolled ? 1 : 0)
         }
@@ -1172,10 +1182,10 @@ struct NoteBrowserView: View {
             }
         }
         .frame(width: 280)
-        .background(.ultraThinMaterial)
+        .background(QuillTransparency.background(.ultraThinMaterial, reduceTransparency: reduceTransparency))
         .overlay(alignment: .trailing) {
             Rectangle()
-                .fill(Color.primary.opacity(0.07))
+                .fill(Color.primary.opacity(QuillContrast.fillOpacity(0.07, increased: increasesContrast)))
                 .frame(width: 0.5)
         }
         // The sidebar runs under the transparent title bar, so its first row
@@ -1674,7 +1684,11 @@ private struct NoteListRow: View {
 
     @EnvironmentObject private var exportManager: ObsidianExportManager
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
     @State private var isHovered = false
+
+    private var increasesContrast: Bool { colorSchemeContrast == .increased }
 
     private var isExporting: Bool { exportManager.processingIDs.contains(displayData.id) }
 
@@ -1706,7 +1720,10 @@ private struct NoteListRow: View {
                             .foregroundStyle(selectedMetaColor)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
-                            .background(Color.primary.opacity(0.08), in: Capsule())
+                            .background(
+                                Color.primary.opacity(QuillContrast.fillOpacity(0.08, increased: increasesContrast)),
+                                in: Capsule()
+                            )
                     }
                     if displayData.hasMeetingSummary {
                         Text(localizedCatalogString("Summary"))
@@ -1714,7 +1731,10 @@ private struct NoteListRow: View {
                             .foregroundStyle(selectedMetaColor)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
-                            .background(Color.primary.opacity(0.08), in: Capsule())
+                            .background(
+                                Color.primary.opacity(QuillContrast.fillOpacity(0.08, increased: increasesContrast)),
+                                in: Capsule()
+                            )
                     }
                     Spacer()
                     statusIndicator
@@ -1783,11 +1803,16 @@ private struct NoteListRow: View {
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
+    /// Row date and badges; stronger under Increase Contrast.
     private var selectedMetaColor: Color {
-        if isKeyboardHighlighted { return Color.white.opacity(0.85) }
+        if isKeyboardHighlighted { return Color.white.opacity(metaOpacity(0.85)) }
         return isSelected
-            ? (colorScheme == .dark ? Color.white.opacity(0.72) : Color.primary.opacity(0.55))
-            : Color.secondary.opacity(0.7)
+            ? (colorScheme == .dark ? Color.white.opacity(metaOpacity(0.72)) : Color.primary.opacity(metaOpacity(0.55)))
+            : Color.secondary.opacity(metaOpacity(0.7))
+    }
+
+    private func metaOpacity(_ normal: Double) -> Double {
+        QuillContrast.opacity(normal, increased: increasesContrast)
     }
 
     private var selectedTitleColor: Color {
@@ -1815,7 +1840,8 @@ private struct NoteListRow: View {
             // same color as the accent visible.
             .overlay {
                 if isKeyboardHighlighted,
-                   [.done, .audioOnly, .fail].contains(displayData.status) {
+                   [.done, .audioOnly, .fail].contains(displayData.status),
+                   !(differentiateWithoutColor && displayData.status == .fail) {
                     Circle()
                         .strokeBorder(Color.white.opacity(0.9), lineWidth: 1)
                         .frame(width: 8, height: 8)
@@ -1840,7 +1866,7 @@ private struct NoteListRow: View {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         Text(verbatim: RecordingElapsedFormatter.string(from: startedAt, to: context.date))
                             .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(.red.opacity(0.8))
+                            .foregroundStyle(.red.opacity(metaOpacity(0.8)))
                     }
                 }
             }
@@ -1853,11 +1879,19 @@ private struct NoteListRow: View {
         case .recovered:
             Image(systemName: "arrow.clockwise.circle")
                 .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.orange.opacity(0.7))
+                .foregroundStyle(.orange.opacity(metaOpacity(0.7)))
         case .fail:
-            Circle()
-                .fill(Color.red)
-                .frame(width: 6, height: 6)
+            if differentiateWithoutColor {
+                // Differentiate Without Color: a failed note gets a shape,
+                // not only a red dot that matches a finished note's size.
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(isKeyboardHighlighted ? Color.white : Color.red)
+            } else {
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 6, height: 6)
+            }
         }
     }
 
@@ -1928,6 +1962,7 @@ private struct NoteMultiSelectionPanel: View {
     let onDelete: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -1961,7 +1996,9 @@ private struct NoteMultiSelectionPanel: View {
                 .foregroundStyle(Color.red.opacity(count == 0 ? 0.4 : 0.9))
                 .padding(.horizontal, 14)
                 .frame(height: 38)
-                .background(Capsule().fill(.ultraThinMaterial))
+                .background(Capsule().fill(
+                    QuillTransparency.background(.ultraThinMaterial, reduceTransparency: reduceTransparency)
+                ))
                 .overlay(Capsule().strokeBorder(toolbarStrokeColor, lineWidth: 0.6))
                 .shadow(color: .black.opacity(0.085), radius: 14, x: 0, y: 4)
             }
@@ -2069,6 +2106,8 @@ private struct NoteDetailView: View {
     let onDelete: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @EnvironmentObject var appState: AppState
     @State private var loadedContent: String?
     @State private var isCopied = false
@@ -2277,6 +2316,8 @@ private struct NoteDetailView: View {
         NoteTitleResolver.suggestedCalendarTitle(for: item)
     }
 
+    private var increasesContrast: Bool { colorSchemeContrast == .increased }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             VStack(spacing: 0) {
@@ -2473,7 +2514,7 @@ private struct NoteDetailView: View {
         .padding(.top, 32)
         .padding(.bottom, 14)
         .overlay(alignment: .bottom) {
-            Divider().opacity(0.4)
+            Divider().opacity(QuillContrast.opacity(0.4, increased: increasesContrast))
         }
     }
 
@@ -2503,7 +2544,7 @@ private struct NoteDetailView: View {
     private func detailTimestampLabel(_ detailTimestamp: String) -> some View {
         Text(detailTimestamp)
             .font(.system(size: 10, design: .monospaced))
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(QuillContrast.hierarchicalStyle(.tertiary, increased: increasesContrast))
             .textCase(.uppercase)
             .kerning(0.5)
             .lineLimit(1)
@@ -2521,7 +2562,7 @@ private struct NoteDetailView: View {
         } else if isRecoveredRecording {
             Image(systemName: "arrow.clockwise.circle")
                 .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.orange.opacity(0.7))
+                .foregroundStyle(.orange.opacity(QuillContrast.opacity(0.7, increased: increasesContrast)))
                 .help("Recording recovered after an unexpected shutdown")
                 .accessibilityLabel(Text("Recording recovered after an unexpected shutdown"))
         }
@@ -2601,7 +2642,7 @@ private struct NoteDetailView: View {
     private var metaDot: some View {
         Text("·")
             .font(.system(size: 9, design: .monospaced))
-            .foregroundStyle(.quaternary)
+            .foregroundStyle(QuillContrast.hierarchicalStyle(.quaternary, increased: increasesContrast))
     }
 
     /// A label with a tooltip. It is plain text, not a button, so Tab and
@@ -2609,7 +2650,9 @@ private struct NoteDetailView: View {
     private func metaTag(_ label: String, active: Bool, help tooltip: LocalizedStringKey) -> some View {
         Text(label)
             .font(.system(size: 9, weight: .medium, design: .monospaced))
-            .foregroundStyle(active ? Color.secondary.opacity(0.7) : Color.secondary.opacity(0.5))
+            .foregroundStyle(Color.secondary.opacity(
+                QuillContrast.opacity(active ? 0.7 : 0.5, increased: increasesContrast)
+            ))
             .padding(.vertical, 3)
             .padding(.horizontal, 2)
             .contentShape(Rectangle())
@@ -3213,15 +3256,20 @@ private struct NoteDetailView: View {
         .padding(.horizontal, 8)
         .frame(height: Self.floatingToolbarHeight)
         .background {
-            #if compiler(>=6.2)
-            if #available(macOS 26.0, *) {
-                Color.clear.glassEffect(.regular, in: Capsule())
+            // Opaque under Reduce Transparency.
+            if reduceTransparency {
+                Capsule().fill(QuillTransparency.opaqueBackgroundColor)
             } else {
+                #if compiler(>=6.2)
+                if #available(macOS 26.0, *) {
+                    Color.clear.glassEffect(.regular, in: Capsule())
+                } else {
+                    Capsule().fill(.ultraThinMaterial)
+                }
+                #else
                 Capsule().fill(.ultraThinMaterial)
+                #endif
             }
-            #else
-            Capsule().fill(.ultraThinMaterial)
-            #endif
         }
         .overlay(Capsule().strokeBorder(toolbarStrokeColor, lineWidth: 0.6))
         .compositingGroup()
@@ -4339,8 +4387,21 @@ private struct NoteTextView: NSViewRepresentable {
 private struct YellowSpinner: View {
     var color: Color = .yellow
     @State private var rotation: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        if reduceMotion {
+            // Reduce Motion: a still hourglass instead of a spinning ring.
+            Image(systemName: "hourglass")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: 8, height: 8)
+        } else {
+            spinner
+        }
+    }
+
+    private var spinner: some View {
         Circle()
             .trim(from: 0, to: 0.65)
             .stroke(color, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
@@ -4359,15 +4420,25 @@ private struct YellowSpinner: View {
 private struct LiveRecordingBadge: View {
     var startedAt: Date?
     @State private var pulsing = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     var body: some View {
         HStack(spacing: 4) {
-            Circle()
-                .fill(Color.red)
-                .frame(width: 5, height: 5)
-                .opacity(pulsing ? 0.3 : 1.0)
-                .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulsing)
-                .onAppear { pulsing = true }
+            if reduceMotion {
+                // Reduce Motion: a steady dot; REC and the timer show the state.
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 5, height: 5)
+                    .onAppear { pulsing = false }
+            } else {
+                Circle()
+                    .fill(Color.red)
+                    .frame(width: 5, height: 5)
+                    .opacity(pulsing ? 0.3 : 1.0)
+                    .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulsing)
+                    .onAppear { pulsing = true }
+            }
             Text("REC")
             if let startedAt {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -4377,7 +4448,9 @@ private struct LiveRecordingBadge: View {
             }
         }
         .font(.system(size: 9, weight: .semibold, design: .monospaced))
-        .foregroundStyle(.red.opacity(0.7))
+        .foregroundStyle(.red.opacity(
+            QuillContrast.opacity(0.7, increased: colorSchemeContrast == .increased)
+        ))
         .help("Recording in progress")
     }
 }
