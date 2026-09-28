@@ -433,7 +433,11 @@ struct MenuBarView: View {
                         ProgressView()
                             .controlSize(.small)
                     }
-                    Text(updateManager.isChecking ? String(localized: "Checking for Updates...") : String(localized: "Check for Updates"))
+                    Text(updateManager.isChecking
+                        ? String(localized: "Checking for Updates...")
+                        : updateManager.hasPendingInstall
+                        ? String(localized: "Restart to Update")
+                        : String(localized: "Check for Updates"))
                 }
             }
             .disabled(updateManager.isChecking)

@@ -64,6 +64,17 @@ struct UpdateManagerSafetyTests {
         assertContains(source, "pendingInstallHandler = immediateInstallHandler")
         assertContains(source, "updateStatus = .readyToInstall")
         assertContains(source, "func installReadyUpdateNow()")
+        // Canceling the quit prompt must keep Restart to Update available:
+        // only Sparkle's relaunch callback changes the status.
+        let install = source.components(separatedBy: "func installReadyUpdateNow() {")[1]
+            .components(separatedBy: "\n    }")[0]
+        precondition(!install.contains("updateStatus ="), "installReadyUpdateNow must not change the status itself")
+        // A manual check while an update waits installs it instead of doing nothing.
+        assertContains(source, "if userInitiated, hasPendingInstall {\n            installReadyUpdateNow()")
+        // The after-transcription reminder also covers a waiting update.
+        assertContains(source, "updateStatus == .idle || updateStatus == .readyToInstall")
+        let appState = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        assertContains(appState, "if UpdateManager.shared.hasPendingInstall {\n                // Already downloaded and verified: restart to install it.\n                UpdateManager.shared.installReadyUpdateNow()")
         // A found update also counts as a check, so "Last checked" moves on.
         assertContains(source, "applyAvailableUpdate(item)\n        lastCheckDate = Date()")
 

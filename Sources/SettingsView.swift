@@ -1051,6 +1051,8 @@ struct GeneralSettingsView: View {
                                 .controlSize(.small)
                             Text("Checking...")
                         }
+                    } else if updateManager.hasPendingInstall {
+                        Text("Restart to Update")
                     } else {
                         Text("Check for Updates Now")
                     }

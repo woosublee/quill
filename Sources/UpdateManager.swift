@@ -161,6 +161,13 @@ final class UpdateManager: NSObject, ObservableObject {
             return
         }
 
+        // While a downloaded update waits (Sparkle pauses new checks until
+        // it installs), a manual check installs it instead of doing nothing.
+        if userInitiated, hasPendingInstall {
+            installReadyUpdateNow()
+            return
+        }
+
         startUpdaterIfNeeded()
         guard updaterController.updater.canCheckForUpdates else { return }
 
@@ -176,14 +183,21 @@ final class UpdateManager: NSObject, ObservableObject {
         }
     }
 
-    /// Installs an update Sparkle already downloaded and verified, then
-    /// relaunches. Falls back to a normal check when nothing is pending.
+    /// True while Sparkle holds a downloaded, verified update for Quill to
+    /// install; Sparkle runs no new checks until it installs.
+    var hasPendingInstall: Bool { pendingInstallHandler != nil }
+
+    /// Installs the update Sparkle already downloaded and verified, then
+    /// relaunches. The status changes only when Sparkle actually relaunches
+    /// (`updaterWillRelaunchApplication`), so canceling the quit prompt (for
+    /// example during a recording) keeps Restart to Update available; the
+    /// handler can be called again. With nothing pending, this runs a normal
+    /// manual check.
     func installReadyUpdateNow() {
         guard let pendingInstallHandler else {
             showUpdateAlert()
             return
         }
-        updateStatus = .readyToRelaunch
         pendingInstallHandler()
     }
 
@@ -214,7 +228,7 @@ final class UpdateManager: NSObject, ObservableObject {
 
     func shouldShowPostTranscriptionReminder() -> Bool {
         guard updateAvailable,
-              updateStatus == .idle,
+              updateStatus == .idle || updateStatus == .readyToInstall,
               !latestReleaseVersion.isEmpty else {
             return false
         }
