@@ -21,6 +21,9 @@ struct SetupFlowTests {
         try testSetupCompletionSharesPostSetupInitializationWithLaunch()
         try testNativeWhisperDownloadDoesNotLockProcessing()
         try testShortcutStepConfiguresHoldAndToggle()
+        try testLocalAIModelCardIsKeyboardAndVoiceOverSelectable()
+        try testStepChangesMoveVoiceOverToHeading()
+        try testPermissionGrantsAreAnnounced()
         print("SetupFlowTests passed")
     }
 
@@ -366,6 +369,105 @@ struct SetupFlowTests {
 
         assert(source.contains("Hold %@ to record"))
         assert(source.contains("Tap %@ to start and stop"))
+    }
+
+    /// #392: a ready Local AI model card must be a real button, not a
+    /// tap-only view, and keep its mouse look via an unstyled button style.
+    private static func testLocalAIModelCardIsKeyboardAndVoiceOverSelectable() throws {
+        let source = try String(contentsOfFile: "Sources/SetupView.swift", encoding: .utf8)
+        let card = sourceBlock(
+            in: source,
+            from: "private func localAITranscriptionCard(",
+            to: "\n    private func localAITranscriptionCardContent("
+        )
+        assert(!card.contains("onTapGesture"), "Local AI card must not rely on a tap gesture for selection")
+        assert(card.contains("Button {\n                    localModel = .localAIModel(id: model.id)"))
+        assert(card.contains(".buttonStyle(SetupUnstyledCardButtonStyle())"))
+        // The download-finished handler sits on a stable container, not a
+        // Group, so it can't miss the model ID change when the card turns
+        // into a button.
+        assert(!card.contains("Group {"))
+        assert(card.contains("VStack(spacing: 0) {"))
+        assert(card.contains(".onChange(of: appState.localAITranscriptionModelID) { selectedID in"))
+        assert(card.contains(".accessibilityValue(isSelected ? Text(\"Selected\") : Text(\"Not selected\"))"))
+
+        let content = sourceBlock(
+            in: source,
+            from: "private func localAITranscriptionCardContent(",
+            to: "\n    private func focusStepTitleForVoiceOver("
+        )
+        assert(!content.contains("onTapGesture"))
+        assert(content.contains("Button(\"Download\")"), "Download stays a separate control")
+        assert(content.contains("\"circle\")\n                .foregroundStyle(isSelected ? Color.accentColor : .secondary)\n                .accessibilityHidden(true)"))
+
+        let style = sourceBlock(
+            in: source,
+            from: "private struct SetupUnstyledCardButtonStyle: ButtonStyle {",
+            to: "\n}\n"
+        )
+        assert(style.contains("configuration.label\n"), "Card button style must render the label unchanged")
+        assert(!style.contains("isPressed") && !style.contains("opacity"), "No pressed effect for mouse users")
+    }
+
+    /// #392: Back and Continue move VoiceOver to the new step heading.
+    private static func testStepChangesMoveVoiceOverToHeading() throws {
+        let source = try String(contentsOfFile: "Sources/SetupView.swift", encoding: .utf8)
+        assert(source.contains("@AccessibilityFocusState private var isStepTitleFocused: Bool"))
+
+        let header = sourceBlock(
+            in: source,
+            from: "private func stepHeader(",
+            to: "\n    private func processingChoiceCard("
+        )
+        assert(header.contains(".accessibilityAddTraits(.isHeader)"))
+        assert(header.contains(".accessibilityFocused($isStepTitleFocused)"))
+
+        let welcome = sourceBlock(in: source, from: "var welcomeStep: some View", to: "\n    var processingStep")
+        assert(welcome.contains(".accessibilityAddTraits(.isHeader)"))
+        assert(welcome.contains(".accessibilityFocused($isStepTitleFocused)"))
+
+        let stepChange = sourceBlock(
+            in: source,
+            from: ".onChange(of: currentStep) { step in",
+            to: "\n        .onChange(of: micPermissionGranted)"
+        )
+        assert(stepChange.contains("focusStepTitleForVoiceOver()"))
+
+        let focus = sourceBlock(
+            in: source,
+            from: "private func focusStepTitleForVoiceOver()",
+            to: "\n    private func announcePermissionGranted("
+        )
+        assert(
+            focus.contains("guard NSWorkspace.shared.isVoiceOverEnabled else { return }"),
+            "Focus moves only when VoiceOver is running"
+        )
+    }
+
+    /// #392: permissions granted during setup are announced without any
+    /// visible change, and not twice while the permission guide is open.
+    private static func testPermissionGrantsAreAnnounced() throws {
+        let source = try String(contentsOfFile: "Sources/SetupView.swift", encoding: .utf8)
+        for (value, message) in [
+            ("micPermissionGranted", "Microphone access granted"),
+            ("accessibilityGranted", "Accessibility access granted"),
+            ("appState.hasSpeechRecognitionPermission", "Speech Recognition access granted"),
+            ("appState.hasScreenRecordingPermission", "Screen & System Audio Recording access granted"),
+            ("notificationAuthorizationGranted", "Notifications allowed")
+        ] {
+            assert(
+                source.contains(".onChange(of: \(value)) { granted in\n            announcePermissionGranted(granted, \"\(message)\")"),
+                "Missing announcement for \(value)"
+            )
+        }
+
+        let announce = sourceBlock(
+            in: source,
+            from: "private func announcePermissionGranted(",
+            to: "\n    private func handleNativeWhisperStatusChange("
+        )
+        assert(announce.contains("guard granted, currentStep == .permissions, !appState.isPermissionGuidePresented"))
+        assert(announce.contains("notification: .announcementRequested"))
     }
 
     private static func sourceBlock(
