@@ -583,7 +583,7 @@ struct LocalizationResourceTests {
         }
 
         let settings = try managedSource("Sources/SettingsView.swift", root: root)
-        assert(settings.components(separatedBy: "localizedCatalogString(isSelected ? \"Selected\" : \"Not selected\")").count == 3)
+        assert(settings.components(separatedBy: "localizedCatalogString(isSelected ? \"Selected\" : \"Not selected\")").count == 5)
     }
 
     private static func assertTask9LocalAISettingsCoverage(root: URL) throws {
