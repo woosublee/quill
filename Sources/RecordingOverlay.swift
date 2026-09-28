@@ -1024,6 +1024,15 @@ final class RecordingOverlayManager {
 
         guard let screen = targetScreen else { return }
 
+        // Reduce Motion: appear in place instead of sliding down from the top.
+        guard QuillMotion.animatesPanel(true, reduceMotion: QuillMotion.systemReduceMotion) else {
+            panel.setFrame(frame, display: true)
+            panel.alphaValue = 1
+            panel.orderFrontRegardless()
+            overlayWindow = panel
+            return
+        }
+
         let hiddenFrame = NSRect(x: frame.origin.x, y: screen.frame.maxY, width: frame.width, height: frame.height)
         panel.setFrame(hiddenFrame, display: true)
         panel.alphaValue = 1
@@ -1117,7 +1126,8 @@ final class RecordingOverlayManager {
     }
 
     private func resize(panel: NSPanel, to frame: NSRect, animated: Bool) {
-        guard animated else {
+        // Reduce Motion: resize in one step.
+        guard QuillMotion.animatesPanel(animated, reduceMotion: QuillMotion.systemReduceMotion) else {
             panel.setFrame(frame, display: true)
             return
         }
@@ -1248,6 +1258,7 @@ struct WaveformBar: View {
 struct WaveformView: View {
     let audioLevel: Float
     var showsActivityPulse = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let barCount = 9
     private static let multipliers: [CGFloat] = [0.35, 0.55, 0.75, 0.9, 1.0, 0.9, 0.75, 0.55, 0.35]
@@ -1255,7 +1266,9 @@ struct WaveformView: View {
 
     var body: some View {
         Group {
-            if showsActivityPulse {
+            // Reduce Motion: bars show the audio level only, with no
+            // traveling pulse.
+            if showsActivityPulse && !reduceMotion {
                 TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { context in
                     waveformBars(pulseTime: context.date.timeIntervalSinceReferenceDate)
                 }
@@ -1271,11 +1284,14 @@ struct WaveformView: View {
             ForEach(0..<Self.barCount, id: \.self) { index in
                 WaveformBar(amplitude: barAmplitude(for: index, pulseTime: pulseTime))
                     .animation(
-                        .spring(
-                            response: barResponse(for: index),
-                            dampingFraction: 0.88
-                        )
-                        .delay(barDelay(for: index)),
+                        QuillMotion.animation(
+                            .spring(
+                                response: barResponse(for: index),
+                                dampingFraction: 0.88
+                            )
+                            .delay(barDelay(for: index)),
+                            reduceMotion: reduceMotion
+                        ),
                         value: audioLevel
                     )
             }
@@ -1327,8 +1343,17 @@ struct CompactProcessingIndicatorView: View {
 struct ProcessingWaveformView: View {
     private static let barCount = 5
     private static let centerIndex = CGFloat((barCount - 1) / 2)
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        if reduceMotion {
+            ReducedMotionProcessingIndicator()
+        } else {
+            animatedBody
+        }
+    }
+
+    private var animatedBody: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { context in
             let time = context.date.timeIntervalSinceReferenceDate
 
@@ -1368,6 +1393,17 @@ struct ProcessingWaveformView: View {
     }
 }
 
+/// Processing under Reduce Motion: a still hourglass instead of moving pills.
+private struct ReducedMotionProcessingIndicator: View {
+    var body: some View {
+        Image(systemName: "hourglass")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.9))
+            .frame(height: 20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
 private struct ProcessingPill: View {
     let amplitude: CGFloat
     let opacity: CGFloat
@@ -1386,10 +1422,12 @@ private struct ProcessingPill: View {
 struct ProcessingIndicatorView: View {
     @State private var showsExtendedSpinner = false
     @State private var rotation: Double = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         ZStack {
-            if showsExtendedSpinner {
+            // Reduce Motion: no spinning ring; the still processing symbol stays.
+            if showsExtendedSpinner && !reduceMotion {
                 Circle()
                     .trim(from: 0.1, to: 0.9)
                     .stroke(Color.white, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
@@ -1414,7 +1452,7 @@ struct ProcessingIndicatorView: View {
             do {
                 try await Task.sleep(nanoseconds: 1_000_000_000)
                 guard !Task.isCancelled else { return }
-                withAnimation(.easeInOut(duration: 0.18)) {
+                withAnimation(QuillMotion.animation(.easeInOut(duration: 0.18), reduceMotion: reduceMotion)) {
                     showsExtendedSpinner = true
                 }
             } catch {}
@@ -1425,14 +1463,19 @@ struct ProcessingIndicatorView: View {
 struct InitializingDotsView: View {
     @State private var activeDot = 0
     @State private var timer: Timer?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(spacing: 4) {
             ForEach(0..<3, id: \.self) { index in
                 Circle()
-                    .fill(.white.opacity(activeDot == index ? 0.9 : 0.25))
+                    // Reduce Motion: three still dots instead of a moving one.
+                    .fill(.white.opacity(reduceMotion ? 0.6 : (activeDot == index ? 0.9 : 0.25)))
                     .frame(width: 4.5, height: 4.5)
-                    .animation(.easeInOut(duration: 0.4), value: activeDot)
+                    .animation(
+                        QuillMotion.animation(.easeInOut(duration: 0.4), reduceMotion: reduceMotion),
+                        value: activeDot
+                    )
             }
         }
         .onAppear {
@@ -1471,6 +1514,7 @@ private struct NotchSideOverlayView: View {
     let rightContentFrame: CGRect
     let onStopButtonPressed: () -> Void
     let onSelectInput: (String) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var showsLiveRecordingContent: Bool {
         state.phase == .recording
@@ -1499,9 +1543,14 @@ private struct NotchSideOverlayView: View {
                 .position(x: rightContentFrame.midX, y: rightContentFrame.midY)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.phase)
-        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.recordingTriggerMode)
-        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.isCommandMode)
+        .animation(phaseAnimation, value: state.phase)
+        .animation(phaseAnimation, value: state.recordingTriggerMode)
+        .animation(phaseAnimation, value: state.isCommandMode)
+    }
+
+    /// Reduce Motion: phase changes happen without spring, scale, or move.
+    private var phaseAnimation: Animation? {
+        QuillMotion.animation(.spring(response: 0.28, dampingFraction: 0.8), reduceMotion: reduceMotion)
     }
 
     @ViewBuilder
@@ -1576,6 +1625,7 @@ struct RecordingOverlayView: View {
     let onStopButtonPressed: () -> Void
     let onUpdateOverlayPressed: () -> Void
     let onSelectInput: (String) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let leadingAccessoryWidth: CGFloat = 24
     private let trailingAccessoryWidth: CGFloat = 32
@@ -1666,9 +1716,14 @@ struct RecordingOverlayView: View {
         }
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.phase)
-        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.recordingTriggerMode)
-        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: state.isCommandMode)
+        .animation(phaseAnimation, value: state.phase)
+        .animation(phaseAnimation, value: state.recordingTriggerMode)
+        .animation(phaseAnimation, value: state.isCommandMode)
+    }
+
+    /// Reduce Motion: phase changes happen without spring, scale, or move.
+    private var phaseAnimation: Animation? {
+        QuillMotion.animation(.spring(response: 0.28, dampingFraction: 0.8), reduceMotion: reduceMotion)
     }
 }
 

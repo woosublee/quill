@@ -386,7 +386,8 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
         screen: NSScreen,
         animated: Bool
     ) {
-        guard animated else {
+        // Reduce Motion: appear in place instead of sliding down from the top.
+        guard QuillMotion.animatesPanel(animated, reduceMotion: QuillMotion.systemReduceMotion) else {
             panel.setFrame(frame, display: true)
             panel.alphaValue = 1
             panel.orderFrontRegardless()
@@ -405,7 +406,8 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
     }
 
     private func resize(panel: NSPanel, to frame: NSRect, animated: Bool) {
-        guard animated else {
+        // Reduce Motion: resize in one step.
+        guard QuillMotion.animatesPanel(animated, reduceMotion: QuillMotion.systemReduceMotion) else {
             panel.setFrame(frame, display: true)
             panel.alphaValue = 1
             panel.orderFrontRegardless()
@@ -469,7 +471,10 @@ final class MeetingReminderOverlayManager: CalendarRecordingReminderInAppPresent
             return
         }
         let currentFrame = panel.frame
-        let hiddenFrame = NSRect(x: currentFrame.origin.x, y: screen.frame.maxY, width: currentFrame.width, height: currentFrame.height)
+        // Reduce Motion: fade out in place instead of sliding up.
+        let hiddenFrame = QuillMotion.systemReduceMotion
+            ? currentFrame
+            : NSRect(x: currentFrame.origin.x, y: screen.frame.maxY, width: currentFrame.width, height: currentFrame.height)
         guard animated else {
             panel.orderOut(nil)
             resetPresentationHost()
@@ -545,7 +550,7 @@ private final class MeetingReminderOverlayViewModel: ObservableObject {
     }
 
     func update(displayData: MeetingReminderOverlayDisplayData, frameSize: CGSize, animated: Bool) {
-        if animated {
+        if QuillMotion.animatesPanel(animated, reduceMotion: QuillMotion.systemReduceMotion) {
             withAnimation(meetingReminderContentTransitionAnimation) {
                 self.displayData = displayData
                 self.frameSize = frameSize
@@ -566,6 +571,7 @@ private struct MeetingReminderOverlayRootView: View {
     let onStart: () -> Void
     let onDismiss: () -> Void
     @Namespace private var animationNamespace
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         MeetingReminderOverlayView(
@@ -575,7 +581,10 @@ private struct MeetingReminderOverlayRootView: View {
             onDismiss: onDismiss
         )
         .frame(width: viewModel.frameSize.width, height: viewModel.frameSize.height)
-        .animation(meetingReminderContentTransitionAnimation, value: viewModel.displayData)
+        .animation(
+            QuillMotion.animation(meetingReminderContentTransitionAnimation, reduceMotion: reduceMotion),
+            value: viewModel.displayData
+        )
         // VoiceOver actions on the card so Start and Close are reachable
         // without pointing at the buttons. No visual or panel changes.
         .accessibilityElement(children: .contain)
