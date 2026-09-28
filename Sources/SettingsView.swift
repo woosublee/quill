@@ -74,6 +74,8 @@ struct SettingsView: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    // The tint alone marks the current tab; tell VoiceOver too.
+                    .accessibilityAddTraits(appState.selectedSettingsTab == tab ? .isSelected : [])
                 }
 
                 Spacer()
@@ -847,6 +849,9 @@ struct CalendarSettingsView: View {
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        // The checkmark icon alone shows the state; speak it too.
+                        .accessibilityValue(localizedCatalogString(isSelected ? "Selected" : "Not selected"))
+                        .accessibilityAddTraits(isSelected ? .isSelected : [])
                         .disabled(
                             calendarReminderSettingsDisabled
                                 || !appState.calendarRecordingRemindersEnabled
@@ -4022,6 +4027,7 @@ struct MicrophoneOptionRow: View {
             HStack {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(isSelected ? .blue : .secondary)
+                    .accessibilityHidden(true)
                 if let title {
                     Text(title)
                         .foregroundStyle(.primary)
@@ -4043,6 +4049,8 @@ struct MicrophoneOptionRow: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityValue(localizedCatalogString(isSelected ? "Selected" : "Not selected"))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -4168,6 +4176,7 @@ struct RunLogEntryView: View {
         .buttonStyle(.plain)
         .disabled(disabled)
         .help(help)
+        .accessibilityLabel(Text(verbatim: help))
     }
 
     var body: some View {
@@ -4187,6 +4196,8 @@ struct RunLogEntryView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(Text(verbatim: isExpanded ? "Collapse run details" : "Expand run details"))
+                .accessibilityValue(Text(verbatim: isExpanded ? "Expanded" : "Collapsed"))
 
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
@@ -4477,6 +4488,7 @@ struct RunLogEntryView: View {
                                                 }
                                                 .buttonStyle(.plain)
                                                 .help(copiedRawTranscript ? "Copied literal transcript" : "Copy literal transcript")
+                                                .accessibilityLabel(Text(verbatim: copiedRawTranscript ? "Copied literal transcript" : "Copy literal transcript"))
                                             }
                                     } else if loadedTranscript == nil {
                                         Text("Loading...")
@@ -4548,6 +4560,7 @@ struct RunLogEntryView: View {
                                                     }
                                                     .buttonStyle(.plain)
                                                     .help(copiedCleanedTranscript ? "Copied cleaned transcript" : "Copy cleaned transcript")
+                                                    .accessibilityLabel(Text(verbatim: copiedCleanedTranscript ? "Copied cleaned transcript" : "Copy cleaned transcript"))
                                                 }
                                         }
                                     }
@@ -4707,6 +4720,7 @@ struct AudioPlayerView: View {
                     .background(Circle().fill(Color.accentColor.opacity(0.15)))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(Text(verbatim: isPlaying ? "Stop audio" : "Play audio"))
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -5052,6 +5066,7 @@ struct NativeWhisperModelRowView: View {
                 } label: {
                     Image(systemName: "trash")
                 }
+                .accessibilityLabel("Delete Model")
                 .font(.caption)
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -5158,6 +5173,7 @@ struct ModelRowView: View {
     @State private var downloadProgress = TranscriptionModel.DownloadProgress(downloadedBytes: 0, totalBytes: nil)
     @State private var downloadWasCancelled = false
     @State private var isHoveringDownloadProgress = false
+    @FocusState private var isCancelDownloadFocused: Bool
     @State private var issue: QuillUserIssueRecord?
     @State private var showDeleteConfirmation = false
 
@@ -5257,6 +5273,7 @@ struct ModelRowView: View {
                 } label: {
                     Image(systemName: "trash")
                 }
+                .accessibilityLabel("Delete Model")
                 .font(.caption)
                 .buttonStyle(.bordered)
                 .controlSize(.small)
@@ -5286,22 +5303,25 @@ struct ModelRowView: View {
                 if !downloadProgress.isCancelled {
                     if let fractionCompleted = downloadProgress.fractionCompleted {
                         DonutProgressView(fractionCompleted: fractionCompleted)
-                            .opacity(isHoveringDownloadProgress ? 0.25 : 1)
+                            .opacity((isHoveringDownloadProgress || isCancelDownloadFocused) ? 0.25 : 1)
                     } else {
                         ProgressView()
                             .controlSize(.small)
-                            .opacity(isHoveringDownloadProgress ? 0.25 : 1)
+                            .opacity((isHoveringDownloadProgress || isCancelDownloadFocused) ? 0.25 : 1)
                     }
-                    if isHoveringDownloadProgress {
-                        Button {
-                            cancelDownload()
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 8, weight: .bold))
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
+                    // Always present so keyboard and VoiceOver users can cancel;
+                    // it stays invisible until hovered or focused.
+                    Button {
+                        cancelDownload()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .bold))
                     }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .focused($isCancelDownloadFocused)
+                    .opacity((isHoveringDownloadProgress || isCancelDownloadFocused) ? 1 : 0.001)
+                    .accessibilityLabel("Cancel model download")
                 }
             }
             .frame(width: 24, height: 24)

@@ -16,6 +16,8 @@ struct RecordingOverlayGeometryTests {
         testRecordingOverlayUsesSharedScreenGeometry()
         try testNotchSideOverlayAvoidsContainerAudioLevelAnimation()
         try testHostingViewsUseFixedIntrinsicContentSize()
+        testOverlayAccessibilityAnnouncementMessages()
+        try testOverlayAccessibilitySourceContract()
         print("RecordingOverlayGeometryTests passed")
     }
 
@@ -228,5 +230,94 @@ struct RecordingOverlayGeometryTests {
         assert(sharedHostSource.contains("final class FixedIntrinsicHostingView"))
         assert(sharedHostSource.contains("override var intrinsicContentSize"))
         assert(source.contains("FixedIntrinsicHostingView(rootView:"))
+    }
+
+    private static func testOverlayAccessibilityAnnouncementMessages() {
+        let bundle = Bundle(path: FileManager.default.currentDirectoryPath)!
+        func message(_ announcement: OverlayAccessibilityAnnouncement) -> String {
+            announcement.message(language: "en", bundle: bundle)
+        }
+
+        assert(message(.transcribing) == "Transcribing...")
+        assert(message(.done) == "Done")
+        assert(message(.failed) == "Recording failed")
+
+        // Errors are announced in full, even past the pill's truncation length.
+        let longError = "Synthetic provider error " + String(repeating: "detail ", count: 40) + "end"
+        assert(longError.count > 120)
+        assert(message(.error(longError)) == longError)
+        assert(message(.error("  Synthetic error\n")) == "Synthetic error")
+        assert(message(.meetingStarting(title: " Synthetic Weekly Sync ")) == "Meeting starting: Synthetic Weekly Sync")
+
+        assert(OverlayAccessibilityAnnouncement.error("x").priority == .high)
+        assert(OverlayAccessibilityAnnouncement.failed.priority == .high)
+        assert(OverlayAccessibilityAnnouncement.meetingStarting(title: "x").priority == .high)
+        assert(OverlayAccessibilityAnnouncement.done.priority == .medium)
+    }
+
+    private static func testOverlayAccessibilitySourceContract() throws {
+        let source = try String(contentsOfFile: "Sources/RecordingOverlay.swift", encoding: .utf8)
+        let appState = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+
+        // Announcements only run while VoiceOver is on and use the shared
+        // announcement notification.
+        assert(source.contains("guard NSWorkspace.shared.isVoiceOverEnabled else { return }"))
+        assert(source.contains("notification: .announcementRequested"))
+
+        // Phase changes and errors are announced; errors use the full message,
+        // not the truncated copy shown in the pill.
+        // Nothing is spoken when recording starts; it could be recorded.
+        assert(!source.contains("case recordingStarted"))
+        assert(source.contains("OverlayAccessibilityAnnouncer.announce(.transcribing)"))
+        assert(source.contains("OverlayAccessibilityAnnouncer.announce(.failed)"))
+        assert(source.contains("OverlayAccessibilityAnnouncer.announce(.error(message))"))
+        assert(!source.contains("OverlayAccessibilityAnnouncer.announce(.error(truncated))"))
+        assert(source.contains("OverlayAccessibilityAnnouncer.announce(.error(request.message))"))
+        assert(appState.contains("OverlayAccessibilityAnnouncer.announce(.done)"))
+        // Never announce transcript text.
+        assert(!appState.contains("OverlayAccessibilityAnnouncer.announce(.error(completion"))
+        assert(!appState.contains("OverlayAccessibilityAnnouncer.announce(.error(lastTranscript"))
+
+        // On-screen timing and truncation stay unchanged.
+        assert(source.contains("DispatchQueue.main.asyncAfter(deadline: .now() + 6.0)"))
+        assert(source.contains("let truncated = Self.truncatedToastMessage(message)"))
+
+        // Both Stop buttons are labeled; the failure mark is labeled.
+        let stopLabelCount = source.components(separatedBy: ".accessibilityLabel(\"Stop recording\")").count - 1
+        assert(stopLabelCount == 2, "Standard and notch Stop buttons must both be labeled")
+        guard let failureStart = source.range(of: "struct FailureIndicatorView")?.lowerBound,
+              let failureEnd = source.range(of: "struct ErrorOverlayView", range: failureStart..<source.endIndex)?.lowerBound else {
+            assertionFailure("Expected FailureIndicatorView source block")
+            return
+        }
+        assert(source[failureStart..<failureEnd].contains(".accessibilityLabel(\"Recording failed\")"))
+
+        // Degraded notice dismiss stays hover-only visually, but is always
+        // exposed to accessibility with a dismiss action.
+        guard let noticeStart = source.range(of: "struct DegradedCaptureNoticeView")?.lowerBound,
+              let noticeEnd = source.range(of: "private struct DegradedCaptureNoticeHoverCatcher", range: noticeStart..<source.endIndex)?.lowerBound else {
+            assertionFailure("Expected DegradedCaptureNoticeView source block")
+            return
+        }
+        let notice = source[noticeStart..<noticeEnd]
+        assert(notice.contains(".opacity(isHovering ? 1 : 0)"))
+        assert(notice.contains(".allowsHitTesting(isHovering)"))
+        assert(!notice.contains(".accessibilityHidden(!isHovering)"))
+        assert(notice.contains(".accessibilityLabel(\"Dismiss\")"))
+        assert(notice.contains(".accessibilityAction(named: Text(\"Dismiss\"), onDismiss)"))
+
+        // The input switcher is a pop-up button that opens the same menu.
+        guard let catcherStart = source.range(of: "private struct InputMenuClickCatcher")?.lowerBound,
+              let catcherEnd = source.range(of: "struct CommandModeIndicator", range: catcherStart..<source.endIndex)?.lowerBound else {
+            assertionFailure("Expected InputMenuClickCatcher source block")
+            return
+        }
+        let catcher = source[catcherStart..<catcherEnd]
+        assert(catcher.contains(".popUpButton"))
+        assert(catcher.contains("localizedCatalogString(\"Audio input\")"))
+        assert(catcher.contains("override func accessibilityValue() -> Any?"))
+        assert(catcher.contains("override func accessibilityPerformPress() -> Bool {\n            showInputMenu()"))
+        assert(catcher.contains("override func accessibilityPerformShowMenu() -> Bool {\n            showInputMenu()"))
+        assert(catcher.contains("override func mouseDown(with event: NSEvent) {\n            showInputMenu()"))
     }
 }

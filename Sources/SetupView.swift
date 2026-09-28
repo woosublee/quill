@@ -33,6 +33,9 @@ struct SetupView: View {
     @State private var isCapturingHoldShortcut = false
     @State private var toggleShortcutValidationMessage: String?
     @State private var isCapturingToggleShortcut = false
+    /// Moves VoiceOver to the new step's title after Back or Continue.
+    /// Only assistive technologies observe this focus.
+    @AccessibilityFocusState private var isStepTitleFocused: Bool
 
     private var isCapturingShortcut: Bool {
         isCapturingHoldShortcut || isCapturingToggleShortcut
@@ -135,6 +138,22 @@ struct SetupView: View {
             } else {
                 permissionTimer?.invalidate()
             }
+            focusStepTitleForVoiceOver()
+        }
+        .onChange(of: micPermissionGranted) { granted in
+            announcePermissionGranted(granted, "Microphone access granted")
+        }
+        .onChange(of: accessibilityGranted) { granted in
+            announcePermissionGranted(granted, "Accessibility access granted")
+        }
+        .onChange(of: appState.hasSpeechRecognitionPermission) { granted in
+            announcePermissionGranted(granted, "Speech Recognition access granted")
+        }
+        .onChange(of: appState.hasScreenRecordingPermission) { granted in
+            announcePermissionGranted(granted, "Screen & System Audio Recording access granted")
+        }
+        .onChange(of: notificationAuthorizationGranted) { granted in
+            announcePermissionGranted(granted, "Notifications allowed")
         }
         .onChange(of: isCapturingShortcut) { isCapturing in
             if isCapturing {
@@ -185,6 +204,8 @@ struct SetupView: View {
             VStack(spacing: 10) {
                 Text("Meet Quill")
                     .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityFocused($isStepTitleFocused)
 
                 Text("Turn speech and meetings into notes — from anywhere on your Mac.")
                     .font(.title3)
@@ -309,6 +330,7 @@ struct SetupView: View {
                     HStack(spacing: 10) {
                         Image(systemName: localModel == .appleSpeech ? "largecircle.fill.circle" : "circle")
                             .foregroundStyle(localModel == .appleSpeech ? Color.accentColor : .secondary)
+                            .accessibilityHidden(true)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Apple Speech")
                                 .font(.callout.weight(localModel == .appleSpeech ? .semibold : .regular))
@@ -340,6 +362,7 @@ struct SetupView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityValue(localModel == .appleSpeech ? Text("Selected") : Text("Not selected"))
 
                 NativeWhisperModelRowView(
                     isSelected: localModel == .nativeWhisper,
@@ -675,6 +698,8 @@ struct SetupView: View {
             Text(title)
                 .font(.system(size: 28, weight: .bold, design: .rounded))
                 .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityFocused($isStepTitleFocused)
 
             Text(description)
                 .font(.callout)
@@ -702,6 +727,7 @@ struct SetupView: View {
                     Spacer()
                     Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
                         .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                        .accessibilityHidden(true)
                 }
 
                 Text(title)
@@ -983,14 +1009,50 @@ struct SetupView: View {
 
     /// Mirrors the Native Whisper card: select when installed, otherwise
     /// download while Apple Speech stays active, then switch when ready.
+    /// A ready card is a real button so the keyboard and VoiceOver can select
+    /// it; the identity button style keeps its look and click area unchanged.
     @ViewBuilder
     private func localAITranscriptionCard(_ model: LocalAIModel) -> some View {
         let isSelected = localModel == .localAIModel(id: model.id)
         let isReady = appState.isLocalAITranscriptionModelReady(model.id)
+        // A real container, not a Group: a Group would copy `.onChange` onto
+        // each branch, and the handler could miss the model ID change when
+        // the card turns into a button the moment its download finishes.
+        VStack(spacing: 0) {
+            if isReady {
+                Button {
+                    localModel = .localAIModel(id: model.id)
+                } label: {
+                    localAITranscriptionCardContent(model, isSelected: isSelected, isReady: true)
+                }
+                .buttonStyle(SetupUnstyledCardButtonStyle())
+                .accessibilityValue(isSelected ? Text("Selected") : Text("Not selected"))
+            } else {
+                // Not selectable until downloaded; Download stays its own control.
+                localAITranscriptionCardContent(model, isSelected: isSelected, isReady: false)
+            }
+        }
+        .onChange(of: appState.localAITranscriptionModelID) { selectedID in
+            guard processingLocation != .recordOnly,
+                  selectedID == model.id,
+                  appState.isLocalAITranscriptionModelReady(model.id) else {
+                return
+            }
+            processingLocation = .onThisMac
+            localModel = .localAIModel(id: model.id)
+        }
+    }
+
+    private func localAITranscriptionCardContent(
+        _ model: LocalAIModel,
+        isSelected: Bool,
+        isReady: Bool
+    ) -> some View {
         let state = appState.localAIInstallState(for: model)
-        HStack(spacing: 10) {
+        return HStack(spacing: 10) {
             Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
                 .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text(model.displayName)
                     .font(.callout.weight(isSelected ? .semibold : .regular))
@@ -1034,19 +1096,31 @@ struct SetupView: View {
         )
         .cornerRadius(8)
         .contentShape(Rectangle())
-        .onTapGesture {
-            guard isReady else { return }
-            localModel = .localAIModel(id: model.id)
+    }
+
+    /// Moves VoiceOver to the new step's heading once the step has appeared.
+    /// Does nothing unless VoiceOver is running.
+    private func focusStepTitleForVoiceOver() {
+        guard NSWorkspace.shared.isVoiceOverEnabled else { return }
+        isStepTitleFocused = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            isStepTitleFocused = true
         }
-        .onChange(of: appState.localAITranscriptionModelID) { selectedID in
-            guard processingLocation != .recordOnly,
-                  selectedID == model.id,
-                  appState.isLocalAITranscriptionModelReady(model.id) else {
-                return
-            }
-            processingLocation = .onThisMac
-            localModel = .localAIModel(id: model.id)
-        }
+    }
+
+    /// Announces a permission that became granted while the permissions step
+    /// is showing. Assistive technologies only; nothing changes on screen.
+    private func announcePermissionGranted(_ granted: Bool, _ messageKey: String) {
+        // The permission guide announces grants it is waiting for itself.
+        guard granted, currentStep == .permissions, !appState.isPermissionGuidePresented else { return }
+        NSAccessibility.post(
+            element: NSApplication.shared,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: localizedCatalogString(messageKey),
+                .priority: NSAccessibilityPriorityLevel.high.rawValue
+            ]
+        )
     }
 
     private func handleNativeWhisperStatusChange(_ status: NativeWhisperInstallStatus) {
@@ -1131,5 +1205,14 @@ struct SetupView: View {
                 notificationAuthorizationStatus = settings.authorizationStatus
             }
         }
+    }
+}
+
+/// Renders a button's label exactly as-is, with no pressed or hover effect,
+/// so a card that was clickable before looks and responds the same while
+/// also becoming reachable by the keyboard and VoiceOver.
+private struct SetupUnstyledCardButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
     }
 }

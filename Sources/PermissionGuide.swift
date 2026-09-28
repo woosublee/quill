@@ -169,3 +169,15 @@ enum PermissionGuidePanelAction: Equatable {
         return settingsIsFrontmost ? .showAtScreenBottom : .hide
     }
 }
+
+enum PermissionGuideTiming {
+    /// How long the guide shows "Granted" before closing itself.
+    static let grantedDisplayDuration: TimeInterval = 1.5
+    /// VoiceOver users get a little longer, so the "granted" announcement
+    /// finishes before the panel closes and the VoiceOver cursor moves.
+    static let voiceOverGrantedDisplayDuration: TimeInterval = 4
+
+    static func grantedDisplayDuration(voiceOverRunning: Bool) -> TimeInterval {
+        voiceOverRunning ? voiceOverGrantedDisplayDuration : grantedDisplayDuration
+    }
+}

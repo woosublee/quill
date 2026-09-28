@@ -46,7 +46,58 @@ struct ModelsSettingsUIContractTests {
         try testSettingsDraftsSyncFromExternalAppStateChanges(settings)
         testVocabularyDraftCommitsOnFocusLoss(settings)
         try testNoteBrowserSharesStandardModelsAndGatesRealtime(appState)
+        try testSettingsCustomControlsExposeAccessibilityState(settings)
         print("ModelsSettingsUIContractTests passed")
+    }
+
+    private static func testSettingsCustomControlsExposeAccessibilityState(_ settings: String) throws {
+        let shortcuts = try source("Sources/ShortcutComponents.swift")
+
+        let sidebar = block(in: settings, from: "ForEach(SettingsTab.orderedCases", to: "Spacer()")
+        precondition(
+            sidebar.contains(".accessibilityAddTraits(appState.selectedSettingsTab == tab ? .isSelected : [])"),
+            "Settings sidebar tabs must expose the selected tab to VoiceOver"
+        )
+
+        let reminders = block(
+            in: settings,
+            from: "ForEach(CalendarRecordingReminderScheduler.leadMinuteOptions",
+            to: "private func handleCalendarReminderNotificationAuthorization"
+        )
+        precondition(reminders.contains(".accessibilityValue(localizedCatalogString(isSelected ? \"Selected\" : \"Not selected\"))"))
+        precondition(reminders.contains(".accessibilityAddTraits(isSelected ? .isSelected : [])"))
+
+        let microphoneRow = block(in: settings, from: "struct MicrophoneOptionRow: View {", to: "// MARK: - Run Log")
+        precondition(microphoneRow.contains(".accessibilityAddTraits(isSelected ? .isSelected : [])"))
+
+        let presetRow = block(in: shortcuts, from: "private struct ShortcutPresetRow: View {", to: "private struct ShortcutCaptureRow: View {")
+        precondition(presetRow.contains(".accessibilityHidden(true)"))
+        precondition(presetRow.contains(".accessibilityAddTraits(isSelected ? .isSelected : [])"))
+        let captureRow = block(in: shortcuts, from: "private struct ShortcutCaptureRow: View {", to: "private func startCapture")
+        precondition(captureRow.contains(".accessibilityAddTraits(isSelected ? .isSelected : [])"))
+        precondition(
+            captureRow.contains(".onChange(of: captureHintKey)") && captureRow.contains(".announcementRequested"),
+            "Starting shortcut capture must announce the instruction"
+        )
+
+        // Legacy mlx-whisper rows: cancel must not be hover-only, delete must be labeled.
+        let legacyRow = block(in: settings, from: "struct ModelRowView: View {", to: "private var canceledDownloadView")
+        precondition(!legacyRow.contains("if isHoveringDownloadProgress {"), "Legacy download cancel must not exist only while hovering")
+        precondition(legacyRow.contains(".focused($isCancelDownloadFocused)"))
+        precondition(legacyRow.contains(".accessibilityLabel(\"Cancel model download\")"))
+        precondition(legacyRow.contains(".accessibilityLabel(\"Delete Model\")"))
+
+        let nativeRow = block(in: settings, from: "private var actionView: some View {", to: "private var downloadProgressView")
+        precondition(nativeRow.contains(".accessibilityLabel(\"Delete Model\")"), "Native Whisper delete button must be labeled")
+
+        for rowSource in [legacyRow, nativeRow] {
+            var remaining = rowSource[...]
+            while let range = remaining.range(of: "Image(systemName: \"trash\")") {
+                let following = remaining[range.upperBound...].prefix(120)
+                precondition(following.contains(".accessibilityLabel("), "Icon-only delete buttons need a spoken label")
+                remaining = remaining[range.upperBound...]
+            }
+        }
     }
 
     private static func testUIOnlyBoundary(appState: String) {
