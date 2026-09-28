@@ -18436,6 +18436,54 @@
           }
         }
       }
+    },
+    "Restart to Update": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart to Update"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재시작해서 업데이트"
+          }
+        }
+      }
+    },
+    "%@ v%@ is ready to install.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ v%@ is ready to install."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ v%@ 설치 준비가 끝났습니다."
+          }
+        }
+      }
+    },
+    "A new version of %@ is ready to install.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A new version of %@ is ready to install."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 새 버전의 설치 준비가 끝났습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

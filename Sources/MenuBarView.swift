@@ -455,6 +455,20 @@ struct MenuBarView: View {
                     .frame(maxWidth: .infinity)
                     .background(Color.blue)
 
+                case .readyToInstall:
+                    Button {
+                        updateManager.installReadyUpdateNow()
+                    } label: {
+                        Label("Restart to Update", systemImage: "arrow.down.circle.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity)
+                    .background(Color.blue)
+
                 case .installing, .readyToRelaunch:
                     HStack(spacing: 6) {
                         ProgressView()

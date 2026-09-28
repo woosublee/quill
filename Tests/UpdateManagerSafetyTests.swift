@@ -8,6 +8,7 @@ struct UpdateManagerSafetyTests {
         try testUpdateManagerUsesSparkleFacade()
         try testUpdateManagerPersistsAvailableUpdate()
         try testUpdateManagerRemovedSelfInstallPipeline()
+        try testSilentlyDownloadedUpdateOffersRestartInsteadOfSpinning()
         try testAppDelegateStartsPeriodicUpdateChecks()
         try testSettingsShowsUpdatesCard()
         try testTopLevelUpstreamAttributionIsHidden()
@@ -50,6 +51,28 @@ struct UpdateManagerSafetyTests {
         assertContains(source, "extension UpdateManager: SPUUpdaterDelegate")
         assertContains(source, "updateLastPostTranscriptionReminderVersion")
         assertContains(source, "updateLastPostTranscriptionReminderDate")
+    }
+
+    /// With automatic installation on, Sparkle downloads in the background and
+    /// hands off an install-on-quit update. Quill must take that handoff and
+    /// offer Restart to Update, not leave "Preparing update..." spinning (#411).
+    private static func testSilentlyDownloadedUpdateOffersRestartInsteadOfSpinning() throws {
+        let source = try String(contentsOfFile: "Sources/UpdateManager.swift", encoding: .utf8)
+        assertContains(source, "case readyToInstall")
+        assertContains(source, "willInstallUpdateOnQuit item: SUAppcastItem,")
+        assertContains(source, "immediateInstallationBlock immediateInstallHandler: @escaping () -> Void")
+        assertContains(source, "pendingInstallHandler = immediateInstallHandler")
+        assertContains(source, "updateStatus = .readyToInstall")
+        assertContains(source, "func installReadyUpdateNow()")
+        // A found update also counts as a check, so "Last checked" moves on.
+        assertContains(source, "applyAvailableUpdate(item)\n        lastCheckDate = Date()")
+
+        let settings = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
+        assertContains(settings, "case .readyToInstall:")
+        assertContains(settings, "updateManager.installReadyUpdateNow()")
+        let menuBar = try String(contentsOfFile: "Sources/MenuBarView.swift", encoding: .utf8)
+        assertContains(menuBar, "case .readyToInstall:")
+        assertContains(menuBar, "updateManager.installReadyUpdateNow()")
     }
 
     private static func testUpdateManagerPersistsAvailableUpdate() throws {

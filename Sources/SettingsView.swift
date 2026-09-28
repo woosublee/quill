@@ -1087,6 +1087,25 @@ struct GeneralSettingsView: View {
                                 .font(.caption.weight(.semibold))
                         }
 
+                    case .readyToInstall:
+                        HStack(spacing: 8) {
+                            Image(systemName: "arrow.down.circle.fill")
+                                .foregroundStyle(.blue)
+                            Text(updateManager.latestReleaseVersion.isEmpty
+                                ? "A new version of \(appDisplayName) is ready to install."
+                                : "\(appDisplayName) v\(updateManager.latestReleaseVersion) is ready to install.")
+                                .font(.caption.weight(.semibold))
+                            Spacer()
+                            Button("What's New") {
+                                updateManager.showReleaseNotes()
+                            }
+                            .font(.caption)
+                            Button("Restart to Update") {
+                                updateManager.installReadyUpdateNow()
+                            }
+                            .font(.caption)
+                        }
+
                     case .readyToRelaunch:
                         HStack(spacing: 8) {
                             ProgressView()

@@ -9,6 +9,9 @@ enum UpdateStatus: Equatable {
     case idle
     case downloading
     case installing
+    /// Downloaded in the background and waiting to install. Sparkle installs
+    /// it when Quill quits; the user can also restart to install it now.
+    case readyToInstall
     case readyToRelaunch
     case error(String)
 }
@@ -66,6 +69,9 @@ final class UpdateManager: NSObject, ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: "updateLastPostTranscriptionReminderDate") }
     }
     private var releaseNotesURL: URL?
+    /// From Sparkle's install-on-quit handoff: installs the downloaded update
+    /// and relaunches Quill without further prompts.
+    private var pendingInstallHandler: (() -> Void)?
     private var hasStartedUpdater = false
     private var updaterObservationCancellables: Set<AnyCancellable> = []
 
@@ -168,6 +174,17 @@ final class UpdateManager: NSObject, ObservableObject {
         Task { @MainActor in
             await checkForUpdates(userInitiated: true)
         }
+    }
+
+    /// Installs an update Sparkle already downloaded and verified, then
+    /// relaunches. Falls back to a normal check when nothing is pending.
+    func installReadyUpdateNow() {
+        guard let pendingInstallHandler else {
+            showUpdateAlert()
+            return
+        }
+        updateStatus = .readyToRelaunch
+        pendingInstallHandler()
     }
 
     func showReleaseNotes() {
@@ -330,6 +347,7 @@ final class UpdateManager: NSObject, ObservableObject {
 extension UpdateManager: SPUUpdaterDelegate {
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
         applyAvailableUpdate(item)
+        lastCheckDate = Date()
     }
 
     func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) {
@@ -384,6 +402,23 @@ extension UpdateManager: SPUUpdaterDelegate {
     func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
         applyAvailableUpdate(item)
         updateStatus = .readyToRelaunch
+    }
+
+    /// With automatic installation on, Sparkle downloads in the background and
+    /// waits to install until Quill quits. A menu-bar app rarely quits, so
+    /// without this the status stayed "Preparing update..." forever. Take the
+    /// handoff and offer Restart to Update; Sparkle still installs on quit.
+    func updater(
+        _ updater: SPUUpdater,
+        willInstallUpdateOnQuit item: SUAppcastItem,
+        immediateInstallationBlock immediateInstallHandler: @escaping () -> Void
+    ) -> Bool {
+        applyAvailableUpdate(item)
+        pendingInstallHandler = immediateInstallHandler
+        updateStatus = .readyToInstall
+        isChecking = false
+        lastCheckDate = Date()
+        return true
     }
 
     func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
