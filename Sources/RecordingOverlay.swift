@@ -47,6 +47,70 @@ enum OverlayPhase {
     case updateAvailable
 }
 
+/// Spoken VoiceOver confirmations for overlay state changes. Every case maps
+/// to a fixed UI string, an existing localized error message, or a calendar
+/// title already shown on screen. Never add transcript text, selected text,
+/// clipboard contents, window titles, or other app context here.
+///
+/// Nothing is announced when recording starts: the microphone is already
+/// open, and a spoken phrase could end up in the recording and transcript.
+enum OverlayAccessibilityAnnouncement: Equatable {
+    case transcribing
+    case done
+    case failed
+    /// Full, untruncated localized error message (the pill may truncate it).
+    case error(String)
+    /// Calendar event title already visible on the meeting reminder.
+    case meetingStarting(title: String)
+
+    func message(language: String = preferredLocalizedStringLanguage(), bundle: Bundle = .main) -> String {
+        switch self {
+        case .transcribing:
+            return localizedCatalogString("Transcribing...", language: language, bundle: bundle)
+        case .done:
+            return localizedCatalogString("Done", language: language, bundle: bundle)
+        case .failed:
+            return localizedCatalogString("Recording failed", language: language, bundle: bundle)
+        case .error(let message):
+            return message.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .meetingStarting(let title):
+            return localizedCatalogFormat(
+                "Meeting starting: %@",
+                title.trimmingCharacters(in: .whitespacesAndNewlines),
+                language: language,
+                bundle: bundle
+            )
+        }
+    }
+
+    var priority: NSAccessibilityPriorityLevel {
+        switch self {
+        case .failed, .error, .meetingStarting:
+            return .high
+        case .transcribing, .done:
+            return .medium
+        }
+    }
+}
+
+/// Posts overlay announcements for VoiceOver. It does nothing unless VoiceOver
+/// is running, so sighted users see no change in behavior or timing.
+enum OverlayAccessibilityAnnouncer {
+    static func announce(_ announcement: OverlayAccessibilityAnnouncement) {
+        guard NSWorkspace.shared.isVoiceOverEnabled else { return }
+        let message = announcement.message()
+        guard !message.isEmpty else { return }
+        NSAccessibility.post(
+            element: NSApplication.shared,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: message,
+                .priority: announcement.priority.rawValue
+            ]
+        )
+    }
+}
+
 /// Controls how the recording overlay presents elapsed time relative to the
 /// live audio waveform.
 enum OverlayWaveformDisplayMode: String, CaseIterable, Identifiable {
@@ -552,6 +616,7 @@ final class RecordingOverlayManager {
             self.overlayState.errorMessage = nil
             self.overlayState.toastID = nil
             self.showFeedbackPanel()
+            OverlayAccessibilityAnnouncer.announce(.failed)
         }
     }
 
@@ -572,6 +637,8 @@ final class RecordingOverlayManager {
             self.lockedOverlayWidth = nil
             self.overlayState.phase = .feedback
             self.showOverlayPanel(animatedResize: true)
+            // The pill shows a truncated copy; VoiceOver hears the full message.
+            OverlayAccessibilityAnnouncer.announce(.error(message))
             DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) { [weak self] in
                 guard let self else { return }
                 guard self.overlayState.phase == .feedback,
@@ -610,6 +677,7 @@ final class RecordingOverlayManager {
             }
             self.recordingNoticeReminderFrame = reminderFrame
             self.showAnchoredRecordingNotice(truncated, anchor: anchor)
+            OverlayAccessibilityAnnouncer.announce(.error(message))
         }
     }
 
@@ -803,7 +871,11 @@ final class RecordingOverlayManager {
         _ request: DegradedCombinedCaptureNoticeLifecycle.Request,
         anchor: NSRect
     ) {
+        let isNewPresentation = degradedCaptureNoticePresentationToken != request.token
         degradedCaptureNoticePresentationToken = request.token
+        if isNewPresentation {
+            OverlayAccessibilityAnnouncer.announce(.error(request.message))
+        }
         let height: CGFloat = 34
         let gap: CGFloat = 6
         let maximumWidth = max(
@@ -984,6 +1056,7 @@ final class RecordingOverlayManager {
     }
 
     private func setTranscribingPhase() {
+        let wasShowingTranscribing = overlayWindow != nil && overlayState.phase == .transcribing
         endDegradedCombinedCaptureNoticeSessionNow()
         let wasNotchSideRecordingLayout = overlayState.phase == .recording && usesNotchSideLayout
         lockedOverlayWidth = RecordingOverlayGeometry.lockedTranscribingWidth(
@@ -994,6 +1067,9 @@ final class RecordingOverlayManager {
         )
         overlayState.phase = .transcribing
         showOverlayPanel(animatedResize: true)
+        if !wasShowingTranscribing {
+            OverlayAccessibilityAnnouncer.announce(.transcribing)
+        }
     }
 
     private func makeOverlayContent(frame: NSRect) -> NSView {
@@ -1579,6 +1655,7 @@ struct RecordingOverlayView: View {
                                         .background(Circle().fill(Color.red.opacity(0.92)))
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityLabel("Stop recording")
                                 .transition(.move(edge: .trailing).combined(with: .opacity))
                             }
                         }
@@ -1751,7 +1828,45 @@ private struct InputMenuClickCatcher: NSViewRepresentable {
         }
 
         override func mouseDown(with event: NSEvent) {
-            guard !options.isEmpty else { return }
+            showInputMenu()
+        }
+
+        // MARK: Accessibility
+        // Exposed as a pop-up button so VoiceOver can find the input switcher
+        // and open the same menu the mouse click opens. Mouse behavior above
+        // is unchanged; these overrides only answer accessibility clients.
+
+        override func isAccessibilityElement() -> Bool {
+            true
+        }
+
+        override func accessibilityRole() -> NSAccessibility.Role? {
+            .popUpButton
+        }
+
+        override func accessibilityLabel() -> String? {
+            localizedCatalogString("Audio input")
+        }
+
+        override func accessibilityValue() -> Any? {
+            options.first { AudioInputDevice.isSameInput($0.id, selectedID) }?.displayName
+        }
+
+        override func isAccessibilityEnabled() -> Bool {
+            !options.isEmpty
+        }
+
+        override func accessibilityPerformPress() -> Bool {
+            showInputMenu()
+        }
+
+        override func accessibilityPerformShowMenu() -> Bool {
+            showInputMenu()
+        }
+
+        @discardableResult
+        private func showInputMenu() -> Bool {
+            guard !options.isEmpty else { return false }
             let menu = NSMenu()
             // Honor our per-item isEnabled; otherwise AppKit auto-enables every
             // item whose target responds to the action, masking the disabled state.
@@ -1767,6 +1882,7 @@ private struct InputMenuClickCatcher: NSViewRepresentable {
             // Anchor just below the view's bottom-left so the menu drops downward
             // consistently (NSView is not flipped, so y grows upward).
             menu.popUp(positioning: nil, at: NSPoint(x: 0, y: -4), in: self)
+            return true
         }
 
         @objc private func selectOption(_ sender: NSMenuItem) {
@@ -1795,6 +1911,8 @@ struct FailureIndicatorView: View {
             .frame(width: 20, height: 20)
             .background(Circle().fill(Color.red.opacity(0.92)))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Recording failed")
     }
 }
 
@@ -1884,7 +2002,9 @@ struct DegradedCaptureNoticeView: View {
             .padding(.trailing, 10)
             .opacity(isHovering ? 1 : 0)
             .allowsHitTesting(isHovering)
-            .accessibilityHidden(!isHovering)
+            // Visually hover-only for mouse users, but always reachable by
+            // VoiceOver so the notice can be dismissed without a pointer.
+            .accessibilityLabel("Dismiss")
         }
         // SwiftUI's own hover tracking (see InputSwitchMenu above) is not
         // reliable inside this borderless, non-activating panel, so hover
@@ -1896,6 +2016,8 @@ struct DegradedCaptureNoticeView: View {
                 }
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityAction(named: Text("Dismiss"), onDismiss)
     }
 }
 

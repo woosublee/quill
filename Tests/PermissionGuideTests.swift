@@ -14,7 +14,19 @@ struct PermissionGuideTests {
         try testPanelWaitsForSettingsWindow()
         try testPanelClosesWhenSettingsWindowCloses()
         try testPanelFollowsFrontmostSettings()
+        try testGrantedDisplayDurationOnlyChangesForVoiceOver()
         print("PermissionGuideTests passed")
+    }
+
+    /// #392: the guide keeps its 1.5 s close for everyone else and waits a
+    /// little longer only while VoiceOver is running.
+    private static func testGrantedDisplayDurationOnlyChangesForVoiceOver() throws {
+        guard PermissionGuideTiming.grantedDisplayDuration(voiceOverRunning: false) == 1.5 else {
+            throw TestFailure("sighted users keep the 1.5 s close")
+        }
+        guard PermissionGuideTiming.grantedDisplayDuration(voiceOverRunning: true) > 1.5 else {
+            throw TestFailure("VoiceOver users get more time")
+        }
     }
 
     private static let mainScreen = PermissionGuideScreen(
