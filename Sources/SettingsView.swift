@@ -1066,10 +1066,6 @@ struct GeneralSettingsView: View {
                 }
             }
 
-            Text("Updates are delivered by Sparkle and verified before installation.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
             if updateManager.updateAvailable || updateManager.updateStatus != .idle {
                 VStack(alignment: .leading, spacing: 8) {
                     switch updateManager.updateStatus {
@@ -1093,15 +1089,21 @@ struct GeneralSettingsView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "arrow.down.circle.fill")
                                 .foregroundStyle(.blue)
-                            Text(updateManager.latestReleaseVersion.isEmpty
-                                ? "A new version of \(appDisplayName) is ready to install."
-                                : "\(appDisplayName) v\(updateManager.latestReleaseVersion) is ready to install.")
-                                .font(.caption.weight(.semibold))
-                            Spacer()
-                            Button("What's New") {
-                                updateManager.showReleaseNotes()
+                            Group {
+                                if updateManager.latestReleaseVersion.isEmpty {
+                                    Text("A new version of \(appDisplayName) is ready to install.")
+                                } else {
+                                    Text("\(appDisplayName) v\(updateManager.latestReleaseVersion) is ready to install.")
+                                }
                             }
-                            .font(.caption)
+                            .font(.caption.weight(.semibold))
+                            Spacer()
+                            if updateManager.hasReleaseNotes {
+                                Button("What's New") {
+                                    updateManager.showReleaseNotes()
+                                }
+                                .font(.caption)
+                            }
                             Button("Restart to Update") {
                                 updateManager.installReadyUpdateNow()
                             }
@@ -1136,10 +1138,14 @@ struct GeneralSettingsView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "arrow.down.circle.fill")
                                 .foregroundStyle(.blue)
-                            Text(updateManager.latestReleaseVersion.isEmpty
-                                ? "A new version of \(appDisplayName) is available!"
-                                : "\(appDisplayName) v\(updateManager.latestReleaseVersion) is available!")
-                                .font(.caption.weight(.semibold))
+                            Group {
+                                if updateManager.latestReleaseVersion.isEmpty {
+                                    Text("A new version of \(appDisplayName) is available!")
+                                } else {
+                                    Text("\(appDisplayName) v\(updateManager.latestReleaseVersion) is available!")
+                                }
+                            }
+                            .font(.caption.weight(.semibold))
                             Spacer()
                             Button("What's New") {
                                 updateManager.showReleaseNotes()

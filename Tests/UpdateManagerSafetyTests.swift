@@ -9,6 +9,7 @@ struct UpdateManagerSafetyTests {
         try testUpdateManagerPersistsAvailableUpdate()
         try testUpdateManagerRemovedSelfInstallPipeline()
         try testSilentlyDownloadedUpdateOffersRestartInsteadOfSpinning()
+        testInstallHandoffLifecycle()
         try testAppDelegateStartsPeriodicUpdateChecks()
         try testSettingsShowsUpdatesCard()
         try testTopLevelUpstreamAttributionIsHidden()
@@ -56,12 +57,45 @@ struct UpdateManagerSafetyTests {
     /// With automatic installation on, Sparkle downloads in the background and
     /// hands off an install-on-quit update. Quill must take that handoff and
     /// offer Restart to Update, not leave "Preparing update..." spinning (#411).
+    /// Runs the install-on-quit handoff with a fake Sparkle handler: no
+    /// network and no real updater (#411).
+    private static func testInstallHandoffLifecycle() {
+        // Quill takes control so it can offer Restart to Update.
+        precondition(UpdateInstallHandoff.takesControlOfInstallOnQuit)
+
+        var handoff = UpdateInstallHandoff()
+        precondition(!handoff.isPending)
+        precondition(!handoff.installNow(), "Nothing to install before the handoff")
+
+        var installCalls = 0
+        handoff.receive { installCalls += 1 }
+        precondition(handoff.isPending)
+
+        // Restart to Update runs Sparkle's handler.
+        precondition(handoff.installNow())
+        precondition(installCalls == 1)
+        // A canceled quit (for example during a recording) keeps it usable.
+        precondition(handoff.isPending)
+        precondition(handoff.installNow())
+        precondition(installCalls == 2)
+
+        // A failed cycle drops it, so later checks start a fresh cycle.
+        handoff.clear()
+        precondition(!handoff.isPending)
+        precondition(!handoff.installNow())
+        precondition(installCalls == 2)
+    }
+
     private static func testSilentlyDownloadedUpdateOffersRestartInsteadOfSpinning() throws {
         let source = try String(contentsOfFile: "Sources/UpdateManager.swift", encoding: .utf8)
         assertContains(source, "case readyToInstall")
         assertContains(source, "willInstallUpdateOnQuit item: SUAppcastItem,")
         assertContains(source, "immediateInstallationBlock immediateInstallHandler: @escaping () -> Void")
-        assertContains(source, "pendingInstallHandler = immediateInstallHandler")
+        assertContains(source, "installHandoff.receive(immediateInstallHandler)")
+        assertContains(source, "return UpdateInstallHandoff.takesControlOfInstallOnQuit")
+        // Failures drop the handoff; "What's New" never installs.
+        assertContains(source, "func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {\n        installHandoff.clear()")
+        assertContains(source, "} else if !hasPendingInstall {")
         assertContains(source, "updateStatus = .readyToInstall")
         assertContains(source, "func installReadyUpdateNow()")
         // Canceling the quit prompt must keep Restart to Update available:
@@ -115,7 +149,12 @@ struct UpdateManagerSafetyTests {
         assertDoesNotContain(abortCallback, "clearAvailableUpdate()")
         assertContains(
             source,
-            "if nsError.domain == SUSparkleErrorDomain, nsError.code == SUError.noUpdateError.rawValue {\n                clearAvailableUpdate()\n            } else if updateStatus == .idle {"
+            "if nsError.domain == SUSparkleErrorDomain, nsError.code == SUError.noUpdateError.rawValue {\n                clearAvailableUpdate()\n            } else {"
+        )
+        // Any other failure drops a stored install handoff and shows the error.
+        assertContains(
+            source,
+            "installHandoff.clear()\n                if updateStatus == .idle || updateStatus == .readyToInstall {"
         )
     }
 
@@ -168,7 +207,8 @@ struct UpdateManagerSafetyTests {
         assertContains(activeText, "updatesSection")
         assertContains(source, "Automatically check for updates")
         assertContains(source, "Check for Updates Now")
-        assertContains(source, "Updates are delivered by Sparkle")
+        // Implementation detail, not user information.
+        assertDoesNotContain(source, "Updates are delivered by Sparkle")
         assertContains(source, "Update Now")
         assertContains(source, "updateManager.showUpdateAlert()")
         assertDoesNotContain(source, "downloadAndInstall(release: release)")

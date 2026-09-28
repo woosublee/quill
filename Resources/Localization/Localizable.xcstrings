@@ -6351,22 +6351,6 @@
         }
       }
     },
-    "Updates are delivered by Sparkle and verified before installation.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Updates are delivered by Sparkle and verified before installation."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "업데이트는 Sparkle로 제공되며 설치 전에 검증됩니다."
-          }
-        }
-      }
-    },
     "Use legacy mlx-whisper": {
       "localizations": {
         "en": {
@@ -18464,7 +18448,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ v%@ 설치 준비가 끝났습니다."
+            "value": "%@ v%@ 설치 준비가 되었습니다."
           }
         }
       }
@@ -18480,7 +18464,39 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 새 버전의 설치 준비가 끝났습니다."
+            "value": "%@의 새 버전을 설치할 준비가 되었습니다."
+          }
+        }
+      }
+    },
+    "%@ v%@ is available!": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ v%@ is available!"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ v%@ 업데이트를 사용할 수 있습니다!"
+          }
+        }
+      }
+    },
+    "A new version of %@ is available!": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A new version of %@ is available!"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 새 버전을 사용할 수 있습니다!"
           }
         }
       }
