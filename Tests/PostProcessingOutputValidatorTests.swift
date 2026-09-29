@@ -50,6 +50,17 @@ struct PostProcessingOutputValidatorTests {
         guard case .failure(.protectedAtomMissing) = otherAtom else {
             throw PostProcessingOutputValidatorTestFailure("other protected atoms still must survive, got \(otherAtom)")
         }
+        // A heard form doesn't exempt other atoms: `v42` must not unprotect `42`.
+        let numberChanged = validator.validate(
+            source: "Book 42 seats for the review.",
+            output: "Book 43 seats for the review.",
+            outputLanguage: "en",
+            vocabulary: [],
+            correctionHeardForms: ["v42"]
+        )
+        guard case .failure(.protectedAtomMissing) = numberChanged else {
+            throw PostProcessingOutputValidatorTestFailure("an unrelated number is still protected, got \(numberChanged)")
+        }
     }
 
     private static func testMeaningfulTranscriptCannotBecomeEmptySentinel() throws {

@@ -64,7 +64,11 @@ enum CustomVocabularyParser {
         // A plain entry that is also a heard form (for example `cloud code`
         // added before `cloud code -> Claude Code`) would make the output
         // check require the misheard spelling and reject the correction.
+        // A correct form always stays, even when it differs from its heard
+        // form only by case (`quill -> Quill`).
+        let correctForms = Set(parsed.corrections.map { $0.correct.lowercased() })
         let heardForms = Set(parsed.corrections.map { $0.heard.lowercased() })
+            .subtracting(correctForms)
         parsed.terms = parsed.terms.filter { !heardForms.contains($0.lowercased()) }
         return parsed
     }

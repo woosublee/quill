@@ -122,6 +122,8 @@ struct PostProcessingBackendTests {
         let parsed = CustomVocabularyParser.parse("cloud code\nCloud Code -> Claude Code\nQuill")
         try expect(parsed.terms == ["Claude Code", "Quill"], "plain heard form is dropped: \(parsed.terms)")
         try expect(parsed.corrections.map(\.heard) == ["Cloud Code"], "the correction stays")
+        let caseOnly = CustomVocabularyParser.parse("quill -> Quill")
+        try expect(caseOnly.terms == ["Quill"], "a case-only correction keeps its correct form: \(caseOnly.terms)")
     }
 
     private static func testVocabularyParserKeepsUnspacedArrowsPlain() throws {

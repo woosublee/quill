@@ -65,15 +65,14 @@ struct PostProcessingOutputValidator {
         }
 
         // A misheard form the user asked to correct (for example
-        // `quill_app -> Quill`) is meant to change, so it isn't protected.
-        let heardForms = correctionHeardForms.map { $0.lowercased() }
+        // `quill_app -> Quill`) is meant to change, so that exact atom isn't
+        // protected. Other atoms, including ones inside a heard form such as
+        // the `42` in `v42`, are still checked.
+        let heardForms = Set(correctionHeardForms.map { $0.lowercased() })
         let sourceProtectedAtoms = ProtectedAtomScanner.atoms(
             from: source,
             vocabulary: vocabulary
-        ).filter { atom in
-            let lowered = atom.lowercased()
-            return !heardForms.contains { $0 == lowered || $0.contains(lowered) }
-        }
+        ).filter { !heardForms.contains($0.lowercased()) }
         if sourceProtectedAtoms.contains(where: { !trimmedOutput.contains($0) }) {
             return .failure(.protectedAtomMissing)
         }
