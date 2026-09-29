@@ -424,6 +424,14 @@ struct AppStateRecordingJournalIntegrationSourceTests {
             in: source
         )
         precondition(finishBody.contains("recordingJournalFinalizationQueue.async"))
+        // Recover Again rebuilds on its own queue, so a long rebuild doesn't
+        // hold up finishing a new recording or removing deleted pieces (#425).
+        precondition(source.contains(
+            "recordingRecoveryAgainQueue.async { [weak self] in\n            // Stitching and journal checks stay off the main thread;"
+        ))
+        let applyRecoveredAgainBody = try functionBody(named: "applyRecoveredAgain", in: source)
+        precondition(applyRecoveredAgainBody.contains("recoveryAgainQueue.async"))
+        precondition(!applyRecoveredAgainBody.contains("recordingJournalFinalizationQueue"))
         precondition(finishBody.contains("controller.stopAndClose()"))
         precondition(finishBody.contains("SegmentedRecordingArtifactFinalizer("))
         precondition(finishBody.contains("case .complete:"))

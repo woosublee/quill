@@ -40,6 +40,7 @@ struct AppStateStorageSafetyTests {
         try await verifiesFailedRecoverySaveIsRetriedNextLaunch()
         try await verifiesUnreadableJournalFolderKeepsPieces()
         try await verifiesClearingHistoryRemovesUnrecoveredPieces()
+        try await verifiesDeletedUnrecoveredNoteStaysDeletedWhenPieceRemovalStops()
         try await verifiesDeletingRecoveringNoteKeepsCancelWindow()
         try await AppStateTestStorage.withIsolatedStorage { environment in
             try prepareStorageDirectories(for: environment.storageLayout)
@@ -1373,6 +1374,69 @@ struct AppStateStorageSafetyTests {
             try await waitForFileRemoval(
                 at: journalStore.recordingDirectory(recordingID: recordingID)
             )
+        }
+    }
+
+    /// Deleting an unrecovered note marks its pieces first, so a removal
+    /// that never finishes (quit, crash, or a file error) doesn't bring the
+    /// note back on the next launch.
+    private static func verifiesDeletedUnrecoveredNoteStaysDeletedWhenPieceRemovalStops() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let journalStore = RecordingJournalStore(
+                audioDirectory: environment.storageLayout.audioDirectory
+            )
+            let recordingID = UUID()
+            let sourceURL = try writeSingleSourceJournal(
+                store: journalStore,
+                recordingID: recordingID
+            )
+            let recordingDirectory = journalStore.recordingDirectory(recordingID: recordingID)
+            let markerURL = recordingDirectory.appendingPathComponent(
+                RecordingJournalStore.discardMarkerFileName
+            )
+            let firstMark = try journalStore.markDiscarded(recordingID: recordingID)
+            let secondMark = try journalStore.markDiscarded(recordingID: recordingID)
+            try expect(firstMark, "the first mark writes the discard marker")
+            try expect(!secondMark, "a second mark reports it didn't write the marker")
+            try journalStore.unmarkDiscarded(recordingID: recordingID)
+            try expect(
+                !FileManager.default.fileExists(atPath: markerURL.path),
+                "unmarking takes the discard marker back"
+            )
+
+            try setImmutable(sourceURL, true)
+            let appState = await MainActor.run {
+                AppState(dependencies: environment.dependencies)
+            }
+            try setImmutable(sourceURL, false)
+            let kept = await MainActor.run {
+                appState.pipelineHistory.contains { $0.id == recordingID }
+            }
+            try expect(kept, "the failed recovery keeps a note to delete")
+
+            // The background removal can't rename the pieces away.
+            try setImmutable(journalStore.inflightDirectory, true)
+            let deleted = await MainActor.run { () -> Bool in
+                appState.deleteHistoryEntry(id: recordingID)
+                _ = appState.waitForPendingRecordingPieceRemovals(timeout: 5)
+                return !appState.pipelineHistory.contains { $0.id == recordingID }
+            }
+            try setImmutable(journalStore.inflightDirectory, false)
+            try expect(deleted, "the unrecovered note is deleted")
+            try expect(
+                FileManager.default.fileExists(atPath: markerURL.path),
+                "the pieces that couldn't be removed are marked for removal"
+            )
+
+            let relaunched = await MainActor.run {
+                AppState(dependencies: environment.dependencies)
+            }
+            let returned = await MainActor.run {
+                relaunched.pipelineHistory.contains { $0.id == recordingID }
+            }
+            try expect(!returned, "the deleted note does not come back on the next launch")
+            try await waitForFileRemoval(at: recordingDirectory)
         }
     }
 

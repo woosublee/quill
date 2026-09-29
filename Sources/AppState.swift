@@ -2640,6 +2640,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         label: "com.woosublee.quill.recording-journal.finalization",
         qos: .userInitiated
     )
+    /// Recover Again rebuilds audio on its own queue, so a long rebuild
+    /// never holds up finishing a new recording or removing deleted pieces.
+    private let recordingRecoveryAgainQueue = DispatchQueue(
+        label: "com.woosublee.quill.recording-journal.recover-again",
+        qos: .userInitiated
+    )
     private var pendingRecordingJournalFinalizationCount = 0
     /// Background removals of unrecovered recordings' pieces; quitting waits
     /// for them briefly so a deleted note does not come back on next launch.
@@ -6924,6 +6930,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 store: cloudTranscriptionJobStore
             )
         }
+        let markedRecordingIDs = markUnrecoveredRecordingPiecesDiscarded(
+            recordingIDs: unrecoveredRecordingIDs
+        )
         do {
             let removedStoredFiles = try pipelineHistoryStore.clearAll(
                 requiresDurableStore: true,
@@ -6948,6 +6957,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             forgetAllWarningBannerState()
             discardUnrecoveredRecordingPieces(recordingIDs: unrecoveredRecordingIDs)
         } catch {
+            unmarkUnrecoveredRecordingPiecesDiscarded(recordingIDs: markedRecordingIDs)
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to clear run history"), providerDetail: error.localizedDescription)
         }
     }
@@ -6959,7 +6969,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard !recoveringRecordingIDs.contains(id) else { return }
         // An earlier deletion's Cancel window ends here, like any new deletion.
         finalizePendingNoteDeletion()
-        guard let removed = removeHistoryEntryRecord(id: id) else { return }
+        // Mark the pieces first: if the app quits or stops before they are
+        // removed, the next launch removes them instead of bringing the
+        // note back.
+        let markedRecordingIDs = pipelineHistory.contains {
+            $0.id == id && $0.unrecoveredRecordingContext != nil
+        } ? markUnrecoveredRecordingPiecesDiscarded(recordingIDs: [id]) : []
+        guard let removed = removeHistoryEntryRecord(id: id) else {
+            unmarkUnrecoveredRecordingPiecesDiscarded(recordingIDs: markedRecordingIDs)
+            return
+        }
         if let deletedAssets = removed.assets {
             cleanupDeletedPipelineHistoryAssets(deletedAssets)
         }
@@ -7166,9 +7185,40 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Marks unrecovered recordings' pieces as discarded before their notes
+    /// are deleted. Returns the IDs whose marker this call wrote, so a
+    /// failed deletion takes back only those.
+    @MainActor
+    private func markUnrecoveredRecordingPiecesDiscarded(
+        recordingIDs: [UUID]
+    ) -> [UUID] {
+        recordingIDs.filter { recordingID in
+            do {
+                return try recordingJournalStore.markDiscarded(recordingID: recordingID)
+            } catch {
+                print("Failed to mark the pieces of an unrecovered recording for removal")
+                return false
+            }
+        }
+    }
+
+    @MainActor
+    private func unmarkUnrecoveredRecordingPiecesDiscarded(recordingIDs: [UUID]) {
+        for recordingID in recordingIDs {
+            do {
+                try recordingJournalStore.unmarkDiscarded(recordingID: recordingID)
+            } catch {
+                // The note stays, but the next launch would remove its
+                // pieces; there's no safer fallback than reporting it.
+                print("Failed to take back the removal mark of an unrecovered recording's pieces")
+            }
+        }
+    }
+
     /// Removes the journals left by recordings that could not be recovered,
     /// once their notes are deleted, so startup does not bring them back.
-    /// The file work runs on the journal queue, after any Recover Again.
+    /// The file work runs on the journal queue; Recover Again runs on its
+    /// own queue, so a long rebuild doesn't hold it up.
     @MainActor
     private func discardUnrecoveredRecordingPieces(recordingIDs: [UUID]) {
         guard !recordingIDs.isEmpty else { return }
@@ -7234,7 +7284,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         recoveringRecordingIDs.insert(id)
         let journalStore = recordingJournalStore
         let historyStore = pipelineHistoryStore
-        recordingJournalFinalizationQueue.async { [weak self] in
+        recordingRecoveryAgainQueue.async { [weak self] in
             // Stitching and journal checks stay off the main thread; only
             // the history change is applied on it.
             let inspection = RecordingJournalRecoveryExecutor(store: journalStore)
@@ -7269,12 +7319,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
               pipelineHistoryStore.availability == .ready else {
             return false
         }
-        let finalizationQueue = recordingJournalFinalizationQueue
+        let recoveryAgainQueue = recordingRecoveryAgainQueue
         let outcome = RecordingRecoveryHistory(
             journalStore: journalStore,
             historyStore: pipelineHistoryStore
         ).apply(inspection, maxCount: maxPipelineHistoryCount) { emptyID in
-            finalizationQueue.async {
+            recoveryAgainQueue.async {
                 try? journalStore.discardInflightRecording(recordingID: emptyID)
             }
         }

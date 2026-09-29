@@ -859,15 +859,17 @@ final class RecordingJournalStore {
         audioDirectory.appendingPathComponent(recordingID.uuidString.lowercased() + ".wav")
     }
 
-    func markDiscarded(recordingID: UUID) throws {
+    /// Returns true only when this call wrote the marker.
+    @discardableResult
+    func markDiscarded(recordingID: UUID) throws -> Bool {
         try lock.withLock {
             let directory = recordingDirectory(recordingID: recordingID)
-            guard fileManager.fileExists(atPath: directory.path) else { return }
+            guard fileManager.fileExists(atPath: directory.path) else { return false }
             let markerURL = directory.appendingPathComponent(
                 Self.discardMarkerFileName
             )
             if fileManager.fileExists(atPath: markerURL.path) {
-                return
+                return false
             }
 
             let descriptor = Darwin.open(
@@ -894,6 +896,21 @@ final class RecordingJournalStore {
                 )
             }
             descriptorOpen = false
+            try RecordingJournalDurability.syncDirectory(directory)
+            return true
+        }
+    }
+
+    /// Takes back `markDiscarded(recordingID:)`, such as when the note that
+    /// owns the recording could not be deleted after all.
+    func unmarkDiscarded(recordingID: UUID) throws {
+        try lock.withLock {
+            let directory = recordingDirectory(recordingID: recordingID)
+            let markerURL = directory.appendingPathComponent(
+                Self.discardMarkerFileName
+            )
+            guard fileManager.fileExists(atPath: markerURL.path) else { return }
+            try fileManager.removeItem(at: markerURL)
             try RecordingJournalDurability.syncDirectory(directory)
         }
     }
