@@ -1497,6 +1497,9 @@ struct AppStateStorageSafetyTests {
             }
             try expect(endedByDeletion, "a new deletion ends the summary's Cancel window")
             try expect(stored()?.meetingSummaryJSON == nil, "the summary stays deleted")
+        }
+    }
+
     /// The note of the recording in progress can't be deleted (#437); one
     /// left in the recording state after a crash still can.
     private static func verifiesRecordingNoteCannotBeDeletedWhileRecording() async throws {
