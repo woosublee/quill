@@ -1351,7 +1351,7 @@ struct NoteBrowserView: View {
            let item = appState.pipelineHistory.first(where: { $0.id == id }) {
             NoteDetailView(
                 item: item,
-                isSearchActive: !searchText.isEmpty,
+                isSearchActive: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 prefersSummaryTab: searchMatcher.matchesOnlyInSummary(item, query: searchText)
             ) {
                 deleteConfirmedNote(id)
@@ -3471,6 +3471,11 @@ private struct NoteDetailView: View {
             return
         }
         highlightedSourceQuote = quote
+        // Jumping to a source is the user's own choice of tab, so search
+        // won't pull the note back to the Summary tab.
+        if isSearchActive {
+            userChoseContentModeDuringSearch = true
+        }
         selectedContentMode = .transcript
     }
 

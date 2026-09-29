@@ -19,9 +19,14 @@ struct MeetingSummaryUIContractTests {
     }
 
     private static func testSearchOpensSummaryTabForSummaryOnlyMatches(_ noteBrowser: String) {
+        // A source jump counts as the user's tab choice, and a blank query
+        // isn't an active search.
+        precondition(noteBrowser.contains("if isSearchActive {\n            userChoseContentModeDuringSearch = true\n        }\n        selectedContentMode = .transcript"))
+        precondition(noteBrowser.contains("isSearchActive: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,"))
+
         for expected in [
             "prefersSummaryTab: searchMatcher.matchesOnlyInSummary(item, query: searchText)",
-            "isSearchActive: !searchText.isEmpty",
+            "isSearchActive: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty",
             "let prefersSummaryTab: Bool",
             "applySearchTabPreference(prefersSummaryTab)",
             ".onChange(of: prefersSummaryTab) { newValue in",
