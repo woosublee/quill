@@ -67,16 +67,6 @@ final class AppNotificationManager: NSObject, UNUserNotificationCenterDelegate {
     }
 
     @discardableResult
-    func sendImmediateNotification(title: String, body: String, sound: UNNotificationSound?) async -> Bool {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = sound
-        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-        return await sendImmediateNotification(request)
-    }
-
-    @discardableResult
     func sendImmediateNotification(_ request: UNNotificationRequest) async -> Bool {
         guard await canShowAlerts() else { return false }
         do {
