@@ -36,6 +36,10 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(source.components(separatedBy: "openNoteForSearch(focused)").count == 3)
         precondition(source.contains("if !isFocused && searchText.isEmpty && !isMovingOpenNoteForSearch {"))
         precondition(source.contains("DispatchQueue.main.async {\n            isSearchFieldFocused = true"))
+        // #434: the delete-cancel toast shows the time left, restarting per deletion.
+        precondition(source.contains("countdownDuration: AppState.noteDeletionCancelWindow\n                        )\n                        // A new deletion restarts the countdown.\n                        .id(pending.id)"))
+        precondition(source.contains("ToastCountdownBar(duration: countdownDuration)"))
+        precondition(source.contains("TimelineView(.periodic(from: startedAt, by: 1))"))
 
         // Visible entry points: the Select button and the row context menu.
         precondition(source.contains("Button(\"Select\") { beginSelection() }"))
