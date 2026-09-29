@@ -29,7 +29,7 @@ func transcriptStatus(for item: PipelineHistoryItem, retrying: Set<UUID>) -> Tra
         return .audioOnly
     case .recovered:
         return .recovered
-    case .failed:
+    case .failed, .unrecovered:
         return .fail
     case .completed:
         return item.postProcessingStatus
@@ -307,7 +307,9 @@ struct NoteListRowDisplayData: Equatable {
         }
         if status == .fail {
             return localizedCatalogString(
-                "Couldn't transcribe",
+                item.unrecoveredRecordingContext != nil
+                    ? "Couldn't recover"
+                    : "Couldn't transcribe",
                 language: localizationLanguage,
                 bundle: localizationBundle
             )

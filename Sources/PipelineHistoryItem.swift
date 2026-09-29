@@ -12,6 +12,8 @@ enum PipelineHistoryMachineStatus: Equatable {
     case cloudTranscribing
     case audioOnly
     case recovered(RecoveredRecordingContext)
+    /// Startup recovery could not restore the recording's audio.
+    case unrecovered(UnrecoveredRecordingContext)
     case failed(QuillUserIssueRecord)
     case completed
 }
@@ -72,6 +74,9 @@ struct PipelineHistoryItem: Identifiable, Codable {
         if postProcessingStatus == Self.audioOnlyStatus {
             return .audioOnly
         }
+        if let context = unrecoveredRecordingContext {
+            return .unrecovered(context)
+        }
         if let context = recoveredRecordingContext {
             return .recovered(context)
         }
@@ -102,6 +107,10 @@ struct PipelineHistoryItem: Identifiable, Codable {
 
     var recoveredRecordingContext: RecoveredRecordingContext? {
         RecoveredRecordingContext.recoveredContext(for: postProcessingStatus)
+    }
+
+    var unrecoveredRecordingContext: UnrecoveredRecordingContext? {
+        UnrecoveredRecordingContext.parse(postProcessingStatus)
     }
 
     var recoveredRecordingMode: RecoveredRecordingMode? {

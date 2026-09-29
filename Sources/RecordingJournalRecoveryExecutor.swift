@@ -16,7 +16,9 @@ enum RecordingJournalRecoveryResult: Equatable {
     case recovered(RecoveredRecordingArtifact)
     case discarded(UUID)
     case manualRecoveryRequired(InflightRecordingRecoveryCandidate)
-    case failed(InflightRecordingRecoveryCandidate, String)
+    /// Recovery stopped with an error. The cause is a safe category, never
+    /// the error text, which can include file paths.
+    case failed(InflightRecordingRecoveryCandidate, UnrecoveredRecordingCause?)
 }
 
 struct RecordingJournalRecoveryExecutor {
@@ -24,6 +26,15 @@ struct RecordingJournalRecoveryExecutor {
 
     func recoverAll() -> [RecordingJournalRecoveryResult] {
         InflightRecordingRecovery(store: store).scan().map(execute)
+    }
+
+    /// Recovers one recording's journal again, such as when the user asks
+    /// to retry a recording that startup recovery could not restore. Nil
+    /// when the journal no longer exists.
+    func recover(recordingID: UUID) -> RecordingJournalRecoveryResult? {
+        InflightRecordingRecovery(store: store)
+            .scan(recordingID: recordingID)
+            .map(execute)
     }
 
     private func execute(
@@ -121,7 +132,7 @@ struct RecordingJournalRecoveryExecutor {
                 return .manualRecoveryRequired(candidate)
             }
         } catch {
-            return .failed(candidate, error.localizedDescription)
+            return .failed(candidate, UnrecoveredRecordingCause.classifying(error))
         }
     }
 

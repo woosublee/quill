@@ -83,12 +83,15 @@ enum NoteTitleResolver {
             }
             // A failed note keeps a plain name; the list preview and the
             // note detail say what went wrong.
-            if case .failed = item.machineStatus {
+            switch item.machineStatus {
+            case .failed, .unrecovered:
                 return localizedCatalogString(
                     "New Recording",
                     language: language,
                     bundle: bundle
                 )
+            default:
+                break
             }
             if let context = item.recoveredRecordingContext {
                 return localizedCatalogString(

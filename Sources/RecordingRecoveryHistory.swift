@@ -34,7 +34,11 @@ struct RecordingRecoveryHistory {
             let existingHistory = historyStore.loadAllHistory().first {
                 $0.id == recovered.recordingID
             }
-            if existingHistory?.isIncompleteTranscription != false {
+            // A note kept for a recording that could not be recovered is
+            // replaced by the recovered audio, like an unfinished note.
+            if existingHistory == nil
+                || existingHistory?.isIncompleteTranscription == true
+                || existingHistory?.unrecoveredRecordingContext != nil {
                 // Keep a title typed into the note while it was recording.
                 let item = makePlaceholder(from: recovered)
                     .withCustomTitle(existingHistory?.customTitle)
@@ -60,6 +64,195 @@ struct RecordingRecoveryHistory {
             recordingID: recovered.recordingID
         )
         return deletedAssets
+    }
+
+    /// Applies one journal recovery result to history. A recording that
+    /// cannot be recovered keeps a note that says what happened, instead of
+    /// disappearing. A journal with no audio is removed once its note is
+    /// saved, so it is not retried on every launch. A journal whose pieces
+    /// remain is kept for Recover Again and the next launch.
+    @discardableResult
+    func apply(
+        _ result: RecordingJournalRecoveryResult,
+        maxCount: Int
+    ) -> RecordingRecoveryApplyOutcome {
+        switch result {
+        case .recovered(let artifact):
+            do {
+                return .recovered(try persist(artifact, maxCount: maxCount))
+            } catch {
+                // The stitched audio stays with its journal, which protects
+                // it from the orphan sweep; the next launch saves it again
+                // through the promoted artifact.
+                let context = UnrecoveredRecordingContext(
+                    kind: .recoveryFailed,
+                    cause: UnrecoveredRecordingCause.classifying(error)
+                )
+                try? keepUnrecoveredNote(
+                    recordingID: artifact.recordingID,
+                    manifest: artifact.manifest,
+                    directory: journalStore.recordingDirectory(
+                        recordingID: artifact.recordingID
+                    ),
+                    context: context
+                )
+                return .unrecovered(artifact.recordingID, context)
+            }
+        case .discarded:
+            return .discarded
+        case .manualRecoveryRequired(let candidate):
+            return keepUnrecovered(candidate, cause: nil)
+        case .failed(let candidate, let cause):
+            return keepUnrecovered(candidate, cause: cause)
+        }
+    }
+
+    private func keepUnrecovered(
+        _ candidate: InflightRecordingRecoveryCandidate,
+        cause: UnrecoveredRecordingCause?
+    ) -> RecordingRecoveryApplyOutcome {
+        // A recording the user discarded is not shown again; its removal is
+        // retried on the next launch. A journal whose folder does not match
+        // its recording ID cannot be tied to one note or cleaned up safely.
+        guard candidate.action != .discard,
+              let recordingID = candidate.recordingID,
+              candidate.recordingDirectory.standardizedFileURL.path
+                == journalStore.recordingDirectory(recordingID: recordingID)
+                    .standardizedFileURL.path else {
+            return .skipped
+        }
+        let manifest = try? journalStore.loadManifest(recordingID: recordingID)
+        guard journalContainsAudio(
+            directory: candidate.recordingDirectory,
+            recordingID: recordingID
+        ) else {
+            let context = UnrecoveredRecordingContext(
+                kind: .noAudio,
+                cause: manifest?.interruptionReason.map(
+                    UnrecoveredRecordingCause.init(interruptionReason:)
+                )
+            )
+            do {
+                try keepUnrecoveredNote(
+                    recordingID: recordingID,
+                    manifest: manifest,
+                    directory: candidate.recordingDirectory,
+                    context: context
+                )
+                try journalStore.discardInflightRecording(
+                    recordingID: recordingID
+                )
+            } catch {
+                // Tried again on the next launch.
+            }
+            return .unrecovered(recordingID, context)
+        }
+        let context = UnrecoveredRecordingContext(
+            kind: .recoveryFailed,
+            cause: cause
+        )
+        try? keepUnrecoveredNote(
+            recordingID: recordingID,
+            manifest: manifest,
+            directory: candidate.recordingDirectory,
+            context: context
+        )
+        return .unrecovered(recordingID, context)
+    }
+
+    /// Whether the journal holds anything that could be recording audio: a
+    /// file with more than a WAV header, or stitched audio already moved
+    /// out of the journal. Unreadable folders count as holding audio.
+    func journalContainsAudio(directory: URL, recordingID: UUID) -> Bool {
+        let fileManager = FileManager.default
+        if fileManager.fileExists(
+            atPath: journalStore.permanentURL(recordingID: recordingID).path
+        ) {
+            return true
+        }
+        guard fileManager.fileExists(atPath: directory.path) else {
+            return false
+        }
+        guard let enumerator = fileManager.enumerator(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
+            options: [],
+            errorHandler: { _, _ in false }
+        ) else {
+            return true
+        }
+        var enumerationFailed = false
+        for case let url as URL in enumerator {
+            let name = url.lastPathComponent
+            if name.hasPrefix("manifest")
+                || name == RecordingJournalStore.discardMarkerFileName {
+                continue
+            }
+            guard let values = try? url.resourceValues(
+                forKeys: [.isRegularFileKey, .fileSizeKey]
+            ) else {
+                enumerationFailed = true
+                continue
+            }
+            guard values.isRegularFile == true else { continue }
+            if (values.fileSize ?? 0) > RecordingCanonicalWAV.headerByteCount {
+                return true
+            }
+        }
+        return enumerationFailed
+    }
+
+    /// Saves the note for a recording that could not be recovered. The
+    /// note created when recording started is reused; a note that already
+    /// holds a transcript or audio is left as it is.
+    func keepUnrecoveredNote(
+        recordingID: UUID,
+        manifest: RecordingJournalManifest?,
+        directory: URL,
+        context: UnrecoveredRecordingContext
+    ) throws {
+        let history = historyStore.loadAllHistory()
+        if let existing = history.first(where: { $0.id == recordingID }) {
+            guard existing.isUnfinishedRecordingNote
+                    || existing.unrecoveredRecordingContext != nil,
+                  existing.postProcessingStatus != context.status else {
+                return
+            }
+            try historyStore.update(
+                existing.replacingUnrecoveredStatus(context),
+                requiresDurableStore: true
+            )
+            return
+        }
+
+        let startedAt = manifest?.startedAt
+            ?? (try? directory.resourceValues(
+                forKeys: [.creationDateKey]
+            ))?.creationDate
+            ?? Date()
+        // A recording note saved under another ID but started at the same
+        // moment is the same recording; carry over its title.
+        let startedTogether = manifest == nil ? nil : history.first {
+            $0.isUnfinishedRecordingNote
+                && abs(($0.recordingStartedAt ?? $0.timestamp)
+                    .timeIntervalSince(startedAt)) < 5
+        }
+        let item = PipelineHistoryItem.unrecoveredRecording(
+            id: recordingID,
+            startedAt: startedAt,
+            calendarMatch: calendarMatch(from: manifest?.pipeline.calendar)
+                ?? startedTogether?.calendarMatch,
+            customTitle: startedTogether?.customTitle,
+            context: context
+        )
+        _ = try historyStore.upsert(
+            item,
+            maxCount: Int.max,
+            requiresDurableStore: true
+        )
+        if let startedTogether {
+            _ = try? historyStore.delete(id: startedTogether.id)
+        }
     }
 
     func makePlaceholder(
@@ -157,6 +350,89 @@ struct RecordingRecoveryHistory {
             },
             matchSource: matchSource,
             titleState: .suggested
+        )
+    }
+}
+
+
+enum RecordingRecoveryApplyOutcome {
+    case recovered([DeletedPipelineHistoryAssets])
+    case discarded
+    case unrecovered(UUID, UnrecoveredRecordingContext)
+    /// The journal was discarded, or cannot be matched to one note.
+    case skipped
+}
+
+extension PipelineHistoryItem {
+    static func unrecoveredRecording(
+        id: UUID,
+        startedAt: Date,
+        calendarMatch: CalendarEventMatch?,
+        customTitle: String?,
+        context: UnrecoveredRecordingContext
+    ) -> PipelineHistoryItem {
+        PipelineHistoryItem(
+            id: id,
+            timestamp: startedAt,
+            recordingStartedAt: startedAt,
+            calendarMatch: calendarMatch,
+            rawTranscript: "",
+            postProcessedTranscript: "",
+            postProcessingPrompt: nil,
+            contextSummary: "",
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: context.status,
+            debugStatus: "Recording could not be recovered",
+            customVocabulary: "",
+            usedLocalTranscription: true,
+            usedContextCapture: false,
+            usedPostProcessing: false,
+            customTitle: customTitle
+        )
+    }
+
+    func replacingUnrecoveredStatus(
+        _ context: UnrecoveredRecordingContext
+    ) -> PipelineHistoryItem {
+        PipelineHistoryItem(
+            intent: intent,
+            selectedText: selectedText,
+            capturedSelection: capturedSelection,
+            id: id,
+            timestamp: timestamp,
+            recordingStartedAt: recordingStartedAt,
+            recordingEndedAt: recordingEndedAt,
+            calendarMatch: calendarMatch,
+            rawTranscript: rawTranscript,
+            postProcessedTranscript: postProcessedTranscript,
+            postProcessingPrompt: postProcessingPrompt,
+            systemPrompt: systemPrompt,
+            contextSummary: contextSummary,
+            contextSystemPrompt: contextSystemPrompt,
+            contextPrompt: contextPrompt,
+            contextScreenshotDataURL: contextScreenshotDataURL,
+            contextScreenshotStatus: contextScreenshotStatus,
+            postProcessingStatus: context.status,
+            aiProcessingOutcome: aiProcessingOutcome,
+            debugStatus: "Recording could not be recovered",
+            customVocabulary: customVocabulary,
+            customSystemPrompt: customSystemPrompt,
+            audioFileName: audioFileName,
+            usedLocalTranscription: usedLocalTranscription,
+            usedContextCapture: usedContextCapture,
+            usedPostProcessing: usedPostProcessing,
+            transcriptionLanguageCode: transcriptionLanguageCode,
+            spokenLanguageCode: spokenLanguageCode,
+            spokenLanguageResolution: spokenLanguageResolution,
+            meetingSummaryAttempt: meetingSummaryAttempt,
+            localTranscriptionModelID: localTranscriptionModelID,
+            transcriptFileName: transcriptFileName,
+            contextAppName: contextAppName,
+            contextBundleIdentifier: contextBundleIdentifier,
+            contextWindowTitle: contextWindowTitle,
+            customTitle: customTitle,
+            meetingSummaryJSON: meetingSummaryJSON
         )
     }
 }
