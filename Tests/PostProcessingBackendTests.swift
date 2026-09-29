@@ -36,9 +36,208 @@ struct PostProcessingBackendTests {
         try await testStandaloneRawTranscriptionWordIsNotTreatedAsLeak()
         try await testDelimiterInjectionCannotReplaceTheRawTranscript()
         try await testMeaningfulLongTranscriptReturningEmptyIsReportedAsEmptyOutput()
+        try await testLocalEmptyReplyForLongTranscriptIsReaskedOnceWithReminder()
+        try await testCloudEmptyReplyForLongTranscriptIsReaskedWithSameModel()
+        try await testRepeatedEmptyReplyKeepsEmptyOutputAfterOneReask()
+        try await testShortTranscriptEmptyReplyIsNotReasked()
+        try await testProviderErrorForLongTranscriptIsNotReasked()
         try await testMalformedCleanupResponseUsesInvalidResponseIssue()
         try await testOversizedStaticCleanupPromptExplainsTheActualLimit()
+        try testVocabularyParserKeepsPlainEntriesUnchanged()
+        try testVocabularyParserReadsCorrectionMappings()
+        try testVocabularyParserHandlesMalformedMappings()
+        try testVocabularyParserKeepsUnspacedArrowsPlain()
+        try await testCleanupPromptIncludesCorrectionsOnlyWhenMappingsExist()
+        try await testCommandPromptNeverIncludesCorrections()
         print("PostProcessingBackendTests passed")
+    }
+
+    private static func testVocabularyParserKeepsPlainEntriesUnchanged() throws {
+        let raw = " Quill, Kubernetes;\nkubernetes\n\n 퀼로그 ; SwiftUI ,"
+        // The pre-existing split: separators, trim, drop empties, and drop
+        // case-insensitive duplicates.
+        let legacyTerms: [String] = {
+            let terms = raw
+                .split(whereSeparator: { $0 == "\n" || $0 == "," || $0 == ";" })
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            var seen = Set<String>()
+            return terms.filter { seen.insert($0.lowercased()).inserted }
+        }()
+        let parsed = CustomVocabularyParser.parse(raw)
+        try expect(
+            parsed.terms == legacyTerms,
+            "plain vocabulary keeps the legacy terms"
+        )
+        try expect(
+            parsed.terms == ["Quill", "Kubernetes", "퀼로그", "SwiftUI"],
+            "plain vocabulary terms in order"
+        )
+        try expect(parsed.corrections.isEmpty, "plain vocabulary has no corrections")
+    }
+
+    private static func testVocabularyParserReadsCorrectionMappings() throws {
+        let parsed = CustomVocabularyParser.parse("""
+        퀼 -> Quill
+        cloud code | clod code => Claude Code
+        sweet UI → SwiftUI
+          Kubernetes  ,  kuber netties   ->   Kubernetes ; Quill
+        """)
+        try expect(
+            parsed.terms == ["Quill", "Claude Code", "SwiftUI", "Kubernetes"],
+            "correct forms join plain terms without duplicates"
+        )
+        try expect(
+            parsed.corrections == [
+                VocabularyCorrection(heard: "퀼", correct: "Quill"),
+                VocabularyCorrection(heard: "cloud code", correct: "Claude Code"),
+                VocabularyCorrection(heard: "clod code", correct: "Claude Code"),
+                VocabularyCorrection(heard: "sweet UI", correct: "SwiftUI"),
+                VocabularyCorrection(heard: "kuber netties", correct: "Kubernetes")
+            ],
+            "arrow variants, pipes, spaces, and mixed lines become corrections"
+        )
+        try expect(
+            !parsed.terms.contains("퀼") && !parsed.terms.contains("cloud code"),
+            "heard forms are not treated as preferred spellings"
+        )
+    }
+
+    private static func testVocabularyParserHandlesMalformedMappings() throws {
+        let parsed = CustomVocabularyParser.parse("""
+        | -> Claude
+         | |  -> Quill Two
+        """)
+        try expect(
+            parsed.terms == ["Claude", "Quill Two"],
+            "malformed mappings keep whichever side exists as a plain term"
+        )
+        try expect(parsed.corrections.isEmpty, "malformed mappings add no corrections")
+    }
+
+    private static func testVocabularyParserKeepsUnspacedArrowsPlain() throws {
+        let raw = "ptr->next\na=>b\n=>\n->\nQuill ->\n-> Quill\nx→y"
+        let parsed = CustomVocabularyParser.parse(raw)
+        try expect(
+            parsed.terms == CustomVocabularyParser.entries(from: raw),
+            "arrows without surrounding spaces stay plain vocabulary"
+        )
+        try expect(
+            parsed.terms == ["ptr->next", "a=>b", "=>", "->", "Quill ->", "-> Quill", "x→y"],
+            "unspaced arrow entries are kept verbatim"
+        )
+        try expect(parsed.corrections.isEmpty, "unspaced arrows add no corrections")
+    }
+
+    private static func testCleanupPromptIncludesCorrectionsOnlyWhenMappingsExist() async throws {
+        let recorder = PostProcessingRequestRecorder()
+        let service = makeLocalService { request in
+            recorder.record(request)
+            return try successResponse(
+                request: request,
+                content: try transcriptFromPostProcessingRequest(request)
+            )
+        }
+
+        _ = try await service.postProcess(
+            transcript: "The 퀼 release is ready.",
+            context: testContext,
+            customVocabulary: "Kubernetes\n퀼 | 퀄 -> Quill"
+        )
+        let withMappings = try cleanupUserMessage(from: recorder.request())
+        try expect(
+            withMappings.hasPrefix(
+                PostProcessingPromptPolicy.dataEnvelopeInstruction + "\n\n"
+                    + PostProcessingPromptPolicy.correctionsInstruction + "\n\n"
+            ),
+            "mappings add the corrections instruction after the data instruction"
+        )
+        let data = try envelopeData(from: withMappings)
+        try expect(
+            data["vocabulary"] as? [String] == ["Kubernetes", "Quill"],
+            "vocabulary carries only preferred spellings"
+        )
+        let corrections = data["corrections"] as? [[String: String]]
+        try expect(
+            corrections == [
+                ["heard": "퀼", "correct": "Quill"],
+                ["heard": "퀄", "correct": "Quill"]
+            ],
+            "envelope carries each heard form with its correction"
+        )
+
+        _ = try await service.postProcess(
+            transcript: "The release is ready.",
+            context: testContext,
+            customVocabulary: "Kubernetes, Quill"
+        )
+        let plain = try cleanupUserMessage(from: recorder.request())
+        try expect(
+            !plain.contains(PostProcessingPromptPolicy.correctionsInstruction),
+            "plain vocabulary omits the corrections instruction"
+        )
+        let plainData = try envelopeData(from: plain)
+        try expect(plainData["corrections"] == nil, "plain vocabulary omits corrections data")
+        try expect(
+            plainData["vocabulary"] as? [String] == ["Kubernetes", "Quill"],
+            "plain vocabulary is unchanged"
+        )
+        try expect(recorder.count() == 2, "only the stubbed transport is called")
+    }
+
+    private static func testCommandPromptNeverIncludesCorrections() async throws {
+        let recorder = PostProcessingRequestRecorder()
+        let service = makeLocalService { request in
+            recorder.record(request)
+            return try successResponse(request: request, content: "Shorter text")
+        }
+
+        _ = try await service.commandTransform(
+            selectedText: "Original text",
+            voiceCommand: "Make it concise",
+            context: testContext,
+            customVocabulary: "Kubernetes; cloud code | clod code -> Claude Code"
+        )
+        let withMappings = try systemPrompt(from: recorder.request())
+        try expect(
+            withMappings.contains("Use these spellings exactly in the output when relevant:\nKubernetes, Claude Code"),
+            "command vocabulary lists preferred spellings only"
+        )
+        try expect(
+            !withMappings.contains("Known mishearings")
+                && !withMappings.contains("cloud code")
+                && !withMappings.contains("clod code"),
+            "Edit Mode prompt has no corrections even when mappings exist"
+        )
+        let commandUserMessage = try cleanupUserMessage(from: recorder.request())
+        try expect(
+            !commandUserMessage.contains("cloud code"),
+            "Edit Mode user message has no heard forms"
+        )
+
+        _ = try await service.commandTransform(
+            selectedText: "Original text",
+            voiceCommand: "Make it concise",
+            context: testContext,
+            customVocabulary: "Kubernetes"
+        )
+        let plain = try systemPrompt(from: recorder.request())
+        try expect(!plain.contains("Known mishearings."), "plain command vocabulary omits corrections")
+        try expect(
+            plain.contains("Use these spellings exactly in the output when relevant:\nKubernetes"),
+            "plain command vocabulary is unchanged"
+        )
+        try expect(recorder.count() == 2, "only the stubbed transport is called")
+    }
+
+    private static func envelopeData(from userMessage: String) throws -> [String: Any] {
+        guard let jsonStart = userMessage.firstIndex(of: "{"),
+              let envelopeData = String(userMessage[jsonStart...]).data(using: .utf8),
+              let envelope = try JSONSerialization.jsonObject(with: envelopeData) as? [String: Any],
+              let data = envelope["data"] as? [String: Any] else {
+            throw PostProcessingBackendTestFailure("post-processing envelope data")
+        }
+        return data
     }
 
     private static let successfulReadinessProbe: LocalAIServerManager.ReadinessProbe = { request in
@@ -998,8 +1197,10 @@ struct PostProcessingBackendTests {
 
     private static func testMeaningfulLongTranscriptReturningEmptyIsReportedAsEmptyOutput() async throws {
         let rawTranscript = String(repeating: "This is meaningful transcript content. ", count: 250)
+        let recorder = PostProcessingRequestRecorder()
         let service = makeLocalService { request in
-            try successResponse(request: request, content: "EMPTY")
+            recorder.record(request)
+            return try successResponse(request: request, content: "EMPTY")
         }
 
         do {
@@ -1018,6 +1219,163 @@ struct PostProcessingBackendTests {
                 )
             }
         }
+        try expect(recorder.count() == 2, "long EMPTY is re-asked at most once per run")
+    }
+
+    private static let longReaskTranscript =
+        "The team agreed to ship the release next Tuesday after the final review."
+
+    private static func testLocalEmptyReplyForLongTranscriptIsReaskedOnceWithReminder() async throws {
+        let recorder = PostProcessingRequestRecorder()
+        let service = makeLocalService { request in
+            recorder.record(request)
+            if recorder.count() == 1 {
+                return try successResponse(request: request, content: "EMPTY")
+            }
+            return try successResponse(
+                request: request,
+                content: try transcriptFromPostProcessingRequest(request)
+            )
+        }
+
+        let result = try await service.postProcess(
+            transcript: longReaskTranscript,
+            context: testContext,
+            customVocabulary: ""
+        )
+
+        try expect(result.transcript == longReaskTranscript, "re-asked cleanup result is used")
+        let requests = recorder.capturedRequests()
+        try expect(requests.count == 2, "long EMPTY reply triggers exactly one extra request")
+        let firstSystemPrompt = try systemPrompt(from: requests[0])
+        let secondSystemPrompt = try systemPrompt(from: requests[1])
+        try expect(
+            !firstSystemPrompt.contains(PostProcessingService.emptyReplyReminder),
+            "first request omits the EMPTY reminder"
+        )
+        try expect(
+            secondSystemPrompt.contains(PostProcessingService.emptyReplyReminder),
+            "second request adds the EMPTY reminder"
+        )
+        try expect(
+            requests.allSatisfy { $0.url?.host == "127.0.0.1" },
+            "local re-ask stays on the local endpoint"
+        )
+        let firstModel = try requestBody(requests[0])["model"] as? String
+        let secondModel = try requestBody(requests[1])["model"] as? String
+        try expect(firstModel != nil && firstModel == secondModel, "local re-ask uses the same model")
+        let firstUserMessage = try cleanupUserMessage(from: requests[0])
+        let secondUserMessage = try cleanupUserMessage(from: requests[1])
+        try expect(firstUserMessage == secondUserMessage, "re-ask sends the same user message")
+    }
+
+    private static func testCloudEmptyReplyForLongTranscriptIsReaskedWithSameModel() async throws {
+        let recorder = PostProcessingRequestRecorder()
+        let service = PostProcessingService(
+            backendExecutor: AIProcessingBackendExecutor(
+                choice: .cloud(modelID: "primary/model"),
+                cloudBaseURL: "https://api.example.com/openai/v1/\(UUID().uuidString)",
+                cloudAPIKey: "cloud-secret"
+            ),
+            cloudFallbackModelID: "fallback/model",
+            instructionExecutionGuardEnabled: false,
+            transport: { request in
+                recorder.record(request)
+                if recorder.count() == 1 {
+                    return try successResponse(request: request, content: "  ")
+                }
+                return try successResponse(
+                    request: request,
+                    content: try transcriptFromPostProcessingRequest(request)
+                )
+            }
+        )
+
+        let result = try await service.postProcess(
+            transcript: longReaskTranscript,
+            context: testContext,
+            customVocabulary: ""
+        )
+
+        try expect(result.transcript == longReaskTranscript, "cloud re-asked result is used")
+        let requests = recorder.capturedRequests()
+        try expect(requests.count == 2, "cloud empty reply triggers exactly one extra request")
+        for request in requests {
+            let model = try requestBody(request)["model"] as? String
+            try expect(
+                model == "primary/model",
+                "cloud re-ask never switches to the fallback model"
+            )
+        }
+    }
+
+    private static func testRepeatedEmptyReplyKeepsEmptyOutputAfterOneReask() async throws {
+        let recorder = PostProcessingRequestRecorder()
+        let service = makeLocalService { request in
+            recorder.record(request)
+            return try successResponse(request: request, content: "EMPTY")
+        }
+
+        do {
+            _ = try await service.postProcess(
+                transcript: longReaskTranscript,
+                context: testContext,
+                customVocabulary: ""
+            )
+            throw PostProcessingBackendTestFailure("Expected repeated EMPTY to fail")
+        } catch let error as PostProcessingError {
+            guard case .emptyOutput = error else {
+                throw PostProcessingBackendTestFailure("Expected emptyOutput, got \(error)")
+            }
+        }
+        try expect(recorder.count() == 2, "repeated EMPTY sends exactly two requests")
+    }
+
+    private static func testShortTranscriptEmptyReplyIsNotReasked() async throws {
+        let recorder = PostProcessingRequestRecorder()
+        let service = makeLocalService { request in
+            recorder.record(request)
+            return try successResponse(request: request, content: "EMPTY")
+        }
+
+        do {
+            _ = try await service.postProcess(
+                transcript: "Ship it on Tuesday.",
+                context: testContext,
+                customVocabulary: ""
+            )
+            throw PostProcessingBackendTestFailure("Expected short EMPTY to fail")
+        } catch let error as PostProcessingError {
+            guard case .emptyOutput = error else {
+                throw PostProcessingBackendTestFailure("Expected emptyOutput, got \(error)")
+            }
+        }
+        try expect(recorder.count() == 1, "short transcript is not re-asked")
+    }
+
+    private static func testProviderErrorForLongTranscriptIsNotReasked() async throws {
+        let recorder = PostProcessingRequestRecorder()
+        let service = makeLocalService { request in
+            recorder.record(request)
+            return (
+                Data(#"{"error":{"code":"server_error"}}"#.utf8),
+                HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!
+            )
+        }
+
+        do {
+            _ = try await service.postProcess(
+                transcript: longReaskTranscript,
+                context: testContext,
+                customVocabulary: ""
+            )
+            throw PostProcessingBackendTestFailure("Expected provider error")
+        } catch let error as PostProcessingError {
+            guard case .requestFailed = error else {
+                throw PostProcessingBackendTestFailure("Expected requestFailed, got \(error)")
+            }
+        }
+        try expect(recorder.count() == 1, "provider errors are not re-asked")
     }
 
     private static func testMalformedCleanupResponseUsesInvalidResponseIssue() async throws {

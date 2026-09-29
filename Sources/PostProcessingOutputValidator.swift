@@ -95,7 +95,30 @@ struct PostProcessingOutputValidator {
         return .success(trimmedOutput)
     }
 
+    /// Minimum transcript length, counted without whitespace or punctuation,
+    /// before an empty or `EMPTY` cleanup reply is worth asking about again.
+    static let emptyReplyReaskMinimumCharacterCount = 40
+
+    /// Decides whether an empty or `EMPTY` cleanup reply should be re-asked once.
+    /// Only non-filler transcripts with at least
+    /// `emptyReplyReaskMinimumCharacterCount` characters, ignoring whitespace
+    /// and punctuation, qualify.
+    static func shouldReaskAfterEmptyReply(source: String) -> Bool {
+        guard isMeaningful(source) else { return false }
+        let ignored = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters)
+        let count = source.reduce(into: 0) { count, character in
+            if !character.unicodeScalars.allSatisfy({ ignored.contains($0) }) {
+                count += 1
+            }
+        }
+        return count >= emptyReplyReaskMinimumCharacterCount
+    }
+
     private func isMeaningful(_ source: String) -> Bool {
+        Self.isMeaningful(source)
+    }
+
+    private static func isMeaningful(_ source: String) -> Bool {
         let withoutFillers = source.replacingOccurrences(
             of: #"(?i)\b(?:um+|uh+|erm|er|ah+|eh+|yeah|yep|well|okay|ok|so)\b|(?:음+|어+|저기)"#,
             with: " ",

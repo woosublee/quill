@@ -97,6 +97,22 @@ struct NoteSelection: Equatable {
         collapseToSingleIfNeeded()
     }
 
+    /// Unchecks notes that became busy while selected, for example when a
+    /// summary or a retry starts, so a bulk action never skips them silently.
+    mutating func retainSelectable(_ isSelectable: (UUID) -> Bool) {
+        guard showsSelectionUI else { return }
+        let busy = selectedIDs.filter { !isSelectable($0) }
+        guard !busy.isEmpty else { return }
+        selectedIDs.subtract(busy)
+        if let focusedID, busy.contains(focusedID), let next = selectedIDs.first {
+            self.focusedID = next
+        }
+        if let anchorID, busy.contains(anchorID) {
+            self.anchorID = nil
+        }
+        collapseToSingleIfNeeded()
+    }
+
     /// The note to show after deleting notes: the next remaining one below, else above.
     static func nextFocusedID(afterDeleting deletedIDs: Set<UUID>, in orderedIDs: [UUID]) -> UUID? {
         guard let lastDeletedIndex = orderedIDs.lastIndex(where: deletedIDs.contains) else {

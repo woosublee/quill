@@ -18,6 +18,7 @@ struct NoteSelectionTests {
         try testUnselectableNotesCannotBeAdded()
         try testEndSelectionModeReturnsToFocusedNote()
         try testRetainVisibleDropsHiddenNotes()
+        try testRetainSelectableDropsNotesThatBecameBusy()
         try testFocusResetsMultiSelection()
         try testNextFocusAfterDeletion()
         try testKeyCommandsRequireExactModifiers()
@@ -128,6 +129,32 @@ struct NoteSelectionTests {
         try expect(!selection.showsSelectionUI, "Done closes the selection UI")
         try expect(selection.focusedID == ids[3], "Done keeps the last clicked note")
         try expect(selection.selectedIDs == [ids[3]], "Done leaves only the focused note selected")
+    }
+
+    private static func testRetainSelectableDropsNotesThatBecameBusy() throws {
+        var selection = NoteSelection(focusedID: ids[0])
+        selection.click(ids[2], modifier: .toggle, orderedIDs: ids, isSelectable: everySelectable)
+        selection.click(ids[4], modifier: .toggle, orderedIDs: ids, isSelectable: everySelectable)
+        selection.retainSelectable { $0 != ids[4] }
+
+        try expect(selection.selectedIDs == [ids[0], ids[2]], "a note that became busy leaves the selection")
+        try expect(selection.focusedID != ids[4], "focus moves off the busy note")
+        try expect(selection.showsSelectionUI, "two notes stay a multi-selection")
+
+        selection.retainSelectable { $0 == ids[0] }
+        try expect(selection.selectedIDs == [ids[0]], "one selectable note remains")
+        try expect(!selection.showsSelectionUI, "one remaining note returns to the normal view")
+
+        // A single focused busy note is still shown.
+        selection.retainSelectable { _ in false }
+        try expect(selection.focusedID == ids[0], "a single busy note stays focused")
+
+        var requested = NoteSelection(focusedID: ids[1])
+        requested.beginSelectionMode()
+        requested.click(ids[3], modifier: .none, orderedIDs: ids, isSelectable: everySelectable)
+        requested.retainSelectable { _ in false }
+        try expect(requested.selectedIDs.isEmpty, "selection mode can end up empty")
+        try expect(requested.showsSelectionUI, "selection mode stays open")
     }
 
     private static func testRetainVisibleDropsHiddenNotes() throws {
