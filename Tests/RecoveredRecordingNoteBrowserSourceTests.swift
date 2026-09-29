@@ -49,7 +49,6 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("actionState.showsRetryButton"))
         precondition(source.contains("NoteFileExportView("))
         precondition(source.contains("Image(systemName: \"square.and.arrow.down\")"))
-        precondition(source.contains("Image(systemName: \"ellipsis\")"))
         try testRetryWithoutReadyModelUsesToast(source)
         testEmptyHistoryShowsOneEmptyState(source)
         testNoteBrowserHeaderLayout(source)

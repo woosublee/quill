@@ -36,6 +36,11 @@ struct PostProcessingBackendTests {
         try await testStandaloneRawTranscriptionWordIsNotTreatedAsLeak()
         try await testDelimiterInjectionCannotReplaceTheRawTranscript()
         try await testMeaningfulLongTranscriptReturningEmptyIsReportedAsEmptyOutput()
+        try await testLocalEmptyReplyForLongTranscriptIsReaskedOnceWithReminder()
+        try await testCloudEmptyReplyForLongTranscriptIsReaskedWithSameModel()
+        try await testRepeatedEmptyReplyKeepsEmptyOutputAfterOneReask()
+        try await testShortTranscriptEmptyReplyIsNotReasked()
+        try await testProviderErrorForLongTranscriptIsNotReasked()
         try await testMalformedCleanupResponseUsesInvalidResponseIssue()
         try await testOversizedStaticCleanupPromptExplainsTheActualLimit()
         print("PostProcessingBackendTests passed")
@@ -998,8 +1003,10 @@ struct PostProcessingBackendTests {
 
     private static func testMeaningfulLongTranscriptReturningEmptyIsReportedAsEmptyOutput() async throws {
         let rawTranscript = String(repeating: "This is meaningful transcript content. ", count: 250)
+        let recorder = PostProcessingRequestRecorder()
         let service = makeLocalService { request in
-            try successResponse(request: request, content: "EMPTY")
+            recorder.record(request)
+            return try successResponse(request: request, content: "EMPTY")
         }
 
         do {
@@ -1018,6 +1025,163 @@ struct PostProcessingBackendTests {
                 )
             }
         }
+        try expect(recorder.count() == 2, "long EMPTY is re-asked at most once per run")
+    }
+
+    private static let longReaskTranscript =
+        "The team agreed to ship the release next Tuesday after the final review."
+
+    private static func testLocalEmptyReplyForLongTranscriptIsReaskedOnceWithReminder() async throws {
+        let recorder = PostProcessingRequestRecorder()
+        let service = makeLocalService { request in
+            recorder.record(request)
+            if recorder.count() == 1 {
+                return try successResponse(request: request, content: "EMPTY")
+            }
+            return try successResponse(
+                request: request,
+                content: try transcriptFromPostProcessingRequest(request)
+            )
+        }
+
+        let result = try await service.postProcess(
+            transcript: longReaskTranscript,
+            context: testContext,
+            customVocabulary: ""
+        )
+
+        try expect(result.transcript == longReaskTranscript, "re-asked cleanup result is used")
+        let requests = recorder.capturedRequests()
+        try expect(requests.count == 2, "long EMPTY reply triggers exactly one extra request")
+        let firstSystemPrompt = try systemPrompt(from: requests[0])
+        let secondSystemPrompt = try systemPrompt(from: requests[1])
+        try expect(
+            !firstSystemPrompt.contains(PostProcessingService.emptyReplyReminder),
+            "first request omits the EMPTY reminder"
+        )
+        try expect(
+            secondSystemPrompt.contains(PostProcessingService.emptyReplyReminder),
+            "second request adds the EMPTY reminder"
+        )
+        try expect(
+            requests.allSatisfy { $0.url?.host == "127.0.0.1" },
+            "local re-ask stays on the local endpoint"
+        )
+        let firstModel = try requestBody(requests[0])["model"] as? String
+        let secondModel = try requestBody(requests[1])["model"] as? String
+        try expect(firstModel != nil && firstModel == secondModel, "local re-ask uses the same model")
+        let firstUserMessage = try cleanupUserMessage(from: requests[0])
+        let secondUserMessage = try cleanupUserMessage(from: requests[1])
+        try expect(firstUserMessage == secondUserMessage, "re-ask sends the same user message")
+    }
+
+    private static func testCloudEmptyReplyForLongTranscriptIsReaskedWithSameModel() async throws {
+        let recorder = PostProcessingRequestRecorder()
+        let service = PostProcessingService(
+            backendExecutor: AIProcessingBackendExecutor(
+                choice: .cloud(modelID: "primary/model"),
+                cloudBaseURL: "https://api.example.com/openai/v1/\(UUID().uuidString)",
+                cloudAPIKey: "cloud-secret"
+            ),
+            cloudFallbackModelID: "fallback/model",
+            instructionExecutionGuardEnabled: false,
+            transport: { request in
+                recorder.record(request)
+                if recorder.count() == 1 {
+                    return try successResponse(request: request, content: "  ")
+                }
+                return try successResponse(
+                    request: request,
+                    content: try transcriptFromPostProcessingRequest(request)
+                )
+            }
+        )
+
+        let result = try await service.postProcess(
+            transcript: longReaskTranscript,
+            context: testContext,
+            customVocabulary: ""
+        )
+
+        try expect(result.transcript == longReaskTranscript, "cloud re-asked result is used")
+        let requests = recorder.capturedRequests()
+        try expect(requests.count == 2, "cloud empty reply triggers exactly one extra request")
+        for request in requests {
+            let model = try requestBody(request)["model"] as? String
+            try expect(
+                model == "primary/model",
+                "cloud re-ask never switches to the fallback model"
+            )
+        }
+    }
+
+    private static func testRepeatedEmptyReplyKeepsEmptyOutputAfterOneReask() async throws {
+        let recorder = PostProcessingRequestRecorder()
+        let service = makeLocalService { request in
+            recorder.record(request)
+            return try successResponse(request: request, content: "EMPTY")
+        }
+
+        do {
+            _ = try await service.postProcess(
+                transcript: longReaskTranscript,
+                context: testContext,
+                customVocabulary: ""
+            )
+            throw PostProcessingBackendTestFailure("Expected repeated EMPTY to fail")
+        } catch let error as PostProcessingError {
+            guard case .emptyOutput = error else {
+                throw PostProcessingBackendTestFailure("Expected emptyOutput, got \(error)")
+            }
+        }
+        try expect(recorder.count() == 2, "repeated EMPTY sends exactly two requests")
+    }
+
+    private static func testShortTranscriptEmptyReplyIsNotReasked() async throws {
+        let recorder = PostProcessingRequestRecorder()
+        let service = makeLocalService { request in
+            recorder.record(request)
+            return try successResponse(request: request, content: "EMPTY")
+        }
+
+        do {
+            _ = try await service.postProcess(
+                transcript: "Ship it on Tuesday.",
+                context: testContext,
+                customVocabulary: ""
+            )
+            throw PostProcessingBackendTestFailure("Expected short EMPTY to fail")
+        } catch let error as PostProcessingError {
+            guard case .emptyOutput = error else {
+                throw PostProcessingBackendTestFailure("Expected emptyOutput, got \(error)")
+            }
+        }
+        try expect(recorder.count() == 1, "short transcript is not re-asked")
+    }
+
+    private static func testProviderErrorForLongTranscriptIsNotReasked() async throws {
+        let recorder = PostProcessingRequestRecorder()
+        let service = makeLocalService { request in
+            recorder.record(request)
+            return (
+                Data(#"{"error":{"code":"server_error"}}"#.utf8),
+                HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!
+            )
+        }
+
+        do {
+            _ = try await service.postProcess(
+                transcript: longReaskTranscript,
+                context: testContext,
+                customVocabulary: ""
+            )
+            throw PostProcessingBackendTestFailure("Expected provider error")
+        } catch let error as PostProcessingError {
+            guard case .requestFailed = error else {
+                throw PostProcessingBackendTestFailure("Expected requestFailed, got \(error)")
+            }
+        }
+        try expect(recorder.count() == 1, "provider errors are not re-asked")
     }
 
     private static func testMalformedCleanupResponseUsesInvalidResponseIssue() async throws {

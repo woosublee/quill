@@ -7,6 +7,9 @@ struct SegmentedRecordingJournalControllerTests {
             try initialHandleMatchesRequestedSources()
             try switchingDrainsSegmentsAndPreservesRecordingOrder()
             try timestampOffsetsUseTheOriginalRecordingAnchor()
+            try timestampEarlierThanAnchorClampsToZero()
+            try frameOffsetConversionHandlesMaximumTimestamp()
+            try sourceSinkUsesAudioCallbackLockConvention()
             try checkpointCommitsEveryActiveSourceInOneGeneration()
             try stopPreserveAndDiscardHaveStableLifecycleSemantics()
             try failedNextWriterLeavesEarlierAudioRecoverable()
@@ -148,6 +151,61 @@ struct SegmentedRecordingJournalControllerTests {
                     .firstCommittedFrameOffset,
                 17_600,
                 "switched segment offset"
+            )
+        }
+    }
+
+    private static func timestampEarlierThanAnchorClampsToZero() throws {
+        try withFixture { fixture in
+            let controller = try SegmentedRecordingJournalController(
+                request: fixture.request(sources: [
+                    RecordingJournalSegmentSourceRequest(
+                        id: fixture.microphoneSourceID,
+                        kind: .microphone
+                    )
+                ]),
+                store: fixture.store
+            )
+            controller.activeSegment.microphoneSink?.enqueue(
+                Data([0x01, 0x00]),
+                firstFrameMonotonicNanoseconds: fixture.anchor - 1
+            )
+            try controller.checkpoint()
+
+            let manifest = try fixture.store.loadManifest(recordingID: fixture.recordingID)
+            try expectEqual(
+                manifest.sources.first(where: { $0.id == fixture.microphoneSourceID })?
+                    .firstCommittedFrameOffset,
+                0,
+                "timestamp before anchor offset"
+            )
+        }
+    }
+
+    private static func frameOffsetConversionHandlesMaximumTimestamp() throws {
+        let offset = RecordingFrameOffset.frames(
+            firstFrameMonotonicNanoseconds: UInt64.max,
+            monotonicAnchorNanoseconds: 0,
+            sampleRate: RecordingPCMFormat.canonical.sampleRate
+        )
+        try expectEqual(
+            offset,
+            295_147_905_179_353,
+            "maximum timestamp frame offset"
+        )
+    }
+
+    private static func sourceSinkUsesAudioCallbackLockConvention() throws {
+        let source = try String(
+            contentsOfFile: "Sources/RecordingJournalSourceSink.swift",
+            encoding: .utf8
+        )
+        guard source.contains(
+            "private let firstFrameOffsetLock = OSAllocatedUnfairLock<UInt64?>(initialState: nil)"
+        ), source.contains("firstFrameOffsetLock.withLock { offset in"),
+           !source.contains("private let lock = NSLock()") else {
+            throw TestFailure(
+                "journal source sink must use the audio callback unfair-lock convention"
             )
         }
     }
