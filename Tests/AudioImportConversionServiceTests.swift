@@ -152,7 +152,7 @@ struct AudioImportConversionServiceTests {
             AVLinearPCMBitDepthKey: 32,
             AVLinearPCMIsFloatKey: true,
             AVLinearPCMIsBigEndianKey: false,
-            AVLinearPCMIsNonInterleaved: true,
+            AVLinearPCMIsNonInterleaved: false,
         ]
         let file = try AVAudioFile(
             forWriting: url,

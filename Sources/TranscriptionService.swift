@@ -578,6 +578,16 @@ class TranscriptionService {
             )
         }
 
+        // Same on-device guarantee as live transcription: refuse instead of
+        // letting the request fail or fall back to Apple's servers.
+        guard recognizer.supportsOnDeviceRecognition else {
+            throw QuillUserIssueError.local(
+                code: .appleSpeechOnDeviceUnavailable,
+                backend: "Apple Speech",
+                diagnostic: "On-device recognition unavailable for locale \(locale.identifier)"
+            )
+        }
+
         let request = SFSpeechURLRecognitionRequest(url: fileURL)
         request.requiresOnDeviceRecognition = true
         request.addsPunctuation = true

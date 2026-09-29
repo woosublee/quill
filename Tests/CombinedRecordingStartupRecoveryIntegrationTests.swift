@@ -200,7 +200,7 @@ struct CombinedRecordingStartupRecoveryIntegrationTests {
         let historyStore = PipelineHistoryStore(
             storeURL: root.appendingPathComponent("PipelineHistory.sqlite")
         )
-        let controller = try CombinedRecordingJournalController(
+        let journal = try LegacyCombinedJournal(
             request: CombinedRecordingJournalCreateRequest(
                 recordingID: recordingID,
                 microphoneSourceID: UUID(),
@@ -214,28 +214,28 @@ struct CombinedRecordingStartupRecoveryIntegrationTests {
         )
         switch mode {
         case .complete:
-            controller.microphoneSink.enqueue(
+            journal.microphoneSink.enqueue(
                 pcmData([1_000, 1_000]),
                 firstFrameMonotonicNanoseconds: anchor
             )
-            controller.systemAudioSink.enqueue(
+            journal.systemAudioSink.enqueue(
                 pcmData([3_000, 3_000]),
                 firstFrameMonotonicNanoseconds: anchor + 125_000
             )
         case .microphoneOnly:
-            controller.microphoneSink.enqueue(
+            journal.microphoneSink.enqueue(
                 pcmData([100, 200]),
                 firstFrameMonotonicNanoseconds: anchor + 500_000_000
             )
         case .systemAudioOnly:
-            controller.systemAudioSink.enqueue(
+            journal.systemAudioSink.enqueue(
                 pcmData([300, 400]),
                 firstFrameMonotonicNanoseconds: anchor + 500_000_000
             )
         case .partial:
             throw TestFailure("partial recovery requires a segmented fixture")
         }
-        try controller.checkpoint()
+        try journal.checkpoint()
         if persistBeforeLaunch {
             try runRecoveryLaunch(
                 journalStore: journalStore,
@@ -327,5 +327,58 @@ struct CombinedRecordingStartupRecoveryIntegrationTests {
         init(_ description: String) {
             self.description = description
         }
+    }
+}
+
+/// Writes a legacy combined-layout journal directly through the store and
+/// PCM writers so recovery of journals left by older builds stays covered.
+private struct LegacyCombinedJournal {
+    let microphoneSink: RecordingJournalSourceSink
+    let systemAudioSink: RecordingJournalSourceSink
+
+    private let recordingID: UUID
+    private let store: RecordingJournalStore
+    private let session: CombinedRecordingJournalSession
+    private let microphoneWriter: RecordingPCMJournalWriter
+    private let systemAudioWriter: RecordingPCMJournalWriter
+
+    init(
+        request: CombinedRecordingJournalCreateRequest,
+        store: RecordingJournalStore
+    ) throws {
+        let session = try store.createCombined(request)
+        let microphoneWriter = try RecordingPCMJournalWriter(
+            session: session.microphoneSession,
+            store: store
+        )
+        let systemAudioWriter = try RecordingPCMJournalWriter(
+            session: session.systemAudioSession,
+            store: store
+        )
+        self.recordingID = request.recordingID
+        self.store = store
+        self.session = session
+        self.microphoneWriter = microphoneWriter
+        self.systemAudioWriter = systemAudioWriter
+        self.microphoneSink = RecordingJournalSourceSink(
+            writer: microphoneWriter,
+            monotonicAnchorNanoseconds: request.monotonicAnchorNanoseconds
+        )
+        self.systemAudioSink = RecordingJournalSourceSink(
+            writer: systemAudioWriter,
+            monotonicAnchorNanoseconds: request.monotonicAnchorNanoseconds
+        )
+    }
+
+    func checkpoint() throws {
+        _ = try store.recordCheckpoints(
+            recordingID: recordingID,
+            commitsBySourceID: [
+                session.microphoneSession.sourceID:
+                    try microphoneWriter.checkpointSnapshot(),
+                session.systemAudioSession.sourceID:
+                    try systemAudioWriter.checkpointSnapshot()
+            ]
+        )
     }
 }
