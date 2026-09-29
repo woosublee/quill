@@ -43,7 +43,7 @@ struct AppStateStorageSafetyTests {
         try await verifiesDeletedUnrecoveredNoteStaysDeletedWhenPieceRemovalStops()
         try await verifiesDeletingRecoveringNoteKeepsCancelWindow()
         try await verifiesDeletedSummaryCanBeCancelled()
-        try await verifiesRecordingNoteCannotBeDeletedWhileRecording()
+        try await verifiesLeftoverRecordingNoteCanBeDeletedDuringAnotherRecording()
         try await AppStateTestStorage.withIsolatedStorage { environment in
             try prepareStorageDirectories(for: environment.storageLayout)
             let fallbackAudioURL = try await verifiesFallbackHistoryDoesNotSweepStoredAudio(
@@ -1504,7 +1504,7 @@ struct AppStateStorageSafetyTests {
     /// transcription tied to it, so it can be deleted, even while another
     /// recording runs (#437). Notes tied to that work are covered by the
     /// source contract, since the work can't be started in a test.
-    private static func verifiesRecordingNoteCannotBeDeletedWhileRecording() async throws {
+    private static func verifiesLeftoverRecordingNoteCanBeDeletedDuringAnotherRecording() async throws {
         try await AppStateTestStorage.withIsolatedStorage { environment in
             try prepareStorageDirectories(for: environment.storageLayout)
             let id = UUID()
