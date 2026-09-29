@@ -480,9 +480,15 @@ struct RecordingOverlayGeometryTests {
     private static func testQuietDetectorKeepsOriginalStartAcrossResume() {
         var detector = RecordingQuietInputDetector()
         detector.begin(at: 0)
-        // An input switch resumes monitoring; the quiet window keeps its start.
+        // Switching to another microphone gives the new input a fresh window,
+        // so the hint doesn't appear a moment after the switch.
         detector.begin(at: 8)
-        assert(detector.evaluate(at: 10))
+        assert(!detector.evaluate(at: 10))
+        assert(detector.evaluate(at: 18))
+        // Once shown, it stays at most once per recording.
+        detector.observeLevel(0.5)
+        detector.begin(at: 30)
+        assert(!detector.evaluate(at: 45))
     }
 
     private static func testStarvationDetectorFlagsMissingBuffers() {

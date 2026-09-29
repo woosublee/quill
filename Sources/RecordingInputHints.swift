@@ -56,10 +56,11 @@ struct RecordingQuietInputDetector {
     private(set) var hasShown = false
     private(set) var isShowing = false
 
-    /// Starts the quiet window. Later calls in the same recording (for
-    /// example after a mid-recording input switch) keep the original start.
+    /// Starts the quiet window. A later call in the same recording (for
+    /// example after switching to another microphone) gives the new input a
+    /// fresh window, unless the hint was already shown or sound was heard.
     mutating func begin(at now: TimeInterval) {
-        if startedAt == nil {
+        if startedAt == nil || (!hasShown && !hasHeardSound) {
             startedAt = now
         }
     }
@@ -155,8 +156,9 @@ struct RecordingInputHintState {
         return nil
     }
 
-    /// Called when monitoring (re)starts on a capture path: the quiet window
-    /// keeps its original start, the starvation baseline starts over.
+    /// Called when monitoring (re)starts on a capture path: a new input gets a
+    /// fresh quiet window (still at most one hint per recording), and the
+    /// starvation baseline starts over.
     mutating func resume(at now: TimeInterval) {
         quiet.begin(at: now)
         starvation.rearm(at: now)

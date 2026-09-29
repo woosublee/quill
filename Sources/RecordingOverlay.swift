@@ -720,9 +720,13 @@ final class RecordingOverlayManager {
         DispatchQueue.main.async {
             guard self.overlayState.phase == .recording,
                   let anchor = self.recordingNoticeAnchorFrame(reminderFrame: reminderFrame) else {
-                // No recording overlay on screen — fall back to the standard toast.
+                // No recording overlay on screen. Only errors fall back to the
+                // red error toast; warnings and info stay quiet rather than
+                // looking like an error (the message remains in the menu bar).
                 self.recordingNoticeReminderFrame = nil
-                self.showError(message)
+                if severity == .error {
+                    self.showError(message)
+                }
                 return
             }
             self.recordingNoticeReminderFrame = reminderFrame
