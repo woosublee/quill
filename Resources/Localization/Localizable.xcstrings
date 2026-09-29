@@ -18692,6 +18692,22 @@
           }
         }
       }
+    },
+    "Quill couldn't continue transcribing this recording after it restarted, and its audio file is missing.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill couldn't continue transcribing this recording after it restarted, and its audio file is missing."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill을 다시 시작한 뒤 이 녹음의 전사를 이어 가지 못했고, 오디오 파일도 없습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

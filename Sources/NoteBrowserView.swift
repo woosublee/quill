@@ -2128,15 +2128,18 @@ private struct NoteDetailView: View {
     }
     private var cloudTranscriptionStoppedPresentation: QuillUserIssuePresentation {
         let title = localizedCatalogString("Cloud Transcription Stopped")
+        let hasAudio = retryAvailability != .noAudio
         return QuillUserIssuePresentation(
             title: title,
             body: localizedCatalogString(
-                "Quill couldn't continue transcribing this recording after it restarted. The audio is kept, so you can transcribe it again."
+                hasAudio
+                    ? "Quill couldn't continue transcribing this recording after it restarted. The audio is kept, so you can transcribe it again."
+                    : "Quill couldn't continue transcribing this recording after it restarted, and its audio file is missing."
             ),
             suggestion: "",
             compactMessage: title,
             detailsRows: [],
-            recoveryAction: .retryTranscription,
+            recoveryAction: hasAudio ? .retryTranscription : .none,
             severity: .error
         )
     }
@@ -3073,7 +3076,7 @@ private struct NoteDetailView: View {
             } else if isCloudTranscriptionStopped {
                 QuillUserIssueView(
                     presentation: cloudTranscriptionStoppedPresentation,
-                    action: { retryTranscription() }
+                    action: retryAvailability == .noAudio ? nil : { retryTranscription() }
                 )
                 .padding(.horizontal, 60)
             } else if isCloudTranscribing

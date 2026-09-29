@@ -4929,6 +4929,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
             case .persistenceFailed(let issue):
                 errorMessage = issue.presentation().compactMessage
+                // A resume that couldn't save leaves no work running either.
+                markStoppedCloudTranscriptions(among: [noteID])
 
             case .failed(let failure):
                 // A failed startup resume leaves the note's stored status
@@ -4937,7 +4939,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     markStoppedCloudTranscriptions(among: [noteID])
                 }
 
-            case .cancelled, .stale:
+            case .stale:
+                markStoppedCloudTranscriptions(among: [noteID])
+
+            case .cancelled:
                 break
             }
         }
