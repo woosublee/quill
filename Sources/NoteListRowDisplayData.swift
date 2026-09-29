@@ -18,8 +18,17 @@ struct CloudTranscriptionDisplayProgress: Equatable, Sendable {
     let activeAttempt: Int?
 }
 
-func transcriptStatus(for item: PipelineHistoryItem, retrying: Set<UUID>) -> TranscriptStatus {
+/// `stoppedCloud` holds cloud-transcribing notes that no work is running
+/// for; they show as failed so the person can retry or delete them.
+func transcriptStatus(
+    for item: PipelineHistoryItem,
+    retrying: Set<UUID>,
+    stoppedCloud: Set<UUID> = []
+) -> TranscriptStatus {
     if retrying.contains(item.id) { return .transcribing }
+    if stoppedCloud.contains(item.id), item.machineStatus == .cloudTranscribing {
+        return .fail
+    }
     switch item.machineStatus {
     case .liveRecording:
         return .recording
@@ -216,6 +225,7 @@ struct NoteListRowDisplayData: Equatable {
     init(
         item: PipelineHistoryItem,
         retryingIDs: Set<UUID>,
+        stoppedCloudIDs: Set<UUID> = [],
         cloudProgress: CloudTranscriptionDisplayProgress? = nil,
         locale: Locale = .current,
         localizationLanguage: String = preferredLocalizedStringLanguage(),
@@ -231,7 +241,11 @@ struct NoteListRowDisplayData: Equatable {
             )
         }
     ) {
-        let status = transcriptStatus(for: item, retrying: retryingIDs)
+        let status = transcriptStatus(
+            for: item,
+            retrying: retryingIDs,
+            stoppedCloud: stoppedCloudIDs
+        )
         let trimmedCustomTitle = item.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
         let customTitle = trimmedCustomTitle?.isEmpty == true ? nil : trimmedCustomTitle
         let content = item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines)

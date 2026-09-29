@@ -2195,6 +2195,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
     @Published private(set) var cloudTranscriptionProgressByHistoryID:
         [UUID: CloudTranscriptionDisplayProgress] = [:]
+    /// Notes still marked as cloud-transcribing from an earlier run that no
+    /// work is running for: startup didn't resume them (no API key, changed
+    /// settings) or the resume failed. The stored status is left as is, so a
+    /// later launch can still resume them.
+    @Published private(set) var stoppedCloudTranscriptionIDs: Set<UUID> = []
     private var transcriptionRetryWorkflowItemIDs: Set<UUID> = []
     private var transcriptionRetryWorkflowProgressIDs: Set<UUID> = []
     @Published var lastTranscript: String = ""
@@ -3324,6 +3329,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.localAIWorkflow.onEvent = { [weak self] event in
             self?.applyLocalAIModelWorkflowEvent(event)
         }
+        // Cloud transcriptions left from the last run show as running only
+        // while startup actually resumes them.
+        let launchCloudTranscribingIDs = Set(
+            savedHistory.filter { $0.machineStatus == .cloudTranscribing }.map(\.id)
+        )
         if let cloudReconciliation {
             let cloudDependenciesFactory = dependencies
                 .makeRetryCloudTranscriptionDependencies
@@ -3336,6 +3346,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     postProcessingService: postProcessingService,
                     voiceMacros: capturedVoiceMacros
                 )
+                self?.markStoppedCloudTranscriptions(among: launchCloudTranscribingIDs)
+            }
+        } else if !launchCloudTranscribingIDs.isEmpty {
+            Task { @MainActor [weak self] in
+                self?.markStoppedCloudTranscriptions(among: launchCloudTranscribingIDs)
             }
         }
 
@@ -4895,7 +4910,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 meetingSummaryWorkflow.invalidate(noteID: item.id)
             }
 
-        case .completed(_, let outcome):
+        case .completed(let noteID, let outcome):
             switch outcome {
             case .succeeded(let completion), .fallback(let completion):
                 if let transcript = completion.interactiveTranscript {
@@ -4915,10 +4930,38 @@ final class AppState: ObservableObject, @unchecked Sendable {
             case .persistenceFailed(let issue):
                 errorMessage = issue.presentation().compactMessage
 
-            case .failed, .cancelled, .stale:
+            case .failed(let failure):
+                // A failed startup resume leaves the note's stored status
+                // alone; show it as stopped instead of still resuming.
+                if !failure.historyPersisted {
+                    markStoppedCloudTranscriptions(among: [noteID])
+                }
+
+            case .cancelled, .stale:
                 break
             }
         }
+    }
+
+    /// Whether a cloud-transcribing note has stopped with no work running
+    /// for it, so the Note Browser offers Retry instead of a spinner.
+    @MainActor
+    func isCloudTranscriptionStopped(_ item: PipelineHistoryItem) -> Bool {
+        stoppedCloudTranscriptionIDs.contains(item.id)
+            && item.machineStatus == .cloudTranscribing
+            && !retryingItemIDs.contains(item.id)
+    }
+
+    @MainActor
+    private func markStoppedCloudTranscriptions(among ids: Set<UUID>) {
+        let stopped = ids.filter { id in
+            !retryingItemIDs.contains(id)
+                && cloudTranscriptionHistoryCoordinator.activeSession(historyID: id) == nil
+                && pipelineHistory.first(where: { $0.id == id })?.machineStatus
+                    == .cloudTranscribing
+        }
+        guard !stopped.isSubset(of: stoppedCloudTranscriptionIDs) else { return }
+        stoppedCloudTranscriptionIDs.formUnion(stopped)
     }
 
     @MainActor
@@ -7080,7 +7123,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // a confirmation; a Cancel window would leave the note deleted while
         // its journal can bring it back on the next launch.
         guard item.unrecoveredRecordingContext == nil else { return false }
-        return transcriptStatus(for: item, retrying: retryingItemIDs).isBulkSelectable
+        return transcriptStatus(for: item, retrying: retryingItemIDs, stoppedCloud: stoppedCloudTranscriptionIDs).isBulkSelectable
             && !meetingSummaryGeneratingNoteIDs.contains(id)
     }
 
@@ -7392,7 +7435,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         var result = NoteBulkDeletionResult()
         for id in ids {
             guard let item = pipelineHistory.first(where: { $0.id == id }) else { continue }
-            guard transcriptStatus(for: item, retrying: retryingItemIDs).isBulkSelectable else {
+            guard transcriptStatus(for: item, retrying: retryingItemIDs, stoppedCloud: stoppedCloudTranscriptionIDs).isBulkSelectable else {
                 result.skippedIDs.append(id)
                 continue
             }

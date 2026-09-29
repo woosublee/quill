@@ -441,7 +441,11 @@ struct NoteBrowserView: View {
     private func isBulkSelectable(_ id: UUID, in history: [PipelineHistoryItem]) -> Bool {
         guard let item = history.first(where: { $0.id == id }) else { return false }
         // A note making its summary is busy too, so bulk delete never skips it silently.
-        return transcriptStatus(for: item, retrying: appState.retryingItemIDs).isBulkSelectable
+        return transcriptStatus(
+            for: item,
+            retrying: appState.retryingItemIDs,
+            stoppedCloud: appState.stoppedCloudTranscriptionIDs
+        ).isBulkSelectable
             && !appState.meetingSummaryGeneratingNoteIDs.contains(id)
             && !appState.recoveringRecordingIDs.contains(id)
     }
@@ -1191,6 +1195,7 @@ struct NoteBrowserView: View {
                                     displayData: NoteListRowDisplayData(
                                         item: item,
                                         retryingIDs: appState.retryingItemIDs,
+                                        stoppedCloudIDs: appState.stoppedCloudTranscriptionIDs,
                                         cloudProgress: appState.cloudTranscriptionProgressByHistoryID[item.id]
                                     ),
                                     isSelected: selection.showsSelectionUI
@@ -2113,8 +2118,27 @@ private struct NoteDetailView: View {
     private var transcriptionActionHelp: LocalizedStringKey {
         isAudioOnly ? "Transcribe audio" : "Retry transcription"
     }
+    /// Cloud transcription is running, or about to resume, for this note.
     private var isCloudTranscribing: Bool {
-        item.machineStatus == .cloudTranscribing
+        item.machineStatus == .cloudTranscribing && !isCloudTranscriptionStopped
+    }
+    /// Left cloud-transcribing by an earlier run with no work running for it.
+    private var isCloudTranscriptionStopped: Bool {
+        appState.isCloudTranscriptionStopped(item)
+    }
+    private var cloudTranscriptionStoppedPresentation: QuillUserIssuePresentation {
+        let title = localizedCatalogString("Cloud Transcription Stopped")
+        return QuillUserIssuePresentation(
+            title: title,
+            body: localizedCatalogString(
+                "Quill couldn't continue transcribing this recording after it restarted. The audio is kept, so you can transcribe it again."
+            ),
+            suggestion: "",
+            compactMessage: title,
+            detailsRows: [],
+            recoveryAction: .retryTranscription,
+            severity: .error
+        )
     }
     private var cloudProgress: CloudTranscriptionDisplayProgress? {
         appState.cloudTranscriptionProgressByHistoryID[item.id]
@@ -3046,6 +3070,12 @@ private struct NoteDetailView: View {
                     .foregroundStyle(.tertiary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 60)
+            } else if isCloudTranscriptionStopped {
+                QuillUserIssueView(
+                    presentation: cloudTranscriptionStoppedPresentation,
+                    action: { retryTranscription() }
+                )
+                .padding(.horizontal, 60)
             } else if isCloudTranscribing
                         || item.machineStatus == .importing
                         || item.postProcessingStatus
