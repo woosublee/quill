@@ -18740,6 +18740,22 @@
           }
         }
       }
+    },
+    "Summary deleted": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summary deleted"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약을 삭제했습니다"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

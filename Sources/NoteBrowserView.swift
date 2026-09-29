@@ -726,30 +726,17 @@ struct NoteBrowserView: View {
                     WindowDragArea()
                         .frame(height: 16)
                 }
-                .overlay(alignment: .bottom) {
-                    if let pending = appState.pendingNoteDeletion {
-                        NoteBrowserToastView(
-                            message: noteDeletionToastMessage(count: pending.noteCount),
-                            actionTitle: "Cancel",
-                            action: { appState.cancelPendingNoteDeletion() },
-                            countdown: (
-                                startedAt: pending.startedAt,
-                                duration: AppState.noteDeletionCancelWindow
-                            )
-                        )
-                        // A new deletion restarts the countdown.
-                        .id(pending.id)
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, 72)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                    } else if let deletionNotice {
-                        NoteBrowserToastView(message: deletionNotice)
-                            .padding(.horizontal, 24)
-                            .padding(.bottom, 72)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
+                .onChange(of: appState.pendingSummaryDeletion?.id) { _ in
+                    guard appState.pendingSummaryDeletion != nil else { return }
+                    NSAccessibility.post(
+                        element: NSApplication.shared,
+                        notification: .announcementRequested,
+                        userInfo: [
+                            .announcement: localizedCatalogString("Summary deleted"),
+                            .priority: NSAccessibilityPriorityLevel.medium.rawValue
+                        ]
+                    )
                 }
-                .animation(.easeOut(duration: 0.16), value: appState.pendingNoteDeletion?.id)
                 .onChange(of: appState.pendingNoteDeletion?.id) { _ in
                     guard let pending = appState.pendingNoteDeletion else { return }
                     NSAccessibility.post(
@@ -1240,6 +1227,39 @@ struct NoteBrowserView: View {
         .overrideCursor(.arrow)
     }
 
+    @ViewBuilder
+    private var deletionCapsule: some View {
+        Group {
+            if let pending = appState.pendingNoteDeletion {
+                NoteDeletionCapsule(
+                    message: noteDeletionToastMessage(count: pending.noteCount),
+                    cancel: { appState.cancelPendingNoteDeletion() },
+                    countdown: (
+                        startedAt: pending.startedAt,
+                        duration: AppState.noteDeletionCancelWindow
+                    )
+                )
+                // A new deletion restarts the countdown.
+                .id(pending.id)
+            } else if let pending = appState.pendingSummaryDeletion {
+                NoteDeletionCapsule(
+                    message: localizedCatalogString("Summary deleted"),
+                    cancel: { appState.cancelPendingSummaryDeletion() },
+                    countdown: (
+                        startedAt: pending.startedAt,
+                        duration: AppState.noteDeletionCancelWindow
+                    )
+                )
+                .id(pending.id)
+            } else if let deletionNotice {
+                NoteDeletionCapsule(message: deletionNotice)
+            }
+        }
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .animation(.easeOut(duration: 0.16), value: appState.pendingNoteDeletion?.id)
+        .animation(.easeOut(duration: 0.16), value: appState.pendingSummaryDeletion?.id)
+    }
+
     private var sidebarPanel: some View {
         ZStack(alignment: .bottom) {
             // The header overlays the list, and the list reserves the header's
@@ -1249,6 +1269,11 @@ struct NoteBrowserView: View {
             if !selection.showsSelectionUI {
                 floatingRecordButton
             }
+            // Deletion notices sit with the list the notes left, above the
+            // Record button, not over the note that opens next (#440).
+            deletionCapsule
+                .padding(.horizontal, 12)
+                .padding(.bottom, selection.showsSelectionUI ? 16 : 72)
         }
         .frame(width: 280)
         .background(QuillTransparency.background(.ultraThinMaterial, reduceTransparency: reduceTransparency))
@@ -4177,9 +4202,6 @@ private struct NoteBrowserToastView: View {
     let message: String
     var actionTitle: LocalizedStringKey?
     var action: (() -> Void)?
-    /// When set, a bar along the bottom shrinks from `startedAt` over
-    /// `duration` to show the time left for the action (#434).
-    var countdown: (startedAt: Date, duration: TimeInterval)?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -4207,23 +4229,93 @@ private struct NoteBrowserToastView: View {
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(Color.black.opacity(0.92))
         )
-        .overlay(alignment: .bottom) {
-            if let countdown {
-                ToastCountdownBar(
-                    startedAt: countdown.startedAt,
-                    duration: countdown.duration
-                )
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
         .accessibilityElement(children: .contain)
     }
 }
 
-/// A thin bar that shrinks from full at `startedAt` to empty after
-/// `duration`. With Reduce Motion it shrinks one step per second.
-private struct ToastCountdownBar: View {
+/// A deletion notice at the bottom of the note list, in the same glass
+/// capsule as the note toolbar. With `cancel`, a small Cancel button whose
+/// fill drains over the Cancel window shows the time left (#434, #440).
+private struct NoteDeletionCapsule: View {
+    let message: String
+    var cancel: (() -> Void)?
+    var countdown: (startedAt: Date, duration: TimeInterval)?
+
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(message)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if let cancel {
+                Button(action: cancel) {
+                    Text("Cancel")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .lineLimit(1)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 3)
+                        .background {
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(Color.primary.opacity(0.08))
+                                if let countdown {
+                                    CancelCountdownFill(
+                                        startedAt: countdown.startedAt,
+                                        duration: countdown.duration
+                                    )
+                                }
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
+                .fixedSize()
+                .overrideCursor(.pointingHand)
+            }
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, cancel == nil ? 14 : 6)
+        .frame(height: 36)
+        .background {
+            // Opaque under Reduce Transparency, like the note toolbar.
+            if reduceTransparency {
+                Capsule().fill(QuillTransparency.opaqueBackgroundColor)
+            } else {
+                #if compiler(>=6.2)
+                if #available(macOS 26.0, *) {
+                    Color.clear.glassEffect(.regular, in: Capsule())
+                } else {
+                    Capsule().fill(.ultraThinMaterial)
+                }
+                #else
+                Capsule().fill(.ultraThinMaterial)
+                #endif
+            }
+        }
+        .overlay(Capsule().strokeBorder(strokeColor, lineWidth: 0.6))
+        .compositingGroup()
+        .shadow(color: .black.opacity(0.085), radius: 14, x: 0, y: 4)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var strokeColor: Color {
+        colorScheme == .dark ? Color.white.opacity(0.10) : Color.primary.opacity(0.10)
+    }
+}
+
+/// The part of the Cancel button still filled, from full at `startedAt` to
+/// empty after `duration`. With Reduce Motion it steps once per second.
+private struct CancelCountdownFill: View {
     let startedAt: Date
     let duration: TimeInterval
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -4232,28 +4324,27 @@ private struct ToastCountdownBar: View {
         Group {
             if reduceMotion {
                 TimelineView(.periodic(from: startedAt, by: 1)) { context in
-                    bar(remaining: ToastCountdown.steppedRemainingFraction(
+                    fill(remaining: ToastCountdown.steppedRemainingFraction(
                         elapsed: context.date.timeIntervalSince(startedAt),
                         duration: duration
                     ))
                 }
             } else {
                 TimelineView(.animation) { context in
-                    bar(remaining: ToastCountdown.remainingFraction(
+                    fill(remaining: ToastCountdown.remainingFraction(
                         elapsed: context.date.timeIntervalSince(startedAt),
                         duration: duration
                     ))
                 }
             }
         }
-        .frame(height: 2)
         .accessibilityHidden(true)
     }
 
-    private func bar(remaining: Double) -> some View {
+    private func fill(remaining: Double) -> some View {
         GeometryReader { geometry in
             Rectangle()
-                .fill(Color.white.opacity(0.55))
+                .fill(Color.primary.opacity(0.12))
                 .frame(width: geometry.size.width * remaining)
         }
     }

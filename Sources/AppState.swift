@@ -2240,6 +2240,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
     @Published private(set) var meetingSummaryGeneratingNoteIDs: Set<UUID> = []
+    /// A summary deleted in the last few seconds, kept so Cancel can put it
+    /// back (#440). Like a note deletion, only one waits at a time, and
+    /// `finalizePendingNoteDeletion()` (any deletion, clear, import, or quit)
+    /// ends its window.
+    @Published private(set) var pendingSummaryDeletion: PendingSummaryDeletion?
     private let meetingSummaryWorkflow: MeetingSummaryWorkflow
     private let transcriptionRetryWorkflow: TranscriptionRetryWorkflow
     private let nativeWhisperWorkflow: NativeWhisperModelWorkflow
@@ -7172,6 +7177,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// Removes the files of the pending notes now. Safe to call at any time.
     @MainActor
     func finalizePendingNoteDeletion() {
+        pendingSummaryDeletion = nil
         guard let pending = pendingNoteDeletion else { return }
         pendingNoteDeletion = nil
         for entry in pending.entries {
@@ -7616,6 +7622,45 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         pipelineHistory[noteIndex] = updated
         meetingSummaryWorkflow.invalidate(noteID: noteID)
+        // A new deletion ends any earlier Cancel window, then this summary
+        // can be put back for a few seconds.
+        finalizePendingNoteDeletion()
+        let pending = PendingSummaryDeletion(
+            noteID: noteID,
+            summary: existing.meetingSummary,
+            attempt: existing.meetingSummaryAttempt
+        )
+        pendingSummaryDeletion = pending
+        scheduleNoteDeletionFinalization(Self.noteDeletionCancelWindow) { [weak self] in
+            guard let self, self.pendingSummaryDeletion?.id == pending.id else { return }
+            self.pendingSummaryDeletion = nil
+        }
+    }
+
+    /// Puts back the summary deleted in the current Cancel window, unless
+    /// the note is gone or has a summary or attempt of its own again.
+    @MainActor
+    func cancelPendingSummaryDeletion() {
+        guard let pending = pendingSummaryDeletion else { return }
+        pendingSummaryDeletion = nil
+        guard requireAvailableHistoryForMutation(),
+              let index = pipelineHistory.firstIndex(where: { $0.id == pending.noteID }) else {
+            return
+        }
+        let current = pipelineHistory[index]
+        guard current.meetingSummaryJSON == nil,
+              current.meetingSummaryAttempt == nil else { return }
+        let restored = current
+            .withMeetingSummary(pending.summary)
+            .withMeetingSummaryAttempt(pending.attempt)
+        do {
+            try pipelineHistoryStore.update(restored, requiresDurableStore: true)
+        } catch {
+            errorMessage = QuillUserIssueRecord(code: .historyPersistenceUnavailable)
+                .presentation().compactMessage
+            return
+        }
+        pipelineHistory[index] = restored
     }
 
     @MainActor
@@ -13675,6 +13720,29 @@ private extension ShortcutBinding {
 }
 
 /// Notes removed from the list whose files wait for the Cancel window.
+/// A deleted meeting summary, kept for its Cancel window (#440).
+struct PendingSummaryDeletion: Identifiable {
+    let id: UUID
+    let noteID: UUID
+    let summary: MeetingSummaryEnvelope?
+    let attempt: MeetingSummaryAttempt?
+    let startedAt: Date
+
+    init(
+        id: UUID = UUID(),
+        noteID: UUID,
+        summary: MeetingSummaryEnvelope?,
+        attempt: MeetingSummaryAttempt?,
+        startedAt: Date = Date()
+    ) {
+        self.id = id
+        self.noteID = noteID
+        self.summary = summary
+        self.attempt = attempt
+        self.startedAt = startedAt
+    }
+}
+
 struct PendingNoteDeletion: Identifiable {
     struct Entry {
         let item: PipelineHistoryItem
