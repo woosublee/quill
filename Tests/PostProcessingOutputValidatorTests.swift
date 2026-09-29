@@ -22,7 +22,45 @@ struct PostProcessingOutputValidatorTests {
         try testOrdinaryDataTranscriptReferenceIsAccepted()
         try testDisproportionatelyCollapsedMeaningfulTranscriptIsRejected()
         try testEmptyReplyReaskRequiresFortyMeaningfulCharacters()
+        try testCorrectionHeardFormsAreNotProtected()
         print("PostProcessingOutputValidatorTests passed")
+    }
+
+    /// A heard form the user asked to correct (even identifier-like) may be
+    /// replaced; other protected atoms still must survive.
+    private static func testCorrectionHeardFormsAreNotProtected() throws {
+        let validator = PostProcessingOutputValidator()
+        let corrected = validator.validate(
+            source: "Open quill_app and check the build.",
+            output: "Open Quill and check the build.",
+            outputLanguage: "en",
+            vocabulary: ["Quill"],
+            correctionHeardForms: ["quill_app"]
+        )
+        guard case .success = corrected else {
+            throw PostProcessingOutputValidatorTestFailure("a corrected heard form is accepted, got \(corrected)")
+        }
+        let otherAtom = validator.validate(
+            source: "Open quill_app and run make_check.",
+            output: "Open Quill and run the check.",
+            outputLanguage: "en",
+            vocabulary: ["Quill"],
+            correctionHeardForms: ["quill_app"]
+        )
+        guard case .failure(.protectedAtomMissing) = otherAtom else {
+            throw PostProcessingOutputValidatorTestFailure("other protected atoms still must survive, got \(otherAtom)")
+        }
+        // A heard form doesn't exempt other atoms: `v42` must not unprotect `42`.
+        let numberChanged = validator.validate(
+            source: "Book 42 seats for the review.",
+            output: "Book 43 seats for the review.",
+            outputLanguage: "en",
+            vocabulary: [],
+            correctionHeardForms: ["v42"]
+        )
+        guard case .failure(.protectedAtomMissing) = numberChanged else {
+            throw PostProcessingOutputValidatorTestFailure("an unrelated number is still protected, got \(numberChanged)")
+        }
     }
 
     private static func testMeaningfulTranscriptCannotBecomeEmptySentinel() throws {

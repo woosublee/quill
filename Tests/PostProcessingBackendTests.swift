@@ -47,6 +47,7 @@ struct PostProcessingBackendTests {
         try testVocabularyParserReadsCorrectionMappings()
         try testVocabularyParserHandlesMalformedMappings()
         try testVocabularyParserKeepsUnspacedArrowsPlain()
+        try testVocabularyParserDropsPlainHeardForms()
         try await testCleanupPromptIncludesCorrectionsOnlyWhenMappingsExist()
         try await testCommandPromptNeverIncludesCorrections()
         print("PostProcessingBackendTests passed")
@@ -113,6 +114,16 @@ struct PostProcessingBackendTests {
             "malformed mappings keep whichever side exists as a plain term"
         )
         try expect(parsed.corrections.isEmpty, "malformed mappings add no corrections")
+    }
+
+    /// A plain entry added before its correction must not make the output
+    /// check require the misheard spelling.
+    private static func testVocabularyParserDropsPlainHeardForms() throws {
+        let parsed = CustomVocabularyParser.parse("cloud code\nCloud Code -> Claude Code\nQuill")
+        try expect(parsed.terms == ["Claude Code", "Quill"], "plain heard form is dropped: \(parsed.terms)")
+        try expect(parsed.corrections.map(\.heard) == ["Cloud Code"], "the correction stays")
+        let caseOnly = CustomVocabularyParser.parse("quill -> Quill")
+        try expect(caseOnly.terms == ["Quill"], "a case-only correction keeps its correct form: \(caseOnly.terms)")
     }
 
     private static func testVocabularyParserKeepsUnspacedArrowsPlain() throws {
