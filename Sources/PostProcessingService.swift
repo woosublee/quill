@@ -996,7 +996,7 @@ Behavior:
             output: combinedTranscript,
             outputLanguage: outputLanguage,
             expectedSourceLanguage: expectedSourceLanguage,
-            vocabulary: customVocabulary
+            vocabulary: CustomVocabularyParser.parseEntries(customVocabulary).terms
         ) {
         case .success(let accepted):
             return PostProcessingResult(
@@ -1148,7 +1148,7 @@ Model: \(model)
             output: sanitizedTranscript,
             outputLanguage: outputLanguage,
             expectedSourceLanguage: expectedSourceLanguage,
-            vocabulary: customVocabulary
+            vocabulary: CustomVocabularyParser.parseEntries(customVocabulary).terms
         ) {
         case .success(let accepted):
             acceptedTranscript = accepted
@@ -1231,16 +1231,7 @@ Model: \(model)
         request.timeoutInterval = postProcessingTimeoutSeconds(for: endpoint)
         let model = endpoint.selectedModelID
 
-        let normalizedVocabulary = normalizedVocabularyText(customVocabulary)
-        let vocabularyPrompt = if !normalizedVocabulary.isEmpty {
-            """
-The following vocabulary must be treated as high-priority terms while rewriting.
-Use these spellings exactly in the output when relevant:
-\(normalizedVocabulary)
-"""
-        } else {
-            ""
-        }
+        let vocabularyPrompt = vocabularyPromptSection(for: customVocabulary)
 
         var systemPrompt = Self.commandModeSystemPrompt
         let trimmedOutputLanguage = outputLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1424,17 +1415,24 @@ Model: \(model)
         contextSummary: String,
         vocabulary: [String]
     ) throws -> String {
+        let parsedVocabulary = CustomVocabularyParser.parseEntries(vocabulary)
+        let corrections = parsedVocabulary.corrections
         let envelope = AIProcessingEnvelope(
             contractVersion: "quill.ai.v2",
             feature: "post_processing",
             data: PostProcessingSourceData(
                 transcript: transcript,
                 contextSummary: contextSummary,
-                vocabulary: vocabulary
+                vocabulary: parsedVocabulary.terms,
+                corrections: corrections.isEmpty ? nil : corrections
             )
         )
+        let correctionsInstruction = corrections.isEmpty
+            ? ""
+            : PostProcessingPromptPolicy.correctionsInstruction + "\n\n"
         return PostProcessingPromptPolicy.dataEnvelopeInstruction
             + "\n\n"
+            + correctionsInstruction
             + (try envelope.encodedJSONString())
     }
 
@@ -1454,14 +1452,38 @@ Model: \(model)
         )
     }
 
-    private func mergedVocabularyTerms(rawVocabulary: String) -> [String] {
-        let terms = rawVocabulary
-            .split(whereSeparator: { $0 == "\n" || $0 == "," || $0 == ";" })
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+    /// Builds the system-prompt section for custom vocabulary: a
+    /// high-priority term list plus, when mappings are present, explicit
+    /// mishearing corrections. Returns "" when there is no vocabulary.
+    private func vocabularyPromptSection(for customVocabulary: [String]) -> String {
+        let parsed = CustomVocabularyParser.parseEntries(customVocabulary)
+        var sections: [String] = []
 
-        var seen = Set<String>()
-        return terms.filter { seen.insert($0.lowercased()).inserted }
+        let normalizedVocabulary = normalizedVocabularyText(parsed.terms)
+        if !normalizedVocabulary.isEmpty {
+            sections.append("""
+The following vocabulary must be treated as high-priority terms while rewriting.
+Use these spellings exactly in the output when relevant:
+\(normalizedVocabulary)
+""")
+        }
+
+        if !parsed.corrections.isEmpty {
+            let pairs = parsed.corrections
+                .map { "- \"\($0.heard)\" -> \"\($0.correct)\"" }
+                .joined(separator: "\n")
+            sections.append("""
+Known mishearings. When the transcript contains a left-hand form below (or a close phonetic variant of it) and the speaker clearly meant the right-hand term, output the right-hand form instead:
+\(pairs)
+Only apply a correction when the surrounding words make the intended term plausible; otherwise leave the transcript wording unchanged.
+""")
+        }
+
+        return sections.joined(separator: "\n\n")
+    }
+
+    private func mergedVocabularyTerms(rawVocabulary: String) -> [String] {
+        CustomVocabularyParser.entries(from: rawVocabulary)
     }
 
     private func normalizedVocabularyText(_ vocabularyTerms: [String]) -> String {
