@@ -1073,6 +1073,38 @@
         }
       }
     },
+    "Delete this note?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete this note?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트를 삭제할까요?"
+          }
+        }
+      }
+    },
+    "Deleted notes cannot be recovered.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleted notes cannot be recovered."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삭제한 노트는 복구할 수 없습니다."
+          }
+        }
+      }
+    },
     "Could not delete summary.": {
       "localizations": {
         "en": {

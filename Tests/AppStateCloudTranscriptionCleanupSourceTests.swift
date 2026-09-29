@@ -66,6 +66,14 @@ struct AppStateCloudTranscriptionCleanupSourceTests {
             in: record,
             label: "single delete record removal order"
         )
+        // #409: restoring never trims, so the restored note stays stored while listed.
+        let restore = block(
+            source,
+            from: "func cancelPendingNoteDeletion() {",
+            to: "func finalizePendingNoteDeletion() {"
+        )
+        precondition(restore.contains("maxCount: Int.max"))
+        precondition(!restore.contains("maxPipelineHistoryCount"))
         // #409: the Cancel window defers the same cleanup instead of duplicating it.
         let finalize = block(
             source,

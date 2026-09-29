@@ -8,6 +8,7 @@ struct AppStateStorageSafetyTests {
         try await verifiesAppStateInstancesKeepIndependentCredentialStores()
         try await verifiesDeleteHistoryEntryRemovesOwnedAssets()
         try await verifiesCancellableNoteDeletion()
+        try await verifiesCancellableNoteDeletionGuards()
         try await verifiesDeleteHistoryEntriesSkipsBusyNotesAndKeepsFailures()
         try await verifiesClearHistoryRemovesOwnedAssets()
         try await verifiesSharedAssetsRemainWhileHistoryStillReferencesThem()
@@ -370,6 +371,97 @@ struct AppStateStorageSafetyTests {
                     storeURL: environment.storageLayout.historyStoreURL
                 ).loadAllHistory()
                 try expect(!stored.contains { $0.id == item.id }, "the stored row is gone")
+            }
+        }
+    }
+
+    /// #409 review: busy notes never enter the Cancel window, and a note ID
+    /// that is listed again is neither overwritten, duplicated, nor cleaned up.
+    private static func verifiesCancellableNoteDeletionGuards() async throws {
+        for endsWithCancel in [true, false] {
+            try await AppStateTestStorage.withIsolatedStorage { environment in
+                try prepareStorageDirectories(for: environment.storageLayout)
+                let assetStore = NoteAssetStore(storageLayout: environment.storageLayout)
+                let sourceURL = environment.rootDirectory
+                    .appendingPathComponent("guard-source.wav")
+                try Data("synthetic audio".utf8).write(to: sourceURL)
+                let audio = try assetStore.saveAudio(from: sourceURL)
+                let item = makeHistoryItem(
+                    audioFileName: audio.fileName,
+                    transcriptFileName: nil
+                )
+                let historyStore = PipelineHistoryStore(
+                    storeURL: environment.storageLayout.historyStoreURL
+                )
+                _ = try historyStore.append(item, maxCount: Int.max)
+
+                let appState = await MainActor.run {
+                    AppState(dependencies: environment.dependencies)
+                }
+                let scheduler = ManualNoteDeletionScheduler()
+                let recording = PipelineHistoryItem(
+                    timestamp: Date(),
+                    rawTranscript: "",
+                    postProcessedTranscript: "",
+                    postProcessingPrompt: nil,
+                    contextSummary: "",
+                    contextScreenshotDataURL: nil,
+                    contextScreenshotStatus: "No screenshot",
+                    postProcessingStatus: "live-recording",
+                    debugStatus: "",
+                    customVocabulary: ""
+                )
+                let busy = await MainActor.run { () -> (Bool, Bool, Bool, Bool) in
+                    appState.scheduleNoteDeletionFinalization = { delay, work in
+                        scheduler.items.append((delay, work))
+                    }
+                    appState.pipelineHistory.insert(recording, at: 0)
+                    let recordingAllowed = appState.canDeleteHistoryEntryCancellably(id: recording.id)
+                    appState.deleteHistoryEntryCancellably(id: recording.id)
+                    appState.retryingItemIDs.insert(item.id)
+                    let retryingAllowed = appState.canDeleteHistoryEntryCancellably(id: item.id)
+                    appState.deleteHistoryEntryCancellably(id: item.id)
+                    appState.retryingItemIDs.remove(item.id)
+                    return (
+                        recordingAllowed,
+                        retryingAllowed,
+                        appState.pendingNoteDeletion == nil,
+                        appState.pipelineHistory.contains { $0.id == recording.id }
+                            && appState.pipelineHistory.contains { $0.id == item.id }
+                    )
+                }
+                try expect(!busy.0 && !busy.1, "recording or retrying notes can't wait for Cancel")
+                try expect(busy.2 && busy.3, "busy notes are left alone by the cancellable path")
+
+                // The settled note is deleted, then its ID is listed again.
+                let returned = item.withCustomTitle("Came back")
+                try await MainActor.run {
+                    appState.deleteHistoryEntryCancellably(id: item.id)
+                    _ = try PipelineHistoryStore(
+                        storeURL: environment.storageLayout.historyStoreURL
+                    ).append(returned, maxCount: Int.max)
+                    appState.pipelineHistory.insert(returned, at: 0)
+                    appState.retryingItemIDs.insert(item.id)
+                    if endsWithCancel {
+                        appState.cancelPendingNoteDeletion()
+                    } else {
+                        scheduler.items.last?.1()
+                    }
+                }
+                let after = await MainActor.run {
+                    (
+                        appState.pipelineHistory.filter { $0.id == item.id }.map(\.customTitle),
+                        appState.pendingNoteDeletion == nil,
+                        appState.retryingItemIDs.contains(item.id)
+                    )
+                }
+                try expect(after.0 == ["Came back"], "a returned note is not overwritten or listed twice")
+                try expect(after.1, "the pending deletion ends")
+                try expect(after.2, "ID-keyed state of a returned note is kept")
+                try expect(
+                    FileManager.default.fileExists(atPath: audio.fileURL.path),
+                    "a returned note keeps its audio"
+                )
             }
         }
     }

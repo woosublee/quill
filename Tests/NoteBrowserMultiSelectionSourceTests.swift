@@ -26,15 +26,16 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(source.contains("NoteMultiSelectionPanel(count: selection.selectedIDs.count)"))
         let perform = try body(of: "private func performPendingDeletion()", in: source)
         precondition(perform.contains("appState.deleteHistoryEntries(ids: ids)"))
-        // #409: one note skips the dialog and is deleted with a Cancel toast.
+        // #409: one settled note skips the dialog and is deleted with a Cancel toast.
         let request = try body(of: "private func requestDeletion(of id: UUID? = nil)", in: source)
-        precondition(request.contains("if ids.count == 1 {\n            deleteNoteCancellably(ids[0])"))
-        let single = try body(of: "private func deleteNoteCancellably(_ id: UUID)", in: source)
+        precondition(request.contains("if ids.count == 1 {\n            deleteSingleNote(ids[0])"))
+        let single = try body(of: "private func deleteSingleNote(_ id: UUID)", in: source)
+        precondition(single.contains("guard appState.canDeleteHistoryEntryCancellably(id: id) else {"))
         precondition(single.contains("appState.deleteHistoryEntryCancellably(id: id)"))
         // Deleting one unchecked note from the context menu keeps selection mode.
         precondition(single.contains("} else if wasFocused, !selection.isSelectionModeRequested {"))
-        precondition(!perform.contains("appState.deleteHistoryEntry(id: ids[0])"))
-        precondition(!source.contains("Delete this note?"))
+        // A note still recording or processing keeps the permanent-delete confirmation.
+        precondition(perform.contains("appState.deleteHistoryEntry(id: ids[0])"))
         precondition(!source.contains("showDeleteConfirmation"))
         precondition(source.contains("action: { appState.cancelPendingNoteDeletion() }"))
         precondition(source.contains("if appState.pendingNoteDeletion != nil {"))

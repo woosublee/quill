@@ -6766,8 +6766,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// `finalizePendingNoteDeletion()` when the window ends, when another note
     /// is deleted the same way, or when the app quits. After a crash the row is
     /// already gone, so the next launch's orphan sweep removes the files.
+    /// Notes that are still recording or processing are not accepted here:
+    /// their running work would outlive the note, so they use
+    /// `deleteHistoryEntry(id:)` instead.
     @MainActor
     func deleteHistoryEntryCancellably(id: UUID) {
+        guard canDeleteHistoryEntryCancellably(id: id) else { return }
         finalizePendingNoteDeletion()
         guard let removed = removeHistoryEntryRecord(id: id) else { return }
         let pending = PendingNoteDeletion(
@@ -6782,28 +6786,36 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Whether the note is settled, so deleting it can wait for Cancel.
+    @MainActor
+    func canDeleteHistoryEntryCancellably(id: UUID) -> Bool {
+        guard let item = pipelineHistory.first(where: { $0.id == id }) else { return false }
+        return transcriptStatus(for: item, retrying: retryingItemIDs).isBulkSelectable
+            && !meetingSummaryGeneratingNoteIDs.contains(id)
+    }
+
     /// Puts the pending note back with its files, title, summary, and place.
     @MainActor
     func cancelPendingNoteDeletion() {
         guard let pending = pendingNoteDeletion,
               requireAvailableHistoryForMutation() else { return }
-        // Work that was running when the note was deleted was cancelled, so a
-        // note that was still transcribing comes back as interrupted.
-        let item = pending.item.isIncompleteTranscription
-            ? pending.item.markInterruptedBeforeCompletion()
-            : pending.item
+        // A row with this ID came back some other way; never overwrite it or
+        // list it twice.
+        guard !pipelineHistory.contains(where: { $0.id == pending.item.id }) else {
+            pendingNoteDeletion = nil
+            return
+        }
         do {
-            let removedStoredFiles = try pipelineHistoryStore.upsert(
-                item,
-                maxCount: maxPipelineHistoryCount,
+            // No trimming: the restored note must stay in the store while it
+            // is listed.
+            _ = try pipelineHistoryStore.upsert(
+                pending.item,
+                maxCount: Int.max,
                 requiresDurableStore: true
             )
             pendingNoteDeletion = nil
             let index = min(pending.index, pipelineHistory.count)
-            pipelineHistory.insert(item, at: index)
-            for removedAssets in removedStoredFiles {
-                cleanupDeletedPipelineHistoryAssets(removedAssets)
-            }
+            pipelineHistory.insert(pending.item, at: index)
         } catch {
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to restore the deleted note"), providerDetail: error.localizedDescription)
         }
@@ -6814,6 +6826,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func finalizePendingNoteDeletion() {
         guard let pending = pendingNoteDeletion else { return }
         pendingNoteDeletion = nil
+        // The cleanup is keyed by note ID; skip it if that ID is listed again.
+        guard !pipelineHistory.contains(where: { $0.id == pending.item.id }) else { return }
         if let assets = pending.assets {
             cleanupDeletedPipelineHistoryAssets(assets)
         }
