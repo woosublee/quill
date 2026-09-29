@@ -12,26 +12,29 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 
 ### Added
 
-- Added Cancel after deleting notes. The confirmation stays, and for about five seconds after you delete one or several notes, a notice at the bottom of the note list offers Cancel, with a fill in the button showing the time left. Deleting only a meeting summary can be cancelled the same way.
-- Custom vocabulary can now teach specific mishearings with an arrow, such as `cloud code -> Claude Code`, and several heard forms can share one correction with `|`. Plain entries work as before.
+- Added Cancel after deleting notes. The confirmation stays, and for about five seconds after you delete one or several notes, a notice at the bottom of the note list offers Cancel, with a fill in the button showing the time left. Deleting only a meeting summary can be cancelled the same way. Notes that are still recording or transcribing can't be deleted until that work finishes.
+- Custom vocabulary can now teach specific mishearings with an arrow, such as `cloud code -> Claude Code`, and several heard forms can share one correction with `|`. Corrections apply when dictation cleanup is on. Plain entries work as before.
 - Note Browser search now finds words in saved meeting summaries. A note that matches only in its summary opens on the Summary tab.
-- Quill now tells you while recording when the microphone picks up no sound, or when its input stops. Recording keeps going.
+- Quill now tells you while recording when the microphone picks up no sound at the start of a recording, or when its input stops. Recording keeps going.
+- Recordings that automatic recovery couldn't restore now stay in the list and explain what happened, with Recover Again and Open Folder when recording pieces remain. Deleting such a note also removes its pieces, and it doesn't come back.
+
+### Changed
+
+- Apple Speech now always transcribes on this Mac, for live and file transcription. Languages that can't be transcribed on this Mac now show a message suggesting another model, instead of using Apple's servers.
 
 ### Improved
 
 - The open note now follows the search: if it isn't a result, the first result opens, and a search with no results says so. Clearing the search returns to the note you were viewing. Notes without a cleaned-up transcript are found by their original transcript.
-- Recordings that automatic recovery couldn't restore now stay in the list and explain what happened, with Recover Again and Open Folder when recording pieces remain.
 - A cloud transcription that couldn't resume after Quill restarted now shows as stopped, with Retry transcription, instead of an endless "Resuming cloud transcription...".
-- Apple Speech now always transcribes on this Mac, for live and file transcription, and says so when a language isn't supported on this Mac.
-- When an on-device model returns an empty result for a long transcript, Quill asks it once more before giving up.
-- Removed Obsidian export and its Gemini CLI processing.
+- When the cleanup model returns an empty result for a long transcript, Quill asks it once more before giving up.
+
+### Removed
+
+- Removed Obsidian export and its Gemini CLI processing, including the ⋯ button in the note toolbar.
 
 ### Fixed
 
-- Fixed deleting a note while it is recording or transcribing, which left the recording running and brought the note back. Such notes can't be deleted until the work finishes.
-- Fixed a deleted note that couldn't be recovered coming back after Quill quit or stopped before its recording pieces were removed.
-- Fixed Recover Again delaying a new dictation while it rebuilt a long recording.
-- Fixed the Note Browser search field disappearing when a search had no results, losing focus while typing, and closing when the query was cleared.
+- Fixed the Note Browser search field disappearing when a search had no results.
 
 ## [0.4.2] - 2026-09-28
 
