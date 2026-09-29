@@ -70,6 +70,23 @@ struct LocalAIBuildContractTests {
             "verifier changes invalidate the helper stamp"
         )
         try expect(makefile.contains("llama-server-helper-test: $(LLAMA_STAMP)"), "Makefile exposes actual helper validation")
+        // #438: a shared BUILD_DIR must not reuse another source tree's helper,
+        // and paths with spaces stay intact (no Make word splitting).
+        for name in ["WHISPER", "LLAMA"] {
+            try expect(
+                makefile.contains("*) checkout=\"$(CURDIR)/$(\(name)_CPP_DIR)\" ;; esac;"),
+                "the \(name) build settings name this source tree's checkout"
+            )
+            try expect(
+                makefile.contains("\"$(ARCH)\" \"$$checkout\" > \"$@.tmp\""),
+                "the \(name) build settings record the checkout path"
+            )
+            try expect(
+                makefile.contains("*) helper=\"$(CURDIR)/$(\(name)_HELPER)\" ;; esac;"),
+                "the \(name) stamp records the helper's absolute path"
+            )
+        }
+        try expect(!makefile.contains("$(abspath $("), "helper paths avoid Make's word-splitting abspath")
         try expect(
             makefile.contains("$(LLAMA_VERIFY_SCRIPT) \"$$helper\" \"$(ARCH)\""),
             "Make target invokes the shared verifier"
