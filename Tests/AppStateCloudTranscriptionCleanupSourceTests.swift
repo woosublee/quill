@@ -39,7 +39,20 @@ struct AppStateCloudTranscriptionCleanupSourceTests {
     private static func verifiesDeleteUsesCommonCleanup(_ source: String) throws {
         let deletion = block(
             source,
-            from: "func deleteHistoryEntry(id: UUID)",
+            from: "func deleteHistoryEntry(id: UUID) {",
+            to: "func deleteHistoryEntryCancellably(id: UUID)"
+        )
+        try expectOrdered(
+            [
+                "removeHistoryEntryRecord(id: id)",
+                "cleanupDeletedPipelineHistoryAssets("
+            ],
+            in: deletion,
+            label: "single delete cleanup order"
+        )
+        let record = block(
+            source,
+            from: "private func removeHistoryEntryRecord(",
             to: "@MainActor\n    func updateHistoryItemTitle"
         )
         try expectOrdered(
@@ -48,12 +61,41 @@ struct AppStateCloudTranscriptionCleanupSourceTests {
                 "cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(",
                 "pipelineHistoryStore.delete(",
                 "beforeDeleting:",
-                "cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(",
-                "cleanupDeletedPipelineHistoryAssets("
+                "cloudTranscriptionHistoryCoordinator.cancelAndInvalidate("
             ],
-            in: deletion,
-            label: "single delete cleanup order"
+            in: record,
+            label: "single delete record removal order"
         )
+        // #409: restoring never trims, so the restored note stays stored while listed.
+        let restore = block(
+            source,
+            from: "func cancelPendingNoteDeletion() {",
+            to: "func finalizePendingNoteDeletion() {"
+        )
+        precondition(restore.contains("maxCount: Int.max"))
+        precondition(!restore.contains("maxPipelineHistoryCount"))
+        // #409: the Cancel window defers the same cleanup instead of duplicating it.
+        let finalize = block(
+            source,
+            from: "func finalizePendingNoteDeletion() {",
+            to: "private func removeHistoryEntryRecord("
+        )
+        try expectOrdered(
+            [
+                "pendingNoteDeletion = nil",
+                "transcriptionRetryWorkflow.cancel(noteID: entry.item.id)",
+                "cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(",
+                "meetingSummaryWorkflow.forget(noteID: entry.item.id)",
+                "forgetWarningBannerState(for: entry.item.id)",
+                "cleanupDeletedPipelineHistoryAssets(assets)"
+            ],
+            in: finalize,
+            label: "pending delete teardown and cleanup"
+        )
+        // Cancellable deletion leaves in-memory state for finalize.
+        precondition(source.contains("removeHistoryEntryRecord(id: id, defersTeardown: true)"))
+        precondition(record.contains("if !defersTeardown {"))
+        precondition(record.contains("guard !defersTeardown else { return }"))
     }
 
     private static func verifiesClearUsesCommonCleanup(_ source: String) throws {

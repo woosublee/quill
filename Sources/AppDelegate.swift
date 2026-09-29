@@ -105,6 +105,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return appState.requestTerminationAfterModelCleanup()
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        // Quitting ends the Cancel window of a just-deleted note.
+        appState.finalizePendingNoteDeletion()
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         guard appState.hasCompletedSetup else { return true }
         if appState.noteBrowserEnabled {
@@ -205,7 +210,6 @@ private func showNoteBrowserWindow() {
     private func presentNoteBrowserWindow() {
         let view = NoteBrowserView()
             .environmentObject(appState)
-            .environmentObject(ObsidianExportManager.shared)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 700),

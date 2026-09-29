@@ -396,6 +396,11 @@ LONG TRANSCRIPT MODE:
 - Do not summarize, reorder, or turn the transcript into action items.
 - When the source structure is unclear, preserve it instead of inventing new structure.
 """
+    static let emptyReplyReminder = """
+REMINDER:
+- EMPTY is only for a transcript that is empty or contains only filler.
+- This transcript contains spoken content. Return the cleaned transcript instead of EMPTY.
+"""
     static let defaultSystemPromptDate = "2026-08-10"
     static let commandModeSystemPrompt = """
 You transform highlighted text according to a spoken editing command.
@@ -968,21 +973,45 @@ Behavior:
         )
         var cleanedChunks: [String] = []
         var prompts: [String] = []
+        // At most one extra request per run: a long, non-filler chunk that
+        // comes back empty or EMPTY is re-asked once with the same endpoint
+        // and model. Other errors are never retried here.
+        var emptyReplyReaskAvailable = true
         for chunk in chunks {
             let chunkExpectedSourceLanguage = automaticOutputLanguage
                 ? AIOutputLanguageValidator.inferredSourceLanguage(for: chunk.text)
                 : expectedSourceLanguage
-            let result = try await processChunk(
-                transcript: chunk.text,
-                contextSummary: contextSummary,
-                endpoint: endpoint,
-                customVocabulary: customVocabulary,
-                customSystemPrompt: customSystemPrompt,
-                outputLanguage: outputLanguage,
-                cleanupMode: cleanupMode,
-                expectedSourceLanguage: chunkExpectedSourceLanguage,
-                localCompletionCeiling: endpoint.kind == .local ? budget.maxCompletionTokens : nil
-            )
+            let localCompletionCeiling = endpoint.kind == .local ? budget.maxCompletionTokens : nil
+            let result: PostProcessingResult
+            do {
+                result = try await processChunk(
+                    transcript: chunk.text,
+                    contextSummary: contextSummary,
+                    endpoint: endpoint,
+                    customVocabulary: customVocabulary,
+                    customSystemPrompt: customSystemPrompt,
+                    outputLanguage: outputLanguage,
+                    cleanupMode: cleanupMode,
+                    expectedSourceLanguage: chunkExpectedSourceLanguage,
+                    localCompletionCeiling: localCompletionCeiling
+                )
+            } catch PostProcessingError.emptyOutput
+                where emptyReplyReaskAvailable
+                && PostProcessingOutputValidator.shouldReaskAfterEmptyReply(source: chunk.text) {
+                emptyReplyReaskAvailable = false
+                result = try await processChunk(
+                    transcript: chunk.text,
+                    contextSummary: contextSummary,
+                    endpoint: endpoint,
+                    customVocabulary: customVocabulary,
+                    customSystemPrompt: customSystemPrompt,
+                    outputLanguage: outputLanguage,
+                    cleanupMode: cleanupMode,
+                    expectedSourceLanguage: chunkExpectedSourceLanguage,
+                    localCompletionCeiling: localCompletionCeiling,
+                    includesEmptyReplyReminder: true
+                )
+            }
             if !result.transcript.isEmpty {
                 cleanedChunks.append(result.transcript)
             }
@@ -1019,7 +1048,8 @@ Behavior:
         outputLanguage: String = "",
         cleanupMode: TranscriptCleanupMode,
         expectedSourceLanguage: String?,
-        localCompletionCeiling: Int?
+        localCompletionCeiling: Int?,
+        includesEmptyReplyReminder: Bool = false
     ) async throws -> PostProcessingResult {
         let url = endpoint.baseURL
             .appendingPathComponent("chat")
@@ -1034,11 +1064,14 @@ Behavior:
         request.timeoutInterval = postProcessingTimeoutSeconds(for: endpoint)
         let model = endpoint.selectedModelID
 
-        let systemPrompt = postProcessingSystemPrompt(
+        let baseSystemPrompt = postProcessingSystemPrompt(
             customSystemPrompt: customSystemPrompt,
             outputLanguage: outputLanguage,
             cleanupMode: cleanupMode
         )
+        let systemPrompt = includesEmptyReplyReminder
+            ? baseSystemPrompt + "\n\n" + Self.emptyReplyReminder
+            : baseSystemPrompt
         let userMessage = try postProcessingUserMessage(
             transcript: transcript,
             contextSummary: contextSummary,

@@ -147,7 +147,13 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
     private var recordedFrameCount: AVAudioFramePosition = 0
     private var loggedCaptureFormat = false
     private var fileWriteError: Error?
-    private var isSessionInterrupted = false
+    private let sessionInterruptedLock = OSAllocatedUnfairLock(initialState: false)
+    /// Written on the session queue; lock-backed so the main-thread input
+    /// hint monitor can read it without blocking on the session queue.
+    private var isSessionInterrupted: Bool {
+        get { sessionInterruptedLock.withLock { $0 } }
+        set { sessionInterruptedLock.withLock { $0 = newValue } }
+    }
 
     @Published var isRecording = false
     private let _recording = OSAllocatedUnfairLock(initialState: false)
@@ -216,6 +222,19 @@ final class AudioRecorder: NSObject, ObservableObject, AVCaptureAudioDataOutputS
     override init() {
         super.init()
         sessionQueue.setSpecific(key: Self.sessionQueueKey, value: 1)
+    }
+
+    /// Buffers delivered since the current capture session started. It only
+    /// grows while audio arrives and resets to zero when a new session starts.
+    /// Read by the mid-recording input-lost hint; it carries no audio content.
+    var capturedBufferCount: Int {
+        _bufferCount.withLock { $0 }
+    }
+
+    /// True while the capture session is interrupted. The startup watchdog is
+    /// suspended in this state, and the input-lost hint is too.
+    var isCaptureSessionInterrupted: Bool {
+        isSessionInterrupted
     }
 
     deinit {
