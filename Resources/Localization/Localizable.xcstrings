@@ -18500,6 +18500,38 @@
           }
         }
       }
+    },
+    "Are you talking? Your microphone isn't picking up any sound.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Are you talking? Your microphone isn't picking up any sound."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "말하고 계신가요? 마이크에서 소리가 들리지 않습니다."
+          }
+        }
+      }
+    },
+    "Microphone input stopped. Check the connection.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Microphone input stopped. Check the connection."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마이크 입력이 끊겼습니다. 연결을 확인하세요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -803,7 +803,7 @@ _test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSC
 	@$(TEST_BUILD_DIR)/LLMCooldownManagerTests
 	@swiftc -parse-as-library Sources/OverlayScreenGeometry.swift Tests/OverlayScreenGeometryTests.swift -o $(TEST_BUILD_DIR)/OverlayScreenGeometryTests
 	@$(TEST_BUILD_DIR)/OverlayScreenGeometryTests
-	@swiftc -parse-as-library Sources/OverlayScreenGeometry.swift Sources/FixedIntrinsicHostingView.swift Sources/ShortcutCore/ShortcutModels.swift Sources/AudioInputDevice.swift Sources/LocalizedStringLookup.swift Sources/OverlayDisplayCopy.swift Sources/AccessibilityDisplayPreferences.swift Sources/RecordingOverlay.swift Tests/RecordingOverlayGeometryTests.swift -o $(TEST_BUILD_DIR)/RecordingOverlayGeometryTests
+	@swiftc -parse-as-library Sources/OverlayScreenGeometry.swift Sources/FixedIntrinsicHostingView.swift Sources/ShortcutCore/ShortcutModels.swift Sources/AudioInputDevice.swift Sources/LocalizedStringLookup.swift Sources/OverlayDisplayCopy.swift Sources/AccessibilityDisplayPreferences.swift Sources/RecordingOverlay.swift Sources/RecordingInputHints.swift Tests/RecordingOverlayGeometryTests.swift -o $(TEST_BUILD_DIR)/RecordingOverlayGeometryTests
 	@$(TEST_BUILD_DIR)/RecordingOverlayGeometryTests
 	@swiftc -parse-as-library Tests/UpstreamMergeBehaviorTests.swift -o $(TEST_BUILD_DIR)/UpstreamMergeBehaviorTests
 	@$(TEST_BUILD_DIR)/UpstreamMergeBehaviorTests

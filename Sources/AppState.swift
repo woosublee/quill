@@ -2282,6 +2282,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }()
     private var accessibilityTimer: Timer?
     private var audioLevelCancellable: AnyCancellable?
+    private var recordingInputHintState: RecordingInputHintState?
+    private var recordingInputHintInputID: String?
+    private var recordingInputHintTimer: DispatchSourceTimer?
+    private var recordingInputHintLevelCancellable: AnyCancellable?
+    private var recordingInputHintWakeObserver: NSObjectProtocol?
+    private var presentedRecordingInputHint: RecordingInputHint?
     private var debugOverlayTimer: Timer?
     private var recordingInitializationTimer: DispatchSourceTimer?
     private var transcribingIndicatorTask: Task<Void, Never>?
@@ -5470,6 +5476,138 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    // MARK: - Microphone hints (#214)
+
+    /// How often the microphone hints are re-evaluated. Fine enough for the
+    /// 5 s input-lost and 10 s quiet thresholds, and cheap on the main thread.
+    private static let recordingInputHintPollInterval: TimeInterval = 1
+
+    /// Uptime excludes time spent asleep, so a sleep/wake cycle never counts
+    /// toward the starvation or quiet windows.
+    private static func recordingInputHintNow() -> TimeInterval {
+        ProcessInfo.processInfo.systemUptime
+    }
+
+    /// Starts (or, after an input switch, resumes) the informational
+    /// microphone hints for the active recording. Hints never stop or change
+    /// the recording. They run only when Quill's own microphone recorder is
+    /// capturing (Microphone or System default + System Audio), not for System
+    /// Audio only or an engine that records on its own.
+    @MainActor
+    private func resumeRecordingInputHints(inputID: String, sessionID: UUID) {
+        pauseRecordingInputHints()
+        guard !AudioInputDevice.isSystemAudio(inputID),
+              isCurrentRecordingSession(sessionID) else {
+            return
+        }
+        let now = Self.recordingInputHintNow()
+        if recordingInputHintState?.sessionID != sessionID {
+            recordingInputHintState = RecordingInputHintState(sessionID: sessionID)
+        }
+        recordingInputHintState?.resume(at: now)
+        recordingInputHintInputID = inputID
+
+        recordingInputHintLevelCancellable = audioRecorder.$audioLevel
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] level in
+                guard let self,
+                      self.recordingInputHintState?.sessionID == sessionID else { return }
+                self.recordingInputHintState?.observeLevel(level)
+                self.refreshRecordingInputHint()
+            }
+
+        recordingInputHintWakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            // Capture restarts after wake; give it a fresh grace window.
+            MainActor.assumeIsolated {
+                self?.recordingInputHintState?.rearmStarvation(
+                    at: Self.recordingInputHintNow()
+                )
+                self?.refreshRecordingInputHint()
+            }
+        }
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(
+            deadline: .now() + Self.recordingInputHintPollInterval,
+            repeating: Self.recordingInputHintPollInterval
+        )
+        timer.setEventHandler { [weak self] in
+            MainActor.assumeIsolated {
+                self?.tickRecordingInputHints(sessionID: sessionID)
+            }
+        }
+        timer.resume()
+        recordingInputHintTimer = timer
+    }
+
+    /// Stops evaluating and hides any visible hint. Per-recording state is
+    /// kept so an input switch resumes the same quiet window and the quiet
+    /// hint still appears at most once per recording.
+    @MainActor
+    private func pauseRecordingInputHints() {
+        recordingInputHintTimer?.cancel()
+        recordingInputHintTimer = nil
+        recordingInputHintLevelCancellable?.cancel()
+        recordingInputHintLevelCancellable = nil
+        if let recordingInputHintWakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(recordingInputHintWakeObserver)
+        }
+        recordingInputHintWakeObserver = nil
+        recordingInputHintInputID = nil
+        if presentedRecordingInputHint != nil {
+            presentedRecordingInputHint = nil
+            overlayManager.hideRecordingHint()
+        }
+    }
+
+    @MainActor
+    private func tickRecordingInputHints(sessionID: UUID) {
+        guard isRecording,
+              isCurrentRecordingSession(sessionID),
+              recordingInputHintState?.sessionID == sessionID else {
+            pauseRecordingInputHints()
+            return
+        }
+        // An input switch owns the recorder until it finishes; the switch
+        // pauses hints and resumes them with a fresh baseline afterwards.
+        let isSuspended = activeInputSwitchToken != nil
+            || audioRecorder.isCaptureSessionInterrupted
+        recordingInputHintState?.tick(
+            now: Self.recordingInputHintNow(),
+            bufferCount: audioRecorder.capturedBufferCount,
+            isCaptureSuspended: isSuspended
+        )
+        refreshRecordingInputHint()
+    }
+
+    @MainActor
+    private func refreshRecordingInputHint() {
+        var hint = recordingInputHintState?.currentHint
+        // When the microphone already failed in a combined recording, the
+        // degraded-capture notice explains it; don't repeat it here.
+        if let inputID = recordingInputHintInputID,
+           AudioInputDevice.isSystemDefaultAndSystemAudio(inputID),
+           systemDefaultAndSystemAudioRecorder.currentMissingSource == .microphone {
+            hint = nil
+        }
+        guard hint != presentedRecordingInputHint else { return }
+        presentedRecordingInputHint = hint
+        guard let hint else {
+            overlayManager.hideRecordingHint()
+            return
+        }
+        overlayManager.showRecordingHint(
+            localizedCatalogString(hint.messageKey),
+            severity: hint.severity,
+            announce: hint.isAnnouncedToVoiceOver,
+            reminderFrame: meetingReminderOverlayManager.visibleOverlayFrame
+        )
+    }
+
     private func activeRecorderAudioLevelPublisher(inputID: String) -> AnyPublisher<Float, Never> {
         if AudioInputDevice.isSystemDefaultAndSystemAudio(inputID) {
             return systemDefaultAndSystemAudioRecorder.$audioLevel.eraseToAnyPublisher()
@@ -5815,6 +5953,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         clearAudioRecorderCallbacks()
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
+        pauseRecordingInputHints()
         contextCaptureTask?.cancel()
         contextCaptureTask = nil
         capturedContext = nil
@@ -5839,8 +5978,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             sourceFailure.failure.reason.titleLocalizationKey
         )
         errorMessage = message
+        // The recording has already stopped here (storage failure), so this
+        // is an error, not a warning.
         overlayManager.showRecordingNotice(
             message,
+            severity: .error,
             reminderFrame: meetingReminderOverlayManager.visibleOverlayFrame
         )
     }
@@ -5979,6 +6121,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
         overlayManager.showRecordingNotice(
             message,
+            severity: .warning,
             reminderFrame: meetingReminderOverlayManager.visibleOverlayFrame
         )
     }
@@ -6332,6 +6475,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             errorMessage = recordingInputAccessErrorMessage(for: newInputID)
             overlayManager.showRecordingNotice(
                 recordingInputAccessNotice(for: newInputID),
+                severity: .warning,
                 reminderFrame: meetingReminderOverlayManager.visibleOverlayFrame
             )
             return
@@ -6364,6 +6508,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         setActiveRecorderPCMHandler(nil)
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
+        pauseRecordingInputHints()
 
         stopPhysicalAudioRecorder(inputID: currentInputID) { [weak self] temporaryURLs in
             guard let self else {
@@ -6507,6 +6652,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                                   self.isCurrentRecordingSession(controller.recordingID) else { return }
                             self.overlayManager.updateAudioLevel(level)
                         }
+                        self.resumeRecordingInputHints(
+                            inputID: newInputID,
+                            sessionID: controller.recordingID
+                        )
                         self.reconcileDegradedCombinedCaptureNotice(
                             degradedSource,
                             sessionID: controller.recordingID
@@ -6561,6 +6710,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         errorMessage = issue.record.presentation().compactMessage
         overlayManager.showRecordingNotice(
             localizedCatalogString("Failed to switch audio input. Saving the recorded audio."),
+            severity: .error,
             reminderFrame: meetingReminderOverlayManager.visibleOverlayFrame
         )
         stopAndTranscribe()
@@ -8756,6 +8906,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
+        pauseRecordingInputHints()
         cancelRecordingInitializationTimer()
         contextCaptureTask?.cancel()
         contextCaptureTask = nil
@@ -9240,6 +9391,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         clearAudioRecorderCallbacks()
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
+        pauseRecordingInputHints()
         dismissTranscribingOverlay()
     }
 
@@ -9502,6 +9654,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         clearAudioRecorderCallbacks()
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
+        pauseRecordingInputHints()
         dismissTranscribingOverlay()
     }
 
@@ -9888,6 +10041,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                                       self.isCurrentRecordingSession(recordingSessionID) else { return }
                                 self.overlayManager.updateAudioLevel(level)
                             }
+                        self.resumeRecordingInputHints(
+                            inputID: audioInputID,
+                            sessionID: recordingSessionID
+                        )
                     }
                 } catch {
                     self.cancelRecordingInitializationTimer()
@@ -9939,6 +10096,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                                   self.isCurrentRecordingSession(recordingSessionID) else { return }
                             self.overlayManager.updateAudioLevel(level)
                         }
+                    self.resumeRecordingInputHints(
+                        inputID: audioInputID,
+                        sessionID: recordingSessionID
+                    )
                     self.reconcileDegradedCombinedCaptureNotice(
                         degradedSource,
                         sessionID: recordingSessionID
@@ -9966,6 +10127,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         clearAudioRecorderCallbacks()
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
+        pauseRecordingInputHints()
         contextCaptureTask?.cancel()
         contextCaptureTask = nil
         capturedContext = nil
@@ -10648,6 +10810,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         clearAudioRecorderCallbacks()
         audioLevelCancellable?.cancel()
         audioLevelCancellable = nil
+        pauseRecordingInputHints()
 
         let sessionContext = capturedContext
         let inFlightContextTask = contextCaptureTask
@@ -12568,6 +12731,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             cancelActiveAudioRecorder()
             audioLevelCancellable?.cancel()
             audioLevelCancellable = nil
+            pauseRecordingInputHints()
             contextCaptureTask?.cancel()
             contextCaptureTask = nil
             capturedContext = nil
