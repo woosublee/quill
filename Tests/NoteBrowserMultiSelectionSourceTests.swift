@@ -68,6 +68,10 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(source.contains("if !appState.isRecordingInProgress(noteID: item.id) {\n                floatingToolbar"))
         precondition(source.contains("|| appState.isRecordingInProgress(noteID: item.id)"))
         precondition(source.contains("\"Stop the recording, then delete the note.\""))
+        // It stays protected after the stop, until its transcript is saved.
+        let appStateSource3 = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        precondition(appStateSource3.contains("if currentRecordingLiveNoteID == noteID { return true }"))
+        precondition(appStateSource3.contains("$0.id == noteID || $0.liveNoteID == noteID"))
 
         // Visible entry points: the Select button and the row context menu.
         precondition(source.contains("Button(\"Select\") { beginSelection() }"))

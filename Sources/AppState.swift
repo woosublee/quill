@@ -7197,13 +7197,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    /// Whether this note belongs to the recording in progress (plain or live
-    /// transcription). Deleting it would leave the recording running and
-    /// bring the note back when it stops (#437). A note left in the
-    /// recording state by a crash can still be deleted.
+    /// Whether this note still belongs to a recording or its transcription:
+    /// the recording in progress (plain or live), or a stopped recording
+    /// whose transcript isn't saved yet. Deleting it would bring it back
+    /// when that work saves (#437). A note left in the recording state by
+    /// a crash can still be deleted.
     @MainActor
     func isRecordingInProgress(noteID: UUID) -> Bool {
-        isRecording
+        if currentRecordingLiveNoteID == noteID { return true }
+        if activeTranscriptionJobs.values.contains(where: {
+            $0.id == noteID || $0.liveNoteID == noteID
+        }) {
+            return true
+        }
+        return isRecording
             && pipelineHistory.first(where: { $0.id == noteID })?.machineStatus == .liveRecording
     }
 
