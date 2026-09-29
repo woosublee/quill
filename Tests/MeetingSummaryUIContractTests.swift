@@ -22,13 +22,14 @@ struct MeetingSummaryUIContractTests {
         // A source jump counts as the user's tab choice, and a blank query
         // isn't an active search.
         precondition(noteBrowser.contains("if isSearchActive {\n            userChoseContentModeDuringSearch = true\n        }\n        selectedContentMode = .transcript"))
-        precondition(noteBrowser.contains("isSearchActive: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,"))
+        precondition(noteBrowser.contains("isSearchActive: isSearchActive,"))
+        precondition(noteBrowser.contains("private var isSearchActive: Bool {\n        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty"))
     // The deferred search switch rechecks the person's choice before it runs.
     precondition(noteBrowser.contains("guard !cancelled() else { return }\n            selectedContentMode = .summary"))
 
         for expected in [
             "prefersSummaryTab: searchMatcher.matchesOnlyInSummary(item, query: searchText)",
-            "isSearchActive: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty",
+            "isSearchActive: isSearchActive,",
             "let prefersSummaryTab: Bool",
             "applySearchTabPreference(prefersSummaryTab)",
             ".onChange(of: prefersSummaryTab) { newValue in",

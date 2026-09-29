@@ -114,7 +114,15 @@ final class NoteSearchMatcher {
     ) -> Bool {
         contains(item.customTitle, query)
             || contains(item.calendarMatch?.title, query)
-            || contains(item.postProcessedTranscript, query)
+            || contains(searchableTranscript(of: item), query)
+    }
+
+    /// The transcript the note shows: the processed one, or the raw one
+    /// when there is no processed text.
+    private static func searchableTranscript(of item: PipelineHistoryItem) -> String {
+        item.postProcessedTranscript.isEmpty
+            ? item.rawTranscript
+            : item.postProcessedTranscript
     }
 
     private static func contains(_ text: String?, _ query: String) -> Bool {

@@ -113,6 +113,31 @@ struct NoteSelection: Equatable {
         collapseToSingleIfNeeded()
     }
 
+    /// The note to show while a search is active: the open note while it is
+    /// still a result, else the first result, else none.
+    static func focusedID(forSearchResults visibleIDs: [UUID], current: UUID?) -> UUID? {
+        if let current, visibleIDs.contains(current) {
+            return current
+        }
+        return visibleIDs.first
+    }
+
+    /// The note to show once the search is cleared: the open note, else the
+    /// note that was open before the search, else the first note.
+    static func focusedIDAfterClearingSearch(
+        current: UUID?,
+        openBeforeSearch: UUID?,
+        in orderedIDs: [UUID]
+    ) -> UUID? {
+        if let current, orderedIDs.contains(current) {
+            return current
+        }
+        if let openBeforeSearch, orderedIDs.contains(openBeforeSearch) {
+            return openBeforeSearch
+        }
+        return orderedIDs.first
+    }
+
     /// The note to show after deleting notes: the next remaining one below, else above.
     static func nextFocusedID(afterDeleting deletedIDs: Set<UUID>, in orderedIDs: [UUID]) -> UUID? {
         guard let lastDeletedIndex = orderedIDs.lastIndex(where: deletedIDs.contains) else {

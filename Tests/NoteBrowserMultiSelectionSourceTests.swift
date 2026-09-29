@@ -11,6 +11,15 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(source.contains("private var selectedItemID: UUID? { selection.focusedID }"))
         precondition(!source.contains("@State private var selectedItemID"))
 
+        // #195: the open note follows the search results, and a search with
+        // no results shows its own empty detail.
+        precondition(source.contains("selection.retainVisible(filteredHistory.map(\\.id))\n            } else {\n                keepOpenNoteInSearchResults()"))
+        precondition(source.contains("NoteSelection.focusedID(\n                forSearchResults: filteredHistory.map(\\.id),"))
+        precondition(source.contains("NoteSelection.focusedIDAfterClearingSearch("))
+        precondition(source.contains("} else if isSearchActive, filteredHistory.isEmpty {\n            emptyDetailNoSearchResults"))
+        precondition(source.contains("selection.focus(visibleIDs.first)"))
+        precondition(source.contains("!knownHistoryIDs.contains(newest),\n                      visibleIDs.contains(newest) {"))
+
         // Visible entry points: the Select button and the row context menu.
         precondition(source.contains("Button(\"Select\") { beginSelection() }"))
         precondition(source.contains(".onTapGesture { handleRowClick(item.id) }"))

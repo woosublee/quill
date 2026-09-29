@@ -18660,6 +18660,38 @@
           }
         }
       }
+    },
+    "No Matching Notes": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Matching Notes"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일치하는 노트 없음"
+          }
+        }
+      }
+    },
+    "No notes match “%@”. Try another word, or clear the search.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No notes match “%@”. Try another word, or clear the search."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” 검색 결과가 없습니다. 다른 단어로 검색하거나 검색어를 지워 보세요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
