@@ -585,7 +585,11 @@ struct NoteBrowserView: View {
     }
 
     private func isBulkSelectable(_ id: UUID) -> Bool {
-        guard let item = appState.pipelineHistory.first(where: { $0.id == id }) else { return false }
+        isBulkSelectable(id, in: appState.pipelineHistory)
+    }
+
+    private func isBulkSelectable(_ id: UUID, in history: [PipelineHistoryItem]) -> Bool {
+        guard let item = history.first(where: { $0.id == id }) else { return false }
         // A note making its summary is busy too, so bulk delete never skips it silently.
         return transcriptStatus(for: item, retrying: appState.retryingItemIDs).isBulkSelectable
             && !appState.meetingSummaryGeneratingNoteIDs.contains(id)
@@ -822,6 +826,13 @@ struct NoteBrowserView: View {
             }
         }
         .background(NoteBrowserKeyCommandMonitor(handle: handleKeyCommand))
+        // Notes that start a summary or a retry while checked leave the selection.
+        .onChange(of: appState.meetingSummaryGeneratingNoteIDs) { _ in
+            selection.retainSelectable(isBulkSelectable)
+        }
+        .onChange(of: appState.retryingItemIDs) { _ in
+            selection.retainSelectable(isBulkSelectable)
+        }
         .onChange(of: searchText) { _ in
             if selection.showsSelectionUI {
                 selection.retainVisible(filteredHistory.map(\.id))
@@ -833,6 +844,7 @@ struct NoteBrowserView: View {
                 // Keep a multi-selection; new notes don't take over while selecting.
                 // This fires before the change lands, so filter the new value.
                 selection.retainVisible(newHistory.filter(matchesSearch).map(\.id))
+                selection.retainSelectable { isBulkSelectable($0, in: newHistory) }
                 knownHistoryIDs = Set(ids)
                 return
             }

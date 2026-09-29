@@ -11,6 +11,8 @@ struct AppStateStorageSafetyTests {
         try await verifiesCancellableNoteDeletionGuards()
         try await verifiesCancellableBulkNoteDeletion()
         try await verifiesPendingDeletionMeetsLaterChanges()
+        try verifiesWarningBannerStateKeepsOnlyListedNotes()
+        try await verifiesStartupPrunesWarningBannerStateOfMissingNotes()
         try await verifiesDeleteHistoryEntriesSkipsBusyNotesAndKeepsFailures()
         try await verifiesClearHistoryRemovesOwnedAssets()
         try await verifiesSharedAssetsRemainWhileHistoryStillReferencesThem()
@@ -606,7 +608,7 @@ struct AppStateStorageSafetyTests {
                     scheduler.items.append((delay, work))
                 }
                 appState.deleteHistoryEntryCancellably(id: items[1].id)
-                // Two newer notes arrive during the window.
+                // A newer note arrives during the window.
                 _ = try PipelineHistoryStore(
                     storeURL: environment.storageLayout.historyStoreURL
                 ).append(newest, maxCount: Int.max)
@@ -635,6 +637,58 @@ struct AppStateStorageSafetyTests {
                     && !FileManager.default.fileExists(atPath: audioURLs[items[0].id]!.path),
                 "the earlier pending note's audio is removed with the immediate delete"
             )
+        }
+    }
+
+    /// #409: a crash during the Cancel window leaves banner state for a note
+    /// that no longer exists; startup keeps only listed notes' state.
+    private static func verifiesWarningBannerStateKeepsOnlyListedNotes() throws {
+        let listed = UUID(uuidString: "00000000-0000-0000-0000-000000000409")!
+        let missing = UUID(uuidString: "00000000-0000-0000-0000-000000000410")!
+        let pruned = AppState.warningBannerState(
+            retryGenerations: [listed.uuidString: 2, missing.uuidString: 1],
+            dismissals: [
+                "\(listed.uuidString):someCode": 2,
+                "\(missing.uuidString):someCode": 1,
+                "\(missing.uuidString):otherCode": 0
+            ],
+            keepingNoteIDs: [listed]
+        )
+        try expect(pruned.retryGenerations == [listed.uuidString: 2], "only listed notes keep retry generations")
+        try expect(pruned.dismissals == ["\(listed.uuidString):someCode": 2], "only listed notes keep dismissals")
+    }
+
+    private static func verifiesStartupPrunesWarningBannerStateOfMissingNotes() async throws {
+        let retryKey = "note_retry_generation_by_id"
+        let dismissalKey = "dismissed_warning_banner_generation_by_key"
+        let defaults = UserDefaults.standard
+        let savedRetry = defaults.object(forKey: retryKey)
+        let savedDismissals = defaults.object(forKey: dismissalKey)
+        defer {
+            defaults.set(savedRetry, forKey: retryKey)
+            defaults.set(savedDismissals, forKey: dismissalKey)
+        }
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let item = makeHistoryItem(audioFileName: nil, transcriptFileName: nil)
+            let missing = UUID()
+            _ = try PipelineHistoryStore(
+                storeURL: environment.storageLayout.historyStoreURL
+            ).append(item, maxCount: Int.max)
+            defaults.set(
+                try JSONEncoder().encode([item.id.uuidString: 1, missing.uuidString: 3]),
+                forKey: retryKey
+            )
+            defaults.set(
+                try JSONEncoder().encode(["\(missing.uuidString):someCode": 3]),
+                forKey: dismissalKey
+            )
+            let state = await MainActor.run { () -> ([String: Int], [String: Int]) in
+                let appState = AppState(dependencies: environment.dependencies)
+                return (appState.noteRetryGenerationByID, appState.dismissedWarningBannerGeneration)
+            }
+            try expect(state.0 == [item.id.uuidString: 1], "startup drops retry state of missing notes")
+            try expect(state.1.isEmpty, "startup drops dismissals of missing notes")
         }
     }
 

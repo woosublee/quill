@@ -2141,6 +2141,39 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
     }
 
+    /// Keeps retry generations and banner dismissals only for listed notes.
+    /// Dismissal keys start with the note ID and a colon.
+    static func warningBannerState(
+        retryGenerations: [String: Int],
+        dismissals: [String: Int],
+        keepingNoteIDs noteIDs: Set<UUID>
+    ) -> (retryGenerations: [String: Int], dismissals: [String: Int]) {
+        let listed = Set(noteIDs.map(\.uuidString))
+        return (
+            retryGenerations.filter { listed.contains($0.key) },
+            dismissals.filter { listed.contains(String($0.key.prefix { $0 != ":" })) }
+        )
+    }
+
+    /// Drops banner state left by notes that no longer exist, for example
+    /// when the app was killed during a deletion's Cancel window.
+    private func pruneWarningBannerState(keepingNoteIDs noteIDs: Set<UUID>) {
+        let pruned = Self.warningBannerState(
+            retryGenerations: noteRetryGenerationByID,
+            dismissals: dismissedWarningBannerGeneration,
+            keepingNoteIDs: noteIDs
+        )
+        guard pruned.retryGenerations.count != noteRetryGenerationByID.count
+            || pruned.dismissals.count != dismissedWarningBannerGeneration.count else { return }
+        noteRetryGenerationByID = pruned.retryGenerations
+        dismissedWarningBannerGeneration = pruned.dismissals
+        Self.saveIntDictionary(noteRetryGenerationByID, forKey: Self.noteRetryGenerationDefaultsKey)
+        Self.saveIntDictionary(
+            dismissedWarningBannerGeneration,
+            forKey: Self.dismissedWarningBannerGenerationDefaultsKey
+        )
+    }
+
     /// Clears all banner dismissal / retry-generation side state, e.g. when the
     /// entire run history is cleared.
     @MainActor
@@ -3361,6 +3394,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 )
                 self.startRecordingFromCalendarReminder()
             }
+        }
+
+        // Only a complete, trusted history can say which notes are gone.
+        if !historyStartup.state.isHistoryUnavailable,
+           pipelineHistoryStore.availability == .ready,
+           pipelineHistoryStore.referenceTrust.permitsStartupReferenceCleanup {
+            pruneWarningBannerState(keepingNoteIDs: Set(pipelineHistory.map(\.id)))
         }
 
         if Thread.isMainThread {
@@ -6766,11 +6806,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// audio, transcript, and cloud job files on disk for a short window so
     /// the Note Browser can offer Cancel. The files are removed by
     /// `finalizePendingNoteDeletion()` when the window ends, when more notes
-    /// are deleted the same way, or when the app quits. After a crash the rows
-    /// are already gone, so the next launch's orphan sweep removes the files.
-    /// Notes that are still recording or processing are skipped: their
-    /// running work would outlive the note, so they use
-    /// `deleteHistoryEntry(id:)` instead.
+    /// are deleted the same way, or when the app quits. The notes' in-memory
+    /// state (retry, cloud session, summary workflow, banners) is also torn
+    /// down then. After a crash the rows are already gone, so the next
+    /// launch's orphan sweep removes the files, and its banner prune drops the
+    /// notes' saved retry and dismissal state. Notes that are still
+    /// recording or processing are skipped: their running work would outlive
+    /// the note, so they use `deleteHistoryEntry(id:)` instead.
     @MainActor
     @discardableResult
     func deleteHistoryEntriesCancellably(ids: [UUID]) -> NoteBulkDeletionResult {

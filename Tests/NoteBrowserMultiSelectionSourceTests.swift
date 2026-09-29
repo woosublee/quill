@@ -50,9 +50,13 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(monitor0.contains("charactersIgnoringModifiers: event.charactersIgnoringModifiers"))
 
         // Busy notes can't join a selection.
-        let selectable = try body(of: "private func isBulkSelectable(_ id: UUID) -> Bool", in: source)
+        let selectable = try body(of: "private func isBulkSelectable(_ id: UUID, in history: [PipelineHistoryItem]) -> Bool", in: source)
         precondition(selectable.contains(".isBulkSelectable"))
         precondition(selectable.contains("!appState.meetingSummaryGeneratingNoteIDs.contains(id)"))
+        // Notes that become busy while checked leave the selection.
+        precondition(source.contains(".onChange(of: appState.meetingSummaryGeneratingNoteIDs) { _ in\n            selection.retainSelectable(isBulkSelectable)"))
+        precondition(source.contains(".onChange(of: appState.retryingItemIDs) { _ in\n            selection.retainSelectable(isBulkSelectable)"))
+        precondition(source.contains("selection.retainSelectable { isBulkSelectable($0, in: newHistory) }"))
 
         // Keyboard shortcuts stay inside this window and never steal text editing keys.
         let monitor = try body(of: "private struct NoteBrowserKeyCommandMonitor", in: source)
