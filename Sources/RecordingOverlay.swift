@@ -326,6 +326,47 @@ struct DegradedCombinedCaptureNoticeLifecycle {
     }
 }
 
+/// Severity of a recording-overlay notice. One icon rule for every notice:
+/// info is a gray info symbol, warning an orange triangle, error a red circle.
+/// Each level also has a distinct symbol shape, so it never relies on color
+/// alone (Differentiate Without Color).
+enum RecordingNoticeSeverity: Equatable, CaseIterable {
+    /// Something the user may want to know; recording is unaffected.
+    case info
+    /// Recording continues, but something needs attention.
+    case warning
+    /// Recording stopped or an operation failed.
+    case error
+
+    var symbolName: String {
+        switch self {
+        case .info:
+            return "info.circle.fill"
+        case .warning:
+            return "exclamationmark.triangle.fill"
+        case .error:
+            return "exclamationmark.circle.fill"
+        }
+    }
+
+    func tint(increasedContrast: Bool) -> Color {
+        switch self {
+        case .info:
+            return Color.white.opacity(QuillContrast.opacity(0.6, increased: increasedContrast))
+        case .warning:
+            return Color.orange
+        case .error:
+            return Color.red.opacity(0.92)
+        }
+    }
+}
+
+/// What the persistent microphone hint panel currently shows.
+struct RecordingHintPresentation: Equatable {
+    let message: String
+    let severity: RecordingNoticeSeverity
+}
+
 struct RecordingNoticeStackGeometry {
     static func lowestVisibleFrame(_ frames: [NSRect]) -> NSRect? {
         frames.min(by: { $0.minY < $1.minY })
@@ -436,6 +477,11 @@ final class RecordingOverlayManager {
     private var degradedCaptureNoticeWindow: NSPanel?
     private var degradedCaptureNoticePresentationToken: UUID?
     private var degradedCaptureNoticeLifecycle = DegradedCombinedCaptureNoticeLifecycle()
+    /// Separate panel for the live microphone hint (#214). It stays until the
+    /// condition clears, so it must not share `noticeWindow`, whose transient
+    /// notices auto-dismiss.
+    private var recordingHintWindow: NSPanel?
+    private var recordingHintPresentation: RecordingHintPresentation?
     private let notchSideRegionWidth: CGFloat = 92
     private let notchSidePanelHeight: CGFloat = 38
     private let notchSideHorizontalInset: CGFloat = 8
@@ -665,18 +711,26 @@ final class RecordingOverlayManager {
     /// anchored just under the lowest visible overlay (the recording pill, or
     /// the taller reminder card when `reminderFrame` is set) so it never covers
     /// the live waveform or overlaps the reminder.
-    func showRecordingNotice(_ message: String, reminderFrame: NSRect?) {
+    func showRecordingNotice(
+        _ message: String,
+        severity: RecordingNoticeSeverity,
+        reminderFrame: NSRect?
+    ) {
         let truncated = Self.truncatedToastMessage(message)
         DispatchQueue.main.async {
             guard self.overlayState.phase == .recording,
                   let anchor = self.recordingNoticeAnchorFrame(reminderFrame: reminderFrame) else {
-                // No recording overlay on screen — fall back to the standard toast.
+                // No recording overlay on screen. Only errors fall back to the
+                // red error toast; warnings and info stay quiet rather than
+                // looking like an error (the message remains in the menu bar).
                 self.recordingNoticeReminderFrame = nil
-                self.showError(message)
+                if severity == .error {
+                    self.showError(message)
+                }
                 return
             }
             self.recordingNoticeReminderFrame = reminderFrame
-            self.showAnchoredRecordingNotice(truncated, anchor: anchor)
+            self.showAnchoredRecordingNotice(truncated, severity: severity, anchor: anchor)
             OverlayAccessibilityAnnouncer.announce(.error(message))
         }
     }
@@ -701,8 +755,21 @@ final class RecordingOverlayManager {
     }
 
     /// Transient notices stack below the persistent degraded-capture notice
-    /// instead of competing for the same position and obscuring its dismiss UI.
+    /// and the live input hint instead of competing for the same position and
+    /// obscuring the degraded notice's dismiss UI.
     private func recordingNoticeAnchorFrame(reminderFrame: NSRect?) -> NSRect? {
+        RecordingNoticeStackGeometry.lowestVisibleFrame(
+            [
+                baseNoticeAnchorFrame(reminderFrame: reminderFrame),
+                visibleDegradedCaptureNoticeFrame,
+                visibleRecordingHintFrame
+            ].compactMap { $0 }
+        )
+    }
+
+    /// The live input hint sits directly below the degraded-capture notice
+    /// (or the pill / reminder card when that notice is hidden).
+    private func recordingHintAnchorFrame(reminderFrame: NSRect?) -> NSRect? {
         RecordingNoticeStackGeometry.lowestVisibleFrame(
             [
                 baseNoticeAnchorFrame(reminderFrame: reminderFrame),
@@ -711,9 +778,131 @@ final class RecordingOverlayManager {
         )
     }
 
+    private var visibleRecordingHintFrame: NSRect? {
+        guard recordingHintPresentation != nil,
+              let panel = recordingHintWindow,
+              panel.isVisible else { return nil }
+        return panel.frame
+    }
+
+    /// Show (or update) the persistent microphone hint below the recording
+    /// overlay. Unlike `showRecordingNotice` it never auto-dismisses and never
+    /// falls back to the pill error toast: it stays until `hideRecordingHint`.
+    /// It is informational only and never changes the recording.
+    func showRecordingHint(
+        _ message: String,
+        severity: RecordingNoticeSeverity,
+        announce: Bool,
+        reminderFrame: NSRect?
+    ) {
+        DispatchQueue.main.async {
+            let presentation = RecordingHintPresentation(
+                message: message,
+                severity: severity
+            )
+            let isNewPresentation = self.recordingHintPresentation != presentation
+            self.recordingHintPresentation = presentation
+            self.recordingNoticeReminderFrame = reminderFrame
+            guard self.overlayState.phase == .recording,
+                  let anchor = self.recordingHintAnchorFrame(reminderFrame: reminderFrame) else {
+                return
+            }
+            self.showAnchoredRecordingHint(presentation, anchor: anchor)
+            if isNewPresentation, announce {
+                OverlayAccessibilityAnnouncer.announce(.error(message))
+            }
+        }
+    }
+
+    func hideRecordingHint() {
+        DispatchQueue.main.async {
+            self.hideRecordingHintNow()
+        }
+    }
+
+    private func hideRecordingHintNow() {
+        guard recordingHintPresentation != nil else { return }
+        recordingHintPresentation = nil
+        guard let panel = recordingHintWindow else { return }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.16
+            panel.animator().alphaValue = 0
+        }, completionHandler: { [weak self, weak panel] in
+            guard let self else { return }
+            // A newer hint may have been shown mid-fade.
+            guard self.recordingHintPresentation == nil else {
+                panel?.alphaValue = 1
+                return
+            }
+            panel?.orderOut(nil)
+            self.repositionVisibleRecordingNotice()
+        })
+    }
+
+    private func showAnchoredRecordingHint(
+        _ presentation: RecordingHintPresentation,
+        anchor: NSRect
+    ) {
+        let height: CGFloat = 30
+        let maximumWidth = max(
+            200,
+            (screenGeometry?.screenFrame.width ?? 520) - 32
+        )
+        let width = RecordingNoticeStackGeometry.fittedNoticeWidth(
+            message: presentation.message,
+            horizontalChromeWidth: 60,
+            minimumWidth: max(200, anchor.width),
+            maximumWidth: maximumWidth
+        )
+        let frame = RecordingNoticeStackGeometry.anchoredFrame(
+            below: anchor,
+            width: width,
+            height: height,
+            gap: 6
+        )
+
+        let panel = recordingHintWindow ?? makeOverlayPanel(width: frame.width, height: frame.height)
+        panel.hasShadow = true
+        panel.ignoresMouseEvents = true
+        panel.contentView = makeTransparentContent(
+            width: frame.width,
+            height: frame.height,
+            rootView: RecordingNoticeToastView(
+                message: presentation.message,
+                severity: presentation.severity
+            )
+        )
+        let isAlreadyVisible = panel.isVisible && panel.alphaValue > 0
+        panel.setFrame(frame, display: true)
+        if !isAlreadyVisible {
+            panel.alphaValue = 0
+        }
+        panel.orderFrontRegardless()
+        recordingHintWindow = panel
+        repositionVisibleRecordingNotice(below: panel.frame)
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.16
+            panel.animator().alphaValue = 1
+        }
+    }
+
+    private func repositionVisibleRecordingHint() {
+        guard let presentation = recordingHintPresentation,
+              overlayState.phase == .recording,
+              let anchor = recordingHintAnchorFrame(
+                  reminderFrame: recordingNoticeReminderFrame
+              ) else { return }
+        showAnchoredRecordingHint(presentation, anchor: anchor)
+    }
+
     /// Show a standalone toast panel just below `anchor`, matching its width but
     /// never narrower than the message needs.
-    private func showAnchoredRecordingNotice(_ truncated: String, anchor: NSRect) {
+    private func showAnchoredRecordingNotice(
+        _ truncated: String,
+        severity: RecordingNoticeSeverity,
+        anchor: NSRect
+    ) {
         let token = UUID()
         noticeToken = token
 
@@ -738,7 +927,7 @@ final class RecordingOverlayManager {
         panel.contentView = makeTransparentContent(
             width: frame.width,
             height: frame.height,
-            rootView: RecordingNoticeToastView(message: truncated)
+            rootView: RecordingNoticeToastView(message: truncated, severity: severity)
         )
         // Reuse keeps the panel on screen; only reset alpha when it's actually
         // hidden, otherwise replacing a still-visible notice flashes.
@@ -900,7 +1089,10 @@ final class RecordingOverlayManager {
         panel.contentView = makeTransparentContent(
             width: frame.width,
             height: frame.height,
-            rootView: DegradedCaptureNoticeView(message: request.message) { [weak self] in
+            rootView: DegradedCaptureNoticeView(
+                message: request.message,
+                severity: .warning
+            ) { [weak self] in
                 guard let self else { return }
                 self.applyDegradedCaptureNoticeEffect(
                     self.degradedCaptureNoticeLifecycle.dismiss(
@@ -917,7 +1109,11 @@ final class RecordingOverlayManager {
         }
         panel.orderFrontRegardless()
         degradedCaptureNoticeWindow = panel
-        repositionVisibleRecordingNotice(below: panel.frame)
+        if recordingHintPresentation != nil {
+            repositionVisibleRecordingHint()
+        } else {
+            repositionVisibleRecordingNotice(below: panel.frame)
+        }
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.16
@@ -934,6 +1130,7 @@ final class RecordingOverlayManager {
     }
 
     private func repositionVisibleRecordingNotice() {
+        repositionVisibleRecordingHint()
         guard let anchor = recordingNoticeAnchorFrame(
             reminderFrame: recordingNoticeReminderFrame
         ) else {
@@ -1067,6 +1264,7 @@ final class RecordingOverlayManager {
     private func setTranscribingPhase() {
         let wasShowingTranscribing = overlayWindow != nil && overlayState.phase == .transcribing
         endDegradedCombinedCaptureNoticeSessionNow()
+        hideRecordingHintNow()
         let wasNotchSideRecordingLayout = overlayState.phase == .recording && usesNotchSideLayout
         lockedOverlayWidth = RecordingOverlayGeometry.lockedTranscribingWidth(
             existingLockedWidth: lockedOverlayWidth,
@@ -1233,6 +1431,8 @@ final class RecordingOverlayManager {
         noticeToken = nil
         recordingNoticeReminderFrame = nil
         noticeWindow?.orderOut(nil)
+        recordingHintPresentation = nil
+        recordingHintWindow?.orderOut(nil)
         if endingDegradedCaptureSession {
             endDegradedCombinedCaptureNoticeSessionNow()
             degradedCaptureNoticeWindow?.orderOut(nil)
@@ -1995,12 +2195,14 @@ struct ErrorOverlayView: View {
 /// since the panel itself is transparent.
 struct RecordingNoticeToastView: View {
     let message: String
+    let severity: RecordingNoticeSeverity
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "exclamationmark.circle.fill")
+            Image(systemName: severity.symbolName)
                 .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(Color.red.opacity(0.92))
+                .foregroundStyle(severity.tint(increasedContrast: colorSchemeContrast == .increased))
             Text(message)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.white)
@@ -2024,14 +2226,16 @@ struct RecordingNoticeToastView: View {
 /// notification conventions, so the default state stays a plain status line.
 struct DegradedCaptureNoticeView: View {
     let message: String
+    let severity: RecordingNoticeSeverity
     let onDismiss: () -> Void
     @State private var isHovering = false
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "exclamationmark.circle.fill")
+            Image(systemName: severity.symbolName)
                 .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(Color.red.opacity(0.92))
+                .foregroundStyle(severity.tint(increasedContrast: colorSchemeContrast == .increased))
             Text(message)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.white)

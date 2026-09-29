@@ -22,6 +22,18 @@ struct RecordingOverlayGeometryTests {
         testMotionHelperWithInjectedReduceMotion()
         testContrastHelperWithInjectedIncreaseContrast()
         try testOverlaysRespectReduceMotionSourceContract()
+        testRecordingNoticeSeverityIconRule()
+        testQuietDetectorShowsOnceAfterSilentWindow()
+        testQuietDetectorStaysHiddenWhenSoundArrivesFirst()
+        testQuietDetectorKeepsOriginalStartAcrossResume()
+        testStarvationDetectorFlagsMissingBuffers()
+        testStarvationDetectorSuspensionRestartsGraceWindow()
+        testStarvationDetectorTreatsCounterResetAsProgress()
+        testInputHintStatePrefersInputLostOverQuiet()
+        testInputHintClassificationAndAnnouncement()
+        try testInputHintStringsAreLocalized()
+        try testRecordingNoticeSeveritySourceContract()
+        try testRecordingInputHintAppStateSourceContract()
         print("RecordingOverlayGeometryTests passed")
     }
 
@@ -423,5 +435,256 @@ struct RecordingOverlayGeometryTests {
         precondition(reminder.contains(
             "QuillMotion.animation(meetingReminderContentTransitionAnimation, reduceMotion: reduceMotion)"
         ))
+    }
+
+    // MARK: - #214 microphone hints and notice severity
+
+    private static func testRecordingNoticeSeverityIconRule() {
+        assert(RecordingNoticeSeverity.info.symbolName == "info.circle.fill")
+        assert(RecordingNoticeSeverity.warning.symbolName == "exclamationmark.triangle.fill")
+        assert(RecordingNoticeSeverity.error.symbolName == "exclamationmark.circle.fill")
+        // Each level has its own shape, so meaning never relies on color alone.
+        let symbols = Set(RecordingNoticeSeverity.allCases.map(\.symbolName))
+        assert(symbols.count == RecordingNoticeSeverity.allCases.count)
+    }
+
+    private static func testQuietDetectorShowsOnceAfterSilentWindow() {
+        var detector = RecordingQuietInputDetector()
+        detector.begin(at: 100)
+        detector.observeLevel(0)
+        // Exactly at the threshold still counts as silence.
+        detector.observeLevel(RecordingQuietInputDetector.nearSilentLevel)
+        assert(!detector.evaluate(at: 109.9))
+        assert(detector.evaluate(at: 110))
+        assert(detector.isShowing && detector.hasShown)
+
+        // Sound hides it immediately.
+        detector.observeLevel(0.2)
+        assert(!detector.isShowing)
+        // At most once per recording: silence again never re-shows it.
+        detector.observeLevel(0)
+        assert(!detector.evaluate(at: 200))
+    }
+
+    private static func testQuietDetectorStaysHiddenWhenSoundArrivesFirst() {
+        var detector = RecordingQuietInputDetector()
+        detector.begin(at: 0)
+        detector.observeLevel(0.06)
+        assert(!detector.evaluate(at: 30))
+        assert(!detector.hasShown)
+
+        var unstarted = RecordingQuietInputDetector()
+        assert(!unstarted.evaluate(at: 1_000), "no hint before the recording begins")
+    }
+
+    private static func testQuietDetectorKeepsOriginalStartAcrossResume() {
+        var detector = RecordingQuietInputDetector()
+        detector.begin(at: 0)
+        // Switching to another microphone gives the new input a fresh window,
+        // so the hint doesn't appear a moment after the switch.
+        detector.begin(at: 8)
+        assert(!detector.evaluate(at: 10))
+        assert(detector.evaluate(at: 18))
+        // Once shown, it stays at most once per recording.
+        detector.observeLevel(0.5)
+        detector.begin(at: 30)
+        assert(!detector.evaluate(at: 45))
+    }
+
+    private static func testStarvationDetectorFlagsMissingBuffers() {
+        var detector = AudioBufferStarvationDetector()
+        detector.rearm(at: 0)
+        assert(!detector.observe(bufferCount: 40, isSuspended: false, at: 1))
+        assert(!detector.observe(bufferCount: 80, isSuspended: false, at: 2))
+        // Buffers stop at t=2.
+        assert(!detector.observe(bufferCount: 80, isSuspended: false, at: 6.9))
+        assert(detector.observe(bufferCount: 80, isSuspended: false, at: 7))
+        assert(detector.observe(bufferCount: 80, isSuspended: false, at: 30), "stays visible while starved")
+        // Buffers resume: the warning clears at once.
+        assert(!detector.observe(bufferCount: 81, isSuspended: false, at: 31))
+
+        // A path that never delivers after (re)arming also starves.
+        var silent = AudioBufferStarvationDetector()
+        silent.rearm(at: 0)
+        assert(!silent.observe(bufferCount: 12, isSuspended: false, at: 1))
+        assert(silent.observe(bufferCount: 12, isSuspended: false, at: 5))
+    }
+
+    private static func testStarvationDetectorSuspensionRestartsGraceWindow() {
+        var detector = AudioBufferStarvationDetector()
+        detector.rearm(at: 0)
+        _ = detector.observe(bufferCount: 10, isSuspended: false, at: 1)
+        // Capture interrupted (or input switching) for a long time: no warning.
+        assert(!detector.observe(bufferCount: 10, isSuspended: true, at: 4))
+        assert(!detector.observe(bufferCount: 10, isSuspended: true, at: 60))
+        // After the interruption ends a fresh 5 s grace window applies.
+        assert(!detector.observe(bufferCount: 10, isSuspended: false, at: 61))
+        assert(!detector.observe(bufferCount: 10, isSuspended: false, at: 64.9))
+        assert(detector.observe(bufferCount: 10, isSuspended: false, at: 65))
+        // Suspending while starved hides the warning.
+        assert(!detector.observe(bufferCount: 10, isSuspended: true, at: 66))
+        assert(!detector.isStarved)
+
+        // Rearming (wake from sleep) also restarts the window.
+        var woke = AudioBufferStarvationDetector()
+        woke.rearm(at: 0)
+        _ = woke.observe(bufferCount: 3, isSuspended: false, at: 1)
+        woke.rearm(at: 4)
+        assert(!woke.observe(bufferCount: 3, isSuspended: false, at: 8))
+        assert(woke.observe(bufferCount: 3, isSuspended: false, at: 9))
+    }
+
+    private static func testStarvationDetectorTreatsCounterResetAsProgress() {
+        var detector = AudioBufferStarvationDetector()
+        detector.rearm(at: 0)
+        _ = detector.observe(bufferCount: 500, isSuspended: false, at: 1)
+        // A restarted capture session resets its counter to a smaller value.
+        assert(!detector.observe(bufferCount: 3, isSuspended: false, at: 5.5))
+        assert(!detector.observe(bufferCount: 3, isSuspended: false, at: 10.4))
+        assert(detector.observe(bufferCount: 3, isSuspended: false, at: 10.5))
+    }
+
+    private static func testInputHintStatePrefersInputLostOverQuiet() {
+        var state = RecordingInputHintState(sessionID: UUID())
+        state.resume(at: 0)
+        assert(state.tick(now: 1, bufferCount: 1, isCaptureSuspended: false) == nil)
+        // Buffers keep flowing but only silence arrives.
+        var count = 1
+        for second in 2...9 {
+            count += 50
+            assert(state.tick(now: TimeInterval(second), bufferCount: count, isCaptureSuspended: false) == nil)
+        }
+        assert(state.tick(now: 10, bufferCount: count + 50, isCaptureSuspended: false) == .quiet)
+        count += 50
+        // Buffers stop: the warning replaces the quiet hint.
+        assert(state.tick(now: 15, bufferCount: count, isCaptureSuspended: false) == .inputLost)
+        // Buffers resume with speech: everything clears.
+        assert(state.tick(now: 16, bufferCount: count + 1, isCaptureSuspended: false) == .quiet)
+        assert(state.observeLevel(0.3) == nil)
+        assert(state.tick(now: 30, bufferCount: count + 2, isCaptureSuspended: false) == nil)
+
+        // Resume after an input switch rearms starvation only.
+        state.resume(at: 40)
+        assert(state.tick(now: 44, bufferCount: 0, isCaptureSuspended: false) == nil)
+        assert(state.tick(now: 45, bufferCount: 0, isCaptureSuspended: false) == .inputLost)
+        state.rearmStarvation(at: 46)
+        assert(state.currentHint == nil)
+    }
+
+    private static func testInputHintClassificationAndAnnouncement() {
+        assert(RecordingInputHint.quiet.severity == .info)
+        assert(RecordingInputHint.inputLost.severity == .warning)
+        // The quiet hint is never spoken: the microphone may be live and the
+        // phrase could end up in the recording.
+        assert(!RecordingInputHint.quiet.isAnnouncedToVoiceOver)
+        assert(RecordingInputHint.inputLost.isAnnouncedToVoiceOver)
+        assert(RecordingQuietInputDetector.quietDuration == 10)
+        assert(AudioBufferStarvationDetector.starvationTimeout == 5)
+        assert(RecordingQuietInputDetector.nearSilentLevel > 0)
+        assert(RecordingQuietInputDetector.nearSilentLevel < 0.054, "first smoothed speech buffer must exceed the threshold")
+    }
+
+    private static func testInputHintStringsAreLocalized() throws {
+        let data = try Data(contentsOf: URL(fileURLWithPath: "Resources/Localization/Localizable.xcstrings"))
+        let catalog = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let strings = catalog?["strings"] as? [String: Any] ?? [:]
+        let expectedKorean = [
+            RecordingInputHint.quiet.messageKey: "말하고 계신가요? 마이크에서 소리가 들리지 않습니다.",
+            RecordingInputHint.inputLost.messageKey: "마이크 입력이 끊겼습니다. 연결을 확인하세요."
+        ]
+        for (key, korean) in expectedKorean {
+            let entry = strings[key] as? [String: Any]
+            let localizations = entry?["localizations"] as? [String: Any]
+            let ko = (localizations?["ko"] as? [String: Any])?["stringUnit"] as? [String: Any]
+            let en = (localizations?["en"] as? [String: Any])?["stringUnit"] as? [String: Any]
+            assert(ko?["value"] as? String == korean, "Missing ko for \(key)")
+            assert(en?["value"] as? String == key, "Missing en for \(key)")
+        }
+    }
+
+    private static func testRecordingNoticeSeveritySourceContract() throws {
+        let source = try String(contentsOfFile: "Sources/RecordingOverlay.swift", encoding: .utf8)
+        let appState = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+
+        // Both notice views draw their icon from the shared severity rule.
+        for viewName in ["struct RecordingNoticeToastView", "struct DegradedCaptureNoticeView"] {
+            guard let start = source.range(of: viewName)?.lowerBound,
+                  let end = source.range(of: "var body: some View", range: start..<source.endIndex)?.upperBound,
+                  let bodyEnd = source.range(of: ".font(.system(size: 12, weight: .medium))", range: end..<source.endIndex)?.lowerBound else {
+                assertionFailure("Expected \(viewName) source block")
+                return
+            }
+            let block = source[start..<bodyEnd]
+            assert(block.contains("let severity: RecordingNoticeSeverity"))
+            assert(block.contains("Image(systemName: severity.symbolName)"))
+            assert(block.contains("severity.tint(increasedContrast: colorSchemeContrast == .increased)"))
+            assert(!block.contains("Color.red"), "\(viewName) must not hard-code the error color")
+        }
+        assert(source.contains("func showRecordingNotice(\n        _ message: String,\n        severity: RecordingNoticeSeverity,"))
+        assert(source.contains("DegradedCaptureNoticeView(\n                message: request.message,\n                severity: .warning\n"))
+        // The pill error and failure mark stay red.
+        assert(source.contains("Image(systemName: \"exclamationmark.circle.fill\")\n                .font(.system(size: 13, weight: .bold))\n                .foregroundStyle(Color.red.opacity(0.92))"))
+        assert(source.contains(".background(Circle().fill(Color.red.opacity(0.92)))"))
+
+        // Every mid-recording notice call site states its severity.
+        let callCount = appState.components(separatedBy: "overlayManager.showRecordingNotice(").count - 1
+        let severityCount = appState.components(separatedBy: "overlayManager.showRecordingNotice(").dropFirst()
+            .filter { $0.prefix(260).contains("severity: .") }.count
+        assert(callCount == 4 && severityCount == callCount)
+        assert(appState.contains("recordingInputAccessNotice(for: newInputID),\n                severity: .warning,"))
+        assert(appState.contains("\"Failed to switch audio input. Saving the recorded audio.\"),\n            severity: .error,"))
+        assert(appState.contains("message,\n            severity: .error,\n            reminderFrame"), "storage failure stops the recording")
+        assert(appState.contains("providerDetail: error.localizedDescription\n        )\n        overlayManager.showRecordingNotice(\n            message,\n            severity: .warning,"))
+    }
+
+    private static func testRecordingInputHintAppStateSourceContract() throws {
+        let source = try String(contentsOfFile: "Sources/RecordingOverlay.swift", encoding: .utf8)
+        let appState = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let recorder = try String(contentsOfFile: "Sources/AudioRecorder.swift", encoding: .utf8)
+
+        // The hint has its own persistent panel that never auto-dismisses and
+        // never falls back to the pill error toast.
+        guard let showStart = source.range(of: "func showRecordingHint(")?.lowerBound,
+              let showEnd = source.range(of: "func hideRecordingHint()", range: showStart..<source.endIndex)?.lowerBound else {
+            assertionFailure("Expected showRecordingHint")
+            return
+        }
+        let show = source[showStart..<showEnd]
+        assert(!show.contains("asyncAfter"))
+        assert(!show.contains("showError("))
+        assert(show.contains("if isNewPresentation, announce"))
+        assert(source.contains("private var recordingHintWindow: NSPanel?"))
+        assert(source.contains("visibleRecordingHintFrame"))
+        assert(source.contains("recordingHintWindow?.orderOut(nil)"))
+
+        // Hints only inform: the monitor never stops or cancels the recording.
+        guard let monitorStart = appState.range(of: "// MARK: - Microphone hints (#214)")?.lowerBound,
+              let monitorEnd = appState.range(of: "private func activeRecorderAudioLevelPublisher", range: monitorStart..<appState.endIndex)?.lowerBound else {
+            assertionFailure("Expected microphone hint section")
+            return
+        }
+        let monitor = appState[monitorStart..<monitorEnd]
+        for forbidden in ["stopAndTranscribe", "cancelRecording", "handleRecordingFailure", "stopRecording", "cancelActiveAudioRecorder"] {
+            assert(!monitor.contains(forbidden), "hint monitor must not call \(forbidden)")
+        }
+        assert(monitor.contains("ProcessInfo.processInfo.systemUptime"))
+        assert(monitor.contains("NSWorkspace.didWakeNotification"))
+        assert(monitor.contains("activeInputSwitchToken != nil"))
+        assert(monitor.contains("audioRecorder.isCaptureSessionInterrupted"))
+        assert(monitor.contains("guard !AudioInputDevice.isSystemAudio(inputID)"))
+        assert(monitor.contains("currentMissingSource == .microphone"))
+        // Resumed after each successful start or input switch; paused
+        // everywhere the live level feed is torn down.
+        assert(appState.components(separatedBy: "self.resumeRecordingInputHints(").count - 1 == 3)
+        let levelTeardowns = appState.components(separatedBy: "audioLevelCancellable = nil\n").dropFirst()
+        assert(!levelTeardowns.isEmpty)
+        for teardown in levelTeardowns {
+            assert(teardown.drop(while: { $0 == " " }).hasPrefix("pauseRecordingInputHints()"))
+        }
+
+        // The recorder exposes lock-backed liveness without blocking the session queue.
+        assert(recorder.contains("var capturedBufferCount: Int {\n        _bufferCount.withLock { $0 }"))
+        assert(recorder.contains("private let sessionInterruptedLock = OSAllocatedUnfairLock(initialState: false)"))
+        assert(recorder.contains("var isCaptureSessionInterrupted: Bool {"))
     }
 }
