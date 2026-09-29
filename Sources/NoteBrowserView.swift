@@ -437,12 +437,17 @@ struct NoteBrowserView: View {
                 openBeforeSearch: noteOpenBeforeSearch,
                 in: appState.pipelineHistory.map(\.id)
             )
-            noteOpenBeforeSearch = nil
-            noteOpenedBySearch = nil
+            endSearchSession()
             if focused != selectedItemID {
                 selection.focus(focused)
             }
         }
+    }
+
+    private func endSearchSession() {
+        isSearchSessionActive = false
+        noteOpenBeforeSearch = nil
+        noteOpenedBySearch = nil
     }
 
     /// The note shown in the detail pane when one note is selected.
@@ -790,8 +795,20 @@ struct NoteBrowserView: View {
         .onChange(of: searchText) { _ in
             if selection.showsSelectionUI {
                 selection.retainVisible(filteredHistory.map(\.id))
+                // A search that ends while selecting several notes ends its
+                // session too, so the next search starts fresh.
+                if !isSearchActive {
+                    endSearchSession()
+                }
             } else {
                 keepOpenNoteInSearchResults()
+            }
+        }
+        .onChange(of: selectedItemID) { newID in
+            // Once the person opens a note, even one the search had opened,
+            // it counts as their choice when the search is cleared.
+            if newID != noteOpenedBySearch {
+                noteOpenedBySearch = nil
             }
         }
         .onReceive(appState.$pipelineHistory) { newHistory in
