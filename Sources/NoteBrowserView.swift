@@ -377,6 +377,13 @@ struct NoteBrowserView: View {
     @State private var searchText = ""
     @State private var searchMatcher = NoteSearchMatcher()
     @State private var knownHistoryIDs: Set<UUID> = []
+    /// The note that was open when the current search began, to return to
+    /// if the search ends with no note open.
+    @State private var noteOpenBeforeSearch: UUID?
+    @State private var isSearchSessionActive = false
+    /// The note the search opened on its own, as opposed to one the person
+    /// picked, so clearing the search can go back to the earlier note.
+    @State private var noteOpenedBySearch: UUID?
     @State private var recoveryScrollRestoreRequest: RecoveryScrollRestoreRequest?
     @State private var pendingAudioImport: PendingAudioImport?
     @State private var isSearchOpen = false
@@ -399,6 +406,43 @@ struct NoteBrowserView: View {
 
     private func matchesSearch(_ item: PipelineHistoryItem) -> Bool {
         searchMatcher.matches(item, query: searchText)
+    }
+
+    private var isSearchActive: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Keeps the open note in step with the search results: a note that is
+    /// no longer a result gives way to the first result, or to none, and
+    /// clearing the search returns to the note open before it.
+    private func keepOpenNoteInSearchResults() {
+        if isSearchActive {
+            if !isSearchSessionActive {
+                isSearchSessionActive = true
+                noteOpenBeforeSearch = selectedItemID
+            }
+            let focused = NoteSelection.focusedID(
+                forSearchResults: filteredHistory.map(\.id),
+                current: selectedItemID
+            )
+            if focused != selectedItemID {
+                selection.focus(focused)
+                noteOpenedBySearch = focused
+            }
+        } else if isSearchSessionActive {
+            isSearchSessionActive = false
+            let focused = NoteSelection.focusedIDAfterClearingSearch(
+                current: selectedItemID,
+                currentWasOpenedBySearch: selectedItemID == noteOpenedBySearch,
+                openBeforeSearch: noteOpenBeforeSearch,
+                in: appState.pipelineHistory.map(\.id)
+            )
+            noteOpenBeforeSearch = nil
+            noteOpenedBySearch = nil
+            if focused != selectedItemID {
+                selection.focus(focused)
+            }
+        }
     }
 
     /// The note shown in the detail pane when one note is selected.
@@ -742,6 +786,8 @@ struct NoteBrowserView: View {
         .onChange(of: searchText) { _ in
             if selection.showsSelectionUI {
                 selection.retainVisible(filteredHistory.map(\.id))
+            } else {
+                keepOpenNoteInSearchResults()
             }
         }
         .onReceive(appState.$pipelineHistory) { newHistory in
@@ -755,10 +801,14 @@ struct NoteBrowserView: View {
                 return
             }
             let isRecoveryImport = appState.isHistoryRecoveryOperationInProgress
+            // During a search, fall back to and auto-select only results.
+            let visibleIDs = isSearchActive
+                ? newHistory.filter(matchesSearch).map(\.id)
+                : ids
             // Keep the note the user was viewing visible after a recovery import.
             guard let current = selectedItemID, ids.contains(current) else {
-                selection.focus(ids.first)
-                if isRecoveryImport, let fallback = ids.first {
+                selection.focus(visibleIDs.first)
+                if isRecoveryImport, let fallback = visibleIDs.first {
                     scheduleRecoveryScrollRestore(for: fallback)
                 }
                 knownHistoryIDs = Set(ids)
@@ -766,7 +816,8 @@ struct NoteBrowserView: View {
             }
             if isRecoveryImport {
                 scheduleRecoveryScrollRestore(for: current)
-            } else if let newest = ids.first, newest != current, !knownHistoryIDs.contains(newest) {
+            } else if let newest = ids.first, newest != current, !knownHistoryIDs.contains(newest),
+                      visibleIDs.contains(newest) {
                 // Auto-select only genuinely new items; ignore existing item edits.
                 selection.focus(newest)
             }
@@ -1351,7 +1402,7 @@ struct NoteBrowserView: View {
            let item = appState.pipelineHistory.first(where: { $0.id == id }) {
             NoteDetailView(
                 item: item,
-                isSearchActive: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                isSearchActive: isSearchActive,
                 prefersSummaryTab: searchMatcher.matchesOnlyInSummary(item, query: searchText)
             ) {
                 deleteConfirmedNote(id)
@@ -1359,9 +1410,37 @@ struct NoteBrowserView: View {
             .id(id)
         } else if appState.pipelineHistory.isEmpty {
             emptyDetailNoRecordings
+        } else if isSearchActive, filteredHistory.isEmpty {
+            emptyDetailNoSearchResults
         } else {
             emptyDetailNoSelection
         }
+    }
+
+    private var emptyDetailNoSearchResults: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            ZStack {
+                Circle()
+                    .fill(Color.primary.opacity(0.04))
+                    .frame(width: 80, height: 80)
+                    .overlay(Circle().stroke(Color.primary.opacity(0.08), lineWidth: 1))
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 30, weight: .ultraLight))
+                    .foregroundStyle(.tertiary)
+            }
+            Text("No Matching Notes")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Text("No notes match “\(searchText.trimmingCharacters(in: .whitespacesAndNewlines))”. Try another word, or clear the search.")
+                .font(.system(size: 12))
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 360)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+        .background(Color(nsColor: .textBackgroundColor))
     }
 
     private var emptyDetailNoSelection: some View {

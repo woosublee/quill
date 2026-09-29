@@ -21,6 +21,8 @@ struct NoteSelectionTests {
         try testRetainSelectableDropsNotesThatBecameBusy()
         try testFocusResetsMultiSelection()
         try testNextFocusAfterDeletion()
+        try testSearchKeepsOpenNoteInResults()
+        try testClearingSearchReturnsToEarlierNote()
         try testKeyCommandsRequireExactModifiers()
         print("NoteSelectionTests passed")
     }
@@ -197,6 +199,54 @@ struct NoteSelectionTests {
         try expect(
             NoteSelection.nextFocusedID(afterDeleting: Set(ids), in: ids) == nil,
             "nothing is shown after deleting every note"
+        )
+    }
+
+    private static func testSearchKeepsOpenNoteInResults() throws {
+        try expect(
+            NoteSelection.focusedID(forSearchResults: [ids[1], ids[3]], current: ids[3]) == ids[3],
+            "an open note that is still a result stays open"
+        )
+        try expect(
+            NoteSelection.focusedID(forSearchResults: [ids[1], ids[3]], current: ids[0]) == ids[1],
+            "an open note that isn't a result gives way to the first result"
+        )
+        try expect(
+            NoteSelection.focusedID(forSearchResults: [], current: ids[0]) == nil,
+            "no note stays open when nothing matches"
+        )
+    }
+
+    private static func testClearingSearchReturnsToEarlierNote() throws {
+        try expect(
+            NoteSelection.focusedIDAfterClearingSearch(
+                current: ids[2], currentWasOpenedBySearch: false, openBeforeSearch: ids[0], in: ids
+            ) == ids[2],
+            "a note the person opened during the search stays open"
+        )
+        try expect(
+            NoteSelection.focusedIDAfterClearingSearch(
+                current: ids[2], currentWasOpenedBySearch: true, openBeforeSearch: ids[0], in: ids
+            ) == ids[0],
+            "a note the search opened gives way to the note open before the search"
+        )
+        try expect(
+            NoteSelection.focusedIDAfterClearingSearch(
+                current: nil, currentWasOpenedBySearch: false, openBeforeSearch: ids[4], in: ids
+            ) == ids[4],
+            "with nothing open, the note open before the search returns"
+        )
+        try expect(
+            NoteSelection.focusedIDAfterClearingSearch(
+                current: ids[2], currentWasOpenedBySearch: true, openBeforeSearch: UUID(), in: ids
+            ) == ids[2],
+            "without the earlier note, the note the search opened stays"
+        )
+        try expect(
+            NoteSelection.focusedIDAfterClearingSearch(
+                current: nil, currentWasOpenedBySearch: false, openBeforeSearch: UUID(), in: ids
+            ) == ids[0],
+            "a deleted earlier note falls back to the first note"
         )
     }
 
