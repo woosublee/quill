@@ -16,10 +16,14 @@ struct AppStateRecordingJournalIntegrationSourceTests {
         // require on-device recognition and refuse languages without it (#250).
         precondition(appleSpeechSource.contains("request.requiresOnDeviceRecognition = true"))
         precondition(appleSpeechSource.contains("guard recognizer.supportsOnDeviceRecognition else {"))
-        precondition(appleSpeechSource.contains("throw AppleSpeechError.onDeviceUnavailable(locale.identifier)"))
+        precondition(appleSpeechSource.contains("code: .appleSpeechOnDeviceUnavailable,"))
         let fileTranscription = try String(contentsOfFile: "Sources/TranscriptionService.swift", encoding: .utf8)
         precondition(fileTranscription.contains("guard recognizer.supportsOnDeviceRecognition else {"))
         precondition(fileTranscription.contains("request.requiresOnDeviceRecognition = true"))
+        precondition(fileTranscription.contains("code: .appleSpeechOnDeviceUnavailable,"))
+        // A live start failure keeps the specific issue instead of the
+        // generic "Recording input failed" fallback.
+        precondition(source.contains("if let issue = error as? QuillUserIssueError {\n            return issue"))
 
         precondition(source.contains("private var recordingJournalStore: RecordingJournalStore"))
         precondition(source.contains("private var activeSegmentedJournalController: SegmentedRecordingJournalController?"))

@@ -6,6 +6,7 @@ struct QuillUserIssueTests {
         let bundle = try compiledLocalizationBundle()
         try testEveryCodeHasCompleteEnglishAndKoreanPresentation(bundle: bundle)
         try testSeverityAndRecoveryActions()
+        try testAppleSpeechOnDeviceUnavailableExplainsTheLanguage(bundle: bundle)
         try testVersionedPersistenceRoundTripAndRejection()
         try testUnknownFutureOperationPreservesPersistedIssue(bundle: bundle)
         try testPersistedPayloadExcludesPrivateDiagnostics()
@@ -355,6 +356,25 @@ struct QuillUserIssueTests {
             ),
             "fractional Korean timeout is not truncated"
         )
+    }
+
+    /// Apple Speech refusing a language without on-device support tells the
+    /// user why and points to Models settings, not a retry or a mic check (#250).
+    private static func testAppleSpeechOnDeviceUnavailableExplainsTheLanguage(bundle: Bundle) throws {
+        let issue = QuillUserIssueError.local(
+            code: .appleSpeechOnDeviceUnavailable,
+            backend: "Apple Speech",
+            diagnostic: "On-device recognition unavailable for locale xx-XX"
+        )
+        let english = issue.record.presentation(language: "en", bundle: bundle)
+        try expect(english.title == "Apple Speech can't be used for this language", english.title)
+        try expect(english.body == "This language can't be transcribed on this Mac with Apple Speech.", english.body)
+        try expect(english.suggestion == "Choose Native Whisper or another model in Models settings.", english.suggestion)
+        try expect(english.recoveryAction == .openModelsSettings, "points to Models settings, not a retry")
+        try expect(!english.compactMessage.contains("xx-XX"), "the private diagnostic stays private")
+
+        let korean = issue.record.presentation(language: "ko", bundle: bundle)
+        try expect(korean.title == "이 언어는 Apple 음성 인식을 쓸 수 없습니다", korean.title)
     }
 
     private static func testMeetingSummaryIssueActionResolver() throws {

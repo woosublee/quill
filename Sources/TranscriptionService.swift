@@ -582,7 +582,7 @@ class TranscriptionService {
         // letting the request fail or fall back to Apple's servers.
         guard recognizer.supportsOnDeviceRecognition else {
             throw QuillUserIssueError.local(
-                code: .localTranscriptionFailed,
+                code: .appleSpeechOnDeviceUnavailable,
                 backend: "Apple Speech",
                 diagnostic: "On-device recognition unavailable for locale \(locale.identifier)"
             )
