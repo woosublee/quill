@@ -7,6 +7,12 @@ struct AppStateStorageSafetyTests {
         try await verifiesAppStateInstancesKeepIndependentHistoryLayouts()
         try await verifiesAppStateInstancesKeepIndependentCredentialStores()
         try await verifiesDeleteHistoryEntryRemovesOwnedAssets()
+        try await verifiesCancellableNoteDeletion()
+        try await verifiesCancellableNoteDeletionGuards()
+        try await verifiesCancellableBulkNoteDeletion()
+        try await verifiesPendingDeletionMeetsLaterChanges()
+        try verifiesWarningBannerStateKeepsOnlyListedNotes()
+        try await verifiesStartupPrunesWarningBannerStateOfMissingNotes()
         try await verifiesDeleteHistoryEntriesSkipsBusyNotesAndKeepsFailures()
         try await verifiesClearHistoryRemovesOwnedAssets()
         try await verifiesSharedAssetsRemainWhileHistoryStillReferencesThem()
@@ -229,6 +235,460 @@ struct AppStateStorageSafetyTests {
                 !FileManager.default.fileExists(atPath: transcriptURL.path),
                 "deleting a history entry removes its owned transcript"
             )
+        }
+    }
+
+    /// #409: a deleted note leaves the list at once, keeps its files for the
+    /// Cancel window, and loses them when the window ends or the app quits.
+    private static func verifiesCancellableNoteDeletion() async throws {
+        enum Ending { case cancel, expire, quit, nextDeletion }
+        for ending in [Ending.cancel, .expire, .quit, .nextDeletion] {
+            try await AppStateTestStorage.withIsolatedStorage { environment in
+                try prepareStorageDirectories(for: environment.storageLayout)
+                let assetStore = NoteAssetStore(storageLayout: environment.storageLayout)
+                let sourceURL = environment.rootDirectory
+                    .appendingPathComponent("cancellable-source.wav")
+                try Data("synthetic audio".utf8).write(to: sourceURL)
+                let audio = try assetStore.saveAudio(from: sourceURL)
+                let transcriptFileName = try assetStore.saveTranscript(
+                    rawTranscript: "synthetic transcript",
+                    postProcessedTranscript: ""
+                )
+                let summaryJSON = Data("{\"synthetic\":true}".utf8)
+                let base = makeHistoryItem(
+                    audioFileName: audio.fileName,
+                    transcriptFileName: transcriptFileName,
+                    timestamp: Date(timeIntervalSince1970: 2_000)
+                )
+                let item = PipelineHistoryItem(
+                    id: base.id,
+                    timestamp: base.timestamp,
+                    rawTranscript: base.rawTranscript,
+                    postProcessedTranscript: base.postProcessedTranscript,
+                    postProcessingPrompt: nil,
+                    contextSummary: "",
+                    contextScreenshotDataURL: nil,
+                    contextScreenshotStatus: "No screenshot",
+                    postProcessingStatus: "succeeded",
+                    debugStatus: "",
+                    customVocabulary: "",
+                    audioFileName: audio.fileName,
+                    transcriptFileName: transcriptFileName,
+                    customTitle: "Synthetic Title",
+                    meetingSummaryJSON: summaryJSON
+                )
+                let newer = makeHistoryItem(
+                    audioFileName: nil,
+                    transcriptFileName: nil,
+                    timestamp: Date(timeIntervalSince1970: 3_000)
+                )
+                let older = makeHistoryItem(
+                    audioFileName: nil,
+                    transcriptFileName: nil,
+                    timestamp: Date(timeIntervalSince1970: 1_000)
+                )
+                let historyStore = PipelineHistoryStore(
+                    storeURL: environment.storageLayout.historyStoreURL
+                )
+                for entry in [older, item, newer] {
+                    _ = try historyStore.append(entry, maxCount: Int.max)
+                }
+
+                let appState = await MainActor.run {
+                    AppState(dependencies: environment.dependencies)
+                }
+                let scheduler = ManualNoteDeletionScheduler()
+                await MainActor.run {
+                    appState.scheduleNoteDeletionFinalization = { delay, work in
+                        scheduler.items.append((delay, work))
+                    }
+                    appState.deleteHistoryEntryCancellably(id: item.id)
+                }
+                let transcriptURL = environment.storageLayout.transcriptDirectory
+                    .appendingPathComponent(transcriptFileName)
+                let hidden = await MainActor.run {
+                    (
+                        appState.pipelineHistory.map(\.id),
+                        appState.pendingNoteDeletion?.entries.map(\.item.id)
+                    )
+                }
+                try expect(hidden.0 == [newer.id, older.id], "a deleted note leaves the list at once")
+                try expect(hidden.1 == [item.id], "the deleted note waits for the Cancel window")
+                try expect(scheduler.items.count == 1 && scheduler.items[0].0 == AppState.noteDeletionCancelWindow, "the Cancel window is scheduled once")
+                try expect(
+                    FileManager.default.fileExists(atPath: audio.fileURL.path)
+                        && FileManager.default.fileExists(atPath: transcriptURL.path),
+                    "files stay during the Cancel window"
+                )
+
+                switch ending {
+                case .cancel:
+                    await MainActor.run { appState.cancelPendingNoteDeletion() }
+                    // A stale timer after Cancel must not delete the restored note.
+                    await MainActor.run { scheduler.items[0].1() }
+                    let restored = await MainActor.run {
+                        (
+                            appState.pipelineHistory.map(\.id),
+                            appState.pipelineHistory.first { $0.id == item.id },
+                            appState.pendingNoteDeletion == nil
+                        )
+                    }
+                    try expect(restored.0 == [newer.id, item.id, older.id], "Cancel puts the note back in place")
+                    try expect(restored.1?.customTitle == "Synthetic Title", "Cancel keeps the title")
+                    try expect(restored.1?.meetingSummaryJSON == summaryJSON, "Cancel keeps the summary")
+                    try expect(restored.2, "Cancel ends the pending deletion")
+                    let stored = PipelineHistoryStore(
+                        storeURL: environment.storageLayout.historyStoreURL
+                    ).loadAllHistory()
+                    try expect(stored.map(\.id) == [newer.id, item.id, older.id], "Cancel restores the stored row")
+                    try expect(
+                        FileManager.default.fileExists(atPath: audio.fileURL.path)
+                            && FileManager.default.fileExists(atPath: transcriptURL.path),
+                        "Cancel keeps the audio and transcript"
+                    )
+                    return
+                case .expire:
+                    await MainActor.run { scheduler.items[0].1() }
+                case .quit:
+                    await MainActor.run { appState.finalizePendingNoteDeletion() }
+                case .nextDeletion:
+                    await MainActor.run { appState.deleteHistoryEntryCancellably(id: newer.id) }
+                    let pendingID = await MainActor.run { appState.pendingNoteDeletion?.entries.map(\.item.id) }
+                    try expect(pendingID == [newer.id], "a second deletion replaces the first pending one")
+                    await MainActor.run { scheduler.items[0].1() }
+                    let stillPending = await MainActor.run { appState.pendingNoteDeletion?.entries.map(\.item.id) }
+                    try expect(stillPending == [newer.id], "the first timer does not end the second window")
+                }
+                let finished = await MainActor.run {
+                    (
+                        appState.pipelineHistory.contains { $0.id == item.id },
+                        appState.pendingNoteDeletion?.entries.contains { $0.item.id == item.id } == true
+                    )
+                }
+                try expect(!finished.0 && !finished.1, "the deletion is final")
+                try expect(
+                    !FileManager.default.fileExists(atPath: audio.fileURL.path)
+                        && !FileManager.default.fileExists(atPath: transcriptURL.path),
+                    "ending the Cancel window removes the audio and transcript"
+                )
+                let stored = PipelineHistoryStore(
+                    storeURL: environment.storageLayout.historyStoreURL
+                ).loadAllHistory()
+                try expect(!stored.contains { $0.id == item.id }, "the stored row is gone")
+            }
+        }
+    }
+
+    /// #409 review: busy notes never enter the Cancel window, and a note ID
+    /// that is listed again is neither overwritten, duplicated, nor cleaned up.
+    private static func verifiesCancellableNoteDeletionGuards() async throws {
+        for endsWithCancel in [true, false] {
+            try await AppStateTestStorage.withIsolatedStorage { environment in
+                try prepareStorageDirectories(for: environment.storageLayout)
+                let assetStore = NoteAssetStore(storageLayout: environment.storageLayout)
+                let sourceURL = environment.rootDirectory
+                    .appendingPathComponent("guard-source.wav")
+                try Data("synthetic audio".utf8).write(to: sourceURL)
+                let audio = try assetStore.saveAudio(from: sourceURL)
+                let item = makeHistoryItem(
+                    audioFileName: audio.fileName,
+                    transcriptFileName: nil
+                )
+                let historyStore = PipelineHistoryStore(
+                    storeURL: environment.storageLayout.historyStoreURL
+                )
+                _ = try historyStore.append(item, maxCount: Int.max)
+
+                let appState = await MainActor.run {
+                    AppState(dependencies: environment.dependencies)
+                }
+                let scheduler = ManualNoteDeletionScheduler()
+                let recording = PipelineHistoryItem(
+                    timestamp: Date(),
+                    rawTranscript: "",
+                    postProcessedTranscript: "",
+                    postProcessingPrompt: nil,
+                    contextSummary: "",
+                    contextScreenshotDataURL: nil,
+                    contextScreenshotStatus: "No screenshot",
+                    postProcessingStatus: "live-recording",
+                    debugStatus: "",
+                    customVocabulary: ""
+                )
+                let busy = await MainActor.run { () -> (Bool, Bool, Bool, Bool) in
+                    appState.scheduleNoteDeletionFinalization = { delay, work in
+                        scheduler.items.append((delay, work))
+                    }
+                    appState.pipelineHistory.insert(recording, at: 0)
+                    let recordingAllowed = appState.canDeleteHistoryEntryCancellably(id: recording.id)
+                    appState.deleteHistoryEntryCancellably(id: recording.id)
+                    appState.retryingItemIDs.insert(item.id)
+                    let retryingAllowed = appState.canDeleteHistoryEntryCancellably(id: item.id)
+                    appState.deleteHistoryEntryCancellably(id: item.id)
+                    appState.retryingItemIDs.remove(item.id)
+                    return (
+                        recordingAllowed,
+                        retryingAllowed,
+                        appState.pendingNoteDeletion == nil,
+                        appState.pipelineHistory.contains { $0.id == recording.id }
+                            && appState.pipelineHistory.contains { $0.id == item.id }
+                    )
+                }
+                try expect(!busy.0 && !busy.1, "recording or retrying notes can't wait for Cancel")
+                try expect(busy.2 && busy.3, "busy notes are left alone by the cancellable path")
+
+                // The settled note is deleted, then its ID is listed again.
+                let returned = item.withCustomTitle("Came back")
+                try await MainActor.run {
+                    appState.deleteHistoryEntryCancellably(id: item.id)
+                    _ = try PipelineHistoryStore(
+                        storeURL: environment.storageLayout.historyStoreURL
+                    ).append(returned, maxCount: Int.max)
+                    appState.pipelineHistory.insert(returned, at: 0)
+                    appState.retryingItemIDs.insert(item.id)
+                    if endsWithCancel {
+                        appState.cancelPendingNoteDeletion()
+                    } else {
+                        scheduler.items.last?.1()
+                    }
+                }
+                let after = await MainActor.run {
+                    (
+                        appState.pipelineHistory.filter { $0.id == item.id }.map(\.customTitle),
+                        appState.pendingNoteDeletion == nil,
+                        appState.retryingItemIDs.contains(item.id)
+                    )
+                }
+                try expect(after.0 == ["Came back"], "a returned note is not overwritten or listed twice")
+                try expect(after.1, "the pending deletion ends")
+                try expect(after.2, "ID-keyed state of a returned note is kept")
+                try expect(
+                    FileManager.default.fileExists(atPath: audio.fileURL.path),
+                    "a returned note keeps its audio"
+                )
+            }
+        }
+    }
+
+    /// #409: bulk delete waits for Cancel as one batch, restores every note
+    /// in place, and a later deletion finalizes the earlier batch.
+    private static func verifiesCancellableBulkNoteDeletion() async throws {
+        enum Ending { case cancel, expire, nextDeletion }
+        for ending in [Ending.cancel, .expire, .nextDeletion] {
+            try await AppStateTestStorage.withIsolatedStorage { environment in
+                try prepareStorageDirectories(for: environment.storageLayout)
+                let assetStore = NoteAssetStore(storageLayout: environment.storageLayout)
+                let historyStore = PipelineHistoryStore(
+                    storeURL: environment.storageLayout.historyStoreURL
+                )
+                var items: [PipelineHistoryItem] = []
+                var audioURLs: [UUID: URL] = [:]
+                // Oldest first, so the list reads items[4], items[3], ... items[0].
+                for index in 0..<5 {
+                    let sourceURL = environment.rootDirectory
+                        .appendingPathComponent("bulk-source-\(index).wav")
+                    try Data("synthetic audio \(index)".utf8).write(to: sourceURL)
+                    let audio = try assetStore.saveAudio(from: sourceURL)
+                    let item = makeHistoryItem(
+                        audioFileName: audio.fileName,
+                        transcriptFileName: nil,
+                        timestamp: Date(timeIntervalSince1970: TimeInterval(1_000 * (index + 1)))
+                    )
+                    _ = try historyStore.append(item, maxCount: Int.max)
+                    items.append(item)
+                    audioURLs[item.id] = audio.fileURL
+                }
+                let appState = await MainActor.run {
+                    AppState(dependencies: environment.dependencies)
+                }
+                let scheduler = ManualNoteDeletionScheduler()
+                let originalOrder = await MainActor.run { appState.pipelineHistory.map(\.id) }
+                try expect(originalOrder == items.reversed().map(\.id), "fixture order is newest first")
+                // Delete the 1st, 3rd, and 5th rows, asked for out of order.
+                let batch = [originalOrder[4], originalOrder[0], originalOrder[2]]
+                let result = await MainActor.run { () -> NoteBulkDeletionResult in
+                    appState.scheduleNoteDeletionFinalization = { delay, work in
+                        scheduler.items.append((delay, work))
+                    }
+                    return appState.deleteHistoryEntriesCancellably(ids: batch)
+                }
+                let during = await MainActor.run {
+                    (
+                        appState.pipelineHistory.map(\.id),
+                        appState.pendingNoteDeletion?.noteCount
+                    )
+                }
+                try expect(Set(result.deletedIDs) == Set(batch), "every settled note in the batch is deleted")
+                try expect(during.0 == [originalOrder[1], originalOrder[3]], "the batch leaves the list at once")
+                try expect(during.1 == 3 && scheduler.items.count == 1, "the batch waits as one Cancel window")
+                try expect(
+                    batch.allSatisfy { FileManager.default.fileExists(atPath: audioURLs[$0]!.path) },
+                    "batch files stay during the Cancel window"
+                )
+
+                switch ending {
+                case .cancel:
+                    await MainActor.run { appState.cancelPendingNoteDeletion() }
+                    let restored = await MainActor.run {
+                        (appState.pipelineHistory.map(\.id), appState.pendingNoteDeletion == nil)
+                    }
+                    try expect(restored.0 == originalOrder, "Cancel restores every note in its place")
+                    try expect(restored.1, "Cancel ends the batch")
+                    let stored = PipelineHistoryStore(
+                        storeURL: environment.storageLayout.historyStoreURL
+                    ).loadAllHistory()
+                    try expect(stored.map(\.id) == originalOrder, "Cancel restores every stored row")
+                    try expect(
+                        batch.allSatisfy { FileManager.default.fileExists(atPath: audioURLs[$0]!.path) },
+                        "Cancel keeps every note's audio"
+                    )
+                    return
+                case .expire:
+                    await MainActor.run { scheduler.items[0].1() }
+                case .nextDeletion:
+                    await MainActor.run { appState.deleteHistoryEntryCancellably(id: originalOrder[1]) }
+                    let pending = await MainActor.run {
+                        appState.pendingNoteDeletion?.entries.map(\.item.id)
+                    }
+                    try expect(pending == [originalOrder[1]], "a new deletion replaces the earlier batch")
+                    try expect(
+                        FileManager.default.fileExists(atPath: audioURLs[originalOrder[1]]!.path),
+                        "the newly deleted note keeps its audio for its own window"
+                    )
+                }
+                try expect(
+                    batch.allSatisfy { !FileManager.default.fileExists(atPath: audioURLs[$0]!.path) },
+                    "ending the batch window removes every note's audio"
+                )
+                let stored = PipelineHistoryStore(
+                    storeURL: environment.storageLayout.historyStoreURL
+                ).loadAllHistory()
+                try expect(!stored.contains { batch.contains($0.id) }, "the batch rows are gone")
+            }
+        }
+    }
+
+    /// #409 review: Cancel places notes by time in the current list, and an
+    /// immediate delete ends the earlier Cancel window first.
+    private static func verifiesPendingDeletionMeetsLaterChanges() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let assetStore = NoteAssetStore(storageLayout: environment.storageLayout)
+            let historyStore = PipelineHistoryStore(
+                storeURL: environment.storageLayout.historyStoreURL
+            )
+            var items: [PipelineHistoryItem] = []
+            var audioURLs: [UUID: URL] = [:]
+            for index in 0..<3 {
+                let sourceURL = environment.rootDirectory
+                    .appendingPathComponent("later-source-\(index).wav")
+                try Data("synthetic audio \(index)".utf8).write(to: sourceURL)
+                let audio = try assetStore.saveAudio(from: sourceURL)
+                let item = makeHistoryItem(
+                    audioFileName: audio.fileName,
+                    transcriptFileName: nil,
+                    timestamp: Date(timeIntervalSince1970: TimeInterval(1_000 * (index + 1)))
+                )
+                _ = try historyStore.append(item, maxCount: Int.max)
+                items.append(item)
+                audioURLs[item.id] = audio.fileURL
+            }
+            let appState = await MainActor.run {
+                AppState(dependencies: environment.dependencies)
+            }
+            let scheduler = ManualNoteDeletionScheduler()
+            // items[2] is newest; items[0] oldest. Delete the middle one.
+            let newest = makeHistoryItem(
+                audioFileName: nil,
+                transcriptFileName: nil,
+                timestamp: Date(timeIntervalSince1970: 9_000)
+            )
+            let order = try await MainActor.run { () -> [UUID] in
+                appState.scheduleNoteDeletionFinalization = { delay, work in
+                    scheduler.items.append((delay, work))
+                }
+                appState.deleteHistoryEntryCancellably(id: items[1].id)
+                // A newer note arrives during the window.
+                _ = try PipelineHistoryStore(
+                    storeURL: environment.storageLayout.historyStoreURL
+                ).append(newest, maxCount: Int.max)
+                appState.pipelineHistory.insert(newest, at: 0)
+                appState.cancelPendingNoteDeletion()
+                return appState.pipelineHistory.map(\.id)
+            }
+            try expect(
+                order == [newest.id, items[2].id, items[1].id, items[0].id],
+                "Cancel places the note by time in the current list"
+            )
+
+            // A busy-note style immediate delete ends the earlier window first.
+            let finished = await MainActor.run { () -> (Bool, [UUID]) in
+                appState.deleteHistoryEntryCancellably(id: items[2].id)
+                appState.deleteHistoryEntry(id: items[0].id)
+                return (
+                    appState.pendingNoteDeletion == nil,
+                    appState.pipelineHistory.map(\.id)
+                )
+            }
+            try expect(finished.0, "an immediate delete dismisses the earlier Cancel window")
+            try expect(finished.1 == [newest.id, items[1].id], "both deletions are final")
+            try expect(
+                !FileManager.default.fileExists(atPath: audioURLs[items[2].id]!.path)
+                    && !FileManager.default.fileExists(atPath: audioURLs[items[0].id]!.path),
+                "the earlier pending note's audio is removed with the immediate delete"
+            )
+        }
+    }
+
+    /// #409: a crash during the Cancel window leaves banner state for a note
+    /// that no longer exists; startup keeps only listed notes' state.
+    private static func verifiesWarningBannerStateKeepsOnlyListedNotes() throws {
+        let listed = UUID(uuidString: "00000000-0000-0000-0000-000000000409")!
+        let missing = UUID(uuidString: "00000000-0000-0000-0000-000000000410")!
+        let pruned = AppState.warningBannerState(
+            retryGenerations: [listed.uuidString: 2, missing.uuidString: 1],
+            dismissals: [
+                "\(listed.uuidString):someCode": 2,
+                "\(missing.uuidString):someCode": 1,
+                "\(missing.uuidString):otherCode": 0
+            ],
+            keepingNoteIDs: [listed]
+        )
+        try expect(pruned.retryGenerations == [listed.uuidString: 2], "only listed notes keep retry generations")
+        try expect(pruned.dismissals == ["\(listed.uuidString):someCode": 2], "only listed notes keep dismissals")
+    }
+
+    private static func verifiesStartupPrunesWarningBannerStateOfMissingNotes() async throws {
+        let retryKey = "note_retry_generation_by_id"
+        let dismissalKey = "dismissed_warning_banner_generation_by_key"
+        let defaults = UserDefaults.standard
+        let savedRetry = defaults.object(forKey: retryKey)
+        let savedDismissals = defaults.object(forKey: dismissalKey)
+        defer {
+            defaults.set(savedRetry, forKey: retryKey)
+            defaults.set(savedDismissals, forKey: dismissalKey)
+        }
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let item = makeHistoryItem(audioFileName: nil, transcriptFileName: nil)
+            let missing = UUID()
+            _ = try PipelineHistoryStore(
+                storeURL: environment.storageLayout.historyStoreURL
+            ).append(item, maxCount: Int.max)
+            defaults.set(
+                try JSONEncoder().encode([item.id.uuidString: 1, missing.uuidString: 3]),
+                forKey: retryKey
+            )
+            defaults.set(
+                try JSONEncoder().encode(["\(missing.uuidString):someCode": 3]),
+                forKey: dismissalKey
+            )
+            let state = await MainActor.run { () -> ([String: Int], [String: Int]) in
+                let appState = AppState(dependencies: environment.dependencies)
+                return (appState.noteRetryGenerationByID, appState.dismissedWarningBannerGeneration)
+            }
+            try expect(state.0 == [item.id.uuidString: 1], "startup drops retry state of missing notes")
+            try expect(state.1.isEmpty, "startup drops dismissals of missing notes")
         }
     }
 
@@ -1715,4 +2175,9 @@ struct AppStateStorageSafetyTests {
             self.description = description
         }
     }
+}
+
+/// Holds scheduled Cancel-window endings so tests run them without waiting.
+private final class ManualNoteDeletionScheduler: @unchecked Sendable {
+    var items: [(TimeInterval, @MainActor () -> Void)] = []
 }

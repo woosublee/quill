@@ -2141,6 +2141,39 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
     }
 
+    /// Keeps retry generations and banner dismissals only for listed notes.
+    /// Dismissal keys start with the note ID and a colon.
+    static func warningBannerState(
+        retryGenerations: [String: Int],
+        dismissals: [String: Int],
+        keepingNoteIDs noteIDs: Set<UUID>
+    ) -> (retryGenerations: [String: Int], dismissals: [String: Int]) {
+        let listed = Set(noteIDs.map(\.uuidString))
+        return (
+            retryGenerations.filter { listed.contains($0.key) },
+            dismissals.filter { listed.contains(String($0.key.prefix { $0 != ":" })) }
+        )
+    }
+
+    /// Drops banner state left by notes that no longer exist, for example
+    /// when the app was killed during a deletion's Cancel window.
+    private func pruneWarningBannerState(keepingNoteIDs noteIDs: Set<UUID>) {
+        let pruned = Self.warningBannerState(
+            retryGenerations: noteRetryGenerationByID,
+            dismissals: dismissedWarningBannerGeneration,
+            keepingNoteIDs: noteIDs
+        )
+        guard pruned.retryGenerations.count != noteRetryGenerationByID.count
+            || pruned.dismissals.count != dismissedWarningBannerGeneration.count else { return }
+        noteRetryGenerationByID = pruned.retryGenerations
+        dismissedWarningBannerGeneration = pruned.dismissals
+        Self.saveIntDictionary(noteRetryGenerationByID, forKey: Self.noteRetryGenerationDefaultsKey)
+        Self.saveIntDictionary(
+            dismissedWarningBannerGeneration,
+            forKey: Self.dismissedWarningBannerGenerationDefaultsKey
+        )
+    }
+
     /// Clears all banner dismissal / retry-generation side state, e.g. when the
     /// entire run history is cleared.
     @MainActor
@@ -2189,6 +2222,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var isDebugOverlayActive = false
     @Published var selectedSettingsTab: SettingsTab? = .general
     @Published var pipelineHistory: [PipelineHistoryItem] = []
+    /// A note deleted from the Note Browser whose files are kept until the
+    /// Cancel window ends. See `deleteHistoryEntryCancellably(id:)`.
+    @Published private(set) var pendingNoteDeletion: PendingNoteDeletion?
+    static let noteDeletionCancelWindow: TimeInterval = 5
+    /// Runs the end of the Cancel window. Tests replace it to skip waiting.
+    var scheduleNoteDeletionFinalization: (TimeInterval, @escaping @MainActor () -> Void) -> Void = { delay, work in
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            MainActor.assumeIsolated { work() }
+        }
+    }
     @Published private(set) var meetingSummaryGeneratingNoteIDs: Set<UUID> = []
     private let meetingSummaryWorkflow: MeetingSummaryWorkflow
     private let transcriptionRetryWorkflow: TranscriptionRetryWorkflow
@@ -3357,6 +3400,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 )
                 self.startRecordingFromCalendarReminder()
             }
+        }
+
+        // Only a complete, trusted history can say which notes are gone.
+        if !historyStartup.state.isHistoryUnavailable,
+           pipelineHistoryStore.availability == .ready,
+           pipelineHistoryStore.referenceTrust.permitsStartupReferenceCleanup {
+            pruneWarningBannerState(keepingNoteIDs: Set(pipelineHistory.map(\.id)))
         }
 
         if Thread.isMainThread {
@@ -4934,6 +4984,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func applyHistoryRuntimeReplacement(
         _ replacement: HistoryRuntimeReplacement
     ) {
+        // The pending note belonged to the replaced store; its row is already
+        // gone, and the next launch's orphan sweep removes any leftover files.
+        pendingNoteDeletion = nil
         switch replacement {
         case .fresh(let runtime):
             transcriptionRetryWorkflow.forgetAll()
@@ -5061,6 +5114,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @discardableResult
     func importHistoryRecoverySnapshot(id: UUID) -> Bool {
         guard requireAvailableHistoryForMutation() else { return false }
+        finalizePendingNoteDeletion()
         return historyWorkflow.requestImport(
             snapshotID: id,
             context: historyWorkflowAdmissionContext(),
@@ -6833,6 +6887,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         postAction: HistoryArchivePostAction = .startFresh
     ) -> Bool {
         synchronizeHistoryPersistenceState()
+        finalizePendingNoteDeletion()
         let result = historyWorkflow.requestArchive(
             context: historyWorkflowAdmissionContext(),
             currentStore: pipelineHistoryStore,
@@ -6851,6 +6906,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func clearPipelineHistory() {
         guard requireAvailableHistoryForMutation() else { return }
+        finalizePendingNoteDeletion()
         let historyIDs = pipelineHistory.map(\.id)
         for historyID in historyIDs {
             transcriptionRetryWorkflow.cancel(noteID: historyID)
@@ -6888,31 +6944,168 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func deleteHistoryEntry(id: UUID) {
+        // An earlier deletion's Cancel window ends here, like any new deletion.
+        finalizePendingNoteDeletion()
+        guard let removed = removeHistoryEntryRecord(id: id) else { return }
+        if let deletedAssets = removed.assets {
+            cleanupDeletedPipelineHistoryAssets(deletedAssets)
+        }
+    }
+
+    /// Removes notes from the list and the history store, but leaves their
+    /// audio, transcript, and cloud job files on disk for a short window so
+    /// the Note Browser can offer Cancel. The files are removed by
+    /// `finalizePendingNoteDeletion()` when the window ends, when more notes
+    /// are deleted the same way, or when the app quits. The notes' in-memory
+    /// state (retry, cloud session, summary workflow, banners) is also torn
+    /// down then. After a crash the rows are already gone, so the next
+    /// launch's orphan sweep removes the files, and its banner prune drops the
+    /// notes' saved retry and dismissal state. Notes that are still
+    /// recording or processing are skipped: their running work would outlive
+    /// the note, so they use `deleteHistoryEntry(id:)` instead.
+    @MainActor
+    @discardableResult
+    func deleteHistoryEntriesCancellably(ids: [UUID]) -> NoteBulkDeletionResult {
+        var result = NoteBulkDeletionResult()
+        finalizePendingNoteDeletion()
+        var entries: [PendingNoteDeletion.Entry] = []
+        for id in ids {
+            guard pipelineHistory.contains(where: { $0.id == id }) else { continue }
+            guard canDeleteHistoryEntryCancellably(id: id) else {
+                result.skippedIDs.append(id)
+                continue
+            }
+            guard let removed = removeHistoryEntryRecord(id: id, defersTeardown: true) else {
+                result.failedIDs.append(id)
+                continue
+            }
+            entries.append(PendingNoteDeletion.Entry(
+                item: removed.item,
+                assets: removed.assets
+            ))
+            result.deletedIDs.append(id)
+        }
+        guard !entries.isEmpty else { return result }
+        let pending = PendingNoteDeletion(entries: entries)
+        pendingNoteDeletion = pending
+        scheduleNoteDeletionFinalization(Self.noteDeletionCancelWindow) { [weak self] in
+            guard let self, self.pendingNoteDeletion?.id == pending.id else { return }
+            self.finalizePendingNoteDeletion()
+        }
+        return result
+    }
+
+    @MainActor
+    func deleteHistoryEntryCancellably(id: UUID) {
+        guard canDeleteHistoryEntryCancellably(id: id) else { return }
+        deleteHistoryEntriesCancellably(ids: [id])
+    }
+
+    /// Whether the note is settled, so deleting it can wait for Cancel.
+    @MainActor
+    func canDeleteHistoryEntryCancellably(id: UUID) -> Bool {
+        guard let item = pipelineHistory.first(where: { $0.id == id }) else { return false }
+        return transcriptStatus(for: item, retrying: retryingItemIDs).isBulkSelectable
+            && !meetingSummaryGeneratingNoteIDs.contains(id)
+    }
+
+    /// Puts the pending notes back with their files, titles, summaries, and places.
+    @MainActor
+    func cancelPendingNoteDeletion() {
+        guard let pending = pendingNoteDeletion,
+              requireAvailableHistoryForMutation() else { return }
+        var unrestored: [PendingNoteDeletion.Entry] = []
+        var restoreError: Error?
+        for entry in pending.entries {
+            // A row with this ID came back some other way; never overwrite it
+            // or list it twice.
+            guard !pipelineHistory.contains(where: { $0.id == entry.item.id }) else { continue }
+            do {
+                // No trimming: the restored note must stay in the store while
+                // it is listed.
+                _ = try pipelineHistoryStore.upsert(
+                    entry.item,
+                    maxCount: Int.max,
+                    requiresDurableStore: true
+                )
+                // The list is newest first, like the store; place the note by
+                // its time rather than a position that may have shifted.
+                let index = pipelineHistory.firstIndex {
+                    $0.timestamp < entry.item.timestamp
+                } ?? pipelineHistory.count
+                pipelineHistory.insert(entry.item, at: index)
+            } catch {
+                restoreError = restoreError ?? error
+                unrestored.append(entry)
+            }
+        }
+        // Notes that could not come back keep waiting for the window to end.
+        pendingNoteDeletion = unrestored.isEmpty ? nil : pending.keeping(unrestored)
+        if let restoreError {
+            errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to restore the deleted note"), providerDetail: restoreError.localizedDescription)
+        }
+    }
+
+    /// Removes the files of the pending notes now. Safe to call at any time.
+    @MainActor
+    func finalizePendingNoteDeletion() {
+        guard let pending = pendingNoteDeletion else { return }
+        pendingNoteDeletion = nil
+        for entry in pending.entries {
+            // The cleanup is keyed by note ID; skip it if that ID is listed again.
+            guard !pipelineHistory.contains(where: { $0.id == entry.item.id }) else { continue }
+            transcriptionRetryWorkflow.cancel(noteID: entry.item.id)
+            cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
+                historyID: entry.item.id,
+                store: cloudTranscriptionJobStore
+            )
+            meetingSummaryWorkflow.forget(noteID: entry.item.id)
+            forgetWarningBannerState(for: entry.item.id)
+            if let assets = entry.assets {
+                cleanupDeletedPipelineHistoryAssets(assets)
+            }
+        }
+    }
+
+    @MainActor
+    /// Removes the row. With `defersTeardown`, the note's in-memory state
+    /// (retry, cloud session, summary workflow, banners) is left for
+    /// `finalizePendingNoteDeletion()`, so Cancel brings it back intact.
+    private func removeHistoryEntryRecord(
+        id: UUID,
+        defersTeardown: Bool = false
+    ) -> (item: PipelineHistoryItem, assets: DeletedPipelineHistoryAssets?)? {
         guard requireAvailableHistoryForMutation(),
-              let index = pipelineHistory.firstIndex(where: { $0.id == id }) else { return }
-        transcriptionRetryWorkflow.cancel(noteID: id)
-        cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
-            historyID: id,
-            store: cloudTranscriptionJobStore
-        )
+              let index = pipelineHistory.firstIndex(where: { $0.id == id }) else { return nil }
+        let item = pipelineHistory[index]
+        if !defersTeardown {
+            transcriptionRetryWorkflow.cancel(noteID: id)
+            cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
+                historyID: id,
+                store: cloudTranscriptionJobStore
+            )
+        }
         do {
-            if let deletedAssets = try pipelineHistoryStore.delete(
+            let deletedAssets = try pipelineHistoryStore.delete(
                 id: id,
                 requiresDurableStore: true,
                 beforeDeleting: { assets in
+                    guard !defersTeardown else { return }
                     cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
                         historyID: assets.historyID,
                         store: cloudTranscriptionJobStore
                     )
                 }
-            ) {
-                cleanupDeletedPipelineHistoryAssets(deletedAssets)
-            }
+            )
             pipelineHistory.remove(at: index)
-            meetingSummaryWorkflow.forget(noteID: id)
-            forgetWarningBannerState(for: id)
+            if !defersTeardown {
+                meetingSummaryWorkflow.forget(noteID: id)
+                forgetWarningBannerState(for: id)
+            }
+            return (item, deletedAssets)
         } catch {
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to delete run history entry"), providerDetail: error.localizedDescription)
+            return nil
         }
     }
 
@@ -13172,5 +13365,27 @@ private extension ShortcutBinding {
         case .modifierKey:
             return pressedModifierKeyCodes.contains(keyCode)
         }
+    }
+}
+
+/// Notes removed from the list whose files wait for the Cancel window.
+struct PendingNoteDeletion: Identifiable {
+    struct Entry {
+        let item: PipelineHistoryItem
+        let assets: DeletedPipelineHistoryAssets?
+    }
+
+    let id: UUID
+    let entries: [Entry]
+
+    init(id: UUID = UUID(), entries: [Entry]) {
+        self.id = id
+        self.entries = entries
+    }
+
+    var noteCount: Int { entries.count }
+
+    func keeping(_ entries: [Entry]) -> PendingNoteDeletion {
+        PendingNoteDeletion(id: id, entries: entries)
     }
 }

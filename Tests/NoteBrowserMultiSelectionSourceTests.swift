@@ -25,16 +25,38 @@ struct NoteBrowserMultiSelectionSourceTests {
         // Multi-selection replaces the detail pane, and deletion goes through AppState.
         precondition(source.contains("NoteMultiSelectionPanel(count: selection.selectedIDs.count)"))
         let perform = try body(of: "private func performPendingDeletion()", in: source)
-        precondition(perform.contains("appState.deleteHistoryEntries(ids: ids)"))
-        precondition(perform.contains("appState.deleteHistoryEntry(id: ids[0])"))
+        // #409: deletion keeps its confirmation, then settled notes get a Cancel toast.
+        precondition(perform.contains("appState.deleteHistoryEntriesCancellably(ids: ids)"))
+        precondition(perform.contains("deleteConfirmedNote(ids[0])"))
+        let request = try body(of: "private func requestDeletion(of id: UUID? = nil)", in: source)
+        precondition(request.contains("showDeletionConfirmation = true"))
+        let single = try body(of: "private func deleteConfirmedNote(_ id: UUID)", in: source)
+        precondition(single.contains("if appState.canDeleteHistoryEntryCancellably(id: id) {"))
+        precondition(single.contains("appState.deleteHistoryEntryCancellably(id: id)"))
+        // A note still recording or processing is deleted for good after the dialog.
+        precondition(single.contains("appState.deleteHistoryEntry(id: id)"))
         // Deleting one unchecked note from the context menu keeps selection mode.
-        precondition(perform.contains("if wasFocused, !selection.isSelectionModeRequested,"))
+        precondition(single.contains("} else if wasFocused, !selection.isSelectionModeRequested {"))
+        precondition(source.contains("Text(\"Delete this note?\")"))
+        precondition(source.contains("Text(\"You can cancel for a few seconds after deleting.\")"))
+        precondition(source.contains("@State private var showDeleteConfirmation = false"))
+        precondition(source.contains("localizedCatalogFormat(\"%lld notes deleted\", count)"))
+        precondition(source.contains("action: { appState.cancelPendingNoteDeletion() }"))
+        precondition(source.contains("if let pending = appState.pendingNoteDeletion {"))
+        precondition(source.contains(".announcement: noteDeletionToastMessage(count: pending.noteCount)"))
+        let toast = try body(of: "private struct NoteBrowserToastView: View", in: source)
+        precondition(toast.contains("Button(action: action)"))
         let monitor0 = try body(of: "private struct NoteBrowserKeyCommandMonitor", in: source)
         precondition(monitor0.contains("charactersIgnoringModifiers: event.charactersIgnoringModifiers"))
 
         // Busy notes can't join a selection.
-        let selectable = try body(of: "private func isBulkSelectable(_ id: UUID) -> Bool", in: source)
+        let selectable = try body(of: "private func isBulkSelectable(_ id: UUID, in history: [PipelineHistoryItem]) -> Bool", in: source)
         precondition(selectable.contains(".isBulkSelectable"))
+        precondition(selectable.contains("!appState.meetingSummaryGeneratingNoteIDs.contains(id)"))
+        // Notes that become busy while checked leave the selection.
+        precondition(source.contains(".onChange(of: appState.meetingSummaryGeneratingNoteIDs) { _ in\n            selection.retainSelectable(isBulkSelectable)"))
+        precondition(source.contains(".onChange(of: appState.retryingItemIDs) { _ in\n            selection.retainSelectable(isBulkSelectable)"))
+        precondition(source.contains("selection.retainSelectable { isBulkSelectable($0, in: newHistory) }"))
 
         // Keyboard shortcuts stay inside this window and never steal text editing keys.
         let monitor = try body(of: "private struct NoteBrowserKeyCommandMonitor", in: source)

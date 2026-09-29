@@ -432,8 +432,14 @@ struct NoteBrowserView: View {
     }
 
     private func isBulkSelectable(_ id: UUID) -> Bool {
-        guard let item = appState.pipelineHistory.first(where: { $0.id == id }) else { return false }
+        isBulkSelectable(id, in: appState.pipelineHistory)
+    }
+
+    private func isBulkSelectable(_ id: UUID, in history: [PipelineHistoryItem]) -> Bool {
+        guard let item = history.first(where: { $0.id == id }) else { return false }
+        // A note making its summary is busy too, so bulk delete never skips it silently.
         return transcriptStatus(for: item, retrying: appState.retryingItemIDs).isBulkSelectable
+            && !appState.meetingSummaryGeneratingNoteIDs.contains(id)
     }
 
     private func handleRowClick(_ id: UUID) {
@@ -481,25 +487,43 @@ struct NoteBrowserView: View {
         showDeletionConfirmation = true
     }
 
+    /// Deletes one note after the user confirmed. A settled note waits for the
+    /// Cancel toast; a note still recording or processing is deleted for good,
+    /// because its running work can't be put back.
+    private func deleteConfirmedNote(_ id: UUID) {
+        let nextID = NoteSelection.nextFocusedID(
+            afterDeleting: [id],
+            in: filteredHistory.map(\.id)
+        )
+        let wasChecked = selection.showsSelectionUI && selection.selectedIDs.contains(id)
+        let wasFocused = selection.focusedID == id
+        if appState.canDeleteHistoryEntryCancellably(id: id) {
+            appState.deleteHistoryEntryCancellably(id: id)
+        } else {
+            appState.deleteHistoryEntry(id: id)
+        }
+        guard !appState.pipelineHistory.contains(where: { $0.id == id }) else { return }
+        if wasChecked {
+            selection.focus(nextID)
+        } else if wasFocused, !selection.isSelectionModeRequested {
+            // In selection mode the viewed note may be unchecked; keep the checked notes.
+            selection.focus(nextID)
+        }
+    }
+
     private func performPendingDeletion() {
         let ids = pendingDeletionIDs
         pendingDeletionIDs = []
         guard !ids.isEmpty else { return }
+        if ids.count == 1 {
+            deleteConfirmedNote(ids[0])
+            return
+        }
         let nextID = NoteSelection.nextFocusedID(
             afterDeleting: Set(ids),
             in: filteredHistory.map(\.id)
         )
-        if ids.count == 1, !selection.showsSelectionUI || !selection.selectedIDs.contains(ids[0]) {
-            let wasFocused = selection.focusedID == ids[0]
-            appState.deleteHistoryEntry(id: ids[0])
-            // In selection mode the viewed note may be unchecked; keep the checked notes.
-            if wasFocused, !selection.isSelectionModeRequested,
-               !appState.pipelineHistory.contains(where: { $0.id == ids[0] }) {
-                selection.focus(nextID)
-            }
-            return
-        }
-        let result = appState.deleteHistoryEntries(ids: ids)
+        let result = appState.deleteHistoryEntriesCancellably(ids: ids)
         if result.failedIDs.isEmpty, result.skippedIDs.isEmpty {
             selection.focus(nextID)
         } else {
@@ -526,6 +550,12 @@ struct NoteBrowserView: View {
         pendingDeletionIDs.count == 1
             ? Text("Delete this note?")
             : Text(localizedCatalogFormat("Delete %lld notes?", pendingDeletionIDs.count))
+    }
+
+    private func noteDeletionToastMessage(count: Int) -> String {
+        count == 1
+            ? localizedCatalogString("Note deleted")
+            : localizedCatalogFormat("%lld notes deleted", count)
     }
 
     private func scheduleRecoveryScrollRestore(for itemID: UUID) {
@@ -576,6 +606,30 @@ struct NoteBrowserView: View {
                     WindowDragArea()
                         .frame(height: 16)
                 }
+                .overlay(alignment: .bottom) {
+                    if let pending = appState.pendingNoteDeletion {
+                        NoteBrowserToastView(
+                            message: noteDeletionToastMessage(count: pending.noteCount),
+                            actionTitle: "Cancel",
+                            action: { appState.cancelPendingNoteDeletion() }
+                        )
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 72)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .animation(.easeOut(duration: 0.16), value: appState.pendingNoteDeletion?.id)
+                .onChange(of: appState.pendingNoteDeletion?.id) { _ in
+                    guard let pending = appState.pendingNoteDeletion else { return }
+                    NSAccessibility.post(
+                        element: NSApplication.shared,
+                        notification: .announcementRequested,
+                        userInfo: [
+                            .announcement: noteDeletionToastMessage(count: pending.noteCount),
+                            .priority: NSAccessibilityPriorityLevel.medium.rawValue
+                        ]
+                    )
+                }
         }
         .frame(minWidth: 800, minHeight: 520)
         .onAppear {
@@ -610,13 +664,22 @@ struct NoteBrowserView: View {
             Button("Delete", role: .destructive) { performPendingDeletion() }
             Button("Cancel", role: .cancel) { pendingDeletionIDs = [] }
         } message: {
-            if pendingDeletionIDs.count == 1 {
-                Text("Deleted notes cannot be recovered.")
+            if pendingDeletionIDs.count != 1 {
+                Text("Audio and summaries are deleted too. You can cancel for a few seconds after deleting.")
+            } else if appState.canDeleteHistoryEntryCancellably(id: pendingDeletionIDs[0]) {
+                Text("You can cancel for a few seconds after deleting.")
             } else {
-                Text("Deleted notes cannot be recovered. Audio and summaries are deleted too.")
+                Text("Deleted notes cannot be recovered.")
             }
         }
         .background(NoteBrowserKeyCommandMonitor(handle: handleKeyCommand))
+        // Notes that start a summary or a retry while checked leave the selection.
+        .onChange(of: appState.meetingSummaryGeneratingNoteIDs) { _ in
+            selection.retainSelectable(isBulkSelectable)
+        }
+        .onChange(of: appState.retryingItemIDs) { _ in
+            selection.retainSelectable(isBulkSelectable)
+        }
         .onChange(of: searchText) { _ in
             if selection.showsSelectionUI {
                 selection.retainVisible(filteredHistory.map(\.id))
@@ -628,6 +691,7 @@ struct NoteBrowserView: View {
                 // Keep a multi-selection; new notes don't take over while selecting.
                 // This fires before the change lands, so filter the new value.
                 selection.retainVisible(newHistory.filter(matchesSearch).map(\.id))
+                selection.retainSelectable { isBulkSelectable($0, in: newHistory) }
                 knownHistoryIDs = Set(ids)
                 return
             }
@@ -1225,7 +1289,7 @@ struct NoteBrowserView: View {
         } else if let id = selectedItemID,
            let item = appState.pipelineHistory.first(where: { $0.id == id }) {
             NoteDetailView(item: item) {
-                appState.deleteHistoryEntry(id: id)
+                deleteConfirmedNote(id)
             }
             .id(id)
         } else if appState.pipelineHistory.isEmpty {
@@ -2249,7 +2313,11 @@ private struct NoteDetailView: View {
             Button("Delete", role: .destructive) { onDelete() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Deleted notes cannot be recovered.")
+            if appState.canDeleteHistoryEntryCancellably(id: item.id) {
+                Text("You can cancel for a few seconds after deleting.")
+            } else {
+                Text("Deleted notes cannot be recovered.")
+            }
         }
         // With a summary, the one trash button asks what to delete. The
         // buttons keep the same order in either tab, and Cancel stays the
@@ -2260,7 +2328,11 @@ private struct NoteDetailView: View {
             Button("Cancel", role: .cancel) {}
                 .keyboardShortcut(.defaultAction)
         } message: {
-            Text("Deleting the entire note removes its recording, transcript, and summary, and cannot be undone.")
+            if appState.canDeleteHistoryEntryCancellably(id: item.id) {
+                Text("Deleting the entire note removes its recording, transcript, and summary. You can cancel for a few seconds after deleting.")
+            } else {
+                Text("Deleting the entire note removes its recording, transcript, and summary, and cannot be undone.")
+            }
         }
     }
 
@@ -3742,21 +3814,37 @@ private struct ToolbarButtonStyle: ButtonStyle {
 
 private struct NoteBrowserToastView: View {
     let message: String
+    var actionTitle: LocalizedStringKey?
+    var action: (() -> Void)?
 
     var body: some View {
-        Text(message)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.white)
-            .multilineTextAlignment(.center)
-            .lineLimit(3)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-            .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(Color.black.opacity(0.92))
-            )
-            .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
-            .accessibilityLabel(Text(message))
+        HStack(spacing: 12) {
+            Text(message)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .accessibilityLabel(Text(message))
+            if let actionTitle, let action {
+                Button(action: action) {
+                    Text(actionTitle)
+                        .font(.system(size: 11, weight: .semibold))
+                        .underline()
+                        .foregroundStyle(.white)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .overrideCursor(.pointingHand)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(Color.black.opacity(0.92))
+        )
+        .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+        .accessibilityElement(children: .contain)
     }
 }
 
