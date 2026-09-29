@@ -1025,7 +1025,7 @@ Behavior:
             output: combinedTranscript,
             outputLanguage: outputLanguage,
             expectedSourceLanguage: expectedSourceLanguage,
-            vocabulary: customVocabulary
+            vocabulary: CustomVocabularyParser.parseEntries(customVocabulary).terms
         ) {
         case .success(let accepted):
             return PostProcessingResult(
@@ -1181,7 +1181,7 @@ Model: \(model)
             output: sanitizedTranscript,
             outputLanguage: outputLanguage,
             expectedSourceLanguage: expectedSourceLanguage,
-            vocabulary: customVocabulary
+            vocabulary: CustomVocabularyParser.parseEntries(customVocabulary).terms
         ) {
         case .success(let accepted):
             acceptedTranscript = accepted
@@ -1264,7 +1264,11 @@ Model: \(model)
         request.timeoutInterval = postProcessingTimeoutSeconds(for: endpoint)
         let model = endpoint.selectedModelID
 
-        let normalizedVocabulary = normalizedVocabularyText(customVocabulary)
+        // Edit Mode keeps the plain spelling list only. Correction pairs
+        // contribute their correct spelling and never rewrite SELECTED_TEXT.
+        let normalizedVocabulary = normalizedVocabularyText(
+            CustomVocabularyParser.parseEntries(customVocabulary).terms
+        )
         let vocabularyPrompt = if !normalizedVocabulary.isEmpty {
             """
 The following vocabulary must be treated as high-priority terms while rewriting.
@@ -1457,17 +1461,24 @@ Model: \(model)
         contextSummary: String,
         vocabulary: [String]
     ) throws -> String {
+        let parsedVocabulary = CustomVocabularyParser.parseEntries(vocabulary)
+        let corrections = parsedVocabulary.corrections
         let envelope = AIProcessingEnvelope(
             contractVersion: "quill.ai.v2",
             feature: "post_processing",
             data: PostProcessingSourceData(
                 transcript: transcript,
                 contextSummary: contextSummary,
-                vocabulary: vocabulary
+                vocabulary: parsedVocabulary.terms,
+                corrections: corrections.isEmpty ? nil : corrections
             )
         )
+        let correctionsInstruction = corrections.isEmpty
+            ? ""
+            : PostProcessingPromptPolicy.correctionsInstruction + "\n\n"
         return PostProcessingPromptPolicy.dataEnvelopeInstruction
             + "\n\n"
+            + correctionsInstruction
             + (try envelope.encodedJSONString())
     }
 
@@ -1488,13 +1499,7 @@ Model: \(model)
     }
 
     private func mergedVocabularyTerms(rawVocabulary: String) -> [String] {
-        let terms = rawVocabulary
-            .split(whereSeparator: { $0 == "\n" || $0 == "," || $0 == ";" })
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        var seen = Set<String>()
-        return terms.filter { seen.insert($0.lowercased()).inserted }
+        CustomVocabularyParser.entries(from: rawVocabulary)
     }
 
     private func normalizedVocabularyText(_ vocabularyTerms: [String]) -> String {

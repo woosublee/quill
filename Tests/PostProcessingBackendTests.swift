@@ -43,7 +43,201 @@ struct PostProcessingBackendTests {
         try await testProviderErrorForLongTranscriptIsNotReasked()
         try await testMalformedCleanupResponseUsesInvalidResponseIssue()
         try await testOversizedStaticCleanupPromptExplainsTheActualLimit()
+        try testVocabularyParserKeepsPlainEntriesUnchanged()
+        try testVocabularyParserReadsCorrectionMappings()
+        try testVocabularyParserHandlesMalformedMappings()
+        try testVocabularyParserKeepsUnspacedArrowsPlain()
+        try await testCleanupPromptIncludesCorrectionsOnlyWhenMappingsExist()
+        try await testCommandPromptNeverIncludesCorrections()
         print("PostProcessingBackendTests passed")
+    }
+
+    private static func testVocabularyParserKeepsPlainEntriesUnchanged() throws {
+        let raw = " Quill, Kubernetes;\nkubernetes\n\n 퀼로그 ; SwiftUI ,"
+        // The pre-existing split: separators, trim, drop empties, and drop
+        // case-insensitive duplicates.
+        let legacyTerms: [String] = {
+            let terms = raw
+                .split(whereSeparator: { $0 == "\n" || $0 == "," || $0 == ";" })
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            var seen = Set<String>()
+            return terms.filter { seen.insert($0.lowercased()).inserted }
+        }()
+        let parsed = CustomVocabularyParser.parse(raw)
+        try expect(
+            parsed.terms == legacyTerms,
+            "plain vocabulary keeps the legacy terms"
+        )
+        try expect(
+            parsed.terms == ["Quill", "Kubernetes", "퀼로그", "SwiftUI"],
+            "plain vocabulary terms in order"
+        )
+        try expect(parsed.corrections.isEmpty, "plain vocabulary has no corrections")
+    }
+
+    private static func testVocabularyParserReadsCorrectionMappings() throws {
+        let parsed = CustomVocabularyParser.parse("""
+        퀼 -> Quill
+        cloud code | clod code => Claude Code
+        sweet UI → SwiftUI
+          Kubernetes  ,  kuber netties   ->   Kubernetes ; Quill
+        """)
+        try expect(
+            parsed.terms == ["Quill", "Claude Code", "SwiftUI", "Kubernetes"],
+            "correct forms join plain terms without duplicates"
+        )
+        try expect(
+            parsed.corrections == [
+                VocabularyCorrection(heard: "퀼", correct: "Quill"),
+                VocabularyCorrection(heard: "cloud code", correct: "Claude Code"),
+                VocabularyCorrection(heard: "clod code", correct: "Claude Code"),
+                VocabularyCorrection(heard: "sweet UI", correct: "SwiftUI"),
+                VocabularyCorrection(heard: "kuber netties", correct: "Kubernetes")
+            ],
+            "arrow variants, pipes, spaces, and mixed lines become corrections"
+        )
+        try expect(
+            !parsed.terms.contains("퀼") && !parsed.terms.contains("cloud code"),
+            "heard forms are not treated as preferred spellings"
+        )
+    }
+
+    private static func testVocabularyParserHandlesMalformedMappings() throws {
+        let parsed = CustomVocabularyParser.parse("""
+        | -> Claude
+         | |  -> Quill Two
+        """)
+        try expect(
+            parsed.terms == ["Claude", "Quill Two"],
+            "malformed mappings keep whichever side exists as a plain term"
+        )
+        try expect(parsed.corrections.isEmpty, "malformed mappings add no corrections")
+    }
+
+    private static func testVocabularyParserKeepsUnspacedArrowsPlain() throws {
+        let raw = "ptr->next\na=>b\n=>\n->\nQuill ->\n-> Quill\nx→y"
+        let parsed = CustomVocabularyParser.parse(raw)
+        try expect(
+            parsed.terms == CustomVocabularyParser.entries(from: raw),
+            "arrows without surrounding spaces stay plain vocabulary"
+        )
+        try expect(
+            parsed.terms == ["ptr->next", "a=>b", "=>", "->", "Quill ->", "-> Quill", "x→y"],
+            "unspaced arrow entries are kept verbatim"
+        )
+        try expect(parsed.corrections.isEmpty, "unspaced arrows add no corrections")
+    }
+
+    private static func testCleanupPromptIncludesCorrectionsOnlyWhenMappingsExist() async throws {
+        let recorder = PostProcessingRequestRecorder()
+        let service = makeLocalService { request in
+            recorder.record(request)
+            return try successResponse(
+                request: request,
+                content: try transcriptFromPostProcessingRequest(request)
+            )
+        }
+
+        _ = try await service.postProcess(
+            transcript: "The 퀼 release is ready.",
+            context: testContext,
+            customVocabulary: "Kubernetes\n퀼 | 퀄 -> Quill"
+        )
+        let withMappings = try cleanupUserMessage(from: recorder.request())
+        try expect(
+            withMappings.hasPrefix(
+                PostProcessingPromptPolicy.dataEnvelopeInstruction + "\n\n"
+                    + PostProcessingPromptPolicy.correctionsInstruction + "\n\n"
+            ),
+            "mappings add the corrections instruction after the data instruction"
+        )
+        let data = try envelopeData(from: withMappings)
+        try expect(
+            data["vocabulary"] as? [String] == ["Kubernetes", "Quill"],
+            "vocabulary carries only preferred spellings"
+        )
+        let corrections = data["corrections"] as? [[String: String]]
+        try expect(
+            corrections == [
+                ["heard": "퀼", "correct": "Quill"],
+                ["heard": "퀄", "correct": "Quill"]
+            ],
+            "envelope carries each heard form with its correction"
+        )
+
+        _ = try await service.postProcess(
+            transcript: "The release is ready.",
+            context: testContext,
+            customVocabulary: "Kubernetes, Quill"
+        )
+        let plain = try cleanupUserMessage(from: recorder.request())
+        try expect(
+            !plain.contains(PostProcessingPromptPolicy.correctionsInstruction),
+            "plain vocabulary omits the corrections instruction"
+        )
+        let plainData = try envelopeData(from: plain)
+        try expect(plainData["corrections"] == nil, "plain vocabulary omits corrections data")
+        try expect(
+            plainData["vocabulary"] as? [String] == ["Kubernetes", "Quill"],
+            "plain vocabulary is unchanged"
+        )
+        try expect(recorder.count() == 2, "only the stubbed transport is called")
+    }
+
+    private static func testCommandPromptNeverIncludesCorrections() async throws {
+        let recorder = PostProcessingRequestRecorder()
+        let service = makeLocalService { request in
+            recorder.record(request)
+            return try successResponse(request: request, content: "Shorter text")
+        }
+
+        _ = try await service.commandTransform(
+            selectedText: "Original text",
+            voiceCommand: "Make it concise",
+            context: testContext,
+            customVocabulary: "Kubernetes; cloud code | clod code -> Claude Code"
+        )
+        let withMappings = try systemPrompt(from: recorder.request())
+        try expect(
+            withMappings.contains("Use these spellings exactly in the output when relevant:\nKubernetes, Claude Code"),
+            "command vocabulary lists preferred spellings only"
+        )
+        try expect(
+            !withMappings.contains("Known mishearings")
+                && !withMappings.contains("cloud code")
+                && !withMappings.contains("clod code"),
+            "Edit Mode prompt has no corrections even when mappings exist"
+        )
+        let commandUserMessage = try cleanupUserMessage(from: recorder.request())
+        try expect(
+            !commandUserMessage.contains("cloud code"),
+            "Edit Mode user message has no heard forms"
+        )
+
+        _ = try await service.commandTransform(
+            selectedText: "Original text",
+            voiceCommand: "Make it concise",
+            context: testContext,
+            customVocabulary: "Kubernetes"
+        )
+        let plain = try systemPrompt(from: recorder.request())
+        try expect(!plain.contains("Known mishearings."), "plain command vocabulary omits corrections")
+        try expect(
+            plain.contains("Use these spellings exactly in the output when relevant:\nKubernetes"),
+            "plain command vocabulary is unchanged"
+        )
+        try expect(recorder.count() == 2, "only the stubbed transport is called")
+    }
+
+    private static func envelopeData(from userMessage: String) throws -> [String: Any] {
+        guard let jsonStart = userMessage.firstIndex(of: "{"),
+              let envelopeData = String(userMessage[jsonStart...]).data(using: .utf8),
+              let envelope = try JSONSerialization.jsonObject(with: envelopeData) as? [String: Any],
+              let data = envelope["data"] as? [String: Any] else {
+            throw PostProcessingBackendTestFailure("post-processing envelope data")
+        }
+        return data
     }
 
     private static let successfulReadinessProbe: LocalAIServerManager.ReadinessProbe = { request in

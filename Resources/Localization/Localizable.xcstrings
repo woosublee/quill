@@ -2977,6 +2977,22 @@
         }
       }
     },
+    "Teach specific mishearings with an arrow: \"cloud code -> Claude Code\". Separate multiple heard forms with \"|\": \"cloud code | clod code -> Claude Code\".": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teach specific mishearings with an arrow: \"cloud code -> Claude Code\". Separate multiple heard forms with \"|\": \"cloud code | clod code -> Claude Code\"."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 줄에 '잘못 들리는 표기 -> 올바른 표기'로 적으면 후처리에서 고칩니다. 여러 표기는 |로 묶을 수 있습니다. 예: 퀼 | 퀄 -> Quill"
+          }
+        }
+      }
+    },
     "Settings": {
       "localizations": {
         "en": {
