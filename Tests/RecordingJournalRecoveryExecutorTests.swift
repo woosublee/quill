@@ -19,6 +19,7 @@ struct RecordingJournalRecoveryExecutorTests {
             try damagedSegmentedJournalIsRecoveredPartially()
             try unusableSegmentedJournalRemainsManual()
             try manualRecoveryCandidateIsPreserved()
+            try discardFailureLeavesHiddenTombstoneForStartupRecovery()
             print("RecordingJournalRecoveryExecutorTests passed")
         } catch {
             fputs("RecordingJournalRecoveryExecutorTests failed: \(error)\n", stderr)
@@ -589,10 +590,97 @@ struct RecordingJournalRecoveryExecutorTests {
         )
     }
 
+    private static func discardFailureLeavesHiddenTombstoneForStartupRecovery() throws {
+        let fileManager = FailingTombstoneRemovalFileManager()
+        try withFixture(
+            sourceMode: .microphone,
+            sourceKind: .microphone,
+            sourceFileName: "microphone.wav.part",
+            fileManager: fileManager
+        ) { fixture in
+            let session = try fixture.store.createSingleSource(fixture.request)
+            let writer = try RecordingPCMJournalWriter(
+                session: session,
+                store: fixture.store
+            )
+            writer.enqueue(Data([0x01, 0x00]))
+            _ = try writer.drainAndClose()
+            try fixture.store.markDiscarded(recordingID: fixture.recordingID)
+
+            let directory = fixture.store.recordingDirectory(
+                recordingID: fixture.recordingID
+            )
+            let tombstone = fixture.store.inflightDirectory.appendingPathComponent(
+                ".discarded-\(fixture.recordingID.uuidString.lowercased())",
+                isDirectory: true
+            )
+            fileManager.failNextTombstoneRemoval = true
+            do {
+                try fixture.store.discardInflightRecording(
+                    recordingID: fixture.recordingID
+                )
+                throw TestFailure("first discard must fail deletion")
+            } catch let error as TestFailure {
+                throw error
+            } catch {
+                // expected
+            }
+            guard !FileManager.default.fileExists(atPath: directory.path) else {
+                throw TestFailure(
+                    "discard failure must move journal out of recovery scan"
+                )
+            }
+            guard FileManager.default.fileExists(atPath: tombstone.path) else {
+                throw TestFailure("discard failure must leave hidden tombstone")
+            }
+
+            let candidates = InflightRecordingRecovery(
+                store: fixture.store
+            ).scan()
+            try expectEqual(candidates.count, 1, "tombstone candidate count")
+            try expectEqual(
+                candidates[0].action,
+                .discard,
+                "tombstone recovery action"
+            )
+            let results = RecordingJournalRecoveryExecutor(
+                store: fixture.store
+            ).recoverAll()
+            guard case .discarded(let recordingID) = results.first else {
+                throw TestFailure("startup recovery must delete tombstone")
+            }
+            try expectEqual(recordingID, fixture.recordingID, "tombstone ID")
+            guard !FileManager.default.fileExists(atPath: tombstone.path) else {
+                throw TestFailure("startup recovery must remove hidden tombstone")
+            }
+            guard !FileManager.default.fileExists(
+                atPath: fixture.store.permanentURL(
+                    recordingID: fixture.recordingID
+                ).path
+            ) else {
+                throw TestFailure("discarded journal must not promote audio")
+            }
+        }
+    }
+
+    private final class FailingTombstoneRemovalFileManager: FileManager {
+        var failNextTombstoneRemoval = false
+
+        override func removeItem(at URL: URL) throws {
+            if failNextTombstoneRemoval,
+               URL.lastPathComponent.hasPrefix(".discarded-") {
+                failNextTombstoneRemoval = false
+                throw CocoaError(.fileWriteUnknown)
+            }
+            try super.removeItem(at: URL)
+        }
+    }
+
     private static func withFixture(
         sourceMode: RecordingAudioSourceMode,
         sourceKind: RecordingJournalSourceKind,
         sourceFileName: String,
+        fileManager: FileManager = .default,
         _ body: (Fixture) throws -> Void
     ) throws {
         let root = FileManager.default.temporaryDirectory
@@ -611,7 +699,8 @@ struct RecordingJournalRecoveryExecutorTests {
             audioDirectory: root.appendingPathComponent(
                 "audio",
                 isDirectory: true
-            )
+            ),
+            fileManager: fileManager
         )
         let request = RecordingJournalCreateRequest(
             recordingID: recordingID,
