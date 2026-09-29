@@ -630,30 +630,25 @@ struct NoteBrowserView: View {
             ids = filteredHistory.map(\.id).filter { selection.selectedIDs.contains($0) }
         }
         guard !ids.isEmpty else { return }
-        if ids.count == 1 {
-            deleteSingleNote(ids[0])
-            return
-        }
         pendingDeletionIDs = ids
         showDeletionConfirmation = true
     }
 
-    /// A settled note is deleted right away and the toast offers Cancel. A note
-    /// still recording or processing keeps the permanent-delete confirmation,
+    /// Deletes one note after the user confirmed. A settled note waits for the
+    /// Cancel toast; a note still recording or processing is deleted for good,
     /// because its running work can't be put back.
-    private func deleteSingleNote(_ id: UUID) {
-        guard appState.canDeleteHistoryEntryCancellably(id: id) else {
-            pendingDeletionIDs = [id]
-            showDeletionConfirmation = true
-            return
-        }
+    private func deleteConfirmedNote(_ id: UUID) {
         let nextID = NoteSelection.nextFocusedID(
             afterDeleting: [id],
             in: filteredHistory.map(\.id)
         )
         let wasChecked = selection.showsSelectionUI && selection.selectedIDs.contains(id)
         let wasFocused = selection.focusedID == id
-        appState.deleteHistoryEntryCancellably(id: id)
+        if appState.canDeleteHistoryEntryCancellably(id: id) {
+            appState.deleteHistoryEntryCancellably(id: id)
+        } else {
+            appState.deleteHistoryEntry(id: id)
+        }
         guard !appState.pipelineHistory.contains(where: { $0.id == id }) else { return }
         if wasChecked {
             selection.focus(nextID)
@@ -667,21 +662,15 @@ struct NoteBrowserView: View {
         let ids = pendingDeletionIDs
         pendingDeletionIDs = []
         guard !ids.isEmpty else { return }
+        if ids.count == 1 {
+            deleteConfirmedNote(ids[0])
+            return
+        }
         let nextID = NoteSelection.nextFocusedID(
             afterDeleting: Set(ids),
             in: filteredHistory.map(\.id)
         )
-        if ids.count == 1 {
-            let wasFocused = selection.focusedID == ids[0]
-            appState.deleteHistoryEntry(id: ids[0])
-            // In selection mode the viewed note may be unchecked; keep the checked notes.
-            if wasFocused, !selection.isSelectionModeRequested,
-               !appState.pipelineHistory.contains(where: { $0.id == ids[0] }) {
-                selection.focus(nextID)
-            }
-            return
-        }
-        let result = appState.deleteHistoryEntries(ids: ids)
+        let result = appState.deleteHistoryEntriesCancellably(ids: ids)
         if result.failedIDs.isEmpty, result.skippedIDs.isEmpty {
             selection.focus(nextID)
         } else {
@@ -708,6 +697,12 @@ struct NoteBrowserView: View {
         pendingDeletionIDs.count == 1
             ? Text("Delete this note?")
             : Text(localizedCatalogFormat("Delete %lld notes?", pendingDeletionIDs.count))
+    }
+
+    private func noteDeletionToastMessage(count: Int) -> String {
+        count == 1
+            ? localizedCatalogString("Note deleted")
+            : localizedCatalogFormat("%lld notes deleted", count)
     }
 
     private func scheduleRecoveryScrollRestore(for itemID: UUID) {
@@ -759,9 +754,9 @@ struct NoteBrowserView: View {
                         .frame(height: 16)
                 }
                 .overlay(alignment: .bottom) {
-                    if appState.pendingNoteDeletion != nil {
+                    if let pending = appState.pendingNoteDeletion {
                         NoteBrowserToastView(
-                            message: localizedCatalogString("Note deleted"),
+                            message: noteDeletionToastMessage(count: pending.noteCount),
                             actionTitle: "Cancel",
                             action: { appState.cancelPendingNoteDeletion() }
                         )
@@ -771,13 +766,13 @@ struct NoteBrowserView: View {
                     }
                 }
                 .animation(.easeOut(duration: 0.16), value: appState.pendingNoteDeletion?.id)
-                .onChange(of: appState.pendingNoteDeletion?.id) { pendingID in
-                    guard pendingID != nil else { return }
+                .onChange(of: appState.pendingNoteDeletion?.id) { _ in
+                    guard let pending = appState.pendingNoteDeletion else { return }
                     NSAccessibility.post(
                         element: NSApplication.shared,
                         notification: .announcementRequested,
                         userInfo: [
-                            .announcement: localizedCatalogString("Note deleted"),
+                            .announcement: noteDeletionToastMessage(count: pending.noteCount),
                             .priority: NSAccessibilityPriorityLevel.medium.rawValue
                         ]
                     )
@@ -816,10 +811,12 @@ struct NoteBrowserView: View {
             Button("Delete", role: .destructive) { performPendingDeletion() }
             Button("Cancel", role: .cancel) { pendingDeletionIDs = [] }
         } message: {
-            if pendingDeletionIDs.count == 1 {
-                Text("Deleted notes cannot be recovered.")
+            if pendingDeletionIDs.count != 1 {
+                Text("Audio and summaries are deleted too. You can cancel for a few seconds after deleting.")
+            } else if appState.canDeleteHistoryEntryCancellably(id: pendingDeletionIDs[0]) {
+                Text("You can cancel for a few seconds after deleting.")
             } else {
-                Text("Deleted notes cannot be recovered. Audio and summaries are deleted too.")
+                Text("Deleted notes cannot be recovered.")
             }
         }
         .background(NoteBrowserKeyCommandMonitor(handle: handleKeyCommand))
@@ -1431,7 +1428,7 @@ struct NoteBrowserView: View {
         } else if let id = selectedItemID,
            let item = appState.pipelineHistory.first(where: { $0.id == id }) {
             NoteDetailView(item: item) {
-                deleteSingleNote(id)
+                deleteConfirmedNote(id)
             }
             .id(id)
         } else if appState.pipelineHistory.isEmpty {
@@ -2173,6 +2170,7 @@ private struct NoteDetailView: View {
     @State private var titleDraft = ""
     @State private var isRetrying = false
     @State private var titleDebounceTimer: Timer?
+    @State private var showDeleteConfirmation = false
     @State private var showDeleteChoice = false
     @State private var selectedContentMode: NoteContentMode = .transcript
     @State private var summaryIssue: QuillUserIssueRecord?
@@ -2469,6 +2467,16 @@ private struct NoteDetailView: View {
         .onReceive(appState.$retryingItemIDs) { ids in
             withAnimation(.easeOut(duration: 0.16)) {
                 isRetrying = ids.contains(item.id)
+            }
+        }
+        .confirmationDialog("Delete this note?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { onDelete() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if appState.canDeleteHistoryEntryCancellably(id: item.id) {
+                Text("You can cancel for a few seconds after deleting.")
+            } else {
+                Text("Deleted notes cannot be recovered.")
             }
         }
         // With a summary, the one trash button asks what to delete. The
@@ -3288,7 +3296,7 @@ private struct NoteDetailView: View {
                     if canDeleteSummary {
                         showDeleteChoice = true
                     } else {
-                        onDelete()
+                        showDeleteConfirmation = true
                     }
                 },
                 label: {

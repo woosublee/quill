@@ -219,7 +219,7 @@ struct MeetingSummaryUIContractTests {
             "case .retry, .regenerate:",
             "arrow.triangle.2.circlepath",
             "private var canDeleteSummary:",
-            "if canDeleteSummary {\n                        showDeleteChoice = true\n                    } else {\n                        onDelete()\n                    }",
+            "if canDeleteSummary {\n                        showDeleteChoice = true\n                    } else {\n                        showDeleteConfirmation = true\n                    }",
             "deleteMeetingSummary(noteID: item.id)",
             ".frame(maxWidth: .infinity, maxHeight: .infinity)"
         ] {

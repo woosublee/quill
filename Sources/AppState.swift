@@ -6760,30 +6760,59 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    /// Removes a note from the list and the history store, but leaves its
+    /// Removes notes from the list and the history store, but leaves their
     /// audio, transcript, and cloud job files on disk for a short window so
     /// the Note Browser can offer Cancel. The files are removed by
-    /// `finalizePendingNoteDeletion()` when the window ends, when another note
-    /// is deleted the same way, or when the app quits. After a crash the row is
-    /// already gone, so the next launch's orphan sweep removes the files.
-    /// Notes that are still recording or processing are not accepted here:
-    /// their running work would outlive the note, so they use
+    /// `finalizePendingNoteDeletion()` when the window ends, when more notes
+    /// are deleted the same way, or when the app quits. After a crash the rows
+    /// are already gone, so the next launch's orphan sweep removes the files.
+    /// Notes that are still recording or processing are skipped: their
+    /// running work would outlive the note, so they use
     /// `deleteHistoryEntry(id:)` instead.
     @MainActor
-    func deleteHistoryEntryCancellably(id: UUID) {
-        guard canDeleteHistoryEntryCancellably(id: id) else { return }
+    @discardableResult
+    func deleteHistoryEntriesCancellably(ids: [UUID]) -> NoteBulkDeletionResult {
+        var result = NoteBulkDeletionResult()
         finalizePendingNoteDeletion()
-        guard let removed = removeHistoryEntryRecord(id: id) else { return }
+        // Positions before any removal, so Cancel can rebuild the list order.
+        let originalIndexes = Dictionary(
+            pipelineHistory.enumerated().map { ($1.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var entries: [PendingNoteDeletion.Entry] = []
+        for id in ids {
+            guard pipelineHistory.contains(where: { $0.id == id }) else { continue }
+            guard canDeleteHistoryEntryCancellably(id: id) else {
+                result.skippedIDs.append(id)
+                continue
+            }
+            guard let removed = removeHistoryEntryRecord(id: id) else {
+                result.failedIDs.append(id)
+                continue
+            }
+            entries.append(PendingNoteDeletion.Entry(
+                item: removed.item,
+                index: originalIndexes[id] ?? removed.index,
+                assets: removed.assets
+            ))
+            result.deletedIDs.append(id)
+        }
+        guard !entries.isEmpty else { return result }
         let pending = PendingNoteDeletion(
-            item: removed.item,
-            index: removed.index,
-            assets: removed.assets
+            entries: entries.sorted { $0.index < $1.index }
         )
         pendingNoteDeletion = pending
         scheduleNoteDeletionFinalization(Self.noteDeletionCancelWindow) { [weak self] in
             guard let self, self.pendingNoteDeletion?.id == pending.id else { return }
             self.finalizePendingNoteDeletion()
         }
+        return result
+    }
+
+    @MainActor
+    func deleteHistoryEntryCancellably(id: UUID) {
+        guard canDeleteHistoryEntryCancellably(id: id) else { return }
+        deleteHistoryEntriesCancellably(ids: [id])
     }
 
     /// Whether the note is settled, so deleting it can wait for Cancel.
@@ -6794,41 +6823,49 @@ final class AppState: ObservableObject, @unchecked Sendable {
             && !meetingSummaryGeneratingNoteIDs.contains(id)
     }
 
-    /// Puts the pending note back with its files, title, summary, and place.
+    /// Puts the pending notes back with their files, titles, summaries, and places.
     @MainActor
     func cancelPendingNoteDeletion() {
         guard let pending = pendingNoteDeletion,
               requireAvailableHistoryForMutation() else { return }
-        // A row with this ID came back some other way; never overwrite it or
-        // list it twice.
-        guard !pipelineHistory.contains(where: { $0.id == pending.item.id }) else {
-            pendingNoteDeletion = nil
-            return
+        var unrestored: [PendingNoteDeletion.Entry] = []
+        var restoreError: Error?
+        // Ascending original positions rebuild the list order exactly.
+        for entry in pending.entries {
+            // A row with this ID came back some other way; never overwrite it
+            // or list it twice.
+            guard !pipelineHistory.contains(where: { $0.id == entry.item.id }) else { continue }
+            do {
+                // No trimming: the restored note must stay in the store while
+                // it is listed.
+                _ = try pipelineHistoryStore.upsert(
+                    entry.item,
+                    maxCount: Int.max,
+                    requiresDurableStore: true
+                )
+                let index = min(entry.index, pipelineHistory.count)
+                pipelineHistory.insert(entry.item, at: index)
+            } catch {
+                restoreError = restoreError ?? error
+                unrestored.append(entry)
+            }
         }
-        do {
-            // No trimming: the restored note must stay in the store while it
-            // is listed.
-            _ = try pipelineHistoryStore.upsert(
-                pending.item,
-                maxCount: Int.max,
-                requiresDurableStore: true
-            )
-            pendingNoteDeletion = nil
-            let index = min(pending.index, pipelineHistory.count)
-            pipelineHistory.insert(pending.item, at: index)
-        } catch {
-            errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to restore the deleted note"), providerDetail: error.localizedDescription)
+        // Notes that could not come back keep waiting for the window to end.
+        pendingNoteDeletion = unrestored.isEmpty ? nil : pending.keeping(unrestored)
+        if let restoreError {
+            errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to restore the deleted note"), providerDetail: restoreError.localizedDescription)
         }
     }
 
-    /// Removes the files of the pending note now. Safe to call at any time.
+    /// Removes the files of the pending notes now. Safe to call at any time.
     @MainActor
     func finalizePendingNoteDeletion() {
         guard let pending = pendingNoteDeletion else { return }
         pendingNoteDeletion = nil
-        // The cleanup is keyed by note ID; skip it if that ID is listed again.
-        guard !pipelineHistory.contains(where: { $0.id == pending.item.id }) else { return }
-        if let assets = pending.assets {
+        for entry in pending.entries {
+            // The cleanup is keyed by note ID; skip it if that ID is listed again.
+            guard !pipelineHistory.contains(where: { $0.id == entry.item.id }),
+                  let assets = entry.assets else { continue }
             cleanupDeletedPipelineHistoryAssets(assets)
         }
     }
@@ -13111,11 +13148,27 @@ private extension ShortcutBinding {
     }
 }
 
-/// A note removed from the list whose files wait for the Cancel window.
+/// Notes removed from the list whose files wait for the Cancel window.
 struct PendingNoteDeletion: Identifiable {
-    let id = UUID()
-    let item: PipelineHistoryItem
-    /// Where the note was in the list, so Cancel puts it back in place.
-    let index: Int
-    let assets: DeletedPipelineHistoryAssets?
+    struct Entry {
+        let item: PipelineHistoryItem
+        /// Where the note was in the list, so Cancel puts it back in place.
+        let index: Int
+        let assets: DeletedPipelineHistoryAssets?
+    }
+
+    let id: UUID
+    /// Sorted by `index`, ascending.
+    let entries: [Entry]
+
+    init(id: UUID = UUID(), entries: [Entry]) {
+        self.id = id
+        self.entries = entries
+    }
+
+    var noteCount: Int { entries.count }
+
+    func keeping(_ entries: [Entry]) -> PendingNoteDeletion {
+        PendingNoteDeletion(id: id, entries: entries)
+    }
 }

@@ -9,6 +9,7 @@ struct AppStateStorageSafetyTests {
         try await verifiesDeleteHistoryEntryRemovesOwnedAssets()
         try await verifiesCancellableNoteDeletion()
         try await verifiesCancellableNoteDeletionGuards()
+        try await verifiesCancellableBulkNoteDeletion()
         try await verifiesDeleteHistoryEntriesSkipsBusyNotesAndKeepsFailures()
         try await verifiesClearHistoryRemovesOwnedAssets()
         try await verifiesSharedAssetsRemainWhileHistoryStillReferencesThem()
@@ -305,11 +306,11 @@ struct AppStateStorageSafetyTests {
                 let hidden = await MainActor.run {
                     (
                         appState.pipelineHistory.map(\.id),
-                        appState.pendingNoteDeletion?.item.id
+                        appState.pendingNoteDeletion?.entries.map(\.item.id)
                     )
                 }
                 try expect(hidden.0 == [newer.id, older.id], "a deleted note leaves the list at once")
-                try expect(hidden.1 == item.id, "the deleted note waits for the Cancel window")
+                try expect(hidden.1 == [item.id], "the deleted note waits for the Cancel window")
                 try expect(scheduler.items.count == 1 && scheduler.items[0].0 == AppState.noteDeletionCancelWindow, "the Cancel window is scheduled once")
                 try expect(
                     FileManager.default.fileExists(atPath: audio.fileURL.path)
@@ -349,16 +350,16 @@ struct AppStateStorageSafetyTests {
                     await MainActor.run { appState.finalizePendingNoteDeletion() }
                 case .nextDeletion:
                     await MainActor.run { appState.deleteHistoryEntryCancellably(id: newer.id) }
-                    let pendingID = await MainActor.run { appState.pendingNoteDeletion?.item.id }
-                    try expect(pendingID == newer.id, "a second deletion replaces the first pending one")
+                    let pendingID = await MainActor.run { appState.pendingNoteDeletion?.entries.map(\.item.id) }
+                    try expect(pendingID == [newer.id], "a second deletion replaces the first pending one")
                     await MainActor.run { scheduler.items[0].1() }
-                    let stillPending = await MainActor.run { appState.pendingNoteDeletion?.item.id }
-                    try expect(stillPending == newer.id, "the first timer does not end the second window")
+                    let stillPending = await MainActor.run { appState.pendingNoteDeletion?.entries.map(\.item.id) }
+                    try expect(stillPending == [newer.id], "the first timer does not end the second window")
                 }
                 let finished = await MainActor.run {
                     (
                         appState.pipelineHistory.contains { $0.id == item.id },
-                        appState.pendingNoteDeletion?.item.id == item.id
+                        appState.pendingNoteDeletion?.entries.contains { $0.item.id == item.id } == true
                     )
                 }
                 try expect(!finished.0 && !finished.1, "the deletion is final")
@@ -462,6 +463,104 @@ struct AppStateStorageSafetyTests {
                     FileManager.default.fileExists(atPath: audio.fileURL.path),
                     "a returned note keeps its audio"
                 )
+            }
+        }
+    }
+
+    /// #409: bulk delete waits for Cancel as one batch, restores every note
+    /// in place, and a later deletion finalizes the earlier batch.
+    private static func verifiesCancellableBulkNoteDeletion() async throws {
+        enum Ending { case cancel, expire, nextDeletion }
+        for ending in [Ending.cancel, .expire, .nextDeletion] {
+            try await AppStateTestStorage.withIsolatedStorage { environment in
+                try prepareStorageDirectories(for: environment.storageLayout)
+                let assetStore = NoteAssetStore(storageLayout: environment.storageLayout)
+                let historyStore = PipelineHistoryStore(
+                    storeURL: environment.storageLayout.historyStoreURL
+                )
+                var items: [PipelineHistoryItem] = []
+                var audioURLs: [UUID: URL] = [:]
+                // Oldest first, so the list reads items[4], items[3], ... items[0].
+                for index in 0..<5 {
+                    let sourceURL = environment.rootDirectory
+                        .appendingPathComponent("bulk-source-\(index).wav")
+                    try Data("synthetic audio \(index)".utf8).write(to: sourceURL)
+                    let audio = try assetStore.saveAudio(from: sourceURL)
+                    let item = makeHistoryItem(
+                        audioFileName: audio.fileName,
+                        transcriptFileName: nil,
+                        timestamp: Date(timeIntervalSince1970: TimeInterval(1_000 * (index + 1)))
+                    )
+                    _ = try historyStore.append(item, maxCount: Int.max)
+                    items.append(item)
+                    audioURLs[item.id] = audio.fileURL
+                }
+                let appState = await MainActor.run {
+                    AppState(dependencies: environment.dependencies)
+                }
+                let scheduler = ManualNoteDeletionScheduler()
+                let originalOrder = await MainActor.run { appState.pipelineHistory.map(\.id) }
+                try expect(originalOrder == items.reversed().map(\.id), "fixture order is newest first")
+                // Delete the 1st, 3rd, and 5th rows, asked for out of order.
+                let batch = [originalOrder[4], originalOrder[0], originalOrder[2]]
+                let result = await MainActor.run { () -> NoteBulkDeletionResult in
+                    appState.scheduleNoteDeletionFinalization = { delay, work in
+                        scheduler.items.append((delay, work))
+                    }
+                    return appState.deleteHistoryEntriesCancellably(ids: batch)
+                }
+                let during = await MainActor.run {
+                    (
+                        appState.pipelineHistory.map(\.id),
+                        appState.pendingNoteDeletion?.noteCount
+                    )
+                }
+                try expect(Set(result.deletedIDs) == Set(batch), "every settled note in the batch is deleted")
+                try expect(during.0 == [originalOrder[1], originalOrder[3]], "the batch leaves the list at once")
+                try expect(during.1 == 3 && scheduler.items.count == 1, "the batch waits as one Cancel window")
+                try expect(
+                    batch.allSatisfy { FileManager.default.fileExists(atPath: audioURLs[$0]!.path) },
+                    "batch files stay during the Cancel window"
+                )
+
+                switch ending {
+                case .cancel:
+                    await MainActor.run { appState.cancelPendingNoteDeletion() }
+                    let restored = await MainActor.run {
+                        (appState.pipelineHistory.map(\.id), appState.pendingNoteDeletion == nil)
+                    }
+                    try expect(restored.0 == originalOrder, "Cancel restores every note in its place")
+                    try expect(restored.1, "Cancel ends the batch")
+                    let stored = PipelineHistoryStore(
+                        storeURL: environment.storageLayout.historyStoreURL
+                    ).loadAllHistory()
+                    try expect(stored.map(\.id) == originalOrder, "Cancel restores every stored row")
+                    try expect(
+                        batch.allSatisfy { FileManager.default.fileExists(atPath: audioURLs[$0]!.path) },
+                        "Cancel keeps every note's audio"
+                    )
+                    return
+                case .expire:
+                    await MainActor.run { scheduler.items[0].1() }
+                case .nextDeletion:
+                    await MainActor.run { appState.deleteHistoryEntryCancellably(id: originalOrder[1]) }
+                    let pending = await MainActor.run {
+                        appState.pendingNoteDeletion?.entries.map(\.item.id)
+                    }
+                    try expect(pending == [originalOrder[1]], "a new deletion replaces the earlier batch")
+                    try expect(
+                        FileManager.default.fileExists(atPath: audioURLs[originalOrder[1]]!.path),
+                        "the newly deleted note keeps its audio for its own window"
+                    )
+                }
+                try expect(
+                    batch.allSatisfy { !FileManager.default.fileExists(atPath: audioURLs[$0]!.path) },
+                    "ending the batch window removes every note's audio"
+                )
+                let stored = PipelineHistoryStore(
+                    storeURL: environment.storageLayout.historyStoreURL
+                ).loadAllHistory()
+                try expect(!stored.contains { batch.contains($0.id) }, "the batch rows are gone")
             }
         }
     }

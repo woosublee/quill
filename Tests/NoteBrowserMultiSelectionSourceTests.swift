@@ -25,21 +25,25 @@ struct NoteBrowserMultiSelectionSourceTests {
         // Multi-selection replaces the detail pane, and deletion goes through AppState.
         precondition(source.contains("NoteMultiSelectionPanel(count: selection.selectedIDs.count)"))
         let perform = try body(of: "private func performPendingDeletion()", in: source)
-        precondition(perform.contains("appState.deleteHistoryEntries(ids: ids)"))
-        // #409: one settled note skips the dialog and is deleted with a Cancel toast.
+        // #409: deletion keeps its confirmation, then settled notes get a Cancel toast.
+        precondition(perform.contains("appState.deleteHistoryEntriesCancellably(ids: ids)"))
+        precondition(perform.contains("deleteConfirmedNote(ids[0])"))
         let request = try body(of: "private func requestDeletion(of id: UUID? = nil)", in: source)
-        precondition(request.contains("if ids.count == 1 {\n            deleteSingleNote(ids[0])"))
-        let single = try body(of: "private func deleteSingleNote(_ id: UUID)", in: source)
-        precondition(single.contains("guard appState.canDeleteHistoryEntryCancellably(id: id) else {"))
+        precondition(request.contains("showDeletionConfirmation = true"))
+        let single = try body(of: "private func deleteConfirmedNote(_ id: UUID)", in: source)
+        precondition(single.contains("if appState.canDeleteHistoryEntryCancellably(id: id) {"))
         precondition(single.contains("appState.deleteHistoryEntryCancellably(id: id)"))
+        // A note still recording or processing is deleted for good after the dialog.
+        precondition(single.contains("appState.deleteHistoryEntry(id: id)"))
         // Deleting one unchecked note from the context menu keeps selection mode.
         precondition(single.contains("} else if wasFocused, !selection.isSelectionModeRequested {"))
-        // A note still recording or processing keeps the permanent-delete confirmation.
-        precondition(perform.contains("appState.deleteHistoryEntry(id: ids[0])"))
-        precondition(!source.contains("showDeleteConfirmation"))
+        precondition(source.contains("Text(\"Delete this note?\")"))
+        precondition(source.contains("Text(\"You can cancel for a few seconds after deleting.\")"))
+        precondition(source.contains("@State private var showDeleteConfirmation = false"))
+        precondition(source.contains("localizedCatalogFormat(\"%lld notes deleted\", count)"))
         precondition(source.contains("action: { appState.cancelPendingNoteDeletion() }"))
-        precondition(source.contains("if appState.pendingNoteDeletion != nil {"))
-        precondition(source.contains(".announcement: localizedCatalogString(\"Note deleted\")"))
+        precondition(source.contains("if let pending = appState.pendingNoteDeletion {"))
+        precondition(source.contains(".announcement: noteDeletionToastMessage(count: pending.noteCount)"))
         let toast = try body(of: "private struct NoteBrowserToastView: View", in: source)
         precondition(toast.contains("Button(action: action)"))
         let monitor0 = try body(of: "private struct NoteBrowserKeyCommandMonitor", in: source)
