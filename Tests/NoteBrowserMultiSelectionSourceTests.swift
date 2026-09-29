@@ -36,6 +36,14 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(source.components(separatedBy: "openNoteForSearch(focused)").count == 3)
         precondition(source.contains("if !isFocused && searchText.isEmpty && !isMovingOpenNoteForSearch {"))
         precondition(source.contains("DispatchQueue.main.async {\n            isSearchFieldFocused = true"))
+        // #434: the delete-cancel toast shows the time left from when the
+        // deletion started, and a partial Cancel keeps that start.
+        let appStateSource = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        precondition(appStateSource.contains("PendingNoteDeletion(id: id, entries: entries, startedAt: startedAt)"))
+        precondition(source.contains("startedAt: pending.startedAt,\n                                duration: AppState.noteDeletionCancelWindow"))
+        precondition(!source.contains("@State private var startedAt = Date()"), "the countdown runs from the deletion, not from when the toast appears")
+        precondition(source.contains("ToastCountdownBar(\n                    startedAt: countdown.startedAt,"))
+        precondition(source.contains("TimelineView(.periodic(from: startedAt, by: 1))"))
 
         // Visible entry points: the Select button and the row context menu.
         precondition(source.contains("Button(\"Select\") { beginSelection() }"))

@@ -620,6 +620,8 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/NoteListRowDisplayDataTests
 	@swiftc -parse-as-library Sources/NoteSelection.swift Tests/NoteSelectionTests.swift -o $(TEST_BUILD_DIR)/NoteSelectionTests
 	@$(TEST_BUILD_DIR)/NoteSelectionTests
+	@swiftc -parse-as-library Sources/ToastCountdown.swift Tests/ToastCountdownTests.swift -o $(TEST_BUILD_DIR)/ToastCountdownTests
+	@$(TEST_BUILD_DIR)/ToastCountdownTests
 	@swiftc -parse-as-library Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/QuillUserIssue.swift Sources/CalendarIntegrationModels.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Sources/NoteListRowDisplayData.swift Tests/PipelineHistoryUserIssueTests.swift -o $(TEST_BUILD_DIR)/PipelineHistoryUserIssueTests
 	@$(TEST_BUILD_DIR)/PipelineHistoryUserIssueTests
 	@swiftc -parse-as-library Tests/NoteTitleHorizontalScrollFieldTests.swift -o $(TEST_BUILD_DIR)/NoteTitleHorizontalScrollFieldTests

@@ -13683,15 +13683,19 @@ struct PendingNoteDeletion: Identifiable {
 
     let id: UUID
     let entries: [Entry]
+    /// When the Cancel window started; the toast's countdown runs from here,
+    /// so reopening the Note Browser doesn't restart it.
+    let startedAt: Date
 
-    init(id: UUID = UUID(), entries: [Entry]) {
+    init(id: UUID = UUID(), entries: [Entry], startedAt: Date = Date()) {
         self.id = id
         self.entries = entries
+        self.startedAt = startedAt
     }
 
     var noteCount: Int { entries.count }
 
     func keeping(_ entries: [Entry]) -> PendingNoteDeletion {
-        PendingNoteDeletion(id: id, entries: entries)
+        PendingNoteDeletion(id: id, entries: entries, startedAt: startedAt)
     }
 }
