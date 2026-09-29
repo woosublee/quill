@@ -67,7 +67,7 @@ struct NoteBrowserMultiSelectionSourceTests {
         // it records, and asking to delete it explains why not.
         precondition(source.contains("if !appState.isRecordingInProgress(noteID: item.id) {\n                floatingToolbar"))
         precondition(source.contains("|| appState.isRecordingInProgress(noteID: item.id)"))
-        precondition(source.contains("\"Stop the recording, then delete the note.\""))
+        precondition(source.contains("\"Wait for the recording and its transcription to finish, then delete the note.\""))
         // It stays protected after the stop, until its transcript is saved.
         let appStateSource3 = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
         precondition(appStateSource3.contains("if currentRecordingLiveNoteID == noteID { return true }"))

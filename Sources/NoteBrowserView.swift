@@ -561,7 +561,7 @@ struct NoteBrowserView: View {
         }
         if let id, appState.isRecordingInProgress(noteID: id) {
             showDeletionNotice(localizedCatalogString(
-                "Stop the recording, then delete the note."
+                "Wait for the recording and its transcription to finish, then delete the note."
             ))
             return
         }
