@@ -92,12 +92,11 @@ struct RecordingRecoveryHistoryTests {
                 )
             )
         )
-        let controller = try SingleSourceRecordingJournalController(
+        try promoteLegacySingleSourceJournal(
             request: request,
-            store: store
+            store: store,
+            pcm: Data(repeating: 0, count: 32_000)
         )
-        controller.sink.enqueue(Data(repeating: 0, count: 32_000))
-        _ = try controller.finish()
 
         let recovered = try requireRecovered(
             RecordingJournalRecoveryExecutor(store: store).recoverAll()[0]
@@ -481,12 +480,11 @@ struct RecordingRecoveryHistoryTests {
                 )
             )
         )
-        let controller = try SingleSourceRecordingJournalController(
+        try promoteLegacySingleSourceJournal(
             request: request,
-            store: store
+            store: store,
+            pcm: Data([0x01, 0x00])
         )
-        controller.sink.enqueue(Data([0x01, 0x00]))
-        _ = try controller.finish()
 
         let historyStore = PipelineHistoryStore(inMemory: true)
         let completed = PipelineHistoryItem(
@@ -552,34 +550,34 @@ struct RecordingRecoveryHistoryTests {
             monotonicAnchorNanoseconds: anchor,
             pipeline: makeCombinedPipelineSnapshot()
         )
-        let controller = try CombinedRecordingJournalController(
+        let journal = try LegacyCombinedJournal(
             request: request,
             store: store
         )
         switch mode {
         case .complete:
-            controller.microphoneSink.enqueue(
+            journal.microphoneSink.enqueue(
                 Data([0x01, 0x00, 0x02, 0x00]),
                 firstFrameMonotonicNanoseconds: anchor
             )
-            controller.systemAudioSink.enqueue(
+            journal.systemAudioSink.enqueue(
                 Data([0x03, 0x00, 0x04, 0x00]),
                 firstFrameMonotonicNanoseconds: anchor
             )
         case .microphoneOnly:
-            controller.microphoneSink.enqueue(
+            journal.microphoneSink.enqueue(
                 Data([0x01, 0x00, 0x02, 0x00]),
                 firstFrameMonotonicNanoseconds: anchor
             )
         case .systemAudioOnly:
-            controller.systemAudioSink.enqueue(
+            journal.systemAudioSink.enqueue(
                 Data([0x03, 0x00, 0x04, 0x00]),
                 firstFrameMonotonicNanoseconds: anchor
             )
         case .partial:
             throw TestFailure("partial mode requires a segmented fixture")
         }
-        _ = try controller.stopAndClose()
+        _ = try journal.stopAndClose()
         let artifact = try requireRecovered(
             RecordingJournalRecoveryExecutor(store: store).recoverAll()[0]
         )
@@ -649,4 +647,97 @@ struct RecordingRecoveryHistoryTests {
             self.description = description
         }
     }
+}
+
+/// Writes a legacy combined-layout journal directly through the store and
+/// PCM writers so recovery of journals left by older builds stays covered.
+private struct LegacyCombinedJournal {
+    struct StopResult {
+        let microphoneSourceURL: URL
+        let microphoneCommit: RecordingJournalSourceCommit
+        let systemAudioSourceURL: URL
+        let systemAudioCommit: RecordingJournalSourceCommit
+    }
+
+    let microphoneSink: RecordingJournalSourceSink
+    let systemAudioSink: RecordingJournalSourceSink
+
+    private let recordingID: UUID
+    private let store: RecordingJournalStore
+    private let session: CombinedRecordingJournalSession
+    private let microphoneWriter: RecordingPCMJournalWriter
+    private let systemAudioWriter: RecordingPCMJournalWriter
+
+    init(
+        request: CombinedRecordingJournalCreateRequest,
+        store: RecordingJournalStore
+    ) throws {
+        let session = try store.createCombined(request)
+        let microphoneWriter = try RecordingPCMJournalWriter(
+            session: session.microphoneSession,
+            store: store
+        )
+        let systemAudioWriter = try RecordingPCMJournalWriter(
+            session: session.systemAudioSession,
+            store: store
+        )
+        self.recordingID = request.recordingID
+        self.store = store
+        self.session = session
+        self.microphoneWriter = microphoneWriter
+        self.systemAudioWriter = systemAudioWriter
+        self.microphoneSink = RecordingJournalSourceSink(
+            writer: microphoneWriter,
+            monotonicAnchorNanoseconds: request.monotonicAnchorNanoseconds
+        )
+        self.systemAudioSink = RecordingJournalSourceSink(
+            writer: systemAudioWriter,
+            monotonicAnchorNanoseconds: request.monotonicAnchorNanoseconds
+        )
+    }
+
+    func stopAndClose() throws -> StopResult {
+        _ = try store.transition(recordingID: recordingID, to: .stopping)
+        let microphoneCommit = try microphoneWriter.drainAndCloseSnapshot()
+        let systemAudioCommit = try systemAudioWriter.drainAndCloseSnapshot()
+        _ = try store.recordCheckpoints(
+            recordingID: recordingID,
+            commitsBySourceID: [
+                session.microphoneSession.sourceID: microphoneCommit,
+                session.systemAudioSession.sourceID: systemAudioCommit
+            ]
+        )
+        return StopResult(
+            microphoneSourceURL: session.microphoneSession.sourceURL,
+            microphoneCommit: microphoneCommit,
+            systemAudioSourceURL: session.systemAudioSession.sourceURL,
+            systemAudioCommit: systemAudioCommit
+        )
+    }
+}
+
+/// Writes and promotes a legacy single-source journal directly through the
+/// store, PCM writer, and finalizer, mirroring a normal stop in older builds.
+@discardableResult
+private func promoteLegacySingleSourceJournal(
+    request: RecordingJournalCreateRequest,
+    store: RecordingJournalStore,
+    pcm: Data
+) throws -> URL {
+    let session = try store.createSingleSource(request)
+    let writer = try RecordingPCMJournalWriter(session: session, store: store)
+    writer.enqueue(pcm)
+    _ = try store.transition(recordingID: request.recordingID, to: .stopping)
+    _ = try writer.drainAndClose()
+    let finalizer = RecordingArtifactFinalizer(store: store)
+    let artifact = try finalizer.finalizeSingleSource(
+        recordingID: request.recordingID
+    )
+    let promotion = try finalizer.promote(artifact)
+    _ = try store.transition(
+        recordingID: request.recordingID,
+        to: .promoted,
+        promotion: promotion
+    )
+    return artifact.destinationURL
 }

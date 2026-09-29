@@ -106,8 +106,6 @@ struct AppStateRecordingJournalIntegrationSourceTests {
             failedStartCancelRange.lowerBound < failedStartDiscardRange.lowerBound,
             "a current unclassified failed start stops physical capture before discarding its journal"
         )
-        precondition(!startBody.contains("SingleSourceRecordingJournalController"))
-        precondition(!startBody.contains("CombinedRecordingJournalController"))
 
         let degradedSourceBody = try functionBody(
             named: "markDegradedJournalSourceUnavailableAtStart",

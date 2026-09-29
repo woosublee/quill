@@ -9,7 +9,6 @@ struct CombinedRecordingNormalStopIntegrationTests {
             try microphoneOnlyNormalStopPromotesDegradedWAV()
             try systemAudioOnlyNormalStopPromotesDegradedWAV()
             try committedBoundaryExcludesPhysicalTail()
-            try writerFailurePreservesRecoverableJournal()
             print("CombinedRecordingNormalStopIntegrationTests passed")
         } catch {
             fputs("CombinedRecordingNormalStopIntegrationTests failed: \(error)\n", stderr)
@@ -19,17 +18,17 @@ struct CombinedRecordingNormalStopIntegrationTests {
 
     private static func alignedNormalStopPromotesOneWAV() throws {
         try withFixture { fixture in
-            let controller = try fixture.makeController()
-            controller.microphoneSink.enqueue(
+            let journal = try fixture.makeJournal()
+            journal.microphoneSink.enqueue(
                 pcmData([1_000, 1_000]),
                 firstFrameMonotonicNanoseconds: fixture.anchor
             )
-            controller.systemAudioSink.enqueue(
+            journal.systemAudioSink.enqueue(
                 pcmData([3_000, 3_000]),
                 firstFrameMonotonicNanoseconds: fixture.anchor + 125_000
             )
 
-            let stopped = try controller.stopAndClose()
+            let stopped = try journal.stopAndClose()
             try expectEqual(stopped.microphoneCommit.firstCommittedFrameOffset, 0, "microphone offset")
             try expectEqual(stopped.systemAudioCommit.firstCommittedFrameOffset, 2, "System Audio offset")
             let result = try fixture.finalizer.finalizeAndPromote(
@@ -48,12 +47,12 @@ struct CombinedRecordingNormalStopIntegrationTests {
 
     private static func microphoneOnlyNormalStopPromotesDegradedWAV() throws {
         try withFixture { fixture in
-            let controller = try fixture.makeController()
-            controller.microphoneSink.enqueue(
+            let journal = try fixture.makeJournal()
+            journal.microphoneSink.enqueue(
                 pcmData([12, 34]),
                 firstFrameMonotonicNanoseconds: fixture.anchor + 1_000_000_000
             )
-            _ = try controller.stopAndClose()
+            _ = try journal.stopAndClose()
 
             let result = try fixture.finalizer.finalizeAndPromote(
                 recordingID: fixture.recordingID
@@ -65,12 +64,12 @@ struct CombinedRecordingNormalStopIntegrationTests {
 
     private static func systemAudioOnlyNormalStopPromotesDegradedWAV() throws {
         try withFixture { fixture in
-            let controller = try fixture.makeController()
-            controller.systemAudioSink.enqueue(
+            let journal = try fixture.makeJournal()
+            journal.systemAudioSink.enqueue(
                 pcmData([56, 78]),
                 firstFrameMonotonicNanoseconds: fixture.anchor + 1_000_000_000
             )
-            _ = try controller.stopAndClose()
+            _ = try journal.stopAndClose()
 
             let result = try fixture.finalizer.finalizeAndPromote(
                 recordingID: fixture.recordingID
@@ -82,48 +81,18 @@ struct CombinedRecordingNormalStopIntegrationTests {
 
     private static func committedBoundaryExcludesPhysicalTail() throws {
         try withFixture { fixture in
-            let controller = try fixture.makeController()
-            controller.microphoneSink.enqueue(
+            let journal = try fixture.makeJournal()
+            journal.microphoneSink.enqueue(
                 pcmData([90, 91]),
                 firstFrameMonotonicNanoseconds: fixture.anchor
             )
-            let stopped = try controller.stopAndClose()
+            let stopped = try journal.stopAndClose()
             try appendRaw(Data([0xFF, 0x00, 0xEE, 0x00]), to: stopped.microphoneSourceURL)
 
             let result = try fixture.finalizer.finalizeAndPromote(
                 recordingID: fixture.recordingID
             )
             try expectEqual(try readSamples(from: result.destinationURL), [90, 91], "committed boundary output")
-        }
-    }
-
-    private static func writerFailurePreservesRecoverableJournal() throws {
-        try withFixture { fixture in
-            let controller = try fixture.makeController()
-            controller.microphoneSink.enqueue(
-                Data([0xFF]),
-                firstFrameMonotonicNanoseconds: fixture.anchor
-            )
-            controller.systemAudioSink.enqueue(
-                pcmData([1, 2]),
-                firstFrameMonotonicNanoseconds: fixture.anchor
-            )
-
-            do {
-                _ = try controller.stopAndClose()
-                throw TestFailure("odd writer chunk must fail stop")
-            } catch RecordingPCMJournalWriterError.oddByteChunk {
-                // expected
-            }
-
-            let manifest = try fixture.store.loadManifest(recordingID: fixture.recordingID)
-            try expectEqual(manifest.state, .recoverable, "writer failure lifecycle")
-            for source in manifest.sources {
-                let url = try fixture.store.sourceURL(recordingID: fixture.recordingID, fileName: source.fileName)
-                guard FileManager.default.fileExists(atPath: url.path) else {
-                    throw TestFailure("writer failure must preserve \(source.fileName)")
-                }
-            }
         }
     }
 
@@ -224,8 +193,8 @@ struct CombinedRecordingNormalStopIntegrationTests {
         let request: CombinedRecordingJournalCreateRequest
         let finalizer: CombinedRecordingArtifactFinalizer
 
-        func makeController() throws -> CombinedRecordingJournalController {
-            try CombinedRecordingJournalController(request: request, store: store)
+        func makeJournal() throws -> LegacyCombinedJournal {
+            try LegacyCombinedJournal(request: request, store: store)
         }
     }
 
@@ -235,5 +204,72 @@ struct CombinedRecordingNormalStopIntegrationTests {
         init(_ description: String) {
             self.description = description
         }
+    }
+}
+
+/// Writes a legacy combined-layout journal directly through the store and
+/// PCM writers so recovery of journals left by older builds stays covered.
+private struct LegacyCombinedJournal {
+    struct StopResult {
+        let microphoneSourceURL: URL
+        let microphoneCommit: RecordingJournalSourceCommit
+        let systemAudioSourceURL: URL
+        let systemAudioCommit: RecordingJournalSourceCommit
+    }
+
+    let microphoneSink: RecordingJournalSourceSink
+    let systemAudioSink: RecordingJournalSourceSink
+
+    private let recordingID: UUID
+    private let store: RecordingJournalStore
+    private let session: CombinedRecordingJournalSession
+    private let microphoneWriter: RecordingPCMJournalWriter
+    private let systemAudioWriter: RecordingPCMJournalWriter
+
+    init(
+        request: CombinedRecordingJournalCreateRequest,
+        store: RecordingJournalStore
+    ) throws {
+        let session = try store.createCombined(request)
+        let microphoneWriter = try RecordingPCMJournalWriter(
+            session: session.microphoneSession,
+            store: store
+        )
+        let systemAudioWriter = try RecordingPCMJournalWriter(
+            session: session.systemAudioSession,
+            store: store
+        )
+        self.recordingID = request.recordingID
+        self.store = store
+        self.session = session
+        self.microphoneWriter = microphoneWriter
+        self.systemAudioWriter = systemAudioWriter
+        self.microphoneSink = RecordingJournalSourceSink(
+            writer: microphoneWriter,
+            monotonicAnchorNanoseconds: request.monotonicAnchorNanoseconds
+        )
+        self.systemAudioSink = RecordingJournalSourceSink(
+            writer: systemAudioWriter,
+            monotonicAnchorNanoseconds: request.monotonicAnchorNanoseconds
+        )
+    }
+
+    func stopAndClose() throws -> StopResult {
+        _ = try store.transition(recordingID: recordingID, to: .stopping)
+        let microphoneCommit = try microphoneWriter.drainAndCloseSnapshot()
+        let systemAudioCommit = try systemAudioWriter.drainAndCloseSnapshot()
+        _ = try store.recordCheckpoints(
+            recordingID: recordingID,
+            commitsBySourceID: [
+                session.microphoneSession.sourceID: microphoneCommit,
+                session.systemAudioSession.sourceID: systemAudioCommit
+            ]
+        )
+        return StopResult(
+            microphoneSourceURL: session.microphoneSession.sourceURL,
+            microphoneCommit: microphoneCommit,
+            systemAudioSourceURL: session.systemAudioSession.sourceURL,
+            systemAudioCommit: systemAudioCommit
+        )
     }
 }
