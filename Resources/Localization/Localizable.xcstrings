@@ -18757,18 +18757,34 @@
         }
       }
     },
-    "Wait for the recording and its transcription to finish, then delete the note.": {
+    "Can’t delete while recording": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wait for the recording and its transcription to finish, then delete the note."
+            "value": "Can’t delete while recording"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "녹음과 전사가 끝난 뒤 노트를 삭제하세요."
+            "value": "녹음·전사 중에는 삭제할 수 없습니다"
+          }
+        }
+      }
+    },
+    "Can’t delete while recovering": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can’t delete while recovering"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구 중에는 삭제할 수 없습니다"
           }
         }
       }

@@ -555,13 +555,13 @@ struct NoteBrowserView: View {
     private func requestDeletion(of id: UUID? = nil) {
         if let id, appState.recoveringRecordingIDs.contains(id) {
             showDeletionNotice(localizedCatalogString(
-                "Wait for the recording recovery to finish, then try again."
+                "Can’t delete while recovering"
             ))
             return
         }
         if let id, appState.isRecordingInProgress(noteID: id) {
             showDeletionNotice(localizedCatalogString(
-                "Wait for the recording and its transcription to finish, then delete the note."
+                "Can’t delete while recording"
             ))
             return
         }
@@ -1233,6 +1233,10 @@ struct NoteBrowserView: View {
         .overrideCursor(.arrow)
     }
 
+    /// The capsule's measured height, so a wrapped notice never covers the
+    /// list's last rows.
+    @State private var deletionCapsuleHeight: CGFloat = 36
+
     private var isShowingDeletionCapsule: Bool {
         appState.pendingNoteDeletion != nil
             || appState.pendingSummaryDeletion != nil
@@ -1267,6 +1271,13 @@ struct NoteBrowserView: View {
                 NoteDeletionCapsule(message: deletionNotice)
             }
         }
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { deletionCapsuleHeight = max(36, proxy.size.height) }
+                    .onChange(of: proxy.size.height) { deletionCapsuleHeight = max(36, $0) }
+            }
+        )
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .animation(.easeOut(duration: 0.16), value: appState.pendingNoteDeletion?.id)
         .animation(.easeOut(duration: 0.16), value: appState.pendingSummaryDeletion?.id)
@@ -1381,7 +1392,7 @@ struct NoteBrowserView: View {
                         // Room for the floating Record button, and for the
                         // deletion capsule while it shows.
                         .padding(.bottom, (selection.showsSelectionUI ? 6 : 72)
-                            + (isShowingDeletionCapsule ? 46 : 0))
+                            + (isShowingDeletionCapsule ? deletionCapsuleHeight + 10 : 0))
                     }
                     .coordinateSpace(name: "noteList")
                     // Tab reaches the list; ↑/↓ then move the open note.
@@ -4268,11 +4279,13 @@ private struct NoteDeletionCapsule: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            // Notices like "Wait for … then delete the note" wrap instead of
+            // being cut off in the narrow sidebar.
             Text(message)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.primary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
             if let cancel {
                 Button(action: cancel) {
                     Text("Cancel")
@@ -4306,27 +4319,33 @@ private struct NoteDeletionCapsule: View {
         }
         .padding(.leading, 14)
         .padding(.trailing, cancel == nil ? 14 : 6)
-        .frame(height: 36)
+        .padding(.vertical, 8)
+        .frame(minHeight: 36)
         .background {
             // Opaque under Reduce Transparency, like the note toolbar.
             if reduceTransparency {
-                Capsule().fill(QuillTransparency.opaqueBackgroundColor)
+                shape.fill(QuillTransparency.opaqueBackgroundColor)
             } else {
                 #if compiler(>=6.2)
                 if #available(macOS 26.0, *) {
-                    Color.clear.glassEffect(.regular, in: Capsule())
+                    Color.clear.glassEffect(.regular, in: shape)
                 } else {
-                    Capsule().fill(.ultraThinMaterial)
+                    shape.fill(.ultraThinMaterial)
                 }
                 #else
-                Capsule().fill(.ultraThinMaterial)
+                shape.fill(.ultraThinMaterial)
                 #endif
             }
         }
-        .overlay(Capsule().strokeBorder(strokeColor, lineWidth: 0.6))
+        .overlay(shape.strokeBorder(strokeColor, lineWidth: 0.6))
         .compositingGroup()
         .shadow(color: .black.opacity(0.085), radius: 14, x: 0, y: 4)
         .accessibilityElement(children: .contain)
+    }
+
+    /// A capsule on one line; a longer notice keeps the rounded ends.
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
     }
 
     private var strokeColor: Color {

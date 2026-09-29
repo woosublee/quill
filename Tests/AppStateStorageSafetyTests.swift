@@ -43,7 +43,7 @@ struct AppStateStorageSafetyTests {
         try await verifiesDeletedUnrecoveredNoteStaysDeletedWhenPieceRemovalStops()
         try await verifiesDeletingRecoveringNoteKeepsCancelWindow()
         try await verifiesDeletedSummaryCanBeCancelled()
-        try await verifiesRecordingNoteCannotBeDeletedWhileRecording()
+        try await verifiesLeftoverRecordingNoteCanBeDeletedDuringAnotherRecording()
         try await AppStateTestStorage.withIsolatedStorage { environment in
             try prepareStorageDirectories(for: environment.storageLayout)
             let fallbackAudioURL = try await verifiesFallbackHistoryDoesNotSweepStoredAudio(
@@ -1500,9 +1500,11 @@ struct AppStateStorageSafetyTests {
         }
     }
 
-    /// The note of the recording in progress can't be deleted (#437); one
-    /// left in the recording state after a crash still can.
-    private static func verifiesRecordingNoteCannotBeDeletedWhileRecording() async throws {
+    /// A note left in the recording state by a crash has no recording or
+    /// transcription tied to it, so it can be deleted, even while another
+    /// recording runs (#437). Notes tied to that work are covered by the
+    /// source contract, since the work can't be started in a test.
+    private static func verifiesLeftoverRecordingNoteCanBeDeletedDuringAnotherRecording() async throws {
         try await AppStateTestStorage.withIsolatedStorage { environment in
             try prepareStorageDirectories(for: environment.storageLayout)
             let id = UUID()
@@ -1511,27 +1513,16 @@ struct AppStateStorageSafetyTests {
             _ = try PipelineHistoryStore(
                 storeURL: environment.storageLayout.historyStoreURL
             ).append(note, maxCount: Int.max)
-            let refused = await MainActor.run { () -> (Bool, Bool, [UUID]) in
+            let result = await MainActor.run { () -> (Bool, Bool) in
                 appState.pipelineHistory.insert(note, at: 0)
                 appState.isRecording = true
                 defer { appState.isRecording = false }
-                let inProgress = appState.isRecordingInProgress(noteID: id)
+                let tied = appState.isRecordingInProgress(noteID: id)
                 appState.deleteHistoryEntry(id: id)
-                let bulk = appState.deleteHistoryEntriesCancellably(ids: [id])
-                return (
-                    inProgress,
-                    appState.pipelineHistory.contains { $0.id == id },
-                    bulk.skippedIDs + bulk.failedIDs
-                )
+                return (tied, !appState.pipelineHistory.contains { $0.id == id })
             }
-            try expect(refused.0, "the recording's note counts as in progress")
-            try expect(refused.1, "the recording's note isn't deleted while recording")
-            try expect(refused.2 == [id], "a bulk deletion leaves the recording's note alone")
-            let deletedAfter = await MainActor.run { () -> Bool in
-                appState.deleteHistoryEntry(id: id)
-                return !appState.pipelineHistory.contains { $0.id == id }
-            }
-            try expect(deletedAfter, "a note left in the recording state without a recording can be deleted")
+            try expect(!result.0, "a leftover recording note isn't tied to the running recording")
+            try expect(result.1, "a leftover recording note can be deleted while another recording runs")
         }
     }
 

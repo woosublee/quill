@@ -4383,8 +4383,10 @@ struct RunLogEntryView: View {
                     actionIconButton(
                         systemName: "trash",
                         help: "Delete this run",
-                        // Wait for Recover Again to finish.
+                        // Wait for Recover Again, or for the recording and its
+                        // transcription, to finish (#437).
                         disabled: appState.recoveringRecordingIDs.contains(item.id)
+                            || appState.isRecordingInProgress(noteID: item.id)
                     ) {
                         // Pieces of an unrecovered recording go with the
                         // note, so ask first.
