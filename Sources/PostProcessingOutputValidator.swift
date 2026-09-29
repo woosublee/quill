@@ -50,7 +50,8 @@ struct PostProcessingOutputValidator {
         output: String,
         outputLanguage: String,
         expectedSourceLanguage: String? = nil,
-        vocabulary: [String]
+        vocabulary: [String],
+        correctionHeardForms: [String] = []
     ) -> Result<String, AIValidationFailure> {
         let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedOutput.isEmpty || trimmedOutput == "EMPTY" {
@@ -63,10 +64,15 @@ struct PostProcessingOutputValidator {
             return .failure(.promptLeak)
         }
 
+        // A misheard form the user asked to correct (for example
+        // `quill_app -> Quill`) is meant to change, so that exact atom isn't
+        // protected. Other atoms, including ones inside a heard form such as
+        // the `42` in `v42`, are still checked.
+        let heardForms = Set(correctionHeardForms.map { $0.lowercased() })
         let sourceProtectedAtoms = ProtectedAtomScanner.atoms(
             from: source,
             vocabulary: vocabulary
-        )
+        ).filter { !heardForms.contains($0.lowercased()) }
         if sourceProtectedAtoms.contains(where: { !trimmedOutput.contains($0) }) {
             return .failure(.protectedAtomMissing)
         }
