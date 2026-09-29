@@ -1026,7 +1026,7 @@ Behavior:
             outputLanguage: outputLanguage,
             expectedSourceLanguage: expectedSourceLanguage,
             vocabulary: CustomVocabularyParser.parseEntries(customVocabulary).terms,
-            correctionHeardForms: CustomVocabularyParser.parseEntries(customVocabulary).corrections.map(\.heard)
+            correctionHeardForms: CustomVocabularyParser.parseEntries(customVocabulary).outputCheckExemptHeardForms
         ) {
         case .success(let accepted):
             return PostProcessingResult(
@@ -1183,7 +1183,7 @@ Model: \(model)
             outputLanguage: outputLanguage,
             expectedSourceLanguage: expectedSourceLanguage,
             vocabulary: CustomVocabularyParser.parseEntries(customVocabulary).terms,
-            correctionHeardForms: CustomVocabularyParser.parseEntries(customVocabulary).corrections.map(\.heard)
+            correctionHeardForms: CustomVocabularyParser.parseEntries(customVocabulary).outputCheckExemptHeardForms
         ) {
         case .success(let accepted):
             acceptedTranscript = accepted

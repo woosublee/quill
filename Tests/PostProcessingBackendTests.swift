@@ -124,6 +124,20 @@ struct PostProcessingBackendTests {
         try expect(parsed.corrections.map(\.heard) == ["Cloud Code"], "the correction stays")
         let caseOnly = CustomVocabularyParser.parse("quill -> Quill")
         try expect(caseOnly.terms == ["Quill"], "a case-only correction keeps its correct form: \(caseOnly.terms)")
+        // ...and its correct form stays protected in the output check.
+        try expect(caseOnly.outputCheckExemptHeardForms.isEmpty, "case-only heard forms aren't exempt")
+        let mixed = CustomVocabularyParser.parse("quill -> Quill\nquill_app -> Quill")
+        try expect(mixed.outputCheckExemptHeardForms == ["quill_app"], "other heard forms stay exempt: \(mixed.outputCheckExemptHeardForms)")
+        let accepted = PostProcessingOutputValidator().validate(
+            source: "I use quill daily.",
+            output: "I use quill daily.",
+            outputLanguage: "en",
+            vocabulary: caseOnly.terms,
+            correctionHeardForms: caseOnly.outputCheckExemptHeardForms
+        )
+        guard case .failure(.protectedAtomMissing) = accepted else {
+            throw PostProcessingBackendTestFailure("a case-only correction must still require Quill, got \(accepted)")
+        }
     }
 
     private static func testVocabularyParserKeepsUnspacedArrowsPlain() throws {
