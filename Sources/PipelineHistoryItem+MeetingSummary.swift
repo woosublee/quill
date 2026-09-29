@@ -54,8 +54,8 @@ extension MeetingSummaryContent {
 }
 
 /// Matches notes against the Note Browser search text. It checks the title,
-/// calendar title, processed transcript, and saved meeting summary; the raw
-/// transcript is not searched because the detail view does not show it.
+/// calendar title, the transcript the detail view shows (processed, or raw
+/// when there is no processed text), and saved meeting summary.
 /// Decoded summary text is cached per note and reused while the stored JSON
 /// is unchanged, so typing does not decode every summary on each keystroke.
 final class NoteSearchMatcher {

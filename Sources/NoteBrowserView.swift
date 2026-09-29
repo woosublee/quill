@@ -381,6 +381,9 @@ struct NoteBrowserView: View {
     /// if the search ends with no note open.
     @State private var noteOpenBeforeSearch: UUID?
     @State private var isSearchSessionActive = false
+    /// The note the search opened on its own, as opposed to one the person
+    /// picked, so clearing the search can go back to the earlier note.
+    @State private var noteOpenedBySearch: UUID?
     @State private var recoveryScrollRestoreRequest: RecoveryScrollRestoreRequest?
     @State private var pendingAudioImport: PendingAudioImport?
     @State private var isSearchOpen = false
@@ -424,15 +427,18 @@ struct NoteBrowserView: View {
             )
             if focused != selectedItemID {
                 selection.focus(focused)
+                noteOpenedBySearch = focused
             }
         } else if isSearchSessionActive {
             isSearchSessionActive = false
             let focused = NoteSelection.focusedIDAfterClearingSearch(
                 current: selectedItemID,
+                currentWasOpenedBySearch: selectedItemID == noteOpenedBySearch,
                 openBeforeSearch: noteOpenBeforeSearch,
                 in: appState.pipelineHistory.map(\.id)
             )
             noteOpenBeforeSearch = nil
+            noteOpenedBySearch = nil
             if focused != selectedItemID {
                 selection.focus(focused)
             }

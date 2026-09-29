@@ -122,18 +122,23 @@ struct NoteSelection: Equatable {
         return visibleIDs.first
     }
 
-    /// The note to show once the search is cleared: the open note, else the
-    /// note that was open before the search, else the first note.
+    /// The note to show once the search is cleared: a note the person opened
+    /// during the search, else the note that was open before the search,
+    /// else the open note, else the first note.
     static func focusedIDAfterClearingSearch(
         current: UUID?,
+        currentWasOpenedBySearch: Bool,
         openBeforeSearch: UUID?,
         in orderedIDs: [UUID]
     ) -> UUID? {
-        if let current, orderedIDs.contains(current) {
+        if let current, !currentWasOpenedBySearch, orderedIDs.contains(current) {
             return current
         }
         if let openBeforeSearch, orderedIDs.contains(openBeforeSearch) {
             return openBeforeSearch
+        }
+        if let current, orderedIDs.contains(current) {
+            return current
         }
         return orderedIDs.first
     }
