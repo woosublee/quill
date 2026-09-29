@@ -13,9 +13,14 @@ struct NoteBrowserMultiSelectionSourceTests {
 
         // #195: the open note follows the search results, and a search with
         // no results shows its own empty detail.
-        precondition(source.contains("selection.retainVisible(filteredHistory.map(\\.id))\n            } else {\n                keepOpenNoteInSearchResults()"))
+        precondition(source.contains("            } else {\n                keepOpenNoteInSearchResults()\n            }"))
         precondition(source.contains("NoteSelection.focusedID(\n                forSearchResults: filteredHistory.map(\\.id),"))
         precondition(source.contains("NoteSelection.focusedIDAfterClearingSearch("))
+        // A search that ends during multi-selection ends its session, and a
+        // note the person opens is theirs, even one the search opened.
+        precondition(source.contains("if !isSearchActive {\n                    endSearchSession()\n                }"))
+        precondition(source.contains(".onChange(of: selectedItemID) { newID in"))
+        precondition(source.contains("if newID != noteOpenedBySearch {\n                noteOpenedBySearch = nil\n            }"))
         precondition(source.contains("} else if isSearchActive, filteredHistory.isEmpty {\n            emptyDetailNoSearchResults"))
         precondition(source.contains("selection.focus(visibleIDs.first)"))
         precondition(source.contains("!knownHistoryIDs.contains(newest),\n                      visibleIDs.contains(newest) {"))
