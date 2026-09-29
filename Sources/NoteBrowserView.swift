@@ -732,7 +732,10 @@ struct NoteBrowserView: View {
                             message: noteDeletionToastMessage(count: pending.noteCount),
                             actionTitle: "Cancel",
                             action: { appState.cancelPendingNoteDeletion() },
-                            countdownDuration: AppState.noteDeletionCancelWindow
+                            countdown: (
+                                startedAt: pending.startedAt,
+                                duration: AppState.noteDeletionCancelWindow
+                            )
                         )
                         // A new deletion restarts the countdown.
                         .id(pending.id)
@@ -4174,9 +4177,9 @@ private struct NoteBrowserToastView: View {
     let message: String
     var actionTitle: LocalizedStringKey?
     var action: (() -> Void)?
-    /// When set, a bar along the bottom shrinks over this long to show the
-    /// time left for the action (#434).
-    var countdownDuration: TimeInterval?
+    /// When set, a bar along the bottom shrinks from `startedAt` over
+    /// `duration` to show the time left for the action (#434).
+    var countdown: (startedAt: Date, duration: TimeInterval)?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -4205,8 +4208,11 @@ private struct NoteBrowserToastView: View {
                 .fill(Color.black.opacity(0.92))
         )
         .overlay(alignment: .bottom) {
-            if let countdownDuration {
-                ToastCountdownBar(duration: countdownDuration)
+            if let countdown {
+                ToastCountdownBar(
+                    startedAt: countdown.startedAt,
+                    duration: countdown.duration
+                )
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
@@ -4215,11 +4221,11 @@ private struct NoteBrowserToastView: View {
     }
 }
 
-/// A thin bar that shrinks from full to empty over `duration`, starting when
-/// it appears. With Reduce Motion it shrinks one step per second.
+/// A thin bar that shrinks from full at `startedAt` to empty after
+/// `duration`. With Reduce Motion it shrinks one step per second.
 private struct ToastCountdownBar: View {
+    let startedAt: Date
     let duration: TimeInterval
-    @State private var startedAt = Date()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
