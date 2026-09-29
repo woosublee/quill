@@ -40,6 +40,7 @@ struct AppStateStorageSafetyTests {
         try await verifiesFailedRecoverySaveIsRetriedNextLaunch()
         try await verifiesUnreadableJournalFolderKeepsPieces()
         try await verifiesClearingHistoryRemovesUnrecoveredPieces()
+        try await verifiesDeletingRecoveringNoteKeepsCancelWindow()
         try await AppStateTestStorage.withIsolatedStorage { environment in
             try prepareStorageDirectories(for: environment.storageLayout)
             let fallbackAudioURL = try await verifiesFallbackHistoryDoesNotSweepStoredAudio(
@@ -1372,6 +1373,54 @@ struct AppStateStorageSafetyTests {
             try await waitForFileRemoval(
                 at: journalStore.recordingDirectory(recordingID: recordingID)
             )
+        }
+    }
+
+    /// A note being recovered again can't be deleted, and refusing it does
+    /// not end an earlier deletion's Cancel window.
+    private static func verifiesDeletingRecoveringNoteKeepsCancelWindow() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let journalStore = RecordingJournalStore(
+                audioDirectory: environment.storageLayout.audioDirectory
+            )
+            let recordingID = UUID()
+            let sourceURL = try writeSingleSourceJournal(
+                store: journalStore,
+                recordingID: recordingID
+            )
+            try setImmutable(sourceURL, true)
+            let settled = makeHistoryItem(audioFileName: nil, transcriptFileName: nil)
+            _ = try PipelineHistoryStore(
+                storeURL: environment.storageLayout.historyStoreURL
+            ).append(settled, maxCount: Int.max)
+            let appState = await MainActor.run {
+                AppState(dependencies: environment.dependencies)
+            }
+            try setImmutable(sourceURL, false)
+
+            let state = await MainActor.run { () -> (Bool, Bool, [UUID]) in
+                appState.deleteHistoryEntriesCancellably(ids: [settled.id])
+                appState.recoveringRecordingIDs.insert(recordingID)
+                defer { appState.recoveringRecordingIDs.remove(recordingID) }
+                appState.deleteHistoryEntry(id: recordingID)
+                let bulk = appState.deleteConfirmedHistoryEntries(ids: [recordingID])
+                return (
+                    appState.pipelineHistory.contains { $0.id == recordingID },
+                    appState.pendingNoteDeletion?.entries.contains { $0.item.id == settled.id } == true,
+                    bulk.skippedIDs
+                )
+            }
+            try expect(state.0, "a note being recovered again is not deleted")
+            try expect(state.1, "refusing the deletion keeps the earlier Cancel window")
+            try expect(state.2 == [recordingID], "bulk deletion skips a note being recovered again")
+            try expect(
+                FileManager.default.fileExists(
+                    atPath: journalStore.recordingDirectory(recordingID: recordingID).path
+                ),
+                "the pieces of a note being recovered again stay"
+            )
+            await MainActor.run { appState.finalizePendingNoteDeletion() }
         }
     }
 

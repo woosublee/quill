@@ -6954,6 +6954,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func deleteHistoryEntry(id: UUID) {
+        // A note being recovered again can't be deleted yet. Refuse before
+        // ending an earlier deletion's Cancel window.
+        guard !recoveringRecordingIDs.contains(id) else { return }
         // An earlier deletion's Cancel window ends here, like any new deletion.
         finalizePendingNoteDeletion()
         guard let removed = removeHistoryEntryRecord(id: id) else { return }
@@ -7021,6 +7024,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }.map(\.id))
         var immediate = NoteBulkDeletionResult()
         for id in ids where unrecoveredIDs.contains(id) {
+            guard !recoveringRecordingIDs.contains(id) else {
+                immediate.skippedIDs.append(id)
+                continue
+            }
             deleteHistoryEntry(id: id)
             if pipelineHistory.contains(where: { $0.id == id }) {
                 immediate.failedIDs.append(id)
@@ -7028,12 +7035,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 immediate.deletedIDs.append(id)
             }
         }
-        // Deleted last, so the Cancel window covers these notes.
-        var result = deleteHistoryEntriesCancellably(
-            ids: ids.filter { !unrecoveredIDs.contains($0) }
-        )
+        // Deleted last, so the Cancel window covers these notes. With none,
+        // an earlier deletion's Cancel window is left alone.
+        let cancellableIDs = ids.filter { !unrecoveredIDs.contains($0) }
+        var result = cancellableIDs.isEmpty
+            ? NoteBulkDeletionResult()
+            : deleteHistoryEntriesCancellably(ids: cancellableIDs)
         result.deletedIDs = immediate.deletedIDs + result.deletedIDs
         result.failedIDs = immediate.failedIDs + result.failedIDs
+        result.skippedIDs = immediate.skippedIDs + result.skippedIDs
         return result
     }
 

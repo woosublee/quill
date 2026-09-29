@@ -18645,18 +18645,18 @@
         }
       }
     },
-    "Audio and summaries are deleted too. Recording pieces Quill couldn't recover are deleted right away and can't be restored.": {
+    "Audio and summaries are deleted too. Notes for recordings Quill couldn't recover are deleted right away, with any recording pieces, and can't be restored.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Audio and summaries are deleted too. Recording pieces Quill couldn't recover are deleted right away and can't be restored."
+            "value": "Audio and summaries are deleted too. Notes for recordings Quill couldn't recover are deleted right away, with any recording pieces, and can't be restored."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오디오와 요약도 함께 삭제됩니다. 복구하지 못한 녹음 조각은 바로 삭제되며 되돌릴 수 없습니다."
+            "value": "오디오와 요약도 함께 삭제됩니다. 복구하지 못한 녹음의 노트는 녹음 조각과 함께 바로 삭제되며 되돌릴 수 없습니다."
           }
         }
       }

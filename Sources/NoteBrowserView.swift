@@ -370,6 +370,9 @@ struct NoteBrowserView: View {
     @EnvironmentObject var appState: AppState
     @State private var selection = NoteSelection()
     @State private var pendingDeletionIDs: [UUID] = []
+    /// A short notice when a deletion has to wait, such as for Recover Again.
+    @State private var deletionNotice: String?
+    @State private var deletionNoticeID: UUID?
     @State private var showDeletionConfirmation = false
     @State private var searchText = ""
     @State private var searchMatcher = NoteSearchMatcher()
@@ -440,6 +443,7 @@ struct NoteBrowserView: View {
         // A note making its summary is busy too, so bulk delete never skips it silently.
         return transcriptStatus(for: item, retrying: appState.retryingItemIDs).isBulkSelectable
             && !appState.meetingSummaryGeneratingNoteIDs.contains(id)
+            && !appState.recoveringRecordingIDs.contains(id)
     }
 
     private func handleRowClick(_ id: UUID) {
@@ -476,6 +480,12 @@ struct NoteBrowserView: View {
 
     /// Asks to delete the multi-selection, or the clicked note when it is not part of it.
     private func requestDeletion(of id: UUID? = nil) {
+        if let id, appState.recoveringRecordingIDs.contains(id) {
+            showDeletionNotice(localizedCatalogString(
+                "Wait for the recording recovery to finish, then try again."
+            ))
+            return
+        }
         let ids: [UUID]
         if let id, !(selection.showsSelectionUI && selection.selectedIDs.contains(id)) {
             ids = [id]
@@ -563,6 +573,32 @@ struct NoteBrowserView: View {
         }
     }
 
+    /// Whether a note waiting to be deleted is for a recording that could not
+    /// be recovered. Such notes are deleted right away, without Cancel.
+    private var pendingDeletionIncludesUnrecoveredRecording: Bool {
+        appState.pipelineHistory.contains {
+            pendingDeletionIDs.contains($0.id) && $0.unrecoveredRecordingContext != nil
+        }
+    }
+
+    private func showDeletionNotice(_ message: String) {
+        let id = UUID()
+        deletionNoticeID = id
+        deletionNotice = message
+        NSAccessibility.post(
+            element: NSApplication.shared,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: message,
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue
+            ]
+        )
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            guard deletionNoticeID == id else { return }
+            deletionNotice = nil
+        }
+    }
+
     private func noteDeletionToastMessage(count: Int) -> String {
         count == 1
             ? localizedCatalogString("Note deleted")
@@ -627,6 +663,11 @@ struct NoteBrowserView: View {
                         .padding(.horizontal, 24)
                         .padding(.bottom, 72)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
+                    } else if let deletionNotice {
+                        NoteBrowserToastView(message: deletionNotice)
+                            .padding(.horizontal, 24)
+                            .padding(.bottom, 72)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
                 .animation(.easeOut(duration: 0.16), value: appState.pendingNoteDeletion?.id)
@@ -675,12 +716,10 @@ struct NoteBrowserView: View {
             Button("Delete", role: .destructive) { performPendingDeletion() }
             Button("Cancel", role: .cancel) { pendingDeletionIDs = [] }
         } message: {
-            if pendingDeletionIncludesRecordingPieces {
-                if pendingDeletionIDs.count == 1 {
-                    Text("The recording pieces Quill couldn't recover will also be deleted. This can't be undone.")
-                } else {
-                    Text("Audio and summaries are deleted too. Recording pieces Quill couldn't recover are deleted right away and can't be restored.")
-                }
+            if pendingDeletionIDs.count == 1, pendingDeletionIncludesRecordingPieces {
+                Text("The recording pieces Quill couldn't recover will also be deleted. This can't be undone.")
+            } else if pendingDeletionIDs.count != 1, pendingDeletionIncludesUnrecoveredRecording {
+                Text("Audio and summaries are deleted too. Notes for recordings Quill couldn't recover are deleted right away, with any recording pieces, and can't be restored.")
             } else if pendingDeletionIDs.count != 1 {
                 Text("Audio and summaries are deleted too. You can cancel for a few seconds after deleting.")
             } else if appState.canDeleteHistoryEntryCancellably(id: pendingDeletionIDs[0]) {
@@ -695,6 +734,9 @@ struct NoteBrowserView: View {
             selection.retainSelectable(isBulkSelectable)
         }
         .onChange(of: appState.retryingItemIDs) { _ in
+            selection.retainSelectable(isBulkSelectable)
+        }
+        .onChange(of: appState.recoveringRecordingIDs) { _ in
             selection.retainSelectable(isBulkSelectable)
         }
         .onChange(of: searchText) { _ in
@@ -1174,6 +1216,8 @@ struct NoteBrowserView: View {
                                     Button("Delete…", role: .destructive) {
                                         requestDeletion(of: item.id)
                                     }
+                                    // Wait for Recover Again to finish.
+                                    .disabled(appState.recoveringRecordingIDs.contains(item.id))
                                 }
                             }
                         }

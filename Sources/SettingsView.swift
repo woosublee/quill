@@ -4380,7 +4380,12 @@ struct RunLogEntryView: View {
                         copyTranscriptToPasteboard()
                     }
 
-                    actionIconButton(systemName: "trash", help: "Delete this run") {
+                    actionIconButton(
+                        systemName: "trash",
+                        help: "Delete this run",
+                        // Wait for Recover Again to finish.
+                        disabled: appState.recoveringRecordingIDs.contains(item.id)
+                    ) {
                         // Pieces of an unrecovered recording go with the
                         // note, so ask first.
                         if item.hasUnrecoveredRecordingPieces {
