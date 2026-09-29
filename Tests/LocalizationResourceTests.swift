@@ -270,10 +270,6 @@ struct LocalizationResourceTests {
         )
         assert(noteBrowserSource.contains("help: LocalizedStringKey"))
         assert(noteBrowserSource.contains("let help: LocalizedStringKey"))
-        assert(noteBrowserSource.contains("fieldLabel(_ key: LocalizedStringKey)"))
-        assert(noteBrowserSource.contains("if vaultPath.isEmpty {\n                        Text(\"Select a folder\")"))
-        assert(noteBrowserSource.contains("} else {\n                        Text(vaultPath)"))
-        assert(strings["Obsidian Vault Folder"] != nil)
 
         let noteBrowserKeys = [
             "Choose a model for retranscription",
@@ -308,8 +304,6 @@ struct LocalizationResourceTests {
             "Transcript text saved.",
             "The transcript text could not be saved.",
             "The recording file could not be saved.",
-            "Export to Obsidian",
-            "More Actions",
             "Audio only",
             "Audio-only recording",
             "Audio recording",
@@ -348,10 +342,7 @@ struct LocalizationResourceTests {
             let lines = source.components(separatedBy: .newlines)
             for (index, line) in lines.enumerated() {
                 guard hangulPattern.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)) != nil else { continue }
-                let previousLine = index > 0 ? lines[index - 1] : ""
-                let isAllowlistedGeminiPrompt = previousLine.contains("localization-allowlist: exact non-UI Gemini model prompt")
-                    && line.contains("@AppStorage(\"obsidian_gemini_prompt\")")
-                assert(isAllowlistedGeminiPrompt, "Unexpected Hangul literal in \(sourceFile):\(index + 1)")
+                assertionFailure("Unexpected Hangul literal in \(sourceFile):\(index + 1)")
             }
         }
 
@@ -737,8 +728,7 @@ struct LocalizationResourceTests {
 
         let extractedKeys = try extractManagedKeys(root: root, sourceFiles: managedSourceFiles)
         let exactNonCatalogSwiftUIKeys: Set<String> = [
-            "Open Run Log", "·", "API", "Legacy mlx-whisper", "REC",
-            "%arg.md saved", "Saved file name: %arg.md"
+            "Open Run Log", "·", "API", "Legacy mlx-whisper", "REC"
         ]
         for extractedKey in extractedKeys where !extractedKey.isEmpty && !exactNonCatalogSwiftUIKeys.contains(extractedKey) {
             assertCatalogTranslations(
@@ -764,7 +754,6 @@ struct LocalizationResourceTests {
 
         let hangulPattern = try NSRegularExpression(pattern: "[가-힣]")
         let exactHangulExceptions: Set<String> = [
-            #"@AppStorage("obsidian_gemini_prompt") private var geminiPrompt: String = "다음은 음성 전사 내용입니다. 핵심 내용을 유지하면서 읽기 쉽게 정리해주세요. 마크다운 형식으로 작성하되, 불필요한 설명 없이 정리된 내용만 출력해주세요.\n옵시디언에 다른 회의록을 참고하여 컨텍스트와 작성 포맷을 통일하여 주세요.""#,
             #"TranscriptionLanguage(code: "ko", displayName: "한국어"),"#,
             #"description: "시스템 내장 · 온디바이스 · 빠름""#,
             #"description: "빠름 · 정확도 높음 (추천)""#,
