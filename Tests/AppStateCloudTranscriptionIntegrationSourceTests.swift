@@ -13,6 +13,15 @@ struct AppStateCloudTranscriptionIntegrationSourceTests {
         )
 
         try verifiesDefaultedExecutionContext(service)
+
+        // #195: a startup resume that ends without saving, or finds its note
+        // changed, leaves no work running, so the note shows as stopped; a
+        // stopped note without audio offers no Retry.
+        precondition(appState.contains("issue.presentation().compactMessage\n                // A resume that couldn't save leaves no work running either.\n                markStoppedCloudTranscriptions(among: [noteID])"))
+        precondition(appState.contains("case .stale:\n                markStoppedCloudTranscriptions(among: [noteID])"))
+        let noteBrowser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+        precondition(noteBrowser.contains("recoveryAction: hasAudio ? .retryTranscription : .none,"))
+        precondition(noteBrowser.contains("action: retryAvailability == .noAudio ? nil : { retryTranscription() }"))
         try verifiesImportPlaceholderPrecedesCloudExecution(appState)
         try verifiesRecordingPlaceholderPrecedesCloudExecution(appState)
         try verifiesHistoryCommitPrecedesSidecarDeletion(appState)

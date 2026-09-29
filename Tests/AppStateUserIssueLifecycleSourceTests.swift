@@ -56,7 +56,7 @@ struct AppStateUserIssueLifecycleSourceTests {
         let persistedHandler = block(
             eventAdapter,
             from: "case .itemPersisted(let item, let effects):",
-            to: "case .completed(_, let outcome):"
+            to: "case .completed(let noteID, let outcome):"
         )
         try expect(
             persistedHandler.contains("pipelineHistory[index] = item"),

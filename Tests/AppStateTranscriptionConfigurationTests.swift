@@ -251,6 +251,7 @@ struct AppStateTranscriptionConfigurationTests {
         try testHistoryReconstructionPreservesMeetingSummaryMetadata()
         try testSuccessfulTranscriptionHistoryReceivesSpokenLanguage()
         try await testResumedRetryPersistsAIOutcomeAndCommandFallbackWhitespace()
+        try await testUnresumedCloudTranscriptionShowsAsStopped()
         try testHistoryDeletionForgetsSummaryGenerationStateAfterPersistence()
         try testRealtimeConfiguredLanguageUsesOneRequestAndResolutionValue()
         try testAudioOnlyRetryDeletesNewTranscriptFileWhenStale()
@@ -4542,7 +4543,83 @@ struct AppStateTranscriptionConfigurationTests {
                     appState.noteRetryGeneration(for: commandHistoryID) == 1,
                     "command Resume advances warning generation"
                 )
+                precondition(
+                    appState.stoppedCloudTranscriptionIDs.isDisjoint(
+                        with: [historyID, commandHistoryID]
+                    ),
+                    "a cloud transcription startup resumed is never shown as stopped"
+                )
             }
+        }
+    }
+
+    /// A note left cloud-transcribing by the last run that startup can't
+    /// resume (here, no API key) shows as stopped, not as still resuming,
+    /// and keeps its stored status so a later launch can resume it (#195).
+    private static func testUnresumedCloudTranscriptionShowsAsStopped() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try FileManager.default.createDirectory(
+                at: environment.storageLayout.audioDirectory,
+                withIntermediateDirectories: true
+            )
+            resetDefaults()
+            defer { resetDefaults() }
+            let historyID = UUID()
+            let fileName = "\(historyID.uuidString).wav"
+            try writeTestWAV(
+                at: environment.storageLayout.audioDirectory.appendingPathComponent(fileName)
+            )
+            let store = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            var dependencies = environment.dependencies
+            dependencies.makePipelineHistoryStore = { _ in store }
+            let item = PipelineHistoryItem(
+                id: historyID,
+                timestamp: Date(timeIntervalSince1970: 1),
+                rawTranscript: "",
+                postProcessedTranscript: "",
+                postProcessingPrompt: nil,
+                contextSummary: "",
+                contextScreenshotDataURL: nil,
+                contextScreenshotStatus: "No screenshot",
+                postProcessingStatus: PipelineHistoryItem.cloudTranscribingStatus,
+                debugStatus: "Cloud transcription in progress",
+                customVocabulary: "",
+                audioFileName: fileName,
+                usedLocalTranscription: false,
+                usedContextCapture: false,
+                usedPostProcessing: false,
+                transcriptionLanguageCode: "ko"
+            )
+            _ = try store.append(item, maxCount: 10)
+            UserDefaults.standard.set(true, forKey: "hasCompletedSetup")
+            UserDefaults.standard.set(false, forKey: "use_local_transcription")
+
+            let configuredDependencies = dependencies
+            let appState = await MainActor.run {
+                AppState(dependencies: configuredDependencies)
+            }
+            var isStopped = false
+            for _ in 0..<300 where !isStopped {
+                isStopped = await MainActor.run {
+                    appState.stoppedCloudTranscriptionIDs.contains(historyID)
+                }
+                if !isStopped { try? await Task.sleep(nanoseconds: 10_000_000) }
+            }
+            precondition(isStopped, "the unresumed cloud transcription shows as stopped")
+            await MainActor.run {
+                let current = appState.pipelineHistory.first { $0.id == historyID }
+                precondition(current?.machineStatus == .cloudTranscribing)
+                precondition(current.map(appState.isCloudTranscriptionStopped) == true)
+                precondition(
+                    !appState.retryingItemIDs.contains(historyID),
+                    "no work runs for the stopped note"
+                )
+            }
+            precondition(
+                store.loadAllHistory().first { $0.id == historyID }?.postProcessingStatus
+                    == PipelineHistoryItem.cloudTranscribingStatus,
+                "the stored status stays, so a later launch can resume it"
+            )
         }
     }
 

@@ -18661,6 +18661,54 @@
         }
       }
     },
+    "Cloud Transcription Stopped": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Transcription Stopped"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라우드 전사 중단됨"
+          }
+        }
+      }
+    },
+    "Quill couldn't continue transcribing this recording after it restarted. The audio is kept, so you can transcribe it again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill couldn't continue transcribing this recording after it restarted. The audio is kept, so you can transcribe it again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill을 다시 시작한 뒤 이 녹음의 전사를 이어 가지 못했습니다. 오디오는 남아 있어 다시 전사할 수 있습니다."
+          }
+        }
+      }
+    },
+    "Quill couldn't continue transcribing this recording after it restarted, and its audio file is missing.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill couldn't continue transcribing this recording after it restarted, and its audio file is missing."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill을 다시 시작한 뒤 이 녹음의 전사를 이어 가지 못했고, 오디오 파일도 없습니다."
+          }
+        }
+      }
+    },
     "No Matching Notes": {
       "localizations": {
         "en": {

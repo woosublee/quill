@@ -657,6 +657,32 @@ struct NoteListRowDisplayDataTests {
             retryingIDs: []
         )
         assert(cloudRecording.displayTitle == "New Recording")
+        assert(cloudRecording.status == .transcribing)
+
+        // A cloud transcription no work is running for shows as failed, so
+        // it can be retried or deleted; other notes ignore the stopped set.
+        let stoppedItem = historyItem(
+            transcript: "",
+            postProcessingStatus: PipelineHistoryItem.cloudTranscribingStatus
+        )
+        let stopped = NoteListRowDisplayData(
+            item: stoppedItem,
+            retryingIDs: [],
+            stoppedCloudIDs: [stoppedItem.id]
+        )
+        assert(stopped.status == .fail)
+        assert(stopped.status.isBulkSelectable)
+        assert(transcriptStatus(
+            for: stoppedItem,
+            retrying: [stoppedItem.id],
+            stoppedCloud: [stoppedItem.id]
+        ) == .transcribing, "a retry in progress wins over the stopped mark")
+        let finished = historyItem(transcript: "Done text")
+        assert(transcriptStatus(
+            for: finished,
+            retrying: [],
+            stoppedCloud: [finished.id]
+        ) == .done)
     }
 
     /// VoiceOver hears the state in words, not only the dot's color (#389).
