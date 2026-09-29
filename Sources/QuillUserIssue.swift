@@ -17,6 +17,9 @@ enum QuillUserIssueCode: String, Codable, CaseIterable, Sendable {
     case localModelMissing = "local-model-missing"
     case localDependencyMissing = "local-dependency-missing"
     case localTranscriptionFailed = "local-transcription-failed"
+    /// Apple Speech has no on-device model for the language, and Quill won't
+    /// send audio to Apple's servers.
+    case appleSpeechOnDeviceUnavailable = "apple-speech-on-device-unavailable"
     case microphonePermissionDenied = "microphone-permission-denied"
     case speechRecognitionPermissionDenied = "speech-recognition-permission-denied"
     case screenRecordingPermissionDenied = "screen-recording-permission-denied"
@@ -281,7 +284,7 @@ struct QuillUserIssueRecord: Codable, Equatable, Sendable {
             return .openProviderSettings
         case .localRuntimeMissing, .localModelMissing,
              .localDependencyMissing, .localAIModelUnavailable,
-             .meetingSummaryLanguageUnavailable:
+             .meetingSummaryLanguageUnavailable, .appleSpeechOnDeviceUnavailable:
             return .openModelsSettings
         case .microphonePermissionDenied:
             return .openMicrophoneSettings
@@ -682,6 +685,12 @@ private extension QuillUserIssueCode {
                 titleKey: "Local transcription dependency is missing",
                 bodyKey: "A required local transcription component is unavailable.",
                 suggestionKey: "Open Models settings and repair the local transcription setup."
+            )
+        case .appleSpeechOnDeviceUnavailable:
+            return QuillUserIssueCopy(
+                titleKey: "Apple Speech can't be used for this language",
+                bodyKey: "This language can't be transcribed on this Mac with Apple Speech.",
+                suggestionKey: "Choose Native Whisper or another model in Models settings."
             )
         case .localTranscriptionFailed:
             return QuillUserIssueCopy(
