@@ -5,6 +5,16 @@ import Foundation
 struct ParsedVocabulary: Equatable, Sendable {
     var terms: [String] = []
     var corrections: [VocabularyCorrection] = []
+
+    /// Heard forms the output check may let change. A heard form that
+    /// matches a correct form ignoring case (`quill -> Quill`) is left out,
+    /// so the correct spelling stays protected.
+    var outputCheckExemptHeardForms: [String] {
+        let correctForms = Set(corrections.map { $0.correct.lowercased() })
+        return corrections
+            .map(\.heard)
+            .filter { !correctForms.contains($0.lowercased()) }
+    }
 }
 
 enum CustomVocabularyParser {
