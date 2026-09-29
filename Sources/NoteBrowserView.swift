@@ -555,13 +555,13 @@ struct NoteBrowserView: View {
     private func requestDeletion(of id: UUID? = nil) {
         if let id, appState.recoveringRecordingIDs.contains(id) {
             showDeletionNotice(localizedCatalogString(
-                "Wait for the recording recovery to finish, then try again."
+                "Can’t delete while recovering"
             ))
             return
         }
         if let id, appState.isRecordingInProgress(noteID: id) {
             showDeletionNotice(localizedCatalogString(
-                "Wait for the recording and its transcription to finish, then delete the note."
+                "Can’t delete while recording"
             ))
             return
         }
@@ -1233,6 +1233,10 @@ struct NoteBrowserView: View {
         .overrideCursor(.arrow)
     }
 
+    /// The capsule's measured height, so a wrapped notice never covers the
+    /// list's last rows.
+    @State private var deletionCapsuleHeight: CGFloat = 36
+
     private var isShowingDeletionCapsule: Bool {
         appState.pendingNoteDeletion != nil
             || appState.pendingSummaryDeletion != nil
@@ -1267,6 +1271,13 @@ struct NoteBrowserView: View {
                 NoteDeletionCapsule(message: deletionNotice)
             }
         }
+        .background(
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear { deletionCapsuleHeight = max(36, proxy.size.height) }
+                    .onChange(of: proxy.size.height) { deletionCapsuleHeight = max(36, $0) }
+            }
+        )
         .transition(.move(edge: .bottom).combined(with: .opacity))
         .animation(.easeOut(duration: 0.16), value: appState.pendingNoteDeletion?.id)
         .animation(.easeOut(duration: 0.16), value: appState.pendingSummaryDeletion?.id)
@@ -1381,7 +1392,7 @@ struct NoteBrowserView: View {
                         // Room for the floating Record button, and for the
                         // deletion capsule while it shows.
                         .padding(.bottom, (selection.showsSelectionUI ? 6 : 72)
-                            + (isShowingDeletionCapsule ? 46 : 0))
+                            + (isShowingDeletionCapsule ? deletionCapsuleHeight + 10 : 0))
                     }
                     .coordinateSpace(name: "noteList")
                     // Tab reaches the list; ↑/↓ then move the open note.

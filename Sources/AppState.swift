@@ -7206,6 +7206,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func isRecordingInProgress(noteID: UUID) -> Bool {
         if currentRecordingLiveNoteID == noteID { return true }
+        // A record-only stop saves the note without a transcription job.
+        if pendingAudioOnlyStopIDs.contains(noteID) { return true }
         return activeTranscriptionJobs.values.contains(where: {
             $0.id == noteID || $0.liveNoteID == noteID
         })
