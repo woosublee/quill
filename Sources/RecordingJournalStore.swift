@@ -898,6 +898,20 @@ final class RecordingJournalStore {
         }
     }
 
+    /// Takes back `markDiscarded(recordingID:)`, such as when the note that
+    /// owns the recording could not be deleted after all.
+    func unmarkDiscarded(recordingID: UUID) throws {
+        try lock.withLock {
+            let directory = recordingDirectory(recordingID: recordingID)
+            let markerURL = directory.appendingPathComponent(
+                Self.discardMarkerFileName
+            )
+            guard fileManager.fileExists(atPath: markerURL.path) else { return }
+            try fileManager.removeItem(at: markerURL)
+            try RecordingJournalDurability.syncDirectory(directory)
+        }
+    }
+
     func discardInflightRecording(recordingID: UUID) throws {
         try lock.withLock {
             let directory = recordingDirectory(recordingID: recordingID)
