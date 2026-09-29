@@ -59,6 +59,19 @@ struct InflightRecordingRecovery {
             .map(scanDirectory)
     }
 
+    /// Scans one recording's journal, or returns nil when it does not exist.
+    func scan(recordingID: UUID) -> InflightRecordingRecoveryCandidate? {
+        let directory = store.recordingDirectory(recordingID: recordingID)
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(
+            atPath: directory.path,
+            isDirectory: &isDirectory
+        ), isDirectory.boolValue else {
+            return nil
+        }
+        return scanDirectory(directory)
+    }
+
     private func scanDirectory(
         _ directory: URL
     ) -> InflightRecordingRecoveryCandidate {

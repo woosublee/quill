@@ -26,7 +26,9 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(source.contains("NoteMultiSelectionPanel(count: selection.selectedIDs.count)"))
         let perform = try body(of: "private func performPendingDeletion()", in: source)
         // #409: deletion keeps its confirmation, then settled notes get a Cancel toast.
-        precondition(perform.contains("appState.deleteHistoryEntriesCancellably(ids: ids)"))
+        // #254: unrecovered recordings in the selection are deleted now, with
+        // their pieces; AppState sends the rest to the Cancel toast.
+        precondition(perform.contains("appState.deleteConfirmedHistoryEntries(ids: ids)"))
         precondition(perform.contains("deleteConfirmedNote(ids[0])"))
         let request = try body(of: "private func requestDeletion(of id: UUID? = nil)", in: source)
         precondition(request.contains("showDeletionConfirmation = true"))

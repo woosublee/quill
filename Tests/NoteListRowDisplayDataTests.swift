@@ -692,6 +692,18 @@ struct NoteListRowDisplayDataTests {
         )
         assert(busy.hasSuffix("Can't be selected while recording or processing"), busy)
         assert(NoteListRowAccessibility.statusKey(for: .done) != NoteListRowAccessibility.statusKey(for: .fail))
+
+        // A recording that could not be recovered is read as such (#254).
+        let unrecovered = NoteListRowAccessibility.label(
+            title: "New Recording",
+            date: "Sep 27, 7:34 PM",
+            status: .fail,
+            hasSummary: false,
+            selection: nil,
+            isUnrecoveredRecording: true,
+            localize: identity
+        )
+        assert(unrecovered == "New Recording, Sep 27, 7:34 PM, Couldn't recover", unrecovered)
     }
 
     private static func testPostProcessingNoteShowsPostProcessingTitle() {

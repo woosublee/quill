@@ -2054,6 +2054,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var isRecording = false
     @Published var isTranscribing = false
     @Published var retryingItemIDs: Set<UUID> = []
+    /// Notes whose recording is being recovered again from its journal.
+    @Published var recoveringRecordingIDs: Set<UUID> = []
 
     // MARK: Warning banner dismissal (per note + issue code, invalidated by retry)
 
@@ -2639,6 +2641,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         qos: .userInitiated
     )
     private var pendingRecordingJournalFinalizationCount = 0
+    /// Background removals of unrecovered recordings' pieces; quitting waits
+    /// for them briefly so a deleted note does not come back on next launch.
+    private let recordingPieceRemovalGroup = DispatchGroup()
     private var pendingRecordingStartCount = 0
     private var activeRecordingID: UUID?
     private let shortcutSessionController = DictationShortcutSessionController()
@@ -5050,7 +5055,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         HistoryWorkflowAdmissionContext(
             isRecording: isRecording,
             isTranscribing: isTranscribing,
-            hasRetryWork: !retryingItemIDs.isEmpty,
+            hasRetryWork: !retryingItemIDs.isEmpty
+                || !recoveringRecordingIDs.isEmpty,
             hasActiveTranscriptionJobs: !activeTranscriptionJobs.isEmpty,
             hasPendingAudioImports: !pendingAudioImportJobIDs.isEmpty,
             hasCloudHistoryWork:
@@ -5162,41 +5168,34 @@ final class AppState: ObservableObject, @unchecked Sendable {
             storageLayout: storageLayout
         )
         for result in executor.recoverAll() {
-            switch result {
-            case .recovered(let artifact):
-                do {
-                    let removedAssets = try historyBridge.persist(
-                        artifact,
-                        maxCount: Int.max
-                    )
-                    if !removedAssets.isEmpty,
-                       historyStore.referenceTrust.permitsStartupReferenceCleanup {
-                        let survivingHistory = historyStore.loadAllHistory()
-                        guard historyStore.availability == .ready,
-                              historyStore.referenceTrust
-                            .permitsStartupReferenceCleanup else {
-                            continue
-                        }
-                        let deletable = Self.deletableAssets(
-                            removed: removedAssets,
-                            survivingHistory: survivingHistory
-                        )
-                        for assets in deletable {
-                            try? noteAssetStore.deleteAssets(
-                                audioFileName: assets.audioFileName,
-                                transcriptFileName: assets.transcriptFileName
-                            )
-                        }
+            switch historyBridge.apply(result, maxCount: Int.max) {
+            case .recovered(let removedAssets):
+                if !removedAssets.isEmpty,
+                   historyStore.referenceTrust.permitsStartupReferenceCleanup {
+                    let survivingHistory = historyStore.loadAllHistory()
+                    guard historyStore.availability == .ready,
+                          historyStore.referenceTrust
+                        .permitsStartupReferenceCleanup else {
+                        continue
                     }
-                } catch {
-                    print("Failed to persist recovered recording \(artifact.recordingID): \(error)")
+                    let deletable = Self.deletableAssets(
+                        removed: removedAssets,
+                        survivingHistory: survivingHistory
+                    )
+                    for assets in deletable {
+                        try? noteAssetStore.deleteAssets(
+                            audioFileName: assets.audioFileName,
+                            transcriptFileName: assets.transcriptFileName
+                        )
+                    }
                 }
             case .discarded:
                 continue
-            case .manualRecoveryRequired(let candidate):
-                print("Recording journal requires manual recovery at \(candidate.recordingDirectory.path): \(candidate.diagnostics)")
-            case .failed(let candidate, let message):
-                print("Failed to recover recording journal at \(candidate.recordingDirectory.path): \(message)")
+            case .unrecovered(_, let context):
+                // The note says what happened; the log carries no paths.
+                print("Recording journal could not be recovered: \(context.status)")
+            case .skipped:
+                print("Skipped a recording journal that cannot be matched to a note")
             }
         }
         // No recording is active at launch. A recording note that journal
@@ -6906,8 +6905,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func clearPipelineHistory() {
         guard requireAvailableHistoryForMutation() else { return }
+        // A recording being recovered again would add its note back.
+        guard recoveringRecordingIDs.isEmpty else {
+            errorMessage = localizedCatalogString(
+                "Wait for the recording recovery to finish, then try again."
+            )
+            return
+        }
         finalizePendingNoteDeletion()
         let historyIDs = pipelineHistory.map(\.id)
+        let unrecoveredRecordingIDs = pipelineHistory
+            .filter { $0.unrecoveredRecordingContext != nil }
+            .map(\.id)
         for historyID in historyIDs {
             transcriptionRetryWorkflow.cancel(noteID: historyID)
             cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
@@ -6937,6 +6946,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             transcriptionRetryWorkflow.forgetAll()
             meetingSummaryWorkflow.forgetAll()
             forgetAllWarningBannerState()
+            discardUnrecoveredRecordingPieces(recordingIDs: unrecoveredRecordingIDs)
         } catch {
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to clear run history"), providerDetail: error.localizedDescription)
         }
@@ -6944,11 +6954,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func deleteHistoryEntry(id: UUID) {
+        // A note being recovered again can't be deleted yet. Refuse before
+        // ending an earlier deletion's Cancel window.
+        guard !recoveringRecordingIDs.contains(id) else { return }
         // An earlier deletion's Cancel window ends here, like any new deletion.
         finalizePendingNoteDeletion()
         guard let removed = removeHistoryEntryRecord(id: id) else { return }
         if let deletedAssets = removed.assets {
             cleanupDeletedPipelineHistoryAssets(deletedAssets)
+        }
+        // Pieces of an unrecovered recording go with its note, so startup
+        // does not bring the note back.
+        if removed.item.unrecoveredRecordingContext != nil {
+            discardUnrecoveredRecordingPieces(recordingIDs: [id])
         }
     }
 
@@ -6995,6 +7013,40 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return result
     }
 
+    /// Deletes notes the user confirmed in one dialog. Notes of recordings
+    /// that could not be recovered are deleted now, with their pieces; the
+    /// rest wait for the Cancel toast.
+    @MainActor
+    @discardableResult
+    func deleteConfirmedHistoryEntries(ids: [UUID]) -> NoteBulkDeletionResult {
+        let unrecoveredIDs = Set(pipelineHistory.filter {
+            ids.contains($0.id) && $0.unrecoveredRecordingContext != nil
+        }.map(\.id))
+        var immediate = NoteBulkDeletionResult()
+        for id in ids where unrecoveredIDs.contains(id) {
+            guard !recoveringRecordingIDs.contains(id) else {
+                immediate.skippedIDs.append(id)
+                continue
+            }
+            deleteHistoryEntry(id: id)
+            if pipelineHistory.contains(where: { $0.id == id }) {
+                immediate.failedIDs.append(id)
+            } else {
+                immediate.deletedIDs.append(id)
+            }
+        }
+        // Deleted last, so the Cancel window covers these notes. With none,
+        // an earlier deletion's Cancel window is left alone.
+        let cancellableIDs = ids.filter { !unrecoveredIDs.contains($0) }
+        var result = cancellableIDs.isEmpty
+            ? NoteBulkDeletionResult()
+            : deleteHistoryEntriesCancellably(ids: cancellableIDs)
+        result.deletedIDs = immediate.deletedIDs + result.deletedIDs
+        result.failedIDs = immediate.failedIDs + result.failedIDs
+        result.skippedIDs = immediate.skippedIDs + result.skippedIDs
+        return result
+    }
+
     @MainActor
     func deleteHistoryEntryCancellably(id: UUID) {
         guard canDeleteHistoryEntryCancellably(id: id) else { return }
@@ -7005,6 +7057,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func canDeleteHistoryEntryCancellably(id: UUID) -> Bool {
         guard let item = pipelineHistory.first(where: { $0.id == id }) else { return false }
+        // An unrecovered recording's journal is removed with its note after
+        // a confirmation; a Cancel window would leave the note deleted while
+        // its journal can bring it back on the next launch.
+        guard item.unrecoveredRecordingContext == nil else { return false }
         return transcriptStatus(for: item, retrying: retryingItemIDs).isBulkSelectable
             && !meetingSummaryGeneratingNoteIDs.contains(id)
     }
@@ -7076,6 +7132,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         defersTeardown: Bool = false
     ) -> (item: PipelineHistoryItem, assets: DeletedPipelineHistoryAssets?)? {
         guard requireAvailableHistoryForMutation(),
+              !recoveringRecordingIDs.contains(id),
               let index = pipelineHistory.firstIndex(where: { $0.id == id }) else { return nil }
         let item = pipelineHistory[index]
         if !defersTeardown {
@@ -7107,6 +7164,157 @@ final class AppState: ObservableObject, @unchecked Sendable {
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to delete run history entry"), providerDetail: error.localizedDescription)
             return nil
         }
+    }
+
+    /// Removes the journals left by recordings that could not be recovered,
+    /// once their notes are deleted, so startup does not bring them back.
+    /// The file work runs on the journal queue, after any Recover Again.
+    @MainActor
+    private func discardUnrecoveredRecordingPieces(recordingIDs: [UUID]) {
+        guard !recordingIDs.isEmpty else { return }
+        let journalStore = recordingJournalStore
+        // Stitched audio is removed only when no remaining note uses it.
+        let referencedAudioFileNames: Set<String>? =
+            pipelineHistoryStore.availability == .ready
+                ? Set(pipelineHistoryStore.loadAllHistory().compactMap(\.audioFileName))
+                : nil
+        let removableStitchedAudioURLs = recordingIDs
+            .map { journalStore.permanentURL(recordingID: $0) }
+            .filter {
+                referencedAudioFileNames?.contains($0.lastPathComponent) == false
+            }
+        let removalGroup = recordingPieceRemovalGroup
+        removalGroup.enter()
+        recordingJournalFinalizationQueue.async {
+            defer { removalGroup.leave() }
+            for recordingID in recordingIDs {
+                do {
+                    try journalStore.discardInflightRecording(
+                        recordingID: recordingID
+                    )
+                } catch {
+                    print("Failed to delete the pieces of an unrecovered recording")
+                }
+            }
+            for url in removableStitchedAudioURLs {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+    }
+
+    /// Waits up to `timeout` for pending piece removals. Called when the app
+    /// quits; returns false if removals were still running.
+    @discardableResult
+    func waitForPendingRecordingPieceRemovals(
+        timeout: TimeInterval = 2
+    ) -> Bool {
+        recordingPieceRemovalGroup.wait(timeout: .now() + timeout) == .success
+    }
+
+    /// Whether Recover Again can run for this note now. It stays locked
+    /// while recording and while the same note is being recovered.
+    @MainActor
+    func canRecoverRecordingAgain(_ item: PipelineHistoryItem) -> Bool {
+        item.unrecoveredRecordingContext?.kind == .recoveryFailed
+            && !isRecording
+            && !recoveringRecordingIDs.contains(item.id)
+    }
+
+    /// Runs journal recovery again for one note's recording. The work runs
+    /// off the main thread; `completion` reports whether the note now holds
+    /// the recovered recording.
+    @MainActor
+    func recoverRecordingAgain(
+        id: UUID,
+        completion: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        guard requireAvailableHistoryForMutation(),
+              let item = pipelineHistory.first(where: { $0.id == id }),
+              canRecoverRecordingAgain(item) else { return }
+        recoveringRecordingIDs.insert(id)
+        let journalStore = recordingJournalStore
+        let historyStore = pipelineHistoryStore
+        recordingJournalFinalizationQueue.async { [weak self] in
+            // Stitching and journal checks stay off the main thread; only
+            // the history change is applied on it.
+            let inspection = RecordingJournalRecoveryExecutor(store: journalStore)
+                .recover(recordingID: id)
+                .map {
+                    RecordingRecoveryHistory(
+                        journalStore: journalStore,
+                        historyStore: historyStore
+                    ).inspect($0)
+                }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let didRecover = self.applyRecoveredAgain(
+                    inspection,
+                    recordingID: id,
+                    journalStore: journalStore
+                )
+                self.recoveringRecordingIDs.remove(id)
+                completion(didRecover)
+            }
+        }
+    }
+
+    @MainActor
+    private func applyRecoveredAgain(
+        _ inspection: RecordingRecoveryInspection?,
+        recordingID: UUID,
+        journalStore: RecordingJournalStore
+    ) -> Bool {
+        guard let inspection,
+              journalStore === recordingJournalStore,
+              pipelineHistoryStore.availability == .ready else {
+            return false
+        }
+        let finalizationQueue = recordingJournalFinalizationQueue
+        let outcome = RecordingRecoveryHistory(
+            journalStore: journalStore,
+            historyStore: pipelineHistoryStore
+        ).apply(inspection, maxCount: maxPipelineHistoryCount) { emptyID in
+            finalizationQueue.async {
+                try? journalStore.discardInflightRecording(recordingID: emptyID)
+            }
+        }
+        var didRecover = false
+        if case .recovered(let removedAssets) = outcome {
+            for assets in removedAssets {
+                cleanupDeletedPipelineHistoryAssets(assets)
+            }
+            didRecover = true
+        }
+        guard let stored = pipelineHistoryStore.loadAllHistory().first(where: {
+            $0.id == recordingID
+        }) else {
+            pipelineHistory.removeAll { $0.id == recordingID }
+            return didRecover
+        }
+        // The recovered placeholder becomes a recovered recording, as it
+        // does at launch.
+        let normalized = Self.normalizeInterruptedHistoryItem(stored)
+        if normalized.postProcessingStatus != stored.postProcessingStatus {
+            try? pipelineHistoryStore.update(normalized)
+        }
+        updatePipelineHistoryItem(normalized)
+        return didRecover
+    }
+
+    /// Shows the folder that holds an unrecovered recording's pieces.
+    @MainActor
+    func openUnrecoveredRecordingFolder(id: UUID) {
+        guard let item = pipelineHistory.first(where: { $0.id == id }),
+              item.unrecoveredRecordingContext?.kind == .recoveryFailed else {
+            return
+        }
+        let directory = recordingJournalStore.recordingDirectory(
+            recordingID: id
+        )
+        guard FileManager.default.fileExists(atPath: directory.path) else {
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([directory])
     }
 
     @MainActor

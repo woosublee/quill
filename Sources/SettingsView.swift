@@ -4159,6 +4159,7 @@ struct RunLogEntryView: View {
     let item: PipelineHistoryItem
     @EnvironmentObject var appState: AppState
     @State private var isExpanded = false
+    @State private var showRecordingPiecesDeleteConfirmation = false
     @State private var isRetrying = false
     @State private var retryChoiceRequest: RetryChoiceRequest?
     @State private var showContextPrompt = false
@@ -4379,9 +4380,20 @@ struct RunLogEntryView: View {
                         copyTranscriptToPasteboard()
                     }
 
-                    actionIconButton(systemName: "trash", help: "Delete this run") {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            appState.deleteHistoryEntry(id: item.id)
+                    actionIconButton(
+                        systemName: "trash",
+                        help: "Delete this run",
+                        // Wait for Recover Again to finish.
+                        disabled: appState.recoveringRecordingIDs.contains(item.id)
+                    ) {
+                        // Pieces of an unrecovered recording go with the
+                        // note, so ask first.
+                        if item.hasUnrecoveredRecordingPieces {
+                            showRecordingPiecesDeleteConfirmation = true
+                        } else {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                appState.deleteHistoryEntry(id: item.id)
+                            }
                         }
                     }
                 }
@@ -4611,6 +4623,15 @@ struct RunLogEntryView: View {
         )
         .onReceive(appState.$retryingItemIDs) { ids in
             isRetrying = ids.contains(item.id)
+        }
+        .confirmationDialog("Delete this note and its recording pieces?", isPresented: $showRecordingPiecesDeleteConfirmation, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                appState.deleteHistoryEntry(id: item.id)
+            }
+            Button("Cancel", role: .cancel) {}
+                .keyboardShortcut(.defaultAction)
+        } message: {
+            Text("The recording pieces Quill couldn't recover will also be deleted. This can't be undone.")
         }
     }
 

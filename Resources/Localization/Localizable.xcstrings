@@ -18356,6 +18356,310 @@
           }
         }
       }
+    },
+    "Couldn't recover": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't recover"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구하지 못함"
+          }
+        }
+      }
+    },
+    "Recording was interrupted": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording was interrupted"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음이 중단되었습니다"
+          }
+        }
+      }
+    },
+    "Couldn't recover the recording": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't recover the recording"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음을 복구하지 못했습니다"
+          }
+        }
+      }
+    },
+    "The recording that started at %@ stopped when Quill quit unexpectedly. No audio was saved, so it can't be recovered.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The recording that started at %@ stopped when Quill quit unexpectedly. No audio was saved, so it can't be recovered."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 시작한 녹음이 Quill이 예기치 않게 종료되면서 멈췄습니다. 저장된 오디오가 없어 복구할 수 없습니다."
+          }
+        }
+      }
+    },
+    "No audio from the recording that started at %@ was saved, so it can't be recovered.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No audio from the recording that started at %@ was saved, so it can't be recovered."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 시작한 녹음은 저장된 오디오가 없어 복구할 수 없습니다."
+          }
+        }
+      }
+    },
+    "There isn't enough storage space to recover the recording.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There isn't enough storage space to recover the recording."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장 공간이 부족해 녹음을 복구하지 못했습니다."
+          }
+        }
+      }
+    },
+    "Quill couldn't access the recording pieces.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill couldn't access the recording pieces."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill이 녹음 조각에 접근하지 못했습니다."
+          }
+        }
+      }
+    },
+    "Quill couldn't put the recording pieces back together.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill couldn't put the recording pieces back together."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill이 녹음 조각을 하나로 합치지 못했습니다."
+          }
+        }
+      }
+    },
+    "Free up space, then recover again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free up space, then recover again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장 공간을 확보한 뒤 다시 복구하세요."
+          }
+        }
+      }
+    },
+    "Use Open Folder to get the recording pieces.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Open Folder to get the recording pieces."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더 열기로 녹음 조각을 직접 꺼낼 수 있습니다."
+          }
+        }
+      }
+    },
+    "Recover Again": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recover Again"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 복구"
+          }
+        }
+      }
+    },
+    "Open Folder": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Folder"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더 열기"
+          }
+        }
+      }
+    },
+    "Recovering…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recovering…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구하는 중…"
+          }
+        }
+      }
+    },
+    "Recording recovered": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recording recovered"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음을 복구했습니다"
+          }
+        }
+      }
+    },
+    "Couldn't recover again": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't recover again"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 복구하지 못했습니다"
+          }
+        }
+      }
+    },
+    "Delete this note and its recording pieces?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete this note and its recording pieces?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 노트와 녹음 조각을 삭제할까요?"
+          }
+        }
+      }
+    },
+    "The recording pieces Quill couldn't recover will also be deleted. This can't be undone.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The recording pieces Quill couldn't recover will also be deleted. This can't be undone."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복구하지 못한 녹음 조각도 함께 삭제됩니다. 이 작업은 되돌릴 수 없습니다."
+          }
+        }
+      }
+    },
+    "Wait for the recording recovery to finish, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wait for the recording recovery to finish, then try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 복구가 끝난 뒤 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Audio and summaries are deleted too. Notes for recordings Quill couldn't recover are deleted right away, with any recording pieces, and can't be restored.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio and summaries are deleted too. Notes for recordings Quill couldn't recover are deleted right away, with any recording pieces, and can't be restored."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오와 요약도 함께 삭제됩니다. 복구하지 못한 녹음의 노트는 녹음 조각과 함께 바로 삭제되며 되돌릴 수 없습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

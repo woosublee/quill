@@ -22,6 +22,12 @@ struct QuillUserIssueView: View {
     // a recovered recording.
     var systemImageOverride: String?
     var tintOverride: Color?
+    // Only meaningful for .full: a second action beside the first, such as
+    // Open Folder next to Recover Again.
+    var secondaryAction: (() -> Void)?
+    var secondaryActionTitle: String?
+    var actionDisabled = false
+    var secondaryActionDisabled = false
 
     @State private var showsDetails = false
 
@@ -65,6 +71,7 @@ struct QuillUserIssueView: View {
 
             HStack(spacing: 6) {
                 actionButton
+                secondaryActionButton
                 detailsButton
             }
             .padding(.top, 6)
@@ -227,25 +234,50 @@ struct QuillUserIssueView: View {
     private var actionButton: some View {
         if let action,
            actionTitleOverride != nil || presentation.recoveryAction != .none {
-            Button(action: action) {
-                Text(localizedCatalogString(actionTitleOverride ?? actionTitle))
-                    .font(.system(size: 11.5, weight: .medium))
-                    .lineLimit(1)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 3)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(Color.primary.opacity(0.08))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
-                    )
-                    .contentShape(RoundedRectangle(cornerRadius: 6))
-            }
-            .buttonStyle(.plain)
-            .fixedSize()
+            actionButton(
+                title: actionTitleOverride ?? actionTitle,
+                isDisabled: actionDisabled,
+                action: action
+            )
         }
+    }
+
+    @ViewBuilder
+    private var secondaryActionButton: some View {
+        if let secondaryAction, let secondaryActionTitle {
+            actionButton(
+                title: secondaryActionTitle,
+                isDisabled: secondaryActionDisabled,
+                action: secondaryAction
+            )
+        }
+    }
+
+    private func actionButton(
+        title: String,
+        isDisabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(localizedCatalogString(title))
+                .font(.system(size: 11.5, weight: .medium))
+                .lineLimit(1)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 3)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.primary.opacity(0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.5 : 1)
     }
 
     private var iconName: String {

@@ -33,6 +33,14 @@ struct AppStateStorageSafetyTests {
         try await verifiesArchiveCompletionAllowsImmediateAssetSavesWithoutRestart()
         try await verifiesSnapshotOnlyRecoveryFailureLeavesActiveStoreUntouched()
         try await verifiesRecoveryOperationInProgressBlocksMutation()
+        try verifiesUnrecoveredRecordingStatusRoundTrips()
+        try await verifiesJournalWithoutAudioKeepsInterruptedNote()
+        try await verifiesFailedStitchKeepsNoteAndRecoversAgain()
+        try await verifiesDeletingUnrecoveredNoteRemovesPiecesAndProtectsThemUntilThen()
+        try await verifiesFailedRecoverySaveIsRetriedNextLaunch()
+        try await verifiesUnreadableJournalFolderKeepsPieces()
+        try await verifiesClearingHistoryRemovesUnrecoveredPieces()
+        try await verifiesDeletingRecoveringNoteKeepsCancelWindow()
         try await AppStateTestStorage.withIsolatedStorage { environment in
             try prepareStorageDirectories(for: environment.storageLayout)
             let fallbackAudioURL = try await verifiesFallbackHistoryDoesNotSweepStoredAudio(
@@ -954,6 +962,568 @@ struct AppStateStorageSafetyTests {
         try expect(
             missingMicMessage != missingSystemAudioMessage,
             "the two degraded messages are distinct"
+        )
+    }
+
+    private static func verifiesUnrecoveredRecordingStatusRoundTrips() throws {
+        for kind in UnrecoveredRecordingKind.allCases {
+            for cause in [nil] + UnrecoveredRecordingCause.allCases.map(Optional.some) {
+                let context = UnrecoveredRecordingContext(kind: kind, cause: cause)
+                try expect(
+                    UnrecoveredRecordingContext.parse(context.status) == context,
+                    "unrecovered status \(context.status) round-trips"
+                )
+            }
+        }
+        try expect(
+            UnrecoveredRecordingContext.parse("recording-unrecovered:no-audio:/private/path") == nil,
+            "an unknown cause is rejected instead of shown"
+        )
+        let item = PipelineHistoryItem.unrecoveredRecording(
+            id: UUID(),
+            startedAt: Date(),
+            calendarMatch: nil,
+            customTitle: nil,
+            context: UnrecoveredRecordingContext(kind: .recoveryFailed, cause: nil)
+        )
+        try expect(
+            !item.isIncompleteTranscription && !item.isUnfinishedRecordingNote,
+            "an unrecovered note is not normalized or swept as unfinished"
+        )
+        let row = NoteListRowDisplayData(
+            item: item,
+            retryingIDs: [],
+            localizationLanguage: "en"
+        )
+        try expect(row.status == .fail, "an unrecovered note shows a red dot")
+        try expect(row.preview == "Couldn't recover", "an unrecovered note previews its failure")
+        try expect(row.isUnrecoveredRecording, "the row reads as a recording that couldn't be recovered")
+        try expect(item.hasUnrecoveredRecordingPieces, "a failed recovery keeps pieces to delete with the note")
+    }
+
+    /// Case 1: a journal with no audio keeps the recording note as
+    /// "Recording was interrupted" and is cleaned up so it is not retried.
+    private static func verifiesJournalWithoutAudioKeepsInterruptedNote() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let journalStore = RecordingJournalStore(
+                audioDirectory: environment.storageLayout.audioDirectory
+            )
+            let recordingID = UUID()
+            _ = try journalStore.createSingleSource(
+                makeJournalRequest(recordingID: recordingID)
+            )
+            let historyStore = PipelineHistoryStore(
+                storeURL: environment.storageLayout.historyStoreURL
+            )
+            _ = try historyStore.append(
+                makeUnfinishedRecordingNote(id: recordingID, title: "Weekly sync"),
+                maxCount: Int.max
+            )
+
+            for launch in 1...2 {
+                let appState = await MainActor.run {
+                    AppState(dependencies: environment.dependencies)
+                }
+                let notes = await MainActor.run {
+                    appState.pipelineHistory.filter { $0.id == recordingID }
+                }
+                try expect(notes.count == 1, "launch \(launch) keeps one interrupted note")
+                try expect(
+                    notes[0].unrecoveredRecordingContext
+                        == UnrecoveredRecordingContext(kind: .noAudio, cause: nil),
+                    "a journal without audio is shown as an interrupted recording"
+                )
+                try expect(
+                    notes[0].customTitle == "Weekly sync",
+                    "the recording note keeps its title"
+                )
+            }
+            try expect(
+                !FileManager.default.fileExists(
+                    atPath: journalStore.recordingDirectory(recordingID: recordingID).path
+                ),
+                "a journal without audio is cleaned up"
+            )
+        }
+    }
+
+    /// Case 2: pieces that cannot be stitched keep one note across launches,
+    /// Recover Again reports failure, then succeeds once the pieces are readable.
+    private static func verifiesFailedStitchKeepsNoteAndRecoversAgain() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let journalStore = RecordingJournalStore(
+                audioDirectory: environment.storageLayout.audioDirectory
+            )
+            let recordingID = UUID()
+            let sourceURL = try writeSingleSourceJournal(
+                store: journalStore,
+                recordingID: recordingID
+            )
+            // The pieces cannot be changed, so stitching fails.
+            try setImmutable(sourceURL, true)
+            defer { try? setImmutable(sourceURL, false) }
+            let historyStore = PipelineHistoryStore(
+                storeURL: environment.storageLayout.historyStoreURL
+            )
+            _ = try historyStore.append(
+                makeUnfinishedRecordingNote(id: recordingID, title: nil),
+                maxCount: Int.max
+            )
+
+            var appState: AppState?
+            for launch in 1...2 {
+                let launched = await MainActor.run {
+                    AppState(dependencies: environment.dependencies)
+                }
+                appState = launched
+                let notes = await MainActor.run {
+                    launched.pipelineHistory.filter { $0.id == recordingID }
+                }
+                try expect(notes.count == 1, "launch \(launch) keeps exactly one note")
+                try expect(
+                    notes[0].unrecoveredRecordingContext
+                        == UnrecoveredRecordingContext(
+                            kind: .recoveryFailed,
+                            cause: .storageUnavailable
+                        ),
+                    "unreadable pieces are shown as a failed recovery with a safe cause"
+                )
+                try expect(
+                    FileManager.default.fileExists(atPath: sourceURL.path),
+                    "a failed recovery keeps the recording pieces"
+                )
+            }
+            let launched = try required(appState)
+
+            let lockedWhileRecording = await MainActor.run { () -> Bool in
+                launched.isRecording = true
+                defer { launched.isRecording = false }
+                let item = launched.pipelineHistory.first { $0.id == recordingID }!
+                return launched.canRecoverRecordingAgain(item)
+            }
+            try expect(!lockedWhileRecording, "Recover Again is locked while recording")
+
+            let failedAgain = try await recoverAgain(launched, id: recordingID)
+            try expect(!failedAgain, "Recover Again reports a failure")
+            let stillFailed = await MainActor.run {
+                launched.pipelineHistory.first { $0.id == recordingID }?
+                    .unrecoveredRecordingContext?.kind
+            }
+            try expect(stillFailed == .recoveryFailed, "a failed retry keeps the note's state")
+
+            try setImmutable(sourceURL, false)
+            let recovered = try await recoverAgain(launched, id: recordingID)
+            try expect(recovered, "Recover Again succeeds once the pieces are readable")
+            let notes = await MainActor.run {
+                launched.pipelineHistory.filter { $0.id == recordingID }
+            }
+            try expect(notes.count == 1, "recovery keeps one note")
+            try expect(
+                notes[0].isRecoveredRecording && notes[0].audioFileName != nil,
+                "the note becomes a normal recovered recording"
+            )
+            try expect(
+                !FileManager.default.fileExists(
+                    atPath: journalStore.recordingDirectory(recordingID: recordingID).path
+                ),
+                "a recovered journal is removed"
+            )
+        }
+    }
+
+    /// Deleting a failed-recovery note removes its pieces. Until then, the
+    /// startup orphan sweep leaves the recording's audio file alone.
+    private static func verifiesDeletingUnrecoveredNoteRemovesPiecesAndProtectsThemUntilThen() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let journalStore = RecordingJournalStore(
+                audioDirectory: environment.storageLayout.audioDirectory
+            )
+            let recordingID = UUID()
+            _ = try writeSingleSourceJournal(
+                store: journalStore,
+                recordingID: recordingID
+            )
+            // A damaged stitched file blocks automatic recovery.
+            let stitchedURL = journalStore.permanentURL(recordingID: recordingID)
+            try Data("damaged".utf8).write(to: stitchedURL)
+            try setOldModificationDate(of: stitchedURL)
+            let orphanURL = environment.storageLayout.audioDirectory
+                .appendingPathComponent("failed-recovery-orphan.wav")
+            try Data("fixture".utf8).write(to: orphanURL)
+            try setOldModificationDate(of: orphanURL)
+            try PipelineHistoryStore(
+                storeURL: environment.storageLayout.historyStoreURL
+            ).saveAssetReferenceSnapshot(audioFileNames: [], transcriptFileNames: [])
+
+            let appState = await MainActor.run {
+                AppState(dependencies: environment.dependencies)
+            }
+            try await waitForFileRemoval(at: orphanURL)
+            try expect(
+                FileManager.default.fileExists(atPath: stitchedURL.path),
+                "the orphan sweep keeps audio that belongs to a remaining journal"
+            )
+            let kind = await MainActor.run {
+                appState.pipelineHistory.first { $0.id == recordingID }?
+                    .unrecoveredRecordingContext?.kind
+            }
+            try expect(kind == .recoveryFailed, "the damaged recording keeps a failed-recovery note")
+
+            let cancellable = await MainActor.run {
+                appState.canDeleteHistoryEntryCancellably(id: recordingID)
+            }
+            try expect(!cancellable, "an unrecovered note is never deleted through the Cancel toast")
+            // A multi-note deletion deletes the unrecovered note now, with
+            // its pieces, and lets the other note wait for Cancel.
+            let settled = makeHistoryItem(audioFileName: nil, transcriptFileName: nil)
+            _ = try PipelineHistoryStore(
+                storeURL: environment.storageLayout.historyStoreURL
+            ).append(settled, maxCount: Int.max)
+            let result = await MainActor.run { () -> NoteBulkDeletionResult in
+                appState.pipelineHistory.insert(settled, at: 0)
+                let result = appState.deleteConfirmedHistoryEntries(ids: [settled.id, recordingID])
+                // Quitting waits for the piece removal.
+                _ = appState.waitForPendingRecordingPieceRemovals(timeout: 5)
+                return result
+            }
+            try expect(
+                Set(result.deletedIDs) == [settled.id, recordingID] && result.skippedIDs.isEmpty,
+                "a mixed selection deletes both notes"
+            )
+            let pendingIDs = await MainActor.run {
+                appState.pendingNoteDeletion?.entries.map(\.item.id) ?? []
+            }
+            try expect(pendingIDs == [settled.id], "only the settled note waits for Cancel")
+            try expect(
+                !FileManager.default.fileExists(
+                    atPath: journalStore.recordingDirectory(recordingID: recordingID).path
+                ),
+                "deleting the note removes its recording pieces"
+            )
+            try expect(
+                !FileManager.default.fileExists(atPath: stitchedURL.path),
+                "deleting the note removes its unreferenced stitched audio"
+            )
+            await MainActor.run { appState.finalizePendingNoteDeletion() }
+            try expect(
+                !FileManager.default.fileExists(atPath: stitchedURL.path),
+                "deleting the note removes its unreferenced stitched audio"
+            )
+            let relaunched = await MainActor.run {
+                AppState(dependencies: environment.dependencies)
+            }
+            let returned = await MainActor.run {
+                relaunched.pipelineHistory.contains { $0.id == recordingID }
+            }
+            try expect(!returned, "a deleted note does not come back on the next launch")
+        }
+    }
+
+    /// Case 3: audio was stitched but saving did not finish. The journal and
+    /// its audio stay, and the next launch finishes the save without a
+    /// second note.
+    private static func verifiesFailedRecoverySaveIsRetriedNextLaunch() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let journalStore = RecordingJournalStore(
+                audioDirectory: environment.storageLayout.audioDirectory
+            )
+            let recordingID = UUID()
+            _ = try writeSingleSourceJournal(
+                store: journalStore,
+                recordingID: recordingID
+            )
+            // Stitch the pieces as startup does, but stop before saving.
+            guard case .recovered(let artifact) = RecordingJournalRecoveryExecutor(
+                store: journalStore
+            ).recoverAll().first else {
+                throw TestFailure("the fixture journal is stitched")
+            }
+            let stitchedURL = artifact.audioURL
+            try setOldModificationDate(of: stitchedURL)
+            let journalDirectory = journalStore.recordingDirectory(recordingID: recordingID)
+            // The journal cannot record that history was saved.
+            try setImmutable(journalDirectory, true)
+            defer { try? setImmutable(journalDirectory, false) }
+            let orphanURL = environment.storageLayout.audioDirectory
+                .appendingPathComponent("unfinished-save-orphan.wav")
+            try Data("fixture".utf8).write(to: orphanURL)
+            try setOldModificationDate(of: orphanURL)
+            try PipelineHistoryStore(
+                storeURL: environment.storageLayout.historyStoreURL
+            ).saveAssetReferenceSnapshot(
+                audioFileNames: [stitchedURL.lastPathComponent],
+                transcriptFileNames: []
+            )
+
+            _ = await MainActor.run { AppState(dependencies: environment.dependencies) }
+            try await waitForFileRemoval(at: orphanURL)
+            try expect(
+                FileManager.default.fileExists(atPath: journalDirectory.path)
+                    && FileManager.default.fileExists(atPath: stitchedURL.path),
+                "an unfinished save keeps the journal and its stitched audio"
+            )
+
+            try setImmutable(journalDirectory, false)
+            let relaunched = await MainActor.run {
+                AppState(dependencies: environment.dependencies)
+            }
+            let notes = await MainActor.run {
+                relaunched.pipelineHistory.filter { $0.id == recordingID }
+            }
+            try expect(notes.count == 1, "the retried save keeps one note")
+            try expect(
+                notes[0].audioFileName == stitchedURL.lastPathComponent,
+                "the retried save keeps the stitched audio"
+            )
+            try expect(
+                !FileManager.default.fileExists(atPath: journalDirectory.path),
+                "the retried save removes the journal"
+            )
+        }
+    }
+
+    /// A journal folder that cannot be read might hold audio, so it is kept
+    /// as pieces instead of being discarded as empty.
+    private static func verifiesUnreadableJournalFolderKeepsPieces() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let journalStore = RecordingJournalStore(
+                audioDirectory: environment.storageLayout.audioDirectory
+            )
+            let recordingID = UUID()
+            _ = try journalStore.createSingleSource(
+                makeJournalRequest(recordingID: recordingID)
+            )
+            let journalDirectory = journalStore.recordingDirectory(recordingID: recordingID)
+            let unreadableFolder = journalDirectory.appendingPathComponent(
+                "unreadable",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(
+                at: unreadableFolder,
+                withIntermediateDirectories: true
+            )
+            try Data(repeating: 0x03, count: 128).write(
+                to: unreadableFolder.appendingPathComponent("piece.bin")
+            )
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o000],
+                ofItemAtPath: unreadableFolder.path
+            )
+            defer {
+                try? FileManager.default.setAttributes(
+                    [.posixPermissions: 0o700],
+                    ofItemAtPath: unreadableFolder.path
+                )
+            }
+
+            let appState = await MainActor.run {
+                AppState(dependencies: environment.dependencies)
+            }
+            let kind = await MainActor.run {
+                appState.pipelineHistory.first { $0.id == recordingID }?
+                    .unrecoveredRecordingContext?.kind
+            }
+            try expect(kind == .recoveryFailed, "an unreadable journal folder is kept as pieces")
+            try expect(
+                FileManager.default.fileExists(atPath: journalDirectory.path),
+                "an unreadable journal folder is not discarded"
+            )
+        }
+    }
+
+    /// Clearing history removes the pieces of unrecovered notes, and waits
+    /// for Recover Again so it cannot add a note back.
+    private static func verifiesClearingHistoryRemovesUnrecoveredPieces() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let journalStore = RecordingJournalStore(
+                audioDirectory: environment.storageLayout.audioDirectory
+            )
+            let recordingID = UUID()
+            let sourceURL = try writeSingleSourceJournal(
+                store: journalStore,
+                recordingID: recordingID
+            )
+            try setImmutable(sourceURL, true)
+            let appState = await MainActor.run {
+                AppState(dependencies: environment.dependencies)
+            }
+            try setImmutable(sourceURL, false)
+            let kept = await MainActor.run {
+                appState.pipelineHistory.contains { $0.id == recordingID }
+            }
+            try expect(kept, "the failed recovery keeps a note to clear")
+
+            let clearedWhileRecovering = await MainActor.run { () -> Bool in
+                appState.recoveringRecordingIDs.insert(recordingID)
+                defer { appState.recoveringRecordingIDs.remove(recordingID) }
+                appState.clearPipelineHistory()
+                return appState.pipelineHistory.isEmpty
+            }
+            try expect(!clearedWhileRecovering, "clearing waits for Recover Again")
+
+            await MainActor.run { appState.clearPipelineHistory() }
+            let isEmpty = await MainActor.run { appState.pipelineHistory.isEmpty }
+            try expect(isEmpty, "clearing removes the unrecovered note")
+            try await waitForFileRemoval(
+                at: journalStore.recordingDirectory(recordingID: recordingID)
+            )
+        }
+    }
+
+    /// A note being recovered again can't be deleted, and refusing it does
+    /// not end an earlier deletion's Cancel window.
+    private static func verifiesDeletingRecoveringNoteKeepsCancelWindow() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let journalStore = RecordingJournalStore(
+                audioDirectory: environment.storageLayout.audioDirectory
+            )
+            let recordingID = UUID()
+            let sourceURL = try writeSingleSourceJournal(
+                store: journalStore,
+                recordingID: recordingID
+            )
+            try setImmutable(sourceURL, true)
+            let settled = makeHistoryItem(audioFileName: nil, transcriptFileName: nil)
+            _ = try PipelineHistoryStore(
+                storeURL: environment.storageLayout.historyStoreURL
+            ).append(settled, maxCount: Int.max)
+            let appState = await MainActor.run {
+                AppState(dependencies: environment.dependencies)
+            }
+            try setImmutable(sourceURL, false)
+
+            let state = await MainActor.run { () -> (Bool, Bool, [UUID]) in
+                appState.deleteHistoryEntriesCancellably(ids: [settled.id])
+                appState.recoveringRecordingIDs.insert(recordingID)
+                defer { appState.recoveringRecordingIDs.remove(recordingID) }
+                appState.deleteHistoryEntry(id: recordingID)
+                let bulk = appState.deleteConfirmedHistoryEntries(ids: [recordingID])
+                return (
+                    appState.pipelineHistory.contains { $0.id == recordingID },
+                    appState.pendingNoteDeletion?.entries.contains { $0.item.id == settled.id } == true,
+                    bulk.skippedIDs
+                )
+            }
+            try expect(state.0, "a note being recovered again is not deleted")
+            try expect(state.1, "refusing the deletion keeps the earlier Cancel window")
+            try expect(state.2 == [recordingID], "bulk deletion skips a note being recovered again")
+            try expect(
+                FileManager.default.fileExists(
+                    atPath: journalStore.recordingDirectory(recordingID: recordingID).path
+                ),
+                "the pieces of a note being recovered again stay"
+            )
+            await MainActor.run { appState.finalizePendingNoteDeletion() }
+        }
+    }
+
+    @MainActor
+    private static func recoverAgainOnMain(
+        _ appState: AppState,
+        id: UUID,
+        completion: @escaping @MainActor (Bool) -> Void
+    ) {
+        appState.recoverRecordingAgain(id: id, completion: completion)
+    }
+
+    private static func recoverAgain(_ appState: AppState, id: UUID) async throws -> Bool {
+        let result = await withCheckedContinuation { continuation in
+            Task { @MainActor in
+                recoverAgainOnMain(appState, id: id) { continuation.resume(returning: $0) }
+            }
+        }
+        try await waitUntil { await MainActor.run { appState.recoveringRecordingIDs.isEmpty } }
+        return result
+    }
+
+    private static func setImmutable(_ url: URL, _ isImmutable: Bool) throws {
+        try FileManager.default.setAttributes(
+            [.immutable: isImmutable],
+            ofItemAtPath: url.path
+        )
+    }
+
+    private static func makeUnfinishedRecordingNote(
+        id: UUID,
+        title: String?
+    ) -> PipelineHistoryItem {
+        PipelineHistoryItem(
+            id: id,
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+            recordingStartedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            rawTranscript: "",
+            postProcessedTranscript: "",
+            postProcessingPrompt: nil,
+            contextSummary: "",
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "",
+            postProcessingStatus: "live-recording",
+            debugStatus: "",
+            customVocabulary: "",
+            customTitle: title
+        )
+    }
+
+    private static func makeJournalRequest(recordingID: UUID) -> RecordingJournalCreateRequest {
+        RecordingJournalCreateRequest(
+            recordingID: recordingID,
+            sourceID: UUID(),
+            segmentID: UUID(),
+            startedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            monotonicAnchorNanoseconds: 100,
+            sourceMode: .microphone,
+            sourceKind: .microphone,
+            sourceFileName: "microphone.wav.part",
+            pipeline: makeRecordingPipelineSnapshot()
+        )
+    }
+
+    private static func writeSingleSourceJournal(
+        store: RecordingJournalStore,
+        recordingID: UUID
+    ) throws -> URL {
+        let session = try store.createSingleSource(
+            makeJournalRequest(recordingID: recordingID)
+        )
+        let writer = try RecordingPCMJournalWriter(
+            session: session,
+            store: store
+        )
+        writer.enqueue(Data(repeating: 0x01, count: 64))
+        _ = try writer.checkpoint()
+        return session.sourceURL
+    }
+
+    private static func makeRecordingPipelineSnapshot() -> RecordingPipelineSnapshot {
+        RecordingPipelineSnapshot(
+            trigger: .toggle,
+            intent: .dictation,
+            selectedText: nil,
+            title: nil,
+            calendar: nil,
+            transcription: RecordingTranscriptionSnapshot(
+                backend: .apiStandard,
+                modelID: "whisper-large-v3",
+                spokenLanguageCode: "auto",
+                providerSelection: .defaultConfiguration
+            ),
+            processing: RecordingProcessingSnapshot(
+                postProcessingEnabled: false,
+                preferredModelID: nil,
+                fallbackModelID: nil,
+                outputLanguage: "auto",
+                contextCaptureEnabled: false,
+                instructionExecutionGuardEnabled: true,
+                customVocabulary: [],
+                customSystemPrompt: nil
+            )
         )
     }
 

@@ -370,6 +370,9 @@ struct NoteBrowserView: View {
     @EnvironmentObject var appState: AppState
     @State private var selection = NoteSelection()
     @State private var pendingDeletionIDs: [UUID] = []
+    /// A short notice when a deletion has to wait, such as for Recover Again.
+    @State private var deletionNotice: String?
+    @State private var deletionNoticeID: UUID?
     @State private var showDeletionConfirmation = false
     @State private var searchText = ""
     @State private var searchMatcher = NoteSearchMatcher()
@@ -440,6 +443,7 @@ struct NoteBrowserView: View {
         // A note making its summary is busy too, so bulk delete never skips it silently.
         return transcriptStatus(for: item, retrying: appState.retryingItemIDs).isBulkSelectable
             && !appState.meetingSummaryGeneratingNoteIDs.contains(id)
+            && !appState.recoveringRecordingIDs.contains(id)
     }
 
     private func handleRowClick(_ id: UUID) {
@@ -476,6 +480,12 @@ struct NoteBrowserView: View {
 
     /// Asks to delete the multi-selection, or the clicked note when it is not part of it.
     private func requestDeletion(of id: UUID? = nil) {
+        if let id, appState.recoveringRecordingIDs.contains(id) {
+            showDeletionNotice(localizedCatalogString(
+                "Wait for the recording recovery to finish, then try again."
+            ))
+            return
+        }
         let ids: [UUID]
         if let id, !(selection.showsSelectionUI && selection.selectedIDs.contains(id)) {
             ids = [id]
@@ -523,7 +533,7 @@ struct NoteBrowserView: View {
             afterDeleting: Set(ids),
             in: filteredHistory.map(\.id)
         )
-        let result = appState.deleteHistoryEntriesCancellably(ids: ids)
+        let result = appState.deleteConfirmedHistoryEntries(ids: ids)
         if result.failedIDs.isEmpty, result.skippedIDs.isEmpty {
             selection.focus(nextID)
         } else {
@@ -547,9 +557,46 @@ struct NoteBrowserView: View {
     }
 
     private var deletionConfirmationTitle: Text {
-        pendingDeletionIDs.count == 1
-            ? Text("Delete this note?")
-            : Text(localizedCatalogFormat("Delete %lld notes?", pendingDeletionIDs.count))
+        if pendingDeletionIDs.count == 1 {
+            return pendingDeletionIncludesRecordingPieces
+                ? Text("Delete this note and its recording pieces?")
+                : Text("Delete this note?")
+        }
+        return Text(localizedCatalogFormat("Delete %lld notes?", pendingDeletionIDs.count))
+    }
+
+    /// Whether a note waiting to be deleted still holds the pieces of a
+    /// recording that could not be recovered; they are deleted with it.
+    private var pendingDeletionIncludesRecordingPieces: Bool {
+        appState.pipelineHistory.contains {
+            pendingDeletionIDs.contains($0.id) && $0.hasUnrecoveredRecordingPieces
+        }
+    }
+
+    /// Whether a note waiting to be deleted is for a recording that could not
+    /// be recovered. Such notes are deleted right away, without Cancel.
+    private var pendingDeletionIncludesUnrecoveredRecording: Bool {
+        appState.pipelineHistory.contains {
+            pendingDeletionIDs.contains($0.id) && $0.unrecoveredRecordingContext != nil
+        }
+    }
+
+    private func showDeletionNotice(_ message: String) {
+        let id = UUID()
+        deletionNoticeID = id
+        deletionNotice = message
+        NSAccessibility.post(
+            element: NSApplication.shared,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: message,
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue
+            ]
+        )
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            guard deletionNoticeID == id else { return }
+            deletionNotice = nil
+        }
     }
 
     private func noteDeletionToastMessage(count: Int) -> String {
@@ -616,6 +663,11 @@ struct NoteBrowserView: View {
                         .padding(.horizontal, 24)
                         .padding(.bottom, 72)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
+                    } else if let deletionNotice {
+                        NoteBrowserToastView(message: deletionNotice)
+                            .padding(.horizontal, 24)
+                            .padding(.bottom, 72)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
                 .animation(.easeOut(duration: 0.16), value: appState.pendingNoteDeletion?.id)
@@ -664,7 +716,11 @@ struct NoteBrowserView: View {
             Button("Delete", role: .destructive) { performPendingDeletion() }
             Button("Cancel", role: .cancel) { pendingDeletionIDs = [] }
         } message: {
-            if pendingDeletionIDs.count != 1 {
+            if pendingDeletionIDs.count == 1, pendingDeletionIncludesRecordingPieces {
+                Text("The recording pieces Quill couldn't recover will also be deleted. This can't be undone.")
+            } else if pendingDeletionIDs.count != 1, pendingDeletionIncludesUnrecoveredRecording {
+                Text("Audio and summaries are deleted too. Notes for recordings Quill couldn't recover are deleted right away, with any recording pieces, and can't be restored.")
+            } else if pendingDeletionIDs.count != 1 {
                 Text("Audio and summaries are deleted too. You can cancel for a few seconds after deleting.")
             } else if appState.canDeleteHistoryEntryCancellably(id: pendingDeletionIDs[0]) {
                 Text("You can cancel for a few seconds after deleting.")
@@ -678,6 +734,9 @@ struct NoteBrowserView: View {
             selection.retainSelectable(isBulkSelectable)
         }
         .onChange(of: appState.retryingItemIDs) { _ in
+            selection.retainSelectable(isBulkSelectable)
+        }
+        .onChange(of: appState.recoveringRecordingIDs) { _ in
             selection.retainSelectable(isBulkSelectable)
         }
         .onChange(of: searchText) { _ in
@@ -1157,6 +1216,8 @@ struct NoteBrowserView: View {
                                     Button("Delete…", role: .destructive) {
                                         requestDeletion(of: item.id)
                                     }
+                                    // Wait for Recover Again to finish.
+                                    .disabled(appState.recoveringRecordingIDs.contains(item.id))
                                 }
                             }
                         }
@@ -1699,7 +1760,8 @@ private struct NoteListRow: View {
                 case .unselected: return .unchecked
                 case .unavailable: return .unavailable
                 }
-            }
+            },
+            isUnrecoveredRecording: displayData.isUnrecoveredRecording
         )))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
@@ -2021,6 +2083,7 @@ private struct NoteDetailView: View {
     @State private var titleDebounceTimer: Timer?
     @State private var showDeleteConfirmation = false
     @State private var showDeleteChoice = false
+    @State private var showUnrecoveredDeleteConfirmation = false
     @State private var selectedContentMode: NoteContentMode = .transcript
     @State private var summaryIssue: QuillUserIssueRecord?
     @State private var isSummaryIssueBannerDismissed = false
@@ -2062,6 +2125,31 @@ private struct NoteDetailView: View {
         )
     }
     private var isRecoveredRecording: Bool { item.isRecoveredRecording }
+    private var unrecoveredContext: UnrecoveredRecordingContext? {
+        item.unrecoveredRecordingContext
+    }
+    /// Pieces of this recording remain on disk; deleting the note removes them.
+    private var keepsRecordingPieces: Bool {
+        item.hasUnrecoveredRecordingPieces
+    }
+    private var isRecoveringRecording: Bool {
+        appState.recoveringRecordingIDs.contains(item.id)
+    }
+    private var unrecoveredPresentation: QuillUserIssuePresentation? {
+        guard let unrecoveredContext else { return nil }
+        let startTime = (item.recordingStartedAt ?? item.timestamp)
+            .formatted(date: .omitted, time: .shortened)
+        let title = unrecoveredContext.localizedTitle()
+        return QuillUserIssuePresentation(
+            title: title,
+            body: unrecoveredContext.localizedBody(startTime: startTime),
+            suggestion: "",
+            compactMessage: title,
+            detailsRows: [],
+            recoveryAction: .none,
+            severity: .error
+        )
+    }
     private var recoveredRecordingContext: RecoveredRecordingContext {
         item.recoveredRecordingContext ?? RecoveredRecordingContext(
             mode: .complete,
@@ -2229,6 +2317,8 @@ private struct NoteDetailView: View {
                     .overlay {
                         if isRetrying {
                             retryingOverlay
+                        } else if isRecoveringRecording {
+                            retryingOverlay
                         }
                     }
             }
@@ -2308,6 +2398,15 @@ private struct NoteDetailView: View {
             withAnimation(.easeOut(duration: 0.16)) {
                 isRetrying = ids.contains(item.id)
             }
+        }
+        // The pieces of a recording that could not be recovered go with the
+        // note, so this asks first instead of offering an undo.
+        .confirmationDialog("Delete this note and its recording pieces?", isPresented: $showUnrecoveredDeleteConfirmation, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { onDelete() }
+            Button("Cancel", role: .cancel) {}
+                .keyboardShortcut(.defaultAction)
+        } message: {
+            Text("The recording pieces Quill couldn't recover will also be deleted. This can't be undone.")
         }
         .confirmationDialog("Delete this note?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { onDelete() }
@@ -2453,7 +2552,7 @@ private struct NoteDetailView: View {
     private var noteStateIndicator: some View {
         if isLiveRecording {
             LiveRecordingBadge(startedAt: item.recordingStartedAt)
-        } else if isRetrying || isCloudTranscribing {
+        } else if isRetrying || isCloudTranscribing || isRecoveringRecording {
             ProgressView()
                 .controlSize(.mini)
                 .help(isCloudTranscribing ? cloudProgressText : retryingStatusText)
@@ -2936,6 +3035,12 @@ private struct NoteDetailView: View {
                 Text(verbatim: processingStatusText)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.secondary)
+            } else if let unrecoveredContext,
+                      let unrecoveredPresentation {
+                unrecoveredRecordingState(
+                    unrecoveredContext,
+                    presentation: unrecoveredPresentation
+                )
             } else if isRecoveredRecording {
                 // Same empty state as a failed note, with the recovery icon
                 // and an action that transcribes the recovered audio.
@@ -2994,6 +3099,46 @@ private struct NoteDetailView: View {
         .frame(maxWidth: .infinity)
     }
 
+    /// A recording startup recovery could not restore. With no audio left,
+    /// the note can only be deleted; with pieces left, it can be recovered
+    /// again or the pieces opened in Finder.
+    @ViewBuilder
+    private func unrecoveredRecordingState(
+        _ context: UnrecoveredRecordingContext,
+        presentation: QuillUserIssuePresentation
+    ) -> some View {
+        switch context.kind {
+        case .noAudio:
+            QuillUserIssueView(
+                presentation: presentation,
+                action: { showDeleteConfirmation = true },
+                actionTitleOverride: "Delete Note"
+            )
+            .padding(.horizontal, 60)
+        case .recoveryFailed:
+            QuillUserIssueView(
+                presentation: presentation,
+                action: { recoverRecordingAgain() },
+                actionTitleOverride: "Recover Again",
+                secondaryAction: {
+                    appState.openUnrecoveredRecordingFolder(id: item.id)
+                },
+                secondaryActionTitle: "Open Folder",
+                actionDisabled: !appState.canRecoverRecordingAgain(item),
+                secondaryActionDisabled: isRecoveringRecording
+            )
+            .padding(.horizontal, 60)
+        }
+    }
+
+    private func recoverRecordingAgain() {
+        appState.recoverRecordingAgain(id: item.id) { didRecover in
+            showToast(localizedCatalogString(
+                didRecover ? "Recording recovered" : "Couldn't recover again"
+            ))
+        }
+    }
+
     /// The same stage the note list shows: "Post-processing…" once the
     /// transcript is being cleaned up, cloud chunk progress, or "Transcribing…".
     private var processingStatusText: String {
@@ -3009,6 +3154,9 @@ private struct NoteDetailView: View {
     /// never transcribed, then "Post-processing…" once the new transcript is
     /// being cleaned up.
     private var retryingStatusText: String {
+        if isRecoveringRecording {
+            return localizedCatalogString("Recovering…")
+        }
         if appState.postProcessingNoteIDs.contains(item.id) {
             return localizedCatalogString("Post-processing...")
         }
@@ -3126,7 +3274,9 @@ private struct NoteDetailView: View {
             // Delete
             toolbarButton(
                 action: {
-                    if canDeleteSummary {
+                    if keepsRecordingPieces {
+                        showUnrecoveredDeleteConfirmation = true
+                    } else if canDeleteSummary {
                         showDeleteChoice = true
                     } else {
                         showDeleteConfirmation = true
@@ -3137,7 +3287,7 @@ private struct NoteDetailView: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(Color.red.opacity(0.8))
                 },
-                disabled: false,
+                disabled: isRecoveringRecording,
                 help: "Delete note"
             )
         }
