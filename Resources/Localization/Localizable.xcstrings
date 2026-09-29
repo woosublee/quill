@@ -1073,38 +1073,6 @@
         }
       }
     },
-    "Delete this note?": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Delete this note?"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "노트를 삭제할까요?"
-          }
-        }
-      }
-    },
-    "Deleted notes cannot be recovered.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deleted notes cannot be recovered."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "삭제한 노트는 복구할 수 없습니다."
-          }
-        }
-      }
-    },
     "Could not delete summary.": {
       "localizations": {
         "en": {
@@ -17845,18 +17813,50 @@
         }
       }
     },
-    "Deleting the entire note removes its recording, transcript, and summary, and cannot be undone.": {
+    "Deleting the entire note removes its recording, transcript, and summary.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deleting the entire note removes its recording, transcript, and summary, and cannot be undone."
+            "value": "Deleting the entire note removes its recording, transcript, and summary."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워지며 되돌릴 수 없습니다."
+            "value": "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워집니다."
+          }
+        }
+      }
+    },
+    "Note deleted": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Note deleted"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트를 삭제했습니다"
+          }
+        }
+      }
+    },
+    "Unable to restore the deleted note": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to restore the deleted note"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삭제한 노트를 복원할 수 없음"
           }
         }
       }

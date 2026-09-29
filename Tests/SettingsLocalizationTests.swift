@@ -332,8 +332,9 @@ struct SettingsLocalizationTests {
             "What do you want to delete?": "무엇을 삭제할까요?",
             "Delete Summary Only": "요약만 삭제",
             "Delete Entire Note": "노트 전체 삭제",
-            "Deleting the entire note removes its recording, transcript, and summary, and cannot be undone.":
-                "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워지며 되돌릴 수 없습니다.",
+            "Deleting the entire note removes its recording, transcript, and summary.":
+                "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워집니다.",
+            "Note deleted": "노트를 삭제했습니다",
             "Show Less": "접기",
             "Could not delete summary.": "요약을 삭제하지 못했습니다.",
             "Meeting Summary is off. Turn it on in Model Settings to create a summary.":

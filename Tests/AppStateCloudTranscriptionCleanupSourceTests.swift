@@ -39,7 +39,20 @@ struct AppStateCloudTranscriptionCleanupSourceTests {
     private static func verifiesDeleteUsesCommonCleanup(_ source: String) throws {
         let deletion = block(
             source,
-            from: "func deleteHistoryEntry(id: UUID)",
+            from: "func deleteHistoryEntry(id: UUID) {",
+            to: "func deleteHistoryEntryCancellably(id: UUID)"
+        )
+        try expectOrdered(
+            [
+                "removeHistoryEntryRecord(id: id)",
+                "cleanupDeletedPipelineHistoryAssets("
+            ],
+            in: deletion,
+            label: "single delete cleanup order"
+        )
+        let record = block(
+            source,
+            from: "private func removeHistoryEntryRecord(",
             to: "@MainActor\n    func updateHistoryItemTitle"
         )
         try expectOrdered(
@@ -48,11 +61,21 @@ struct AppStateCloudTranscriptionCleanupSourceTests {
                 "cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(",
                 "pipelineHistoryStore.delete(",
                 "beforeDeleting:",
-                "cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(",
-                "cleanupDeletedPipelineHistoryAssets("
+                "cloudTranscriptionHistoryCoordinator.cancelAndInvalidate("
             ],
-            in: deletion,
-            label: "single delete cleanup order"
+            in: record,
+            label: "single delete record removal order"
+        )
+        // #409: the Cancel window defers the same cleanup instead of duplicating it.
+        let finalize = block(
+            source,
+            from: "func finalizePendingNoteDeletion() {",
+            to: "private func removeHistoryEntryRecord("
+        )
+        try expectOrdered(
+            ["pendingNoteDeletion = nil", "cleanupDeletedPipelineHistoryAssets(assets)"],
+            in: finalize,
+            label: "pending delete cleanup"
         )
     }
 

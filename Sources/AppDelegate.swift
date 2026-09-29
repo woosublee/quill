@@ -105,6 +105,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return appState.requestTerminationAfterModelCleanup()
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        // Quitting ends the Cancel window of a just-deleted note.
+        appState.finalizePendingNoteDeletion()
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         guard appState.hasCompletedSetup else { return true }
         if appState.noteBrowserEnabled {

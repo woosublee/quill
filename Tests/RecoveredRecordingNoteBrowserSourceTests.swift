@@ -34,7 +34,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(appStateSource.contains("func openProviderSettings()"))
         precondition(appStateSource.contains("selectedSettingsTab = .models"))
         precondition(appStateSource.contains("NotificationCenter.default.post(name: .showSettings, object: nil)"))
-        precondition(source.contains("appState.deleteHistoryEntry(id: id)"))
+        precondition(source.contains("appState.deleteHistoryEntryCancellably(id: id)"))
         precondition(source.contains("Image(systemName: \"arrow.clockwise.circle\")"))
         precondition(source.contains(".foregroundStyle(.orange.opacity(QuillContrast.opacity(0.7, increased: increasesContrast)))"))
         precondition(source.contains("if isRecoveredRecording {"))
