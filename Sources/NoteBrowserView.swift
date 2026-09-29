@@ -384,6 +384,9 @@ struct NoteBrowserView: View {
     /// The note the search opened on its own, as opposed to one the person
     /// picked, so clearing the search can go back to the earlier note.
     @State private var noteOpenedBySearch: UUID?
+    /// Set while the search moves the open note, so the detail pane being
+    /// rebuilt doesn't close the search or leave it without focus.
+    @State private var isMovingOpenNoteForSearch = false
     @State private var recoveryScrollRestoreRequest: RecoveryScrollRestoreRequest?
     @State private var pendingAudioImport: PendingAudioImport?
     @State private var isSearchOpen = false
@@ -426,7 +429,7 @@ struct NoteBrowserView: View {
                 current: selectedItemID
             )
             if focused != selectedItemID {
-                selection.focus(focused)
+                openNoteForSearch(focused)
                 noteOpenedBySearch = focused
             }
         } else if isSearchSessionActive {
@@ -439,7 +442,24 @@ struct NoteBrowserView: View {
             )
             endSearchSession()
             if focused != selectedItemID {
-                selection.focus(focused)
+                openNoteForSearch(focused)
+            }
+        }
+    }
+
+    /// Opens a note because of the search, keeping the typing in the search
+    /// field: rebuilding the detail pane can take focus from it.
+    private func openNoteForSearch(_ id: UUID?) {
+        let keepsSearchFocus = isSearchFieldFocused
+        if keepsSearchFocus {
+            isMovingOpenNoteForSearch = true
+        }
+        selection.focus(id)
+        guard keepsSearchFocus else { return }
+        DispatchQueue.main.async {
+            isSearchFieldFocused = true
+            DispatchQueue.main.async {
+                isMovingOpenNoteForSearch = false
             }
         }
     }
@@ -1238,7 +1258,9 @@ struct NoteBrowserView: View {
 
     @ViewBuilder
     private var noteList: some View {
-        Group {
+        // One container, so the header overlaid on it (and its search field)
+        // keeps its identity when the list switches to "No Search Results".
+        ZStack(alignment: .top) {
             if appState.pipelineHistory.isEmpty {
                 emptyListState
                     .padding(.top, sidebarHeaderHeight)
@@ -1253,6 +1275,9 @@ struct NoteBrowserView: View {
                         .foregroundStyle(.tertiary)
                     Spacer()
                 }
+                // Fill the sidebar: the header overlays this view at its
+                // width, so a narrow view squeezed the search field away.
+                .frame(maxWidth: .infinity)
                 .padding(.top, sidebarHeaderHeight)
             } else {
                 ScrollViewReader { proxy in
@@ -1363,7 +1388,8 @@ struct NoteBrowserView: View {
         .frame(height: 26)
         .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
         .onChange(of: isSearchFieldFocused) { isFocused in
-            if !isFocused && searchText.isEmpty {
+            // Focus lost to a note the search just opened doesn't close it.
+            if !isFocused && searchText.isEmpty && !isMovingOpenNoteForSearch {
                 isSearchOpen = false
             }
         }
