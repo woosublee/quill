@@ -132,13 +132,13 @@ $(SPARKLE_STAMP): Package.swift BuildSupport/SparkleResolver/main.swift
 
 $(WHISPER_BUILD_SETTINGS): FORCE
 	@mkdir -p "$(BUILD_DIR)"
-	@printf '%s\n%s\n%s\n' "$(WHISPER_CPP_REPO)" "$(WHISPER_CPP_VERSION)" "$(ARCH)" > "$@.tmp"
+	@printf '%s\n%s\n%s\n%s\n' "$(WHISPER_CPP_REPO)" "$(WHISPER_CPP_VERSION)" "$(ARCH)" "$(abspath $(WHISPER_CPP_DIR))" > "$@.tmp"
 	@if [ ! -f "$@" ] || ! cmp -s "$@.tmp" "$@"; then mv "$@.tmp" "$@"; else rm "$@.tmp"; fi
 
 $(WHISPER_STAMP): BuildSupport/WhisperRuntime/build-whisper.cpp.sh $(WHISPER_VERIFY_SCRIPT) $(WHISPER_BUILD_SETTINGS)
 	@BuildSupport/WhisperRuntime/build-whisper.cpp.sh "$(WHISPER_CPP_REPO)" "$(WHISPER_CPP_VERSION)" "$(WHISPER_CPP_DIR)" "$(ARCH)"
 	@mkdir -p "$(BUILD_DIR)"
-	@printf '%s\n' "$(WHISPER_HELPER)" > "$@"
+	@printf '%s\n' "$(abspath $(WHISPER_HELPER))" > "$@"
 
 native-whisper-helper-test: $(WHISPER_STAMP)
 	@helper="$$(cat "$(WHISPER_STAMP)")"; \
@@ -146,13 +146,13 @@ native-whisper-helper-test: $(WHISPER_STAMP)
 
 $(LLAMA_BUILD_SETTINGS): FORCE
 	@mkdir -p "$(BUILD_DIR)"
-	@printf '%s\n%s\n%s\n' "$(LLAMA_CPP_REPO)" "$(LLAMA_CPP_VERSION)" "$(ARCH)" > "$@.tmp"
+	@printf '%s\n%s\n%s\n%s\n' "$(LLAMA_CPP_REPO)" "$(LLAMA_CPP_VERSION)" "$(ARCH)" "$(abspath $(LLAMA_CPP_DIR))" > "$@.tmp"
 	@if [ ! -f "$@" ] || ! cmp -s "$@.tmp" "$@"; then mv "$@.tmp" "$@"; else rm "$@.tmp"; fi
 
 $(LLAMA_STAMP): BuildSupport/LlamaRuntime/build-llama.cpp.sh $(LLAMA_VERIFY_SCRIPT) $(LLAMA_BUILD_SETTINGS)
 	@BuildSupport/LlamaRuntime/build-llama.cpp.sh "$(LLAMA_CPP_REPO)" "$(LLAMA_CPP_VERSION)" "$(LLAMA_CPP_DIR)" "$(ARCH)"
 	@mkdir -p "$(BUILD_DIR)"
-	@printf '%s\n' "$(LLAMA_HELPER)" > "$@"
+	@printf '%s\n' "$(abspath $(LLAMA_HELPER))" > "$@"
 
 llama-server-helper-test: $(LLAMA_STAMP)
 	@helper="$$(cat "$(LLAMA_STAMP)")"; \
