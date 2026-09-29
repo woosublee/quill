@@ -1227,6 +1227,12 @@ struct NoteBrowserView: View {
         .overrideCursor(.arrow)
     }
 
+    private var isShowingDeletionCapsule: Bool {
+        appState.pendingNoteDeletion != nil
+            || appState.pendingSummaryDeletion != nil
+            || deletionNotice != nil
+    }
+
     @ViewBuilder
     private var deletionCapsule: some View {
         Group {
@@ -1363,8 +1369,10 @@ struct NoteBrowserView: View {
                             }
                         )
                         .padding(.top, sidebarHeaderHeight + 6)
-                        // Room for the floating Record button.
-                        .padding(.bottom, selection.showsSelectionUI ? 6 : 72)
+                        // Room for the floating Record button, and for the
+                        // deletion capsule while it shows.
+                        .padding(.bottom, (selection.showsSelectionUI ? 6 : 72)
+                            + (isShowingDeletionCapsule ? 46 : 0))
                     }
                     .coordinateSpace(name: "noteList")
                     // Tab reaches the list; ↑/↓ then move the open note.

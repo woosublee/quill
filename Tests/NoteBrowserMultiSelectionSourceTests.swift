@@ -57,6 +57,10 @@ struct NoteBrowserMultiSelectionSourceTests {
         let capsuleView = try body(of: "private struct NoteDeletionCapsule: View", in: source)
         precondition(capsuleView.contains("glassEffect(.regular, in: Capsule())"))
         precondition(capsuleView.contains("QuillTransparency.opaqueBackgroundColor"))
+        // The list keeps its last rows clear of the capsule.
+        precondition(source.contains("+ (isShowingDeletionCapsule ? 46 : 0))"))
+        let appStateSource2 = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        precondition(appStateSource2.contains("!meetingSummaryGeneratingNoteIDs.contains(pending.noteID) else { return }"))
         precondition(source.contains("TimelineView(.periodic(from: startedAt, by: 1))"))
 
         // Visible entry points: the Select button and the row context menu.

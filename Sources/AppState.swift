@@ -7648,8 +7648,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return
         }
         let current = pipelineHistory[index]
+        // A summary being made again wins over the deleted one.
         guard current.meetingSummaryJSON == nil,
-              current.meetingSummaryAttempt == nil else { return }
+              current.meetingSummaryAttempt == nil,
+              !meetingSummaryGeneratingNoteIDs.contains(pending.noteID) else { return }
         let restored = current
             .withMeetingSummary(pending.summary)
             .withMeetingSummaryAttempt(pending.attempt)
