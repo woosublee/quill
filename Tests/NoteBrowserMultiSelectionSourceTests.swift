@@ -63,6 +63,16 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(appStateSource2.contains("!meetingSummaryGeneratingNoteIDs.contains(pending.noteID) else { return }"))
         precondition(source.contains("TimelineView(.periodic(from: startedAt, by: 1))"))
 
+        // #437: the recording's own note has no toolbar and no Delete… while
+        // it records, and asking to delete it explains why not.
+        precondition(source.contains("if !appState.isRecordingInProgress(noteID: item.id) {\n                floatingToolbar"))
+        precondition(source.contains("|| appState.isRecordingInProgress(noteID: item.id)"))
+        precondition(source.contains("\"Wait for the recording and its transcription to finish, then delete the note.\""))
+        // It stays protected after the stop, until its transcript is saved.
+        let appStateSource3 = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        precondition(appStateSource3.contains("if currentRecordingLiveNoteID == noteID { return true }"))
+        precondition(appStateSource3.contains("$0.id == noteID || $0.liveNoteID == noteID"))
+
         // Visible entry points: the Select button and the row context menu.
         precondition(source.contains("Button(\"Select\") { beginSelection() }"))
         precondition(source.contains(".onTapGesture { handleRowClick(item.id) }"))

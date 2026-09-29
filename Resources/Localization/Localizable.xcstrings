@@ -18756,6 +18756,22 @@
           }
         }
       }
+    },
+    "Wait for the recording and its transcription to finish, then delete the note.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wait for the recording and its transcription to finish, then delete the note."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음과 전사가 끝난 뒤 노트를 삭제하세요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

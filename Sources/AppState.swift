@@ -7017,9 +7017,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func deleteHistoryEntry(id: UUID) {
-        // A note being recovered again can't be deleted yet. Refuse before
-        // ending an earlier deletion's Cancel window.
-        guard !recoveringRecordingIDs.contains(id) else { return }
+        // A note being recovered again, or the note of the recording in
+        // progress, can't be deleted yet. Refuse before ending an earlier
+        // deletion's Cancel window.
+        guard !recoveringRecordingIDs.contains(id), !isRecordingInProgress(noteID: id) else { return }
         // An earlier deletion's Cancel window ends here, like any new deletion.
         finalizePendingNoteDeletion()
         // Mark the pieces first: if the app quits or stops before they are
@@ -7196,6 +7197,23 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Whether this note still belongs to a recording or its transcription:
+    /// the recording in progress (plain or live), or a stopped recording
+    /// whose transcript isn't saved yet. Deleting it would bring it back
+    /// when that work saves (#437). A note left in the recording state by
+    /// a crash can still be deleted.
+    @MainActor
+    func isRecordingInProgress(noteID: UUID) -> Bool {
+        if currentRecordingLiveNoteID == noteID { return true }
+        if activeTranscriptionJobs.values.contains(where: {
+            $0.id == noteID || $0.liveNoteID == noteID
+        }) {
+            return true
+        }
+        return isRecording
+            && pipelineHistory.first(where: { $0.id == noteID })?.machineStatus == .liveRecording
+    }
+
     @MainActor
     /// Removes the row. With `defersTeardown`, the note's in-memory state
     /// (retry, cloud session, summary workflow, banners) is left for
@@ -7206,6 +7224,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     ) -> (item: PipelineHistoryItem, assets: DeletedPipelineHistoryAssets?)? {
         guard requireAvailableHistoryForMutation(),
               !recoveringRecordingIDs.contains(id),
+              !isRecordingInProgress(noteID: id),
               let index = pipelineHistory.firstIndex(where: { $0.id == id }) else { return nil }
         let item = pipelineHistory[index]
         if !defersTeardown {
