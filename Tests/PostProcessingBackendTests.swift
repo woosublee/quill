@@ -41,8 +41,9 @@ struct PostProcessingBackendTests {
         try testVocabularyParserKeepsPlainEntriesUnchanged()
         try testVocabularyParserReadsCorrectionMappings()
         try testVocabularyParserHandlesMalformedMappings()
+        try testVocabularyParserKeepsUnspacedArrowsPlain()
         try await testCleanupPromptIncludesCorrectionsOnlyWhenMappingsExist()
-        try await testCommandPromptIncludesCorrectionsOnlyWhenMappingsExist()
+        try await testCommandPromptNeverIncludesCorrections()
         print("PostProcessingBackendTests passed")
     }
 
@@ -74,7 +75,7 @@ struct PostProcessingBackendTests {
         let parsed = CustomVocabularyParser.parse("""
         퀼 -> Quill
         cloud code | clod code => Claude Code
-        sweet UI→SwiftUI
+        sweet UI → SwiftUI
           Kubernetes  ,  kuber netties   ->   Kubernetes ; Quill
         """)
         try expect(
@@ -99,17 +100,28 @@ struct PostProcessingBackendTests {
 
     private static func testVocabularyParserHandlesMalformedMappings() throws {
         let parsed = CustomVocabularyParser.parse("""
-        -> Quill
-        퀼 ->
-        ->
         | -> Claude
-        a | b =>
+         | |  -> Quill Two
         """)
         try expect(
-            parsed.terms == ["Quill", "퀼", "Claude", "a, b"],
+            parsed.terms == ["Claude", "Quill Two"],
             "malformed mappings keep whichever side exists as a plain term"
         )
         try expect(parsed.corrections.isEmpty, "malformed mappings add no corrections")
+    }
+
+    private static func testVocabularyParserKeepsUnspacedArrowsPlain() throws {
+        let raw = "ptr->next\na=>b\n=>\n->\nQuill ->\n-> Quill\nx→y"
+        let parsed = CustomVocabularyParser.parse(raw)
+        try expect(
+            parsed.terms == CustomVocabularyParser.entries(from: raw),
+            "arrows without surrounding spaces stay plain vocabulary"
+        )
+        try expect(
+            parsed.terms == ["ptr->next", "a=>b", "=>", "->", "Quill ->", "-> Quill", "x→y"],
+            "unspaced arrow entries are kept verbatim"
+        )
+        try expect(parsed.corrections.isEmpty, "unspaced arrows add no corrections")
     }
 
     private static func testCleanupPromptIncludesCorrectionsOnlyWhenMappingsExist() async throws {
@@ -168,7 +180,7 @@ struct PostProcessingBackendTests {
         try expect(recorder.count() == 2, "only the stubbed transport is called")
     }
 
-    private static func testCommandPromptIncludesCorrectionsOnlyWhenMappingsExist() async throws {
+    private static func testCommandPromptNeverIncludesCorrections() async throws {
         let recorder = PostProcessingRequestRecorder()
         let service = makeLocalService { request in
             recorder.record(request)
@@ -187,9 +199,15 @@ struct PostProcessingBackendTests {
             "command vocabulary lists preferred spellings only"
         )
         try expect(
-            withMappings.contains("Known mishearings.")
-                && withMappings.contains("- \"cloud code\" -> \"Claude Code\"\n- \"clod code\" -> \"Claude Code\""),
-            "command prompt lists each correction"
+            !withMappings.contains("Known mishearings")
+                && !withMappings.contains("cloud code")
+                && !withMappings.contains("clod code"),
+            "Edit Mode prompt has no corrections even when mappings exist"
+        )
+        let commandUserMessage = try cleanupUserMessage(from: recorder.request())
+        try expect(
+            !commandUserMessage.contains("cloud code"),
+            "Edit Mode user message has no heard forms"
         )
 
         _ = try await service.commandTransform(

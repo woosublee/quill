@@ -25,16 +25,19 @@ enum CustomVocabularyParser {
         parseEntries(entries(from: rawVocabulary))
     }
 
-    /// Entries may use "heard form -> Correct Form" (or "=>" / "→") to teach
+    /// Entries may use "heard form -> Correct Form" (or " => " / " → ") to teach
     /// the model a specific mishearing. Multiple heard variants can share one
     /// correction with "|": "cloud code | clod code -> Claude Code".
     /// Entries without an arrow behave exactly as before.
     static func parseEntries(_ entries: [String]) -> ParsedVocabulary {
         var parsed = ParsedVocabulary()
         for entry in entries {
-            guard let arrow = entry.range(of: "->")
-                ?? entry.range(of: "=>")
-                ?? entry.range(of: "→") else {
+            // The arrow needs whitespace on both sides so existing words
+            // such as `ptr->next` or `a=>b` stay plain vocabulary.
+            guard let arrow = entry.range(
+                of: #"\s(?:->|=>|→)\s"#,
+                options: .regularExpression
+            ) else {
                 parsed.terms.append(entry)
                 continue
             }

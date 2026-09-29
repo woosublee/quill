@@ -1231,7 +1231,20 @@ Model: \(model)
         request.timeoutInterval = postProcessingTimeoutSeconds(for: endpoint)
         let model = endpoint.selectedModelID
 
-        let vocabularyPrompt = vocabularyPromptSection(for: customVocabulary)
+        // Edit Mode keeps the plain spelling list only. Correction pairs
+        // contribute their correct spelling and never rewrite SELECTED_TEXT.
+        let normalizedVocabulary = normalizedVocabularyText(
+            CustomVocabularyParser.parseEntries(customVocabulary).terms
+        )
+        let vocabularyPrompt = if !normalizedVocabulary.isEmpty {
+            """
+The following vocabulary must be treated as high-priority terms while rewriting.
+Use these spellings exactly in the output when relevant:
+\(normalizedVocabulary)
+"""
+        } else {
+            ""
+        }
 
         var systemPrompt = Self.commandModeSystemPrompt
         let trimmedOutputLanguage = outputLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1450,36 +1463,6 @@ Model: \(model)
             cleanedTranscript: cleanedTranscript,
             outputLanguage: outputLanguage
         )
-    }
-
-    /// Builds the system-prompt section for custom vocabulary: a
-    /// high-priority term list plus, when mappings are present, explicit
-    /// mishearing corrections. Returns "" when there is no vocabulary.
-    private func vocabularyPromptSection(for customVocabulary: [String]) -> String {
-        let parsed = CustomVocabularyParser.parseEntries(customVocabulary)
-        var sections: [String] = []
-
-        let normalizedVocabulary = normalizedVocabularyText(parsed.terms)
-        if !normalizedVocabulary.isEmpty {
-            sections.append("""
-The following vocabulary must be treated as high-priority terms while rewriting.
-Use these spellings exactly in the output when relevant:
-\(normalizedVocabulary)
-""")
-        }
-
-        if !parsed.corrections.isEmpty {
-            let pairs = parsed.corrections
-                .map { "- \"\($0.heard)\" -> \"\($0.correct)\"" }
-                .joined(separator: "\n")
-            sections.append("""
-Known mishearings. When the transcript contains a left-hand form below (or a close phonetic variant of it) and the speaker clearly meant the right-hand term, output the right-hand form instead:
-\(pairs)
-Only apply a correction when the surrounding words make the intended term plausible; otherwise leave the transcript wording unchanged.
-""")
-        }
-
-        return sections.joined(separator: "\n\n")
     }
 
     private func mergedVocabularyTerms(rawVocabulary: String) -> [String] {
