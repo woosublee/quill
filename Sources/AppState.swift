@@ -7186,15 +7186,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     /// Marks unrecovered recordings' pieces as discarded before their notes
-    /// are deleted. Returns the IDs that were marked.
+    /// are deleted. Returns the IDs whose marker this call wrote, so a
+    /// failed deletion takes back only those.
     @MainActor
     private func markUnrecoveredRecordingPiecesDiscarded(
         recordingIDs: [UUID]
     ) -> [UUID] {
         recordingIDs.filter { recordingID in
             do {
-                try recordingJournalStore.markDiscarded(recordingID: recordingID)
-                return true
+                return try recordingJournalStore.markDiscarded(recordingID: recordingID)
             } catch {
                 print("Failed to mark the pieces of an unrecovered recording for removal")
                 return false
@@ -7205,7 +7205,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     private func unmarkUnrecoveredRecordingPiecesDiscarded(recordingIDs: [UUID]) {
         for recordingID in recordingIDs {
-            try? recordingJournalStore.unmarkDiscarded(recordingID: recordingID)
+            do {
+                try recordingJournalStore.unmarkDiscarded(recordingID: recordingID)
+            } catch {
+                // The note stays, but the next launch would remove its
+                // pieces; there's no safer fallback than reporting it.
+                print("Failed to take back the removal mark of an unrecovered recording's pieces")
+            }
         }
     }
 

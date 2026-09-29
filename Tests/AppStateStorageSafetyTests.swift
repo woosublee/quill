@@ -1395,7 +1395,10 @@ struct AppStateStorageSafetyTests {
             let markerURL = recordingDirectory.appendingPathComponent(
                 RecordingJournalStore.discardMarkerFileName
             )
-            try journalStore.markDiscarded(recordingID: recordingID)
+            let firstMark = try journalStore.markDiscarded(recordingID: recordingID)
+            let secondMark = try journalStore.markDiscarded(recordingID: recordingID)
+            try expect(firstMark, "the first mark writes the discard marker")
+            try expect(!secondMark, "a second mark reports it didn't write the marker")
             try journalStore.unmarkDiscarded(recordingID: recordingID)
             try expect(
                 !FileManager.default.fileExists(atPath: markerURL.path),
