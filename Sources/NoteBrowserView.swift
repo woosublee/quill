@@ -539,7 +539,11 @@ struct NoteBrowserView: View {
     private var increasesContrast: Bool { colorSchemeContrast == .increased }
 
     private var filteredHistory: [PipelineHistoryItem] {
-        guard !searchText.isEmpty else { return appState.pipelineHistory }
+        guard !searchText.isEmpty else {
+            searchMatcher.clearCache()
+            return appState.pipelineHistory
+        }
+        searchMatcher.retainCache(for: Set(appState.pipelineHistory.map(\.id)))
         return appState.pipelineHistory.filter(matchesSearch)
     }
 

@@ -72,6 +72,19 @@ final class NoteSearchMatcher {
         return Self.contains(summaryText(for: item), query)
     }
 
+    /// Drops cached summary text for notes that no longer exist, so a
+    /// deleted note's summary doesn't linger in memory.
+    func retainCache(for ids: Set<UUID>) {
+        summaryTextCache = summaryTextCache.filter { ids.contains($0.key) }
+    }
+
+    /// Drops all cached summary text, for example when search is cleared.
+    func clearCache() {
+        summaryTextCache.removeAll()
+    }
+
+    var cachedNoteCount: Int { summaryTextCache.count }
+
     private func summaryText(for item: PipelineHistoryItem) -> String? {
         guard let json = item.meetingSummaryJSON else {
             summaryTextCache[item.id] = nil

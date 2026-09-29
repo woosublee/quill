@@ -263,6 +263,18 @@ struct PipelineHistoryMeetingSummaryTests {
         precondition(!matcher.matches(updated, query: "alpha"))
         precondition(matcher.matches(updated, query: "beta"))
         precondition(!matcher.matches(base, query: "beta"))
+
+        // A deleted note's summary text doesn't linger in the cache, and
+        // clearing search drops everything.
+        precondition(matcher.matches(updated, query: "beta"))
+        precondition(matcher.cachedNoteCount == 1)
+        matcher.retainCache(for: [])
+        precondition(matcher.cachedNoteCount == 0)
+        precondition(matcher.matches(updated, query: "beta"))
+        matcher.retainCache(for: [updated.id])
+        precondition(matcher.cachedNoteCount == 1)
+        matcher.clearCache()
+        precondition(matcher.cachedNoteCount == 0)
     }
 
     private static func makeSearchItem(
