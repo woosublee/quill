@@ -12,6 +12,11 @@ struct PipelineHistoryMeetingSummaryTests {
         testUnavailableSpokenLanguageNeverRetainsCode()
         testItemCopyHelpersPreserveSummary()
         testMeetingSummaryAttemptCopyHelperPreservesSummary()
+        testNoteSearchMatchesTitleAndTranscript()
+        testNoteSearchMatchesSummaryOnlyText()
+        testNoteSearchIgnoresRawTranscriptOnlyText()
+        testNoteSearchMatchesKoreanAndDiacritics()
+        testNoteSearchRefreshesCachedSummaryText()
         print("PipelineHistoryMeetingSummaryTests passed")
     }
 
@@ -182,6 +187,117 @@ struct PipelineHistoryMeetingSummaryTests {
         precondition(item.meetingSummaryAttempt == attempt)
     }
 
+    private static func testNoteSearchMatchesTitleAndTranscript() {
+        let matcher = NoteSearchMatcher()
+        let item = makeSearchItem(
+            title: "Quarterly Planning",
+            processed: "We reviewed the roadmap."
+        )
+
+        precondition(matcher.matches(item, query: "quarterly"))
+        precondition(matcher.matches(item, query: "ROADMAP"))
+        precondition(!matcher.matches(item, query: "budget"))
+        precondition(matcher.matches(item, query: ""))
+    }
+
+    private static func testNoteSearchMatchesSummaryOnlyText() {
+        let matcher = NoteSearchMatcher()
+        let item = makeSearchItem(processed: "Short note.")
+            .withMeetingSummary(.searchFixture(
+                overview: "Vendor comparison",
+                keyPoint: "Latency improved",
+                decision: "Adopt plan B",
+                action: "Draft contract",
+                owner: "Mina",
+                question: "Who signs off?"
+            ))
+
+        for query in ["vendor", "latency", "plan b", "draft contract", "mina", "signs off"] {
+            precondition(matcher.matches(item, query: query), "summary matches \(query)")
+        }
+        precondition(!matcher.matches(item, query: "pricing"))
+    }
+
+    private static func testNoteSearchIgnoresRawTranscriptOnlyText() {
+        let matcher = NoteSearchMatcher()
+        let item = makeSearchItem(
+            raw: "uh the secretword was mentioned",
+            processed: "Cleaned text only."
+        )
+
+        precondition(!matcher.matches(item, query: "secretword"))
+    }
+
+    private static func testNoteSearchMatchesKoreanAndDiacritics() {
+        let matcher = NoteSearchMatcher()
+        let item = makeSearchItem(title: "주간 회의", processed: "Café menu")
+            .withMeetingSummary(.searchFixture(
+                overview: "출시 일정 검토",
+                keyPoint: "디자인 확정",
+                decision: "",
+                action: "",
+                owner: nil,
+                question: ""
+            ))
+
+        precondition(matcher.matches(item, query: "회의"))
+        precondition(matcher.matches(item, query: "출시 일정"))
+        precondition(matcher.matches(item, query: "디자인"))
+        precondition(matcher.matches(item, query: "cafe"))
+        precondition(!matcher.matches(item, query: "예산"))
+    }
+
+    private static func testNoteSearchRefreshesCachedSummaryText() {
+        let matcher = NoteSearchMatcher()
+        let base = makeSearchItem(processed: "Short note.")
+        let first = base.withMeetingSummary(.searchFixture(
+            overview: "Alpha topic", keyPoint: "", decision: "",
+            action: "", owner: nil, question: ""
+        ))
+        precondition(matcher.matches(first, query: "alpha"))
+
+        let updated = base.withMeetingSummary(.searchFixture(
+            overview: "Beta topic", keyPoint: "", decision: "",
+            action: "", owner: nil, question: ""
+        ))
+        precondition(!matcher.matches(updated, query: "alpha"))
+        precondition(matcher.matches(updated, query: "beta"))
+        precondition(!matcher.matches(base, query: "beta"))
+
+        // A deleted note's summary text doesn't linger in the cache, and
+        // clearing search drops everything.
+        precondition(matcher.matches(updated, query: "beta"))
+        precondition(matcher.cachedNoteCount == 1)
+        matcher.retainCache(for: [])
+        precondition(matcher.cachedNoteCount == 0)
+        precondition(matcher.matches(updated, query: "beta"))
+        matcher.retainCache(for: [updated.id])
+        precondition(matcher.cachedNoteCount == 1)
+        matcher.clearCache()
+        precondition(matcher.cachedNoteCount == 0)
+    }
+
+    private static func makeSearchItem(
+        title: String? = nil,
+        raw: String = "",
+        processed: String
+    ) -> PipelineHistoryItem {
+        PipelineHistoryItem(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000030")!,
+            timestamp: Date(timeIntervalSince1970: 1_000),
+            rawTranscript: raw,
+            postProcessedTranscript: processed,
+            postProcessingPrompt: nil,
+            contextSummary: "Synthetic context",
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: "Post-processing succeeded",
+            debugStatus: "Done",
+            customVocabulary: "",
+            customTitle: title
+        )
+    }
+
     private static func makeItem(
         spokenLanguageCode: String? = nil,
         spokenLanguageResolution: SpokenLanguageResolutionSource? = nil,
@@ -232,6 +348,43 @@ private extension MeetingSummaryEnvelope {
                 decisions: [],
                 actionItems: actions,
                 openQuestions: []
+            )
+        )
+    }
+    static func searchFixture(
+        overview: String,
+        keyPoint: String,
+        decision: String,
+        action: String,
+        owner: String?,
+        question: String
+    ) -> MeetingSummaryEnvelope {
+        func points(_ text: String) -> [MeetingSummaryPoint] {
+            text.isEmpty ? [] : [MeetingSummaryPoint(id: UUID(), text: text, sourceQuote: nil)]
+        }
+        let actions = action.isEmpty ? [] : [
+            MeetingSummaryActionItem(
+                id: UUID(),
+                task: action,
+                owner: owner,
+                dueDate: nil,
+                sourceQuote: nil,
+                isCompleted: false
+            )
+        ]
+        return MeetingSummaryEnvelope(
+            schemaVersion: MeetingSummaryEnvelope.currentSchemaVersion,
+            promptVersion: 1,
+            generatedAt: Date(timeIntervalSince1970: 2_000),
+            sourceFingerprint: String(repeating: "c", count: 64),
+            modelID: "test/model",
+            backendKind: .cloud,
+            content: MeetingSummaryContent(
+                overview: MeetingSummaryEvidenceText(text: overview, sourceQuotes: []),
+                keyPoints: points(keyPoint),
+                decisions: points(decision),
+                actionItems: actions,
+                openQuestions: points(question)
             )
         )
     }
