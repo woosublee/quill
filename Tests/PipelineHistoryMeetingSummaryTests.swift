@@ -15,6 +15,7 @@ struct PipelineHistoryMeetingSummaryTests {
         testNoteSearchMatchesTitleAndTranscript()
         testNoteSearchMatchesSummaryOnlyText()
         testNoteSearchIgnoresRawTranscriptOnlyText()
+        testNoteSearchUsesRawTranscriptWithoutProcessedText()
         testNoteSearchMatchesKoreanAndDiacritics()
         testNoteSearchRefreshesCachedSummaryText()
         testNoteSearchReportsSummaryOnlyMatches()
@@ -227,6 +228,16 @@ struct PipelineHistoryMeetingSummaryTests {
         )
 
         precondition(!matcher.matches(item, query: "secretword"))
+    }
+
+    /// A note without processed text shows its raw transcript, so search
+    /// finds what the note shows.
+    private static func testNoteSearchUsesRawTranscriptWithoutProcessedText() {
+        let matcher = NoteSearchMatcher()
+        let item = makeSearchItem(raw: "the synthetic budget line", processed: "")
+
+        precondition(matcher.matches(item, query: "budget"))
+        precondition(!matcher.matchesOnlyInSummary(item, query: "budget"))
     }
 
     private static func testNoteSearchMatchesKoreanAndDiacritics() {
