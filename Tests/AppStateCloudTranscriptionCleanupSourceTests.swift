@@ -81,10 +81,21 @@ struct AppStateCloudTranscriptionCleanupSourceTests {
             to: "private func removeHistoryEntryRecord("
         )
         try expectOrdered(
-            ["pendingNoteDeletion = nil", "cleanupDeletedPipelineHistoryAssets(assets)"],
+            [
+                "pendingNoteDeletion = nil",
+                "transcriptionRetryWorkflow.cancel(noteID: entry.item.id)",
+                "cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(",
+                "meetingSummaryWorkflow.forget(noteID: entry.item.id)",
+                "forgetWarningBannerState(for: entry.item.id)",
+                "cleanupDeletedPipelineHistoryAssets(assets)"
+            ],
             in: finalize,
-            label: "pending delete cleanup"
+            label: "pending delete teardown and cleanup"
         )
+        // Cancellable deletion leaves in-memory state for finalize.
+        precondition(source.contains("removeHistoryEntryRecord(id: id, defersTeardown: true)"))
+        precondition(record.contains("if !defersTeardown {"))
+        precondition(record.contains("guard !defersTeardown else { return }"))
     }
 
     private static func verifiesClearUsesCommonCleanup(_ source: String) throws {

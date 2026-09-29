@@ -586,7 +586,9 @@ struct NoteBrowserView: View {
 
     private func isBulkSelectable(_ id: UUID) -> Bool {
         guard let item = appState.pipelineHistory.first(where: { $0.id == id }) else { return false }
+        // A note making its summary is busy too, so bulk delete never skips it silently.
         return transcriptStatus(for: item, retrying: appState.retryingItemIDs).isBulkSelectable
+            && !appState.meetingSummaryGeneratingNoteIDs.contains(id)
     }
 
     private func handleRowClick(_ id: UUID) {
@@ -2488,7 +2490,11 @@ private struct NoteDetailView: View {
             Button("Cancel", role: .cancel) {}
                 .keyboardShortcut(.defaultAction)
         } message: {
-            Text("Deleting the entire note removes its recording, transcript, and summary.")
+            if appState.canDeleteHistoryEntryCancellably(id: item.id) {
+                Text("Deleting the entire note removes its recording, transcript, and summary. You can cancel for a few seconds after deleting.")
+            } else {
+                Text("Deleting the entire note removes its recording, transcript, and summary, and cannot be undone.")
+            }
         }
     }
 

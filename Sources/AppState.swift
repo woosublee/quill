@@ -6754,6 +6754,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func deleteHistoryEntry(id: UUID) {
+        // An earlier deletion's Cancel window ends here, like any new deletion.
+        finalizePendingNoteDeletion()
         guard let removed = removeHistoryEntryRecord(id: id) else { return }
         if let deletedAssets = removed.assets {
             cleanupDeletedPipelineHistoryAssets(deletedAssets)
@@ -6774,11 +6776,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func deleteHistoryEntriesCancellably(ids: [UUID]) -> NoteBulkDeletionResult {
         var result = NoteBulkDeletionResult()
         finalizePendingNoteDeletion()
-        // Positions before any removal, so Cancel can rebuild the list order.
-        let originalIndexes = Dictionary(
-            pipelineHistory.enumerated().map { ($1.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
         var entries: [PendingNoteDeletion.Entry] = []
         for id in ids {
             guard pipelineHistory.contains(where: { $0.id == id }) else { continue }
@@ -6786,21 +6783,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 result.skippedIDs.append(id)
                 continue
             }
-            guard let removed = removeHistoryEntryRecord(id: id) else {
+            guard let removed = removeHistoryEntryRecord(id: id, defersTeardown: true) else {
                 result.failedIDs.append(id)
                 continue
             }
             entries.append(PendingNoteDeletion.Entry(
                 item: removed.item,
-                index: originalIndexes[id] ?? removed.index,
                 assets: removed.assets
             ))
             result.deletedIDs.append(id)
         }
         guard !entries.isEmpty else { return result }
-        let pending = PendingNoteDeletion(
-            entries: entries.sorted { $0.index < $1.index }
-        )
+        let pending = PendingNoteDeletion(entries: entries)
         pendingNoteDeletion = pending
         scheduleNoteDeletionFinalization(Self.noteDeletionCancelWindow) { [weak self] in
             guard let self, self.pendingNoteDeletion?.id == pending.id else { return }
@@ -6830,7 +6824,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
               requireAvailableHistoryForMutation() else { return }
         var unrestored: [PendingNoteDeletion.Entry] = []
         var restoreError: Error?
-        // Ascending original positions rebuild the list order exactly.
         for entry in pending.entries {
             // A row with this ID came back some other way; never overwrite it
             // or list it twice.
@@ -6843,7 +6836,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     maxCount: Int.max,
                     requiresDurableStore: true
                 )
-                let index = min(entry.index, pipelineHistory.count)
+                // The list is newest first, like the store; place the note by
+                // its time rather than a position that may have shifted.
+                let index = pipelineHistory.firstIndex {
+                    $0.timestamp < entry.item.timestamp
+                } ?? pipelineHistory.count
                 pipelineHistory.insert(entry.item, at: index)
             } catch {
                 restoreError = restoreError ?? error
@@ -6864,29 +6861,44 @@ final class AppState: ObservableObject, @unchecked Sendable {
         pendingNoteDeletion = nil
         for entry in pending.entries {
             // The cleanup is keyed by note ID; skip it if that ID is listed again.
-            guard !pipelineHistory.contains(where: { $0.id == entry.item.id }),
-                  let assets = entry.assets else { continue }
-            cleanupDeletedPipelineHistoryAssets(assets)
+            guard !pipelineHistory.contains(where: { $0.id == entry.item.id }) else { continue }
+            transcriptionRetryWorkflow.cancel(noteID: entry.item.id)
+            cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
+                historyID: entry.item.id,
+                store: cloudTranscriptionJobStore
+            )
+            meetingSummaryWorkflow.forget(noteID: entry.item.id)
+            forgetWarningBannerState(for: entry.item.id)
+            if let assets = entry.assets {
+                cleanupDeletedPipelineHistoryAssets(assets)
+            }
         }
     }
 
     @MainActor
+    /// Removes the row. With `defersTeardown`, the note's in-memory state
+    /// (retry, cloud session, summary workflow, banners) is left for
+    /// `finalizePendingNoteDeletion()`, so Cancel brings it back intact.
     private func removeHistoryEntryRecord(
-        id: UUID
-    ) -> (item: PipelineHistoryItem, index: Int, assets: DeletedPipelineHistoryAssets?)? {
+        id: UUID,
+        defersTeardown: Bool = false
+    ) -> (item: PipelineHistoryItem, assets: DeletedPipelineHistoryAssets?)? {
         guard requireAvailableHistoryForMutation(),
               let index = pipelineHistory.firstIndex(where: { $0.id == id }) else { return nil }
         let item = pipelineHistory[index]
-        transcriptionRetryWorkflow.cancel(noteID: id)
-        cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
-            historyID: id,
-            store: cloudTranscriptionJobStore
-        )
+        if !defersTeardown {
+            transcriptionRetryWorkflow.cancel(noteID: id)
+            cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
+                historyID: id,
+                store: cloudTranscriptionJobStore
+            )
+        }
         do {
             let deletedAssets = try pipelineHistoryStore.delete(
                 id: id,
                 requiresDurableStore: true,
                 beforeDeleting: { assets in
+                    guard !defersTeardown else { return }
                     cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
                         historyID: assets.historyID,
                         store: cloudTranscriptionJobStore
@@ -6894,9 +6906,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             )
             pipelineHistory.remove(at: index)
-            meetingSummaryWorkflow.forget(noteID: id)
-            forgetWarningBannerState(for: id)
-            return (item, index, deletedAssets)
+            if !defersTeardown {
+                meetingSummaryWorkflow.forget(noteID: id)
+                forgetWarningBannerState(for: id)
+            }
+            return (item, deletedAssets)
         } catch {
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to delete run history entry"), providerDetail: error.localizedDescription)
             return nil
@@ -13152,13 +13166,10 @@ private extension ShortcutBinding {
 struct PendingNoteDeletion: Identifiable {
     struct Entry {
         let item: PipelineHistoryItem
-        /// Where the note was in the list, so Cancel puts it back in place.
-        let index: Int
         let assets: DeletedPipelineHistoryAssets?
     }
 
     let id: UUID
-    /// Sorted by `index`, ascending.
     let entries: [Entry]
 
     init(id: UUID = UUID(), entries: [Entry]) {

@@ -1116,7 +1116,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "삭제한 노트는 잠시 동안 취소할 수 있습니다."
+            "value": "삭제한 뒤 잠시 동안 취소할 수 있습니다."
           }
         }
       }
@@ -17861,18 +17861,34 @@
         }
       }
     },
-    "Deleting the entire note removes its recording, transcript, and summary.": {
+    "Deleting the entire note removes its recording, transcript, and summary, and cannot be undone.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Deleting the entire note removes its recording, transcript, and summary."
+            "value": "Deleting the entire note removes its recording, transcript, and summary, and cannot be undone."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워집니다."
+            "value": "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워지며 되돌릴 수 없습니다."
+          }
+        }
+      }
+    },
+    "Deleting the entire note removes its recording, transcript, and summary. You can cancel for a few seconds after deleting.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleting the entire note removes its recording, transcript, and summary. You can cancel for a few seconds after deleting."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 전체를 삭제하면 녹음, 전사문, 요약이 모두 지워집니다. 삭제한 뒤 잠시 동안 취소할 수 있습니다."
           }
         }
       }

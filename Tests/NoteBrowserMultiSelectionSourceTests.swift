@@ -52,6 +52,7 @@ struct NoteBrowserMultiSelectionSourceTests {
         // Busy notes can't join a selection.
         let selectable = try body(of: "private func isBulkSelectable(_ id: UUID) -> Bool", in: source)
         precondition(selectable.contains(".isBulkSelectable"))
+        precondition(selectable.contains("!appState.meetingSummaryGeneratingNoteIDs.contains(id)"))
 
         // Keyboard shortcuts stay inside this window and never steal text editing keys.
         let monitor = try body(of: "private struct NoteBrowserKeyCommandMonitor", in: source)
