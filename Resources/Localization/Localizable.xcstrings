@@ -18756,6 +18756,22 @@
           }
         }
       }
+    },
+    "Stop the recording, then delete the note.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop the recording, then delete the note."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음을 멈춘 뒤 노트를 삭제하세요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

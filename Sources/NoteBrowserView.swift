@@ -559,6 +559,12 @@ struct NoteBrowserView: View {
             ))
             return
         }
+        if let id, appState.isRecordingInProgress(noteID: id) {
+            showDeletionNotice(localizedCatalogString(
+                "Stop the recording, then delete the note."
+            ))
+            return
+        }
         let ids: [UUID]
         if let id, !(selection.showsSelectionUI && selection.selectedIDs.contains(id)) {
             ids = [id]
@@ -1351,8 +1357,11 @@ struct NoteBrowserView: View {
                                     Button("Delete…", role: .destructive) {
                                         requestDeletion(of: item.id)
                                     }
-                                    // Wait for Recover Again to finish.
-                                    .disabled(appState.recoveringRecordingIDs.contains(item.id))
+                                    // Wait for Recover Again, or for the recording, to finish.
+                                    .disabled(
+                                        appState.recoveringRecordingIDs.contains(item.id)
+                                            || appState.isRecordingInProgress(noteID: item.id)
+                                    )
                                 }
                             }
                         }
@@ -2521,7 +2530,11 @@ private struct NoteDetailView: View {
                         }
                     }
             }
-            floatingToolbar
+            // The recording's own note has nothing to act on yet, and
+            // deleting it mid-recording would bring it back (#437).
+            if !appState.isRecordingInProgress(noteID: item.id) {
+                floatingToolbar
+            }
             if let toastMessage {
                 NoteBrowserToastView(message: toastMessage)
                     .padding(.horizontal, 24)
