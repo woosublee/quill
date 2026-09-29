@@ -64,10 +64,20 @@ final class NoteSearchMatcher {
     func matches(_ item: PipelineHistoryItem, query: String) -> Bool {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return true }
-        if Self.contains(item.customTitle, query)
-            || Self.contains(item.calendarMatch?.title, query)
-            || Self.contains(item.postProcessedTranscript, query) {
+        if Self.matchesOutsideSummary(item, query) {
             return true
+        }
+        return Self.contains(summaryText(for: item), query)
+    }
+
+    /// True when a non-empty query matches the note only through its saved
+    /// meeting summary, not its title, calendar title, or processed
+    /// transcript. The Note Browser uses this to open such a note on the
+    /// Summary tab, where the match is visible.
+    func matchesOnlyInSummary(_ item: PipelineHistoryItem, query: String) -> Bool {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty, !Self.matchesOutsideSummary(item, query) else {
+            return false
         }
         return Self.contains(summaryText(for: item), query)
     }
@@ -96,6 +106,15 @@ final class NoteSearchMatcher {
         let text = item.meetingSummary?.content.searchableText ?? ""
         summaryTextCache[item.id] = (json, text)
         return text
+    }
+
+    private static func matchesOutsideSummary(
+        _ item: PipelineHistoryItem,
+        _ query: String
+    ) -> Bool {
+        contains(item.customTitle, query)
+            || contains(item.calendarMatch?.title, query)
+            || contains(item.postProcessedTranscript, query)
     }
 
     private static func contains(_ text: String?, _ query: String) -> Bool {

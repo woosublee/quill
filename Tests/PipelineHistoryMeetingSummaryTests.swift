@@ -17,6 +17,7 @@ struct PipelineHistoryMeetingSummaryTests {
         testNoteSearchIgnoresRawTranscriptOnlyText()
         testNoteSearchMatchesKoreanAndDiacritics()
         testNoteSearchRefreshesCachedSummaryText()
+        testNoteSearchReportsSummaryOnlyMatches()
         print("PipelineHistoryMeetingSummaryTests passed")
     }
 
@@ -275,6 +276,38 @@ struct PipelineHistoryMeetingSummaryTests {
         precondition(matcher.cachedNoteCount == 1)
         matcher.clearCache()
         precondition(matcher.cachedNoteCount == 0)
+    }
+
+    private static func testNoteSearchReportsSummaryOnlyMatches() {
+        let matcher = NoteSearchMatcher()
+        let summary = MeetingSummaryEnvelope.searchFixture(
+            overview: "Vendor comparison", keyPoint: "Roadmap review",
+            decision: "", action: "", owner: nil, question: ""
+        )
+
+        // Summary-only match prefers the Summary tab.
+        let summaryOnly = makeSearchItem(processed: "Short note.")
+            .withMeetingSummary(summary)
+        precondition(matcher.matchesOnlyInSummary(summaryOnly, query: "vendor"))
+        precondition(matcher.matchesOnlyInSummary(summaryOnly, query: "  VENDOR "))
+
+        // Transcript match keeps the default tab even when the summary matches.
+        let transcriptMatch = makeSearchItem(processed: "The roadmap slipped.")
+            .withMeetingSummary(summary)
+        precondition(matcher.matches(transcriptMatch, query: "roadmap"))
+        precondition(!matcher.matchesOnlyInSummary(transcriptMatch, query: "roadmap"))
+
+        // Title match keeps the default tab even when the summary matches.
+        let titleMatch = makeSearchItem(title: "Vendor sync", processed: "Short note.")
+            .withMeetingSummary(summary)
+        precondition(!matcher.matchesOnlyInSummary(titleMatch, query: "vendor"))
+
+        // No summary, no match, or empty query never prefers the Summary tab.
+        let noSummary = makeSearchItem(processed: "Short note.")
+        precondition(!matcher.matchesOnlyInSummary(noSummary, query: "vendor"))
+        precondition(!matcher.matchesOnlyInSummary(noSummary, query: "short"))
+        precondition(!matcher.matchesOnlyInSummary(summaryOnly, query: "pricing"))
+        precondition(!matcher.matchesOnlyInSummary(summaryOnly, query: "   "))
     }
 
     private static func makeSearchItem(

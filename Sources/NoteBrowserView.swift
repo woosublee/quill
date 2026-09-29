@@ -1349,7 +1349,11 @@ struct NoteBrowserView: View {
             }
         } else if let id = selectedItemID,
            let item = appState.pipelineHistory.first(where: { $0.id == id }) {
-            NoteDetailView(item: item) {
+            NoteDetailView(
+                item: item,
+                isSearchActive: !searchText.isEmpty,
+                prefersSummaryTab: searchMatcher.matchesOnlyInSummary(item, query: searchText)
+            ) {
                 deleteConfirmedNote(id)
             }
             .id(id)
@@ -2066,6 +2070,10 @@ enum NoteContentMode: Hashable {
 
 private struct NoteDetailView: View {
     let item: PipelineHistoryItem
+    let isSearchActive: Bool
+    /// True while the Note Browser search matches this note only in its
+    /// saved summary, so the note opens on the Summary tab.
+    let prefersSummaryTab: Bool
     let onDelete: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
@@ -2085,6 +2093,9 @@ private struct NoteDetailView: View {
     @State private var showDeleteChoice = false
     @State private var showUnrecoveredDeleteConfirmation = false
     @State private var selectedContentMode: NoteContentMode = .transcript
+    /// Set once the person picks a tab for this note during the current
+    /// search, so search-driven tab changes stop overriding their choice.
+    @State private var userChoseContentModeDuringSearch = false
     @State private var summaryIssue: QuillUserIssueRecord?
     @State private var isSummaryIssueBannerDismissed = false
     @State private var dismissedSummaryAttemptAt: Date?
@@ -2336,6 +2347,15 @@ private struct NoteDetailView: View {
         .onAppear {
             loadContent()
             revealSummaryIfPending()
+            applySearchTabPreference(prefersSummaryTab)
+        }
+        .onChange(of: prefersSummaryTab) { newValue in
+            applySearchTabPreference(newValue)
+        }
+        .onChange(of: isSearchActive) { newValue in
+            if !newValue {
+                userChoseContentModeDuringSearch = false
+            }
         }
         .onChange(of: item.postProcessedTranscript) { newValue in
             if !newValue.isEmpty {
@@ -2660,7 +2680,7 @@ private struct NoteDetailView: View {
     // MARK: Content
 
     private var contentModePicker: some View {
-        Picker("Note Content", selection: $selectedContentMode) {
+        Picker("Note Content", selection: userContentModeSelection) {
             Text("Transcript").tag(NoteContentMode.transcript)
             if showsSummaryTab {
                 Text("Summary").tag(NoteContentMode.summary)
@@ -3462,6 +3482,28 @@ private struct NoteDetailView: View {
             return
         }
         generateSummary()
+    }
+
+    /// The picker's binding; a tab picked here counts as the person's own
+    /// choice for the rest of the current search.
+    private var userContentModeSelection: Binding<NoteContentMode> {
+        Binding(
+            get: { selectedContentMode },
+            set: { newValue in
+                if isSearchActive {
+                    userChoseContentModeDuringSearch = true
+                }
+                selectedContentMode = newValue
+            }
+        )
+    }
+
+    /// Opens the Summary tab when search matches this note only in its
+    /// summary. It never forces the Transcript tab back and never overrides
+    /// a tab the person picked during the current search.
+    private func applySearchTabPreference(_ prefersSummary: Bool) {
+        guard prefersSummary, !userChoseContentModeDuringSearch else { return }
+        switchToSummaryTab()
     }
 
     private func revealSummaryIfPending() {

@@ -14,7 +14,47 @@ struct MeetingSummaryUIContractTests {
         )
         testSummaryFailurePresentationContract(noteBrowser)
         testNoteListRowSummaryBadgeOrder(noteBrowser)
+        testSearchOpensSummaryTabForSummaryOnlyMatches(noteBrowser)
         print("MeetingSummaryUIContractTests passed")
+    }
+
+    private static func testSearchOpensSummaryTabForSummaryOnlyMatches(_ noteBrowser: String) {
+        for expected in [
+            "prefersSummaryTab: searchMatcher.matchesOnlyInSummary(item, query: searchText)",
+            "isSearchActive: !searchText.isEmpty",
+            "let prefersSummaryTab: Bool",
+            "applySearchTabPreference(prefersSummaryTab)",
+            ".onChange(of: prefersSummaryTab) { newValue in",
+            "userChoseContentModeDuringSearch = false"
+        ] {
+            precondition(noteBrowser.contains(expected), "Missing search Summary tab contract: \(expected)")
+        }
+        let applyBody = block(
+            in: noteBrowser,
+            from: "private func applySearchTabPreference(",
+            to: "\n    private func revealSummaryIfPending"
+        )
+        precondition(
+            applyBody.contains("guard prefersSummary, !userChoseContentModeDuringSearch"),
+            "search must not override a tab the person picked during the current search"
+        )
+        precondition(
+            applyBody.contains("switchToSummaryTab()"),
+            "search must reuse the deferred Summary tab switch"
+        )
+        precondition(
+            !applyBody.contains(".transcript"),
+            "search must never force the Transcript tab back"
+        )
+        let pickerBindingBody = block(
+            in: noteBrowser,
+            from: "private var userContentModeSelection: Binding<NoteContentMode> {",
+            to: "\n    private func applySearchTabPreference"
+        )
+        precondition(
+            pickerBindingBody.contains("userChoseContentModeDuringSearch = true"),
+            "picking a tab during search must record the person's choice"
+        )
     }
 
     private static func testNoteListRowSummaryBadgeOrder(_ noteBrowser: String) {
@@ -87,7 +127,7 @@ struct MeetingSummaryUIContractTests {
             "case transcript",
             "case summary",
             "@State private var selectedContentMode: NoteContentMode = .transcript",
-            "Picker(\"Note Content\", selection: $selectedContentMode)",
+            "Picker(\"Note Content\", selection: userContentModeSelection)",
             ".pickerStyle(.segmented)",
             "selectedContentMode = .transcript",
             "MeetingSummaryView(",
