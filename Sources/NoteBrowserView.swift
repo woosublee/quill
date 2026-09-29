@@ -4268,11 +4268,13 @@ private struct NoteDeletionCapsule: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            // Notices like "Wait for … then delete the note" wrap instead of
+            // being cut off in the narrow sidebar.
             Text(message)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.primary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
             if let cancel {
                 Button(action: cancel) {
                     Text("Cancel")
@@ -4306,27 +4308,33 @@ private struct NoteDeletionCapsule: View {
         }
         .padding(.leading, 14)
         .padding(.trailing, cancel == nil ? 14 : 6)
-        .frame(height: 36)
+        .padding(.vertical, 8)
+        .frame(minHeight: 36)
         .background {
             // Opaque under Reduce Transparency, like the note toolbar.
             if reduceTransparency {
-                Capsule().fill(QuillTransparency.opaqueBackgroundColor)
+                shape.fill(QuillTransparency.opaqueBackgroundColor)
             } else {
                 #if compiler(>=6.2)
                 if #available(macOS 26.0, *) {
-                    Color.clear.glassEffect(.regular, in: Capsule())
+                    Color.clear.glassEffect(.regular, in: shape)
                 } else {
-                    Capsule().fill(.ultraThinMaterial)
+                    shape.fill(.ultraThinMaterial)
                 }
                 #else
-                Capsule().fill(.ultraThinMaterial)
+                shape.fill(.ultraThinMaterial)
                 #endif
             }
         }
-        .overlay(Capsule().strokeBorder(strokeColor, lineWidth: 0.6))
+        .overlay(shape.strokeBorder(strokeColor, lineWidth: 0.6))
         .compositingGroup()
         .shadow(color: .black.opacity(0.085), radius: 14, x: 0, y: 4)
         .accessibilityElement(children: .contain)
+    }
+
+    /// A capsule on one line; a longer notice keeps the rounded ends.
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
     }
 
     private var strokeColor: Color {

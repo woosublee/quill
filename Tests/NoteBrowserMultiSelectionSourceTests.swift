@@ -55,7 +55,8 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(capsule.contains("cancel: { appState.cancelPendingSummaryDeletion() }"))
         precondition(capsule.contains("localizedCatalogString(\"Summary deleted\")"))
         let capsuleView = try body(of: "private struct NoteDeletionCapsule: View", in: source)
-        precondition(capsuleView.contains("glassEffect(.regular, in: Capsule())"))
+        precondition(capsuleView.contains("glassEffect(.regular, in: shape)"))
+        precondition(capsuleView.contains(".lineLimit(3)"), "long notices wrap in the narrow sidebar")
         precondition(capsuleView.contains("QuillTransparency.opaqueBackgroundColor"))
         // The list keeps its last rows clear of the capsule.
         precondition(source.contains("+ (isShowingDeletionCapsule ? 46 : 0))"))
@@ -72,6 +73,9 @@ struct NoteBrowserMultiSelectionSourceTests {
         let appStateSource3 = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
         precondition(appStateSource3.contains("if currentRecordingLiveNoteID == noteID { return true }"))
         precondition(appStateSource3.contains("$0.id == noteID || $0.liveNoteID == noteID"))
+        precondition(!appStateSource3.contains("return isRecording\n            && pipelineHistory.first(where: { $0.id == noteID })?.machineStatus == .liveRecording"), "only notes tied to recording or transcription work are refused")
+        let settingsSource = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
+        precondition(settingsSource.contains("|| appState.isRecordingInProgress(noteID: item.id)"), "the Settings history trash button is disabled too")
 
         // Visible entry points: the Select button and the row context menu.
         precondition(source.contains("Button(\"Select\") { beginSelection() }"))
