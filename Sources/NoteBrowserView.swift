@@ -3508,7 +3508,9 @@ private struct NoteDetailView: View {
     /// a tab the person picked during the current search.
     private func applySearchTabPreference(_ prefersSummary: Bool) {
         guard prefersSummary, !userChoseContentModeDuringSearch else { return }
-        switchToSummaryTab()
+        // The switch runs a turn later, so recheck in case the person picked
+        // a tab or jumped to a source in the meantime.
+        switchToSummaryTab(unless: { userChoseContentModeDuringSearch })
     }
 
     private func revealSummaryIfPending() {
@@ -3516,12 +3518,13 @@ private struct NoteDetailView: View {
         switchToSummaryTab()
     }
 
-    private func switchToSummaryTab() {
+    private func switchToSummaryTab(unless cancelled: @escaping () -> Bool = { false }) {
         // The Summary segment is only added to the picker once showsSummaryTab
         // flips true. Selecting it in the same update as its first appearance
         // can be dropped by the underlying segmented control, so defer the
         // selection to the next run loop turn once the segment already exists.
         DispatchQueue.main.async {
+            guard !cancelled() else { return }
             selectedContentMode = .summary
         }
     }

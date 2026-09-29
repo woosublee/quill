@@ -23,6 +23,8 @@ struct MeetingSummaryUIContractTests {
         // isn't an active search.
         precondition(noteBrowser.contains("if isSearchActive {\n            userChoseContentModeDuringSearch = true\n        }\n        selectedContentMode = .transcript"))
         precondition(noteBrowser.contains("isSearchActive: !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,"))
+    // The deferred search switch rechecks the person's choice before it runs.
+    precondition(noteBrowser.contains("guard !cancelled() else { return }\n            selectedContentMode = .summary"))
 
         for expected in [
             "prefersSummaryTab: searchMatcher.matchesOnlyInSummary(item, query: searchText)",
@@ -44,7 +46,7 @@ struct MeetingSummaryUIContractTests {
             "search must not override a tab the person picked during the current search"
         )
         precondition(
-            applyBody.contains("switchToSummaryTab()"),
+            applyBody.contains("switchToSummaryTab(unless: { userChoseContentModeDuringSearch })"),
             "search must reuse the deferred Summary tab switch"
         )
         precondition(
