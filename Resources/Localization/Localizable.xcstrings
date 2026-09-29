@@ -18500,6 +18500,22 @@
           }
         }
       }
+    },
+    "Apple Speech can't transcribe this language on this Mac. Choose Native Whisper or another model.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Speech can't transcribe this language on this Mac. Choose Native Whisper or another model."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 언어는 이 Mac에서 Apple 음성 인식으로 전사할 수 없습니다. Native Whisper나 다른 모델을 선택하세요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

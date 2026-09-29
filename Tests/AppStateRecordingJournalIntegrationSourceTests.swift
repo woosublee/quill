@@ -12,6 +12,15 @@ struct AppStateRecordingJournalIntegrationSourceTests {
             encoding: .utf8
         )
 
+        // Apple Speech is "On This Mac": live and file recognition both
+        // require on-device recognition and refuse languages without it (#250).
+        precondition(appleSpeechSource.contains("request.requiresOnDeviceRecognition = true"))
+        precondition(appleSpeechSource.contains("guard recognizer.supportsOnDeviceRecognition else {"))
+        precondition(appleSpeechSource.contains("throw AppleSpeechError.onDeviceUnavailable(locale.identifier)"))
+        let fileTranscription = try String(contentsOfFile: "Sources/TranscriptionService.swift", encoding: .utf8)
+        precondition(fileTranscription.contains("guard recognizer.supportsOnDeviceRecognition else {"))
+        precondition(fileTranscription.contains("request.requiresOnDeviceRecognition = true"))
+
         precondition(source.contains("private var recordingJournalStore: RecordingJournalStore"))
         precondition(source.contains("private var activeSegmentedJournalController: SegmentedRecordingJournalController?"))
         precondition(source.contains("private var activeRecordingID: UUID?"))

@@ -76,8 +76,16 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber, @unchecked Sendable {
             os_log(.default, log: speechLog, "recognizer not available locale=%{public}@", locale.identifier)
             throw AppleSpeechError.notAvailable(locale.identifier)
         }
+        // Apple Speech is offered as "On This Mac": never let live audio go
+        // to Apple's servers. Without on-device support for this language,
+        // fail with a clear choice instead of silently using the server.
+        guard recognizer.supportsOnDeviceRecognition else {
+            os_log(.default, log: speechLog, "on-device recognition unsupported locale=%{public}@", locale.identifier)
+            throw AppleSpeechError.onDeviceUnavailable(locale.identifier)
+        }
 
         let request = SFSpeechAudioBufferRecognitionRequest()
+        request.requiresOnDeviceRecognition = true
         request.addsPunctuation = true
         request.shouldReportPartialResults = true
 
@@ -302,6 +310,9 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber, @unchecked Sendable {
 enum AppleSpeechError: LocalizedError {
     case notAuthorized
     case notAvailable(String)
+    /// The language has no on-device model, so Apple Speech would need Apple's
+    /// servers. Quill refuses rather than send audio off the Mac.
+    case onDeviceUnavailable(String)
 
     var errorDescription: String? {
         switch self {
@@ -309,6 +320,10 @@ enum AppleSpeechError: LocalizedError {
             return "Speech recognition permission denied. Enable it in System Settings > Privacy & Security > Speech Recognition."
         case .notAvailable(let locale):
             return "Apple Speech Recognizer not available for '\(locale)'."
+        case .onDeviceUnavailable:
+            return localizedCatalogString(
+                "Apple Speech can't transcribe this language on this Mac. Choose Native Whisper or another model."
+            )
         }
     }
 }
