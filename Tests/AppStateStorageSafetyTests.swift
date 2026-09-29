@@ -42,6 +42,7 @@ struct AppStateStorageSafetyTests {
         try await verifiesClearingHistoryRemovesUnrecoveredPieces()
         try await verifiesDeletedUnrecoveredNoteStaysDeletedWhenPieceRemovalStops()
         try await verifiesDeletingRecoveringNoteKeepsCancelWindow()
+        try await verifiesDeletedSummaryCanBeCancelled()
         try await AppStateTestStorage.withIsolatedStorage { environment in
             try prepareStorageDirectories(for: environment.storageLayout)
             let fallbackAudioURL = try await verifiesFallbackHistoryDoesNotSweepStoredAudio(
@@ -1437,6 +1438,64 @@ struct AppStateStorageSafetyTests {
             }
             try expect(!returned, "the deleted note does not come back on the next launch")
             try await waitForFileRemoval(at: recordingDirectory)
+        }
+    }
+
+    /// Deleting a summary keeps it for the Cancel window (#440): Cancel puts
+    /// it back, a later deletion ends the window, and a note that has a new
+    /// summary isn't overwritten.
+    private static func verifiesDeletedSummaryCanBeCancelled() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let summary = MeetingSummaryEnvelope(
+                schemaVersion: MeetingSummaryEnvelope.currentSchemaVersion,
+                promptVersion: 1,
+                generatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+                sourceFingerprint: String(repeating: "b", count: 64),
+                modelID: "summary/model",
+                backendKind: .cloud,
+                content: MeetingSummaryContent(
+                    overview: MeetingSummaryEvidenceText(text: "Synthetic overview", sourceQuotes: []),
+                    keyPoints: [],
+                    decisions: [],
+                    actionItems: [],
+                    openQuestions: []
+                )
+            )
+            let note = makeHistoryItem(audioFileName: nil, transcriptFileName: nil)
+                .withMeetingSummary(summary)
+            let other = makeHistoryItem(audioFileName: nil, transcriptFileName: nil)
+            let store = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            _ = try store.append(note, maxCount: Int.max)
+            _ = try store.append(other, maxCount: Int.max)
+            let appState = await MainActor.run { AppState(dependencies: environment.dependencies) }
+            let stored = { store.loadAllHistory().first { $0.id == note.id } }
+
+            // Cancel puts the summary back, in memory and in the store.
+            let pendingAfterDelete = try await MainActor.run { () -> Bool in
+                try appState.deleteMeetingSummary(noteID: note.id)
+                return appState.pendingSummaryDeletion?.noteID == note.id
+            }
+            try expect(pendingAfterDelete, "a deleted summary waits for Cancel")
+            try expect(stored()?.meetingSummaryJSON == nil, "the summary is deleted from the store")
+            let restored = await MainActor.run { () -> Bool in
+                appState.cancelPendingSummaryDeletion()
+                return appState.pendingSummaryDeletion == nil
+                    && appState.pipelineHistory.first { $0.id == note.id }?.meetingSummary != nil
+            }
+            try expect(restored, "Cancel puts the summary back in the list")
+            try expect(stored()?.meetingSummary?.sourceFingerprint == summary.sourceFingerprint, "Cancel saves the summary again")
+
+            // A later note deletion ends the summary's Cancel window.
+            let endedByDeletion = try await MainActor.run { () -> Bool in
+                try appState.deleteMeetingSummary(noteID: note.id)
+                appState.deleteHistoryEntriesCancellably(ids: [other.id])
+                let ended = appState.pendingSummaryDeletion == nil
+                appState.cancelPendingNoteDeletion()
+                return ended
+            }
+            try expect(endedByDeletion, "a new deletion ends the summary's Cancel window")
+            try expect(stored()?.meetingSummaryJSON == nil, "the summary stays deleted")
         }
     }
 

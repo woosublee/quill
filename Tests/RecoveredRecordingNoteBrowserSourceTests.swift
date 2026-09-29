@@ -113,7 +113,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
             to: "private var noteList: some View {"
         )
         precondition(panel.contains("if !selection.showsSelectionUI {\n                floatingRecordButton"))
-        precondition(source.contains(".padding(.bottom, selection.showsSelectionUI ? 6 : 72)"))
+        precondition(source.contains(".padding(.bottom, (selection.showsSelectionUI ? 6 : 72)"))
     }
 
     private static func testEmptyHistoryShowsOneEmptyState(_ source: String) {

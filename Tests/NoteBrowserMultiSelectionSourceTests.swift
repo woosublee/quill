@@ -40,9 +40,27 @@ struct NoteBrowserMultiSelectionSourceTests {
         // deletion started, and a partial Cancel keeps that start.
         let appStateSource = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
         precondition(appStateSource.contains("PendingNoteDeletion(id: id, entries: entries, startedAt: startedAt)"))
-        precondition(source.contains("startedAt: pending.startedAt,\n                                duration: AppState.noteDeletionCancelWindow"))
+        precondition(source.contains("startedAt: pending.startedAt,\n                        duration: AppState.noteDeletionCancelWindow"))
         precondition(!source.contains("@State private var startedAt = Date()"), "the countdown runs from the deletion, not from when the toast appears")
-        precondition(source.contains("ToastCountdownBar(\n                    startedAt: countdown.startedAt,"))
+        precondition(source.contains("CancelCountdownFill(\n                                        startedAt: countdown.startedAt,"))
+        // #440: deletion notices sit at the bottom of the note list in the
+        // toolbar's glass capsule, never over the note detail, and a deleted
+        // summary gets the same Cancel.
+        let sidebar = try body(of: "private var sidebarPanel: some View", in: source)
+        precondition(sidebar.contains("deletionCapsule"))
+        let detailOverlay = try body(of: "var body: some View", in: source)
+        precondition(!detailOverlay.contains("NoteBrowserToastView(\n                            message: noteDeletionToastMessage"))
+        let capsule = try body(of: "private var deletionCapsule: some View", in: source)
+        precondition(capsule.contains("cancel: { appState.cancelPendingNoteDeletion() }"))
+        precondition(capsule.contains("cancel: { appState.cancelPendingSummaryDeletion() }"))
+        precondition(capsule.contains("localizedCatalogString(\"Summary deleted\")"))
+        let capsuleView = try body(of: "private struct NoteDeletionCapsule: View", in: source)
+        precondition(capsuleView.contains("glassEffect(.regular, in: Capsule())"))
+        precondition(capsuleView.contains("QuillTransparency.opaqueBackgroundColor"))
+        // The list keeps its last rows clear of the capsule.
+        precondition(source.contains("+ (isShowingDeletionCapsule ? 46 : 0))"))
+        let appStateSource2 = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        precondition(appStateSource2.contains("!meetingSummaryGeneratingNoteIDs.contains(pending.noteID) else { return }"))
         precondition(source.contains("TimelineView(.periodic(from: startedAt, by: 1))"))
 
         // Visible entry points: the Select button and the row context menu.
@@ -77,7 +95,6 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(source.contains("Text(\"You can cancel for a few seconds after deleting.\")"))
         precondition(source.contains("@State private var showDeleteConfirmation = false"))
         precondition(source.contains("localizedCatalogFormat(\"%lld notes deleted\", count)"))
-        precondition(source.contains("action: { appState.cancelPendingNoteDeletion() }"))
         precondition(source.contains("if let pending = appState.pendingNoteDeletion {"))
         precondition(source.contains(".announcement: noteDeletionToastMessage(count: pending.noteCount)"))
         let toast = try body(of: "private struct NoteBrowserToastView: View", in: source)
