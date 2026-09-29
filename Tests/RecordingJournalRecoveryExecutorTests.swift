@@ -19,6 +19,7 @@ struct RecordingJournalRecoveryExecutorTests {
             try damagedSegmentedJournalIsRecoveredPartially()
             try unusableSegmentedJournalRemainsManual()
             try manualRecoveryCandidateIsPreserved()
+            try discardFailureLeavesHiddenTombstoneForStartupRecovery()
             print("RecordingJournalRecoveryExecutorTests passed")
         } catch {
             fputs("RecordingJournalRecoveryExecutorTests failed: \(error)\n", stderr)
@@ -103,12 +104,11 @@ struct RecordingJournalRecoveryExecutorTests {
     private static func verifyPromotedArtifactIsReused(
         _ fixture: Fixture
     ) throws -> RecoveredRecordingArtifact {
-        let controller = try SingleSourceRecordingJournalController(
+        let promotedURL = try promoteLegacySingleSourceJournal(
             request: fixture.request,
-            store: fixture.store
+            store: fixture.store,
+            pcm: Data([0x01, 0x00])
         )
-        controller.sink.enqueue(Data([0x01, 0x00]))
-        let promotedURL = try controller.finish()
 
         let executor = RecordingJournalRecoveryExecutor(store: fixture.store)
         let first = try requireRecovered(executor.recoverAll()[0])
@@ -444,23 +444,23 @@ struct RecordingJournalRecoveryExecutorTests {
         systemAudioSamples: [Int16],
         systemAudioTimestamp: UInt64
     ) throws -> (microphone: URL, systemAudio: URL) {
-        let controller = try CombinedRecordingJournalController(
+        let journal = try LegacyCombinedJournal(
             request: fixture.request,
             store: fixture.store
         )
         if !microphoneSamples.isEmpty {
-            controller.microphoneSink.enqueue(
+            journal.microphoneSink.enqueue(
                 pcmData(microphoneSamples),
                 firstFrameMonotonicNanoseconds: microphoneTimestamp
             )
         }
         if !systemAudioSamples.isEmpty {
-            controller.systemAudioSink.enqueue(
+            journal.systemAudioSink.enqueue(
                 pcmData(systemAudioSamples),
                 firstFrameMonotonicNanoseconds: systemAudioTimestamp
             )
         }
-        try controller.checkpoint()
+        try journal.checkpoint()
         return (
             try fixture.store.sourceURL(
                 recordingID: fixture.recordingID,
@@ -590,10 +590,97 @@ struct RecordingJournalRecoveryExecutorTests {
         )
     }
 
+    private static func discardFailureLeavesHiddenTombstoneForStartupRecovery() throws {
+        let fileManager = FailingTombstoneRemovalFileManager()
+        try withFixture(
+            sourceMode: .microphone,
+            sourceKind: .microphone,
+            sourceFileName: "microphone.wav.part",
+            fileManager: fileManager
+        ) { fixture in
+            let session = try fixture.store.createSingleSource(fixture.request)
+            let writer = try RecordingPCMJournalWriter(
+                session: session,
+                store: fixture.store
+            )
+            writer.enqueue(Data([0x01, 0x00]))
+            _ = try writer.drainAndClose()
+            try fixture.store.markDiscarded(recordingID: fixture.recordingID)
+
+            let directory = fixture.store.recordingDirectory(
+                recordingID: fixture.recordingID
+            )
+            let tombstone = fixture.store.inflightDirectory.appendingPathComponent(
+                ".discarded-\(fixture.recordingID.uuidString.lowercased())",
+                isDirectory: true
+            )
+            fileManager.failNextTombstoneRemoval = true
+            do {
+                try fixture.store.discardInflightRecording(
+                    recordingID: fixture.recordingID
+                )
+                throw TestFailure("first discard must fail deletion")
+            } catch let error as TestFailure {
+                throw error
+            } catch {
+                // expected
+            }
+            guard !FileManager.default.fileExists(atPath: directory.path) else {
+                throw TestFailure(
+                    "discard failure must move journal out of recovery scan"
+                )
+            }
+            guard FileManager.default.fileExists(atPath: tombstone.path) else {
+                throw TestFailure("discard failure must leave hidden tombstone")
+            }
+
+            let candidates = InflightRecordingRecovery(
+                store: fixture.store
+            ).scan()
+            try expectEqual(candidates.count, 1, "tombstone candidate count")
+            try expectEqual(
+                candidates[0].action,
+                .discard,
+                "tombstone recovery action"
+            )
+            let results = RecordingJournalRecoveryExecutor(
+                store: fixture.store
+            ).recoverAll()
+            guard case .discarded(let recordingID) = results.first else {
+                throw TestFailure("startup recovery must delete tombstone")
+            }
+            try expectEqual(recordingID, fixture.recordingID, "tombstone ID")
+            guard !FileManager.default.fileExists(atPath: tombstone.path) else {
+                throw TestFailure("startup recovery must remove hidden tombstone")
+            }
+            guard !FileManager.default.fileExists(
+                atPath: fixture.store.permanentURL(
+                    recordingID: fixture.recordingID
+                ).path
+            ) else {
+                throw TestFailure("discarded journal must not promote audio")
+            }
+        }
+    }
+
+    private final class FailingTombstoneRemovalFileManager: FileManager {
+        var failNextTombstoneRemoval = false
+
+        override func removeItem(at URL: URL) throws {
+            if failNextTombstoneRemoval,
+               URL.lastPathComponent.hasPrefix(".discarded-") {
+                failNextTombstoneRemoval = false
+                throw CocoaError(.fileWriteUnknown)
+            }
+            try super.removeItem(at: URL)
+        }
+    }
+
     private static func withFixture(
         sourceMode: RecordingAudioSourceMode,
         sourceKind: RecordingJournalSourceKind,
         sourceFileName: String,
+        fileManager: FileManager = .default,
         _ body: (Fixture) throws -> Void
     ) throws {
         let root = FileManager.default.temporaryDirectory
@@ -612,7 +699,8 @@ struct RecordingJournalRecoveryExecutorTests {
             audioDirectory: root.appendingPathComponent(
                 "audio",
                 isDirectory: true
-            )
+            ),
+            fileManager: fileManager
         )
         let request = RecordingJournalCreateRequest(
             recordingID: recordingID,
@@ -711,4 +799,83 @@ struct RecordingJournalRecoveryExecutorTests {
             self.description = description
         }
     }
+}
+
+/// Writes a legacy combined-layout journal directly through the store and
+/// PCM writers so recovery of journals left by older builds stays covered.
+private struct LegacyCombinedJournal {
+    let microphoneSink: RecordingJournalSourceSink
+    let systemAudioSink: RecordingJournalSourceSink
+
+    private let recordingID: UUID
+    private let store: RecordingJournalStore
+    private let session: CombinedRecordingJournalSession
+    private let microphoneWriter: RecordingPCMJournalWriter
+    private let systemAudioWriter: RecordingPCMJournalWriter
+
+    init(
+        request: CombinedRecordingJournalCreateRequest,
+        store: RecordingJournalStore
+    ) throws {
+        let session = try store.createCombined(request)
+        let microphoneWriter = try RecordingPCMJournalWriter(
+            session: session.microphoneSession,
+            store: store
+        )
+        let systemAudioWriter = try RecordingPCMJournalWriter(
+            session: session.systemAudioSession,
+            store: store
+        )
+        self.recordingID = request.recordingID
+        self.store = store
+        self.session = session
+        self.microphoneWriter = microphoneWriter
+        self.systemAudioWriter = systemAudioWriter
+        self.microphoneSink = RecordingJournalSourceSink(
+            writer: microphoneWriter,
+            monotonicAnchorNanoseconds: request.monotonicAnchorNanoseconds
+        )
+        self.systemAudioSink = RecordingJournalSourceSink(
+            writer: systemAudioWriter,
+            monotonicAnchorNanoseconds: request.monotonicAnchorNanoseconds
+        )
+    }
+
+    func checkpoint() throws {
+        _ = try store.recordCheckpoints(
+            recordingID: recordingID,
+            commitsBySourceID: [
+                session.microphoneSession.sourceID:
+                    try microphoneWriter.checkpointSnapshot(),
+                session.systemAudioSession.sourceID:
+                    try systemAudioWriter.checkpointSnapshot()
+            ]
+        )
+    }
+}
+
+/// Writes and promotes a legacy single-source journal directly through the
+/// store, PCM writer, and finalizer, mirroring a normal stop in older builds.
+@discardableResult
+private func promoteLegacySingleSourceJournal(
+    request: RecordingJournalCreateRequest,
+    store: RecordingJournalStore,
+    pcm: Data
+) throws -> URL {
+    let session = try store.createSingleSource(request)
+    let writer = try RecordingPCMJournalWriter(session: session, store: store)
+    writer.enqueue(pcm)
+    _ = try store.transition(recordingID: request.recordingID, to: .stopping)
+    _ = try writer.drainAndClose()
+    let finalizer = RecordingArtifactFinalizer(store: store)
+    let artifact = try finalizer.finalizeSingleSource(
+        recordingID: request.recordingID
+    )
+    let promotion = try finalizer.promote(artifact)
+    _ = try store.transition(
+        recordingID: request.recordingID,
+        to: .promoted,
+        promotion: promotion
+    )
+    return artifact.destinationURL
 }

@@ -76,8 +76,20 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber, @unchecked Sendable {
             os_log(.default, log: speechLog, "recognizer not available locale=%{public}@", locale.identifier)
             throw AppleSpeechError.notAvailable(locale.identifier)
         }
+        // Apple Speech is offered as "On This Mac": never let live audio go
+        // to Apple's servers. Without on-device support for this language,
+        // fail with a clear choice instead of silently using the server.
+        guard recognizer.supportsOnDeviceRecognition else {
+            os_log(.default, log: speechLog, "on-device recognition unsupported locale=%{public}@", locale.identifier)
+            throw QuillUserIssueError.local(
+                code: .appleSpeechOnDeviceUnavailable,
+                backend: "Apple Speech",
+                diagnostic: "On-device recognition unavailable for locale \(locale.identifier)"
+            )
+        }
 
         let request = SFSpeechAudioBufferRecognitionRequest()
+        request.requiresOnDeviceRecognition = true
         request.addsPunctuation = true
         request.shouldReportPartialResults = true
 

@@ -372,6 +372,7 @@ struct NoteBrowserView: View {
     @State private var pendingDeletionIDs: [UUID] = []
     @State private var showDeletionConfirmation = false
     @State private var searchText = ""
+    @State private var searchMatcher = NoteSearchMatcher()
     @State private var knownHistoryIDs: Set<UUID> = []
     @State private var recoveryScrollRestoreRequest: RecoveryScrollRestoreRequest?
     @State private var pendingAudioImport: PendingAudioImport?
@@ -385,16 +386,16 @@ struct NoteBrowserView: View {
     private var increasesContrast: Bool { colorSchemeContrast == .increased }
 
     private var filteredHistory: [PipelineHistoryItem] {
-        guard !searchText.isEmpty else { return appState.pipelineHistory }
+        guard !searchText.isEmpty else {
+            searchMatcher.clearCache()
+            return appState.pipelineHistory
+        }
+        searchMatcher.retainCache(for: Set(appState.pipelineHistory.map(\.id)))
         return appState.pipelineHistory.filter(matchesSearch)
     }
 
     private func matchesSearch(_ item: PipelineHistoryItem) -> Bool {
-        guard !searchText.isEmpty else { return true }
-        let q = searchText.lowercased()
-        return item.postProcessedTranscript.lowercased().contains(q) ||
-            (item.customTitle ?? "").lowercased().contains(q) ||
-            (item.calendarMatch?.title ?? "").lowercased().contains(q)
+        searchMatcher.matches(item, query: searchText)
     }
 
     /// The note shown in the detail pane when one note is selected.
