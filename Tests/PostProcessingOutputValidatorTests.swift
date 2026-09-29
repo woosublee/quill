@@ -21,6 +21,7 @@ struct PostProcessingOutputValidatorTests {
         try testSourceQuotedDataEnvelopeInstructionIsAccepted()
         try testOrdinaryDataTranscriptReferenceIsAccepted()
         try testDisproportionatelyCollapsedMeaningfulTranscriptIsRejected()
+        try testEmptyReplyReaskRequiresFortyMeaningfulCharacters()
         print("PostProcessingOutputValidatorTests passed")
     }
 
@@ -308,6 +309,39 @@ struct PostProcessingOutputValidatorTests {
         )
 
         try expectFailure(result, equals: .disproportionateCollapse)
+    }
+
+    private static func testEmptyReplyReaskRequiresFortyMeaningfulCharacters() throws {
+        let shouldReask = PostProcessingOutputValidator.shouldReaskAfterEmptyReply
+        try expect(
+            PostProcessingOutputValidator.emptyReplyReaskMinimumCharacterCount == 40,
+            "threshold is 40"
+        )
+
+        // English: "word" x 10 = 40 counted characters; spaces and commas are ignored.
+        let englishForty = String(repeating: "word, ", count: 10)
+        try expect(shouldReask(englishForty), "English at exactly 40 characters is re-asked")
+        let englishThirtyNine = String(englishForty.dropFirst())
+        try expect(!shouldReask(englishThirtyNine), "English at 39 characters is not re-asked")
+
+        // Korean: "회의를시작합니다" = 8 counted characters, x 5 = 40.
+        let koreanForty = String(repeating: "회의를 시작합니다. ", count: 5)
+        try expect(shouldReask(koreanForty), "Korean at exactly 40 characters is re-asked")
+        let koreanThirtyNine = String(koreanForty.dropFirst())
+        try expect(!shouldReask(koreanThirtyNine), "Korean at 39 characters is not re-asked")
+
+        let punctuationHeavy = String(repeating: "a!? ... ", count: 39)
+        try expect(!shouldReask(punctuationHeavy), "punctuation and whitespace are not counted")
+
+        let fillerOnly = String(repeating: "um, uh, okay, 음, 어, 저기, ", count: 20)
+        try expect(!shouldReask(fillerOnly), "long filler-only transcript is not re-asked")
+        try expect(!shouldReask(""), "empty transcript is not re-asked")
+    }
+
+    private static func expect(_ condition: Bool, _ message: String) throws {
+        guard condition else {
+            throw PostProcessingOutputValidatorTestFailure(message)
+        }
     }
 
     private static func expectSuccess(

@@ -577,22 +577,6 @@
         }
       }
     },
-    "Add title (optional)": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add title (optional)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "제목 추가 (선택)"
-          }
-        }
-      }
-    },
     "Apply": {
       "localizations": {
         "en": {
@@ -673,22 +657,6 @@
         }
       }
     },
-    "Choose an Obsidian Vault folder": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose an Obsidian Vault folder"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Obsidian Vault 폴더를 선택하세요"
-          }
-        }
-      }
-    },
     "Choose audio input for the next recording": {
       "localizations": {
         "en": {
@@ -737,22 +705,6 @@
         }
       }
     },
-    "Collapse": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Collapse"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "접기"
-          }
-        }
-      }
-    },
     "Context capture disabled": {
       "localizations": {
         "en": {
@@ -781,22 +733,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "컨텍스트 캡처 사용"
-          }
-        }
-      }
-    },
-    "Copied to the same folder as the markdown file": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copied to the same folder as the markdown file"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "마크다운 파일과 같은 폴더에 복사됩니다"
           }
         }
       }
@@ -1169,38 +1105,6 @@
         }
       }
     },
-    "Export": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Export"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "내보내기"
-          }
-        }
-      }
-    },
-    "Export Complete": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Export Complete"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "내보내기 완료"
-          }
-        }
-      }
-    },
     "Export Failed": {
       "localizations": {
         "en": {
@@ -1213,118 +1117,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "내보내기 실패"
-          }
-        }
-      }
-    },
-    "Export in Background": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Export in Background"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "백그라운드로 내보내기"
-          }
-        }
-      }
-    },
-    "Export to Obsidian": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Export to Obsidian"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Obsidian으로 내보내기"
-          }
-        }
-      }
-    },
-    "Exporting": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Exporting"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "내보내는 중"
-          }
-        }
-      }
-    },
-    "File Title": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "File Title"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "파일 제목"
-          }
-        }
-      }
-    },
-    "Gemini CLI could not be found": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gemini CLI could not be found"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "gemini CLI를 찾을 수 없습니다"
-          }
-        }
-      }
-    },
-    "Gemini CLI refines the transcript before export": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gemini CLI refines the transcript before export"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gemini CLI가 내보내기 전에 전사 내용을 정리합니다"
-          }
-        }
-      }
-    },
-    "Include Audio File": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Include Audio File"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "오디오 파일 포함"
           }
         }
       }
@@ -1425,38 +1217,6 @@
         }
       }
     },
-    "Prompt": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prompt"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "프롬프트"
-          }
-        }
-      }
-    },
-    "Refine content with Gemini": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Refine content with Gemini"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gemini로 내용 정리"
-          }
-        }
-      }
-    },
     "Retry transcription": {
       "localizations": {
         "en": {
@@ -1469,38 +1229,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "전사 재시도"
-          }
-        }
-      }
-    },
-    "Saved file name: %@.md": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Saved file name: %@.md"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "저장될 파일명: %@.md"
-          }
-        }
-      }
-    },
-    "Select a folder": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Select a folder"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "폴더를 선택하세요"
           }
         }
       }
@@ -1585,22 +1313,6 @@
         }
       }
     },
-    "%@.md saved": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@.md saved"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@.md 저장됨"
-          }
-        }
-      }
-    },
     "Import Audio File": {
       "localizations": {
         "en": {
@@ -1681,22 +1393,6 @@
         }
       }
     },
-    "More Actions": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "More Actions"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "추가 동작"
-          }
-        }
-      }
-    },
     "Save Files": {
       "localizations": {
         "en": {
@@ -1773,22 +1469,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "전사 실패"
-          }
-        }
-      }
-    },
-    "Obsidian Vault Folder": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Obsidian Vault Folder"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Obsidian Vault 폴더"
           }
         }
       }
@@ -18577,6 +18257,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@의 새 버전을 사용할 수 있습니다!"
+          }
+        }
+      }
+    },
+    "Are you talking? Your microphone isn't picking up any sound.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Are you talking? Your microphone isn't picking up any sound."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "말하고 계신가요? 마이크에서 소리가 들리지 않습니다."
+          }
+        }
+      }
+    },
+    "Microphone input stopped. Check the connection.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Microphone input stopped. Check the connection."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마이크 입력이 끊겼습니다. 연결을 확인하세요."
           }
         }
       }

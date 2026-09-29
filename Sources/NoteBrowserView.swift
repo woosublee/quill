@@ -127,158 +127,6 @@ private struct GlassView: NSViewRepresentable {
     }
 }
 
-// MARK: - Obsidian Export Manager
-
-final class ObsidianExportManager: ObservableObject {
-    static let shared = ObsidianExportManager()
-    private init() {}
-
-    @Published private(set) var processingIDs: Set<UUID> = []
-
-    @MainActor
-    func export(
-        itemID: UUID,
-        content: String,
-        fileName: String,
-        vaultPath: String,
-        audioSrcURL: URL?,
-        useGemini: Bool,
-        geminiPrompt: String,
-        timestamp: Date
-    ) {
-        processingIDs.insert(itemID)
-        Task {
-            defer {
-                Task { @MainActor in self.processingIDs.remove(itemID) }
-            }
-            do {
-                let finalContent: String
-                if useGemini {
-                    finalContent = try await self.runGemini(content: content, prompt: geminiPrompt)
-                } else {
-                    finalContent = content
-                }
-
-                let iso = ISO8601DateFormatter()
-                iso.formatOptions = [.withInternetDateTime]
-                let audioFileName = audioSrcURL.map { fileName + "." + $0.pathExtension }
-                let audioEmbed = audioFileName.map { "\n![[\($0)]]\n" } ?? ""
-
-                let markdown: String
-                if useGemini {
-                    markdown = """
----
-title: \(fileName)
-date: \(iso.string(from: timestamp))
-source: Quill
----
-
-\(finalContent)
-
----
-
-# \(String(localized: "Transcript"))
-\(audioEmbed)
-\(content)
-"""
-                } else {
-                    markdown = """
----
-title: \(fileName)
-date: \(iso.string(from: timestamp))
-source: Quill
----
-
-# \(String(localized: "Transcript"))
-\(audioEmbed)
-\(content)
-"""
-                }
-
-                let vaultURL = URL(fileURLWithPath: vaultPath)
-                let mdURL = vaultURL.appendingPathComponent(fileName + ".md")
-                try markdown.write(to: mdURL, atomically: true, encoding: .utf8)
-
-                if let srcURL = audioSrcURL,
-                   let audioFileName,
-                   FileManager.default.fileExists(atPath: srcURL.path) {
-                    let dstURL = vaultURL.appendingPathComponent(audioFileName)
-                    try? FileManager.default.removeItem(at: dstURL)
-                    try FileManager.default.copyItem(at: srcURL, to: dstURL)
-                }
-
-                await self.notify(title: String(localized: "Export Complete"), body: String(localized: "\(fileName).md saved"), success: true)
-            } catch {
-                await self.notify(title: String(localized: "Export Failed"), body: error.localizedDescription, success: false)
-            }
-        }
-    }
-
-    private func notify(title: String, body: String, success: Bool) async {
-        await AppNotificationManager.shared.sendImmediateNotification(
-            title: title,
-            body: body,
-            sound: success ? .default : nil
-        )
-    }
-
-    func runGemini(content: String, prompt: String) async throws -> String {
-        let candidates = [
-            "/Users/\(NSUserName())/.npm-global/bin/gemini",
-            "/usr/local/bin/gemini",
-            "/opt/homebrew/bin/gemini"
-        ]
-        guard let geminiPath = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
-            throw NSError(domain: "GeminiCLI", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: String(localized: "Gemini CLI could not be found")])
-        }
-
-        return try await withCheckedThrowingContinuation { continuation in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: geminiPath)
-            process.arguments = ["--yolo", "-p", "\(prompt)\n\n---\n\(content)"]
-            process.currentDirectoryURL = FileManager.default.temporaryDirectory
-
-            var env = ProcessInfo.processInfo.environment
-            let extraPaths: [String] = [
-                "/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin",
-                "/Users/\(NSUserName())/.npm-global/bin",
-                "/Users/\(NSUserName())/.volta/bin",
-                ObsidianExportManager.nvmNodeBinPath(),
-                "/usr/bin", "/bin"
-            ].filter { !$0.isEmpty }
-            let existingPath = env["PATH"] ?? ""
-            env["PATH"] = (extraPaths + [existingPath]).filter { !$0.isEmpty }.joined(separator: ":")
-            process.environment = env
-
-            let outputPipe = Pipe()
-            let errorPipe = Pipe()
-            process.standardOutput = outputPipe
-            process.standardError = errorPipe
-
-            process.terminationHandler = { _ in
-                let raw = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-                let cleaned = raw.replacingOccurrences(of: #"\x1B\[[0-9;]*[mGKHF]"#, with: "", options: .regularExpression)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if cleaned.isEmpty {
-                    let err = String(data: errorPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? String(localized: "Unknown error")
-                    continuation.resume(throwing: NSError(domain: "GeminiCLI", code: 2,
-                        userInfo: [NSLocalizedDescriptionKey: err.trimmingCharacters(in: .whitespacesAndNewlines)]))
-                } else {
-                    continuation.resume(returning: cleaned)
-                }
-            }
-            do { try process.run() } catch { continuation.resume(throwing: error) }
-        }
-    }
-
-    static func nvmNodeBinPath() -> String {
-        let nvmDir = "/Users/\(NSUserName())/.nvm/versions/node"
-        guard let versions = try? FileManager.default.contentsOfDirectory(atPath: nvmDir).sorted().last else { return "" }
-        return "\(nvmDir)/\(versions)/bin"
-    }
-}
-
 // MARK: - Audio Import
 
 private struct PendingAudioImport: Identifiable {
@@ -520,7 +368,6 @@ private struct RecoveryScrollRestoreRequest: Identifiable {
 
 struct NoteBrowserView: View {
     @EnvironmentObject var appState: AppState
-    @EnvironmentObject var exportManager: ObsidianExportManager
     @State private var selection = NoteSelection()
     @State private var pendingDeletionIDs: [UUID] = []
     @State private var showDeletionConfirmation = false
@@ -1747,15 +1594,12 @@ private struct NoteListRow: View {
     var isKeyboardHighlighted: Bool = false
     var selectionMark: SelectionMark? = nil
 
-    @EnvironmentObject private var exportManager: ObsidianExportManager
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
     @State private var isHovered = false
 
     private var increasesContrast: Bool { colorSchemeContrast == .increased }
-
-    private var isExporting: Bool { exportManager.processingIDs.contains(displayData.id) }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -1771,14 +1615,6 @@ private struct NoteListRow: View {
                         .foregroundStyle(selectedMetaColor)
                         .textCase(.uppercase)
                         .kerning(0.4)
-                    if isExporting {
-                        HStack(spacing: 2) {
-                            ProgressView().controlSize(.mini).scaleEffect(0.6)
-                            Text("Exporting")
-                                .font(.system(size: 8, weight: .medium))
-                                .foregroundStyle(isSelected ? selectedMetaColor : .orange)
-                        }
-                    }
                     if displayData.status == .audioOnly {
                         Text(localizedCatalogString("Audio only"))
                             .font(.system(size: 8, weight: .semibold))
@@ -2177,7 +2013,6 @@ private struct NoteDetailView: View {
     @State private var loadedContent: String?
     @State private var isCopied = false
     @State private var showFileExportSheet = false
-    @State private var showObsidianExportSheet = false
     @State private var retryChoiceRequest: RetryChoiceRequest?
     @State private var toastMessage: String?
     @State private var toastID: UUID?
@@ -2468,15 +2303,6 @@ private struct NoteDetailView: View {
             } onCancel: {
                 retryChoiceRequest = nil
             }
-        }
-        .sheet(isPresented: $showObsidianExportSheet) {
-            ObsidianExportSheet(
-                item: item,
-                content: displayContent,
-                customTitle: item.customTitle,
-                audioDirectory: appState.storageLayout.audioDirectory,
-                onDismiss: { showObsidianExportSheet = false }
-            )
         }
         .onReceive(appState.$retryingItemIDs) { ids in
             withAnimation(.easeOut(duration: 0.16)) {
@@ -3295,17 +3121,6 @@ private struct NoteDetailView: View {
                 help: summaryToolbarAction.help
             )
 
-            ToolbarIconMenu(help: "More Actions") {
-                Button("Export to Obsidian") {
-                    showObsidianExportSheet = true
-                }
-                .disabled(!actionState.hasTranscriptText)
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 13, weight: .medium))
-                    .accessibilityLabel(Text("More Actions"))
-            }
-
             toolbarDivider
 
             // Delete
@@ -4058,245 +3873,6 @@ private struct ToolbarIconButton<Label: View>: View {
             isHovered = hovering && !disabled
         }
         .overrideCursor(.arrow)
-    }
-}
-
-private struct ToolbarIconMenu<Content: View, Label: View>: View {
-    let help: LocalizedStringKey
-    @ViewBuilder let content: () -> Content
-    @ViewBuilder let label: () -> Label
-
-    @Environment(\.colorScheme) private var colorScheme
-    @State private var isHovered = false
-
-    var body: some View {
-        ZStack {
-            Circle()
-                .fill(isHovered ? hoverFillColor : Color.clear)
-                .allowsHitTesting(false)
-            Circle()
-                .strokeBorder(hoverStrokeColor.opacity(isHovered ? 1 : 0), lineWidth: 0.5)
-                .allowsHitTesting(false)
-            Menu(content: content) {
-                label()
-                    .frame(width: 36, height: 36)
-                    .contentShape(Circle())
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-        }
-        .frame(width: 36, height: 36)
-        .contentShape(Circle())
-        .animation(.easeInOut(duration: 0.12), value: isHovered)
-        .help(help)
-        .onHover { hovering in
-            isHovered = hovering
-        }
-        .overrideCursor(.arrow)
-    }
-
-    private var hoverFillColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.08) : Color.primary.opacity(0.07)
-    }
-
-    private var hoverStrokeColor: Color {
-        colorScheme == .dark ? Color.white.opacity(0.16) : Color.primary.opacity(0.12)
-    }
-}
-
-// MARK: - Obsidian Export Sheet
-
-private struct ObsidianExportSheet: View {
-    let item: PipelineHistoryItem
-    let content: String
-    var customTitle: String? = nil
-    let audioDirectory: URL
-    let onDismiss: () -> Void
-
-    @AppStorage("obsidian_vault_path") private var vaultPath: String = ""
-    // localization-allowlist: exact non-UI Gemini model prompt
-    @AppStorage("obsidian_gemini_prompt") private var geminiPrompt: String = "다음은 음성 전사 내용입니다. 핵심 내용을 유지하면서 읽기 쉽게 정리해주세요. 마크다운 형식으로 작성하되, 불필요한 설명 없이 정리된 내용만 출력해주세요.\n옵시디언에 다른 회의록을 참고하여 컨텍스트와 작성 포맷을 통일하여 주세요."
-    @State private var titleInput: String = ""
-    @State private var includeAudio: Bool = true
-    @State private var useGemini: Bool = false
-    @State private var showPromptEditor: Bool = false
-    @State private var exportResult: String?
-    @State private var isSuccess = false
-
-    private var defaultTitleInput: String {
-        guard let custom = customTitle, !custom.isEmpty else { return "" }
-        return custom.replacingOccurrences(of: #"^\d{4}-\d{2}-\d{2}\s*"#, with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespaces)
-    }
-
-    private var hasAudio: Bool {
-        guard let fileName = item.audioFileName else { return false }
-        return FileManager.default.fileExists(
-            atPath: audioDirectory.appendingPathComponent(fileName).path
-        )
-    }
-
-    private var datePrefix: String {
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
-        return f.string(from: item.timestamp)
-    }
-
-    private var finalFileName: String {
-        let extra = titleInput.trimmingCharacters(in: .whitespaces)
-        return extra.isEmpty ? datePrefix : "\(datePrefix) \(extra)"
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Export to Obsidian")
-                .font(.headline)
-                .padding(.bottom, 20)
-
-            fieldLabel("File Title")
-            HStack(spacing: 6) {
-                Text(datePrefix)
-                    .font(.body).foregroundStyle(.secondary)
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
-                TextField("Add title (optional)", text: $titleInput)
-                    .textFieldStyle(.roundedBorder)
-            }
-            Text("Saved file name: \(finalFileName).md")
-                .font(.caption).foregroundStyle(.tertiary)
-                .padding(.top, 4).padding(.bottom, 16)
-
-            fieldLabel("Obsidian Vault Folder")
-            HStack(spacing: 8) {
-                Group {
-                    if vaultPath.isEmpty {
-                        Text("Select a folder")
-                            .foregroundStyle(.tertiary)
-                    } else {
-                        Text(vaultPath)
-                            .foregroundStyle(.primary)
-                    }
-                }
-                .font(.callout)
-                .lineLimit(1).truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
-                .overlay(RoundedRectangle(cornerRadius: 7)
-                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
-                Button("Change") { selectVaultFolder() }.controlSize(.small)
-            }
-            .padding(.bottom, 16)
-
-            if hasAudio {
-                Toggle(isOn: $includeAudio) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Include Audio File").font(.callout)
-                        Text("Copied to the same folder as the markdown file")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                .toggleStyle(.checkbox).padding(.bottom, 12)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Toggle(isOn: $useGemini) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Refine content with Gemini").font(.callout)
-                        Text("Gemini CLI refines the transcript before export")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                .toggleStyle(.checkbox)
-
-                if useGemini {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Prompt").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                            Spacer()
-                            Button(showPromptEditor ? "Collapse" : "Edit") { showPromptEditor.toggle() }
-                                .font(.caption).controlSize(.mini)
-                        }
-                        if showPromptEditor {
-                            TextEditor(text: $geminiPrompt)
-                                .font(.caption)
-                                .frame(height: 80)
-                                .scrollContentBackground(.hidden)
-                                .padding(8)
-                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 7))
-                        } else {
-                            Text(geminiPrompt)
-                                .font(.caption).foregroundStyle(.secondary)
-                                .lineLimit(2)
-                        }
-                    }
-                    .padding(.leading, 20)
-                }
-            }
-            .padding(.bottom, 16)
-
-            if let result = exportResult {
-                HStack(spacing: 6) {
-                    Image(systemName: isSuccess ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .foregroundStyle(isSuccess ? .green : .red)
-                    Text(result).font(.caption)
-                        .foregroundStyle(isSuccess ? .green : .red)
-                }
-                .padding(.bottom, 8)
-            }
-
-            Spacer()
-            Divider().padding(.bottom, 16)
-
-            HStack {
-                Button("Cancel") { onDismiss() }.keyboardShortcut(.cancelAction)
-                Spacer()
-                Button(useGemini ? "Export in Background" : "Export") { exportNote() }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(vaultPath.isEmpty)
-                    .buttonStyle(.borderedProminent)
-            }
-        }
-        .padding(24)
-        .frame(width: 460)
-        .fixedSize(horizontal: false, vertical: true)
-        .onAppear { titleInput = defaultTitleInput }
-    }
-
-    private func fieldLabel(_ key: LocalizedStringKey) -> some View {
-        Text(key).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.bottom, 6)
-    }
-
-    private func selectVaultFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.prompt = String(localized: "Choose")
-        panel.message = String(localized: "Choose an Obsidian Vault folder")
-        if panel.runModal() == .OK, let url = panel.url { vaultPath = url.path }
-    }
-
-    @MainActor
-    private func exportNote() {
-        guard !vaultPath.isEmpty else { return }
-        let safeFileName = finalFileName
-            .components(separatedBy: CharacterSet(charactersIn: "/\\:*?\"<>|"))
-            .joined(separator: "-")
-        let audioSrcURL: URL? = (includeAudio && hasAudio && item.audioFileName != nil)
-            ? audioDirectory.appendingPathComponent(item.audioFileName!)
-            : nil
-        ObsidianExportManager.shared.export(
-            itemID: item.id,
-            content: content,
-            fileName: safeFileName,
-            vaultPath: vaultPath,
-            audioSrcURL: audioSrcURL,
-            useGemini: useGemini,
-            geminiPrompt: geminiPrompt,
-            timestamp: item.timestamp
-        )
-        onDismiss()
     }
 }
 

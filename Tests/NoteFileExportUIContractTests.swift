@@ -34,20 +34,12 @@ struct NoteFileExportUIContractTests {
             "save-files action opens the generic sheet"
         )
         try expect(
-            noteBrowser.contains("Menu {"),
-            "pill exposes a more-actions menu"
+            !noteBrowser.contains("ToolbarIconMenu"),
+            "pill no longer exposes a more-actions menu"
         )
         try expect(
-            noteBrowser.contains("ObsidianExportSheet("),
-            "legacy Obsidian export remains reachable"
-        )
-        try expect(
-            noteBrowser.contains("Image(systemName: \"ellipsis\")"),
-            "more-actions menu uses the approved symbol"
-        )
-        try expect(
-            noteBrowser.contains("ToolbarIconMenu(help: \"More Actions\")"),
-            "more-actions menu uses the toolbar hover control"
+            !noteBrowser.contains("ObsidianExportSheet"),
+            "Obsidian export is removed"
         )
         let namingCall = try sourceSection(
             noteBrowser,
@@ -65,30 +57,6 @@ struct NoteFileExportUIContractTests {
         try expect(
             !exportView.contains("enum NoteFileExportNaming"),
             "file export naming stays outside the SwiftUI view"
-        )
-        let toolbarIconMenu = try sourceSection(
-            noteBrowser,
-            from: "private struct ToolbarIconMenu",
-            to: "// MARK: - Obsidian Export Sheet"
-        )
-        for marker in [
-            "@State private var isHovered = false",
-            "ZStack {",
-            ".fill(isHovered ? hoverFillColor : Color.clear)",
-            ".strokeBorder(hoverStrokeColor.opacity(isHovered ? 1 : 0), lineWidth: 0.5)",
-            "Menu(content: content)",
-            ".contentShape(Circle())",
-            ".onHover { hovering in",
-            "isHovered = hovering"
-        ] {
-            try expect(toolbarIconMenu.contains(marker), "toolbar menu hover control contains \(marker)")
-        }
-        let disabledHitTestingCount = toolbarIconMenu.components(
-            separatedBy: ".allowsHitTesting(false)"
-        ).count - 1
-        try expect(
-            disabledHitTestingCount == 2,
-            "both decorative hover circles leave menu hit testing enabled"
         )
         print("NoteFileExportUIContractTests passed")
     }

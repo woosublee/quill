@@ -210,7 +210,6 @@ private func showNoteBrowserWindow() {
     private func presentNoteBrowserWindow() {
         let view = NoteBrowserView()
             .environmentObject(appState)
-            .environmentObject(ObsidianExportManager.shared)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 700),
