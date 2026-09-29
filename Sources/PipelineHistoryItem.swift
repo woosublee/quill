@@ -113,6 +113,12 @@ struct PipelineHistoryItem: Identifiable, Codable {
         UnrecoveredRecordingContext.parse(postProcessingStatus)
     }
 
+    /// The note stands for a recording whose pieces remain on disk after
+    /// recovery failed. Deleting the note deletes the pieces.
+    var hasUnrecoveredRecordingPieces: Bool {
+        unrecoveredRecordingContext?.kind == .recoveryFailed
+    }
+
     var recoveredRecordingMode: RecoveredRecordingMode? {
         recoveredRecordingContext?.mode
     }

@@ -206,6 +206,9 @@ struct NoteListRowDisplayData: Equatable {
     let displayTitle: String
     let preview: String
     let hasMeetingSummary: Bool
+    /// The recording could not be recovered, so the red dot means
+    /// "Couldn't recover" rather than a failed transcription.
+    let isUnrecoveredRecording: Bool
     /// Set while recording, so the row's status corner can show a running
     /// elapsed time next to the red dot.
     let recordingStartedAt: Date?
@@ -270,6 +273,7 @@ struct NoteListRowDisplayData: Equatable {
         self.rowDate = NoteTimestampFormatter.rowTimestamp(for: item, locale: locale)
         self.displayTitle = displayTitle
         self.hasMeetingSummary = item.meetingSummaryJSON != nil
+        self.isUnrecoveredRecording = item.unrecoveredRecordingContext != nil
         self.recordingStartedAt = status == .recording ? item.recordingStartedAt : nil
         self.preview = Self.preview(
             for: item,
@@ -340,7 +344,13 @@ enum NoteListRowAccessibility {
         case checked, unchecked, unavailable
     }
 
-    static func statusKey(for status: TranscriptStatus) -> String {
+    static func statusKey(
+        for status: TranscriptStatus,
+        isUnrecoveredRecording: Bool = false
+    ) -> String {
+        if status == .fail, isUnrecoveredRecording {
+            return "Couldn't recover"
+        }
         switch status {
         case .done: return "Transcription complete"
         case .recording: return "Recording..."
@@ -357,9 +367,17 @@ enum NoteListRowAccessibility {
         status: TranscriptStatus,
         hasSummary: Bool,
         selection: SelectionState?,
+        isUnrecoveredRecording: Bool = false,
         localize: (String) -> String = { localizedCatalogString($0) }
     ) -> String {
-        var parts = [title, date, localize(statusKey(for: status))]
+        var parts = [
+            title,
+            date,
+            localize(statusKey(
+                for: status,
+                isUnrecoveredRecording: isUnrecoveredRecording
+            ))
+        ]
         if hasSummary {
             parts.append(localize("Summary"))
         }

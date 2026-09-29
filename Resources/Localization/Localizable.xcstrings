@@ -18820,6 +18820,38 @@
           }
         }
       }
+    },
+    "Wait for the recording recovery to finish, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wait for the recording recovery to finish, then try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 복구가 끝난 뒤 다시 시도하세요."
+          }
+        }
+      }
+    },
+    "Deleted notes cannot be recovered. Recording pieces Quill couldn't recover are deleted too.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleted notes cannot be recovered. Recording pieces Quill couldn't recover are deleted too."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삭제한 노트는 복구할 수 없습니다. 복구하지 못한 녹음 조각도 함께 삭제됩니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

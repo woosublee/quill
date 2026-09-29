@@ -676,9 +676,20 @@ struct NoteBrowserView: View {
     }
 
     private var deletionConfirmationTitle: Text {
-        pendingDeletionIDs.count == 1
-            ? Text("Delete this note?")
-            : Text(localizedCatalogFormat("Delete %lld notes?", pendingDeletionIDs.count))
+        if pendingDeletionIDs.count == 1 {
+            return pendingDeletionIncludesRecordingPieces
+                ? Text("Delete this note and its recording pieces?")
+                : Text("Delete this note?")
+        }
+        return Text(localizedCatalogFormat("Delete %lld notes?", pendingDeletionIDs.count))
+    }
+
+    /// Whether a note waiting to be deleted still holds the pieces of a
+    /// recording that could not be recovered; they are deleted with it.
+    private var pendingDeletionIncludesRecordingPieces: Bool {
+        appState.pipelineHistory.contains {
+            pendingDeletionIDs.contains($0.id) && $0.hasUnrecoveredRecordingPieces
+        }
     }
 
     private func scheduleRecoveryScrollRestore(for itemID: UUID) {
@@ -763,7 +774,13 @@ struct NoteBrowserView: View {
             Button("Delete", role: .destructive) { performPendingDeletion() }
             Button("Cancel", role: .cancel) { pendingDeletionIDs = [] }
         } message: {
-            if pendingDeletionIDs.count == 1 {
+            if pendingDeletionIncludesRecordingPieces {
+                if pendingDeletionIDs.count == 1 {
+                    Text("The recording pieces Quill couldn't recover will also be deleted. This can't be undone.")
+                } else {
+                    Text("Deleted notes cannot be recovered. Recording pieces Quill couldn't recover are deleted too.")
+                }
+            } else if pendingDeletionIDs.count == 1 {
                 Text("Deleted notes cannot be recovered.")
             } else {
                 Text("Deleted notes cannot be recovered. Audio and summaries are deleted too.")
@@ -1799,7 +1816,8 @@ private struct NoteListRow: View {
                 case .unselected: return .unchecked
                 case .unavailable: return .unavailable
                 }
-            }
+            },
+            isUnrecoveredRecording: displayData.isUnrecoveredRecording
         )))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
@@ -2169,7 +2187,7 @@ private struct NoteDetailView: View {
     }
     /// Pieces of this recording remain on disk; deleting the note removes them.
     private var keepsRecordingPieces: Bool {
-        unrecoveredContext?.kind == .recoveryFailed
+        item.hasUnrecoveredRecordingPieces
     }
     private var isRecoveringRecording: Bool {
         appState.recoveringRecordingIDs.contains(item.id)

@@ -76,7 +76,65 @@ struct RecordingRecoveryHistory {
         _ result: RecordingJournalRecoveryResult,
         maxCount: Int
     ) -> RecordingRecoveryApplyOutcome {
+        apply(inspect(result), maxCount: maxCount) { recordingID in
+            try journalStore.discardInflightRecording(recordingID: recordingID)
+        }
+    }
+
+    /// Reads what `apply` needs from the journal folder. It touches only the
+    /// file system, so it can run off the main thread.
+    func inspect(
+        _ result: RecordingJournalRecoveryResult
+    ) -> RecordingRecoveryInspection {
+        let candidate: InflightRecordingRecoveryCandidate
         switch result {
+        case .manualRecoveryRequired(let manual):
+            candidate = manual
+        case .failed(let failed, _):
+            candidate = failed
+        case .recovered, .discarded:
+            return RecordingRecoveryInspection(
+                result: result,
+                recordingID: nil,
+                manifest: nil,
+                journalHasAudio: true
+            )
+        }
+        // A recording the user discarded is not shown again; its removal is
+        // retried on the next launch. A journal whose folder does not match
+        // its recording ID cannot be tied to one note or cleaned up safely.
+        guard candidate.action != .discard,
+              let recordingID = candidate.recordingID,
+              candidate.recordingDirectory.standardizedFileURL.path
+                == journalStore.recordingDirectory(recordingID: recordingID)
+                    .standardizedFileURL.path else {
+            return RecordingRecoveryInspection(
+                result: result,
+                recordingID: nil,
+                manifest: nil,
+                journalHasAudio: true
+            )
+        }
+        return RecordingRecoveryInspection(
+            result: result,
+            recordingID: recordingID,
+            manifest: try? journalStore.loadManifest(recordingID: recordingID),
+            journalHasAudio: journalContainsAudio(
+                directory: candidate.recordingDirectory,
+                recordingID: recordingID
+            )
+        )
+    }
+
+    /// Applies one inspected result to history. `discardEmptyJournal` runs
+    /// once the note for a journal with no audio is saved.
+    @discardableResult
+    func apply(
+        _ inspection: RecordingRecoveryInspection,
+        maxCount: Int,
+        discardEmptyJournal: (UUID) throws -> Void
+    ) -> RecordingRecoveryApplyOutcome {
+        switch inspection.result {
         case .recovered(let artifact):
             do {
                 return .recovered(try persist(artifact, maxCount: maxCount))
@@ -101,31 +159,33 @@ struct RecordingRecoveryHistory {
         case .discarded:
             return .discarded
         case .manualRecoveryRequired(let candidate):
-            return keepUnrecovered(candidate, cause: nil)
+            return keepUnrecovered(
+                candidate,
+                inspection: inspection,
+                cause: nil,
+                discardEmptyJournal: discardEmptyJournal
+            )
         case .failed(let candidate, let cause):
-            return keepUnrecovered(candidate, cause: cause)
+            return keepUnrecovered(
+                candidate,
+                inspection: inspection,
+                cause: cause,
+                discardEmptyJournal: discardEmptyJournal
+            )
         }
     }
 
     private func keepUnrecovered(
         _ candidate: InflightRecordingRecoveryCandidate,
-        cause: UnrecoveredRecordingCause?
+        inspection: RecordingRecoveryInspection,
+        cause: UnrecoveredRecordingCause?,
+        discardEmptyJournal: (UUID) throws -> Void
     ) -> RecordingRecoveryApplyOutcome {
-        // A recording the user discarded is not shown again; its removal is
-        // retried on the next launch. A journal whose folder does not match
-        // its recording ID cannot be tied to one note or cleaned up safely.
-        guard candidate.action != .discard,
-              let recordingID = candidate.recordingID,
-              candidate.recordingDirectory.standardizedFileURL.path
-                == journalStore.recordingDirectory(recordingID: recordingID)
-                    .standardizedFileURL.path else {
+        guard let recordingID = inspection.recordingID else {
             return .skipped
         }
-        let manifest = try? journalStore.loadManifest(recordingID: recordingID)
-        guard journalContainsAudio(
-            directory: candidate.recordingDirectory,
-            recordingID: recordingID
-        ) else {
+        let manifest = inspection.manifest
+        guard inspection.journalHasAudio else {
             let context = UnrecoveredRecordingContext(
                 kind: .noAudio,
                 cause: manifest?.interruptionReason.map(
@@ -139,9 +199,7 @@ struct RecordingRecoveryHistory {
                     directory: candidate.recordingDirectory,
                     context: context
                 )
-                try journalStore.discardInflightRecording(
-                    recordingID: recordingID
-                )
+                try discardEmptyJournal(recordingID)
             } catch {
                 // Tried again on the next launch.
             }
@@ -173,15 +231,20 @@ struct RecordingRecoveryHistory {
         guard fileManager.fileExists(atPath: directory.path) else {
             return false
         }
+        // Anything that cannot be read might be audio, so it keeps the
+        // journal as pieces instead of letting it be discarded.
+        var enumerationFailed = false
         guard let enumerator = fileManager.enumerator(
             at: directory,
             includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey],
             options: [],
-            errorHandler: { _, _ in false }
+            errorHandler: { _, _ in
+                enumerationFailed = true
+                return true
+            }
         ) else {
             return true
         }
-        var enumerationFailed = false
         for case let url as URL in enumerator {
             let name = url.lastPathComponent
             if name.hasPrefix("manifest")
@@ -354,6 +417,16 @@ struct RecordingRecoveryHistory {
     }
 }
 
+
+/// What `RecordingRecoveryHistory.apply` needs from a journal folder,
+/// read before history is changed.
+struct RecordingRecoveryInspection {
+    let result: RecordingJournalRecoveryResult
+    /// Nil when the journal cannot be tied to one note.
+    let recordingID: UUID?
+    let manifest: RecordingJournalManifest?
+    let journalHasAudio: Bool
+}
 
 enum RecordingRecoveryApplyOutcome {
     case recovered([DeletedPipelineHistoryAssets])

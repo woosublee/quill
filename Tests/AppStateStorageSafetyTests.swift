@@ -32,6 +32,8 @@ struct AppStateStorageSafetyTests {
         try await verifiesFailedStitchKeepsNoteAndRecoversAgain()
         try await verifiesDeletingUnrecoveredNoteRemovesPiecesAndProtectsThemUntilThen()
         try await verifiesFailedRecoverySaveIsRetriedNextLaunch()
+        try await verifiesUnreadableJournalFolderKeepsPieces()
+        try await verifiesClearingHistoryRemovesUnrecoveredPieces()
         try await AppStateTestStorage.withIsolatedStorage { environment in
             try prepareStorageDirectories(for: environment.storageLayout)
             let fallbackAudioURL = try await verifiesFallbackHistoryDoesNotSweepStoredAudio(
@@ -534,6 +536,8 @@ struct AppStateStorageSafetyTests {
         )
         try expect(row.status == .fail, "an unrecovered note shows a red dot")
         try expect(row.preview == "Couldn't recover", "an unrecovered note previews its failure")
+        try expect(row.isUnrecoveredRecording, "the row reads as a recording that couldn't be recovered")
+        try expect(item.hasUnrecoveredRecordingPieces, "a failed recovery keeps pieces to delete with the note")
     }
 
     /// Case 1: a journal with no audio keeps the recording note as
@@ -708,12 +712,10 @@ struct AppStateStorageSafetyTests {
             try expect(kind == .recoveryFailed, "the damaged recording keeps a failed-recovery note")
 
             await MainActor.run { appState.deleteHistoryEntry(id: recordingID) }
-            try expect(
-                !FileManager.default.fileExists(
-                    atPath: journalStore.recordingDirectory(recordingID: recordingID).path
-                ),
-                "deleting the note removes its recording pieces"
+            try await waitForFileRemoval(
+                at: journalStore.recordingDirectory(recordingID: recordingID)
             )
+            try await waitForFileRemoval(at: stitchedURL)
             try expect(
                 !FileManager.default.fileExists(atPath: stitchedURL.path),
                 "deleting the note removes its unreferenced stitched audio"
@@ -788,6 +790,96 @@ struct AppStateStorageSafetyTests {
             try expect(
                 !FileManager.default.fileExists(atPath: journalDirectory.path),
                 "the retried save removes the journal"
+            )
+        }
+    }
+
+    /// A journal folder that cannot be read might hold audio, so it is kept
+    /// as pieces instead of being discarded as empty.
+    private static func verifiesUnreadableJournalFolderKeepsPieces() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let journalStore = RecordingJournalStore(
+                audioDirectory: environment.storageLayout.audioDirectory
+            )
+            let recordingID = UUID()
+            _ = try journalStore.createSingleSource(
+                makeJournalRequest(recordingID: recordingID)
+            )
+            let journalDirectory = journalStore.recordingDirectory(recordingID: recordingID)
+            let unreadableFolder = journalDirectory.appendingPathComponent(
+                "unreadable",
+                isDirectory: true
+            )
+            try FileManager.default.createDirectory(
+                at: unreadableFolder,
+                withIntermediateDirectories: true
+            )
+            try Data(repeating: 0x03, count: 128).write(
+                to: unreadableFolder.appendingPathComponent("piece.bin")
+            )
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o000],
+                ofItemAtPath: unreadableFolder.path
+            )
+            defer {
+                try? FileManager.default.setAttributes(
+                    [.posixPermissions: 0o700],
+                    ofItemAtPath: unreadableFolder.path
+                )
+            }
+
+            let appState = await MainActor.run {
+                AppState(dependencies: environment.dependencies)
+            }
+            let kind = await MainActor.run {
+                appState.pipelineHistory.first { $0.id == recordingID }?
+                    .unrecoveredRecordingContext?.kind
+            }
+            try expect(kind == .recoveryFailed, "an unreadable journal folder is kept as pieces")
+            try expect(
+                FileManager.default.fileExists(atPath: journalDirectory.path),
+                "an unreadable journal folder is not discarded"
+            )
+        }
+    }
+
+    /// Clearing history removes the pieces of unrecovered notes, and waits
+    /// for Recover Again so it cannot add a note back.
+    private static func verifiesClearingHistoryRemovesUnrecoveredPieces() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let journalStore = RecordingJournalStore(
+                audioDirectory: environment.storageLayout.audioDirectory
+            )
+            let recordingID = UUID()
+            let sourceURL = try writeSingleSourceJournal(
+                store: journalStore,
+                recordingID: recordingID
+            )
+            try setImmutable(sourceURL, true)
+            let appState = await MainActor.run {
+                AppState(dependencies: environment.dependencies)
+            }
+            try setImmutable(sourceURL, false)
+            let kept = await MainActor.run {
+                appState.pipelineHistory.contains { $0.id == recordingID }
+            }
+            try expect(kept, "the failed recovery keeps a note to clear")
+
+            let clearedWhileRecovering = await MainActor.run { () -> Bool in
+                appState.recoveringRecordingIDs.insert(recordingID)
+                defer { appState.recoveringRecordingIDs.remove(recordingID) }
+                appState.clearPipelineHistory()
+                return appState.pipelineHistory.isEmpty
+            }
+            try expect(!clearedWhileRecovering, "clearing waits for Recover Again")
+
+            await MainActor.run { appState.clearPipelineHistory() }
+            let isEmpty = await MainActor.run { appState.pipelineHistory.isEmpty }
+            try expect(isEmpty, "clearing removes the unrecovered note")
+            try await waitForFileRemoval(
+                at: journalStore.recordingDirectory(recordingID: recordingID)
             )
         }
     }

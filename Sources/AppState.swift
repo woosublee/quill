@@ -4993,7 +4993,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         HistoryWorkflowAdmissionContext(
             isRecording: isRecording,
             isTranscribing: isTranscribing,
-            hasRetryWork: !retryingItemIDs.isEmpty,
+            hasRetryWork: !retryingItemIDs.isEmpty
+                || !recoveringRecordingIDs.isEmpty,
             hasActiveTranscriptionJobs: !activeTranscriptionJobs.isEmpty,
             hasPendingAudioImports: !pendingAudioImportJobIDs.isEmpty,
             hasCloudHistoryWork:
@@ -6696,7 +6697,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func clearPipelineHistory() {
         guard requireAvailableHistoryForMutation() else { return }
+        // A recording being recovered again would add its note back.
+        guard recoveringRecordingIDs.isEmpty else {
+            errorMessage = localizedCatalogString(
+                "Wait for the recording recovery to finish, then try again."
+            )
+            return
+        }
         let historyIDs = pipelineHistory.map(\.id)
+        let unrecoveredRecordingIDs = pipelineHistory
+            .filter { $0.unrecoveredRecordingContext != nil }
+            .map(\.id)
         for historyID in historyIDs {
             transcriptionRetryWorkflow.cancel(noteID: historyID)
             cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
@@ -6726,6 +6737,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             transcriptionRetryWorkflow.forgetAll()
             meetingSummaryWorkflow.forgetAll()
             forgetAllWarningBannerState()
+            discardUnrecoveredRecordingPieces(recordingIDs: unrecoveredRecordingIDs)
         } catch {
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to clear run history"), providerDetail: error.localizedDescription)
         }
@@ -6760,35 +6772,44 @@ final class AppState: ObservableObject, @unchecked Sendable {
             meetingSummaryWorkflow.forget(noteID: id)
             forgetWarningBannerState(for: id)
             if deletesRecordingPieces {
-                discardUnrecoveredRecordingPieces(recordingID: id)
+                discardUnrecoveredRecordingPieces(recordingIDs: [id])
             }
         } catch {
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to delete run history entry"), providerDetail: error.localizedDescription)
         }
     }
 
-    /// Removes the journal left by a recording that could not be recovered,
-    /// once its note is deleted, so startup does not bring the note back.
+    /// Removes the journals left by recordings that could not be recovered,
+    /// once their notes are deleted, so startup does not bring them back.
+    /// The file work runs on the journal queue, after any Recover Again.
     @MainActor
-    private func discardUnrecoveredRecordingPieces(recordingID: UUID) {
-        do {
-            try recordingJournalStore.discardInflightRecording(
-                recordingID: recordingID
-            )
-        } catch {
-            print("Failed to delete the pieces of an unrecovered recording")
+    private func discardUnrecoveredRecordingPieces(recordingIDs: [UUID]) {
+        guard !recordingIDs.isEmpty else { return }
+        let journalStore = recordingJournalStore
+        // Stitched audio is removed only when no remaining note uses it.
+        let referencedAudioFileNames: Set<String>? =
+            pipelineHistoryStore.availability == .ready
+                ? Set(pipelineHistoryStore.loadAllHistory().compactMap(\.audioFileName))
+                : nil
+        let removableStitchedAudioURLs = recordingIDs
+            .map { journalStore.permanentURL(recordingID: $0) }
+            .filter {
+                referencedAudioFileNames?.contains($0.lastPathComponent) == false
+            }
+        recordingJournalFinalizationQueue.async {
+            for recordingID in recordingIDs {
+                do {
+                    try journalStore.discardInflightRecording(
+                        recordingID: recordingID
+                    )
+                } catch {
+                    print("Failed to delete the pieces of an unrecovered recording")
+                }
+            }
+            for url in removableStitchedAudioURLs {
+                try? FileManager.default.removeItem(at: url)
+            }
         }
-        let stitchedAudioURL = recordingJournalStore.permanentURL(
-            recordingID: recordingID
-        )
-        let stitchedFileName = stitchedAudioURL.lastPathComponent
-        guard pipelineHistoryStore.availability == .ready,
-              !pipelineHistoryStore.loadAllHistory().contains(where: {
-                  $0.audioFileName == stitchedFileName
-              }) else {
-            return
-        }
-        try? FileManager.default.removeItem(at: stitchedAudioURL)
     }
 
     /// Whether Recover Again can run for this note now. It stays locked
@@ -6813,13 +6834,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
               canRecoverRecordingAgain(item) else { return }
         recoveringRecordingIDs.insert(id)
         let journalStore = recordingJournalStore
+        let historyStore = pipelineHistoryStore
         recordingJournalFinalizationQueue.async { [weak self] in
-            let result = RecordingJournalRecoveryExecutor(store: journalStore)
+            // Stitching and journal checks stay off the main thread; only
+            // the history change is applied on it.
+            let inspection = RecordingJournalRecoveryExecutor(store: journalStore)
                 .recover(recordingID: id)
+                .map {
+                    RecordingRecoveryHistory(
+                        journalStore: journalStore,
+                        historyStore: historyStore
+                    ).inspect($0)
+                }
             DispatchQueue.main.async {
                 guard let self else { return }
                 let didRecover = self.applyRecoveredAgain(
-                    result,
+                    inspection,
                     recordingID: id,
                     journalStore: journalStore
                 )
@@ -6831,19 +6861,24 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func applyRecoveredAgain(
-        _ result: RecordingJournalRecoveryResult?,
+        _ inspection: RecordingRecoveryInspection?,
         recordingID: UUID,
         journalStore: RecordingJournalStore
     ) -> Bool {
-        guard let result,
+        guard let inspection,
               journalStore === recordingJournalStore,
               pipelineHistoryStore.availability == .ready else {
             return false
         }
+        let finalizationQueue = recordingJournalFinalizationQueue
         let outcome = RecordingRecoveryHistory(
             journalStore: journalStore,
             historyStore: pipelineHistoryStore
-        ).apply(result, maxCount: maxPipelineHistoryCount)
+        ).apply(inspection, maxCount: maxPipelineHistoryCount) { emptyID in
+            finalizationQueue.async {
+                try? journalStore.discardInflightRecording(recordingID: emptyID)
+            }
+        }
         var didRecover = false
         if case .recovered(let removedAssets) = outcome {
             for assets in removedAssets {
