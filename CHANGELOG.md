@@ -13,7 +13,7 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 ### Improved
 
 - Scrolled content now fades out at the top of Settings pages and under a note's header, instead of running into the window edge or being cut off.
-- Moved the Settings sidebar up to just under the window buttons.
+- The Settings sidebar now starts closer to the window buttons.
 
 ## [0.5.0] - 2026-09-30
 
