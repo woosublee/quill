@@ -1,6 +1,7 @@
 @main
 struct FullSourceTranscriptionTestRunner {
     static func main() async throws {
+        try AppleSpeechUtteranceTranscriptTests.main()
         await CloudTranscriptionHistoryLifecycleTests.main()
         await TranscriptionServiceCloudChunkingTests.main()
         try await TranscriptionServiceLocalIssueTests.main()

@@ -41,6 +41,7 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber, @unchecked Sendable {
         var finalizeContinuations: [CheckedContinuation<String, Error>] = []
         var finalResult: Result<String, Error>?
         var latestTranscript = ""
+        var utterances = AppleSpeechUtteranceTranscript()
         var cancelled = false
     }
 
@@ -270,12 +271,19 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber, @unchecked Sendable {
 
     private func handleTaskResult(_ result: SFSpeechRecognitionResult?, error: Error?) {
         if let result {
-            let text = result.bestTranscription.formattedString
-            let callback = stateLock.withLock { state -> (@Sendable (String) -> Void)? in
-                state.latestTranscript = text
-                return state.onPartialResult
+            // A result covers only the current utterance: after a pause the
+            // recognizer starts over, so earlier utterances are kept here.
+            let utteranceEnded = result.speechRecognitionMetadata != nil
+            let (text, callback) = stateLock.withLock { state -> (String, (@Sendable (String) -> Void)?) in
+                state.utterances.apply(
+                    result.bestTranscription.formattedString,
+                    utteranceEnded: utteranceEnded || result.isFinal
+                )
+                state.latestTranscript = state.utterances.text
+                return (state.latestTranscript, state.onPartialResult)
             }
-            os_log(.default, log: speechLog, "result isFinal=%d text=%{private}@", result.isFinal, text)
+            os_log(.default, log: speechLog, "result isFinal=%d utteranceEnded=%d text=%{private}@",
+                   result.isFinal, utteranceEnded, text)
             callback?(text)
             if result.isFinal {
                 resumeAll(with: .success(text))
@@ -308,6 +316,79 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber, @unchecked Sendable {
         for continuation in continuations {
             continuation.resume(with: result)
         }
+    }
+}
+
+/// Joins SFSpeechRecognizer utterances into one transcript. Each recognizer
+/// result holds only the current utterance, and after a pause the recognizer
+/// starts over, so earlier utterances must be kept here.
+struct AppleSpeechUtteranceTranscript {
+    private(set) var committedUtterances: [String] = []
+    private(set) var currentUtterance = ""
+    /// True right after a commit, until another result starts a new utterance.
+    /// An ended result that repeats the committed utterance then revises it
+    /// instead of adding a copy (for example the final result after endAudio).
+    private var lastCommitIsRevisable = false
+
+    var text: String {
+        (committedUtterances + [currentUtterance])
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+
+    /// `utteranceEnded` is true when the recognizer marks the utterance as done
+    /// (speech metadata or a final result).
+    mutating func apply(_ utteranceText: String, utteranceEnded: Bool) {
+        let utterance = utteranceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !utterance.isEmpty else {
+            if utteranceEnded {
+                commit(currentUtterance)
+                currentUtterance = ""
+            }
+            return
+        }
+
+        if lastCommitIsRevisable {
+            lastCommitIsRevisable = false
+            if utteranceEnded,
+               let last = committedUtterances.last,
+               Self.comparable(utterance) == Self.comparable(last) {
+                committedUtterances[committedUtterances.count - 1] = utterance
+                lastCommitIsRevisable = true
+                return
+            }
+        } else if Self.restartsUtterance(utterance, after: currentUtterance) {
+            // No end marker arrived, but the text collapsed: the recognizer
+            // started a new utterance after a pause.
+            commit(currentUtterance)
+            lastCommitIsRevisable = false
+        }
+
+        if utteranceEnded {
+            commit(utterance)
+            currentUtterance = ""
+        } else {
+            currentUtterance = utterance
+        }
+    }
+
+    private mutating func commit(_ utterance: String) {
+        guard !utterance.isEmpty else { return }
+        committedUtterances.append(utterance)
+        lastCommitIsRevisable = true
+    }
+
+    /// Revisions rarely shrink an utterance below half its length; a restart
+    /// after a pause does. Counts characters, so it also works without spaces.
+    private static func restartsUtterance(_ utterance: String, after previous: String) -> Bool {
+        !previous.isEmpty && utterance.count * 2 < previous.count
+    }
+
+    /// Ignores case, punctuation, and spacing differences between two results.
+    private static func comparable(_ text: String) -> String {
+        String(String.UnicodeScalarView(text.unicodeScalars.filter {
+            CharacterSet.alphanumerics.contains($0)
+        })).lowercased()
     }
 }
 
