@@ -405,8 +405,13 @@ final class AppleSpeechAnalyzerLiveTranscriber: LiveTranscriber, @unchecked Send
 
         let (text, resultsError) = stateLock.withLock { ($0.transcript.text, $0.resultsError) }
         let transcript = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // An empty live transcript makes the recording fall back to file
+        // transcription, which retries SpeechAnalyzer and then SFSpeechRecognizer.
         if transcript.isEmpty, let resultsError, !(resultsError is CancellationError) {
-            throw resultsError
+            let nsError = resultsError as NSError
+            os_log(.error, log: analyzerLog,
+                   "results failed domain=%{public}@ code=%ld; falling back to file transcription",
+                   nsError.domain, nsError.code)
         }
         return transcript
     }

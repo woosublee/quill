@@ -82,6 +82,8 @@ struct AppleSpeechEngineSelectionTests {
         let routing = try String(contentsOfFile: "Sources/AppleSpeechAnalyzerTranscriber.swift", encoding: .utf8)
         try expect(routing.contains("let legacy = AppleSpeechLiveTranscriber()"), "router falls back to legacy")
         try expect(routing.contains("#if compiler(>=6.2)"), "older toolchains still build")
+        try expect(!routing.contains("throw resultsError"),
+                   "a failed SpeechAnalyzer run returns empty text so the recording falls back to file transcription")
         try expect(!routing.contains("%{public}@\", text") && !routing.contains("text=%{public}@"),
                    "transcript text is never logged publicly")
         let service = try String(contentsOfFile: "Sources/TranscriptionService.swift", encoding: .utf8)
