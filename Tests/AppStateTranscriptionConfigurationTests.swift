@@ -3776,7 +3776,7 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(settings.contains(".environment(\\.settingsPageTopInset, Self.topFadeHeight - 8)"))
         precondition(settings.contains("private static let topFadeHeight: CGFloat = 24"))
         precondition(settings.contains("struct SettingsPageScrollView<Content: View>: View"))
-        precondition(settings.contains("WindowDragArea()\n                    .frame(height: 16)"))
+        precondition(!settings.contains("WindowDragArea()\n                    .frame(height: 16)"), "no drag strip over scrollable page content")
         precondition(settings.components(separatedBy: "\n        ScrollView {\n").count == 2, "every Settings page scrolls under the title band; only the shared page scroll view uses ScrollView directly")
         precondition(!settings.contains("WindowDragArea()\n                .frame(height: titleBarHeight)"))
         let dragArea = try String(contentsOfFile: "Sources/WindowDragArea.swift", encoding: .utf8)

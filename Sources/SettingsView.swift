@@ -128,12 +128,9 @@ struct SettingsView: View {
             .environment(\.settingsPageTopInset, Self.topFadeHeight - 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .topScrollFade(height: Self.topFadeHeight)
-            // Only the page's empty top margin drags, as before, so the band
-            // doesn't stop the page from scrolling.
-            .overlay(alignment: .top) {
-                WindowDragArea()
-                    .frame(height: 16)
-            }
+            // No drag strip over the page: scrolled controls pass under the
+            // top edge and must stay clickable and scrollable. The sidebar's
+            // top strip drags the window.
         }
     }
 

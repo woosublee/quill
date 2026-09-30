@@ -146,6 +146,9 @@ struct MeetingSummaryUIContractTests {
             "highlightedSourceQuote: highlightedSourceQuote",
             "MeetingSummarySourceLocator.range(",
             "scrollRangeToVisible",
+            // A source quote scrolls in with room above the top fade.
+            "textView.scrollToVisible(rect.insetBy(dx: 0, dy: -Self.highlightScrollMargin))",
+            "static let highlightScrollMargin: CGFloat = 32",
             ".accessibilityLabel(\"Note Content\")",
             "private var summaryToolbarAction: SummaryToolbarAction",
             "summaryToolbarAction.systemImage",
