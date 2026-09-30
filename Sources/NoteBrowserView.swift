@@ -3226,12 +3226,13 @@ private struct NoteDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// The floating toolbar's height plus its bottom margin. Centered empty
-    /// states leave this much room so they sit in the middle of what is
-    /// visible above the toolbar, not of the whole pane.
     /// Scrolled transcript and summary text dissolve over this much under
     /// the note header. Both start at least this far down at rest.
     private static let contentTopFadeHeight: CGFloat = 14
+
+    /// The floating toolbar's height plus its bottom margin. Centered empty
+    /// states leave this much room so they sit in the middle of what is
+    /// visible above the toolbar, not of the whole pane.
     private static let floatingToolbarHeight: CGFloat = 48
     private static let floatingToolbarBottomMargin: CGFloat = 20
     private static let floatingToolbarClearance =
