@@ -82,12 +82,12 @@ struct SettingsView: View {
             }
             .padding(10)
             // The first row sits just under the traffic lights.
-            .padding(.top, max(0, titleBarHeight - 12))
+            .padding(.top, max(0, titleBarHeight - 24))
             .frame(width: 180)
             // The empty strip above the first row drags the window.
             .overlay(alignment: .top) {
                 WindowDragArea()
-                    .frame(height: max(0, titleBarHeight - 12) + 10)
+                    .frame(height: max(0, titleBarHeight - 24) + 10)
             }
             .background(Color(nsColor: .windowBackgroundColor))
 
@@ -123,16 +123,51 @@ struct SettingsView: View {
                     GeneralSettingsView()
                 }
             }
-            // Pages keep their own top margin, so the first card starts just
-            // under the title bar instead of a full title bar lower.
-            .padding(.top, 16)
+            // Pages start below a thin top strip, and content scrolled into
+            // it dissolves instead of running up to the window's edge.
+            .environment(\.settingsPageTopInset, Self.topFadeHeight - 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // Only the page's empty top margin drags, so buttons near the
-            // top of a page stay clickable.
+            .topScrollFade(height: Self.topFadeHeight)
+            // Only the page's empty top margin drags, as before, so the band
+            // doesn't stop the page from scrolling.
             .overlay(alignment: .top) {
                 WindowDragArea()
                     .frame(height: 16)
             }
+        }
+    }
+
+    /// A thin strip: the traffic lights sit over the sidebar, so the page
+    /// only needs room for scrolled content to fade out. Pages keep their
+    /// first card where it was, 40 pt from the top.
+    private static let topFadeHeight: CGFloat = 24
+}
+
+private struct SettingsPageTopInsetKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    /// Extra top space a Settings page leaves for the title band.
+    var settingsPageTopInset: CGFloat {
+        get { self[SettingsPageTopInsetKey.self] }
+        set { self[SettingsPageTopInsetKey.self] = newValue }
+    }
+}
+
+/// The scroll view of a Settings page: it starts below the top fade.
+struct SettingsPageScrollView<Content: View>: View {
+    @Environment(\.settingsPageTopInset) private var topInset
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        ScrollView {
+            content
+                .padding(.top, topInset)
         }
     }
 }
@@ -166,7 +201,7 @@ struct DebugSettingsView: View {
     @EnvironmentObject var appState: AppState
 
     var body: some View {
-        ScrollView {
+        SettingsPageScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Debug")
                     .font(.largeTitle.bold())
@@ -241,7 +276,7 @@ struct AppearanceSettingsView: View {
     @State private var screensVersion = 0
 
     var body: some View {
-        ScrollView {
+        SettingsPageScrollView {
             VStack(spacing: 20) {
                 SettingsCard("App Appearance", icon: "circle.lefthalf.filled") {
                     VStack(alignment: .leading, spacing: 10) {
@@ -567,7 +602,7 @@ struct CalendarSettingsView: View {
     }
 
     var body: some View {
-        ScrollView {
+        SettingsPageScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Calendar")
                     .font(.largeTitle.bold())
@@ -980,7 +1015,7 @@ struct GeneralSettingsView: View {
     }
 
     var body: some View {
-        ScrollView {
+        SettingsPageScrollView {
             // localization-audit: settings-card-titles-start
             VStack(spacing: 20) {
                 SettingsCard("App", icon: "power") {
@@ -1331,7 +1366,7 @@ struct ModelsSettingsView: View {
     ]
 
     var body: some View {
-        ScrollView {
+        SettingsPageScrollView {
             VStack(spacing: 20) {
                 SettingsCard("Cloud Provider", icon: "cloud.fill") {
                     cloudProviderSection
@@ -2997,7 +3032,7 @@ struct PromptsSettingsView: View {
     @State private var contextTestPrompt: String?
 
     var body: some View {
-        ScrollView {
+        SettingsPageScrollView {
             VStack(spacing: 20) {
                 SettingsCard("System Prompt", icon: "text.bubble.fill") {
                     systemPromptSection
@@ -3532,7 +3567,7 @@ struct ShortcutsSettingsView: View {
     }
 
     var body: some View {
-        ScrollView {
+        SettingsPageScrollView {
             VStack(spacing: 20) {
                 SettingsCard("Dictation Shortcuts", icon: "keyboard.fill") {
                     hotkeySection
@@ -3768,7 +3803,7 @@ struct InputSettingsView: View {
     @State private var showMutedHint = false
 
     var body: some View {
-        ScrollView {
+        SettingsPageScrollView {
             VStack(spacing: 20) {
                 SettingsCard("Audio Source", icon: "waveform") {
                     audioSourceSection
@@ -3928,7 +3963,7 @@ struct AboutSettingsView: View {
     }
 
     var body: some View {
-        ScrollView {
+        SettingsPageScrollView {
             VStack(spacing: 20) {
                 VStack(spacing: 12) {
                     Image(nsImage: NSApp.applicationIconImage)
@@ -4089,6 +4124,7 @@ struct MicrophoneOptionRow: View {
 
 struct RunLogView: View {
     @EnvironmentObject var appState: AppState
+    @Environment(\.settingsPageTopInset) private var topInset
 
     var body: some View {
         VStack(spacing: 0) {
@@ -4107,7 +4143,7 @@ struct RunLogView: View {
                 .disabled(appState.pipelineHistory.isEmpty || appState.isHistoryUnavailable)
             }
             .padding(.horizontal, 24)
-            .padding(.top, 20)
+            .padding(.top, 20 + topInset)
             .padding(.bottom, 12)
 
             Divider()

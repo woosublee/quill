@@ -2982,6 +2982,8 @@ private struct NoteDetailView: View {
                     loadedContent = edited
                     appState.updateTranscript(id: item.id, text: edited)
                 }
+                // Scrolled text dissolves under the header, like Settings.
+                .topScrollFade(height: Self.contentTopFadeHeight)
             }
         }
     }
@@ -3014,6 +3016,7 @@ private struct NoteDetailView: View {
                 ) {
                     summaryNotices
                 }
+                .topScrollFade(height: Self.contentTopFadeHeight)
             } else if let attempt = currentSummaryAttempt,
                       let presentation = attempt.issuePresentation() {
                 summaryFailureContent(presentation: presentation)
@@ -3222,6 +3225,10 @@ private struct NoteDetailView: View {
         .padding(.bottom, Self.floatingToolbarClearance)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+
+    /// Scrolled transcript and summary text dissolve over this much under
+    /// the note header. Both start at least this far down at rest.
+    private static let contentTopFadeHeight: CGFloat = 14
 
     /// The floating toolbar's height plus its bottom margin. Centered empty
     /// states leave this much room so they sit in the middle of what is

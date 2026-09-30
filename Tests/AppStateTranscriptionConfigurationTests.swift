@@ -3766,9 +3766,18 @@ struct AppStateTranscriptionConfigurationTests {
         let settings = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
         precondition(settings.contains("settingsContent(titleBarHeight: proxy.safeAreaInsets.top)"))
         precondition(settings.contains(".ignoresSafeArea(.container, edges: .top)"))
-        // Drag areas cover only empty space, never a page's top buttons.
+        // Drag areas cover only empty space, never a page's top buttons: the
+        // sidebar strip above its first row, and the page's title band,
+        // which pages start below.
+        precondition(settings.contains("WindowDragArea()\n                    .frame(height: max(0, titleBarHeight - 24) + 10)"))
+        precondition(settings.contains(".topScrollFade(height: Self.topFadeHeight)"), "scrolled content dissolves at the top")
+        let noteBrowserFade = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+        precondition(noteBrowserFade.components(separatedBy: ".topScrollFade(height: Self.contentTopFadeHeight)").count == 3, "the note transcript and summary dissolve under the header too")
+        precondition(settings.contains(".environment(\\.settingsPageTopInset, Self.topFadeHeight - 8)"))
+        precondition(settings.contains("private static let topFadeHeight: CGFloat = 24"))
+        precondition(settings.contains("struct SettingsPageScrollView<Content: View>: View"))
         precondition(settings.contains("WindowDragArea()\n                    .frame(height: 16)"))
-        precondition(settings.contains("WindowDragArea()\n                    .frame(height: max(0, titleBarHeight - 12) + 10)"))
+        precondition(settings.components(separatedBy: "\n        ScrollView {\n").count == 2, "every Settings page scrolls under the title band; only the shared page scroll view uses ScrollView directly")
         precondition(!settings.contains("WindowDragArea()\n                .frame(height: titleBarHeight)"))
         let dragArea = try String(contentsOfFile: "Sources/WindowDragArea.swift", encoding: .utf8)
         precondition(dragArea.contains("switch TitleBarDoubleClickAction.current {"))
