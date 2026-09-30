@@ -22,7 +22,7 @@ protocol LiveTranscriber: AnyObject, Sendable {
 // LiveTranscriber를 지원하는 모델인지 확인하고 인스턴스를 반환하는 팩토리
 extension TranscriptionModel {
     func makeLiveTranscriber() -> (any LiveTranscriber)? {
-        if isAppleSpeech { return AppleSpeechLiveTranscriber() }
+        if isAppleSpeech { return AppleSpeechRoutingLiveTranscriber() }
         return nil
     }
 }
