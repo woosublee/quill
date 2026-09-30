@@ -8,6 +8,16 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.5.2] - 2026-10-01
+
+### Improved
+
+- On macOS 26 and later, Apple Speech uses Apple's newer on-device speech model when it's available for your language. The first time you use a language, macOS downloads the model in the background, and Quill keeps using the previous model until the download finishes. Your audio and transcripts still stay on this Mac.
+
+### Fixed
+
+- Apple Speech dictation no longer drops what you said before a pause.
+
 ## [0.5.1] - 2026-09-30
 
 ### Improved
