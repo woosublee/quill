@@ -570,6 +570,25 @@ class TranscriptionService {
         }
 
         let locale = transcriptionLanguage.sfSpeechLocale
+        #if compiler(>=6.2)
+        // macOS 26+: prefer SpeechTranscriber when this language is installed;
+        // otherwise, or if it fails, use SFSpeechRecognizer below.
+        if #available(macOS 26, *),
+           let analyzerLocale = await AppleSpeechAnalyzerSupport.readyLocale(for: locale) {
+            do {
+                let text = try await AppleSpeechAnalyzerSupport.transcribeFile(fileURL, locale: analyzerLocale)
+                return transcriptionResult(text: text)
+            } catch let error as CancellationError {
+                throw error
+            } catch {
+                let nsError = error as NSError
+                os_log(.error, log: transcriptionLog,
+                       "SpeechAnalyzer file transcription failed domain=%{public}@ code=%ld; using SFSpeechRecognizer",
+                       nsError.domain, nsError.code)
+            }
+        }
+        #endif
+
         guard let recognizer = SFSpeechRecognizer(locale: locale), recognizer.isAvailable else {
             throw QuillUserIssueError.local(
                 code: .localTranscriptionFailed,
