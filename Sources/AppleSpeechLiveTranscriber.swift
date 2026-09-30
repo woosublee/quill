@@ -320,24 +320,48 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber, @unchecked Sendable {
 }
 
 /// Joins SFSpeechRecognizer utterances into one transcript. Each recognizer
-/// result holds only the current utterance, and a pause can start a new one
-/// without a final result, so the earlier text must be kept here.
+/// result holds only the current utterance, and after a pause the recognizer
+/// starts over, so earlier utterances must be kept here.
 struct AppleSpeechUtteranceTranscript {
-    private(set) var committedText = ""
+    private(set) var committedUtterances: [String] = []
     private(set) var currentUtterance = ""
-    /// The last committed utterance, used when a recognizer keeps repeating it
-    /// at the start of later results instead of starting over.
-    private var lastCommittedUtterance = ""
+    /// True right after a commit, until another result starts a new utterance.
+    /// An ended result that repeats the committed utterance then revises it
+    /// instead of adding a copy (for example the final result after endAudio).
+    private var lastCommitIsRevisable = false
 
-    var text: String { Self.join(committedText, currentUtterance) }
+    var text: String {
+        (committedUtterances + [currentUtterance])
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
 
+    /// `utteranceEnded` is true when the recognizer marks the utterance as done
+    /// (speech metadata or a final result).
     mutating func apply(_ utteranceText: String, utteranceEnded: Bool) {
-        var utterance = utteranceText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !lastCommittedUtterance.isEmpty, utterance.hasPrefix(lastCommittedUtterance) {
-            utterance = String(utterance.dropFirst(lastCommittedUtterance.count))
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-        } else if Self.startsNewUtterance(utterance, after: currentUtterance) {
+        let utterance = utteranceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !utterance.isEmpty else {
+            if utteranceEnded {
+                commit(currentUtterance)
+                currentUtterance = ""
+            }
+            return
+        }
+
+        if lastCommitIsRevisable {
+            lastCommitIsRevisable = false
+            if utteranceEnded,
+               let last = committedUtterances.last,
+               Self.comparable(utterance) == Self.comparable(last) {
+                committedUtterances[committedUtterances.count - 1] = utterance
+                lastCommitIsRevisable = true
+                return
+            }
+        } else if Self.restartsUtterance(utterance, after: currentUtterance) {
+            // No end marker arrived, but the text collapsed: the recognizer
+            // started a new utterance after a pause.
             commit(currentUtterance)
+            lastCommitIsRevisable = false
         }
 
         if utteranceEnded {
@@ -350,26 +374,21 @@ struct AppleSpeechUtteranceTranscript {
 
     private mutating func commit(_ utterance: String) {
         guard !utterance.isEmpty else { return }
-        committedText = Self.join(committedText, utterance)
-        lastCommittedUtterance = utterance
+        committedUtterances.append(utterance)
+        lastCommitIsRevisable = true
     }
 
-    /// Revisions keep the start of an utterance; a reset after a pause does not.
-    private static func startsNewUtterance(_ utterance: String, after previous: String) -> Bool {
-        let previousWords = previous.split(separator: " ")
-        guard previousWords.count > 1,
-              let previousFirstWord = previousWords.first,
-              let firstWord = utterance.split(separator: " ").first else {
-            return false
-        }
-        let sameStart = firstWord.hasPrefix(previousFirstWord) || previousFirstWord.hasPrefix(firstWord)
-        return !sameStart && utterance.count < previous.count
+    /// Revisions rarely shrink an utterance below half its length; a restart
+    /// after a pause does. Counts characters, so it also works without spaces.
+    private static func restartsUtterance(_ utterance: String, after previous: String) -> Bool {
+        !previous.isEmpty && utterance.count * 2 < previous.count
     }
 
-    private static func join(_ first: String, _ second: String) -> String {
-        if first.isEmpty { return second }
-        if second.isEmpty { return first }
-        return first + " " + second
+    /// Ignores case, punctuation, and spacing differences between two results.
+    private static func comparable(_ text: String) -> String {
+        String(String.UnicodeScalarView(text.unicodeScalars.filter {
+            CharacterSet.alphanumerics.contains($0)
+        })).lowercased()
     }
 }
 
