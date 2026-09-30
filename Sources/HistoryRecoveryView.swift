@@ -75,7 +75,7 @@ struct HistoryRecoverySettingsView: View {
     }()
 
     var body: some View {
-        ScrollView {
+        SettingsPageScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Recovery")

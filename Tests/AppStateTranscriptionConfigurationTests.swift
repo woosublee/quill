@@ -3766,9 +3766,14 @@ struct AppStateTranscriptionConfigurationTests {
         let settings = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
         precondition(settings.contains("settingsContent(titleBarHeight: proxy.safeAreaInsets.top)"))
         precondition(settings.contains(".ignoresSafeArea(.container, edges: .top)"))
-        // Drag areas cover only empty space, never a page's top buttons.
-        precondition(settings.contains("WindowDragArea()\n                    .frame(height: 16)"))
-        precondition(settings.contains("WindowDragArea()\n                    .frame(height: max(0, titleBarHeight - 12) + 10)"))
+        // Drag areas cover only empty space, never a page's top buttons: the
+        // sidebar strip above its first row, and the page's title band,
+        // which pages start below.
+        precondition(settings.contains("WindowDragArea()\n                    .frame(height: max(0, titleBarHeight - 24) + 10)"))
+        precondition(settings.contains("SettingsTitleBand(showsDivider: isPageScrolled)\n                    .frame(height: bandHeight(titleBarHeight))"))
+        precondition(settings.contains(".environment(\\.settingsPageTopInset, bandHeight(titleBarHeight) - 12)"))
+        precondition(settings.contains("struct SettingsPageScrollView<Content: View>: View"))
+        precondition(settings.components(separatedBy: "\n        ScrollView {\n").count == 2, "every Settings page scrolls under the title band; only the shared page scroll view uses ScrollView directly")
         precondition(!settings.contains("WindowDragArea()\n                .frame(height: titleBarHeight)"))
         let dragArea = try String(contentsOfFile: "Sources/WindowDragArea.swift", encoding: .utf8)
         precondition(dragArea.contains("switch TitleBarDoubleClickAction.current {"))

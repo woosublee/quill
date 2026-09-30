@@ -43,6 +43,7 @@ private let iso8601DayFormatter: DateFormatter = {
 
 struct SettingsView: View {
     @EnvironmentObject var appState: AppState
+    @State private var isPageScrolled = false
 
     var body: some View {
         // The window's title bar is transparent and has no separator. The
@@ -82,12 +83,12 @@ struct SettingsView: View {
             }
             .padding(10)
             // The first row sits just under the traffic lights.
-            .padding(.top, max(0, titleBarHeight - 12))
+            .padding(.top, max(0, titleBarHeight - 24))
             .frame(width: 180)
             // The empty strip above the first row drags the window.
             .overlay(alignment: .top) {
                 WindowDragArea()
-                    .frame(height: max(0, titleBarHeight - 12) + 10)
+                    .frame(height: max(0, titleBarHeight - 24) + 10)
             }
             .background(Color(nsColor: .windowBackgroundColor))
 
@@ -123,17 +124,88 @@ struct SettingsView: View {
                     GeneralSettingsView()
                 }
             }
-            // Pages keep their own top margin, so the first card starts just
-            // under the title bar instead of a full title bar lower.
-            .padding(.top, 16)
+            // Pages scroll under a translucent band the height of the title
+            // bar, like the Note Browser's list header, and start below it.
+            .environment(\.settingsPageTopInset, bandHeight(titleBarHeight) - 12)
+            .onPreferenceChange(SettingsPageScrolledKey.self) { isPageScrolled = $0 }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // Only the page's empty top margin drags, so buttons near the
-            // top of a page stay clickable.
             .overlay(alignment: .top) {
-                WindowDragArea()
-                    .frame(height: 16)
+                SettingsTitleBand(showsDivider: isPageScrolled)
+                    .frame(height: bandHeight(titleBarHeight))
             }
         }
+    }
+
+    /// The band covers the title bar strip beside the traffic lights.
+    private func bandHeight(_ titleBarHeight: CGFloat) -> CGFloat {
+        max(28, titleBarHeight - 12)
+    }
+}
+
+/// The translucent strip at the top of a Settings page. Scrolled content
+/// passes beneath it, and a hairline appears once the page has scrolled.
+/// It drags the window like a title bar. Opaque under Reduce Transparency.
+private struct SettingsTitleBand: View {
+    let showsDivider: Bool
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var colorSchemeContrast
+
+    var body: some View {
+        WindowDragArea()
+            .background(QuillTransparency.background(.ultraThinMaterial, reduceTransparency: reduceTransparency))
+            .overlay(alignment: .bottom) {
+                Rectangle()
+                    .fill(Color.primary.opacity(QuillContrast.fillOpacity(0.1, increased: colorSchemeContrast == .increased)))
+                    .frame(height: 0.5)
+                    .opacity(showsDivider ? 1 : 0)
+            }
+            .animation(.easeOut(duration: 0.12), value: showsDivider)
+    }
+}
+
+private struct SettingsPageTopInsetKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    /// Extra top space a Settings page leaves for the title band.
+    var settingsPageTopInset: CGFloat {
+        get { self[SettingsPageTopInsetKey.self] }
+        set { self[SettingsPageTopInsetKey.self] = newValue }
+    }
+}
+
+struct SettingsPageScrolledKey: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) {
+        value = value || nextValue()
+    }
+}
+
+/// The scroll view of a Settings page: it starts below the title band and
+/// reports whether it has scrolled, so the band can show its hairline.
+struct SettingsPageScrollView<Content: View>: View {
+    @Environment(\.settingsPageTopInset) private var topInset
+    private let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        ScrollView {
+            content
+                .padding(.top, topInset)
+                .background(
+                    GeometryReader { geometry in
+                        Color.clear.preference(
+                            key: SettingsPageScrolledKey.self,
+                            value: geometry.frame(in: .named("settingsPage")).minY < -2
+                        )
+                    }
+                )
+        }
+        .coordinateSpace(name: "settingsPage")
     }
 }
 
@@ -166,7 +238,7 @@ struct DebugSettingsView: View {
     @EnvironmentObject var appState: AppState
 
     var body: some View {
-        ScrollView {
+        SettingsPageScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Debug")
                     .font(.largeTitle.bold())
@@ -241,7 +313,7 @@ struct AppearanceSettingsView: View {
     @State private var screensVersion = 0
 
     var body: some View {
-        ScrollView {
+        SettingsPageScrollView {
             VStack(spacing: 20) {
                 SettingsCard("App Appearance", icon: "circle.lefthalf.filled") {
                     VStack(alignment: .leading, spacing: 10) {
@@ -567,7 +639,7 @@ struct CalendarSettingsView: View {
     }
 
     var body: some View {
-        ScrollView {
+        SettingsPageScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("Calendar")
                     .font(.largeTitle.bold())
@@ -980,7 +1052,7 @@ struct GeneralSettingsView: View {
     }
 
     var body: some View {
-        ScrollView {
+        SettingsPageScrollView {
             // localization-audit: settings-card-titles-start
             VStack(spacing: 20) {
                 SettingsCard("App", icon: "power") {
@@ -1331,7 +1403,7 @@ struct ModelsSettingsView: View {
     ]
 
     var body: some View {
-        ScrollView {
+        SettingsPageScrollView {
             VStack(spacing: 20) {
                 SettingsCard("Cloud Provider", icon: "cloud.fill") {
                     cloudProviderSection
@@ -2997,7 +3069,7 @@ struct PromptsSettingsView: View {
     @State private var contextTestPrompt: String?
 
     var body: some View {
-        ScrollView {
+        SettingsPageScrollView {
             VStack(spacing: 20) {
                 SettingsCard("System Prompt", icon: "text.bubble.fill") {
                     systemPromptSection
@@ -3532,7 +3604,7 @@ struct ShortcutsSettingsView: View {
     }
 
     var body: some View {
-        ScrollView {
+        SettingsPageScrollView {
             VStack(spacing: 20) {
                 SettingsCard("Dictation Shortcuts", icon: "keyboard.fill") {
                     hotkeySection
@@ -3768,7 +3840,7 @@ struct InputSettingsView: View {
     @State private var showMutedHint = false
 
     var body: some View {
-        ScrollView {
+        SettingsPageScrollView {
             VStack(spacing: 20) {
                 SettingsCard("Audio Source", icon: "waveform") {
                     audioSourceSection
@@ -3928,7 +4000,7 @@ struct AboutSettingsView: View {
     }
 
     var body: some View {
-        ScrollView {
+        SettingsPageScrollView {
             VStack(spacing: 20) {
                 VStack(spacing: 12) {
                     Image(nsImage: NSApp.applicationIconImage)
@@ -4089,6 +4161,7 @@ struct MicrophoneOptionRow: View {
 
 struct RunLogView: View {
     @EnvironmentObject var appState: AppState
+    @Environment(\.settingsPageTopInset) private var topInset
 
     var body: some View {
         VStack(spacing: 0) {
@@ -4107,7 +4180,7 @@ struct RunLogView: View {
                 .disabled(appState.pipelineHistory.isEmpty || appState.isHistoryUnavailable)
             }
             .padding(.horizontal, 24)
-            .padding(.top, 20)
+            .padding(.top, 20 + topInset)
             .padding(.bottom, 12)
 
             Divider()
