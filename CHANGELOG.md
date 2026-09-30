@@ -8,6 +8,13 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.5.1] - 2026-09-30
+
+### Improved
+
+- Scrolled content now fades out at the top of Settings pages and under a note's header, instead of running into the window edge or being cut off.
+- Moved the Settings sidebar up to just under the window buttons.
+
 ## [0.5.0] - 2026-09-30
 
 ### Added
