@@ -62,6 +62,7 @@ LOCAL_ASR_INTEGRATION_PROJECTOR = gemma-4-e4b-it-mmproj-BF16.gguf
 LOCAL_ASR_INTEGRATION_MODEL_SHA256 = 85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87
 LOCAL_ASR_INTEGRATION_PROJECTOR_SHA256 = ee01cba03fd9c71ea2ea722225d24a84f72e7197714367e550ef705ef8851bc6
 FULL_SOURCE_TRANSCRIPTION_TESTS = \
+	Tests/AppleSpeechUtteranceTranscriptTests.swift \
 	Tests/CloudTranscriptionHistoryLifecycleTests.swift \
 	Tests/TranscriptionServiceCloudChunkingTests.swift \
 	Tests/TranscriptionServiceLocalIssueTests.swift \

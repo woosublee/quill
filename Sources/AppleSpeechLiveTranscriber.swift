@@ -41,6 +41,7 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber, @unchecked Sendable {
         var finalizeContinuations: [CheckedContinuation<String, Error>] = []
         var finalResult: Result<String, Error>?
         var latestTranscript = ""
+        var utterances = AppleSpeechUtteranceTranscript()
         var cancelled = false
     }
 
@@ -270,12 +271,19 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber, @unchecked Sendable {
 
     private func handleTaskResult(_ result: SFSpeechRecognitionResult?, error: Error?) {
         if let result {
-            let text = result.bestTranscription.formattedString
-            let callback = stateLock.withLock { state -> (@Sendable (String) -> Void)? in
-                state.latestTranscript = text
-                return state.onPartialResult
+            // A result covers only the current utterance: after a pause the
+            // recognizer starts over, so earlier utterances are kept here.
+            let utteranceEnded = result.speechRecognitionMetadata != nil
+            let (text, callback) = stateLock.withLock { state -> (String, (@Sendable (String) -> Void)?) in
+                state.utterances.apply(
+                    result.bestTranscription.formattedString,
+                    utteranceEnded: utteranceEnded || result.isFinal
+                )
+                state.latestTranscript = state.utterances.text
+                return (state.latestTranscript, state.onPartialResult)
             }
-            os_log(.default, log: speechLog, "result isFinal=%d text=%{private}@", result.isFinal, text)
+            os_log(.default, log: speechLog, "result isFinal=%d utteranceEnded=%d text=%{private}@",
+                   result.isFinal, utteranceEnded, text)
             callback?(text)
             if result.isFinal {
                 resumeAll(with: .success(text))
@@ -308,6 +316,60 @@ final class AppleSpeechLiveTranscriber: LiveTranscriber, @unchecked Sendable {
         for continuation in continuations {
             continuation.resume(with: result)
         }
+    }
+}
+
+/// Joins SFSpeechRecognizer utterances into one transcript. Each recognizer
+/// result holds only the current utterance, and a pause can start a new one
+/// without a final result, so the earlier text must be kept here.
+struct AppleSpeechUtteranceTranscript {
+    private(set) var committedText = ""
+    private(set) var currentUtterance = ""
+    /// The last committed utterance, used when a recognizer keeps repeating it
+    /// at the start of later results instead of starting over.
+    private var lastCommittedUtterance = ""
+
+    var text: String { Self.join(committedText, currentUtterance) }
+
+    mutating func apply(_ utteranceText: String, utteranceEnded: Bool) {
+        var utterance = utteranceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !lastCommittedUtterance.isEmpty, utterance.hasPrefix(lastCommittedUtterance) {
+            utterance = String(utterance.dropFirst(lastCommittedUtterance.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if Self.startsNewUtterance(utterance, after: currentUtterance) {
+            commit(currentUtterance)
+        }
+
+        if utteranceEnded {
+            commit(utterance)
+            currentUtterance = ""
+        } else {
+            currentUtterance = utterance
+        }
+    }
+
+    private mutating func commit(_ utterance: String) {
+        guard !utterance.isEmpty else { return }
+        committedText = Self.join(committedText, utterance)
+        lastCommittedUtterance = utterance
+    }
+
+    /// Revisions keep the start of an utterance; a reset after a pause does not.
+    private static func startsNewUtterance(_ utterance: String, after previous: String) -> Bool {
+        let previousWords = previous.split(separator: " ")
+        guard previousWords.count > 1,
+              let previousFirstWord = previousWords.first,
+              let firstWord = utterance.split(separator: " ").first else {
+            return false
+        }
+        let sameStart = firstWord.hasPrefix(previousFirstWord) || previousFirstWord.hasPrefix(firstWord)
+        return !sameStart && utterance.count < previous.count
+    }
+
+    private static func join(_ first: String, _ second: String) -> String {
+        if first.isEmpty { return second }
+        if second.isEmpty { return first }
+        return first + " " + second
     }
 }
 
