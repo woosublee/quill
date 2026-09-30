@@ -4564,8 +4564,27 @@ private struct NoteTextView: NSViewRepresentable {
                 range: nsRange
             )
             highlightedRange = nsRange
-            textView.scrollRangeToVisible(nsRange)
+            scrollHighlightIntoView(nsRange, in: textView)
         }
+
+        /// Scrolls the quote into view with room above it, so it never sits
+        /// in the faded strip at the top of the transcript.
+        private func scrollHighlightIntoView(_ range: NSRange, in textView: NSTextView) {
+            guard let layoutManager = textView.layoutManager,
+                  let textContainer = textView.textContainer else {
+                textView.scrollRangeToVisible(range)
+                return
+            }
+            let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            var rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+            rect.origin.x += textView.textContainerOrigin.x
+            rect.origin.y += textView.textContainerOrigin.y
+            textView.scrollToVisible(rect.insetBy(dx: 0, dy: -Self.highlightScrollMargin))
+        }
+
+        /// Room kept above and below a highlighted quote: more than the
+        /// transcript's top fade.
+        static let highlightScrollMargin: CGFloat = 32
 
         private func removeHighlight(from textView: NSTextView) {
             guard let highlightedRange,
