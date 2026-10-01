@@ -8,6 +8,14 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.5.3] - 2026-10-02
+
+### Fixed
+
+- A note recovered from earlier history in Recovery settings while it was cloud-transcribing now shows that the transcription stopped, with Retry transcription, instead of an endless "Resuming cloud transcription...".
+- After you delete a note or summary, the bar on Cancel now matches the time left even if the Mac sleeps during those few seconds.
+- The search field now stays open and keeps focus when a new note appears or the open note is deleted while you search.
+
 ## [0.5.2] - 2026-10-01
 
 ### Improved
