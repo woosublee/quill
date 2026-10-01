@@ -17,6 +17,9 @@ struct ToastCountdownTests {
         precondition(ToastCountdown.steppedRemainingFraction(elapsed: 1, duration: 5) == 0.8)
         precondition(ToastCountdown.steppedRemainingFraction(elapsed: 4.2, duration: 5) == 0.2)
         precondition(ToastCountdown.steppedRemainingFraction(elapsed: 5, duration: 5) == 0)
+        // #436: elapsed time is system awake time from the start of the window.
+        precondition(ToastCountdown.elapsed(sinceUptime: 100, now: 102.5) == 2.5)
+        precondition(ToastCountdown.elapsed(sinceUptime: 100, now: 99) == 0, "never negative")
         print("ToastCountdownTests passed")
     }
 }

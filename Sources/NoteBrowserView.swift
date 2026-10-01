@@ -846,8 +846,10 @@ struct NoteBrowserView: View {
                 ? newHistory.filter(matchesSearch).map(\.id)
                 : ids
             // Keep the note the user was viewing visible after a recovery import.
+            // Opening a note here goes through the search, so typing a query
+            // keeps the search field focused and the search open (#436).
             guard let current = selectedItemID, ids.contains(current) else {
-                selection.focus(visibleIDs.first)
+                openNoteForSearch(visibleIDs.first)
                 if isRecoveryImport, let fallback = visibleIDs.first {
                     scheduleRecoveryScrollRestore(for: fallback)
                 }
@@ -859,7 +861,7 @@ struct NoteBrowserView: View {
             } else if let newest = ids.first, newest != current, !knownHistoryIDs.contains(newest),
                       visibleIDs.contains(newest) {
                 // Auto-select only genuinely new items; ignore existing item edits.
-                selection.focus(newest)
+                openNoteForSearch(newest)
             }
             knownHistoryIDs = Set(ids)
                 }
@@ -1251,7 +1253,7 @@ struct NoteBrowserView: View {
                     message: noteDeletionToastMessage(count: pending.noteCount),
                     cancel: { appState.cancelPendingNoteDeletion() },
                     countdown: (
-                        startedAt: pending.startedAt,
+                        startedUptime: pending.startedUptime,
                         duration: AppState.noteDeletionCancelWindow
                     )
                 )
@@ -1262,7 +1264,7 @@ struct NoteBrowserView: View {
                     message: localizedCatalogString("Summary deleted"),
                     cancel: { appState.cancelPendingSummaryDeletion() },
                     countdown: (
-                        startedAt: pending.startedAt,
+                        startedUptime: pending.startedUptime,
                         duration: AppState.noteDeletionCancelWindow
                     )
                 )
@@ -4279,7 +4281,7 @@ private struct NoteBrowserToastView: View {
 private struct NoteDeletionCapsule: View {
     let message: String
     var cancel: (() -> Void)?
-    var countdown: (startedAt: Date, duration: TimeInterval)?
+    var countdown: (startedUptime: TimeInterval, duration: TimeInterval)?
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -4306,7 +4308,7 @@ private struct NoteDeletionCapsule: View {
                                     .fill(Color.primary.opacity(0.08))
                                 if let countdown {
                                     CancelCountdownFill(
-                                        startedAt: countdown.startedAt,
+                                        startedUptime: countdown.startedUptime,
                                         duration: countdown.duration
                                     )
                                 }
@@ -4360,32 +4362,42 @@ private struct NoteDeletionCapsule: View {
     }
 }
 
-/// The part of the Cancel button still filled, from full at `startedAt` to
-/// empty after `duration`. With Reduce Motion it steps once per second.
+/// The part of the Cancel button still filled, from full at `startedUptime`
+/// to empty after `duration`. With Reduce Motion it steps once per second.
+/// Elapsed time is system awake time, the clock that ends the Cancel window.
 private struct CancelCountdownFill: View {
-    let startedAt: Date
+    let startedUptime: TimeInterval
     let duration: TimeInterval
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Group {
             if reduceMotion {
-                TimelineView(.periodic(from: startedAt, by: 1)) { context in
+                // Checks a few times a second; the fill itself changes only
+                // on whole seconds of the countdown, even after the Mac sleeps.
+                TimelineView(.animation(minimumInterval: 0.25)) { _ in
                     fill(remaining: ToastCountdown.steppedRemainingFraction(
-                        elapsed: context.date.timeIntervalSince(startedAt),
+                        elapsed: elapsed,
                         duration: duration
                     ))
                 }
             } else {
-                TimelineView(.animation) { context in
+                TimelineView(.animation) { _ in
                     fill(remaining: ToastCountdown.remainingFraction(
-                        elapsed: context.date.timeIntervalSince(startedAt),
+                        elapsed: elapsed,
                         duration: duration
                     ))
                 }
             }
         }
         .accessibilityHidden(true)
+    }
+
+    private var elapsed: TimeInterval {
+        ToastCountdown.elapsed(
+            sinceUptime: startedUptime,
+            now: ProcessInfo.processInfo.systemUptime
+        )
     }
 
     private func fill(remaining: Double) -> some View {
