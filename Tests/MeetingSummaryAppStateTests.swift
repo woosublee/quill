@@ -1509,7 +1509,16 @@ struct MeetingSummaryAppStateTests {
             let isRetrying = await MainActor.run {
                 appState.retryingItemIDs.contains(noteID)
             }
-            if !isRetrying { return }
+            if !isRetrying {
+                // A retry of a note with a transcript waits to be compared
+                // (#457); these tests check the result of keeping it.
+                await MainActor.run {
+                    if appState.transcriptionCandidates[noteID] != nil {
+                        appState.acceptTranscriptionCandidate(noteID: noteID)
+                    }
+                }
+                return
+            }
             try await Task.sleep(for: .milliseconds(10))
         }
         throw MeetingSummaryAppStateTestFailure("Timed out waiting for retry")

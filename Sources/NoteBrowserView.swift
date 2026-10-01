@@ -2561,7 +2561,8 @@ private struct NoteDetailView: View {
             // deleting it mid-recording would bring it back (#437).
             // While comparing summaries, the choice bar is the only action.
             if !appState.isRecordingInProgress(noteID: item.id),
-               !(summaryCandidate != nil && isShowingSummaryTab) {
+               !(summaryCandidate != nil && isShowingSummaryTab),
+               !(transcriptCandidate != nil && !isShowingSummaryTab) {
                 floatingToolbar
             }
             if let toastMessage {
@@ -2925,7 +2926,10 @@ private struct NoteDetailView: View {
 
     private var contentModePicker: some View {
         Picker("Note Content", selection: userContentModeSelection) {
-            Text("Transcript").tag(NoteContentMode.transcript)
+            // Room for the sign drawn inside the segment, before the title.
+            (Text(verbatim: showsTranscriptTabIndicator ? "\u{2002}\u{2002}" : "")
+                + Text("Transcript"))
+                .tag(NoteContentMode.transcript)
             if showsSummaryTab {
                 // Room for the sign drawn inside the segment, after the title.
                 (Text("Summary")
@@ -2943,6 +2947,12 @@ private struct NoteDetailView: View {
                 .padding(.trailing, 9)
                 .allowsHitTesting(false)
         }
+        // "Transcript" is the first segment, so its sign sits at the leading edge.
+        .overlay(alignment: .leading) {
+            transcriptTabIndicator
+                .padding(.leading, 9)
+                .allowsHitTesting(false)
+        }
         .frame(maxWidth: 220)
         .accessibilityLabel("Note Content")
         .frame(maxWidth: .infinity)
@@ -2953,6 +2963,30 @@ private struct NoteDetailView: View {
 
     /// While the Transcript tab is open: a spinner when a summary is being
     /// made, a dot when a new one waits to be chosen.
+    private var showsTranscriptTabIndicator: Bool {
+        isShowingSummaryTab && (isRetrying || transcriptCandidate != nil)
+    }
+
+    /// While the Summary tab is open: a spinner when the note is being
+    /// retranscribed, a dot when a new transcript waits to be chosen.
+    @ViewBuilder
+    private var transcriptTabIndicator: some View {
+        if isShowingSummaryTab {
+            if isRetrying {
+                ProgressView()
+                    .controlSize(.mini)
+                    .help("Retranscribing")
+                    .accessibilityLabel(Text("Retranscribing"))
+            } else if transcriptCandidate != nil {
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 6, height: 6)
+                    .help("A new transcript is ready to choose")
+                    .accessibilityLabel(Text("A new transcript is ready to choose"))
+            }
+        }
+    }
+
     /// The Summary tab is selected and exists.
     private var isShowingSummaryTab: Bool {
         selectedContentMode == .summary && showsSummaryTab
@@ -2999,13 +3033,25 @@ private struct NoteDetailView: View {
 
     @ViewBuilder
     private var transcriptContentArea: some View {
-        if displayContent.isEmpty {
+        if let transcriptCandidate, !displayContent.isEmpty {
+            TranscriptComparisonView(
+                current: displayContent,
+                candidate: transcriptCandidate,
+                onKeepCurrent: {
+                    appState.discardTranscriptionCandidate(noteID: item.id)
+                },
+                onUseNew: {
+                    appState.acceptTranscriptionCandidate(noteID: item.id)
+                }
+            )
+            .id(item.id)
+        } else if displayContent.isEmpty {
             emptyContentState
         } else {
             VStack(spacing: 0) {
+                // Notices stay while retranscribing, under the progress layer.
                 if isNothingToPostProcess,
-                   !isWarningBannerDismissed,
-                   !appState.retryingItemIDs.contains(item.id) {
+                   !isWarningBannerDismissed {
                     QuillInfoNotice(
                         text: localizedCatalogString(
                             "Nothing to clean up; showing the original transcript."
@@ -3023,7 +3069,6 @@ private struct NoteDetailView: View {
                     .padding(.top, 14)
                 }
                 if !isWarningBannerDismissed,
-                   !appState.retryingItemIDs.contains(item.id),
                    let warningPresentation {
                     QuillUserIssueView(
                         presentation: warningPresentation,
@@ -3057,6 +3102,11 @@ private struct NoteDetailView: View {
                 .topScrollFade(height: Self.contentTopFadeHeight)
             }
         }
+    }
+
+    /// A retranscribed transcript waiting to be chosen (#457).
+    private var transcriptCandidate: String? {
+        appState.transcriptionCandidates[item.id]
     }
 
     private var summaryCandidate: MeetingSummaryCandidate? {

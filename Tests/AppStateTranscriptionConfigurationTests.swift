@@ -1895,7 +1895,7 @@ struct AppStateTranscriptionConfigurationTests {
         guard let retryGuard = retryBody.range(
             of: "guard noteBrowserRetryAvailability(for: item) == .ready else"
         ), let retryRequest = retryBody.range(
-            of: "let request = try transcriptionRetryWorkflowRequest(for: item, choice: choice)"
+            of: "var request = try transcriptionRetryWorkflowRequest(for: item, choice: choice)"
         ) else {
             preconditionFailure("Expected retry readiness guard")
         }

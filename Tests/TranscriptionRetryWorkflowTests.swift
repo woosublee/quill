@@ -15,6 +15,8 @@ struct TranscriptionRetryWorkflowTests {
         try await testLocalAIRecordWaitsWhenLocalModelChanged()
         try await testManualSuccessPersistsBeforeEffectsAndDelivery()
         try await testManualFallbackUsesFallbackOutcome()
+        try await testCandidateRetryWaitsUntilChosen()
+        try await testCandidateIsDroppedByKeepNewAttemptOrInvalidate()
         try await testCommandFallbackUsesCapturedDispositionAndReason()
         try await testProgressBelongsToCurrentAttempt()
         try await testManualProviderFailurePersistsVersionedIssue()
@@ -434,6 +436,97 @@ struct TranscriptionRetryWorkflowTests {
             ],
             "manual success event order"
         )
+    }
+
+    /// #457: a retry of a note that has a transcript waits as a candidate;
+    /// nothing is saved until the new transcript is chosen, and choosing it
+    /// saves with the same effects and delivery as a direct retry.
+    @MainActor
+    private static func testCandidateRetryWaitsUntilChosen() async throws {
+        let operationLog = TranscriptionRetryOperationLog()
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let item = makeHistoryItem()
+        let history = TranscriptionRetryHistoryRecorder(item: item, operationLog: operationLog)
+        let assets = TranscriptionRetryAssetRecorder(operationLog: operationLog)
+        let events = TranscriptionRetryEventRecorder(operationLog: operationLog)
+        let workflow = TranscriptionRetryWorkflow(dependencies: immediateDependencies(text: "provider raw"))
+        workflow.onEvent = events.record
+        let runtime = fixture.runtime(history: history.access(), assets: assets.access())
+        var request = try makeRequest(
+            item: item,
+            fixture: fixture,
+            processing: fixedProcessingBehavior(processingResult(raw: "new raw", final: "new final"))
+        )
+        request.deliversCandidate = true
+
+        try expect(workflow.startManual(request: request, runtime: runtime), "manual workflow started")
+        try await waitUntil { events.outcomes.count == 1 }
+        try expectEqual(events.outcomes.last, .candidateReady, "candidate outcome")
+        try expect(history.persistedItems.isEmpty, "nothing is saved before choosing")
+        try expect(events.persistedEvents.isEmpty, "no persisted event before choosing")
+        try expect(workflow.state.candidateNoteIDs.contains(item.id), "the candidate waits")
+        try expect(!workflow.state.retryingNoteIDs.contains(item.id), "retrying finished")
+        try expectEqual(workflow.candidateTranscript(noteID: item.id), "new final", "candidate text")
+
+        let outcome = workflow.acceptCandidate(noteID: item.id, runtime: runtime)
+        let completion = try requireSuccessCompletion(outcome)
+        let saved = try require(history.persistedItems.last, "saved on choosing")
+        try expectEqual(saved.postProcessedTranscript, "new final", "saved final")
+        try expectEqual(saved.rawTranscript, "new raw", "saved raw")
+        try expectEqual(
+            events.persistedEvents.last?.effects,
+            TranscriptionRetryPersistedEffects(
+                advancesWarningGeneration: true,
+                invalidatesMeetingSummary: true
+            ),
+            "same effects as a direct retry"
+        )
+        try expectEqual(completion.interactiveTranscript, "new final", "delivery happens on choosing")
+        try expect(!workflow.state.candidateNoteIDs.contains(item.id), "the candidate is gone")
+        try expectEqual(
+            workflow.acceptCandidate(noteID: item.id, runtime: runtime),
+            .stale,
+            "a candidate is saved once"
+        )
+    }
+
+    @MainActor
+    private static func testCandidateIsDroppedByKeepNewAttemptOrInvalidate() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let item = makeHistoryItem()
+        let history = TranscriptionRetryHistoryRecorder(item: item, operationLog: TranscriptionRetryOperationLog())
+        let assets = TranscriptionRetryAssetRecorder(operationLog: TranscriptionRetryOperationLog())
+        let events = TranscriptionRetryEventRecorder(operationLog: TranscriptionRetryOperationLog())
+        let workflow = TranscriptionRetryWorkflow(dependencies: immediateDependencies(text: "provider raw"))
+        workflow.onEvent = events.record
+        let runtime = fixture.runtime(history: history.access(), assets: assets.access())
+        var request = try makeRequest(
+            item: item,
+            fixture: fixture,
+            processing: fixedProcessingBehavior(processingResult(raw: "new raw", final: "new final"))
+        )
+        request.deliversCandidate = true
+
+        func makeCandidate(_ count: Int) async throws {
+            try expect(workflow.startManual(request: request, runtime: runtime), "started")
+            try await waitUntil { events.outcomes.filter { $0 == .candidateReady }.count == count }
+            try expect(workflow.state.candidateNoteIDs.contains(item.id), "candidate \(count) waits")
+        }
+
+        try await makeCandidate(1)
+        workflow.discardCandidate(noteID: item.id)
+        try expect(workflow.candidateTranscript(noteID: item.id) == nil, "keeping the current transcript drops it")
+
+        try await makeCandidate(2)
+        workflow.invalidate(noteID: item.id)
+        try expect(!workflow.state.candidateNoteIDs.contains(item.id), "invalidating the note drops it")
+
+        try await makeCandidate(3)
+        workflow.forget(noteID: item.id)
+        try expect(workflow.candidateTranscript(noteID: item.id) == nil, "forgetting the note drops it")
+        try expect(history.persistedItems.isEmpty, "nothing was ever saved")
     }
 
     @MainActor

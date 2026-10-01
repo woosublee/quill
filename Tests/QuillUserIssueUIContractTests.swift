@@ -224,9 +224,11 @@ struct QuillUserIssueUIContractTests {
             from: "if !isWarningBannerDismissed,",
             to: "NoteTextView("
         )
+        // #457: notices stay as they are while retranscribing, under the
+        // progress layer, instead of disappearing.
         try expect(
-            warningBannerUsage.contains("!appState.retryingItemIDs.contains(item.id)"),
-            "previous warning stays hidden while retranscription is in progress"
+            !warningBannerUsage.contains("!appState.retryingItemIDs.contains(item.id)"),
+            "previous warning stays visible while retranscription is in progress"
         )
         try expect(
             warningBannerUsage.contains("let warningPresentation"),
