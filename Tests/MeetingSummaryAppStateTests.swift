@@ -24,6 +24,7 @@ struct MeetingSummaryAppStateTests {
         try await testTranscriptEditingPreservesNonEditedMetadata()
         try await testActionCompletionPersists()
         try await testSummaryEditPersistsAndReverts()
+        try await testCandidateComparisonKeepsOrReplacesEditedSummary()
         try await testPostProcessingDisabledDoesNotBlockSummary()
         try await testDeleteMeetingSummaryRemovesEntireSummaryState()
         try await testDeleteMeetingSummaryRemovesFailedOnlyState()
@@ -1262,6 +1263,58 @@ struct MeetingSummaryAppStateTests {
                 "a checked action stays checked after revert"
             )
         }
+    }
+
+    /// #262: regenerating an edited summary to compare leaves it saved as
+    /// is; keeping it drops the new one, and using the new one replaces the
+    /// edits while a checked action stays checked.
+    private static func testCandidateComparisonKeepsOrReplacesEditedSummary() async throws {
+        let item = makeItem().withMeetingSummary(envelope(completed: false))
+        let fixture = try configuredAppStateFixture()
+        defer { fixture.cleanup() }
+        let appState = try await configuredAppState(
+            item: item,
+            store: fixture.store,
+            generator: MeetingSummaryGeneratorStub { _ in generationResult },
+            storageLayout: fixture.storageLayout
+        )
+        let actionID = item.meetingSummary!.content.actionItems[0].id
+        var edited = item.meetingSummary!.content
+        edited.overview.text = "Synthetic edited overview"
+
+        try await MainActor.run {
+            try appState.updateMeetingSummaryContent(noteID: item.id, content: edited)
+            try appState.setMeetingSummaryActionCompleted(
+                noteID: item.id,
+                actionID: actionID,
+                isCompleted: true
+            )
+        }
+        try await appState.generateMeetingSummary(id: item.id, asCandidate: true)
+        await MainActor.run {
+            let saved = appState.pipelineHistory[0].meetingSummary
+            precondition(saved?.content.overview.text == "Synthetic edited overview", "the edited summary stays saved")
+            precondition(appState.meetingSummaryCandidates[item.id] != nil, "the new summary waits")
+            appState.discardMeetingSummaryCandidate(noteID: item.id)
+            precondition(appState.meetingSummaryCandidates[item.id] == nil, "keeping the current summary drops the new one")
+            precondition(appState.pipelineHistory[0].meetingSummary?.isEdited == true)
+        }
+
+        try await appState.generateMeetingSummary(id: item.id, asCandidate: true)
+        try await MainActor.run {
+            try appState.acceptMeetingSummaryCandidate(noteID: item.id)
+            let saved = appState.pipelineHistory[0].meetingSummary
+            precondition(appState.meetingSummaryCandidates[item.id] == nil)
+            precondition(saved?.isEdited == false, "the new summary replaces the edits")
+            precondition(saved?.content.overview.text == "Release review")
+            precondition(
+                saved?.content.actionItems.first?.isCompleted == true,
+                "a checked action stays checked"
+            )
+            precondition(appState.pipelineHistory[0].meetingSummaryAttempt?.outcome == .succeeded)
+        }
+        let reloaded = PipelineHistoryStore(storeURL: fixture.storageLayout.historyStoreURL)
+        precondition(reloaded.loadAllHistory().first?.meetingSummary?.isEdited == false, "the choice is saved")
     }
 
     private static func testPostProcessingDisabledDoesNotBlockSummary() async throws {

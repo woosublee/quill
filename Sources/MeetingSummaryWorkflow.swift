@@ -20,6 +20,15 @@ struct MeetingSummaryWorkflowRequest {
     let configuredModelID: String
     let providerHost: String?
     let generatorConfiguration: MeetingSummaryGeneratorConfiguration
+    /// Keeps a successful result as a candidate instead of saving it, so the
+    /// person can compare it with an edited summary first (#262).
+    var deliversCandidate = false
+}
+
+/// A newly generated summary waiting for the person to keep it or not.
+struct MeetingSummaryCandidate: Equatable, Sendable {
+    let envelope: MeetingSummaryEnvelope
+    let attempt: MeetingSummaryAttempt
 }
 
 struct MeetingSummaryHistoryAccess {
@@ -34,10 +43,12 @@ struct MeetingSummaryHistoryAccess {
 struct MeetingSummaryWorkflowState: Equatable, Sendable {
     var generatingNoteIDs: Set<UUID>
     var pendingRevealNoteIDs: Set<UUID>
+    var candidates: [UUID: MeetingSummaryCandidate]
 
     static let initial = MeetingSummaryWorkflowState(
         generatingNoteIDs: [],
-        pendingRevealNoteIDs: []
+        pendingRevealNoteIDs: [],
+        candidates: [:]
     )
 }
 
@@ -91,6 +102,7 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
         ]
         generationRevisionByID[request.noteID] = generationRevision
         state.generatingNoteIDs.insert(request.noteID)
+        state.candidates.removeValue(forKey: request.noteID)
         emitState()
 
         let transcript = Self.transcript(for: initialItem)
@@ -222,6 +234,20 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
             issue: nil,
             sourceFingerprint: source.fingerprint
         )
+        if request.deliversCandidate {
+            // Nothing is saved until the person chooses the new summary.
+            state.candidates[request.noteID] = MeetingSummaryCandidate(
+                envelope: envelope,
+                attempt: attempt
+            )
+            finishGeneration(
+                noteID: request.noteID,
+                revision: generationRevision
+            )
+            return result.evidenceVerification == .unverified
+                ? .unverifiedSuccess
+                : .verifiedSuccess
+        }
         let updated = currentItem
             .withMeetingSummary(envelope)
             .withMeetingSummaryAttempt(attempt)
@@ -250,6 +276,7 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
         generationRevisionByID[noteID, default: 0] += 1
         state.generatingNoteIDs.remove(noteID)
         state.pendingRevealNoteIDs.remove(noteID)
+        state.candidates.removeValue(forKey: noteID)
         emitState()
     }
 
@@ -258,6 +285,14 @@ final class MeetingSummaryWorkflow: @unchecked Sendable {
         generationRevisionByID.removeValue(forKey: noteID)
         state.generatingNoteIDs.remove(noteID)
         state.pendingRevealNoteIDs.remove(noteID)
+        state.candidates.removeValue(forKey: noteID)
+        emitState()
+    }
+
+    /// Drops a candidate the person decided not to keep, or already saved.
+    @MainActor
+    func discardCandidate(noteID: UUID) {
+        guard state.candidates.removeValue(forKey: noteID) != nil else { return }
         emitState()
     }
 

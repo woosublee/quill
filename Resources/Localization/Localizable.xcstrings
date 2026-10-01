@@ -19008,39 +19008,199 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "직접 고친 요약을 다시 만들까요?"
+            "value": "수정한 요약을 다시 만들까요?"
           }
         }
       }
     },
-    "Regenerate": {
+    "Keep Current Summary": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Regenerate"
+            "value": "Keep Current Summary"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다시 만들기"
+            "value": "지금 요약 유지"
           }
         }
       }
     },
-    "Your edits will be replaced by a new summary.": {
+    "Use New Summary": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your edits will be replaced by a new summary."
+            "value": "Use New Summary"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "직접 고친 내용이 새 요약으로 바뀝니다."
+            "value": "새 요약 사용"
+          }
+        }
+      }
+    },
+    "Current Summary": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current Summary"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 요약"
+          }
+        }
+      }
+    },
+    "New Summary": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Summary"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 요약"
+          }
+        }
+      }
+    },
+    "Edited": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edited"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "수정됨"
+          }
+        }
+      }
+    },
+    "Make New Summary": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make New Summary"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 요약 만들기"
+          }
+        }
+      }
+    },
+    "Quill makes a new summary and shows it next to your current one. You can choose either.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill makes a new summary and shows it next to your current one. You can choose either."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 요약을 만든 뒤 지금 요약과 나란히 보여 줍니다. 둘 중 하나를 고를 수 있습니다."
+          }
+        }
+      }
+    },
+    "Choose the summary to use": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose the summary to use"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용할 요약을 고르세요"
+          }
+        }
+      }
+    },
+    "The transcript changed, so the new summary wasn't applied.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The transcript changed, so the new summary wasn't applied."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사문이 바뀌어 새 요약을 적용하지 않았습니다."
+          }
+        }
+      }
+    },
+    "Regenerating summary…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regenerating summary…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약을 다시 만드는 중…"
+          }
+        }
+      }
+    },
+    "Making a summary": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Making a summary"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "요약을 만드는 중"
+          }
+        }
+      }
+    },
+    "A new summary is ready to choose": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A new summary is ready to choose"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고를 새 요약이 있습니다"
           }
         }
       }

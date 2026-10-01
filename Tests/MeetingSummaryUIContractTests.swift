@@ -139,7 +139,7 @@ struct MeetingSummaryUIContractTests {
             ".pickerStyle(.segmented)",
             "selectedContentMode = .transcript",
             "MeetingSummaryView(",
-            "generateMeetingSummary(id: item.id)",
+            "generateMeetingSummary(id: item.id, asCandidate: toCompare)",
             "private var noteHeader: some View",
             "NoteAudioPlayerView(audioURL: storedAudioURL)",
             "@State private var highlightedSourceQuote: String?",
@@ -177,7 +177,7 @@ struct MeetingSummaryUIContractTests {
         )
         let generateSummaryBody = block(
             in: noteBrowser,
-            from: "private func generateSummary() {",
+            from: "private func generateSummary(toCompare: Bool = false) {",
             to: "\n    private func deleteSummary"
         )
         precondition(
@@ -258,6 +258,26 @@ struct MeetingSummaryUIContractTests {
         // Retry Summary takes the same path, so it asks before replacing edits.
         precondition(noteBrowser.contains("case .retrySummary:\n            // Same path as the toolbar, so an edited summary asks first.\n            return SummaryIssueViewAction(\n                action: handleSummaryAction,"))
         precondition(summaryView.contains("guard onEditContent(draft) else { return false }"), "a failed save keeps the draft")
+
+        // #262: an edited summary is regenerated as a candidate and compared
+        // before anything replaces it; the choice pushes the other side out.
+        precondition(noteBrowser.contains("Button(\"Make New Summary\") { generateSummary(toCompare: true) }"))
+        precondition(noteBrowser.contains("MeetingSummaryComparisonView("))
+        precondition(noteBrowser.contains("generateSummary(toCompare: savedSummary != nil)"), "every regenerate is compared first")
+        precondition(noteBrowser.contains("!(summaryCandidate != nil && selectedContentMode == .summary) {\n                floatingToolbar"), "the toolbar hides while comparing on the Summary tab")
+        // The toolbar follows the open tab: each tab's "make again" action
+        // comes first, and Summary work started elsewhere opens its tab.
+        precondition(noteBrowser.contains("if selectedContentMode == .summary && showsSummaryTab {\n                toolbarButton(\n                    action: { handleSummaryAction() },"))
+        precondition(noteBrowser.contains("} else if actionState.showsRetryButton {"))
+        precondition(noteBrowser.contains("if selectedContentMode != .summary, summaryToolbarAction == .create {"))
+        precondition(noteBrowser.contains("if selectedContentMode != .summary {\n            switchToSummaryTab()\n        }"))
+        precondition(noteBrowser.contains("private var summaryTabIndicator: some View"))
+        let comparison = (try? String(contentsOfFile: "Sources/MeetingSummaryComparisonView.swift", encoding: .utf8)) ?? ""
+        precondition(comparison.contains("@Environment(\\.accessibilityReduceMotion)"))
+        precondition(comparison.contains(".timingCurve(0.2, 0.8, 0.2, 1, duration: duration)"))
+        precondition(comparison.contains(".disabled(choice != nil)"), "a choice is made once")
+        precondition(comparison.contains("if choice == nil {\n                choiceBar"), "the choice bar folds away with the push")
+        precondition(comparison.contains("matchesEditor: isChosen"), "the chosen side is laid out like the editor")
 
         for unexpected in [
             "Quick review draft",
