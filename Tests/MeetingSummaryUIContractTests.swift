@@ -226,10 +226,39 @@ struct MeetingSummaryUIContractTests {
             "Label(\"View in Transcript\"",
             ".accessibilityLabel(item.task)",
             "sourceQuoteIsValid: (String) -> Bool",
-            "summaryContent(envelope)"
+            "private var summaryContent: some View",
+            // #262: the summary is edited in place and saves on its own.
+            "let onEditContent: (MeetingSummaryContent) -> Bool",
+            "axis: .vertical",
+            ".textFieldStyle(.plain)",
+            ".onSubmit { insertPoint(after: point.id, in: points) }",
+            ".onSubmit { insertAction(after: item.id) }",
+            ".modifier(DeleteWhenEmpty(",
+            "newRowButton(title: \"New Item\"",
+            "newRowButton(title: \"New Action Item\"",
+            "Button(\"Revert to Original\")",
+            "draftSaver.saveNow = { saveNow() }"
         ] {
             precondition(summaryView.contains(expected), "Missing Summary view contract: \(expected)")
         }
+        // #262: typing still waiting to save counts before Regenerate, and
+        // making a summary locks only the editing controls, not the notices.
+        let summaryAction = block(
+            in: noteBrowser,
+            from: "private func handleSummaryAction() {",
+            to: "\n    /// The picker's binding"
+        )
+        if let flush = summaryAction.range(of: "guard summaryDraftSaver.saveNow() else { return }"),
+           let check = summaryAction.range(of: "savedSummary?.isEdited == true") {
+            precondition(flush.lowerBound < check.lowerBound, "pending edits are saved before the edited check")
+        } else {
+            preconditionFailure("Regenerate must save pending summary edits first")
+        }
+        precondition(!summaryView.contains(".disabled(!isEditable)\n        .onChange(of: draft)"), "notices stay usable while a summary is made")
+        // Retry Summary takes the same path, so it asks before replacing edits.
+        precondition(noteBrowser.contains("case .retrySummary:\n            // Same path as the toolbar, so an edited summary asks first.\n            return SummaryIssueViewAction(\n                action: handleSummaryAction,"))
+        precondition(summaryView.contains("guard onEditContent(draft) else { return false }"), "a failed save keeps the draft")
+
         for unexpected in [
             "Quick review draft",
             "onDelete",

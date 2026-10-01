@@ -183,7 +183,7 @@ struct MeetingSummarySource: Equatable, Sendable {
 }
 
 struct MeetingSummaryEvidenceText: Codable, Equatable, Sendable {
-    let text: String
+    var text: String
     let sourceQuotes: [String]
 }
 
@@ -200,6 +200,12 @@ struct MeetingSummaryEnvelope: Codable, Equatable, Sendable {
     /// Nil is legacy verified evidence. New unverified envelopes persist .unverified.
     let evidenceVerification: MeetingSummaryEvidenceVerification?
     var content: MeetingSummaryContent
+    /// When the person last changed the summary text. Nil means the content
+    /// is still what the model generated.
+    var editedAt: Date?
+    /// The generated content from before the first edit, kept so the person
+    /// can revert. Nil until the summary is edited (#262).
+    var originalContent: MeetingSummaryContent?
 
     var effectiveEvidenceVerification: MeetingSummaryEvidenceVerification {
         evidenceVerification ?? .verified
@@ -214,7 +220,9 @@ struct MeetingSummaryEnvelope: Codable, Equatable, Sendable {
         backendKind: MeetingSummaryBackendKind,
         languageContext: MeetingSummaryLanguageContext? = nil,
         evidenceVerification: MeetingSummaryEvidenceVerification? = nil,
-        content: MeetingSummaryContent
+        content: MeetingSummaryContent,
+        editedAt: Date? = nil,
+        originalContent: MeetingSummaryContent? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.promptVersion = promptVersion
@@ -225,6 +233,8 @@ struct MeetingSummaryEnvelope: Codable, Equatable, Sendable {
         self.languageContext = languageContext
         self.evidenceVerification = evidenceVerification
         self.content = content
+        self.editedAt = editedAt
+        self.originalContent = originalContent
     }
 
     func preservingCompletion(
@@ -259,11 +269,11 @@ struct MeetingSummaryEnvelope: Codable, Equatable, Sendable {
 }
 
 struct MeetingSummaryContent: Codable, Equatable, Sendable {
-    let overview: MeetingSummaryEvidenceText
-    let keyPoints: [MeetingSummaryPoint]
-    let decisions: [MeetingSummaryPoint]
+    var overview: MeetingSummaryEvidenceText
+    var keyPoints: [MeetingSummaryPoint]
+    var decisions: [MeetingSummaryPoint]
     var actionItems: [MeetingSummaryActionItem]
-    let openQuestions: [MeetingSummaryPoint]
+    var openQuestions: [MeetingSummaryPoint]
 
     private enum CodingKeys: String, CodingKey {
         case overview
@@ -317,15 +327,15 @@ struct MeetingSummaryContent: Codable, Equatable, Sendable {
 
 struct MeetingSummaryPoint: Codable, Equatable, Identifiable, Sendable {
     let id: UUID
-    let text: String
+    var text: String
     let sourceQuote: String?
 }
 
 struct MeetingSummaryActionItem: Codable, Equatable, Identifiable, Sendable {
     let id: UUID
-    let task: String
-    let owner: String?
-    let dueDate: String?
+    var task: String
+    var owner: String?
+    var dueDate: String?
     let sourceQuote: String?
     var isCompleted: Bool
 }

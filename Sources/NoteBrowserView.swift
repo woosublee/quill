@@ -2279,6 +2279,8 @@ private struct NoteDetailView: View {
     @State private var titleDebounceTimer: Timer?
     @State private var showDeleteConfirmation = false
     @State private var showDeleteChoice = false
+    @State private var showRegenerateEditedConfirmation = false
+    @State private var summaryDraftSaver = MeetingSummaryDraftSaver()
     @State private var showUnrecoveredDeleteConfirmation = false
     @State private var selectedContentMode: NoteContentMode = .transcript
     /// Set once the person picks a tab for this note during the current
@@ -2655,6 +2657,13 @@ private struct NoteDetailView: View {
         // With a summary, the one trash button asks what to delete. The
         // buttons keep the same order in either tab, and Cancel stays the
         // default so Return never deletes anything.
+        .confirmationDialog("Regenerate the edited summary?", isPresented: $showRegenerateEditedConfirmation, titleVisibility: .visible) {
+            Button("Regenerate") { generateSummary() }
+            Button("Cancel", role: .cancel) {}
+                .keyboardShortcut(.defaultAction)
+        } message: {
+            Text("Your edits will be replaced by a new summary.")
+        }
         .confirmationDialog("What do you want to delete?", isPresented: $showDeleteChoice, titleVisibility: .visible) {
             Button("Delete Summary Only") { deleteSummary() }
             Button("Delete Entire Note", role: .destructive) { onDelete() }
@@ -2995,6 +3004,7 @@ private struct NoteDetailView: View {
             if let summaryEnvelope {
                 MeetingSummaryView(
                     envelope: summaryEnvelope,
+                    isEditable: !isGeneratingSummary,
                     sourceQuoteIsValid: { quote in
                         MeetingSummarySourceLocator.range(
                             of: quote,
@@ -3014,10 +3024,36 @@ private struct NoteDetailView: View {
                             ))
                         }
                     },
-                    onViewSource: viewSource
+                    onEditContent: { content in
+                        do {
+                            try appState.updateMeetingSummaryContent(
+                                noteID: item.id,
+                                content: content
+                            )
+                            return true
+                        } catch {
+                            showToast(localizedCatalogString(
+                                "Could not save the summary."
+                            ))
+                            return false
+                        }
+                    },
+                    onRevert: {
+                        do {
+                            try appState.revertMeetingSummaryToOriginal(noteID: item.id)
+                        } catch {
+                            showToast(localizedCatalogString(
+                                "Could not save the summary."
+                            ))
+                        }
+                    },
+                    onViewSource: viewSource,
+                    draftSaver: summaryDraftSaver
                 ) {
                     summaryNotices
                 }
+                // Each note edits its own summary; never carry a draft over.
+                .id(item.id)
                 .topScrollFade(height: Self.contentTopFadeHeight)
             } else if let attempt = currentSummaryAttempt,
                       let presentation = attempt.issuePresentation() {
@@ -3713,6 +3749,16 @@ private struct NoteDetailView: View {
             ))
             return
         }
+        // Regenerating replaces the person's edits, so ask first (#262).
+        // Typing still waiting to save counts: save it, then read the
+        // summary as saved now rather than this view's earlier copy.
+        // If that save fails, stop: the typing stays and the toast says why.
+        guard summaryDraftSaver.saveNow() else { return }
+        let savedSummary = appState.pipelineHistory.first { $0.id == item.id }?.meetingSummary
+        if savedSummary?.isEdited == true {
+            showRegenerateEditedConfirmation = true
+            return
+        }
         generateSummary()
     }
 
@@ -3761,8 +3807,9 @@ private struct NoteDetailView: View {
     ) -> SummaryIssueViewAction {
         switch MeetingSummaryIssueAction.resolve(presentation) {
         case .retrySummary:
+            // Same path as the toolbar, so an edited summary asks first.
             return SummaryIssueViewAction(
-                action: generateSummary,
+                action: handleSummaryAction,
                 actionTitleOverride: "Retry Summary"
             )
         case .recovery(let recoveryAction):

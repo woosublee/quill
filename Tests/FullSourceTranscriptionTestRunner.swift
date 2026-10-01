@@ -13,6 +13,7 @@ struct FullSourceTranscriptionTestRunner {
         try PostProcessingChunkingTests.main()
         try await AppContextBackendTests.main()
         try MeetingSummaryOutputValidatorTests.main()
+        try MeetingSummaryEditingTests.main()
         try await MeetingSummaryServiceTests.main()
     }
 }
