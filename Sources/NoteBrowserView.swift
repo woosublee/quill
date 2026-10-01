@@ -2561,7 +2561,7 @@ private struct NoteDetailView: View {
             // deleting it mid-recording would bring it back (#437).
             // While comparing summaries, the choice bar is the only action.
             if !appState.isRecordingInProgress(noteID: item.id),
-               !(summaryCandidate != nil && selectedContentMode == .summary) {
+               !(summaryCandidate != nil && isShowingSummaryTab) {
                 floatingToolbar
             }
             if let toastMessage {
@@ -2590,6 +2590,13 @@ private struct NoteDetailView: View {
         .onChange(of: item.postProcessedTranscript) { newValue in
             if !newValue.isEmpty {
                 loadedContent = newValue
+            }
+        }
+        // A Summary tab that goes away (a first summary that didn't finish)
+        // hands the view back to the transcript.
+        .onChange(of: showsSummaryTab) { shows in
+            if !shows, selectedContentMode == .summary {
+                selectedContentMode = .transcript
             }
         }
         .onChange(of: item.meetingSummaryJSON) { newValue in
@@ -2934,6 +2941,7 @@ private struct NoteDetailView: View {
         .overlay(alignment: .trailing) {
             summaryTabIndicator
                 .padding(.trailing, 9)
+                .allowsHitTesting(false)
         }
         .frame(maxWidth: 220)
         .accessibilityLabel("Note Content")
@@ -2945,6 +2953,11 @@ private struct NoteDetailView: View {
 
     /// While the Transcript tab is open: a spinner when a summary is being
     /// made, a dot when a new one waits to be chosen.
+    /// The Summary tab is selected and exists.
+    private var isShowingSummaryTab: Bool {
+        selectedContentMode == .summary && showsSummaryTab
+    }
+
     private var showsSummaryTabIndicator: Bool {
         selectedContentMode != .summary && (isGeneratingSummary || summaryCandidate != nil)
     }
@@ -3553,7 +3566,7 @@ private struct NoteDetailView: View {
     /// action sits first, before the divider, and runs where you can see it.
     private var floatingToolbar: some View {
         HStack(spacing: 2) {
-            if selectedContentMode == .summary && showsSummaryTab {
+            if isShowingSummaryTab {
                 toolbarButton(
                     action: { handleSummaryAction() },
                     label: {
@@ -3630,7 +3643,7 @@ private struct NoteDetailView: View {
             )
 
             // Creating the first summary starts from the Transcript tab.
-            if selectedContentMode != .summary, summaryToolbarAction == .create {
+            if !isShowingSummaryTab, summaryToolbarAction == .create {
                 toolbarButton(
                     action: { handleSummaryAction() },
                     label: {
@@ -3969,15 +3982,20 @@ private struct NoteDetailView: View {
         }
     }
 
-    private func useNewSummary() {
+    /// False when saving failed and the comparison should stay open.
+    private func useNewSummary() -> Bool {
         do {
             try appState.acceptMeetingSummaryCandidate(noteID: item.id)
+            return true
         } catch MeetingSummaryError.sourceChanged {
+            // The candidate is gone; the current summary shows again.
             showToast(localizedCatalogString(
                 "The transcript changed, so the new summary wasn't applied."
             ))
+            return true
         } catch {
             showToast(localizedCatalogString("Could not save the summary."))
+            return false
         }
     }
 

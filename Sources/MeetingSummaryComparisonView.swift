@@ -8,7 +8,8 @@ struct MeetingSummaryComparisonView: View {
     let candidate: MeetingSummaryEnvelope
     let sourceQuoteIsValid: (String) -> Bool
     let onKeepCurrent: () -> Void
-    let onUseNew: () -> Void
+    /// False when the new summary couldn't be saved; both sides come back.
+    let onUseNew: () -> Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var choice: Choice?
@@ -57,9 +58,10 @@ struct MeetingSummaryComparisonView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .lineLimit(1)
             Spacer(minLength: 8)
+            // Return keeps what is saved; replacing it takes a click.
             Button("Keep Current Summary") { choose(.keepCurrent) }
-            Button("Use New Summary") { choose(.useNew) }
                 .keyboardShortcut(.defaultAction)
+            Button("Use New Summary") { choose(.useNew) }
         }
         .font(.system(size: 12))
         .controlSize(.small)
@@ -211,8 +213,12 @@ struct MeetingSummaryComparisonView: View {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
             switch newChoice {
-            case .keepCurrent: onKeepCurrent()
-            case .useNew: onUseNew()
+            case .keepCurrent:
+                onKeepCurrent()
+            case .useNew:
+                if !onUseNew() {
+                    withAnimation(animation) { choice = nil }
+                }
             }
         }
     }

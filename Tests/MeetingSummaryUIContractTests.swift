@@ -264,12 +264,12 @@ struct MeetingSummaryUIContractTests {
         precondition(noteBrowser.contains("Button(\"Make New Summary\") { generateSummary(toCompare: true) }"))
         precondition(noteBrowser.contains("MeetingSummaryComparisonView("))
         precondition(noteBrowser.contains("generateSummary(toCompare: savedSummary != nil)"), "every regenerate is compared first")
-        precondition(noteBrowser.contains("!(summaryCandidate != nil && selectedContentMode == .summary) {\n                floatingToolbar"), "the toolbar hides while comparing on the Summary tab")
+        precondition(noteBrowser.contains("!(summaryCandidate != nil && isShowingSummaryTab) {\n                floatingToolbar"), "the toolbar hides while comparing on the Summary tab")
         // The toolbar follows the open tab: each tab's "make again" action
         // comes first, and Summary work started elsewhere opens its tab.
-        precondition(noteBrowser.contains("if selectedContentMode == .summary && showsSummaryTab {\n                toolbarButton(\n                    action: { handleSummaryAction() },"))
+        precondition(noteBrowser.contains("if isShowingSummaryTab {\n                toolbarButton(\n                    action: { handleSummaryAction() },"))
         precondition(noteBrowser.contains("} else if actionState.showsRetryButton {"))
-        precondition(noteBrowser.contains("if selectedContentMode != .summary, summaryToolbarAction == .create {"))
+        precondition(noteBrowser.contains("if !isShowingSummaryTab, summaryToolbarAction == .create {"))
         precondition(noteBrowser.contains("if selectedContentMode != .summary {\n            switchToSummaryTab()\n        }"))
         precondition(noteBrowser.contains("private var summaryTabIndicator: some View"))
         let comparison = (try? String(contentsOfFile: "Sources/MeetingSummaryComparisonView.swift", encoding: .utf8)) ?? ""
@@ -278,6 +278,11 @@ struct MeetingSummaryUIContractTests {
         precondition(comparison.contains(".disabled(choice != nil)"), "a choice is made once")
         precondition(comparison.contains("if choice == nil {\n                choiceBar"), "the choice bar folds away with the push")
         precondition(comparison.contains("matchesEditor: isChosen"), "the chosen side is laid out like the editor")
+        // Review fixes: a failed save reopens the choice, Return keeps the
+        // current summary, and a vanished Summary tab hands back the transcript.
+        precondition(comparison.contains("if !onUseNew() {\n                    withAnimation(animation) { choice = nil }"))
+        precondition(comparison.contains("Button(\"Keep Current Summary\") { choose(.keepCurrent) }\n                .keyboardShortcut(.defaultAction)"))
+        precondition(noteBrowser.contains(".onChange(of: showsSummaryTab) { shows in\n            if !shows, selectedContentMode == .summary {"))
 
         for unexpected in [
             "Quick review draft",
