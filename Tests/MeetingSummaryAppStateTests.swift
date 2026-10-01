@@ -23,6 +23,7 @@ struct MeetingSummaryAppStateTests {
         try await testTranscriptReplacementPreservesEngineDetectedLanguage()
         try await testTranscriptEditingPreservesNonEditedMetadata()
         try await testActionCompletionPersists()
+        try await testSummaryEditPersistsAndReverts()
         try await testPostProcessingDisabledDoesNotBlockSummary()
         try await testDeleteMeetingSummaryRemovesEntireSummaryState()
         try await testDeleteMeetingSummaryRemovesFailedOnlyState()
@@ -1210,6 +1211,55 @@ struct MeetingSummaryAppStateTests {
             precondition(
                 appState.pipelineHistory[0]
                     .meetingSummary?.content.actionItems[0].isCompleted == true
+            )
+        }
+    }
+
+    /// #262: an edited summary is saved durably, and reverting puts back
+    /// the generated text while keeping a checked action checked.
+    private static func testSummaryEditPersistsAndReverts() async throws {
+        let item = makeItem().withMeetingSummary(envelope(completed: false))
+        let fixture = try configuredAppStateFixture()
+        defer { fixture.cleanup() }
+        let appState = try await configuredAppState(
+            item: item,
+            store: fixture.store,
+            storageLayout: fixture.storageLayout
+        )
+        let actionID = item.meetingSummary!.content.actionItems[0].id
+        var edited = item.meetingSummary!.content
+        edited.overview.text = "Synthetic overview, corrected"
+        edited.decisions.append(MeetingSummaryPoint(id: UUID(), text: "Added decision", sourceQuote: nil))
+
+        try await MainActor.run {
+            try appState.updateMeetingSummaryContent(noteID: item.id, content: edited)
+            try appState.setMeetingSummaryActionCompleted(
+                noteID: item.id,
+                actionID: actionID,
+                isCompleted: true
+            )
+        }
+
+        let reloaded = PipelineHistoryStore(storeURL: fixture.storageLayout.historyStoreURL)
+        guard let persisted = reloaded.loadAllHistory().first?.meetingSummary else {
+            throw MeetingSummaryAppStateTestFailure("Missing reloaded edited summary")
+        }
+        precondition(persisted.isEdited, "edit survives reload")
+        precondition(persisted.content.overview.text == "Synthetic overview, corrected")
+        precondition(persisted.content.decisions.map(\.text) == ["Added decision"])
+        precondition(persisted.originalContent?.overview.text == "Release review")
+
+        try await MainActor.run {
+            try appState.revertMeetingSummaryToOriginal(noteID: item.id)
+        }
+        await MainActor.run {
+            let reverted = appState.pipelineHistory[0].meetingSummary
+            precondition(reverted?.isEdited == false, "revert clears the edit")
+            precondition(reverted?.content.overview.text == "Release review")
+            precondition(reverted?.content.decisions.isEmpty == true)
+            precondition(
+                reverted?.content.actionItems[0].isCompleted == true,
+                "a checked action stays checked after revert"
             )
         }
     }

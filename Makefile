@@ -74,6 +74,7 @@ FULL_SOURCE_TRANSCRIPTION_TESTS = \
 	Tests/PostProcessingChunkingTests.swift \
 	Tests/AppContextBackendTests.swift \
 	Tests/MeetingSummaryOutputValidatorTests.swift \
+	Tests/MeetingSummaryEditingTests.swift \
 	Tests/MeetingSummaryServiceTests.swift
 FULL_SOURCE_APP_STATE_TESTS = \
 	Tests/AudioImportFileCopyTests.swift \

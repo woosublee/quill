@@ -7614,6 +7614,42 @@ final class AppState: ObservableObject, @unchecked Sendable {
         pipelineHistory[noteIndex] = updated
     }
 
+    /// Saves text the person edited on the Summary tab (#262). Unchanged
+    /// text saves nothing, and action completion stays as saved.
+    @MainActor
+    func updateMeetingSummaryContent(
+        noteID: UUID,
+        content: MeetingSummaryContent
+    ) throws {
+        guard requireAvailableHistoryForMutation(),
+              let noteIndex = pipelineHistory.firstIndex(
+            where: { $0.id == noteID }
+        ), let envelope = pipelineHistory[noteIndex].meetingSummary,
+        !meetingSummaryGeneratingNoteIDs.contains(noteID) else {
+            throw MeetingSummaryError.invalidInput
+        }
+        guard let edited = envelope.applyingEdit(content, at: Date()) else { return }
+        let updated = pipelineHistory[noteIndex].withMeetingSummary(edited)
+        try pipelineHistoryStore.update(updated)
+        pipelineHistory[noteIndex] = updated
+    }
+
+    /// Puts back the summary the model generated, keeping which actions
+    /// are done.
+    @MainActor
+    func revertMeetingSummaryToOriginal(noteID: UUID) throws {
+        guard requireAvailableHistoryForMutation(),
+              let noteIndex = pipelineHistory.firstIndex(
+            where: { $0.id == noteID }
+        ), let reverted = pipelineHistory[noteIndex].meetingSummary?
+            .revertedToOriginal() else {
+            throw MeetingSummaryError.invalidInput
+        }
+        let updated = pipelineHistory[noteIndex].withMeetingSummary(reverted)
+        try pipelineHistoryStore.update(updated)
+        pipelineHistory[noteIndex] = updated
+    }
+
     @MainActor
     func deleteMeetingSummary(noteID: UUID) throws {
         guard requireAvailableHistoryForMutation(),

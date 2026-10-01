@@ -226,7 +226,18 @@ struct MeetingSummaryUIContractTests {
             "Label(\"View in Transcript\"",
             ".accessibilityLabel(item.task)",
             "sourceQuoteIsValid: (String) -> Bool",
-            "summaryContent(envelope)"
+            "private var summaryContent: some View",
+            // #262: the summary is edited in place and saves on its own.
+            "let onEditContent: (MeetingSummaryContent) -> Void",
+            "axis: .vertical",
+            ".textFieldStyle(.plain)",
+            ".onSubmit { insertPoint(after: point.id, in: points) }",
+            ".onSubmit { insertAction(after: item.id) }",
+            ".modifier(DeleteWhenEmpty(",
+            "newRowButton(title: \"New Item\"",
+            "newRowButton(title: \"New Action Item\"",
+            "Button(\"Revert to Original\")",
+            ".onDisappear { saveNow() }"
         ] {
             precondition(summaryView.contains(expected), "Missing Summary view contract: \(expected)")
         }
