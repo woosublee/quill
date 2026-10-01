@@ -25,6 +25,7 @@ struct AppStateStorageSafetyTests {
         try await verifiesUnavailableHistoryBlocksMutatingActions()
         try await verifiesExplicitArchiveCreatesFreshSeparatedHistory()
         try await verifiesArchivedNoteImportsIntoFreshHistory()
+        try await verifiesRestoredCloudTranscriptionShowsAsStopped()
         try await verifiesRecoverySettingsAutomaticallyInspectsSnapshots()
         try await verifiesInterruptedArchiveKeepsHistoryProtected()
         try await verifiesMissingSnapshotWithUnreferencedAudioDoesNotSweep()
@@ -2196,6 +2197,86 @@ struct AppStateStorageSafetyTests {
                 recoveryRemoved,
                 "deleting a snapshot leaves the active imported history intact"
             )
+        }
+    }
+
+    /// A note restored from a recovery snapshot while it still says
+    /// cloud-transcribing has no work running, so it shows as stopped with
+    /// Retry instead of an endless spinner (#432).
+    private static func verifiesRestoredCloudTranscriptionShowsAsStopped() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let storeURL = environment.storageLayout.historyStoreURL
+            let audioURL = environment.storageLayout.audioDirectory.appendingPathComponent("cloud-source.wav")
+            try Data("synthetic audio".utf8).write(to: audioURL)
+            let sourceItem = PipelineHistoryItem(
+                id: UUID(uuidString: "6B1F2C9D-4E3A-4F8B-9C7D-2A5E8F1B3C4D")!,
+                timestamp: Date(timeIntervalSince1970: 1_754_010_303),
+                rawTranscript: "",
+                postProcessedTranscript: "",
+                postProcessingPrompt: nil,
+                contextSummary: "",
+                contextScreenshotDataURL: nil,
+                contextScreenshotStatus: "No screenshot",
+                postProcessingStatus: PipelineHistoryItem.cloudTranscribingStatus,
+                debugStatus: "Cloud transcription in progress",
+                customVocabulary: "",
+                audioFileName: audioURL.lastPathComponent,
+                usedLocalTranscription: false
+            )
+            let sourceStore = PipelineHistoryStore(storeURL: storeURL)
+            _ = try sourceStore.upsert(
+                sourceItem,
+                maxCount: Int.max,
+                requiresDurableStore: true
+            )
+            try sourceStore.detachForArchiveVerification()
+            let unavailableStore = PipelineHistoryStore(
+                storeURL: storeURL,
+                persistentStoreLoader: { _ in
+                    TestFailure("Injected unavailable history for import recovery")
+                }
+            )
+            var dependencies = environment.dependencies
+            dependencies.makePipelineHistoryStore = makeUnavailableStartupStoreFactory(
+                unavailableStore,
+                startupURL: environment.storageLayout.historyStoreURL
+            )
+
+            let configuredDependencies = dependencies
+            let appState = await MainActor.run {
+                AppState(dependencies: configuredDependencies)
+            }
+            let archiveAccepted = await MainActor.run {
+                appState.archiveOldHistoryAndStartFresh()
+            }
+            try expect(archiveAccepted, "valid old history can enter the recovery archive flow")
+            try await waitForArchiveCompletion(appState)
+            let snapshotID = try await MainActor.run {
+                guard let snapshotID = appState.historyRecoverySnapshots.first?.id else {
+                    throw TestFailure("archive did not publish a recovery snapshot catalog entry")
+                }
+                return snapshotID
+            }
+            let importAccepted = await MainActor.run {
+                appState.importHistoryRecoverySnapshot(id: snapshotID)
+            }
+            try expect(importAccepted, "recovery import is accepted after the fresh history is ready")
+            try await waitForHistoryRecoveryCompletion(appState)
+
+            let restoredState = try await MainActor.run { () -> (Bool, Bool, Bool) in
+                guard let item = appState.pipelineHistory.first(where: { $0.id == sourceItem.id }) else {
+                    throw TestFailure("recovery import did not restore the cloud-transcribing note")
+                }
+                return (
+                    item.machineStatus == .cloudTranscribing,
+                    appState.isCloudTranscriptionStopped(item),
+                    appState.retryingItemIDs.contains(sourceItem.id)
+                )
+            }
+            try expect(restoredState.0, "the restored note keeps its stored cloud-transcribing status")
+            try expect(restoredState.1, "the restored note shows as stopped instead of still resuming")
+            try expect(!restoredState.2, "no work runs for the restored note")
         }
     }
 
