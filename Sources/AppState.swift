@@ -5066,6 +5066,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .recovered(let historyStore, let history):
             pipelineHistoryStore = historyStore
             pipelineHistory = history
+            // Restored notes can still say cloud-transcribing with no work
+            // running for them; show those as stopped, as launch does (#432).
+            markStoppedCloudTranscriptions(among: Set(
+                history.filter { $0.machineStatus == .cloudTranscribing }.map(\.id)
+            ))
         }
     }
 
