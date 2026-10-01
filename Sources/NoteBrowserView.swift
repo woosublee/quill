@@ -3030,10 +3030,12 @@ private struct NoteDetailView: View {
                                 noteID: item.id,
                                 content: content
                             )
+                            return true
                         } catch {
                             showToast(localizedCatalogString(
                                 "Could not save the summary."
                             ))
+                            return false
                         }
                     },
                     onRevert: {
@@ -3750,7 +3752,8 @@ private struct NoteDetailView: View {
         // Regenerating replaces the person's edits, so ask first (#262).
         // Typing still waiting to save counts: save it, then read the
         // summary as saved now rather than this view's earlier copy.
-        summaryDraftSaver.saveNow()
+        // If that save fails, stop: the typing stays and the toast says why.
+        guard summaryDraftSaver.saveNow() else { return }
         let savedSummary = appState.pipelineHistory.first { $0.id == item.id }?.meetingSummary
         if savedSummary?.isEdited == true {
             showRegenerateEditedConfirmation = true
@@ -3804,8 +3807,9 @@ private struct NoteDetailView: View {
     ) -> SummaryIssueViewAction {
         switch MeetingSummaryIssueAction.resolve(presentation) {
         case .retrySummary:
+            // Same path as the toolbar, so an edited summary asks first.
             return SummaryIssueViewAction(
-                action: generateSummary,
+                action: handleSummaryAction,
                 actionTitleOverride: "Retry Summary"
             )
         case .recovery(let recoveryAction):

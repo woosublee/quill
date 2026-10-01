@@ -9,7 +9,8 @@ struct MeetingSummaryView<Notices: View>: View {
     let isEditable: Bool
     let sourceQuoteIsValid: (String) -> Bool
     let onToggleAction: (UUID, Bool) -> Void
-    let onEditContent: (MeetingSummaryContent) -> Void
+    /// Saves edited content; false when it couldn't be saved.
+    let onEditContent: (MeetingSummaryContent) -> Bool
     let onRevert: () -> Void
     let onViewSource: (String) -> Void
     /// Lets the note view save waiting typing before it replaces the summary.
@@ -34,7 +35,7 @@ struct MeetingSummaryView<Notices: View>: View {
         isEditable: Bool,
         sourceQuoteIsValid: @escaping (String) -> Bool,
         onToggleAction: @escaping (UUID, Bool) -> Void,
-        onEditContent: @escaping (MeetingSummaryContent) -> Void,
+        onEditContent: @escaping (MeetingSummaryContent) -> Bool,
         onRevert: @escaping () -> Void,
         onViewSource: @escaping (String) -> Void,
         draftSaver: MeetingSummaryDraftSaver,
@@ -89,7 +90,7 @@ struct MeetingSummaryView<Notices: View>: View {
         .onAppear { draftSaver.saveNow = { saveNow() } }
         .onDisappear {
             saveNow()
-            draftSaver.saveNow = {}
+            draftSaver.saveNow = { true }
         }
         .confirmationDialog(
             "Revert to the original summary?",
@@ -118,15 +119,19 @@ struct MeetingSummaryView<Notices: View>: View {
         }
     }
 
-    private func saveNow() {
+    /// Saves the draft now. False only when there was something to save
+    /// and saving failed; the draft then stays as typed.
+    @discardableResult
+    private func saveNow() -> Bool {
         saveTask?.cancel()
         saveTask = nil
         guard isEditable,
-              !draft.removingEmptyItems().hasSameText(as: envelope.content) else { return }
+              !draft.removingEmptyItems().hasSameText(as: envelope.content) else { return true }
         // Empty rows only disappear from the saved copy; the draft keeps
         // an empty row the person is still typing in.
+        guard onEditContent(draft) else { return false }
         lastSavedDraft = draft
-        onEditContent(draft)
+        return true
     }
 
     // MARK: Content
@@ -503,7 +508,8 @@ struct MeetingSummaryView<Notices: View>: View {
 /// it before an action that replaces the summary, such as Regenerate.
 @MainActor
 final class MeetingSummaryDraftSaver {
-    var saveNow: () -> Void = {}
+    /// False when waiting typing couldn't be saved.
+    var saveNow: () -> Bool = { true }
 }
 
 private enum SummaryField: Hashable {
