@@ -12,6 +12,8 @@ struct MeetingSummaryView<Notices: View>: View {
     let onEditContent: (MeetingSummaryContent) -> Void
     let onRevert: () -> Void
     let onViewSource: (String) -> Void
+    /// Lets the note view save waiting typing before it replaces the summary.
+    let draftSaver: MeetingSummaryDraftSaver
     /// One-line notices above the summary, such as a stale transcript.
     let notices: Notices
 
@@ -35,6 +37,7 @@ struct MeetingSummaryView<Notices: View>: View {
         onEditContent: @escaping (MeetingSummaryContent) -> Void,
         onRevert: @escaping () -> Void,
         onViewSource: @escaping (String) -> Void,
+        draftSaver: MeetingSummaryDraftSaver,
         @ViewBuilder notices: () -> Notices
     ) {
         self.envelope = envelope
@@ -44,6 +47,7 @@ struct MeetingSummaryView<Notices: View>: View {
         self.onEditContent = onEditContent
         self.onRevert = onRevert
         self.onViewSource = onViewSource
+        self.draftSaver = draftSaver
         self.notices = notices()
         _draft = State(initialValue: envelope.content)
     }
@@ -63,7 +67,6 @@ struct MeetingSummaryView<Notices: View>: View {
             .padding(.bottom, 96)
             .frame(maxWidth: .infinity, alignment: .center)
         }
-        .disabled(!isEditable)
         .onChange(of: draft) { _ in scheduleSave() }
         .onChange(of: focusedField) { field in
             // Leaving the summary saves right away.
@@ -83,7 +86,11 @@ struct MeetingSummaryView<Notices: View>: View {
             lastSavedDraft = nil
             draft = newEnvelope.content
         }
-        .onDisappear { saveNow() }
+        .onAppear { draftSaver.saveNow = { saveNow() } }
+        .onDisappear {
+            saveNow()
+            draftSaver.saveNow = {}
+        }
         .confirmationDialog(
             "Revert to the original summary?",
             isPresented: $showsRevertConfirmation,
@@ -134,6 +141,7 @@ struct MeetingSummaryView<Notices: View>: View {
                 showsRevertConfirmation = true
             }
             .buttonStyle(.link)
+            .disabled(!isEditable)
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -150,6 +158,7 @@ struct MeetingSummaryView<Notices: View>: View {
                 )
                 .textFieldStyle(.plain)
                 .labelsHidden()
+                .disabled(!isEditable)
                 .focused($focusedField, equals: .overview)
             }
             pointSection(title: "Key Points", points: \.keyPoints)
@@ -191,6 +200,7 @@ struct MeetingSummaryView<Notices: View>: View {
                 )
                 .textFieldStyle(.plain)
                 .labelsHidden()
+                .disabled(!isEditable)
                 .focused($focusedField, equals: .point(point.id))
                 .onSubmit { insertPoint(after: point.id, in: points) }
                 .modifier(DeleteWhenEmpty(text: point.text) {
@@ -247,6 +257,7 @@ struct MeetingSummaryView<Notices: View>: View {
                 )
                 .textFieldStyle(.plain)
                 .labelsHidden()
+                .disabled(!isEditable)
                 .strikethrough(item.isCompleted)
                 .foregroundStyle(item.isCompleted ? .secondary : .primary)
                 .focused($focusedField, equals: .task(item.id))
@@ -274,6 +285,7 @@ struct MeetingSummaryView<Notices: View>: View {
                 }
                 .textFieldStyle(.plain)
                 .labelsHidden()
+                .disabled(!isEditable)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 if !isFocused,
@@ -318,6 +330,7 @@ struct MeetingSummaryView<Notices: View>: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(.tertiary)
+        .disabled(!isEditable)
         .accessibilityLabel(Text(title))
     }
 
@@ -335,7 +348,8 @@ struct MeetingSummaryView<Notices: View>: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
-        .opacity(hoveredRowID == rowID || isFocused ? 1 : 0)
+        .opacity(isEditable && (hoveredRowID == rowID || isFocused) ? 1 : 0)
+        .disabled(!isEditable)
         .help("Remove")
         .accessibilityLabel(Text("Remove"))
     }
@@ -483,6 +497,13 @@ struct MeetingSummaryView<Notices: View>: View {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
+}
+
+/// Saves typing that is still waiting out the save delay. The note view calls
+/// it before an action that replaces the summary, such as Regenerate.
+@MainActor
+final class MeetingSummaryDraftSaver {
+    var saveNow: () -> Void = {}
 }
 
 private enum SummaryField: Hashable {

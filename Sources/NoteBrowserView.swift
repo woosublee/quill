@@ -2280,6 +2280,7 @@ private struct NoteDetailView: View {
     @State private var showDeleteConfirmation = false
     @State private var showDeleteChoice = false
     @State private var showRegenerateEditedConfirmation = false
+    @State private var summaryDraftSaver = MeetingSummaryDraftSaver()
     @State private var showUnrecoveredDeleteConfirmation = false
     @State private var selectedContentMode: NoteContentMode = .transcript
     /// Set once the person picks a tab for this note during the current
@@ -3044,7 +3045,8 @@ private struct NoteDetailView: View {
                             ))
                         }
                     },
-                    onViewSource: viewSource
+                    onViewSource: viewSource,
+                    draftSaver: summaryDraftSaver
                 ) {
                     summaryNotices
                 }
@@ -3746,7 +3748,11 @@ private struct NoteDetailView: View {
             return
         }
         // Regenerating replaces the person's edits, so ask first (#262).
-        if summaryEnvelope?.isEdited == true {
+        // Typing still waiting to save counts: save it, then read the
+        // summary as saved now rather than this view's earlier copy.
+        summaryDraftSaver.saveNow()
+        let savedSummary = appState.pipelineHistory.first { $0.id == item.id }?.meetingSummary
+        if savedSummary?.isEdited == true {
             showRegenerateEditedConfirmation = true
             return
         }
