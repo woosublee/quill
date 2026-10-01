@@ -2,6 +2,12 @@ import Foundation
 
 /// How much of a toast's countdown bar is left (#434).
 enum ToastCountdown {
+    /// Time since `startUptime`, both in system awake time
+    /// (`ProcessInfo.systemUptime`), which doesn't advance while the Mac sleeps.
+    static func elapsed(sinceUptime startUptime: TimeInterval, now: TimeInterval) -> TimeInterval {
+        max(0, now - startUptime)
+    }
+
     /// The remaining fraction, from 1 when it starts to 0 when time is up.
     static func remainingFraction(elapsed: TimeInterval, duration: TimeInterval) -> Double {
         guard duration > 0 else { return 0 }

@@ -22,7 +22,7 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(source.contains(".onChange(of: selectedItemID) { newID in"))
         precondition(source.contains("if newID != noteOpenedBySearch {\n                noteOpenedBySearch = nil\n            }"))
         precondition(source.contains("} else if isSearchActive, filteredHistory.isEmpty {\n            emptyDetailNoSearchResults"))
-        precondition(source.contains("selection.focus(visibleIDs.first)"))
+        precondition(source.contains("openNoteForSearch(visibleIDs.first)"))
         precondition(source.contains("!knownHistoryIDs.contains(newest),\n                      visibleIDs.contains(newest) {"))
 
         // The header overlays the list at its width, so the no-results view
@@ -34,15 +34,27 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(source.contains("ZStack(alignment: .top) {\n            if appState.pipelineHistory.isEmpty {"))
         precondition(!source.contains("    private var noteList: some View {\n        Group {"))
         precondition(source.components(separatedBy: "openNoteForSearch(focused)").count == 3)
+        // #436: a history change while searching opens notes the same way,
+        // instead of taking focus from the search field.
+        let historyChange = try body(of: ".onReceive(appState.$pipelineHistory)", in: source)
+        precondition(historyChange.contains("openNoteForSearch(visibleIDs.first)"))
+        precondition(historyChange.contains("openNoteForSearch(newest)"))
+        precondition(!historyChange.contains("selection.focus("), "history changes don't open notes around the search")
         precondition(source.contains("if !isFocused && searchText.isEmpty && !isMovingOpenNoteForSearch {"))
         precondition(source.contains("DispatchQueue.main.async {\n            isSearchFieldFocused = true"))
         // #434: the delete-cancel toast shows the time left from when the
         // deletion started, and a partial Cancel keeps that start.
         let appStateSource = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
-        precondition(appStateSource.contains("PendingNoteDeletion(id: id, entries: entries, startedAt: startedAt)"))
-        precondition(source.contains("startedAt: pending.startedAt,\n                        duration: AppState.noteDeletionCancelWindow"))
+        precondition(appStateSource.contains("PendingNoteDeletion(id: id, entries: entries, startedUptime: startedUptime)"))
+        precondition(source.contains("startedUptime: pending.startedUptime,\n                        duration: AppState.noteDeletionCancelWindow"))
         precondition(!source.contains("@State private var startedAt = Date()"), "the countdown runs from the deletion, not from when the toast appears")
-        precondition(source.contains("CancelCountdownFill(\n                                        startedAt: countdown.startedAt,"))
+        precondition(source.contains("CancelCountdownFill(\n                                        startedUptime: countdown.startedUptime,"))
+        // #436: the countdown uses system awake time, like the timer that ends
+        // the Cancel window, so it still matches after the Mac sleeps.
+        precondition(appStateSource.contains("startedUptime: TimeInterval = ProcessInfo.processInfo.systemUptime"))
+        let countdownFill = try body(of: "private struct CancelCountdownFill: View", in: source)
+        precondition(countdownFill.contains("now: ProcessInfo.processInfo.systemUptime"))
+        precondition(!countdownFill.contains("context.date.timeIntervalSince"), "the countdown doesn't measure wall-clock time")
         // #440: deletion notices sit at the bottom of the note list in the
         // toolbar's glass capsule, never over the note detail, and a deleted
         // summary gets the same Cancel.
@@ -62,7 +74,7 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(source.contains("+ (isShowingDeletionCapsule ? deletionCapsuleHeight + 10 : 0))"))
         let appStateSource2 = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
         precondition(appStateSource2.contains("!meetingSummaryGeneratingNoteIDs.contains(pending.noteID) else { return }"))
-        precondition(source.contains("TimelineView(.periodic(from: startedAt, by: 1))"))
+        precondition(source.contains("TimelineView(.periodic(from: steppingStart, by: 1))"))
 
         // #437: the recording's own note has no toolbar and no Delete… while
         // it records, and asking to delete it explains why not.

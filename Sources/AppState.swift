@@ -13751,20 +13751,21 @@ struct PendingSummaryDeletion: Identifiable {
     let noteID: UUID
     let summary: MeetingSummaryEnvelope?
     let attempt: MeetingSummaryAttempt?
-    let startedAt: Date
+    /// See `PendingNoteDeletion.startedUptime`.
+    let startedUptime: TimeInterval
 
     init(
         id: UUID = UUID(),
         noteID: UUID,
         summary: MeetingSummaryEnvelope?,
         attempt: MeetingSummaryAttempt?,
-        startedAt: Date = Date()
+        startedUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
     ) {
         self.id = id
         self.noteID = noteID
         self.summary = summary
         self.attempt = attempt
-        self.startedAt = startedAt
+        self.startedUptime = startedUptime
     }
 }
 
@@ -13776,19 +13777,25 @@ struct PendingNoteDeletion: Identifiable {
 
     let id: UUID
     let entries: [Entry]
-    /// When the Cancel window started; the toast's countdown runs from here,
-    /// so reopening the Note Browser doesn't restart it.
-    let startedAt: Date
+    /// When the Cancel window started, in system awake time; the toast's
+    /// countdown runs from here, so reopening the Note Browser doesn't restart
+    /// it. Like the timer that ends the window, it pauses while the Mac sleeps,
+    /// so the countdown still matches the time left after waking (#436).
+    let startedUptime: TimeInterval
 
-    init(id: UUID = UUID(), entries: [Entry], startedAt: Date = Date()) {
+    init(
+        id: UUID = UUID(),
+        entries: [Entry],
+        startedUptime: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) {
         self.id = id
         self.entries = entries
-        self.startedAt = startedAt
+        self.startedUptime = startedUptime
     }
 
     var noteCount: Int { entries.count }
 
     func keeping(_ entries: [Entry]) -> PendingNoteDeletion {
-        PendingNoteDeletion(id: id, entries: entries, startedAt: startedAt)
+        PendingNoteDeletion(id: id, entries: entries, startedUptime: startedUptime)
     }
 }
