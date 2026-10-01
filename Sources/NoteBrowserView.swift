@@ -2562,7 +2562,7 @@ private struct NoteDetailView: View {
             // While comparing summaries, the choice bar is the only action.
             if !appState.isRecordingInProgress(noteID: item.id),
                !(summaryCandidate != nil && isShowingSummaryTab),
-               !(transcriptCandidate != nil && !isShowingSummaryTab) {
+               !(showsTranscriptComparison && !isShowingSummaryTab) {
                 floatingToolbar
             }
             if let toastMessage {
@@ -2644,7 +2644,7 @@ private struct NoteDetailView: View {
                 fallbackChoice: appState.currentNoteBrowserTranscriptionChoice
             ) { choice in
                 retryChoiceRequest = nil
-                appState.retryTranscription(item: item, choice: choice)
+                appState.retryTranscription(item: item, choice: choice, comparesFirst: true)
             } onOpenProviderSettings: {
                 retryChoiceRequest = nil
                 appState.openProviderSettings()
@@ -3033,7 +3033,7 @@ private struct NoteDetailView: View {
 
     @ViewBuilder
     private var transcriptContentArea: some View {
-        if let transcriptCandidate, !displayContent.isEmpty {
+        if showsTranscriptComparison, let transcriptCandidate {
             TranscriptComparisonView(
                 current: displayContent,
                 candidate: transcriptCandidate,
@@ -3107,6 +3107,12 @@ private struct NoteDetailView: View {
     /// A retranscribed transcript waiting to be chosen (#457).
     private var transcriptCandidate: String? {
         appState.transcriptionCandidates[item.id]
+    }
+
+    /// The comparison needs a current transcript to show; without one the
+    /// tab keeps its usual content and toolbar.
+    private var showsTranscriptComparison: Bool {
+        transcriptCandidate != nil && !displayContent.isEmpty
     }
 
     private var summaryCandidate: MeetingSummaryCandidate? {
@@ -3849,7 +3855,7 @@ private struct NoteDetailView: View {
     private func retryTranscription() {
         switch retryAvailability {
         case .ready:
-            appState.retryTranscription(item: item)
+            appState.retryTranscription(item: item, choice: nil, comparesFirst: true)
         case .needsModelSelection, .needsProviderConfiguration:
             // Transcription is off, or the selected model can't transcribe
             // this file or isn't ready: ask which model to use for this note.

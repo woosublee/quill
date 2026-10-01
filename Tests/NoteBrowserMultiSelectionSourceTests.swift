@@ -79,7 +79,7 @@ struct NoteBrowserMultiSelectionSourceTests {
 
         // #437: the recording's own note has no toolbar and no Delete… while
         // it records, and asking to delete it explains why not.
-        precondition(source.contains("if !appState.isRecordingInProgress(noteID: item.id),\n               !(summaryCandidate != nil && isShowingSummaryTab),\n               !(transcriptCandidate != nil && !isShowingSummaryTab) {\n                floatingToolbar"))
+        precondition(source.contains("if !appState.isRecordingInProgress(noteID: item.id),\n               !(summaryCandidate != nil && isShowingSummaryTab),\n               !(showsTranscriptComparison && !isShowingSummaryTab) {\n                floatingToolbar"))
         precondition(source.contains("|| appState.isRecordingInProgress(noteID: item.id)"))
         precondition(source.contains("\"Can’t delete while recording\""), "short notices fit on one line in the sidebar")
         precondition(source.contains("\"Can’t delete while recovering\""))

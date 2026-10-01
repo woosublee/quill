@@ -264,7 +264,7 @@ struct MeetingSummaryUIContractTests {
         precondition(noteBrowser.contains("Button(\"Make New Summary\") { generateSummary(toCompare: true) }"))
         precondition(noteBrowser.contains("MeetingSummaryComparisonView("))
         precondition(noteBrowser.contains("generateSummary(toCompare: savedSummary != nil)"), "every regenerate is compared first")
-        precondition(noteBrowser.contains("!(summaryCandidate != nil && isShowingSummaryTab),\n               !(transcriptCandidate != nil && !isShowingSummaryTab) {\n                floatingToolbar"), "the toolbar hides while comparing on the Summary tab")
+        precondition(noteBrowser.contains("!(summaryCandidate != nil && isShowingSummaryTab),\n               !(showsTranscriptComparison && !isShowingSummaryTab) {\n                floatingToolbar"), "the toolbar hides while comparing on the Summary tab")
         // The toolbar follows the open tab: each tab's "make again" action
         // comes first, and Summary work started elsewhere opens its tab.
         precondition(noteBrowser.contains("if isShowingSummaryTab {\n                toolbarButton(\n                    action: { handleSummaryAction() },"))
@@ -289,7 +289,7 @@ struct MeetingSummaryUIContractTests {
         precondition(comparison.contains("struct TranscriptComparisonView: View"))
         precondition(noteBrowser.contains("TranscriptComparisonView(\n                current: displayContent,"))
         precondition(noteBrowser.contains("private var transcriptTabIndicator: some View"))
-        precondition(noteBrowser.contains("!(transcriptCandidate != nil && !isShowingSummaryTab)"), "the toolbar hides while comparing transcripts")
+        precondition(noteBrowser.contains("!(showsTranscriptComparison && !isShowingSummaryTab)"), "the toolbar hides while comparing transcripts")
 
         for unexpected in [
             "Quick review draft",

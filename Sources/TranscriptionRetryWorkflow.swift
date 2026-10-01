@@ -74,6 +74,8 @@ struct TranscriptionRetryWorkflowRequest {
 private struct TranscriptionRetryCandidate {
     let request: TranscriptionRetryWorkflowRequest
     let processing: TranscriptionRetryProcessingResult
+    /// A failed sidecar cleanup, reported when the candidate is saved.
+    let cleanupFailureDescription: String?
 }
 
 struct TranscriptionRetryStartupInput {
@@ -698,16 +700,17 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
 
         if request.deliversCandidate {
             // Nothing is saved until the person chooses the new transcript.
-            candidates[noteID] = TranscriptionRetryCandidate(
-                request: request,
-                processing: processing
-            )
-            state.candidateNoteIDs.insert(noteID)
-            _ = deleteCompletedSidecarIfPresent(
+            let cleanupFailureDescription = deleteCompletedSidecarIfPresent(
                 noteID: noteID,
                 token: token,
                 revision: revision
             )
+            candidates[noteID] = TranscriptionRetryCandidate(
+                request: request,
+                processing: processing,
+                cleanupFailureDescription: cleanupFailureDescription
+            )
+            state.candidateNoteIDs.insert(noteID)
             finishAttempt(
                 noteID: noteID,
                 token: token,
@@ -915,7 +918,7 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
                 ? processing.finalTranscript
                 : nil,
             transcriptAssetPersisted: transcriptFileName != nil,
-            cleanupFailureDescription: nil
+            cleanupFailureDescription: candidate.cleanupFailureDescription
         )
         let outcome: TranscriptionRetryWorkflowOutcome
         switch processing.disposition {

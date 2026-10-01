@@ -8198,10 +8198,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     /// Retries with the selected model, or with `choice` from the picker. A
     /// picked model is used for this note only; settings stay unchanged.
+    /// `comparesFirst`: the Note Browser shows a retried transcript next to
+    /// the current one before saving it (#457). Retries started elsewhere,
+    /// such as the Settings history list, save directly as before.
     @MainActor
     func retryTranscription(
         item: PipelineHistoryItem,
-        choice: TranscriptionBackendChoice?
+        choice: TranscriptionBackendChoice?,
+        comparesFirst: Bool = false
     ) {
         guard requireAvailableHistoryForMutation() else { return }
         guard !retryingItemIDs.contains(item.id) else { return }
@@ -8215,7 +8219,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             var request = try transcriptionRetryWorkflowRequest(for: item, choice: choice)
             // A note that already has a transcript compares the new one
             // before replacing it (#457); a first transcript is just saved.
-            request.deliversCandidate = Self.hasTranscriptText(item)
+            request.deliversCandidate = comparesFirst && Self.hasTranscriptText(item)
             if transcriptionRetryWorkflow.startManual(
                 request: request,
                 runtime: transcriptionRetryWorkflowRuntime()
