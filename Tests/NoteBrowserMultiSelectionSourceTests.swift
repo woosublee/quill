@@ -74,7 +74,8 @@ struct NoteBrowserMultiSelectionSourceTests {
         precondition(source.contains("+ (isShowingDeletionCapsule ? deletionCapsuleHeight + 10 : 0))"))
         let appStateSource2 = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
         precondition(appStateSource2.contains("!meetingSummaryGeneratingNoteIDs.contains(pending.noteID) else { return }"))
-        precondition(source.contains("TimelineView(.periodic(from: steppingStart, by: 1))"))
+        precondition(source.contains("TimelineView(.animation(minimumInterval: 0.25))"))
+        precondition(!source.contains("steppingStart"), "Reduce Motion steps don't anchor to wall-clock time")
 
         // #437: the recording's own note has no toolbar and no Delete… while
         // it records, and asking to delete it explains why not.

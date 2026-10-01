@@ -4373,7 +4373,9 @@ private struct CancelCountdownFill: View {
     var body: some View {
         Group {
             if reduceMotion {
-                TimelineView(.periodic(from: steppingStart, by: 1)) { _ in
+                // Checks a few times a second; the fill itself changes only
+                // on whole seconds of the countdown, even after the Mac sleeps.
+                TimelineView(.animation(minimumInterval: 0.25)) { _ in
                     fill(remaining: ToastCountdown.steppedRemainingFraction(
                         elapsed: elapsed,
                         duration: duration
@@ -4396,11 +4398,6 @@ private struct CancelCountdownFill: View {
             sinceUptime: startedUptime,
             now: ProcessInfo.processInfo.systemUptime
         )
-    }
-
-    /// Keeps Reduce Motion's one-second steps on the countdown's own seconds.
-    private var steppingStart: Date {
-        Date().addingTimeInterval(-elapsed)
     }
 
     private func fill(remaining: Double) -> some View {
