@@ -12,7 +12,7 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 
 ### Fixed
 
-- A note restored from History Recovery while it was cloud-transcribing now shows that the transcription stopped, with Retry transcription, instead of an endless "Resuming cloud transcription...".
+- A note recovered from earlier history in Recovery settings while it was cloud-transcribing now shows that the transcription stopped, with Retry transcription, instead of an endless "Resuming cloud transcription...".
 - After you delete a note or summary, the bar on Cancel now matches the time left even if the Mac sleeps during those few seconds.
 - The search field now stays open and keeps focus when a new note appears or the open note is deleted while you search.
 
