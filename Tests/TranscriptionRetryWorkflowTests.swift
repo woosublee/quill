@@ -19,8 +19,9 @@ struct TranscriptionRetryWorkflowTests {
         try await testCandidateIsDroppedByKeepNewAttemptOrInvalidate()
         try await testCandidateNeverOverwritesATranscriptChangedMeanwhile()
         try await testRetryWritesANewTranscriptFileAndRemovesTheOldOne()
-        try await testFailedSaveKeepsTheOldTranscriptFile()
+        try await testFailedHistorySaveKeepsTheOldTranscriptFile()
         try await testChosenCandidateWritesANewTranscriptFile()
+        try await testFailedFileWriteSavesHistoryWithoutAFile()
         try await testCommandFallbackUsesCapturedDispositionAndReason()
         try await testProgressBelongsToCurrentAttempt()
         try await testManualProviderFailurePersistsVersionedIssue()
@@ -603,7 +604,7 @@ struct TranscriptionRetryWorkflowTests {
     }
 
     @MainActor
-    private static func testFailedSaveKeepsTheOldTranscriptFile() async throws {
+    private static func testFailedHistorySaveKeepsTheOldTranscriptFile() async throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
         let item = makeHistoryItem(transcriptFileName: "old.txt")
@@ -626,6 +627,37 @@ struct TranscriptionRetryWorkflowTests {
         try expect(started, "started")
         try await waitUntil { events.outcomes.count == 1 }
         try expectEqual(assets.deleted(), ["new.txt"], "only the unsaved new file is removed; the old file stays")
+    }
+
+    /// A failed file write still saves history, without pointing at the old
+    /// file, so readers fall back to the transcript stored in history.
+    @MainActor
+    private static func testFailedFileWriteSavesHistoryWithoutAFile() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let item = makeHistoryItem(transcriptFileName: "old.txt")
+        let history = TranscriptionRetryHistoryRecorder(item: item)
+        let assets = TranscriptionRetryAssetRecorder()
+        assets.saveError = TranscriptionRetryWorkflowTestFailure("synthetic write failure")
+        let events = TranscriptionRetryEventRecorder()
+        let workflow = TranscriptionRetryWorkflow(dependencies: immediateDependencies(text: "provider raw"))
+        workflow.onEvent = events.record
+        let request = try makeRequest(
+            item: item,
+            fixture: fixture,
+            processing: fixedProcessingBehavior(processingResult(raw: "new raw", final: "new final"))
+        )
+        let started = workflow.startManual(
+            request: request,
+            runtime: fixture.runtime(history: history.access(), assets: assets.access(fileName: "new.txt"))
+        )
+        try expect(started, "started")
+        try await waitUntil { events.outcomes.count == 1 }
+
+        let saved = try require(history.persistedItems.last, "history is still saved")
+        try expect(saved.transcriptFileName == nil, "history doesn't point at the stale file")
+        try expectEqual(saved.postProcessedTranscript, "new final", "the new text is in history")
+        try expectEqual(assets.deleted(), ["old.txt"], "the stale file is removed")
     }
 
     @MainActor
