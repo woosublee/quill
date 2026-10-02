@@ -8,6 +8,7 @@ struct MeetingSummaryWorkflowTests {
         try await testStateAndInvalidationCommands()
         try await testVerifiedSuccessPersistsBeforeEventAndPreservesCompletion()
         try await testUnverifiedSuccessPersistsWarningAndAttempt()
+        try await testCandidateSuccessSavesNothingUntilChosen()
         try await testExplicitLanguageOverridesSpokenLanguage()
         try await testEngineDetectedLanguageRequiresNoPreliminaryWrite()
         try await testTranscriptInferredLanguagePersistsBeforeGeneration()
@@ -115,6 +116,43 @@ struct MeetingSummaryWorkflowTests {
             !workflow.consumePendingReveal(noteID: initial.id),
             "pending reveal is consumed once"
         )
+    }
+
+    /// #262: a summary made to compare with an edited one waits as a
+    /// candidate; nothing is saved, and invalidating the note drops it.
+    @MainActor
+    private static func testCandidateSuccessSavesNothingUntilChosen() async throws {
+        let initial = makeWorkflowItem()
+        let history = MeetingSummaryWorkflowHistoryRecorder(item: initial)
+        let eventRecorder = MeetingSummaryWorkflowEventRecorder(history: history)
+        let workflow = MeetingSummaryWorkflow(
+            dependencies: .init(
+                makeGenerator: { _ in
+                    MeetingSummaryWorkflowGeneratorStub { _ in
+                        makeWorkflowGenerationResult()
+                    }
+                },
+                now: { Date(timeIntervalSince1970: 2_000) }
+            )
+        )
+        workflow.onEvent = { eventRecorder.record($0) }
+        var request = makeWorkflowRequest(item: initial)
+        request.deliversCandidate = true
+
+        let outcome = await workflow.generate(request: request, history: history.access)
+
+        try expect(isVerifiedSuccess(outcome), "candidate success is typed")
+        try expect(history.storedItem?.meetingSummary == nil, "the candidate summary is not saved")
+        try expect(history.storedItem?.meetingSummaryAttempt == nil, "the candidate attempt is not saved")
+        try expect(eventRecorder.persistedItems.isEmpty, "no item is persisted")
+        let candidate = workflow.state.candidates[initial.id]
+        try expect(candidate?.attempt.outcome == .succeeded, "the candidate waits with its attempt")
+        try expect(candidate?.envelope.content.overview.text.isEmpty == false, "the candidate has content")
+        try expect(!workflow.state.generatingNoteIDs.contains(initial.id), "generation finished")
+        try expect(!workflow.state.pendingRevealNoteIDs.contains(initial.id), "no reveal for a candidate")
+
+        workflow.invalidate(noteID: initial.id)
+        try expect(workflow.state.candidates[initial.id] == nil, "invalidating the note drops its candidate")
     }
 
     @MainActor

@@ -352,6 +352,21 @@ struct QuillInfoNotice: View {
 /// A one-line status banner in the shared issue look, for notes that are
 /// not tied to an issue record (for example, a summary's review reminders).
 /// The detail shows beside the title when it fits, and as a tooltip always.
+extension View {
+    /// The shared banner look: a light fill, a hairline, and a soft shadow.
+    func quillBannerBackground() -> some View {
+        background(
+            RoundedRectangle(cornerRadius: 9)
+                .fill(Color.primary.opacity(0.045))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9)
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
+        )
+    }
+}
+
 struct QuillStatusBanner: View {
     let systemImage: String
     let tint: Color
@@ -402,15 +417,7 @@ struct QuillStatusBanner: View {
         .padding(.leading, 10)
         .padding(.trailing, onDismiss == nil ? 10 : 6)
         .padding(.vertical, onDismiss == nil ? 7 : 6)
-        .background(
-            RoundedRectangle(cornerRadius: 9)
-                .fill(Color.primary.opacity(0.045))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9)
-                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.12), radius: 1.5, y: 1)
-        )
+        .quillBannerBackground()
         .help(Text(verbatim: detail))
     }
 

@@ -2415,6 +2415,7 @@ private struct NoteDetailView: View {
     }
     private var showsSummaryTab: Bool {
         summaryEnvelope != nil || (currentSummaryAttempt?.outcome == .failed && currentSummaryAttempt?.issue != nil) || summaryIssue != nil
+            || isGeneratingSummary
     }
     private var isSummaryAttemptBannerDismissed: Bool {
         dismissedSummaryAttemptAt == currentSummaryAttempt?.occurredAt
@@ -2538,16 +2539,29 @@ private struct NoteDetailView: View {
                 }
                 contentArea
                     .overlay {
-                        if isRetrying {
+                        // Retranscribing covers only the transcript; the
+                        // Summary tab stays usable meanwhile.
+                        if isRetrying, selectedContentMode == .transcript || !showsSummaryTab {
                             retryingOverlay
                         } else if isRecoveringRecording {
                             retryingOverlay
+                        } else if isGeneratingSummary,
+                                  selectedContentMode == .summary,
+                                  showsSummaryTab {
+                            // Same progress look as transcribing again (#262).
+                            progressOverlay(
+                                summaryEnvelope == nil
+                                    ? localizedCatalogString("Creating summary…")
+                                    : localizedCatalogString("Regenerating summary…")
+                            )
                         }
                     }
             }
             // The recording's own note has nothing to act on yet, and
             // deleting it mid-recording would bring it back (#437).
-            if !appState.isRecordingInProgress(noteID: item.id) {
+            // While comparing summaries, the choice bar is the only action.
+            if !appState.isRecordingInProgress(noteID: item.id),
+               !(summaryCandidate != nil && isShowingSummaryTab) {
                 floatingToolbar
             }
             if let toastMessage {
@@ -2576,6 +2590,13 @@ private struct NoteDetailView: View {
         .onChange(of: item.postProcessedTranscript) { newValue in
             if !newValue.isEmpty {
                 loadedContent = newValue
+            }
+        }
+        // A Summary tab that goes away (a first summary that didn't finish)
+        // hands the view back to the transcript.
+        .onChange(of: showsSummaryTab) { shows in
+            if !shows, selectedContentMode == .summary {
+                selectedContentMode = .transcript
             }
         }
         .onChange(of: item.meetingSummaryJSON) { newValue in
@@ -2658,11 +2679,11 @@ private struct NoteDetailView: View {
         // buttons keep the same order in either tab, and Cancel stays the
         // default so Return never deletes anything.
         .confirmationDialog("Regenerate the edited summary?", isPresented: $showRegenerateEditedConfirmation, titleVisibility: .visible) {
-            Button("Regenerate") { generateSummary() }
+            Button("Make New Summary") { generateSummary(toCompare: true) }
             Button("Cancel", role: .cancel) {}
                 .keyboardShortcut(.defaultAction)
         } message: {
-            Text("Your edits will be replaced by a new summary.")
+            Text("Quill makes a new summary and shows it next to your current one. You can choose either.")
         }
         .confirmationDialog("What do you want to delete?", isPresented: $showDeleteChoice, titleVisibility: .visible) {
             Button("Delete Summary Only") { deleteSummary() }
@@ -2906,18 +2927,57 @@ private struct NoteDetailView: View {
         Picker("Note Content", selection: userContentModeSelection) {
             Text("Transcript").tag(NoteContentMode.transcript)
             if showsSummaryTab {
-                Text("Summary").tag(NoteContentMode.summary)
+                // Room for the sign drawn inside the segment, after the title.
+                (Text("Summary")
+                    + Text(verbatim: showsSummaryTabIndicator ? "\u{2002}\u{2002}" : ""))
+                    .tag(NoteContentMode.summary)
             }
         }
         .labelsHidden()
         .pickerStyle(.segmented)
         .controlSize(.small)
+        // Sized to its segments, so the sign sits inside "Summary", the last one.
+        .fixedSize()
+        .overlay(alignment: .trailing) {
+            summaryTabIndicator
+                .padding(.trailing, 9)
+                .allowsHitTesting(false)
+        }
         .frame(maxWidth: 220)
         .accessibilityLabel("Note Content")
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 40)
         .padding(.top, 12)
         .padding(.bottom, 4)
+    }
+
+    /// While the Transcript tab is open: a spinner when a summary is being
+    /// made, a dot when a new one waits to be chosen.
+    /// The Summary tab is selected and exists.
+    private var isShowingSummaryTab: Bool {
+        selectedContentMode == .summary && showsSummaryTab
+    }
+
+    private var showsSummaryTabIndicator: Bool {
+        selectedContentMode != .summary && (isGeneratingSummary || summaryCandidate != nil)
+    }
+
+    @ViewBuilder
+    private var summaryTabIndicator: some View {
+        if selectedContentMode != .summary {
+            if isGeneratingSummary {
+                ProgressView()
+                    .controlSize(.mini)
+                    .help("Making a summary")
+                    .accessibilityLabel(Text("Making a summary"))
+            } else if summaryCandidate != nil {
+                Circle()
+                    .fill(Color.accentColor)
+                    .frame(width: 6, height: 6)
+                    .help("A new summary is ready to choose")
+                    .accessibilityLabel(Text("A new summary is ready to choose"))
+            }
+        }
     }
 
     private var contentArea: some View {
@@ -2999,9 +3059,29 @@ private struct NoteDetailView: View {
         }
     }
 
+    private var summaryCandidate: MeetingSummaryCandidate? {
+        appState.meetingSummaryCandidates[item.id]
+    }
+
     private var summaryContentArea: some View {
         Group {
-            if let summaryEnvelope {
+            if let summaryEnvelope, let summaryCandidate {
+                MeetingSummaryComparisonView(
+                    current: summaryEnvelope,
+                    candidate: summaryCandidate.envelope,
+                    sourceQuoteIsValid: { quote in
+                        MeetingSummarySourceLocator.range(
+                            of: quote,
+                            in: displayContent
+                        ) != nil
+                    },
+                    onKeepCurrent: {
+                        appState.discardMeetingSummaryCandidate(noteID: item.id)
+                    },
+                    onUseNew: { useNewSummary() }
+                )
+                .id(item.id)
+            } else if let summaryEnvelope {
                 MeetingSummaryView(
                     envelope: summaryEnvelope,
                     isEditable: !isGeneratingSummary,
@@ -3060,6 +3140,10 @@ private struct NoteDetailView: View {
                 summaryFailureContent(presentation: presentation)
             } else if let summaryIssue {
                 summaryFailureContent(presentation: summaryIssue.presentation())
+            } else {
+                // The first summary is still being made: keep the tab's full
+                // size so the progress layer sits where it does elsewhere.
+                Color.clear
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -3449,6 +3533,11 @@ private struct NoteDetailView: View {
     /// Covers the note body while it is transcribed again, keeping the
     /// existing content visible underneath.
     private var retryingOverlay: some View {
+        progressOverlay(retryingStatusText)
+    }
+
+    /// The shared look for work that will replace what the tab shows.
+    private func progressOverlay(_ statusText: String) -> some View {
         ZStack {
             // A light wash, not a blur, so the text underneath stays readable.
             Rectangle()
@@ -3456,7 +3545,7 @@ private struct NoteDetailView: View {
             HStack(spacing: 8) {
                 ProgressView()
                     .controlSize(.small)
-                Text(retryingStatusText)
+                Text(statusText)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
@@ -3473,9 +3562,31 @@ private struct NoteDetailView: View {
 
     // MARK: Floating Toolbar
 
+    /// The toolbar follows the open tab (#262): each tab's "make again"
+    /// action sits first, before the divider, and runs where you can see it.
     private var floatingToolbar: some View {
         HStack(spacing: 2) {
-            if actionState.showsRetryButton {
+            if isShowingSummaryTab {
+                toolbarButton(
+                    action: { handleSummaryAction() },
+                    label: {
+                        if isGeneratingSummary {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .frame(width: 14, height: 14)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(
+                                    summaryActionIsDisabled ? Color.secondary : Color.orange
+                                )
+                        }
+                    },
+                    disabled: summaryActionIsDisabled || isGeneratingSummary,
+                    help: summaryToolbarAction.help
+                )
+                toolbarDivider
+            } else if actionState.showsRetryButton {
                 toolbarButton(
                     action: { retryTranscription() },
                     label: {
@@ -3531,26 +3642,29 @@ private struct NoteDetailView: View {
                 help: "Save Files"
             )
 
-            toolbarButton(
-                action: { handleSummaryAction() },
-                label: {
-                    if isGeneratingSummary {
-                        ProgressView()
-                            .controlSize(.mini)
-                            .frame(width: 14, height: 14)
-                    } else {
-                        Image(systemName: summaryToolbarAction.systemImage)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(
-                            summaryActionIsDisabled
-                                ? Color.secondary
-                                : Color.primary
-                        )
-                    }
-                },
-                disabled: summaryActionIsDisabled,
-                help: summaryToolbarAction.help
-            )
+            // Creating the first summary starts from the Transcript tab.
+            if !isShowingSummaryTab, summaryToolbarAction == .create {
+                toolbarButton(
+                    action: { handleSummaryAction() },
+                    label: {
+                        if isGeneratingSummary {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .frame(width: 14, height: 14)
+                        } else {
+                            Image(systemName: summaryToolbarAction.systemImage)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(
+                                    summaryActionIsDisabled
+                                        ? Color.secondary
+                                        : Color.primary
+                                )
+                        }
+                    },
+                    disabled: summaryActionIsDisabled || isGeneratingSummary,
+                    help: summaryToolbarAction.help
+                )
+            }
 
             toolbarDivider
 
@@ -3759,7 +3873,13 @@ private struct NoteDetailView: View {
             showRegenerateEditedConfirmation = true
             return
         }
-        generateSummary()
+        // A new summary never replaces a saved one directly: it waits next
+        // to it until the person chooses. The first summary is just saved.
+        generateSummary(toCompare: savedSummary != nil)
+        // Show the work where it happens.
+        if selectedContentMode != .summary {
+            switchToSummaryTab()
+        }
     }
 
     /// The picker's binding; a tab picked here counts as the person's own
@@ -3820,13 +3940,15 @@ private struct NoteDetailView: View {
         }
     }
 
-    private func generateSummary() {
+    /// With `toCompare`, the new summary waits next to the edited one
+    /// instead of replacing it (#262).
+    private func generateSummary(toCompare: Bool = false) {
         let attemptBeforeGeneration = appState.pipelineHistory.first {
             $0.id == item.id
         }?.meetingSummaryAttempt?.occurredAt
         Task { @MainActor in
             do {
-                try await appState.generateMeetingSummary(id: item.id)
+                try await appState.generateMeetingSummary(id: item.id, asCandidate: toCompare)
                 summaryIssue = nil
                 isSummaryIssueBannerDismissed = false
             } catch {
@@ -3857,6 +3979,23 @@ private struct NoteDetailView: View {
                 isSummaryIssueBannerDismissed = false
                 switchToSummaryTab()
             }
+        }
+    }
+
+    /// False when saving failed and the comparison should stay open.
+    private func useNewSummary() -> Bool {
+        do {
+            try appState.acceptMeetingSummaryCandidate(noteID: item.id)
+            return true
+        } catch MeetingSummaryError.sourceChanged {
+            // The candidate is gone; the current summary shows again.
+            showToast(localizedCatalogString(
+                "The transcript changed, so the new summary wasn't applied."
+            ))
+            return true
+        } catch {
+            showToast(localizedCatalogString("Could not save the summary."))
+            return false
         }
     }
 

@@ -2240,6 +2240,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
     @Published private(set) var meetingSummaryGeneratingNoteIDs: Set<UUID> = []
+    /// New summaries waiting to be compared with an edited one (#262).
+    @Published private(set) var meetingSummaryCandidates: [UUID: MeetingSummaryCandidate] = [:]
     /// A summary deleted in the last few seconds, kept so Cancel can put it
     /// back (#440). Like a note deletion, only one waits at a time, and
     /// `finalizePendingNoteDeletion()` (any deletion, clear, import, or quit)
@@ -4892,6 +4894,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         _ state: MeetingSummaryWorkflowState
     ) {
         meetingSummaryGeneratingNoteIDs = state.generatingNoteIDs
+        if meetingSummaryCandidates != state.candidates {
+            meetingSummaryCandidates = state.candidates
+        }
     }
 
     @MainActor
@@ -7560,8 +7565,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
     }
 
+    /// Makes a summary. With `asCandidate`, the result waits in
+    /// `meetingSummaryCandidates` instead of replacing the saved summary.
     @MainActor
-    func generateMeetingSummary(id: UUID) async throws {
+    func generateMeetingSummary(id: UUID, asCandidate: Bool = false) async throws {
         guard let startItem = pipelineHistory.first(where: { $0.id == id }) else {
             throw MeetingSummaryError.invalidInput
         }
@@ -7569,8 +7576,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             throw MeetingSummaryError.invalidInput
         }
 
+        var request = meetingSummaryWorkflowRequest(for: startItem)
+        request.deliversCandidate = asCandidate
         let outcome = await meetingSummaryWorkflow.generate(
-            request: meetingSummaryWorkflowRequest(for: startItem),
+            request: request,
             history: meetingSummaryHistoryAccess()
         )
         switch outcome {
@@ -7632,6 +7641,42 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let updated = pipelineHistory[noteIndex].withMeetingSummary(edited)
         try pipelineHistoryStore.update(updated)
         pipelineHistory[noteIndex] = updated
+    }
+
+    /// Saves the waiting new summary in place of the current one, keeping
+    /// which actions are done. A candidate made from an older transcript is
+    /// dropped instead.
+    @MainActor
+    func acceptMeetingSummaryCandidate(noteID: UUID) throws {
+        guard requireAvailableHistoryForMutation(),
+              let candidate = meetingSummaryCandidates[noteID],
+              let noteIndex = pipelineHistory.firstIndex(where: { $0.id == noteID }) else {
+            throw MeetingSummaryError.invalidInput
+        }
+        let current = pipelineHistory[noteIndex]
+        guard candidate.envelope.sourceFingerprint
+                == meetingSummarySource(for: current).fingerprint else {
+            meetingSummaryWorkflow.discardCandidate(noteID: noteID)
+            throw MeetingSummaryError.sourceChanged
+        }
+        let updated = current
+            .withMeetingSummary(
+                candidate.envelope.preservingCompletion(from: current.meetingSummary)
+            )
+            .withMeetingSummaryAttempt(candidate.attempt)
+        do {
+            try pipelineHistoryStore.update(updated, requiresDurableStore: true)
+        } catch {
+            throw QuillUserIssueError.historyPersistenceUnavailable()
+        }
+        pipelineHistory[noteIndex] = updated
+        meetingSummaryWorkflow.discardCandidate(noteID: noteID)
+    }
+
+    /// Keeps the current summary and drops the waiting new one.
+    @MainActor
+    func discardMeetingSummaryCandidate(noteID: UUID) {
+        meetingSummaryWorkflow.discardCandidate(noteID: noteID)
     }
 
     /// Puts back the summary the model generated, keeping which actions

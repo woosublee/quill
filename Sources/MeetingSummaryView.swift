@@ -136,9 +136,11 @@ struct MeetingSummaryView<Notices: View>: View {
 
     // MARK: Content
 
+    /// Sized like `QuillInfoNotice`, the app's one-line notes.
     private var editedMarker: some View {
         HStack(spacing: 6) {
             Image(systemName: "pencil")
+                .font(.system(size: 11, weight: .medium))
             Text("Edited summary")
             Text(verbatim: "·")
                 .foregroundStyle(.tertiary)
@@ -148,7 +150,7 @@ struct MeetingSummaryView<Notices: View>: View {
             .buttonStyle(.link)
             .disabled(!isEditable)
         }
-        .font(.caption)
+        .font(.system(size: 12))
         .foregroundStyle(.secondary)
     }
 

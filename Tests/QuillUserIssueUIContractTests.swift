@@ -274,7 +274,7 @@ struct QuillUserIssueUIContractTests {
     ) throws {
         let generation = block(
             source,
-            from: "private func generateSummary() {",
+            from: "private func generateSummary(toCompare: Bool = false) {",
             to: "\n    private func deleteSummary"
         )
         try expect(

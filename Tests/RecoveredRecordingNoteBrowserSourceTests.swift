@@ -162,12 +162,15 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(setupBranch.contains("Set up a model in Settings to retry transcription."))
 
         // Retrying covers the body with a loading layer instead of replacing it.
-        precondition(source.contains("if isRetrying {\n                            retryingOverlay"))
+        precondition(source.contains("if isRetrying, selectedContentMode == .transcript || !showsSummaryTab {\n                            retryingOverlay"))
         precondition(source.contains(".fill(Color(nsColor: .textBackgroundColor).opacity(0.35))"))
 
         // The layer says "Post-processing…" while a retry cleans up its transcript.
         precondition(source.contains("appState.postProcessingNoteIDs.contains(item.id)"))
-        precondition(source.contains("Text(retryingStatusText)"))
+        precondition(source.contains("progressOverlay(retryingStatusText)"))
+        // #262: making a summary uses the same layer, not a banner of its own.
+        precondition(source.contains("Text(statusText)"))
+        precondition(source.contains("localizedCatalogString(\"Regenerating summary…\")"))
         precondition(source.contains("isAudioOnly ? \"Transcribing...\" : \"Retranscribing...\""))
 
         // Retry state is published once per update, so the layer does not blink.
