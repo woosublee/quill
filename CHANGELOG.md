@@ -8,6 +8,24 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [0.6.0] - 2026-10-02
+
+### Added
+
+- You can now edit a meeting summary directly, the same way you edit a transcript. Click any line to change it, press Return to add a line below, and on macOS 14 and later press Delete on an empty line to remove it. Every section can be edited, including the owner and due date of action items, and new action items get their own checkbox. Changes save on their own.
+- An edited summary shows "Edited summary" with Revert to Original, which brings back the summary Quill made while keeping completed action items checked.
+- Regenerating a summary or retranscribing a note in the Note Browser no longer replaces what you have right away. The new version appears next to the current one, and nothing changes until you choose Keep Current or Use New. A retranscribed transcript is copied to the clipboard only when you choose to use it.
+
+### Improved
+
+- The note toolbar now follows the open tab. Retranscribe sits on the Transcript tab, Regenerate Summary on the Summary tab, and both are in the same place.
+- When a summary is being made or a note is being retranscribed while you are on the other tab, the tab shows a spinner, then a dot when a new version is ready to choose.
+- Making a summary now shows the same progress indicator as retranscribing, and notices on the Transcript tab stay visible while it retranscribes.
+
+### Fixed
+
+- After retranscribing a note, Settings › History now shows the new transcript instead of the old one.
+
 ## [0.5.3] - 2026-10-02
 
 ### Fixed
