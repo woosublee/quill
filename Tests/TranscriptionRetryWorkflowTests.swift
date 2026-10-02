@@ -595,7 +595,8 @@ struct TranscriptionRetryWorkflowTests {
         try await waitUntil { events.outcomes.count == 1 }
 
         try expectEqual(history.persistedItems.last?.transcriptFileName, "new.txt", "history points at the new file")
-        try expectEqual(assets.saved(), ["new.txt"], "the new text is written")
+        try expectEqual(assets.saved(), ["new.txt"], "a new file is written")
+        try expectEqual(assets.savedTexts(), ["new raw|new final"], "the new file holds the new transcript")
         try expectEqual(assets.deleted(), ["old.txt"], "the old file is removed")
         let order = operationLog.values()
         let persistIndex = try require(order.firstIndex(of: "history:persist"), "persist logged")
@@ -3613,6 +3614,7 @@ private final class TranscriptionRetryHistoryRecorder {
 private final class TranscriptionRetryAssetRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var savedNames: [String] = []
+    private var savedContents: [(raw: String, final: String)] = []
     private var deletedNames: [String] = []
     private let operationLog: TranscriptionRetryOperationLog?
     var saveError: Error?
@@ -3625,11 +3627,12 @@ private final class TranscriptionRetryAssetRecorder: @unchecked Sendable {
     func access(fileName: String = "created.txt")
         -> TranscriptionRetryAssetAccess {
         TranscriptionRetryAssetAccess(
-            saveTranscript: { [self] _, _ in
+            saveTranscript: { [self] raw, final in
                 lock.lock()
                 defer { lock.unlock() }
                 if let saveError { throw saveError }
                 savedNames.append(fileName)
+                savedContents.append((raw, final))
                 operationLog?.append("asset:save")
                 return fileName
             },
@@ -3641,6 +3644,13 @@ private final class TranscriptionRetryAssetRecorder: @unchecked Sendable {
                 operationLog?.append("asset:delete")
             }
         )
+    }
+
+    /// The raw and final text of each saved transcript file, in order.
+    func savedTexts() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return savedContents.map { "\($0.raw)|\($0.final)" }
     }
 
     func saved() -> [String] {
