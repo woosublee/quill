@@ -19316,6 +19316,22 @@
           }
         }
       }
+    },
+    "The transcript changed, so the new transcript wasn't applied.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The transcript changed, so the new transcript wasn't applied."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사문이 바뀌어 새 전사문을 적용하지 않았습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

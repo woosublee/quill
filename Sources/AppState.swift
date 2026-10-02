@@ -8164,23 +8164,32 @@ final class AppState: ObservableObject, @unchecked Sendable {
         TranscriptionRetryWorkflow.hasTranscriptText(item)
     }
 
-    /// Saves the waiting new transcript in place of the current one. Returns
-    /// false when it couldn't be saved; the comparison then stays open.
+    enum TranscriptionCandidateAcceptance {
+        case saved
+        /// The transcript changed since the retry started; the new one was dropped.
+        case staleDropped
+        /// Saving failed; the candidate is still waiting.
+        case failed
+    }
+
+    /// Saves the waiting new transcript in place of the current one.
     @MainActor
     @discardableResult
-    func acceptTranscriptionCandidate(noteID: UUID) -> Bool {
-        guard requireAvailableHistoryForMutation() else { return false }
+    func acceptTranscriptionCandidate(noteID: UUID) -> TranscriptionCandidateAcceptance {
+        guard requireAvailableHistoryForMutation() else { return .failed }
         switch transcriptionRetryWorkflow.acceptCandidate(
             noteID: noteID,
             runtime: transcriptionRetryWorkflowRuntime()
         ) {
-        case .succeeded, .fallback, .stale:
-            return true
+        case .succeeded, .fallback:
+            return .saved
+        case .stale:
+            return .staleDropped
         case .persistenceFailed(let issue):
             errorMessage = issue.presentation().compactMessage
-            return false
+            return .failed
         case .failed, .cancelled, .candidateReady:
-            return false
+            return .failed
         }
     }
 

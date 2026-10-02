@@ -916,7 +916,7 @@ struct MeetingSummaryAppStateTests {
                 appState.pipelineHistory[0].postProcessedTranscript == item.postProcessedTranscript,
                 "the saved transcript is unchanged before choosing"
             )
-            precondition(appState.acceptTranscriptionCandidate(noteID: item.id))
+            precondition(appState.acceptTranscriptionCandidate(noteID: item.id) == .saved)
             precondition(appState.pipelineHistory[0].postProcessedTranscript == "Retry source C.")
             precondition(appState.transcriptionCandidates[item.id] == nil)
         }

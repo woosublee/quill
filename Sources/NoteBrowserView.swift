@@ -3040,9 +3040,7 @@ private struct NoteDetailView: View {
                 onKeepCurrent: {
                     appState.discardTranscriptionCandidate(noteID: item.id)
                 },
-                onUseNew: {
-                    appState.acceptTranscriptionCandidate(noteID: item.id)
-                }
+                onUseNew: { useNewTranscript() }
             )
             .id(item.id)
         } else if displayContent.isEmpty {
@@ -4035,6 +4033,21 @@ private struct NoteDetailView: View {
                 isSummaryIssueBannerDismissed = false
                 switchToSummaryTab()
             }
+        }
+    }
+
+    /// False when saving failed and the comparison should stay open.
+    private func useNewTranscript() -> Bool {
+        switch appState.acceptTranscriptionCandidate(noteID: item.id) {
+        case .saved:
+            return true
+        case .staleDropped:
+            showToast(localizedCatalogString(
+                "The transcript changed, so the new transcript wasn't applied."
+            ))
+            return true
+        case .failed:
+            return false
         }
     }
 

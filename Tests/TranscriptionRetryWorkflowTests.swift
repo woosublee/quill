@@ -17,6 +17,7 @@ struct TranscriptionRetryWorkflowTests {
         try await testManualFallbackUsesFallbackOutcome()
         try await testCandidateRetryWaitsUntilChosen()
         try await testCandidateIsDroppedByKeepNewAttemptOrInvalidate()
+        try await testCandidateNeverOverwritesATranscriptChangedMeanwhile()
         try await testCommandFallbackUsesCapturedDispositionAndReason()
         try await testProgressBelongsToCurrentAttempt()
         try await testManualProviderFailurePersistsVersionedIssue()
@@ -528,6 +529,38 @@ struct TranscriptionRetryWorkflowTests {
         workflow.forget(noteID: item.id)
         try expect(workflow.candidateTranscript(noteID: item.id) == nil, "forgetting the note drops it")
         try expect(history.persistedItems.isEmpty, "nothing was ever saved")
+    }
+
+    /// A transcript saved while the candidate waited (for example by a
+    /// post-processing retry) is never overwritten by the older candidate.
+    @MainActor
+    private static func testCandidateNeverOverwritesATranscriptChangedMeanwhile() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let item = makeHistoryItem()
+        let history = TranscriptionRetryHistoryRecorder(item: item)
+        let events = TranscriptionRetryEventRecorder()
+        let workflow = TranscriptionRetryWorkflow(dependencies: immediateDependencies(text: "provider raw"))
+        workflow.onEvent = events.record
+        let runtime = fixture.runtime(history: history.access(), assets: TranscriptionRetryAssetRecorder().access())
+        var request = try makeRequest(
+            item: item,
+            fixture: fixture,
+            processing: fixedProcessingBehavior(processingResult(raw: "new raw", final: "new final"))
+        )
+        request.deliversCandidate = true
+        try expect(workflow.startManual(request: request, runtime: runtime), "started")
+        try await waitUntil { events.outcomes.count == 1 }
+
+        history.currentItem = makeHistoryItem(
+            id: item.id,
+            timestamp: item.timestamp,
+            rawTranscript: "old raw",
+            postProcessedTranscript: "cleaned up meanwhile"
+        )
+        try expectEqual(workflow.acceptCandidate(noteID: item.id, runtime: runtime), .stale, "stale candidate")
+        try expect(history.persistedItems.isEmpty, "the newer transcript is kept")
+        try expect(workflow.candidateTranscript(noteID: item.id) == nil, "the stale candidate is dropped")
     }
 
     @MainActor

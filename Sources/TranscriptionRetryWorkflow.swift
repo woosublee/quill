@@ -870,9 +870,15 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
         let processing = candidate.processing
         let currentItem: PipelineHistoryItem
         do {
+            // The transcript must still be the one the retry started from:
+            // a change saved meanwhile (for example a post-processing retry)
+            // is never overwritten by an older candidate.
             guard let item = try runtime.history.item(noteID),
                   item.timestamp == request.sourceIdentity.noteTimestamp,
-                  item.audioFileName == request.sourceIdentity.audioFileName else {
+                  item.audioFileName == request.sourceIdentity.audioFileName,
+                  item.rawTranscript == request.initialItem.rawTranscript,
+                  item.postProcessedTranscript
+                    == request.initialItem.postProcessedTranscript else {
                 discardCandidate(noteID: noteID)
                 return .stale
             }
