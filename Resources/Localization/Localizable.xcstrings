@@ -19204,6 +19204,134 @@
           }
         }
       }
+    },
+    "Choose the transcript to use": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose the transcript to use"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용할 전사문을 고르세요"
+          }
+        }
+      }
+    },
+    "Keep Current Transcript": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Current Transcript"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 전사문 유지"
+          }
+        }
+      }
+    },
+    "Use New Transcript": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use New Transcript"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 전사문 사용"
+          }
+        }
+      }
+    },
+    "Current Transcript": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current Transcript"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 전사문"
+          }
+        }
+      }
+    },
+    "New Transcript": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Transcript"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 전사문"
+          }
+        }
+      }
+    },
+    "Retranscribing": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retranscribing"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재전사 중"
+          }
+        }
+      }
+    },
+    "A new transcript is ready to choose": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A new transcript is ready to choose"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "고를 새 전사문이 있습니다"
+          }
+        }
+      }
+    },
+    "The transcript changed, so the new transcript wasn't applied.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The transcript changed, so the new transcript wasn't applied."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전사문이 바뀌어 새 전사문을 적용하지 않았습니다."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

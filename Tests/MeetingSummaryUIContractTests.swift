@@ -264,7 +264,7 @@ struct MeetingSummaryUIContractTests {
         precondition(noteBrowser.contains("Button(\"Make New Summary\") { generateSummary(toCompare: true) }"))
         precondition(noteBrowser.contains("MeetingSummaryComparisonView("))
         precondition(noteBrowser.contains("generateSummary(toCompare: savedSummary != nil)"), "every regenerate is compared first")
-        precondition(noteBrowser.contains("!(summaryCandidate != nil && isShowingSummaryTab) {\n                floatingToolbar"), "the toolbar hides while comparing on the Summary tab")
+        precondition(noteBrowser.contains("!(summaryCandidate != nil && isShowingSummaryTab),\n               !(showsTranscriptComparison && !isShowingSummaryTab) {\n                floatingToolbar"), "the toolbar hides while comparing on the Summary tab")
         // The toolbar follows the open tab: each tab's "make again" action
         // comes first, and Summary work started elsewhere opens its tab.
         precondition(noteBrowser.contains("if isShowingSummaryTab {\n                toolbarButton(\n                    action: { handleSummaryAction() },"))
@@ -281,8 +281,15 @@ struct MeetingSummaryUIContractTests {
         // Review fixes: a failed save reopens the choice, Return keeps the
         // current summary, and a vanished Summary tab hands back the transcript.
         precondition(comparison.contains("if !onUseNew() {\n                    withAnimation(animation) { choice = nil }"))
-        precondition(comparison.contains("Button(\"Keep Current Summary\") { choose(.keepCurrent) }\n                .keyboardShortcut(.defaultAction)"))
+        precondition(comparison.contains("Button(labels.keepCurrent) { choose(.keepCurrent) }\n                .keyboardShortcut(.defaultAction)"))
         precondition(noteBrowser.contains(".onChange(of: showsSummaryTab) { shows in\n            if !shows, selectedContentMode == .summary {"))
+        // #457: a retranscribed transcript is compared the same way, with
+        // its own sign inside the Transcript segment.
+        precondition(comparison.contains("struct SideBySideChoiceView<Side: View, ChosenHeader: View>: View"))
+        precondition(comparison.contains("struct TranscriptComparisonView: View"))
+        precondition(noteBrowser.contains("TranscriptComparisonView(\n                current: displayContent,"))
+        precondition(noteBrowser.contains("private var transcriptTabIndicator: some View"))
+        precondition(noteBrowser.contains("!(showsTranscriptComparison && !isShowingSummaryTab)"), "the toolbar hides while comparing transcripts")
 
         for unexpected in [
             "Quick review draft",

@@ -2240,6 +2240,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
     @Published private(set) var meetingSummaryGeneratingNoteIDs: Set<UUID> = []
+    /// New transcripts from a retry, waiting to be compared (#457).
+    @Published private(set) var transcriptionCandidates: [UUID: String] = [:]
     /// New summaries waiting to be compared with an edited one (#262).
     @Published private(set) var meetingSummaryCandidates: [UUID: MeetingSummaryCandidate] = [:]
     /// A summary deleted in the last few seconds, kept so Cancel can put it
@@ -4952,7 +4954,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             case .stale:
                 markStoppedCloudTranscriptions(among: [noteID])
 
-            case .cancelled:
+            case .cancelled, .candidateReady:
                 break
             }
         }
@@ -5008,6 +5010,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         transcriptionRetryWorkflowProgressIDs = Set(
             state.progressByNoteID.keys
         )
+
+        var candidates: [UUID: String] = [:]
+        for noteID in state.candidateNoteIDs {
+            candidates[noteID] = transcriptionRetryWorkflow.candidateTranscript(noteID: noteID)
+        }
+        if candidates != transcriptionCandidates {
+            transcriptionCandidates = candidates
+        }
     }
 
     @MainActor
@@ -8150,6 +8160,45 @@ final class AppState: ObservableObject, @unchecked Sendable {
         )
     }
 
+    static func hasTranscriptText(_ item: PipelineHistoryItem) -> Bool {
+        TranscriptionRetryWorkflow.hasTranscriptText(item)
+    }
+
+    enum TranscriptionCandidateAcceptance {
+        case saved
+        /// The transcript changed since the retry started; the new one was dropped.
+        case staleDropped
+        /// Saving failed; the candidate is still waiting.
+        case failed
+    }
+
+    /// Saves the waiting new transcript in place of the current one.
+    @MainActor
+    @discardableResult
+    func acceptTranscriptionCandidate(noteID: UUID) -> TranscriptionCandidateAcceptance {
+        guard requireAvailableHistoryForMutation() else { return .failed }
+        switch transcriptionRetryWorkflow.acceptCandidate(
+            noteID: noteID,
+            runtime: transcriptionRetryWorkflowRuntime()
+        ) {
+        case .succeeded, .fallback:
+            return .saved
+        case .stale:
+            return .staleDropped
+        case .persistenceFailed(let issue):
+            errorMessage = issue.presentation().compactMessage
+            return .failed
+        case .failed, .cancelled, .candidateReady:
+            return .failed
+        }
+    }
+
+    /// Keeps the current transcript and drops the waiting new one.
+    @MainActor
+    func discardTranscriptionCandidate(noteID: UUID) {
+        transcriptionRetryWorkflow.discardCandidate(noteID: noteID)
+    }
+
     @MainActor
     func retryTranscription(item: PipelineHistoryItem) {
         retryTranscription(item: item, choice: nil)
@@ -8157,10 +8206,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     /// Retries with the selected model, or with `choice` from the picker. A
     /// picked model is used for this note only; settings stay unchanged.
+    /// `comparesFirst`: the Note Browser shows a retried transcript next to
+    /// the current one before saving it (#457). Retries started elsewhere,
+    /// such as the Settings history list, save directly as before.
     @MainActor
     func retryTranscription(
         item: PipelineHistoryItem,
-        choice: TranscriptionBackendChoice?
+        choice: TranscriptionBackendChoice?,
+        comparesFirst: Bool = false
     ) {
         guard requireAvailableHistoryForMutation() else { return }
         guard !retryingItemIDs.contains(item.id) else { return }
@@ -8171,7 +8224,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         do {
-            let request = try transcriptionRetryWorkflowRequest(for: item, choice: choice)
+            var request = try transcriptionRetryWorkflowRequest(for: item, choice: choice)
+            // A note that already has a transcript compares the new one
+            // before replacing it (#457); a first transcript is just saved.
+            request.deliversCandidate = comparesFirst && Self.hasTranscriptText(item)
             if transcriptionRetryWorkflow.startManual(
                 request: request,
                 runtime: transcriptionRetryWorkflowRuntime()

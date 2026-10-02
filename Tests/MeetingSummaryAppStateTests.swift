@@ -15,6 +15,7 @@ struct MeetingSummaryAppStateTests {
         try await testFailedAttemptSurvivesDurableReload()
         try await testTranscriptChangeDiscardsInflightResult()
         try await testSuccessfulRetryInvalidatesInflightSummaryGeneration()
+        try await testNoteBrowserRetryComparesBeforeSaving()
         try await testRetryWithMissingHistoryEntryKeepsSummaryGenerationActive()
         try await testDeleteWithMissingHistoryEntryKeepsSummaryGenerationActive()
         try await testClearWithSaveFailureKeepsSummaryGenerationActive()
@@ -880,6 +881,49 @@ struct MeetingSummaryAppStateTests {
         }
     }
 
+    /// #457: a Note Browser retry of a note with a transcript waits next to
+    /// it; the saved transcript changes only when the new one is chosen.
+    private static func testNoteBrowserRetryComparesBeforeSaving() async throws {
+        let audioFileName = "retry-compare-\(UUID().uuidString).mp3"
+        let directoryURL = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let layout = AppStateStorageLayout(rootDirectory: directoryURL)
+        try FileManager.default.createDirectory(at: layout.audioDirectory, withIntermediateDirectories: true)
+        try Data([0]).write(to: layout.audioDirectory.appendingPathComponent(audioFileName))
+        let store = PipelineHistoryStore(storeURL: layout.historyStoreURL)
+        let item = makeItem(audioFileName: audioFileName)
+        _ = try store.upsert(item, maxCount: 10, requiresDurableStore: true)
+        let appState = await configuredPersistedAppState(
+            store: store,
+            storageLayout: layout,
+            retryDependencies: retryCloudDependencies(transcript: "Retry source C.")
+        )
+        await MainActor.run {
+            appState.transcriptionAPIKey = "test-api-key"
+            appState.transcriptionAPIURL = "https://provider.example/v1"
+            appState.setNoteBrowserTranscriptionChoice(.apiStandard(modelID: "whisper-large-v3"))
+            appState.disablePostProcessing = true
+            appState.retryTranscription(item: item, choice: nil, comparesFirst: true)
+        }
+        for _ in 0..<200 {
+            let waiting = await MainActor.run { appState.transcriptionCandidates[item.id] != nil }
+            if waiting { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        await MainActor.run {
+            precondition(appState.transcriptionCandidates[item.id] == "Retry source C.", "the new transcript waits")
+            precondition(
+                appState.pipelineHistory[0].postProcessedTranscript == item.postProcessedTranscript,
+                "the saved transcript is unchanged before choosing"
+            )
+            precondition(appState.acceptTranscriptionCandidate(noteID: item.id) == .saved)
+            precondition(appState.pipelineHistory[0].postProcessedTranscript == "Retry source C.")
+            precondition(appState.transcriptionCandidates[item.id] == nil)
+        }
+        let reloaded = PipelineHistoryStore(storeURL: layout.historyStoreURL)
+        precondition(reloaded.loadAllHistory().first?.postProcessedTranscript == "Retry source C.", "the choice is saved")
+    }
+
     private static func testSuccessfulRetryInvalidatesInflightSummaryGeneration() async throws {
         let audioFileName = "retry-summary-invalidation-\(UUID().uuidString).mp3"
         let directoryURL = try temporaryDirectory()
@@ -1509,7 +1553,16 @@ struct MeetingSummaryAppStateTests {
             let isRetrying = await MainActor.run {
                 appState.retryingItemIDs.contains(noteID)
             }
-            if !isRetrying { return }
+            if !isRetrying {
+                // A retry of a note with a transcript waits to be compared
+                // (#457); these tests check the result of keeping it.
+                await MainActor.run {
+                    if appState.transcriptionCandidates[noteID] != nil {
+                        appState.acceptTranscriptionCandidate(noteID: noteID)
+                    }
+                }
+                return
+            }
             try await Task.sleep(for: .milliseconds(10))
         }
         throw MeetingSummaryAppStateTestFailure("Timed out waiting for retry")

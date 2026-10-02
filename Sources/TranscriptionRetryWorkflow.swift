@@ -65,6 +65,17 @@ struct TranscriptionRetryWorkflowRequest {
     let processing: TranscriptionRetryProcessingBehavior
     let historyMetadata: TranscriptionRetryHistoryMetadata
     let failureContext: TranscriptionRetryFailureContext
+    /// Keeps a successful result as a candidate instead of saving it, so the
+    /// person can compare it with the current transcript first (#457).
+    var deliversCandidate = false
+}
+
+/// A new transcript waiting for the person to keep it or not.
+private struct TranscriptionRetryCandidate {
+    let request: TranscriptionRetryWorkflowRequest
+    let processing: TranscriptionRetryProcessingResult
+    /// A failed sidecar cleanup, reported when the candidate is saved.
+    let cleanupFailureDescription: String?
 }
 
 struct TranscriptionRetryStartupInput {
@@ -116,6 +127,8 @@ struct TranscriptionRetryWorkflowRuntime {
 struct TranscriptionRetryWorkflowState: Equatable, Sendable {
     var retryingNoteIDs: Set<UUID>
     var progressByNoteID: [UUID: CloudTranscriptionDisplayProgress]
+    /// Notes whose new transcript waits to be chosen.
+    var candidateNoteIDs: Set<UUID> = []
 
     static let initial = TranscriptionRetryWorkflowState(
         retryingNoteIDs: [],
@@ -146,6 +159,8 @@ enum TranscriptionRetryWorkflowOutcome: Equatable, Sendable {
     case cancelled
     case stale
     case persistenceFailed(QuillUserIssueRecord)
+    /// The new transcript waits to be compared; nothing was saved.
+    case candidateReady
 }
 
 enum TranscriptionRetryWorkflowEvent {
@@ -192,6 +207,7 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
     @MainActor private var activeAttempts: [UUID: TranscriptionRetryActiveAttempt] = [:]
     @MainActor private var attemptRevisionByNoteID: [UUID: UInt64] = [:]
     @MainActor private(set) var state = TranscriptionRetryWorkflowState.initial
+    @MainActor private var candidates: [UUID: TranscriptionRetryCandidate] = [:]
     nonisolated(unsafe) var onEvent:
         (@MainActor (TranscriptionRetryWorkflowEvent) -> Void)?
 
@@ -388,7 +404,7 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
                 item,
                 completion
             )
-            let request = TranscriptionRetryWorkflowRequest(
+            var request = TranscriptionRetryWorkflowRequest(
                 origin: .startupResume,
                 deliveryPolicy: .historyOnly,
                 initialItem: item,
@@ -416,6 +432,10 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
                 ),
                 failureContext: failureContext
             )
+            // A note that already has a transcript was being retranscribed:
+            // the resumed result waits to be compared, never replacing that
+            // transcript unasked (#457). A first transcript is just saved.
+            request.deliversCandidate = Self.hasTranscriptText(item)
             _ = start(
                 request: request,
                 runtime: runtime,
@@ -426,6 +446,11 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
                 )
             )
         }
+    }
+
+    static func hasTranscriptText(_ item: PipelineHistoryItem) -> Bool {
+        !item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !item.rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private static func isSafeAudioBasename(_ value: String) -> Bool {
@@ -682,6 +707,28 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
             return
         }
 
+        if request.deliversCandidate {
+            // Nothing is saved until the person chooses the new transcript.
+            let cleanupFailureDescription = deleteCompletedSidecarIfPresent(
+                noteID: noteID,
+                token: token,
+                revision: revision
+            )
+            candidates[noteID] = TranscriptionRetryCandidate(
+                request: request,
+                processing: processing,
+                cleanupFailureDescription: cleanupFailureDescription
+            )
+            state.candidateNoteIDs.insert(noteID)
+            finishAttempt(
+                noteID: noteID,
+                token: token,
+                revision: revision,
+                outcome: .candidateReady
+            )
+            return
+        }
+
         let transcriptFileName: String?
         let createdTranscriptFileName: String?
         if let existingFileName = currentItem.transcriptFileName {
@@ -707,26 +754,11 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
             return
         }
 
-        let replacement = PipelineHistoryTranscriptionReplacement(
-            rawTranscript: processing.rawTranscript,
-            postProcessedTranscript: processing.finalTranscript,
-            postProcessingPrompt: processing.prompt,
-            postProcessingStatus: processing.postProcessingStatus,
-            aiProcessingOutcome: processing.aiProcessingOutcome.pipelineHistoryStatus,
-            debugStatus: request.historyMetadata.successDebugStatus,
-            customVocabulary: request.historyMetadata.customVocabulary,
-            customSystemPrompt: request.historyMetadata.customSystemPrompt,
-            usedLocalTranscription: request.historyMetadata.usedLocalTranscription,
-            usedPostProcessing: request.historyMetadata.usedPostProcessing,
-            transcriptionLanguageCode:
-                request.historyMetadata.transcriptionLanguageCode,
-            spokenLanguage: processing.spokenLanguage,
-            localTranscriptionModelID:
-                request.historyMetadata.localTranscriptionModelID,
+        let updatedItem = Self.replacingTranscription(
+            of: currentItem,
+            request: request,
+            processing: processing,
             transcriptFileName: transcriptFileName
-        )
-        let updatedItem = currentItem.replacingTranscription(
-            with: replacement
         )
 
         do {
@@ -788,6 +820,138 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
             revision: revision,
             outcome: outcome
         )
+    }
+
+    private static func replacingTranscription(
+        of item: PipelineHistoryItem,
+        request: TranscriptionRetryWorkflowRequest,
+        processing: TranscriptionRetryProcessingResult,
+        transcriptFileName: String?
+    ) -> PipelineHistoryItem {
+        item.replacingTranscription(
+            with: PipelineHistoryTranscriptionReplacement(
+                rawTranscript: processing.rawTranscript,
+                postProcessedTranscript: processing.finalTranscript,
+                postProcessingPrompt: processing.prompt,
+                postProcessingStatus: processing.postProcessingStatus,
+                aiProcessingOutcome: processing.aiProcessingOutcome.pipelineHistoryStatus,
+                debugStatus: request.historyMetadata.successDebugStatus,
+                customVocabulary: request.historyMetadata.customVocabulary,
+                customSystemPrompt: request.historyMetadata.customSystemPrompt,
+                usedLocalTranscription: request.historyMetadata.usedLocalTranscription,
+                usedPostProcessing: request.historyMetadata.usedPostProcessing,
+                transcriptionLanguageCode:
+                    request.historyMetadata.transcriptionLanguageCode,
+                spokenLanguage: processing.spokenLanguage,
+                localTranscriptionModelID:
+                    request.historyMetadata.localTranscriptionModelID,
+                transcriptFileName: transcriptFileName
+            )
+        )
+    }
+
+    /// The waiting new transcript, for showing it next to the current one.
+    @MainActor
+    func candidateTranscript(noteID: UUID) -> String? {
+        candidates[noteID]?.processing.finalTranscript
+    }
+
+    /// Saves the waiting new transcript in place of the current one, with the
+    /// same effects as a retry that saves directly. On a failed save the
+    /// candidate stays, so the person can choose again.
+    @MainActor
+    @discardableResult
+    func acceptCandidate(
+        noteID: UUID,
+        runtime: TranscriptionRetryWorkflowRuntime
+    ) -> TranscriptionRetryWorkflowOutcome {
+        guard let candidate = candidates[noteID] else { return .stale }
+        let request = candidate.request
+        let processing = candidate.processing
+        let currentItem: PipelineHistoryItem
+        do {
+            // The transcript must still be the one the retry started from:
+            // a change saved meanwhile (for example a post-processing retry)
+            // is never overwritten by an older candidate.
+            guard let item = try runtime.history.item(noteID),
+                  item.timestamp == request.sourceIdentity.noteTimestamp,
+                  item.audioFileName == request.sourceIdentity.audioFileName,
+                  item.rawTranscript == request.initialItem.rawTranscript,
+                  item.postProcessedTranscript
+                    == request.initialItem.postProcessedTranscript else {
+                discardCandidate(noteID: noteID)
+                return .stale
+            }
+            currentItem = item
+        } catch {
+            return .persistenceFailed(
+                QuillUserIssueRecord(code: .historyPersistenceUnavailable)
+            )
+        }
+
+        let transcriptFileName: String?
+        let createdTranscriptFileName: String?
+        if let existingFileName = currentItem.transcriptFileName {
+            transcriptFileName = existingFileName
+            createdTranscriptFileName = nil
+        } else {
+            let created = try? runtime.assets.saveTranscript(
+                processing.rawTranscript,
+                processing.finalTranscript
+            )
+            transcriptFileName = created
+            createdTranscriptFileName = created
+        }
+        let updatedItem = Self.replacingTranscription(
+            of: currentItem,
+            request: request,
+            processing: processing,
+            transcriptFileName: transcriptFileName
+        )
+        do {
+            try runtime.history.persist(updatedItem, true)
+        } catch {
+            if let createdTranscriptFileName {
+                try? runtime.assets.deleteTranscript(createdTranscriptFileName)
+            }
+            return .persistenceFailed(
+                QuillUserIssueRecord(code: .historyPersistenceUnavailable)
+            )
+        }
+        discardCandidate(noteID: noteID)
+        onEvent?(
+            .itemPersisted(
+                updatedItem,
+                TranscriptionRetryPersistedEffects(
+                    advancesWarningGeneration: true,
+                    invalidatesMeetingSummary: request.origin == .manual
+                )
+            )
+        )
+        let completion = TranscriptionRetryCompletion(
+            interactiveTranscript: request.deliveryPolicy == .interactive
+                ? processing.finalTranscript
+                : nil,
+            transcriptAssetPersisted: transcriptFileName != nil,
+            cleanupFailureDescription: candidate.cleanupFailureDescription
+        )
+        let outcome: TranscriptionRetryWorkflowOutcome
+        switch processing.disposition {
+        case .succeeded:
+            outcome = .succeeded(completion)
+        case .fallback:
+            outcome = .fallback(completion)
+        }
+        onEvent?(.completed(noteID, outcome))
+        return outcome
+    }
+
+    /// Keeps the current transcript and drops the waiting new one.
+    @MainActor
+    func discardCandidate(noteID: UUID) {
+        guard candidates.removeValue(forKey: noteID) != nil else { return }
+        state.candidateNoteIDs.remove(noteID)
+        emitState()
     }
 
     @MainActor
@@ -989,6 +1153,7 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
             )
         }
         attemptRevisionByNoteID.removeAll()
+        candidates.removeAll()
         guard state != .initial else { return }
         state = .initial
         emitState()
@@ -1019,7 +1184,11 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
         let removedProgress = state.progressByNoteID.removeValue(
             forKey: noteID
         ) != nil
-        if removedRetry || removedProgress {
+        // A new attempt, an invalidation, or forgetting the note drops a
+        // transcript that was waiting to be chosen.
+        candidates.removeValue(forKey: noteID)
+        let removedCandidate = state.candidateNoteIDs.remove(noteID) != nil
+        if removedRetry || removedProgress || removedCandidate {
             emitState()
         }
         if emitCancellation, attempt != nil {

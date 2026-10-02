@@ -1,14 +1,40 @@
 import SwiftUI
 
-/// Shows an edited summary next to a newly made one, before anything is
-/// saved (#262). Choosing a side stretches it across and pushes the other
-/// out; with Reduce Motion the other side just fades.
-struct MeetingSummaryComparisonView: View {
-    let current: MeetingSummaryEnvelope
-    let candidate: MeetingSummaryEnvelope
-    let sourceQuoteIsValid: (String) -> Bool
+/// The wording for one comparison: a summary or a transcript.
+struct ComparisonLabels {
+    let prompt: LocalizedStringKey
+    let keepCurrent: LocalizedStringKey
+    let useNew: LocalizedStringKey
+    let currentTag: LocalizedStringKey
+    let newTag: LocalizedStringKey
+    /// A note next to the current side's tag, such as "Edited".
+    var currentNote: LocalizedStringKey?
+}
+
+/// How the chosen side ends up, so it lands where the tab then shows it.
+struct ComparisonLanding {
+    /// The chosen side's width for the tab's full width.
+    let width: (CGFloat) -> CGFloat
+    let topPadding: CGFloat
+}
+
+/// Shows the current content next to a newly made one before anything is
+/// saved (#262, #457). Choosing a side stretches it across and pushes the
+/// other out; with Reduce Motion the other side just fades.
+struct SideBySideChoiceView<Side: View, ChosenHeader: View>: View {
+    enum Kind {
+        case current
+        case candidate
+    }
+
+    let labels: ComparisonLabels
+    let landing: ComparisonLanding
+    /// Shown above the chosen current side as it lands, like the tab's own
+    /// marker (for example "Edited summary · Revert to Original").
+    let chosenCurrentHeader: ChosenHeader
+    let side: (Kind, _ isChosen: Bool) -> Side
     let onKeepCurrent: () -> Void
-    /// False when the new summary couldn't be saved; both sides come back.
+    /// False when the new content couldn't be saved; both sides come back.
     let onUseNew: () -> Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -19,18 +45,14 @@ struct MeetingSummaryComparisonView: View {
         case useNew
     }
 
-    private static let cardGap: CGFloat = 16
-    private static let sideMargin: CGFloat = 28
-    /// Matches the Summary tab's width, so the chosen side lands where the
-    /// summary then shows.
-    private static let summaryWidth: CGFloat = 760
-    private static let summaryMargin: CGFloat = 40
-    private static let pushDuration = 0.55
+    private static var cardGap: CGFloat { 16 }
+    private static var sideMargin: CGFloat { 28 }
+    private static var pushDuration: Double { 0.55 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // The bar folds away while the chosen side stretches, so the
-            // summary lands where the Summary tab then shows it.
+            // content lands where the tab then shows it.
             if choice == nil {
                 choiceBar
                     .padding(.horizontal, Self.sideMargin)
@@ -40,7 +62,7 @@ struct MeetingSummaryComparisonView: View {
             GeometryReader { geometry in
                 ScrollView {
                     cards(in: geometry.size.width)
-                        .padding(.top, choice == nil ? 16 : 14)
+                        .padding(.top, choice == nil ? 16 : landing.topPadding)
                         .padding(.bottom, 96)
                 }
             }
@@ -54,14 +76,14 @@ struct MeetingSummaryComparisonView: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Color.accentColor)
                 .accessibilityHidden(true)
-            Text("Choose the summary to use")
+            Text(labels.prompt)
                 .font(.system(size: 12, weight: .semibold))
                 .lineLimit(1)
             Spacer(minLength: 8)
             // Return keeps what is saved; replacing it takes a click.
-            Button("Keep Current Summary") { choose(.keepCurrent) }
+            Button(labels.keepCurrent) { choose(.keepCurrent) }
                 .keyboardShortcut(.defaultAction)
-            Button("Use New Summary") { choose(.useNew) }
+            Button(labels.useNew) { choose(.useNew) }
         }
         .font(.system(size: 12))
         .controlSize(.small)
@@ -75,27 +97,23 @@ struct MeetingSummaryComparisonView: View {
     private func cards(in totalWidth: CGFloat) -> some View {
         let available = max(totalWidth - Self.sideMargin * 2, 0)
         let half = max((available - Self.cardGap) / 2, 0)
-        let summary = min(
-            max(totalWidth - Self.summaryMargin * 2, 0),
-            Self.summaryWidth
-        )
+        let landed = landing.width(totalWidth)
         let pushes = choice != nil && !reduceMotion
         let currentWidth: CGFloat
         let candidateWidth: CGFloat
         switch (pushes ? choice : nil) {
         case .keepCurrent:
-            currentWidth = summary
+            currentWidth = landed
             candidateWidth = 0
         case .useNew:
             currentWidth = 0
-            candidateWidth = summary
+            candidateWidth = landed
         case nil:
             currentWidth = half
             candidateWidth = half
         }
         return HStack(alignment: .top, spacing: pushes ? 0 : Self.cardGap) {
             card(
-                current,
                 kind: .current,
                 contentWidth: choice == .keepCurrent ? currentWidth : half
             )
@@ -105,7 +123,6 @@ struct MeetingSummaryComparisonView: View {
             .opacity(choice == .useNew ? 0 : 1)
 
             card(
-                candidate,
                 kind: .candidate,
                 contentWidth: choice == .useNew ? candidateWidth : half
             )
@@ -116,32 +133,19 @@ struct MeetingSummaryComparisonView: View {
         .frame(maxWidth: .infinity)
     }
 
-    private enum CardKind {
-        case current
-        case candidate
-    }
-
-    private func card(
-        _ envelope: MeetingSummaryEnvelope,
-        kind: CardKind,
-        contentWidth: CGFloat
-    ) -> some View {
+    private func card(kind: Kind, contentWidth: CGFloat) -> some View {
         let isChosen = (kind == .current && choice == .keepCurrent)
             || (kind == .candidate && choice == .useNew)
         return VStack(alignment: .leading, spacing: 22) {
             if isChosen {
-                if kind == .current, envelope.isEdited {
-                    editedMarker
+                if kind == .current {
+                    chosenCurrentHeader
                 }
             } else {
-                cardHeader(envelope, kind: kind)
+                cardHeader(kind: kind)
                     .transition(.opacity)
             }
-            MeetingSummaryReadOnlyContent(
-                content: envelope.content,
-                sourceQuoteIsValid: sourceQuoteIsValid,
-                matchesEditor: isChosen
-            )
+            side(kind, isChosen)
         }
         .padding(isChosen ? 0 : 16)
         .frame(width: max(contentWidth, 0), alignment: .leading)
@@ -166,9 +170,9 @@ struct MeetingSummaryComparisonView: View {
         }
     }
 
-    private func cardHeader(_ envelope: MeetingSummaryEnvelope, kind: CardKind) -> some View {
+    private func cardHeader(kind: Kind) -> some View {
         HStack(spacing: 8) {
-            Text(kind == .current ? "Current Summary" : "New Summary")
+            Text(kind == .current ? labels.currentTag : labels.newTag)
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 1)
@@ -178,28 +182,12 @@ struct MeetingSummaryComparisonView: View {
                         : Color.accentColor.opacity(0.14),
                     in: Capsule()
                 )
-            if kind == .current, envelope.isEdited {
-                Text("Edited")
+            if kind == .current, let note = labels.currentNote {
+                Text(note)
             }
         }
         .font(.caption)
         .foregroundStyle(.secondary)
-    }
-
-    /// Looks like the Summary tab's marker, which takes its place next.
-    private var editedMarker: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "pencil")
-                .font(.system(size: 11, weight: .medium))
-            Text("Edited summary")
-            Text(verbatim: "·")
-                .foregroundStyle(.tertiary)
-            Text("Revert to Original")
-                .foregroundStyle(Color.accentColor)
-        }
-        .font(.system(size: 12))
-        .foregroundStyle(.secondary)
-        .accessibilityHidden(true)
     }
 
     private func choose(_ newChoice: Choice) {
@@ -221,6 +209,103 @@ struct MeetingSummaryComparisonView: View {
                 }
             }
         }
+    }
+}
+
+/// An edited summary next to a newly made one (#262).
+struct MeetingSummaryComparisonView: View {
+    let current: MeetingSummaryEnvelope
+    let candidate: MeetingSummaryEnvelope
+    let sourceQuoteIsValid: (String) -> Bool
+    let onKeepCurrent: () -> Void
+    let onUseNew: () -> Bool
+
+    /// Matches the Summary tab's width, so the chosen side lands where the
+    /// summary then shows.
+    private static let summaryWidth: CGFloat = 760
+    private static let summaryMargin: CGFloat = 40
+
+    var body: some View {
+        SideBySideChoiceView(
+            labels: ComparisonLabels(
+                prompt: "Choose the summary to use",
+                keepCurrent: "Keep Current Summary",
+                useNew: "Use New Summary",
+                currentTag: "Current Summary",
+                newTag: "New Summary",
+                currentNote: current.isEdited ? "Edited" : nil
+            ),
+            landing: ComparisonLanding(
+                width: { total in
+                    min(max(total - Self.summaryMargin * 2, 0), Self.summaryWidth)
+                },
+                topPadding: 14
+            ),
+            chosenCurrentHeader: Group {
+                if current.isEdited { editedMarker }
+            },
+            side: { kind, isChosen in
+                MeetingSummaryReadOnlyContent(
+                    content: kind == .current ? current.content : candidate.content,
+                    sourceQuoteIsValid: sourceQuoteIsValid,
+                    matchesEditor: isChosen
+                )
+            },
+            onKeepCurrent: onKeepCurrent,
+            onUseNew: onUseNew
+        )
+    }
+
+    /// Looks like the Summary tab's marker, which takes its place next.
+    private var editedMarker: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "pencil")
+                .font(.system(size: 11, weight: .medium))
+            Text("Edited summary")
+            Text(verbatim: "·")
+                .foregroundStyle(.tertiary)
+            Text("Revert to Original")
+                .foregroundStyle(Color.accentColor)
+        }
+        .font(.system(size: 12))
+        .foregroundStyle(.secondary)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The current transcript next to a retranscribed one (#457). The chosen
+/// side lands like the Transcript tab's text: full width, 40 pt insets.
+struct TranscriptComparisonView: View {
+    let current: String
+    let candidate: String
+    let onKeepCurrent: () -> Void
+    let onUseNew: () -> Bool
+
+    var body: some View {
+        SideBySideChoiceView(
+            labels: ComparisonLabels(
+                prompt: "Choose the transcript to use",
+                keepCurrent: "Keep Current Transcript",
+                useNew: "Use New Transcript",
+                currentTag: "Current Transcript",
+                newTag: "New Transcript"
+            ),
+            landing: ComparisonLanding(
+                width: { total in max(total - 80, 0) },
+                topPadding: 20
+            ),
+            chosenCurrentHeader: EmptyView(),
+            side: { kind, _ in
+                Text(kind == .current ? current : candidate)
+                    .font(.system(size: 15))
+                    .lineSpacing(5)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
+            },
+            onKeepCurrent: onKeepCurrent,
+            onUseNew: onUseNew
+        )
     }
 }
 

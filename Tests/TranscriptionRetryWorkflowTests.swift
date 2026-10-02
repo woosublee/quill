@@ -15,6 +15,9 @@ struct TranscriptionRetryWorkflowTests {
         try await testLocalAIRecordWaitsWhenLocalModelChanged()
         try await testManualSuccessPersistsBeforeEffectsAndDelivery()
         try await testManualFallbackUsesFallbackOutcome()
+        try await testCandidateRetryWaitsUntilChosen()
+        try await testCandidateIsDroppedByKeepNewAttemptOrInvalidate()
+        try await testCandidateNeverOverwritesATranscriptChangedMeanwhile()
         try await testCommandFallbackUsesCapturedDispositionAndReason()
         try await testProgressBelongsToCurrentAttempt()
         try await testManualProviderFailurePersistsVersionedIssue()
@@ -55,6 +58,7 @@ struct TranscriptionRetryWorkflowTests {
         try await testStartupResumeUsesStoredContextAndHistoryOnlyDelivery()
         try await testStartupDuplicateHistoryIDsUseFirstItem()
         try await testStartupSuccessPersistsAndDeletesSidecar()
+        try await testStartupResumeOfTranscribedNoteWaitsAsCandidate()
         try await testStartupFallbackPersistsWithoutSummaryInvalidation()
         try await testStartupProviderFailurePreservesPlaceholderAndSidecar()
         try await testStartupCancellationPreservesPlaceholderAndSidecar()
@@ -434,6 +438,129 @@ struct TranscriptionRetryWorkflowTests {
             ],
             "manual success event order"
         )
+    }
+
+    /// #457: a retry of a note that has a transcript waits as a candidate;
+    /// nothing is saved until the new transcript is chosen, and choosing it
+    /// saves with the same effects and delivery as a direct retry.
+    @MainActor
+    private static func testCandidateRetryWaitsUntilChosen() async throws {
+        let operationLog = TranscriptionRetryOperationLog()
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let item = makeHistoryItem()
+        let history = TranscriptionRetryHistoryRecorder(item: item, operationLog: operationLog)
+        let assets = TranscriptionRetryAssetRecorder(operationLog: operationLog)
+        let events = TranscriptionRetryEventRecorder(operationLog: operationLog)
+        let workflow = TranscriptionRetryWorkflow(dependencies: immediateDependencies(text: "provider raw"))
+        workflow.onEvent = events.record
+        let runtime = fixture.runtime(history: history.access(), assets: assets.access())
+        var request = try makeRequest(
+            item: item,
+            fixture: fixture,
+            processing: fixedProcessingBehavior(processingResult(raw: "new raw", final: "new final"))
+        )
+        request.deliversCandidate = true
+
+        try expect(workflow.startManual(request: request, runtime: runtime), "manual workflow started")
+        try await waitUntil { events.outcomes.count == 1 }
+        try expectEqual(events.outcomes.last, .candidateReady, "candidate outcome")
+        try expect(history.persistedItems.isEmpty, "nothing is saved before choosing")
+        try expect(events.persistedEvents.isEmpty, "no persisted event before choosing")
+        try expect(workflow.state.candidateNoteIDs.contains(item.id), "the candidate waits")
+        try expect(!workflow.state.retryingNoteIDs.contains(item.id), "retrying finished")
+        try expectEqual(workflow.candidateTranscript(noteID: item.id), "new final", "candidate text")
+
+        let outcome = workflow.acceptCandidate(noteID: item.id, runtime: runtime)
+        let completion = try requireSuccessCompletion(outcome)
+        let saved = try require(history.persistedItems.last, "saved on choosing")
+        try expectEqual(saved.postProcessedTranscript, "new final", "saved final")
+        try expectEqual(saved.rawTranscript, "new raw", "saved raw")
+        try expectEqual(
+            events.persistedEvents.last?.effects,
+            TranscriptionRetryPersistedEffects(
+                advancesWarningGeneration: true,
+                invalidatesMeetingSummary: true
+            ),
+            "same effects as a direct retry"
+        )
+        try expectEqual(completion.interactiveTranscript, "new final", "delivery happens on choosing")
+        try expect(!workflow.state.candidateNoteIDs.contains(item.id), "the candidate is gone")
+        try expectEqual(
+            workflow.acceptCandidate(noteID: item.id, runtime: runtime),
+            .stale,
+            "a candidate is saved once"
+        )
+    }
+
+    @MainActor
+    private static func testCandidateIsDroppedByKeepNewAttemptOrInvalidate() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let item = makeHistoryItem()
+        let history = TranscriptionRetryHistoryRecorder(item: item, operationLog: TranscriptionRetryOperationLog())
+        let assets = TranscriptionRetryAssetRecorder(operationLog: TranscriptionRetryOperationLog())
+        let events = TranscriptionRetryEventRecorder(operationLog: TranscriptionRetryOperationLog())
+        let workflow = TranscriptionRetryWorkflow(dependencies: immediateDependencies(text: "provider raw"))
+        workflow.onEvent = events.record
+        let runtime = fixture.runtime(history: history.access(), assets: assets.access())
+        var request = try makeRequest(
+            item: item,
+            fixture: fixture,
+            processing: fixedProcessingBehavior(processingResult(raw: "new raw", final: "new final"))
+        )
+        request.deliversCandidate = true
+
+        func makeCandidate(_ count: Int) async throws {
+            try expect(workflow.startManual(request: request, runtime: runtime), "started")
+            try await waitUntil { events.outcomes.filter { $0 == .candidateReady }.count == count }
+            try expect(workflow.state.candidateNoteIDs.contains(item.id), "candidate \(count) waits")
+        }
+
+        try await makeCandidate(1)
+        workflow.discardCandidate(noteID: item.id)
+        try expect(workflow.candidateTranscript(noteID: item.id) == nil, "keeping the current transcript drops it")
+
+        try await makeCandidate(2)
+        workflow.invalidate(noteID: item.id)
+        try expect(!workflow.state.candidateNoteIDs.contains(item.id), "invalidating the note drops it")
+
+        try await makeCandidate(3)
+        workflow.forget(noteID: item.id)
+        try expect(workflow.candidateTranscript(noteID: item.id) == nil, "forgetting the note drops it")
+        try expect(history.persistedItems.isEmpty, "nothing was ever saved")
+    }
+
+    /// A transcript saved while the candidate waited (for example by a
+    /// post-processing retry) is never overwritten by the older candidate.
+    @MainActor
+    private static func testCandidateNeverOverwritesATranscriptChangedMeanwhile() async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let item = makeHistoryItem()
+        let history = TranscriptionRetryHistoryRecorder(item: item)
+        let events = TranscriptionRetryEventRecorder()
+        let workflow = TranscriptionRetryWorkflow(dependencies: immediateDependencies(text: "provider raw"))
+        workflow.onEvent = events.record
+        let runtime = fixture.runtime(history: history.access(), assets: TranscriptionRetryAssetRecorder().access())
+        var request = try makeRequest(
+            item: item,
+            fixture: fixture,
+            processing: fixedProcessingBehavior(processingResult(raw: "new raw", final: "new final"))
+        )
+        request.deliversCandidate = true
+        try expect(workflow.startManual(request: request, runtime: runtime), "started")
+        try await waitUntil { events.outcomes.count == 1 }
+
+        history.currentItem = makeHistoryItem(
+            id: item.id,
+            timestamp: item.timestamp,
+            rawTranscript: "old raw",
+            postProcessedTranscript: "cleaned up meanwhile"
+        )
+        try expectEqual(workflow.acceptCandidate(noteID: item.id, runtime: runtime), .stale, "stale candidate")
+        try expect(history.persistedItems.isEmpty, "the newer transcript is kept")
+        try expect(workflow.candidateTranscript(noteID: item.id) == nil, "the stale candidate is dropped")
     }
 
     @MainActor
@@ -1959,7 +2086,7 @@ struct TranscriptionRetryWorkflowTests {
         async throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
-        let item = makeHistoryItem()
+        let item = makeHistoryItem(rawTranscript: "", postProcessedTranscript: "")
         var configuration = defaultCloudConfiguration(fixture: fixture)
         configuration.completionPolicy = CloudTranscriptionCompletionPolicy(
             postProcessingEnabled: false,
@@ -2015,7 +2142,7 @@ struct TranscriptionRetryWorkflowTests {
         async throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
-        let item = makeHistoryItem(contextSummary: "stored startup context")
+        let item = makeHistoryItem(rawTranscript: "", postProcessedTranscript: "", contextSummary: "stored startup context")
         let cloud = try makeCloudState(
             historyID: item.id,
             fixture: fixture,
@@ -2060,11 +2187,13 @@ struct TranscriptionRetryWorkflowTests {
         async throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
-        let item = makeHistoryItem(contextSummary: "first stored context")
+        let item = makeHistoryItem(rawTranscript: "", postProcessedTranscript: "", contextSummary: "first stored context")
         let duplicate = makeHistoryItem(
             id: item.id,
             timestamp: item.timestamp,
             audioFileName: item.audioFileName ?? "recording.wav",
+            rawTranscript: "",
+            postProcessedTranscript: "",
             contextSummary: "duplicate stored context"
         )
         let cloud = try makeCloudState(
@@ -2110,7 +2239,7 @@ struct TranscriptionRetryWorkflowTests {
         async throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
-        let item = makeHistoryItem()
+        let item = makeHistoryItem(rawTranscript: "", postProcessedTranscript: "")
         let cloud = try makeCloudState(
             historyID: item.id,
             fixture: fixture,
@@ -2165,12 +2294,60 @@ struct TranscriptionRetryWorkflowTests {
         )
     }
 
+    /// #457: a retry that was interrupted by quitting resumes at launch,
+    /// and for a note that already has a transcript the result waits to be
+    /// compared instead of replacing that transcript unasked.
+    @MainActor
+    private static func testStartupResumeOfTranscribedNoteWaitsAsCandidate()
+        async throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let item = makeHistoryItem()
+        let cloud = try makeCloudState(
+            historyID: item.id,
+            fixture: fixture,
+            configuration: defaultCloudConfiguration(fixture: fixture),
+            completedPrefix: ["stored prefix"]
+        )
+        try createStoredRecord(cloud.record, in: fixture.jobStore)
+        let processing = TranscriptionRetryStartupProcessingRecorder(
+            result: processingResult(raw: "resumed raw", final: "resumed final")
+        )
+        let history = TranscriptionRetryHistoryRecorder(item: item)
+        let events = TranscriptionRetryEventRecorder()
+        let workflow = TranscriptionRetryWorkflow(
+            dependencies: immediateDependencies(text: "provider resumed")
+        )
+        workflow.onEvent = events.record
+
+        workflow.resumeAtStartup(
+            input: try makeStartupInput(
+                cloud: cloud,
+                item: item,
+                fixture: fixture,
+                processing: processing,
+                dependencyCount: TranscriptionRetryCounter()
+            ),
+            runtime: fixture.runtime(
+                history: history.access(),
+                assets: TranscriptionRetryAssetRecorder().access()
+            )
+        )
+
+        try await waitUntil { events.outcomes.count == 1 }
+        try expectEqual(events.outcomes.last, .candidateReady, "resumed result waits")
+        try expect(history.persistedItems.isEmpty, "the existing transcript is not replaced")
+        try expectEqual(workflow.candidateTranscript(noteID: item.id), "resumed final", "candidate text")
+        let remainingSidecar = try fixture.jobStore.load(historyID: item.id)
+        try expect(remainingSidecar == nil, "the sidecar is cleaned up")
+    }
+
     @MainActor
     private static func testStartupFallbackPersistsWithoutSummaryInvalidation()
         async throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
-        let item = makeHistoryItem()
+        let item = makeHistoryItem(rawTranscript: "", postProcessedTranscript: "")
         let cloud = try makeCloudState(
             historyID: item.id,
             fixture: fixture,
@@ -2333,7 +2510,7 @@ struct TranscriptionRetryWorkflowTests {
         async throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
-        let item = makeHistoryItem()
+        let item = makeHistoryItem(rawTranscript: "", postProcessedTranscript: "")
         let cloud = try makeCloudState(
             historyID: item.id,
             fixture: fixture,
@@ -2381,7 +2558,7 @@ struct TranscriptionRetryWorkflowTests {
         async throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
-        let item = makeHistoryItem()
+        let item = makeHistoryItem(rawTranscript: "", postProcessedTranscript: "")
         let cloud = try makeCloudState(
             historyID: item.id,
             fixture: fixture,
@@ -2561,7 +2738,7 @@ struct TranscriptionRetryWorkflowTests {
     private static func testLocalAIStartupResumeUsesLocalExecution() async throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
-        let item = makeHistoryItem()
+        let item = makeHistoryItem(rawTranscript: "", postProcessedTranscript: "")
         let record = try makeLocalAIRecord(historyID: item.id, fixture: fixture)
         try createStoredRecord(record, in: fixture.jobStore)
         let captured = TranscriptionRetryExecutionRecorder()
@@ -2610,7 +2787,7 @@ struct TranscriptionRetryWorkflowTests {
     private static func testLocalAIRecordWaitsWhenLocalModelChanged() async throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
-        let item = makeHistoryItem()
+        let item = makeHistoryItem(rawTranscript: "", postProcessedTranscript: "")
         let record = try makeLocalAIRecord(historyID: item.id, fixture: fixture)
         try createStoredRecord(record, in: fixture.jobStore)
         let captured = TranscriptionRetryExecutionRecorder()
