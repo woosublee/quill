@@ -729,19 +729,15 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
             return
         }
 
-        let transcriptFileName: String?
-        let createdTranscriptFileName: String?
-        if let existingFileName = currentItem.transcriptFileName {
-            transcriptFileName = existingFileName
-            createdTranscriptFileName = nil
-        } else {
-            let created = try? runtime.assets.saveTranscript(
-                processing.rawTranscript,
-                processing.finalTranscript
-            )
-            transcriptFileName = created
-            createdTranscriptFileName = created
-        }
+        // The new transcript always goes to a new file, and history points
+        // at it; the old file goes only once history no longer does (#460).
+        // A failed write still saves history, just without a file.
+        let createdTranscriptFileName = try? runtime.assets.saveTranscript(
+            processing.rawTranscript,
+            processing.finalTranscript
+        )
+        let transcriptFileName = createdTranscriptFileName
+        let replacedTranscriptFileName = currentItem.transcriptFileName
 
         guard isCurrentAttempt(
             noteID: noteID,
@@ -777,6 +773,11 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
             )
             return
         }
+        Self.deleteReplacedTranscript(
+            replacedTranscriptFileName,
+            keeping: transcriptFileName,
+            assets: runtime.assets
+        )
 
         guard isCurrentAttempt(
             noteID: noteID,
@@ -850,6 +851,17 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
         )
     }
 
+    /// Removes the file history pointed at before a retry, once the saved
+    /// history points elsewhere. Best effort: a leftover file is harmless.
+    private static func deleteReplacedTranscript(
+        _ replaced: String?,
+        keeping current: String?,
+        assets: TranscriptionRetryAssetAccess
+    ) {
+        guard let replaced, replaced != current else { return }
+        try? assets.deleteTranscript(replaced)
+    }
+
     /// The waiting new transcript, for showing it next to the current one.
     @MainActor
     func candidateTranscript(noteID: UUID) -> String? {
@@ -889,19 +901,15 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
             )
         }
 
-        let transcriptFileName: String?
-        let createdTranscriptFileName: String?
-        if let existingFileName = currentItem.transcriptFileName {
-            transcriptFileName = existingFileName
-            createdTranscriptFileName = nil
-        } else {
-            let created = try? runtime.assets.saveTranscript(
-                processing.rawTranscript,
-                processing.finalTranscript
-            )
-            transcriptFileName = created
-            createdTranscriptFileName = created
-        }
+        // The new transcript always goes to a new file, and history points
+        // at it; the old file goes only once history no longer does (#460).
+        // A failed write still saves history, just without a file.
+        let createdTranscriptFileName = try? runtime.assets.saveTranscript(
+            processing.rawTranscript,
+            processing.finalTranscript
+        )
+        let transcriptFileName = createdTranscriptFileName
+        let replacedTranscriptFileName = currentItem.transcriptFileName
         let updatedItem = Self.replacingTranscription(
             of: currentItem,
             request: request,
@@ -918,6 +926,11 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
                 QuillUserIssueRecord(code: .historyPersistenceUnavailable)
             )
         }
+        Self.deleteReplacedTranscript(
+            replacedTranscriptFileName,
+            keeping: transcriptFileName,
+            assets: runtime.assets
+        )
         discardCandidate(noteID: noteID)
         onEvent?(
             .itemPersisted(
