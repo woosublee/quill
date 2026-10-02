@@ -404,7 +404,7 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
                 item,
                 completion
             )
-            let request = TranscriptionRetryWorkflowRequest(
+            var request = TranscriptionRetryWorkflowRequest(
                 origin: .startupResume,
                 deliveryPolicy: .historyOnly,
                 initialItem: item,
@@ -432,6 +432,10 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
                 ),
                 failureContext: failureContext
             )
+            // A note that already has a transcript was being retranscribed:
+            // the resumed result waits to be compared, never replacing that
+            // transcript unasked (#457). A first transcript is just saved.
+            request.deliversCandidate = Self.hasTranscriptText(item)
             _ = start(
                 request: request,
                 runtime: runtime,
@@ -442,6 +446,11 @@ final class TranscriptionRetryWorkflow: @unchecked Sendable {
                 )
             )
         }
+    }
+
+    static func hasTranscriptText(_ item: PipelineHistoryItem) -> Bool {
+        !item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !item.rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private static func isSafeAudioBasename(_ value: String) -> Bool {

@@ -8161,8 +8161,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     static func hasTranscriptText(_ item: PipelineHistoryItem) -> Bool {
-        !item.postProcessedTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || !item.rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        TranscriptionRetryWorkflow.hasTranscriptText(item)
     }
 
     /// Saves the waiting new transcript in place of the current one. Returns
