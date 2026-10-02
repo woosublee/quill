@@ -12,9 +12,9 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 
 ### Added
 
-- You can now edit a meeting summary directly, the same way you edit a transcript. Click any line to change it, press Return to add a line below, and press Delete on an empty line to remove it. Every section can be edited, including the owner and due date of action items, and new action items get their own checkbox. Changes save on their own.
+- You can now edit a meeting summary directly, the same way you edit a transcript. Click any line to change it, press Return to add a line below, and on macOS 14 and later press Delete on an empty line to remove it. Every section can be edited, including the owner and due date of action items, and new action items get their own checkbox. Changes save on their own.
 - An edited summary shows "Edited summary" with Revert to Original, which brings back the summary Quill made while keeping completed action items checked.
-- Regenerating a summary or retranscribing a note no longer replaces what you have right away. The new version appears next to the current one, and nothing changes until you choose Keep Current or Use New. A retranscribed transcript is copied to the clipboard only when you choose to use it.
+- Regenerating a summary or retranscribing a note in the Note Browser no longer replaces what you have right away. The new version appears next to the current one, and nothing changes until you choose Keep Current or Use New. A retranscribed transcript is copied to the clipboard only when you choose to use it.
 
 ### Improved
 
