@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Privacy Policy - Quill</title>
-    <meta name="description" content="Quill privacy policy, including local storage, provider API calls, and optional read-only Google Calendar access.">
+    <meta name="description" content="Quill privacy policy for Mac and iPhone, including local storage, provider API calls, on-device transcription, and optional read-only Google Calendar access.">
     <meta name="robots" content="index,follow">
     <link rel="canonical" href="https://quill.vicals.com/privacy/">
     <link rel="icon" href="/assets/quill-app-icon.png" type="image/png">
@@ -12,7 +12,7 @@
     <meta property="og:type" content="article">
     <meta property="og:site_name" content="Quill">
     <meta property="og:title" content="Privacy Policy - Quill">
-    <meta property="og:description" content="How Quill stores local app data and uses optional read-only Google Calendar access.">
+    <meta property="og:description" content="How Quill for Mac and iPhone stores local app data and uses optional read-only Google Calendar access.">
     <meta property="og:url" content="https://quill.vicals.com/privacy/">
   </head>
   <body>
@@ -32,11 +32,12 @@
     <main class="legal-main">
       <article class="wrap legal-card">
         <h1>Privacy Policy</h1>
-        <p><strong>Effective date:</strong> May 13, 2026</p>
-        <p>Quill is a macOS dictation app. This policy explains what Quill stores locally, what may leave your Mac when you choose to use provider integrations, and how the optional Google Calendar integration works.</p>
+        <p><strong>Effective date:</strong> October 3, 2026</p>
+        <p>Quill is a dictation and note-taking app for macOS and iPhone. This policy explains what Quill stores locally, what may leave your Mac when you choose to use provider integrations, and how the optional Google Calendar integration works.</p>
+        <p>Quill for iPhone works differently from Quill for Mac: it has no AI provider, context capture, or Google Calendar features. See <a href="#iphone">Quill for iPhone</a> for how the iPhone app handles your data. Unless a section says otherwise, the other sections describe Quill for Mac.</p>
 
         <h2>No Quill-operated storage server</h2>
-        <p>Quill does not operate a server that stores your transcripts, audio recordings, Google Calendar data, OAuth tokens, or app history. Quill is a local macOS app. App data is stored on your Mac unless you choose to send data to a configured third-party provider or connect Google Calendar.</p>
+        <p>Quill does not operate a server that stores your transcripts, audio recordings, Google Calendar data, OAuth tokens, or app history. Quill is a local app. App data is stored on your Mac or iPhone unless you choose to send data to a configured third-party provider or connect Google Calendar.</p>
 
         <h2>Local app data</h2>
         <p>Quill may store the following data locally on your Mac to provide app functionality:</p>
@@ -80,8 +81,35 @@
         <p>Google Calendar OAuth tokens are stored locally in the macOS Keychain. Selected calendar IDs are stored locally in app settings. You can disconnect Google Calendar from Quill Settings. Disconnecting removes Quill's stored Google Calendar OAuth token and clears selected calendars.</p>
         <p>You can also revoke Quill's Google access from your Google Account permissions page.</p>
 
+        <h2 id="iphone">Quill for iPhone</h2>
+        <p>Quill for iPhone records and transcribes audio on your iPhone. It has no accounts, advertising, analytics, or tracking, and it does not send your recordings or transcripts to Quill or to any transcription or AI provider.</p>
+
+        <h3>Data stored on your iPhone</h3>
+        <ul>
+          <li>Audio recordings you start in the app, their transcripts, and your edits to those transcripts.</li>
+          <li>Transcription models you choose to download.</li>
+          <li>Settings such as the selected transcription model and transcription language.</li>
+        </ul>
+        <p>Recordings, transcripts, and models are stored only inside the app on your iPhone and are excluded from iCloud and device backups, so they are not copied to Apple's servers or to another device. You can delete individual notes or models in the app. Deleting the app removes all of its data from your iPhone.</p>
+
+        <h3>Microphone and speech recognition</h3>
+        <p>Quill uses the microphone only while a recording you started is in progress. Recording can continue in the background, and iOS shows that the microphone is in use.</p>
+        <p>If you choose Apple Speech as the transcription model, Quill asks for Speech Recognition permission and requires Apple's on-device recognition, so your audio is not sent to Apple for that transcription. On recent iOS versions, iOS may download Apple's speech recognition assets for your language.</p>
+
+        <h3>Downloadable transcription models</h3>
+        <p>When you choose to download a transcription model, Quill downloads the model file from Hugging Face. The download request does not contain your recordings, transcripts, or settings. Like any website, Hugging Face receives standard connection information such as your IP address, and its own privacy policy applies to that request. Downloaded models then run entirely on your iPhone.</p>
+
+        <h3>Live Activities</h3>
+        <p>While you record, Quill can show the recording status, elapsed time, and audio level on the Lock Screen and in the Dynamic Island. It does not show transcript text there.</p>
+
+        <h3>Sharing and exporting</h3>
+        <p>When you share or export a note, Quill hands the file to the iOS share sheet. What happens next is governed by the app or service you choose.</p>
+
+        <h2>Changes to this policy</h2>
+        <p>If this policy changes, the updated version will be posted on this page with a new effective date.</p>
+
         <h2>Open source and support</h2>
-        <p>Quill is open source. You can inspect the source code at <a href="https://github.com/woosublee/quill">github.com/woosublee/quill</a>. For support, visit <a href="/support/">Quill Support</a>.</p>
+        <p>Quill for Mac is open source. You can inspect the source code at <a href="https://github.com/woosublee/quill">github.com/woosublee/quill</a>. For support with either app, visit <a href="/support/">Quill Support</a>.</p>
       </article>
     </main>
 
