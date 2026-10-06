@@ -7,6 +7,8 @@ DEV_BUNDLE_ID ?= com.woosublee.quill.dev
 BUILD_DIR = build
 APP_BUNDLE = $(BUILD_DIR)/$(APP_NAME).app
 CODESIGN_IDENTITY ?= Quill
+# Set to --timestamp for Developer ID builds that will be notarized.
+CODESIGN_TIMESTAMP ?=
 GIT_RELEASE_TAG := $(shell git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null)
 GIT_SHORT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null)
 APP_VERSION ?= $(patsubst v%,%,$(if $(GIT_RELEASE_TAG),$(GIT_RELEASE_TAG),v0.0.1))
@@ -269,30 +271,30 @@ endif
 	@xattr -cr "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app"
 	@staged_framework="$(BUILD_DIR)/codesign-staging/$(APP_NAME).app/Contents/Frameworks/Sparkle.framework"; \
 		if [ -d "$$staged_framework/Versions/Current/XPCServices" ]; then \
-			find -L "$$staged_framework/Versions/Current/XPCServices" -maxdepth 1 -name '*.xpc' -type d -exec codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" {} \; ; \
+			find -L "$$staged_framework/Versions/Current/XPCServices" -maxdepth 1 -name '*.xpc' -type d -exec codesign --force --options runtime $(CODESIGN_TIMESTAMP) --sign "$(CODESIGN_IDENTITY)" {} \; ; \
 		fi; \
 		if [ -d "$$staged_framework/Versions/Current/Updater.app" ]; then \
-			codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" "$$staged_framework/Versions/Current/Updater.app"; \
+			codesign --force --options runtime $(CODESIGN_TIMESTAMP) --sign "$(CODESIGN_IDENTITY)" "$$staged_framework/Versions/Current/Updater.app"; \
 		fi; \
 		if [ -x "$$staged_framework/Versions/Current/Autoupdate" ]; then \
-			codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" "$$staged_framework/Versions/Current/Autoupdate"; \
+			codesign --force --options runtime $(CODESIGN_TIMESTAMP) --sign "$(CODESIGN_IDENTITY)" "$$staged_framework/Versions/Current/Autoupdate"; \
 		fi; \
-		codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" "$$staged_framework"
+		codesign --force --options runtime $(CODESIGN_TIMESTAMP) --sign "$(CODESIGN_IDENTITY)" "$$staged_framework"
 	@helper="$(BUILD_DIR)/codesign-staging/$(APP_NAME).app/Contents/Resources/whisper/whisper-cli"; \
 		if [ -x "$$helper" ]; then \
-			codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" "$$helper"; \
+			codesign --force --options runtime $(CODESIGN_TIMESTAMP) --sign "$(CODESIGN_IDENTITY)" "$$helper"; \
 		else \
 			echo "Missing bundled whisper helper in staging app." >&2; \
 			exit 1; \
 		fi
 	@llama_helper="$(BUILD_DIR)/codesign-staging/$(APP_NAME).app/Contents/Resources/llama/llama-server"; \
 		if [ -x "$$llama_helper" ]; then \
-			codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" "$$llama_helper"; \
+			codesign --force --options runtime $(CODESIGN_TIMESTAMP) --sign "$(CODESIGN_IDENTITY)" "$$llama_helper"; \
 		else \
 			echo "Missing bundled llama-server helper in staging app." >&2; \
 			exit 1; \
 		fi
-	@codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" --entitlements Quill.entitlements "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app"
+	@codesign --force --options runtime $(CODESIGN_TIMESTAMP) --sign "$(CODESIGN_IDENTITY)" --entitlements Quill.entitlements "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app"
 	@rm -rf "$(APP_BUNDLE)"
 	@ditto --norsrc --noextattr "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app" "$(APP_BUNDLE)"
 	@xattr -cr "$(APP_BUNDLE)"
@@ -343,7 +345,7 @@ dmg: all
 	@echo "Created $(BUILD_DIR)/$(APP_NAME).dmg"
 
 codesign-dmg: dmg
-	codesign --force --sign "$(CODESIGN_IDENTITY)" "$(BUILD_DIR)/$(APP_NAME).dmg"
+	codesign --force $(CODESIGN_TIMESTAMP) --sign "$(CODESIGN_IDENTITY)" "$(BUILD_DIR)/$(APP_NAME).dmg"
 
 notarize:
 	xcrun notarytool submit "$(BUILD_DIR)/$(APP_NAME).dmg" \

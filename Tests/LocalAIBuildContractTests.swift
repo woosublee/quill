@@ -114,7 +114,7 @@ struct LocalAIBuildContractTests {
                 #"llama_helper="$(BUILD_DIR)/codesign-staging/$(APP_NAME).app/Contents/Resources/llama/llama-server""#
             )
                 && makefile.contains(
-                    #"codesign --force --options runtime --sign "$(CODESIGN_IDENTITY)" "$$llama_helper""#
+                    #"codesign --force --options runtime $(CODESIGN_TIMESTAMP) --sign "$(CODESIGN_IDENTITY)" "$$llama_helper""#
                 ),
             "staged llama-server receives its own runtime codesign invocation"
         )

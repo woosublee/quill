@@ -28,6 +28,7 @@ struct BuildMetadataTests {
         try testReleaseWorkflowsPassBuildMetadataToMake()
         try testStableReleaseWorkflowsEnforceMonotonicUpdates()
         try testNotarizedReleaseWorkflowIsManualByDefault()
+        try testNotarizedReleaseWorkflowUsesAPIKeyAndStaplesApp()
         try testSettingsSeparatesVersionBuildAndReleaseTag()
         print("BuildMetadataTests passed")
     }
@@ -450,6 +451,34 @@ struct BuildMetadataTests {
         assertDoesNotContain(releaseWorkflow, "BUILD_NUMBER=\"${{ inputs.build_number }}\"")
         assertDoesNotContain(releaseWorkflow, "on:\n  push:")
         assertDoesNotContain(releaseWorkflow, "BUILD_NUMBER=\"${{ github.run_number }}\"")
+    }
+
+    private static func testNotarizedReleaseWorkflowUsesAPIKeyAndStaplesApp() throws {
+        let releaseWorkflow = try String(contentsOfFile: ".github/workflows/release.yml", encoding: .utf8)
+        let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
+
+        assertContains(releaseWorkflow, "ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}")
+        assertContains(releaseWorkflow, "ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}")
+        assertContains(releaseWorkflow, "ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}")
+        assertDoesNotContain(releaseWorkflow, "APPLE_APP_PASSWORD")
+        assertContains(releaseWorkflow, "CODESIGN_TIMESTAMP=--timestamp")
+        assertContains(releaseWorkflow, #"codesign --force --timestamp --sign "$CODESIGN_IDENTITY" build/Quill.dmg"#)
+        assertAppearsInOrder(
+            releaseWorkflow,
+            [
+                "Build universal",
+                "Notarize universal app",
+                "xcrun stapler staple build/Quill.app",
+                "Create universal DMG",
+                "Notarize universal DMG",
+                "xcrun stapler staple build/Quill.dmg",
+                "Generate Sparkle appcast",
+            ]
+        )
+
+        assertContains(makefile, "CODESIGN_TIMESTAMP ?=\n")
+        assertContains(makefile, "--options runtime $(CODESIGN_TIMESTAMP) --sign")
+        assertDoesNotContain(makefile, "codesign --force --options runtime --sign")
     }
 
     private static func testSettingsSeparatesVersionBuildAndReleaseTag() throws {

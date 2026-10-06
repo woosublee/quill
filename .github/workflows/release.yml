@@ -103,9 +103,9 @@ jobs:
       # Required GitHub secrets:
       #   DEVELOPER_ID_CERTIFICATE_BASE64 — base64-encoded .p12 Developer ID certificate
       #   DEVELOPER_ID_CERTIFICATE_PASSWORD — password for the .p12
-      #   APPLE_ID — Apple ID email for notarization
-      #   APPLE_TEAM_ID — 10-character Apple Team ID
-      #   APPLE_APP_PASSWORD — app-specific password for notarization
+      #   ASC_KEY_ID — App Store Connect API key ID for notarization
+      #   ASC_ISSUER_ID — App Store Connect API issuer ID
+      #   ASC_KEY_P8_BASE64 — base64-encoded App Store Connect API private key (.p8)
       #   SPARKLE_PRIVATE_KEY — Sparkle EdDSA private key for appcast signing
       - name: Import Developer ID certificate
         env:
@@ -142,30 +142,44 @@ jobs:
 
       - name: Store notarization credentials
         env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
         run: |
+          KEY_PATH="$RUNNER_TEMP/notary_api_key.p8"
+          (umask 077 && echo "$ASC_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH")
           xcrun notarytool store-credentials "notarytool-profile" \
-            --apple-id "$APPLE_ID" \
-            --team-id "$APPLE_TEAM_ID" \
-            --password "$APPLE_APP_PASSWORD" \
+            --key "$KEY_PATH" \
+            --key-id "$ASC_KEY_ID" \
+            --issuer "$ASC_ISSUER_ID" \
             --keychain "$KEYCHAIN_PATH"
+          rm -f "$KEY_PATH"
 
       - name: Build universal
         env:
           GOOGLE_CALENDAR_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_CALENDAR_OAUTH_CLIENT_ID }}
           GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET }}
-        run: make ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY="$CODESIGN_IDENTITY" APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.tag }}" GOOGLE_CALENDAR_OAUTH_CLIENT_ID="$GOOGLE_CALENDAR_OAUTH_CLIENT_ID" GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET="$GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET"
+        run: make ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY="$CODESIGN_IDENTITY" CODESIGN_TIMESTAMP=--timestamp APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.tag }}" GOOGLE_CALENDAR_OAUTH_CLIENT_ID="$GOOGLE_CALENDAR_OAUTH_CLIENT_ID" GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET="$GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET"
+
+      - name: Notarize universal app
+        run: |
+          ditto -c -k --keepParent build/Quill.app "$RUNNER_TEMP/Quill-notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/Quill-notarize.zip" \
+            --keychain-profile "notarytool-profile" \
+            --keychain "$KEYCHAIN_PATH" \
+            --wait
+          rm -f "$RUNNER_TEMP/Quill-notarize.zip"
+          xcrun stapler staple build/Quill.app
+          xcrun stapler validate build/Quill.app
 
       - name: Create universal DMG
         env:
           GOOGLE_CALENDAR_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_CALENDAR_OAUTH_CLIENT_ID }}
           GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET }}
-        run: make dmg ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY="$CODESIGN_IDENTITY" APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.tag }}" GOOGLE_CALENDAR_OAUTH_CLIENT_ID="$GOOGLE_CALENDAR_OAUTH_CLIENT_ID" GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET="$GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET"
+        run: make dmg ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY="$CODESIGN_IDENTITY" CODESIGN_TIMESTAMP=--timestamp APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.tag }}" GOOGLE_CALENDAR_OAUTH_CLIENT_ID="$GOOGLE_CALENDAR_OAUTH_CLIENT_ID" GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET="$GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET"
 
       - name: Sign universal DMG
-        run: codesign --force --sign "$CODESIGN_IDENTITY" build/Quill.dmg
+        run: codesign --force --timestamp --sign "$CODESIGN_IDENTITY" build/Quill.dmg
 
       - name: Notarize universal DMG
         run: |
@@ -174,6 +188,8 @@ jobs:
             --keychain "$KEYCHAIN_PATH" \
             --wait
           xcrun stapler staple build/Quill.dmg
+          xcrun stapler validate build/Quill.dmg
+          spctl -a -vv -t open --context context:primary-signature build/Quill.dmg
 
       - name: Save universal DMG
         run: mv build/Quill.dmg Quill.dmg
@@ -226,7 +242,7 @@ jobs:
       - name: Cleanup signing artifacts
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/developer_id.p12"
+          rm -f "$RUNNER_TEMP/developer_id.p12" "$RUNNER_TEMP/notary_api_key.p8" "$RUNNER_TEMP/Quill-notarize.zip"
           KPATH="${KEYCHAIN_PATH:-$RUNNER_TEMP/signing.keychain-db}"
           if [ -f "$KPATH" ]; then
             security delete-keychain "$KPATH"
