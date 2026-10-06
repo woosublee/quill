@@ -28,6 +28,7 @@ struct BuildMetadataTests {
         try testReleaseWorkflowsPassBuildMetadataToMake()
         try testStableReleaseWorkflowsEnforceMonotonicUpdates()
         try testNotarizedReleaseWorkflowIsManualByDefault()
+        try testNotarizedReleaseWorkflowUsesAPIKeyAndStaplesApp()
         try testSettingsSeparatesVersionBuildAndReleaseTag()
         print("BuildMetadataTests passed")
     }
@@ -450,6 +451,55 @@ struct BuildMetadataTests {
         assertDoesNotContain(releaseWorkflow, "BUILD_NUMBER=\"${{ inputs.build_number }}\"")
         assertDoesNotContain(releaseWorkflow, "on:\n  push:")
         assertDoesNotContain(releaseWorkflow, "BUILD_NUMBER=\"${{ github.run_number }}\"")
+    }
+
+    private static func testNotarizedReleaseWorkflowUsesAPIKeyAndStaplesApp() throws {
+        let releaseWorkflow = try String(contentsOfFile: ".github/workflows/release.yml", encoding: .utf8)
+        let notarizeScript = try String(contentsOfFile: "scripts/notarize.sh", encoding: .utf8)
+        let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
+
+        assertContains(releaseWorkflow, "CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}")
+        assertContains(releaseWorkflow, "ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}")
+        assertContains(releaseWorkflow, "ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}")
+        assertContains(releaseWorkflow, "ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}")
+        assertDoesNotContain(releaseWorkflow, "APPLE_APP_PASSWORD")
+        assertDoesNotContain(releaseWorkflow, "QUILL_CERTIFICATE")
+        assertContains(releaseWorkflow, "security default-keychain -s \"$KEYCHAIN_PATH\"")
+        assertContains(releaseWorkflow, "No Developer ID Application identity found")
+        assertContains(releaseWorkflow, "CODESIGN_TIMESTAMP=--timestamp")
+        assertContains(releaseWorkflow, #"codesign --force --timestamp --sign "$CODESIGN_IDENTITY" build/Quill.dmg"#)
+        assertAppearsInOrder(
+            releaseWorkflow,
+            [
+                "Build universal",
+                "Notarize universal app",
+                "xcrun stapler staple build/Quill.app",
+                "Create universal DMG",
+                "Notarize universal DMG",
+                "xcrun stapler staple build/Quill.dmg",
+                "Verify Gatekeeper acceptance",
+                #"xcrun stapler validate "$MOUNT_DIR/Quill.app""#,
+                #"spctl -a -vv -t exec "$MOUNT_DIR/Quill.app""#,
+                "Generate Sparkle appcast",
+                "Create Release",
+            ]
+        )
+
+        assertContains(notarizeScript, "--wait")
+        assertContains(notarizeScript, "--timeout")
+        assertContains(notarizeScript, "submit_status")
+        assertContains(releaseWorkflow, "import_intermediate DeveloperIDG2CA f16cd3c54c7f83cea4bf1a3e6a0819c8aaa8e4a1528fd144715f350643d2df3a")
+        assertContains(releaseWorkflow, "shasum -a 256 -c -")
+        assertContains(notarizeScript, "xcrun notarytool log")
+        assertContains(notarizeScript, #"[ "$status" != "Accepted" ]"#)
+
+        assertContains(makefile, "CODESIGN_TIMESTAMP ?=\n")
+        assertContains(makefile, #""$(CODESIGN_IDENTITY)" "$(CODESIGN_TIMESTAMP)" > "$@.tmp""#)
+        let codesignLines = makefile.split(separator: "\n").filter { $0.contains("codesign --force") }
+        precondition(!codesignLines.isEmpty, "Expected codesign calls in Makefile")
+        for line in codesignLines {
+            assertContains(String(line), "$(CODESIGN_TIMESTAMP)")
+        }
     }
 
     private static func testSettingsSeparatesVersionBuildAndReleaseTag() throws {
