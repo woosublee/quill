@@ -496,6 +496,7 @@ struct BuildMetadataTests {
         assertContains(notarizeScript, "submit_status")
         assertContains(releaseWorkflow, "import_intermediate DeveloperIDG2CA f16cd3c54c7f83cea4bf1a3e6a0819c8aaa8e4a1528fd144715f350643d2df3a")
         assertContains(releaseWorkflow, "shasum -a 256 -c -")
+        assertContains(releaseWorkflow, #"security import "$path" -k "$KEYCHAIN_PATH" || echo "$name is already in the keychain.""#)
         assertContains(notarizeScript, "xcrun notarytool log")
         assertContains(notarizeScript, #"[ "$status" != "Accepted" ]"#)
 

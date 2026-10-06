@@ -147,7 +147,9 @@ jobs:
             local path="$RUNNER_TEMP/$name.cer"
             curl -fsSL --retry 3 -o "$path" "https://www.apple.com/certificateauthority/$name.cer"
             echo "$expected_sha256  $path" | shasum -a 256 -c -
-            security import "$path" -k "$KEYCHAIN_PATH"
+            # The .p12 may already carry this intermediate; a duplicate is fine,
+            # and the find-identity check below still catches a missing chain.
+            security import "$path" -k "$KEYCHAIN_PATH" || echo "$name is already in the keychain."
             rm -f "$path"
           }
           import_intermediate DeveloperIDG2CA f16cd3c54c7f83cea4bf1a3e6a0819c8aaa8e4a1528fd144715f350643d2df3a
