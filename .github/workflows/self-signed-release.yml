@@ -1,6 +1,6 @@
-name: Self-signed Release
+name: Self-signed Release (retired)
 
-# Builds the official auto-update release entirely in CI, signed with the
+# Built the official auto-update release before v1.0.0, entirely in CI, signed with the
 # self-signed "Quill" certificate (the same identity used for local releases).
 # Keeping the identity identical means Sparkle's code-signing check still
 # matches for existing installs, so auto-updates are not interrupted. The
@@ -34,6 +34,11 @@ jobs:
   build-and-release:
     runs-on: macos-latest
     steps:
+      - name: Refuse retired workflow
+        run: |
+          echo "Self-signed releases are retired since v1.0.0. Dispatch 'Official Notarized Release' (release.yml) instead." >&2
+          exit 1
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0

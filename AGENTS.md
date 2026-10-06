@@ -50,8 +50,9 @@ git diff --check
 ```
 
 `make check` validates plist, entitlement, shell, and YAML files, then runs the
-complete Core, Recording, Transcription, and App State test suite. For a real app bundle
-build, use the Quill signing identity explicitly:
+complete Core, Recording, Transcription, and App State test suite. For a local
+development app bundle build, use the self-signed Quill identity explicitly (official
+releases are signed with Developer ID in CI only):
 
 ```bash
 make ARCH="$(uname -m)" CODESIGN_IDENTITY=Quill
