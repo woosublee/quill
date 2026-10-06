@@ -1,5 +1,11 @@
 name: Official Notarized Release
 
+# Mirrors self-signed-release.yml, but signs with the Developer ID certificate
+# and notarizes both the app and the DMG so new users do not see a Gatekeeper
+# warning. Moving from the self-signed "Quill" identity to Developer ID changes
+# the app's code-signing identity, so existing installs may need to grant
+# macOS permissions again after switching.
+
 on:
   workflow_dispatch:
     inputs:
@@ -101,7 +107,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       # Required GitHub secrets:
-      #   DEVELOPER_ID_CERTIFICATE_BASE64 — base64-encoded .p12 Developer ID certificate
+      #   DEVELOPER_ID_CERTIFICATE_BASE64 — base64-encoded .p12 holding only the Developer ID Application identity
       #   DEVELOPER_ID_CERTIFICATE_PASSWORD — password for the .p12
       #   ASC_KEY_ID — App Store Connect API key ID for notarization
       #   ASC_ISSUER_ID — App Store Connect API issuer ID
@@ -134,11 +140,18 @@ jobs:
             -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
           security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s "$KEYCHAIN_PATH"
 
-          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          # Developer ID chains to Apple's trusted roots, so `find-identity -v`
+          # reports it. Use its SHA-1 so codesign never picks another identity,
+          # and fail early instead of signing with an empty identity.
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | awk '/"Developer ID Application: / { print $2; exit }')"
+          if [ -z "$IDENTITY" ]; then
+            echo "No Developer ID Application identity found in the imported certificate." >&2
+            exit 1
+          fi
           echo "CODESIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
-          echo "Found signing identity: $IDENTITY"
 
       - name: Store notarization credentials
         env:
@@ -164,10 +177,7 @@ jobs:
       - name: Notarize universal app
         run: |
           ditto -c -k --keepParent build/Quill.app "$RUNNER_TEMP/Quill-notarize.zip"
-          xcrun notarytool submit "$RUNNER_TEMP/Quill-notarize.zip" \
-            --keychain-profile "notarytool-profile" \
-            --keychain "$KEYCHAIN_PATH" \
-            --wait
+          scripts/notarize.sh "$RUNNER_TEMP/Quill-notarize.zip"
           rm -f "$RUNNER_TEMP/Quill-notarize.zip"
           xcrun stapler staple build/Quill.app
           xcrun stapler validate build/Quill.app
@@ -183,13 +193,18 @@ jobs:
 
       - name: Notarize universal DMG
         run: |
-          xcrun notarytool submit build/Quill.dmg \
-            --keychain-profile "notarytool-profile" \
-            --keychain "$KEYCHAIN_PATH" \
-            --wait
+          scripts/notarize.sh build/Quill.dmg
           xcrun stapler staple build/Quill.dmg
           xcrun stapler validate build/Quill.dmg
+
+      - name: Verify Gatekeeper acceptance
+        run: |
           spctl -a -vv -t open --context context:primary-signature build/Quill.dmg
+          MOUNT_DIR="$(mktemp -d)"
+          hdiutil attach build/Quill.dmg -nobrowse -readonly -mountpoint "$MOUNT_DIR" >/dev/null
+          trap 'hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || true' EXIT
+          xcrun stapler validate "$MOUNT_DIR/Quill.app"
+          spctl -a -vv -t exec "$MOUNT_DIR/Quill.app"
 
       - name: Save universal DMG
         run: mv build/Quill.dmg Quill.dmg
