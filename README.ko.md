@@ -58,7 +58,6 @@ Quill은 말로 떠올린 생각을 실제로 사용할 수 있는 글로 바꿔
 ## 빠른 시작
 
 1. [Quill.dmg를 다운로드](https://github.com/woosublee/quill/releases/latest/download/Quill.dmg)합니다.
-   - macOS가 첫 실행을 차단하면 **시스템 설정 → 개인정보 보호 및 보안**에서 Quill의 **확인 없이 열기**를 선택한 뒤 **열기**를 눌러 주세요. 현재 self-signed 릴리스에서는 처음 한 번만 필요합니다.
 2. Quill을 열고 설정 안내를 완료합니다.
 3. 받아쓰기와 붙여 넣기 자동화에 필요한 macOS 권한을 허용합니다.
 4. Settings에서 전사 제공자, 로컬 전사 옵션 또는 OpenAI-compatible API endpoint를 설정합니다.

@@ -58,7 +58,6 @@ It is built for everyday writing and work notes: replying to messages, drafting 
 ## Quick Start
 
 1. [Download Quill.dmg](https://github.com/woosublee/quill/releases/latest/download/Quill.dmg).
-   - If macOS blocks the first launch, open **System Settings → Privacy & Security**, select **Open Anyway** for Quill, and confirm **Open**. This is only required once for the current self-signed release.
 2. Open Quill and complete the setup prompts.
 3. Grant the required macOS permissions for dictation and paste automation.
 4. Configure a transcription provider, local transcription option, or OpenAI-compatible API endpoint in Settings.

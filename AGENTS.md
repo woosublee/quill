@@ -20,9 +20,9 @@ otherwise.
 - `Sources/SettingsView.swift`, `Sources/SetupView.swift`, and other SwiftUI files: UI.
 - `Tests/`: dependency-free executable and grouped full-source tests.
 - `.github/workflows/tests.yml`: sharded pull-request verification.
-- `.github/workflows/self-signed-release.yml`: official Sparkle-compatible release.
+- `.github/workflows/release.yml`: official notarized Developer ID release.
+- `.github/workflows/self-signed-release.yml`: retired self-signed release; do not dispatch.
 - `.github/workflows/manual-release.yml`: manually published prerelease builds.
-- `.github/workflows/release.yml`: reserved Developer ID and notarization path.
 - `.github/workflows/dev-release.yml`: signed development release workflow.
 
 ## Working rules
@@ -69,17 +69,21 @@ live AI providers.
 
 ## Protected release contracts
 
-The current official update path is `.github/workflows/self-signed-release.yml`.
-Preserve all of these contracts:
+The current official update path is `.github/workflows/release.yml` (Developer ID,
+notarized, since v1.0.0). Preserve all of these contracts:
 
-- The signing identity is exactly `CODESIGN_IDENTITY=Quill`.
+- Official releases are signed with the team's Developer ID Application identity
+  and both the app and DMG are notarized and stapled. Do not ship an official
+  release with another identity; switching identities makes existing users grant
+  macOS permissions again.
+- `.github/workflows/self-signed-release.yml` and the self-signed `Quill` identity
+  are retired and must not be dispatched for stable releases.
 - Google Calendar OAuth client ID and secret are passed to both app and DMG builds.
 - Official releases generate and sign a Sparkle `appcast.xml`.
 - Official releases publish both `Quill.dmg` and `appcast.xml`.
 - Stable versions and build numbers remain monotonically increasing.
 - Stable release workflows share the `quill-official-stable-release` lock.
 - Manual releases remain prereleases and are not used by Sparkle automatic updates.
-- `.github/workflows/release.yml` remains available for a future notarized transition.
 
 ## Privacy and security
 

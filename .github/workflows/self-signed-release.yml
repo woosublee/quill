@@ -6,7 +6,11 @@ name: Self-signed Release
 # matches for existing installs, so auto-updates are not interrupted. The
 # trade-off versus release.yml (Developer ID + notarization) is a Gatekeeper
 # warning on first launch for brand-new users — the same as today's local
-# releases. release.yml is kept for a future notarized transition.
+# releases.
+#
+# RETIRED since v1.0.0: official releases use release.yml (Developer ID +
+# notarization). Do not dispatch this workflow; shipping a self-signed build
+# again would make existing users grant macOS permissions again.
 
 on:
   workflow_dispatch:

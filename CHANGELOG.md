@@ -8,6 +8,17 @@ This project uses semantic versioning for public releases. Use `MAJOR.MINOR.PATC
 - `MINOR` changes add user-visible features and improvements.
 - `PATCH` changes fix bugs, polish existing behavior, or make small internal improvements.
 
+## [1.0.0] - 2026-10-07
+
+### Changed
+
+- Quill is now signed with an Apple Developer ID and notarized by Apple. New downloads open without the "Open Anyway" step in Privacy & Security.
+
+### Important
+
+- After this update, macOS asks again for the permissions Quill uses, because the app's signature changed. If dictation shortcuts, pasting, or screen context stop working, open **System Settings → Privacy & Security** and turn Quill back on under **Accessibility**, **Screen Recording**, and **Microphone**. This happens only once.
+- If you use Quill 0.1.5 or earlier, its built-in updater cannot install this version. Download [Quill.dmg](https://github.com/woosublee/quill/releases/latest/download/Quill.dmg) and replace the app once; later updates arrive automatically.
+
 ## [0.6.0] - 2026-10-02
 
 ### Added
