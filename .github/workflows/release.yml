@@ -111,7 +111,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       # Required GitHub secrets:
-      #   DEVELOPER_ID_CERTIFICATE_BASE64 — base64-encoded .p12 holding only the Developer ID Application identity
+      #   DEVELOPER_ID_CERTIFICATE_BASE64 — base64-encoded .p12 with the Developer ID Application identity (and optionally Apple's G2 intermediate)
       #   DEVELOPER_ID_CERTIFICATE_PASSWORD — password for the .p12
       #   ASC_KEY_ID — App Store Connect API key ID for notarization
       #   ASC_ISSUER_ID — App Store Connect API issuer ID
@@ -140,16 +140,19 @@ jobs:
             -k "$KEYCHAIN_PATH"
           rm -f "$CERTIFICATE_PATH"
 
-          # Import Apple's Developer ID G2 intermediate so the identity is valid
-          # without relying on the runner image.
+          # Make sure Apple's Developer ID G2 intermediate is in this keychain so
+          # the identity is valid without relying on the runner image. The .p12
+          # may already carry it; otherwise download, verify, and import it.
           import_intermediate() {
             local name="$1" expected_sha256="$2"
             local path="$RUNNER_TEMP/$name.cer"
+            if security find-certificate -a -Z "$KEYCHAIN_PATH" | grep -qi "SHA-256 hash: $expected_sha256"; then
+              echo "$name is already in the signing keychain."
+              return
+            fi
             curl -fsSL --retry 3 -o "$path" "https://www.apple.com/certificateauthority/$name.cer"
             echo "$expected_sha256  $path" | shasum -a 256 -c -
-            # The .p12 may already carry this intermediate; a duplicate is fine,
-            # and the find-identity check below still catches a missing chain.
-            security import "$path" -k "$KEYCHAIN_PATH" || echo "$name is already in the keychain."
+            security import "$path" -k "$KEYCHAIN_PATH"
             rm -f "$path"
           }
           import_intermediate DeveloperIDG2CA f16cd3c54c7f83cea4bf1a3e6a0819c8aaa8e4a1528fd144715f350643d2df3a
