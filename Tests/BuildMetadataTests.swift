@@ -488,7 +488,6 @@ struct BuildMetadataTests {
         assertContains(notarizeScript, "--wait")
         assertContains(notarizeScript, "--timeout")
         assertContains(notarizeScript, "submit_status")
-        assertContains(releaseWorkflow, "import_intermediate DeveloperIDCA 7afc9d01a62f03a2de9637936d4afe68090d2de18d03f29c88cfb0b1ba63587f")
         assertContains(releaseWorkflow, "import_intermediate DeveloperIDG2CA f16cd3c54c7f83cea4bf1a3e6a0819c8aaa8e4a1528fd144715f350643d2df3a")
         assertContains(releaseWorkflow, "shasum -a 256 -c -")
         assertContains(notarizeScript, "xcrun notarytool log")
