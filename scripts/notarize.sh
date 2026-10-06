@@ -23,7 +23,8 @@ if [ "$submit_status" -ne 0 ] || [ "$status" != "Accepted" ]; then
   printf '%s\n' "$result" >&2
   if [ -n "$submission_id" ]; then
     if [ "$status" = "In Progress" ]; then
-      echo "Still processing. Resume with: xcrun notarytool wait $submission_id" >&2
+      echo "Still processing. This keychain is deleted after the job, so resume with the API key:" >&2
+      echo "  xcrun notarytool wait $submission_id --key <AuthKey.p8> --key-id <ASC_KEY_ID> --issuer <ASC_ISSUER_ID>" >&2
     else
       xcrun notarytool log "$submission_id" \
         --keychain-profile "notarytool-profile" \
