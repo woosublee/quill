@@ -276,6 +276,12 @@ struct BuildMetadataTests {
             assertDoesNotContain(content, "zachlatta/freeflow")
         }
         assertContains(agents, "self-signed-release.yml")
+        assertContains(agents, "The current official update path is `.github/workflows/release.yml`")
+        assertContains(agents, "are retired and must not be dispatched for stable releases")
+
+        let retiredWorkflow = try String(contentsOfFile: ".github/workflows/self-signed-release.yml", encoding: .utf8)
+        assertContains(retiredWorkflow, "name: Self-signed Release (retired)")
+        assertAppearsInOrder(retiredWorkflow, ["steps:", "Refuse retired workflow", "exit 1", "actions/checkout@"])
         assertContains(agents, "Google Calendar OAuth")
         assertContains(agents, "appcast.xml")
         assertContains(config, "blank_issues_enabled: true")
