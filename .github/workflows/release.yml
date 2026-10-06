@@ -3,8 +3,10 @@ name: Official Notarized Release
 # Mirrors self-signed-release.yml, but signs with the Developer ID certificate
 # and notarizes both the app and the DMG so new users do not see a Gatekeeper
 # warning. Moving from the self-signed "Quill" identity to Developer ID changes
-# the app's code-signing identity, so existing installs may need to grant
-# macOS permissions again after switching.
+# the app's code-signing identity. Sparkle still accepts the update because the
+# EdDSA key is unchanged, but macOS asks existing users to grant Accessibility,
+# Screen Recording, and Microphone access again once. Mention that in the
+# CHANGELOG section of the first notarized release.
 
 on:
   workflow_dispatch:
@@ -136,6 +138,19 @@ jobs:
             -k "$KEYCHAIN_PATH"
           rm -f "$CERTIFICATE_PATH"
 
+          # Import Apple's Developer ID intermediates so the identity is valid
+          # whichever sub-CA issued it, without relying on the runner image.
+          import_intermediate() {
+            local name="$1" expected_sha256="$2"
+            local path="$RUNNER_TEMP/$name.cer"
+            curl -fsSL --retry 3 -o "$path" "https://www.apple.com/certificateauthority/$name.cer"
+            echo "$expected_sha256  $path" | shasum -a 256 -c -
+            security import "$path" -k "$KEYCHAIN_PATH"
+            rm -f "$path"
+          }
+          import_intermediate DeveloperIDCA 7afc9d01a62f03a2de9637936d4afe68090d2de18d03f29c88cfb0b1ba63587f
+          import_intermediate DeveloperIDG2CA f16cd3c54c7f83cea4bf1a3e6a0819c8aaa8e4a1528fd144715f350643d2df3a
+
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
             -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
@@ -202,7 +217,7 @@ jobs:
           spctl -a -vv -t open --context context:primary-signature build/Quill.dmg
           MOUNT_DIR="$(mktemp -d)"
           hdiutil attach build/Quill.dmg -nobrowse -readonly -mountpoint "$MOUNT_DIR" >/dev/null
-          trap 'hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || true' EXIT
+          trap 'hdiutil detach "$MOUNT_DIR" >/dev/null 2>&1 || true; rmdir "$MOUNT_DIR" 2>/dev/null || true' EXIT
           xcrun stapler validate "$MOUNT_DIR/Quill.app"
           spctl -a -vv -t exec "$MOUNT_DIR/Quill.app"
 
