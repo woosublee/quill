@@ -58,15 +58,13 @@ from.
   `end`, `isAllDay`, `attendees: [CalendarEventAttendee]`.
   It keeps `hasUsableTitle` and `match(accountID:source:titleState:)` from
   `GoogleCalendarEvent`, which it replaces in shared code.
-- Add a `CalendarEventSource` protocol: `func events(from:to:) async throws -> [CalendarEvent]`
-  plus the source's connection/selection state.
-  - `GoogleCalendarEventSource` wraps today's `GoogleCalendarService` and
-    token flow and converts its results.
-  - `AppleCalendarEventSource` reads `EKEventStore` events for the selected
-    `EKCalendar` identifiers.
-- A `CalendarEventAggregator` asks every connected source for the window,
-  merges the results, and removes duplicates. One source failing does not drop
-  the others; failures are reported per source.
+- Google keeps its existing fetch path in `AppState` (token refresh and health
+  reporting are entangled there); it now returns `CalendarEvent`.
+  `AppleCalendarService` reads `EKEventStore` events for the selected
+  `EKCalendar` identifiers. A pure `CalendarEventMerger` combines the two
+  results and removes duplicates. One source failing does not drop the other;
+  failures are reported per source. (A provider protocol can be extracted when a
+  third source arrives.)
 - **Duplicates:** events with the same normalized title, start, end, and
   all-day flag are one event. The first source in a fixed order (Google, then
   Apple) wins, so Google's richer attendee data is kept when both have it.
@@ -80,8 +78,9 @@ from.
   (`calendarEventMatch`, `calendarMatchForHistoryItem`), and the overlay's
   `RecordingCalendarSnapshot`. `CalendarEventMatcher` and the scheduler take
   `CalendarEvent`.
-- **Reminder identifiers** become `source:calendarID:eventID:start`, so the
-  same IDs never collide across sources.
+- **Reminder identifiers** keep today's `calendarID:eventID:start` format so
+  already scheduled Google reminders are not duplicated. Apple calendar IDs are
+  EventKit UUIDs and cannot collide with Google calendar IDs.
 - **Change notifications:** `EKEventStoreChanged` triggers an immediate
   reminder refresh. The existing refresh interval still applies to all sources.
 
