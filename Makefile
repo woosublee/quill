@@ -6,7 +6,9 @@ DEV_APP_NAME ?= Quill Dev
 DEV_BUNDLE_ID ?= com.woosublee.quill.dev
 BUILD_DIR = build
 APP_BUNDLE = $(BUILD_DIR)/$(APP_NAME).app
-CODESIGN_IDENTITY ?= Quill
+# Matches the Developer ID Application certificate in the login keychain by
+# name, so renewing the certificate needs no change here.
+CODESIGN_IDENTITY ?= Developer ID Application
 # Set to --timestamp for Developer ID builds that will be notarized.
 CODESIGN_TIMESTAMP ?=
 GIT_RELEASE_TAG := $(shell git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null)

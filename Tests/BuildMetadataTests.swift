@@ -81,7 +81,8 @@ struct BuildMetadataTests {
     private static func testBuildSettingsTrackCodesignIdentity() throws {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
 
-        assertContains(makefile, "CODESIGN_IDENTITY ?= Quill")
+        assertContains(makefile, "CODESIGN_IDENTITY ?= Developer ID Application")
+        assertDoesNotContain(makefile, "CODESIGN_IDENTITY ?= Quill")
         assertContains(makefile, "$(CODESIGN_IDENTITY)")
         assertContains(makefile, "$(BUILD_TAG)\" \"$(GOOGLE_CALENDAR_OAUTH_CLIENT_ID)\" \"$(GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET)\" \"$(CODESIGN_IDENTITY)")
     }
