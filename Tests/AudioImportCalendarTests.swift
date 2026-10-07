@@ -10,6 +10,7 @@ struct AudioImportCalendarTests {
         testAppliedTitleUsesRecordingDayOrEventDay()
         testInsertionIndexKeepsNewestFirst()
         testImportSelectionSourceRoundTrips()
+        try testAppStateImportWiring()
         print("AudioImportCalendarTests passed")
     }
 
@@ -89,5 +90,21 @@ struct AudioImportCalendarTests {
     static func testImportSelectionSourceRoundTrips() {
         precondition(CalendarMatchSource(rawValue: "import_selection") == .importSelection)
         precondition(CalendarMatchSource(rawValue: "overlap_suggestion") == .overlapSuggestion)
+    }
+
+    static func testAppStateImportWiring() throws {
+        let source = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        precondition(source.contains("func calendarDayEvents(on day: Date) async -> CalendarDayEventsResult"))
+        precondition(source.contains("toleratesGoogleFailure: true"), "Apple events survive a Google failure")
+        precondition(source.contains("recordingTime: AudioFileRecordingTime?,\n        calendarEvent: CalendarEvent?"))
+        precondition(source.contains("timestamp: recordingTime?.end ?? startedAt"))
+        precondition(source.contains("recordingStartedAt: recordingTime?.start"))
+        precondition(source.contains("source: .importSelection"))
+        precondition(source.contains("ImportCalendarTitle.title(for:"))
+        precondition(source.contains("PipelineHistoryOrdering.insertionIndex("), "notes insert in time order")
+        // Completion keeps placeholder fields (spec §4).
+        precondition(source.contains("recordingStartedAt: activeTranscriptionJobs[jobID]?.recordingStartedAt ?? existingEntry?.recordingStartedAt"))
+        precondition(source.contains("customTitle: existingEntry?.customTitle"))
+        precondition(source.contains("func openCalendarSettings()"))
     }
 }

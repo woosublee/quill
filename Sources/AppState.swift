@@ -8045,6 +8045,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func importAudioFile(_ fileURL: URL, choice: TranscriptionBackendChoice) {
+        importAudioFile(fileURL, choice: choice, recordingTime: nil, calendarEvent: nil)
+    }
+
+    /// `recordingTime` comes from the file's embedded creation date; with it
+    /// the note sits at its real recording time. `calendarEvent` is the event
+    /// chosen in the import sheet.
+    @MainActor
+    func importAudioFile(
+        _ fileURL: URL,
+        choice: TranscriptionBackendChoice,
+        recordingTime: AudioFileRecordingTime?,
+        calendarEvent: CalendarEvent?
+    ) {
         guard requireAvailableHistoryForMutation() else { return }
         guard !choice.usesCloudAPI || hasTranscriptionAPIKey else {
             openProviderSettings()
@@ -8090,12 +8103,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 return
             }
 
+            let calendarMatch = calendarEvent.map { event in
+                event.match(
+                    accountID: event.provider == .apple
+                        ? Self.appleCalendarAccountID
+                        : self.googleCalendarConnection.accountEmail,
+                    source: .importSelection,
+                    titleState: .suggested
+                )
+            }
             let placeholder = PipelineHistoryItem(
                 id: noteID,
-                timestamp: startedAt,
-                recordingStartedAt: nil,
-                recordingEndedAt: nil,
-                calendarMatch: nil,
+                timestamp: recordingTime?.end ?? startedAt,
+                recordingStartedAt: recordingTime?.start,
+                recordingEndedAt: recordingTime?.end,
+                calendarMatch: calendarMatch,
                 rawTranscript: "",
                 postProcessedTranscript: "",
                 postProcessingPrompt: nil,
@@ -8118,7 +8140,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 localTranscriptionModelID: configuration.historyLocalTranscriptionModelID,
                 contextAppName: nil,
                 contextBundleIdentifier: nil,
-                contextWindowTitle: nil
+                contextWindowTitle: nil,
+                customTitle: calendarEvent.map { ImportCalendarTitle.title(for: $0, recording: recordingTime) }
             )
 
             do {
@@ -8140,8 +8163,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 sessionIntent: .dictation,
                 sessionContext: nil,
                 contextTask: nil,
-                recordingStartedAt: nil,
-                recordingEndedAt: nil,
+                recordingStartedAt: recordingTime?.start,
+                recordingEndedAt: recordingTime?.end,
                 isImportedAudio: true
             )
             self.pendingAudioImportJobIDs.remove(jobID)
@@ -8942,6 +8965,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func openProviderSettings() {
         selectedSettingsTab = .models
+        NotificationCenter.default.post(name: .showSettings, object: nil)
+    }
+
+    func openCalendarSettings() {
+        selectedSettingsTab = .calendar
         NotificationCenter.default.post(name: .showSettings, object: nil)
     }
 
@@ -12739,7 +12767,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return []
         }
         let removedStoredFiles = try pipelineHistoryStore.append(item, maxCount: maxPipelineHistoryCount)
-        pipelineHistory.insert(item, at: 0)
+        insertPipelineHistoryItemInTimeOrder(item)
         if pipelineHistory.count > maxPipelineHistoryCount {
             pipelineHistory.removeLast(pipelineHistory.count - maxPipelineHistoryCount)
         }
@@ -12857,6 +12885,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    /// Imported audio can carry an earlier recording time; keep the list
+    /// newest first like the store.
+    private func insertPipelineHistoryItemInTimeOrder(_ item: PipelineHistoryItem) {
+        let index = PipelineHistoryOrdering.insertionIndex(
+            for: item.timestamp,
+            in: pipelineHistory.map(\.timestamp)
+        )
+        pipelineHistory.insert(item, at: index)
+    }
+
     private func updatePipelineHistoryItem(_ item: PipelineHistoryItem) {
         if let index = pipelineHistory.firstIndex(where: { $0.id == item.id }) {
             pipelineHistory[index] = item
@@ -13117,6 +13155,45 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
             return .failure(error)
         }
+    }
+
+    struct CalendarDayEventsResult: Equatable {
+        let events: [CalendarEvent]
+        let googleFailed: Bool
+        let hasConnectedSource: Bool
+    }
+
+    /// Meeting candidates for one local day from the selected Google and
+    /// Apple calendars, for the import sheet. Nothing is cached.
+    func calendarDayEvents(on day: Date) async -> CalendarDayEventsResult {
+        let interval = CalendarDayEvents.dayInterval(containing: day)
+        let (googleConnected, appleIDs, appleConnected) = await MainActor.run {
+            (
+                googleCalendarConnection.isConnected,
+                readableAppleCalendarIDs,
+                appleCalendarRowState != .notConnected
+            )
+        }
+        let google = googleConnected
+            ? await googleCalendarEventsForMatch(from: interval.start, to: interval.end)
+            : nil
+        let apple: [CalendarEvent]? = appleIDs.isEmpty
+            ? nil
+            : await MainActor.run {
+                appleCalendarService.events(calendarIDs: appleIDs, from: interval.start, to: interval.end)
+            }
+        let merged = (try? CalendarEventCollection.combine(
+            google: google,
+            apple: apple,
+            toleratesGoogleFailure: true
+        )) ?? []
+        var googleFailed = false
+        if case .failure = google { googleFailed = true }
+        return CalendarDayEventsResult(
+            events: CalendarDayEvents.meetingCandidates(merged),
+            googleFailed: googleFailed,
+            hasConnectedSource: googleConnected || appleConnected
+        )
     }
 
     private func calendarMatchForHistoryItem(jobID: UUID) async -> CalendarEventMatch? {
