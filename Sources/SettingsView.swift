@@ -856,8 +856,10 @@ struct CalendarSettingsView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 10) {
                 Image(systemName: "applelogo")
-                    .font(.title2)
+                    .resizable()
+                    .scaledToFit()
                     .foregroundStyle(.primary)
+                    .frame(width: 20, height: 20)
                     .frame(width: 24)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
