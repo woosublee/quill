@@ -630,11 +630,8 @@ struct CalendarSettingsView: View {
     private var googleCalendarConnectionStatusLabel: some View {
         if appState.googleCalendarConnection.isConnected {
             switch appState.googleCalendarConnection.health.status {
-            case .unknown:
-                Label("Connected · Not checked yet", systemImage: "questionmark.circle")
-                    .foregroundStyle(.secondary)
-            case .healthy:
-                Label(googleCalendarHealthyStatusTitle, systemImage: "checkmark.circle.fill")
+            case .unknown, .healthy:
+                Label("Connected", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
             case .needsReconnect:
                 Label("Reconnect required", systemImage: "calendar.badge.exclamationmark")
@@ -647,13 +644,6 @@ struct CalendarSettingsView: View {
             Label("Not connected", systemImage: "xmark.circle")
                 .foregroundStyle(.secondary)
         }
-    }
-
-    private var googleCalendarHealthyStatusTitle: String {
-        guard let checkedAt = appState.googleCalendarConnection.health.checkedAt else {
-            return "Connected"
-        }
-        return "Connected · Last checked \(checkedAt.formatted(date: .omitted, time: .shortened))"
     }
 
     private var googleCalendarHealthMessage: String? {
@@ -742,10 +732,14 @@ struct CalendarSettingsView: View {
     }
 
     private var googleSelectionSummary: String {
-        let selected = appState.googleCalendarConnection.selectedCalendarIDs
-        return CalendarSelectionSummary.text(names: appState.availableGoogleCalendars
-            .filter { selected.contains($0.id) }
-            .map(\.displayName))
+        let connection = appState.googleCalendarConnection
+        return CalendarSelectionSummary.text(
+            account: connection.accountEmail,
+            names: appState.availableGoogleCalendars
+                .filter { connection.selectedCalendarIDs.contains($0.id) }
+                .map(\.displayName),
+            checkedAt: connection.health.checkedAt
+        )
     }
 
     private var googleCalendarRow: some View {
@@ -758,26 +752,17 @@ struct CalendarSettingsView: View {
                     // Product name; kept in English in every language.
                     Text(verbatim: "Google Calendar")
                         .font(.body.weight(.semibold))
-                    HStack(spacing: 6) {
+                    HStack(spacing: 4) {
                         googleCalendarConnectionStatusLabel
-                            .font(.caption)
-                        if appState.googleCalendarConnection.isConnected,
-                           let email = appState.googleCalendarConnection.accountEmail,
-                           !email.isEmpty {
-                            Text(verbatim: email)
-                                .font(.caption)
+                            .fixedSize()
+                        if appState.googleCalendarConnection.isConnected {
+                            Text(verbatim: "· " + googleSelectionSummary)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
-                                .truncationMode(.middle)
+                                .truncationMode(.tail)
                         }
                     }
-                    if appState.googleCalendarConnection.isConnected {
-                        Text(verbatim: googleSelectionSummary)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
+                    .font(.caption)
                 }
                 Spacer(minLength: 8)
                 refreshActivityIndicator(isVisible: appState.isGoogleCalendarBusy)
@@ -847,9 +832,13 @@ struct CalendarSettingsView: View {
     }
 
     private var appleSelectionSummary: String {
-        CalendarSelectionSummary.text(names: AppleCalendarSelection
-            .visible(appState.appleCalendarSelectedIDs, available: appState.availableAppleCalendars)
-            .map(\.title))
+        CalendarSelectionSummary.text(
+            account: localizedCatalogString("Mac Calendar app"),
+            names: AppleCalendarSelection
+                .visible(appState.appleCalendarSelectedIDs, available: appState.availableAppleCalendars)
+                .map(\.title),
+            checkedAt: appState.appleCalendarLastCheckedAt
+        )
     }
 
     private var appleCalendarRow: some View {
@@ -879,18 +868,16 @@ struct CalendarSettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.orange)
                     case .connected:
-                        HStack(spacing: 6) {
+                        HStack(spacing: 4) {
                             Label("Connected", systemImage: "checkmark.circle.fill")
                                 .foregroundStyle(.green)
-                            Text("Mac Calendar app")
+                                .fixedSize()
+                            Text(verbatim: "· " + appleSelectionSummary)
                                 .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                         }
                         .font(.caption)
-                        Text(verbatim: appleSelectionSummary)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
                     }
                 }
                 Spacer(minLength: 8)

@@ -918,6 +918,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var appleCalendarEnabled = UserDefaults.standard.bool(forKey: AppState.appleCalendarEnabledStorageKey)
     @Published private(set) var appleCalendarAuthorization = AppleCalendarService.authorization()
     @Published private(set) var availableAppleCalendars: [AppleCalendarInfo] = []
+    /// When Quill last read the Mac Calendar app successfully.
+    @Published private(set) var appleCalendarLastCheckedAt: Date?
     @Published private(set) var appleCalendarSelectedIDs = AppState.loadStringSet(forKey: AppState.appleCalendarSelectedIDsStorageKey)
     /// The source whose calendar selection sheet Settings should show.
     @Published var calendarSelectionSheetProvider: CalendarProvider?
@@ -1999,6 +2001,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func reloadAppleCalendars() {
         availableAppleCalendars = appleCalendarService.calendars()
+        if appleCalendarAuthorization == .granted {
+            appleCalendarLastCheckedAt = Date()
+        }
         scheduleCalendarRecordingReminderRefresh()
     }
 
@@ -4785,7 +4790,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         let apple: [CalendarEvent]? = appleIDs.isEmpty
             ? nil
-            : await MainActor.run { appleCalendarService.events(calendarIDs: appleIDs, from: timeMin, to: timeMax) }
+            : await MainActor.run {
+                let events = appleCalendarService.events(calendarIDs: appleIDs, from: timeMin, to: timeMax)
+                appleCalendarLastCheckedAt = Date()
+                return events
+            }
         return try CalendarEventCollection.combine(google: google, apple: apple, toleratesGoogleFailure: false)
     }
 

@@ -154,10 +154,10 @@ struct CalendarSourcesTests {
 
     static func testSelectionSummaryText() {
         let bundle = Bundle.main
-        precondition(CalendarSelectionSummary.text(names: [], language: "en", bundle: bundle) == "Choose calendars to use")
-        precondition(CalendarSelectionSummary.text(names: ["Personal"], language: "en", bundle: bundle) == "Personal")
-        precondition(CalendarSelectionSummary.text(names: ["Personal", "Work"], language: "en", bundle: bundle) == "Personal, Work")
-        precondition(CalendarSelectionSummary.text(names: ["Personal", "Work", "Family", "Gym"], language: "en", bundle: bundle) == "Personal, Work and 2 more")
+        precondition(CalendarSelectionSummary.text(account: "a@example.com", names: [], checkedTime: nil, language: "en", bundle: bundle) == "a@example.com · Choose calendars to use")
+        precondition(CalendarSelectionSummary.text(account: "a@example.com", names: ["Personal"], checkedTime: "2:30 PM", language: "en", bundle: bundle) == "a@example.com (Personal) · Last checked 2:30 PM")
+        precondition(CalendarSelectionSummary.text(account: "Mac Calendar app", names: ["Personal", "Work", "Family"], checkedTime: nil, language: "en", bundle: bundle) == "Mac Calendar app (Personal, Work, Family)")
+        precondition(CalendarSelectionSummary.text(account: nil, names: ["Personal"], checkedTime: nil, language: "en", bundle: bundle) == "(Personal)")
     }
 
     struct FetchFailure: Error {}

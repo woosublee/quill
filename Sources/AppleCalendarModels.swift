@@ -115,29 +115,33 @@ enum AppleCalendarSelection {
     }
 }
 
+/// The detail after a source's "Connected" label:
+/// "account (Calendar, Calendar) · Last checked 2:30 PM".
 enum CalendarSelectionSummary {
-    static func text(names: [String]) -> String {
-        text(names: names, language: preferredLocalizedStringLanguage(), bundle: .main)
+    static func text(account: String?, names: [String], checkedAt: Date?) -> String {
+        text(
+            account: account,
+            names: names,
+            checkedTime: checkedAt?.formatted(date: .omitted, time: .shortened),
+            language: preferredLocalizedStringLanguage(),
+            bundle: .main
+        )
     }
 
-    static func text(names: [String], language: String, bundle: Bundle) -> String {
-        switch names.count {
-        case 0:
-            return localizedCatalogString("Choose calendars to use", language: language, bundle: bundle)
-        case 1:
-            return names[0]
-        case 2:
-            return localizedCatalogFormat("%@, %@", names[0], names[1], language: language, bundle: bundle)
-        default:
-            return localizedCatalogFormat(
-                "%@, %@ and %lld more",
-                names[0],
-                names[1],
-                Int64(names.count - 2),
-                language: language,
-                bundle: bundle
-            )
+    static func text(account: String?, names: [String], checkedTime: String?, language: String, bundle: Bundle) -> String {
+        var parts: [String] = []
+        let account = account?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if names.isEmpty {
+            if !account.isEmpty { parts.append(account) }
+            parts.append(localizedCatalogString("Choose calendars to use", language: language, bundle: bundle))
+        } else {
+            let list = "(" + names.joined(separator: ", ") + ")"
+            parts.append(account.isEmpty ? list : "\(account) \(list)")
         }
+        if let checkedTime, !checkedTime.isEmpty {
+            parts.append(localizedCatalogFormat("Last checked %@", checkedTime, language: language, bundle: bundle))
+        }
+        return parts.joined(separator: " · ")
     }
 }
 

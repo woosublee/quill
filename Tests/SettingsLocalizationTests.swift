@@ -229,14 +229,13 @@ struct SettingsLocalizationTests {
             "Choose at least one calendar to use.": "사용할 캘린더를 하나 이상 선택하세요.",
             "Turn on the switch next to %@": "목록에서 %@ 옆 스위치를 켜 주세요",
             "%@ connects as soon as it’s on.": "켜면 %@이(가) 바로 연결됩니다.",
-            "More": "더 보기"
+            "More": "더 보기",
+            "Last checked %@": "마지막 확인 %@"
         ]
         for (key, ko) in expected {
             assert(localizedCatalogString(key, language: "en", bundle: bundle) == key, "Missing en for \(key)")
             assert(localizedCatalogString(key, language: "ko", bundle: bundle) == ko, "Unexpected ko for \(key)")
         }
-        assert(localizedCatalogFormat("%@, %@ and %lld more", "개인", "회사", Int64(2), language: "ko", bundle: bundle) == "개인, 회사 외 2개")
-        assert(localizedCatalogFormat("%@, %@", "개인", "회사", language: "ko", bundle: bundle) == "개인, 회사")
     }
 
     /// Settings shows one row per source and moves calendar checkboxes into
@@ -248,7 +247,12 @@ struct SettingsLocalizationTests {
         assert(settings.contains("CalendarSelectionSheet(provider:"))
         assert(settings.contains("appState.guidePermission(.calendars)"))
         assert(settings.contains("appState.connectAppleCalendar()"))
-        assert(settings.contains("CalendarSelectionSummary.text(names:"))
+        assert(settings.contains("checkedAt: connection.health.checkedAt"))
+        assert(settings.contains("checkedAt: appState.appleCalendarLastCheckedAt"))
+        // Both rows use the same "Connected · account (calendars)" line.
+        assert(!settings.contains("\"Connected · Last checked"))
+        assert(settings.contains("appState.appleCalendarLastCheckedAt"))
+        assert(!settings.contains("\"Connected · Not checked yet\""))
         assert(settings.contains("!appState.hasSelectedCalendarSource"))
         assert(!settings.contains("\"Connect Google Calendar first.\""))
         // Google's connect/reconnect/cancel title is a String key, so it
