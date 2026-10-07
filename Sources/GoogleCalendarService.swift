@@ -1,7 +1,7 @@
 import Foundation
 
 struct GoogleCalendarEventFetchResult: Equatable {
-    let events: [GoogleCalendarEvent]
+    let events: [CalendarEvent]
     let failedCalendarIDs: [String]
 }
 
@@ -41,7 +41,7 @@ struct GoogleCalendarService {
         calendarID: String,
         timeMin: Date,
         timeMax: Date
-    ) async throws -> [GoogleCalendarEvent] {
+    ) async throws -> [CalendarEvent] {
         let encodedCalendarID = calendarID.addingPercentEncoding(withAllowedCharacters: Self.calendarIDPathAllowed) ?? calendarID
         var components = URLComponents(string: "\(baseURL.absoluteString)/calendars/\(encodedCalendarID)/events")!
         components.queryItems = [
@@ -61,7 +61,7 @@ struct GoogleCalendarService {
         calendarIDs: [String],
         timeMin: Date,
         timeMax: Date
-    ) async -> [GoogleCalendarEvent] {
+    ) async -> [CalendarEvent] {
         await fetchEventsWithDiagnostics(
             accessToken: accessToken,
             calendarIDs: calendarIDs,
@@ -76,7 +76,7 @@ struct GoogleCalendarService {
         timeMin: Date,
         timeMax: Date
     ) async -> GoogleCalendarEventFetchResult {
-        var events: [GoogleCalendarEvent] = []
+        var events: [CalendarEvent] = []
         var failedCalendarIDs: [String] = []
         for calendarID in calendarIDs {
             do {
@@ -146,12 +146,12 @@ struct GoogleCalendarService {
         let end: EventDateTime
         let attendees: [AttendeeResponse]?
 
-        func event(calendarID: String) -> GoogleCalendarEvent? {
+        func event(calendarID: String) -> CalendarEvent? {
             guard let startDate = start.resolvedDate,
                   let endDate = end.resolvedDate else {
                 return nil
             }
-            return GoogleCalendarEvent(
+            return CalendarEvent(
                 id: id,
                 calendarID: calendarID,
                 title: summary ?? "",

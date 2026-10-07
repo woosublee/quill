@@ -194,6 +194,8 @@ struct LocalizationResourceTests {
             let info = try String(contentsOf: infoURL, encoding: .utf8)
             assert(info.contains("NSMicrophoneUsageDescription"))
             assert(info.contains("NSSpeechRecognitionUsageDescription"))
+            assert(info.contains("NSCalendarsFullAccessUsageDescription"))
+            assert(info.contains("NSCalendarsUsageDescription"))
         }
 
         try assertTask3ExtractionCoverage(root: root, catalogStrings: strings)
@@ -620,7 +622,7 @@ struct LocalizationResourceTests {
         }
 
         let resourcesURL = appURL.appendingPathComponent("Contents/Resources", isDirectory: true)
-        let requiredInfoKeys = ["NSMicrophoneUsageDescription", "NSSpeechRecognitionUsageDescription"]
+        let requiredInfoKeys = ["NSMicrophoneUsageDescription", "NSSpeechRecognitionUsageDescription", "NSCalendarsFullAccessUsageDescription", "NSCalendarsUsageDescription"]
         var languageBundles: [String: Bundle] = [:]
         for language in ["en", "ko"] {
             let localizationURL = resourcesURL.appendingPathComponent("\(language).lproj", isDirectory: true)
@@ -921,7 +923,7 @@ struct LocalizationResourceTests {
     }
 
     private static func assertInfoPlistTranslations(root: URL) throws {
-        let requiredKeys = ["NSMicrophoneUsageDescription", "NSSpeechRecognitionUsageDescription"]
+        let requiredKeys = ["NSMicrophoneUsageDescription", "NSSpeechRecognitionUsageDescription", "NSCalendarsFullAccessUsageDescription", "NSCalendarsUsageDescription"]
         var valuesByLanguage: [String: [String: String]] = [:]
         for language in ["en", "ko"] {
             let url = root.appendingPathComponent("Resources/Localization/\(language).lproj/InfoPlist.strings")

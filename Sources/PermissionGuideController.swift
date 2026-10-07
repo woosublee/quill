@@ -295,23 +295,14 @@ private struct PermissionGuideView: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            AppIconDragSource(
-                url: model.dragURL,
-                accessibilityLabel: localizedCatalogFormat("Drag %@ to System Settings", model.appName),
-                accessibilityHelp: localizedCatalogFormat(
-                    "Press to show %@ in Finder. You can also add it with the + button below the list in System Settings.",
-                    model.appName
-                )
-            )
-                .frame(width: 56, height: 56)
-                .accessibilityLabel(
-                    localizedCatalogFormat("Drag %@ to System Settings", model.appName)
-                )
-                .accessibilityAction(
-                    named: Text(localizedCatalogFormat("Show %@ in Finder", model.appName))
-                ) {
-                    NSWorkspace.shared.activateFileViewerSelecting([model.dragURL])
-                }
+            if model.kind.addsAppByDragging {
+                dragSource
+            } else {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .frame(width: 56, height: 56)
+                    .accessibilityHidden(true)
+            }
 
             VStack(alignment: .leading, spacing: 3) {
                 if model.isGranted {
@@ -321,7 +312,7 @@ private struct PermissionGuideView: View {
                     Text(localizedCatalogString("This guide closes in a moment."))
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
-                } else {
+                } else if model.kind.addsAppByDragging {
                     Text(localizedCatalogFormat("Drag %@ into the list above", model.appName))
                         .font(.system(size: 14, weight: .semibold))
                     Text(localizedCatalogString("Then turn on the switch next to it."))
@@ -332,6 +323,12 @@ private struct PermissionGuideView: View {
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
+                } else {
+                    Text(localizedCatalogFormat("Turn on the switch next to %@", model.appName))
+                        .font(.system(size: 14, weight: .semibold))
+                    Text(localizedCatalogFormat("%@ connects as soon as it’s on.", model.appName))
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -355,6 +352,26 @@ private struct PermissionGuideView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(Color.primary.opacity(0.12), lineWidth: 1)
         )
+    }
+
+    private var dragSource: some View {
+        AppIconDragSource(
+            url: model.dragURL,
+            accessibilityLabel: localizedCatalogFormat("Drag %@ to System Settings", model.appName),
+            accessibilityHelp: localizedCatalogFormat(
+                "Press to show %@ in Finder. You can also add it with the + button below the list in System Settings.",
+                model.appName
+            )
+        )
+            .frame(width: 56, height: 56)
+            .accessibilityLabel(
+                localizedCatalogFormat("Drag %@ to System Settings", model.appName)
+            )
+            .accessibilityAction(
+                named: Text(localizedCatalogFormat("Show %@ in Finder", model.appName))
+            ) {
+                NSWorkspace.shared.activateFileViewerSelecting([model.dragURL])
+            }
     }
 }
 

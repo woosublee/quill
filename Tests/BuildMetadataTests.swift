@@ -329,6 +329,10 @@ struct BuildMetadataTests {
 
         assertContains(entitlements, "<key>com.apple.security.device.audio-input</key>")
         assertContains(entitlements, "<key>com.apple.security.cs.disable-library-validation</key>")
+        assertContains(entitlements, "<key>com.apple.security.personal-information.calendars</key>")
+        let info = try String(contentsOfFile: "Info.plist", encoding: .utf8)
+        assertContains(info, "<key>NSCalendarsFullAccessUsageDescription</key>")
+        assertContains(info, "<key>NSCalendarsUsageDescription</key>")
     }
 
     private static func testSparkleMetadataAndBuildIntegration() throws {

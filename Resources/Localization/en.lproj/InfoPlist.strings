@@ -1,2 +1,4 @@
 "NSMicrophoneUsageDescription" = "Quill needs microphone access to record dictation and meetings.";
 "NSSpeechRecognitionUsageDescription" = "Quill needs speech recognition access when Apple Live transcription is selected.";
+"NSCalendarsFullAccessUsageDescription" = "Quill reads your calendar events for meeting reminders and for note titles and attendees. Events never leave your Mac.";
+"NSCalendarsUsageDescription" = "Quill reads your calendar events for meeting reminders and for note titles and attendees. Events never leave your Mac.";

@@ -12,6 +12,8 @@ struct SettingsLocalizationTests {
         try testSettingsSectionTitlePolicy()
         try testGoogleCalendarHealthMessagesLocalizeWithoutChangingDetail()
         try testCalendarReminderLeadTimeUsesLocalizedCopy()
+        try testCalendarConnectionsCopyLocalizes()
+        try testCalendarSettingsUsesSourceRowsAndSheet()
         try testRecordingOverlaySettingsCopyLocalizes()
         try testModelFirstSettingsCopyLocalizes()
         try testMeetingSummaryCopyLocalizes()
@@ -202,6 +204,69 @@ struct SettingsLocalizationTests {
             )
         )
         assert(!settingsSource.contains("\"\\(minutes) min before\""))
+    }
+
+    private static func testCalendarConnectionsCopyLocalizes() throws {
+        let bundle = try compiledLocalizationBundle()
+        let expected: [String: String] = [
+            "Calendar Connections": "캘린더 연결",
+            "Events from connected calendars fill meeting reminders and note titles and attendees. Events never leave your Mac.": "연결한 캘린더의 일정으로 회의 알림과 노트 제목·참석자를 채웁니다. 일정은 Mac 밖으로 전송되지 않습니다.",
+            "Apple Calendar": "Apple 캘린더",
+            "Use events from the Mac Calendar app": "Mac 캘린더 앱의 일정 사용",
+            "Calendar access is off": "캘린더 접근이 꺼져 있어요",
+            "Ask Again": "다시 요청",
+            "Ask again, or turn on Quill in System Settings › Privacy & Security › Calendars.": "다시 요청하거나, 시스템 설정 › 개인정보 보호 및 보안 › 캘린더에서 Quill을 켜 주세요.",
+            "Open System Settings": "시스템 설정 열기",
+            "Choose Calendars…": "캘린더 선택…",
+            "Reload Calendars": "캘린더 목록 다시 읽기",
+            "Choose Google Calendars": "Google 캘린더 선택",
+            "Choose Apple Calendars": "Apple 캘린더 선택",
+            "Calendars from accounts added to the Mac Calendar app. Quill only reads events from calendars you select.": "Mac 캘린더 앱에 추가된 계정의 캘린더입니다. Quill은 선택한 캘린더의 일정만 읽습니다.",
+            "Calendars from your Google account may also come through Google Calendar. Matching events are used once.": "Google 계정 캘린더는 Google 캘린더 연결에서도 읽을 수 있어요. 같은 일정은 한 번만 사용합니다.",
+            "No calendars found in the Mac Calendar app.": "Mac 캘린더 앱에 캘린더가 없습니다.",
+            "Choose calendars to use": "사용할 캘린더를 선택하세요",
+            "Connect a calendar first.": "먼저 캘린더를 연결하세요.",
+            "Choose at least one calendar to use.": "사용할 캘린더를 하나 이상 선택하세요.",
+            "Turn on the switch next to %@": "목록에서 %@ 옆 스위치를 켜 주세요",
+            "%@ connects as soon as it’s on.": "켜면 %@이(가) 바로 연결됩니다.",
+            "More": "더 보기",
+            "Last checked %@": "마지막 확인 %@",
+            "%@, %@ and %lld more": "%@, %@ 외 %lld개"
+        ]
+        for (key, ko) in expected {
+            assert(localizedCatalogString(key, language: "en", bundle: bundle) == key, "Missing en for \(key)")
+            assert(localizedCatalogString(key, language: "ko", bundle: bundle) == ko, "Unexpected ko for \(key)")
+        }
+    }
+
+    /// Settings shows one row per source and moves calendar checkboxes into
+    /// a selection sheet; denied Calendar access opens the switch guide.
+    private static func testCalendarSettingsUsesSourceRowsAndSheet() throws {
+        let settings = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
+        assert(settings.contains("SettingsCard(\"Calendar Connections\""))
+        assert(!settings.contains("SettingsCard(\"Google Calendar\""))
+        assert(settings.contains("CalendarSelectionSheet(provider:"))
+        assert(settings.contains("appState.guidePermission(.calendars)"))
+        assert(settings.contains("appState.connectAppleCalendar()"))
+        assert(settings.contains("checkedAt: connection.health.checkedAt"))
+        assert(!settings.contains("localizedCatalogString(\"Mac Calendar app\")"))
+        assert(settings.contains("CalendarSelectionSummary.names("))
+        assert(settings.contains("checkedAt: appState.appleCalendarLastCheckedAt"))
+        // Both rows use the same "Connected · account (calendars)" line.
+        assert(!settings.contains("\"Connected · Last checked"))
+        assert(settings.contains("appState.appleCalendarLastCheckedAt"))
+        assert(!settings.contains("\"Connected · Not checked yet\""))
+        assert(settings.contains("!appState.hasSelectedCalendarSource"))
+        assert(!settings.contains("\"Connect Google Calendar first.\""))
+        // Google's connect/reconnect/cancel title is a String key, so it
+        // must be looked up or it shows in English in Korean.
+        assert(settings.contains("Button(localizedCatalogString(connectionControls.primaryActionTitle))"))
+        assert(!settings.contains("Button(connectionControls.primaryActionTitle)"))
+        assert(settings.contains("Image(systemName: \"applelogo\")"))
+        assert(settings.contains("GoogleLogoMark()"))
+        let calendarSettings = settings.components(separatedBy: "struct CalendarSettingsView: View")[1]
+            .components(separatedBy: "private struct CalendarSelectionSheet")[0]
+        assert(calendarSettings.components(separatedBy: "Image(systemName: \"arrow.clockwise\")").count - 1 == 2, "each source row has a refresh button")
     }
 
     private static func testRecordingOverlaySettingsCopyLocalizes() throws {

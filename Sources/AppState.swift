@@ -7,6 +7,7 @@ import ServiceManagement
 import ApplicationServices
 import ScreenCaptureKit
 import Speech
+import EventKit
 import os.log
 private let recordingLog = OSLog(subsystem: "com.woosublee.quill", category: "Recording")
 private let calendarLog = OSLog(subsystem: "com.woosublee.quill", category: "Calendar")
@@ -502,6 +503,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let recordingOverlayLayoutStorageKey = "recording_overlay_layout"
     private let overlayWaveformDisplayModeStorageKey = "overlay_waveform_display_mode"
     private let googleCalendarSelectedIDsStorageKey = "google_calendar_selected_ids"
+    static let appleCalendarAccountID = "apple-calendar"
+    private static let appleCalendarEnabledStorageKey = "apple_calendar_enabled"
+    private static let appleCalendarSelectedIDsStorageKey = "apple_calendar_selected_ids"
     private let calendarRecordingRemindersEnabledStorageKey = "calendar_recording_reminders_enabled"
     private let legacyCalendarRecordingReminderLeadMinutesStorageKey = "calendar_recording_reminder_lead_minutes"
     private let calendarRecordingReminderLeadMinutesListStorageKey = "calendar_recording_reminder_lead_minutes_list"
@@ -911,6 +915,43 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var availableGoogleCalendars: [GoogleCalendarInfo] = []
     @Published private(set) var isGoogleCalendarBusy = false
     @Published private(set) var hasPendingGoogleCalendarOAuthConnection = false
+    @Published private(set) var appleCalendarEnabled = UserDefaults.standard.bool(forKey: AppState.appleCalendarEnabledStorageKey)
+    @Published private(set) var appleCalendarAuthorization = AppleCalendarService.authorization()
+    @Published private(set) var availableAppleCalendars: [AppleCalendarInfo] = []
+    /// When Quill last read the Mac Calendar app successfully.
+    @Published private(set) var appleCalendarLastCheckedAt: Date?
+    /// True while Ask Again resets access and waits for the prompt.
+    @Published private(set) var isAskingForAppleCalendarAccess = false
+    @Published private(set) var appleCalendarSelectedIDs = AppState.loadStringSet(forKey: AppState.appleCalendarSelectedIDsStorageKey)
+    /// The source whose calendar selection sheet Settings should show.
+    @Published var calendarSelectionSheetProvider: CalendarProvider?
+    @MainActor private lazy var appleCalendarService = AppleCalendarService()
+    private var appleCalendarChangeObserver: NSObjectProtocol?
+    private var appleCalendarChangeDebounce: DispatchWorkItem?
+    private var appleCalendarLastRequestDeclined = false
+
+    var appleCalendarRowState: AppleCalendarRowState {
+        AppleCalendarRowState.resolve(
+            isEnabled: appleCalendarEnabled,
+            authorization: appleCalendarAuthorization,
+            selectedCount: appleCalendarSelectedIDs.count
+        )
+    }
+
+    /// Calendar IDs to read from the Mac Calendar app, or empty when Apple
+    /// Calendar is not usable right now.
+    var readableAppleCalendarIDs: Set<String> {
+        appleCalendarRowState == .connected(needsSelection: false) ? appleCalendarSelectedIDs : []
+    }
+
+    var hasSelectedCalendarSource: Bool {
+        CalendarReminderAvailability.isAvailable(
+            googleConnected: googleCalendarConnection.isConnected,
+            googleSelected: googleCalendarConnection.selectedCalendarIDs.count,
+            appleRowState: appleCalendarRowState,
+            appleSelected: appleCalendarSelectedIDs.count
+        )
+    }
 
     @Published var calendarRecordingRemindersEnabled: Bool {
         didSet {
@@ -1881,8 +1922,149 @@ final class AppState: ObservableObject, @unchecked Sendable {
         } else {
             selected.remove(calendarID)
         }
-        googleCalendarConnection.selectedCalendarIDs = selected
-        Self.saveStringSet(selected, forKey: googleCalendarSelectedIDsStorageKey)
+        setGoogleCalendarSelection(selected)
+    }
+
+    @MainActor
+    func refreshAppleCalendarAuthorization() {
+        let reported = AppleCalendarService.authorization()
+        if reported == .granted {
+            appleCalendarLastRequestDeclined = false
+        }
+        let authorization = AppleCalendarAuthorization.effective(
+            reported: reported,
+            lastRequestDeclined: appleCalendarLastRequestDeclined
+        )
+        if authorization != appleCalendarAuthorization {
+            appleCalendarService.resetStore()
+            appleCalendarAuthorization = authorization
+        }
+        if appleCalendarEnabled, appleCalendarAuthorization == .granted {
+            reloadAppleCalendars()
+        } else {
+            scheduleCalendarRecordingReminderRefresh()
+        }
+    }
+
+    /// Asks for Calendar access when Quill does not have it yet; a declined
+    /// request shows the Ask Again state on the Apple row.
+    @MainActor
+    func connectAppleCalendar() {
+        Task { @MainActor in
+            if AppleCalendarService.authorization() != .granted {
+                // Returns at once without a prompt when macOS already has a
+                // decision; a false result shows the Ask Again state.
+                let granted = await appleCalendarService.requestAccess()
+                appleCalendarLastRequestDeclined = !granted
+            }
+            appleCalendarEnabled = true
+            UserDefaults.standard.set(true, forKey: Self.appleCalendarEnabledStorageKey)
+            refreshAppleCalendarAuthorization()
+            guard appleCalendarAuthorization == .granted else { return }
+            if appleCalendarSelectedIDs.isEmpty {
+                calendarSelectionSheetProvider = .apple
+            }
+        }
+    }
+
+    /// After Don't Allow, macOS neither lists Quill in the Calendars pane nor
+    /// shows the prompt again, so reset Quill's own decision and ask again.
+    /// Declining again leaves the row in the Ask Again state.
+    @MainActor
+    func askForAppleCalendarAccessAgain() {
+        guard !isAskingForAppleCalendarAccess else { return }
+        isAskingForAppleCalendarAccess = true
+        Task { @MainActor in
+            defer { isAskingForAppleCalendarAccess = false }
+            guard await AppleCalendarAccessReset.run() else {
+                // Without a reset macOS will not prompt again.
+                guidePermission(.calendars)
+                return
+            }
+            appleCalendarService.resetStore()
+            let granted = await appleCalendarService.requestAccess()
+            appleCalendarLastRequestDeclined = !granted
+            refreshAppleCalendarAuthorization()
+            if appleCalendarAuthorization == .granted, appleCalendarSelectedIDs.isEmpty {
+                calendarSelectionSheetProvider = .apple
+            }
+        }
+    }
+
+    @MainActor
+    func disconnectAppleCalendar() {
+        appleCalendarEnabled = false
+        UserDefaults.standard.set(false, forKey: Self.appleCalendarEnabledStorageKey)
+        appleCalendarSelectedIDs = []
+        Self.saveStringSet([], forKey: Self.appleCalendarSelectedIDsStorageKey)
+        availableAppleCalendars = []
+        scheduleCalendarRecordingReminderRefresh()
+    }
+
+    /// Selected calendars that are missing right now stay selected; event
+    /// reads skip them until the Mac Calendar app lists them again.
+    @MainActor
+    func reloadAppleCalendars() {
+        availableAppleCalendars = appleCalendarService.calendars()
+        if AppleCalendarService.authorization() == .granted {
+            markAppleCalendarChecked()
+        }
+        scheduleCalendarRecordingReminderRefresh()
+    }
+
+    /// Records a successful read of the Mac Calendar app.
+    @MainActor
+    private func markAppleCalendarChecked() {
+        let now = Date()
+        if CalendarCheckTime.shouldUpdate(previous: appleCalendarLastCheckedAt, now: now) {
+            appleCalendarLastCheckedAt = now
+        }
+    }
+
+    @MainActor
+    func setAppleCalendarSelected(_ calendarID: String, isSelected: Bool) {
+        var selected = appleCalendarSelectedIDs
+        if isSelected {
+            selected.insert(calendarID)
+        } else {
+            selected.remove(calendarID)
+        }
+        setAppleCalendarSelection(selected)
+    }
+
+    @MainActor
+    private func observeAppleCalendarChanges() {
+        guard appleCalendarChangeObserver == nil else { return }
+        // Any store: the store is recreated when access changes. Syncs post
+        // bursts of changes, so wait for a quiet second before refreshing.
+        appleCalendarChangeObserver = NotificationCenter.default.addObserver(
+            forName: .EKEventStoreChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.appleCalendarChangeDebounce?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                Task { @MainActor in
+                    self?.refreshAppleCalendarAuthorization()
+                }
+            }
+            self.appleCalendarChangeDebounce = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: work)
+        }
+    }
+
+    @MainActor
+    func setGoogleCalendarSelection(_ calendarIDs: Set<String>) {
+        googleCalendarConnection.selectedCalendarIDs = calendarIDs
+        Self.saveStringSet(calendarIDs, forKey: googleCalendarSelectedIDsStorageKey)
+        scheduleCalendarRecordingReminderRefresh()
+    }
+
+    @MainActor
+    func setAppleCalendarSelection(_ calendarIDs: Set<String>) {
+        appleCalendarSelectedIDs = calendarIDs
+        Self.saveStringSet(calendarIDs, forKey: Self.appleCalendarSelectedIDsStorageKey)
         scheduleCalendarRecordingReminderRefresh()
     }
 
@@ -1938,7 +2120,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         availableGoogleCalendars = []
         googleCalendarConnection = .disconnected
         UserDefaults.standard.removeObject(forKey: googleCalendarSelectedIDsStorageKey)
-        stopCalendarRecordingReminderSchedulerIfNeeded()
+        // Apple Calendar may still be connected; this stops reminders only
+        // when no source has a selected calendar.
+        scheduleCalendarRecordingReminderRefresh()
     }
 
     @MainActor
@@ -2017,6 +2201,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     self.googleCalendarConnectionTask = nil
                 }
                 await self.loadGoogleCalendars(force: true)
+                await MainActor.run {
+                    if self.googleCalendarConnection.selectedCalendarIDs.isEmpty {
+                        self.calendarSelectionSheetProvider = .google
+                    }
+                }
             } catch is CancellationError {
                 await MainActor.run {
                     self.hasPendingGoogleCalendarOAuthConnection = false
@@ -3431,7 +3620,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     matchSource: CalendarMatchSource.calendarNotification.rawValue,
                     attendeeNames: schedule.event.attendees.compactMap { attendee in
                         attendee.displayName ?? attendee.email
-                    }
+                    },
+                    provider: schedule.event.provider.rawValue
                 )
                 self.startRecordingFromCalendarReminder()
             }
@@ -4609,7 +4799,34 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return token
     }
 
-    private func fetchCalendarRecordingReminderEvents(timeMin: Date, timeMax: Date) async throws -> [GoogleCalendarEvent] {
+    private func fetchCalendarRecordingReminderEvents(timeMin: Date, timeMax: Date) async throws -> [CalendarEvent] {
+        let (googleInUse, appleIDs) = await MainActor.run {
+            (
+                googleCalendarConnection.isConnected && !googleCalendarConnection.selectedCalendarIDs.isEmpty,
+                readableAppleCalendarIDs
+            )
+        }
+        var google: Result<[CalendarEvent], Error>?
+        if googleInUse {
+            do {
+                google = .success(try await fetchGoogleCalendarReminderEvents(timeMin: timeMin, timeMax: timeMax))
+            } catch {
+                google = .failure(error)
+            }
+        }
+        let apple: [CalendarEvent]? = appleIDs.isEmpty
+            ? nil
+            : await MainActor.run {
+                let events = appleCalendarService.events(calendarIDs: appleIDs, from: timeMin, to: timeMax)
+                if AppleCalendarService.authorization() == .granted {
+                    markAppleCalendarChecked()
+                }
+                return events
+            }
+        return try CalendarEventCollection.combine(google: google, apple: apple, toleratesGoogleFailure: false)
+    }
+
+    private func fetchGoogleCalendarReminderEvents(timeMin: Date, timeMax: Date) async throws -> [CalendarEvent] {
         let selectedCalendarIDs = await MainActor.run { googleCalendarConnection.selectedCalendarIDs }
         guard !selectedCalendarIDs.isEmpty else { return [] }
         let token: GoogleCalendarOAuthToken
@@ -4661,7 +4878,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func startCalendarRecordingReminderScheduling() {
-        scheduleCalendarRecordingReminderRefresh()
+        observeAppleCalendarChanges()
+        refreshAppleCalendarAuthorization()
     }
 
     @MainActor
@@ -4684,9 +4902,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     private func scheduleCalendarRecordingReminderRefresh() {
-        guard calendarRecordingRemindersEnabled,
-              googleCalendarConnection.isConnected,
-              !googleCalendarConnection.selectedCalendarIDs.isEmpty else {
+        guard calendarRecordingRemindersEnabled, hasSelectedCalendarSource else {
             stopCalendarRecordingReminderSchedulerIfNeeded()
             return
         }
@@ -8814,9 +9030,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let isGranted: @MainActor () -> Bool = switch kind {
         case .screenRecording: { CGPreflightScreenCaptureAccess() }
         case .accessibility: { AXIsProcessTrusted() }
+        case .calendars: { AppleCalendarService.authorization() == .granted }
         }
         guard !isGranted() else {
-            refreshPermissionStatus()
+            if kind == .calendars {
+                refreshAppleCalendarAuthorization()
+            } else {
+                refreshPermissionStatus()
+            }
             if opensPaneWhenGranted {
                 NSWorkspace.shared.open(kind.settingsURL)
             }
@@ -8829,7 +9050,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
             appName: appName,
             appURL: Bundle.main.bundleURL,
             isGranted: isGranted,
-            onGranted: { [weak self] in self?.refreshPermissionStatus() }
+            onGranted: { [weak self] in
+                guard let self else { return }
+                guard kind == .calendars else {
+                    self.refreshPermissionStatus()
+                    return
+                }
+                self.refreshAppleCalendarAuthorization()
+                if self.appleCalendarSelectedIDs.isEmpty {
+                    self.calendarSelectionSheetProvider = .apple
+                }
+            }
         )
     }
 
@@ -12785,7 +13016,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     isSelf: false
                 )
             }
+            let provider = calendarSnapshot.provider.flatMap(CalendarProvider.init(rawValue:))
             return CalendarEventMatch(
+                accountID: provider == .apple ? Self.appleCalendarAccountID : nil,
                 calendarID: calendarID,
                 eventID: eventID,
                 title: title,
@@ -12793,7 +13026,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 end: end,
                 attendees: attendees,
                 matchSource: matchSource,
-                titleState: .applied
+                titleState: .applied,
+                provider: provider
             )
         }
 
@@ -12809,6 +13043,31 @@ final class AppState: ObservableObject, @unchecked Sendable {
         recordingEndedAt: Date
     ) async -> CalendarEventMatch? {
         guard recordingEndedAt > recordingStartedAt else { return nil }
+        let (googleAccount, appleIDs) = await MainActor.run {
+            (googleCalendarConnection.accountEmail, readableAppleCalendarIDs)
+        }
+        let google = await googleCalendarEventsForMatch(from: recordingStartedAt, to: recordingEndedAt)
+        let apple: [CalendarEvent]? = appleIDs.isEmpty
+            ? nil
+            : await MainActor.run { appleCalendarService.events(calendarIDs: appleIDs, from: recordingStartedAt, to: recordingEndedAt) }
+        guard let events = try? CalendarEventCollection.combine(google: google, apple: apple, toleratesGoogleFailure: true),
+              let event = CalendarEventMatcher.bestMatch(
+                recordingStartedAt: recordingStartedAt,
+                recordingEndedAt: recordingEndedAt,
+                events: events
+              ) else {
+            return nil
+        }
+        return event.match(
+            accountID: event.provider == .apple ? Self.appleCalendarAccountID : googleAccount,
+            source: .overlapSuggestion,
+            titleState: .suggested
+        )
+    }
+
+    /// Google events for a recording interval, or `nil` when no Google
+    /// calendar is selected. Health is reported as before.
+    private func googleCalendarEventsForMatch(from start: Date, to end: Date) async -> Result<[CalendarEvent], Error>? {
         let selectedCalendarIDs = await MainActor.run {
             googleCalendarConnection.selectedCalendarIDs
         }
@@ -12822,14 +13081,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         message: localizedCatalogString("Google Calendar needs reconnecting. Calendar-based note titles may be unavailable.")
                     )
                 }
-                return nil
+                return .failure(GoogleCalendarHealthError.needsReconnect)
             }
             let fetchResult = await Self.googleCalendarServiceFactory()
                 .fetchEventsWithDiagnostics(
                     accessToken: token.accessToken,
                     calendarIDs: Array(selectedCalendarIDs),
-                    timeMin: recordingStartedAt,
-                    timeMax: recordingEndedAt
+                    timeMin: start,
+                    timeMax: end
                 )
             await MainActor.run {
                 if fetchResult.failedCalendarIDs.isEmpty {
@@ -12841,16 +13100,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     )
                 }
             }
-            guard let event = CalendarEventMatcher.bestMatch(
-                recordingStartedAt: recordingStartedAt,
-                recordingEndedAt: recordingEndedAt,
-                events: fetchResult.events
-            ) else { return nil }
-            return event.match(
-                accountID: token.accountEmail,
-                source: .overlapSuggestion,
-                titleState: .suggested
-            )
+            return .success(fetchResult.events)
         } catch {
             await MainActor.run {
                 if Self.isGoogleCalendarReconnectError(error) {
@@ -12865,7 +13115,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     )
                 }
             }
-            return nil
+            return .failure(error)
         }
     }
 
@@ -13584,7 +13834,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func showDebugMeetingReminderOverlay() {
         let now = Date()
-        let event = GoogleCalendarEvent(
+        let event = CalendarEvent(
             id: "debug-meeting-reminder-\(UUID().uuidString)",
             calendarID: "primary",
             title: "Team Standup",

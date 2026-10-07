@@ -1,7 +1,7 @@
 import Foundation
 
 enum CalendarEventMatcher {
-    static func bestMatch(recordingStartedAt: Date?, recordingEndedAt: Date?, events: [GoogleCalendarEvent]) -> GoogleCalendarEvent? {
+    static func bestMatch(recordingStartedAt: Date?, recordingEndedAt: Date?, events: [CalendarEvent]) -> CalendarEvent? {
         guard let recordingStartedAt, let recordingEndedAt, recordingEndedAt > recordingStartedAt else {
             return nil
         }
@@ -34,7 +34,7 @@ enum CalendarEventMatcher {
     }
 
     private struct Candidate {
-        let event: GoogleCalendarEvent
+        let event: CalendarEvent
         let overlap: TimeInterval
         let startDistance: TimeInterval
     }

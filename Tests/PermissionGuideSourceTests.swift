@@ -44,8 +44,10 @@ struct PermissionGuideSourceTests {
 
         let guideView = block(controller, from: "private struct PermissionGuideView: View", to: "\n}\n")
         try expect(guideView.contains("accessibilityHelp: localizedCatalogFormat("), "icon explains the + button path")
-        try expect(guideView.contains(".accessibilityAction(\n                    named: Text(localizedCatalogFormat(\"Show %@ in Finder\""), "named Finder action")
+        try expect(guideView.contains(".accessibilityAction(\n                named: Text(localizedCatalogFormat(\"Show %@ in Finder\""), "named Finder action")
         try expect(guideView.contains(".accessibilityLabel(localizedCatalogString(\"Close\"))"), "Close is labeled")
+        // The Calendars list has no + button, so that guide shows no drag icon.
+        try expect(guideView.contains("if model.kind.addsAppByDragging {\n                dragSource"), "drag icon only for list panes")
 
         let tick = block(controller, from: "private func tick()", to: "let settings = NSRunningApplication")
         try expect(tick.contains("notification: .announcementRequested"), "grant is announced")

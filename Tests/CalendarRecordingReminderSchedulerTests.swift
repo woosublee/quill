@@ -520,8 +520,8 @@ struct CalendarRecordingReminderSchedulerTests {
         end: TimeInterval,
         isAllDay: Bool = false,
         attendees: [CalendarEventAttendee] = []
-    ) -> GoogleCalendarEvent {
-        GoogleCalendarEvent(
+    ) -> CalendarEvent {
+        CalendarEvent(
             id: id,
             calendarID: calendarID,
             title: title,

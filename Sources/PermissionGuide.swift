@@ -1,20 +1,27 @@
 import CoreGraphics
 import Foundation
 
-/// Permissions granted by adding Quill to a System Settings list. Microphone,
-/// Speech Recognition, and notifications use the system's allow/deny prompt
-/// and do not need this guide.
+/// Permissions turned on in a System Settings list. Screen Recording and
+/// Accessibility need Quill added to the list; Calendars lists Quill once it
+/// has asked, so people only turn its switch on. Microphone, Speech
+/// Recognition, and notifications use the system's allow/deny prompt and do
+/// not need this guide.
 enum PermissionGuideKind: Equatable, Sendable {
     case screenRecording
     case accessibility
+    case calendars
 
     var settingsURL: URL {
         let pane = switch self {
         case .screenRecording: "Privacy_ScreenCapture"
         case .accessibility: "Privacy_Accessibility"
+        case .calendars: "Privacy_Calendars"
         }
         return URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)")!
     }
+
+    /// Lists with a + button accept Quill's icon by drag and drop.
+    var addsAppByDragging: Bool { self != .calendars }
 }
 
 /// One display in both coordinate systems: AppKit (bottom-left origin) and

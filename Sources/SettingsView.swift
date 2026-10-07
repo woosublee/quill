@@ -575,12 +575,8 @@ struct CalendarSettingsView: View {
     @EnvironmentObject var appState: AppState
     @State private var notificationAuthorizationStatus: UNAuthorizationStatus = .notDetermined
 
-    private var selectedCalendarCount: Int {
-        appState.googleCalendarConnection.selectedCalendarIDs.count
-    }
-
     private var calendarReminderSettingsDisabled: Bool {
-        !appState.googleCalendarConnection.isConnected || selectedCalendarCount == 0
+        !appState.hasSelectedCalendarSource
     }
 
     private var connectionControls: GoogleCalendarConnectionControls {
@@ -604,8 +600,8 @@ struct CalendarSettingsView: View {
                 Text("Calendar")
                     .font(.largeTitle.bold())
 
-                SettingsCard("Google Calendar", icon: "calendar") {
-                    googleCalendarSection
+                SettingsCard("Calendar Connections", icon: "calendar") {
+                    calendarConnectionsSection
                 }
 
                 SettingsCard("Meeting Recording Reminders", icon: "bell.badge") {
@@ -617,10 +613,16 @@ struct CalendarSettingsView: View {
         }
         .onAppear {
             appState.loadStoredGoogleCalendarConnection()
+            appState.refreshAppleCalendarAuthorization()
             refreshNotificationAuthorizationStatus()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            appState.refreshAppleCalendarAuthorization()
             refreshNotificationAuthorizationStatus()
+        }
+        .sheet(item: $appState.calendarSelectionSheetProvider) { provider in
+            CalendarSelectionSheet(provider: provider)
+                .environmentObject(appState)
         }
     }
 
@@ -629,10 +631,10 @@ struct CalendarSettingsView: View {
         if appState.googleCalendarConnection.isConnected {
             switch appState.googleCalendarConnection.health.status {
             case .unknown:
-                Label("Connected · Not checked yet", systemImage: "questionmark.circle")
+                Label("Connected", systemImage: "checkmark.circle")
                     .foregroundStyle(.secondary)
             case .healthy:
-                Label(googleCalendarHealthyStatusTitle, systemImage: "checkmark.circle.fill")
+                Label("Connected", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
             case .needsReconnect:
                 Label("Reconnect required", systemImage: "calendar.badge.exclamationmark")
@@ -645,13 +647,6 @@ struct CalendarSettingsView: View {
             Label("Not connected", systemImage: "xmark.circle")
                 .foregroundStyle(.secondary)
         }
-    }
-
-    private var googleCalendarHealthyStatusTitle: String {
-        guard let checkedAt = appState.googleCalendarConnection.health.checkedAt else {
-            return "Connected"
-        }
-        return "Connected · Last checked \(checkedAt.formatted(date: .omitted, time: .shortened))"
     }
 
     private var googleCalendarHealthMessage: String? {
@@ -706,30 +701,156 @@ struct CalendarSettingsView: View {
         }
     }
 
-    private var googleCalendarSection: some View {
+    private var calendarConnectionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Connect your Google account to let Quill suggest note titles from matching calendar events.")
+            Text("Events from connected calendars fill meeting reminders and note titles and attendees. Events never leave your Mac.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            googleCalendarRow
+
+            Divider()
+
+            appleCalendarRow
+
+            Divider()
+
+            HStack {
+                Text("Refresh calendars")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Picker("Refresh calendars", selection: $appState.calendarRecordingReminderRefreshIntervalMinutes) {
+                    ForEach(CalendarRecordingReminderScheduler.refreshIntervalMinuteOptions, id: \.self) { minutes in
+                        Text(calendarRefreshIntervalTitle(minutes)).tag(minutes)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .fixedSize()
+                .disabled(calendarReminderSettingsDisabled)
+            }
+        }
+    }
+
+    private var googleSelectedNames: [String] {
+        let selected = appState.googleCalendarConnection.selectedCalendarIDs
+        return appState.availableGoogleCalendars
+            .filter { selected.contains($0.id) }
+            .map(\.displayName)
+    }
+
+    private var googleStatusDetail: String? {
+        let connection = appState.googleCalendarConnection
+        return CalendarSelectionSummary.status(
+            account: GoogleCalendarAccount.label(
+                accountEmail: connection.accountEmail,
+                calendars: appState.availableGoogleCalendars
+            ),
+            hasSelection: !connection.selectedCalendarIDs.isEmpty,
+            checkedAt: connection.health.checkedAt
+        )
+    }
+
+    /// Source name with the selected calendars beside it in small text.
+    private func sourceTitle(_ title: Text, names: [String]) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            title
+                .font(.body.weight(.semibold))
+                .fixedSize()
+            if let names = CalendarSelectionSummary.names(names) {
+                Text(verbatim: names)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if !appState.googleCalendarOAuthConfiguration.isConfigured {
-                    Text("Google Calendar sign-in is not configured for this build.")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        }
+    }
+
+    /// The green "Connected" label followed by secondary details.
+    private func statusLine<Status: View>(_ status: Status, detail: String?) -> some View {
+        HStack(spacing: 4) {
+            status
+                .fixedSize()
+            if let detail {
+                Text(verbatim: "· " + detail)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        }
+        .font(.caption)
+    }
+
+    private var googleCalendarRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 10) {
+                GoogleLogoMark()
+                    .frame(width: 20, height: 20)
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    // Product name; kept in English in every language.
+                    sourceTitle(
+                        Text(verbatim: "Google Calendar"),
+                        names: appState.googleCalendarConnection.isConnected ? googleSelectedNames : []
+                    )
+                    statusLine(
+                        googleCalendarConnectionStatusLabel,
+                        detail: appState.googleCalendarConnection.isConnected ? googleStatusDetail : nil
+                    )
+                }
+                Spacer(minLength: 8)
+                refreshActivityIndicator(isVisible: appState.isGoogleCalendarBusy)
+                if appState.googleCalendarConnection.isConnected && !appState.hasPendingGoogleCalendarOAuthConnection {
+                    Button {
+                        appState.refreshGoogleCalendars()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(!connectionControls.allowsRefresh)
+                    .help(localizedCatalogString("Sync Now"))
+                    .accessibilityLabel(localizedCatalogString("Sync Now"))
+                    Button("Choose Calendars…") {
+                        appState.calendarSelectionSheetProvider = .google
+                    }
+                    .disabled(!connectionControls.allowsRefresh)
+                    Menu {
+                        Button("Reconnect") {
+                            appState.connectGoogleCalendar()
+                        }
+                        .disabled(!connectionControls.allowsPrimaryAction)
+                        Divider()
+                        Button("Disconnect") {
+                            appState.disconnectGoogleCalendar()
+                        }
+                        .disabled(!connectionControls.allowsDisconnect)
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .accessibilityLabel(localizedCatalogString("More"))
+                } else {
+                    Button(localizedCatalogString(connectionControls.primaryActionTitle)) {
+                        if appState.hasPendingGoogleCalendarOAuthConnection {
+                            appState.cancelGoogleCalendarConnection()
+                        } else {
+                            appState.connectGoogleCalendar()
+                        }
+                    }
+                    .disabled(!connectionControls.allowsPrimaryAction)
                 }
             }
 
-            HStack(spacing: 8) {
-                googleCalendarConnectionStatusLabel
-                if appState.googleCalendarConnection.isConnected,
-                   let email = appState.googleCalendarConnection.accountEmail,
-                   !email.isEmpty {
-                    Text(verbatim: email)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
+            if !appState.googleCalendarOAuthConfiguration.isConfigured {
+                Text("Google Calendar sign-in is not configured for this build.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if let healthMessage = googleCalendarHealthMessage {
@@ -737,88 +858,131 @@ struct CalendarSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(googleCalendarHealthMessageColor)
                     .fixedSize(horizontal: false, vertical: true)
-            }
-
-            HStack {
-                Button(connectionControls.primaryActionTitle) {
-                    if appState.hasPendingGoogleCalendarOAuthConnection {
-                        appState.cancelGoogleCalendarConnection()
-                    } else {
-                        appState.connectGoogleCalendar()
-                    }
-                }
-                .disabled(!connectionControls.allowsPrimaryAction)
-
-                Button("Sync Now") {
-                    appState.refreshGoogleCalendars()
-                }
-                .disabled(!connectionControls.allowsRefresh)
-
-                Button("Disconnect") {
-                    appState.disconnectGoogleCalendar()
-                }
-                .disabled(!connectionControls.allowsDisconnect)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(alignment: .trailing) {
-                refreshActivityIndicator(isVisible: appState.isGoogleCalendarBusy)
-            }
-
-            if appState.googleCalendarConnection.isConnected {
-                Divider()
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Refresh calendars")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Picker("Refresh calendars", selection: $appState.calendarRecordingReminderRefreshIntervalMinutes) {
-                            ForEach(CalendarRecordingReminderScheduler.refreshIntervalMinuteOptions, id: \.self) { minutes in
-                                Text(calendarRefreshIntervalTitle(minutes)).tag(minutes)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .labelsHidden()
-                        .disabled(!appState.googleCalendarConnection.isConnected)
-                    }
-                    Text("Quill re-reads selected Google Calendar events on this interval to keep meeting reminders and calendar-based note titles current.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if googleCalendarHealthMessage == nil,
-               let error = appState.googleCalendarConnection.lastErrorMessage,
-               !error.isEmpty {
+            } else if let error = appState.googleCalendarConnection.lastErrorMessage,
+                      !error.isEmpty {
                 Text(verbatim: error)
                     .font(.caption)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
 
-            if appState.googleCalendarConnection.isConnected {
-                Divider()
+    private var appleSelectedNames: [String] {
+        AppleCalendarSelection
+            .visible(appState.appleCalendarSelectedIDs, available: appState.availableAppleCalendars)
+            .map(\.title)
+    }
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Calendars used for note title suggestions")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    if appState.availableGoogleCalendars.isEmpty {
-                        Text("No calendars loaded. Click Sync Now after connecting.")
+    private var appleConnected: Bool {
+        if case .connected = appState.appleCalendarRowState { return true }
+        return false
+    }
+
+    private var appleCalendarRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: "applelogo")
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundStyle(.primary)
+                    .frame(width: 20, height: 20)
+                    .frame(width: 24)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    sourceTitle(
+                        Text("Apple Calendar"),
+                        names: appleConnected ? appleSelectedNames : []
+                    )
+                    switch appState.appleCalendarRowState {
+                    case .notConnected:
+                        HStack(spacing: 6) {
+                            Label("Not connected", systemImage: "xmark.circle")
+                                .foregroundStyle(.secondary)
+                            Text("Use events from the Mac Calendar app")
+                                .foregroundStyle(.secondary)
+                        }
+                        .font(.caption)
+                    case .needsAccess:
+                        Label("Calendar access is off", systemImage: "exclamationmark.triangle.fill")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.orange)
+                    case .connected(let needsSelection):
+                        statusLine(
+                            Label("Connected", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green),
+                            detail: CalendarSelectionSummary.status(
+                                account: nil,
+                                hasSelection: !needsSelection,
+                                checkedAt: appState.appleCalendarLastCheckedAt
+                            )
+                        )
+                    }
+                }
+                Spacer(minLength: 8)
+                switch appState.appleCalendarRowState {
+                case .notConnected:
+                    Button("Connect") {
+                        appState.connectAppleCalendar()
+                    }
+                case .needsAccess:
+                    Button("Ask Again") {
+                        appState.askForAppleCalendarAccessAgain()
+                    }
+                    .disabled(appState.isAskingForAppleCalendarAccess)
+                    Menu {
+                        Button("Open System Settings") {
+                            appState.guidePermission(.calendars)
+                        }
+                        Divider()
+                        Button("Disconnect") {
+                            appState.disconnectAppleCalendar()
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .accessibilityLabel(localizedCatalogString("More"))
+                case .connected(let needsSelection):
+                    Button {
+                        appState.refreshAppleCalendarAuthorization()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .help(localizedCatalogString("Reload Calendars"))
+                    .accessibilityLabel(localizedCatalogString("Reload Calendars"))
+                    if needsSelection {
+                        Button("Choose Calendars…") {
+                            appState.calendarSelectionSheetProvider = .apple
+                        }
+                        .buttonStyle(.borderedProminent)
                     } else {
-                        VStack(alignment: .leading, spacing: 14) {
-                            ForEach(appState.availableGoogleCalendars.groupedForQuillDisplay(), id: \.title) { group in
-                                calendarGroupSection(group)
-                            }
+                        Button("Choose Calendars…") {
+                            appState.calendarSelectionSheetProvider = .apple
                         }
                     }
-                    Text("No calendars are selected by default. Quill only reads events from calendars you explicitly select.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Menu {
+                        Button("Disconnect") {
+                            appState.disconnectAppleCalendar()
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .accessibilityLabel(localizedCatalogString("More"))
                 }
+            }
+
+            if appState.appleCalendarRowState == .needsAccess {
+                Text("Ask again, or turn on Quill in System Settings › Privacy & Security › Calendars.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -836,12 +1000,12 @@ struct CalendarSettingsView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if !appState.googleCalendarConnection.isConnected {
-                Label("Connect Google Calendar first.", systemImage: "calendar.badge.exclamationmark")
+            if !appState.googleCalendarConnection.isConnected && appState.appleCalendarRowState == .notConnected {
+                Label("Connect a calendar first.", systemImage: "calendar.badge.exclamationmark")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            } else if selectedCalendarCount == 0 {
-                Label("Select at least one calendar above.", systemImage: "checklist")
+            } else if !appState.hasSelectedCalendarSource {
+                Label("Choose at least one calendar to use.", systemImage: "checklist")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -932,6 +1096,170 @@ struct CalendarSettingsView: View {
                 notificationAuthorizationStatus = settings.authorizationStatus
             }
         }
+    }
+
+}
+
+private struct CalendarSelectionSheet: View {
+    @EnvironmentObject var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    let provider: CalendarProvider
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(provider == .google ? "Choose Google Calendars" : "Choose Apple Calendars")
+                    .font(.headline)
+                Spacer()
+                Button(allListedSelected ? "Deselect All" : "Select All") {
+                    toggleAll()
+                }
+                .disabled(listedIDs.isEmpty)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    switch provider {
+                    case .google: googleList
+                    case .apple: appleList
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(minHeight: 160, maxHeight: 360)
+            Text(provider == .google
+                 ? "No calendars are selected by default. Quill only reads events from calendars you explicitly select."
+                 : "Calendars from accounts added to the Mac Calendar app. Quill only reads events from calendars you select.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
+        .onAppear {
+            if provider == .apple {
+                appState.reloadAppleCalendars()
+            }
+        }
+    }
+
+    private var listedIDs: [String] {
+        switch provider {
+        case .google: appState.availableGoogleCalendars.map(\.id)
+        case .apple: appState.availableAppleCalendars.map(\.id)
+        }
+    }
+
+    private var selectedIDs: Set<String> {
+        switch provider {
+        case .google: appState.googleCalendarConnection.selectedCalendarIDs
+        case .apple: appState.appleCalendarSelectedIDs
+        }
+    }
+
+    private var allListedSelected: Bool {
+        CalendarBulkSelection.allSelected(selectedIDs, listed: listedIDs)
+    }
+
+    private func toggleAll() {
+        let next = CalendarBulkSelection.toggled(selectedIDs, listed: listedIDs)
+        switch provider {
+        case .google: appState.setGoogleCalendarSelection(next)
+        case .apple: appState.setAppleCalendarSelection(next)
+        }
+    }
+
+    @ViewBuilder
+    private var googleList: some View {
+        if appState.availableGoogleCalendars.isEmpty {
+            Text("No calendars loaded. Click Sync Now after connecting.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(appState.availableGoogleCalendars.groupedForQuillDisplay(), id: \.title) { group in
+                calendarGroupSection(group)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var appleList: some View {
+        let groups = appState.availableAppleCalendars.groupedBySource()
+        if groups.isEmpty {
+            Text("No calendars found in the Mac Calendar app.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(groups, id: \.title) { group in
+                appleGroupSection(group)
+            }
+            if groups.contains(where: { $0.title.localizedCaseInsensitiveContains("google") || $0.title.contains("@") }) {
+                Text("Calendars from your Google account may also come through Google Calendar. Matching events are used once.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func appleGroupSection(_ group: AppleCalendarDisplayGroup) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text(verbatim: group.title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                    .kerning(0.4)
+                Text("\(group.calendars.count)")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.secondary.opacity(0.12), in: Capsule())
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(group.calendars) { calendar in
+                    Toggle(
+                        isOn: Binding(
+                            get: { appState.appleCalendarSelectedIDs.contains(calendar.id) },
+                            set: { appState.setAppleCalendarSelected(calendar.id, isSelected: $0) }
+                        )
+                    ) {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(Self.color(hex: calendar.colorHex))
+                                .frame(width: 9, height: 9)
+                                .accessibilityHidden(true)
+                            Text(verbatim: calendar.title)
+                        }
+                    }
+                    .toggleStyle(.checkbox)
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(nsColor: .textBackgroundColor).opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+            )
+        }
+    }
+
+    private static func color(hex: String?) -> Color {
+        guard let hex, hex.count == 7, hex.hasPrefix("#"),
+              let value = UInt32(hex.dropFirst(), radix: 16) else {
+            return .secondary
+        }
+        return Color(
+            red: Double((value >> 16) & 0xFF) / 255,
+            green: Double((value >> 8) & 0xFF) / 255,
+            blue: Double(value & 0xFF) / 255
+        )
     }
 
     private func calendarGroupSection(_ group: GoogleCalendarDisplayGroup) -> some View {
