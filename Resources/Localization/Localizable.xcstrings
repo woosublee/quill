@@ -19413,22 +19413,6 @@
         }
       }
     },
-    "Turn on Quill in System Settings › Privacy & Security › Calendars.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turn on Quill in System Settings › Privacy & Security › Calendars."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "시스템 설정 › 개인정보 보호 및 보안 › 캘린더에서 Quill을 켜 주세요."
-          }
-        }
-      }
-    },
     "Choose Calendars…": {
       "localizations": {
         "en": {
@@ -19729,6 +19713,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mac 캘린더 앱"
+          }
+        }
+      }
+    },
+    "Ask Again": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask Again"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 요청"
+          }
+        }
+      }
+    },
+    "Ask again, or turn on Quill in System Settings › Privacy & Security › Calendars.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask again, or turn on Quill in System Settings › Privacy & Security › Calendars."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 요청하거나, 시스템 설정 › 개인정보 보호 및 보안 › 캘린더에서 Quill을 켜 주세요."
           }
         }
       }

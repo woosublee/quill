@@ -900,10 +900,14 @@ struct CalendarSettingsView: View {
                         appState.connectAppleCalendar()
                     }
                 case .needsAccess:
-                    Button("Open System Settings") {
-                        appState.guidePermission(.calendars)
+                    Button("Ask Again") {
+                        appState.askForAppleCalendarAccessAgain()
                     }
                     Menu {
+                        Button("Open System Settings") {
+                            appState.guidePermission(.calendars)
+                        }
+                        Divider()
                         Button("Disconnect") {
                             appState.disconnectAppleCalendar()
                         }
@@ -948,7 +952,7 @@ struct CalendarSettingsView: View {
             }
 
             if appState.appleCalendarRowState == .needsAccess {
-                Text("Turn on Quill in System Settings › Privacy & Security › Calendars.")
+                Text("Ask again, or turn on Quill in System Settings › Privacy & Security › Calendars.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

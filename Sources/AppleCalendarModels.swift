@@ -181,3 +181,34 @@ enum CalendarReminderAvailability {
         return google || apple
     }
 }
+
+/// macOS does not list an app under Privacy & Security › Calendars after the
+/// person chooses Don't Allow, and it never shows the prompt again. Resetting
+/// only Quill's own Calendar decision lets Quill ask once more.
+enum AppleCalendarAccessReset {
+    static let executablePath = "/usr/bin/tccutil"
+
+    static func arguments(bundleID: String?) -> [String]? {
+        guard let bundleID, !bundleID.isEmpty else { return nil }
+        return ["reset", "Calendar", bundleID]
+    }
+
+    /// Runs off the main thread; returns whether tccutil succeeded.
+    static func run(bundleID: String? = Bundle.main.bundleIdentifier) async -> Bool {
+        guard let arguments = arguments(bundleID: bundleID) else { return false }
+        return await Task.detached(priority: .userInitiated) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: executablePath)
+            process.arguments = arguments
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.nullDevice
+            do {
+                try process.run()
+                process.waitUntilExit()
+                return process.terminationStatus == 0
+            } catch {
+                return false
+            }
+        }.value
+    }
+}

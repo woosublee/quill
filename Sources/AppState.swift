@@ -1954,6 +1954,29 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// After Don't Allow, macOS neither lists Quill in the Calendars pane nor
+    /// shows the prompt again, so reset Quill's own decision and ask again.
+    /// If the prompt still cannot appear, fall back to the System Settings
+    /// guide.
+    @MainActor
+    func askForAppleCalendarAccessAgain() {
+        Task { @MainActor in
+            _ = await AppleCalendarAccessReset.run()
+            appleCalendarService.resetStore()
+            if AppleCalendarService.authorization() == .notDetermined {
+                _ = await appleCalendarService.requestAccess()
+            }
+            refreshAppleCalendarAuthorization()
+            if appleCalendarAuthorization == .granted {
+                if appleCalendarSelectedIDs.isEmpty {
+                    calendarSelectionSheetProvider = .apple
+                }
+            } else {
+                guidePermission(.calendars)
+            }
+        }
+    }
+
     @MainActor
     func disconnectAppleCalendar() {
         appleCalendarEnabled = false

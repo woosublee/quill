@@ -19,6 +19,7 @@ struct CalendarSourcesTests {
         testReminderAvailability()
         testSVGPathParsesRelativeAndShorthandCommands()
         testGoogleLogoPathsStayInsideTheirViewBox()
+        testCalendarAccessResetTargetsOnlyQuill()
         print("CalendarSourcesTests passed")
     }
 
@@ -121,6 +122,12 @@ struct CalendarSourcesTests {
         let row = block(settings, from: "private var appleCalendarRow: some View", to: "\n    }\n\n")
         let needsAccess = block(row, from: "case .needsAccess:\n                    Button(", to: "case .connected(")
         precondition(needsAccess.contains("appState.disconnectAppleCalendar()"), "denied state can be turned off")
+        precondition(needsAccess.contains("Button(\"Ask Again\")"), "denied state can ask for access again")
+        precondition(needsAccess.contains("appState.askForAppleCalendarAccessAgain()"))
+        precondition(needsAccess.contains("appState.guidePermission(.calendars)"), "System Settings stays reachable")
+        let askAgain = block(appState, from: "func askForAppleCalendarAccessAgain()", to: "\n    }\n")
+        precondition(askAgain.contains("AppleCalendarAccessReset.run("), "resets only Quill's Calendar decision")
+        precondition(askAgain.contains("requestAccess()"), "then shows the system prompt again")
     }
 
     static func block(_ source: String, from start: String, to end: String) -> String {
@@ -194,5 +201,14 @@ struct CalendarSourcesTests {
             precondition(box.minX >= -0.01 && box.minY >= -0.01 && box.maxX <= 48.01 && box.maxY <= 48.01, "Google G path out of bounds")
             precondition(box.width > 5 && box.height > 5)
         }
+    }
+
+    /// A denied app is not listed under Privacy & Security › Calendars, so
+    /// Quill resets only its own Calendar decision before asking again.
+    static func testCalendarAccessResetTargetsOnlyQuill() {
+        precondition(AppleCalendarAccessReset.arguments(bundleID: "com.example.quill") == ["reset", "Calendar", "com.example.quill"])
+        precondition(AppleCalendarAccessReset.arguments(bundleID: nil) == nil)
+        precondition(AppleCalendarAccessReset.arguments(bundleID: "") == nil)
+        precondition(AppleCalendarAccessReset.executablePath == "/usr/bin/tccutil")
     }
 }
