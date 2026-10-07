@@ -51,11 +51,14 @@ git diff --check
 
 `make check` validates plist, entitlement, shell, and YAML files, then runs the
 complete Core, Recording, Transcription, and App State test suite. For a local
-development app bundle build, use the self-signed Quill identity explicitly (official
-releases are signed with Developer ID in CI only):
+development app bundle build, the Makefile signs with the first valid Developer ID
+Application identity in the login keychain (official releases are signed and
+notarized in CI). If several are valid, pick one by hash from
+`security find-identity -v -p codesigning`:
 
 ```bash
-make ARCH="$(uname -m)" CODESIGN_IDENTITY=Quill
+make ARCH="$(uname -m)"
+make ARCH="$(uname -m)" CODESIGN_IDENTITY=<sha1>
 ```
 
 Do not claim end-to-end behavior is verified from compilation or unit tests.
@@ -78,7 +81,8 @@ notarized, since v1.0.0). Preserve all of these contracts:
   release with another identity; switching identities makes existing users grant
   macOS permissions again.
 - `.github/workflows/self-signed-release.yml` and the self-signed `Quill` identity
-  are retired and must not be dispatched for stable releases.
+  are retired and must not be dispatched for stable releases. Local builds use
+  Developer ID too; the self-signed certificate is no longer kept.
 - Google Calendar OAuth client ID and secret are passed to both app and DMG builds.
 - Official releases generate and sign a Sparkle `appcast.xml`.
 - Official releases publish both `Quill.dmg` and `appcast.xml`.

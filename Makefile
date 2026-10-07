@@ -6,7 +6,12 @@ DEV_APP_NAME ?= Quill Dev
 DEV_BUNDLE_ID ?= com.woosublee.quill.dev
 BUILD_DIR = build
 APP_BUNDLE = $(BUILD_DIR)/$(APP_NAME).app
-CODESIGN_IDENTITY ?= Quill
+# Local builds sign with the first valid Developer ID Application identity in
+# the keychain, by SHA-1: a partial name is ambiguous while an old and a renewed
+# certificate both exist. Pass CODESIGN_IDENTITY=<hash> to pick another one.
+ifeq ($(origin CODESIGN_IDENTITY),undefined)
+CODESIGN_IDENTITY := $(shell security find-identity -v -p codesigning 2>/dev/null | awk '/"Developer ID Application: / { print $$2; exit }')
+endif
 # Set to --timestamp for Developer ID builds that will be notarized.
 CODESIGN_TIMESTAMP ?=
 GIT_RELEASE_TAG := $(shell git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null)
@@ -115,7 +120,8 @@ ICON_SOURCE = Resources/AppIcon-Source.png
 ICON_ICNS = Resources/AppIcon.icns
 endif
 
-# Usage: make install CODESIGN_IDENTITY="Apple Development: you@example.com (TEAMID)"
+# Usage: make install (signs with the Developer ID identity resolved above; this
+# is a local, un-notarized build that macOS treats as the same app as releases)
 .PHONY: all check clean run icon dmg codesign-dmg notarize install reset-permissions install-and-run check-test-wiring test test-core test-recording test-transcription test-app-state test-local-ai-integration test-local-asr-integration _test-core _test-recording _test-transcription _test-app-state localization-bundle-test native-whisper-helper-test llama-server-helper-test print-app-version print-build-number print-build-tag print-version-metadata validate FORCE
 
 all: $(APP_EXECUTABLE_TARGET)
