@@ -20,6 +20,7 @@ struct CalendarSourcesTests {
         testSVGPathParsesRelativeAndShorthandCommands()
         testGoogleLogoPathsStayInsideTheirViewBox()
         testCalendarAccessResetTargetsOnlyQuill()
+        testDeclinedRequestCountsAsDeniedWhileStatusLags()
         print("CalendarSourcesTests passed")
     }
 
@@ -128,6 +129,8 @@ struct CalendarSourcesTests {
         let askAgain = block(appState, from: "func askForAppleCalendarAccessAgain()", to: "\n    }\n")
         precondition(askAgain.contains("AppleCalendarAccessReset.run("), "resets only Quill's Calendar decision")
         precondition(askAgain.contains("requestAccess()"), "then shows the system prompt again")
+        precondition(appState.contains("appleCalendarLastRequestDeclined = !granted"), "a declined request is remembered")
+        precondition(appState.contains("AppleCalendarAuthorization.effective(\n            reported:"), "row state uses the request result")
     }
 
     static func block(_ source: String, from start: String, to end: String) -> String {
@@ -210,5 +213,14 @@ struct CalendarSourcesTests {
         precondition(AppleCalendarAccessReset.arguments(bundleID: nil) == nil)
         precondition(AppleCalendarAccessReset.arguments(bundleID: "") == nil)
         precondition(AppleCalendarAccessReset.executablePath == "/usr/bin/tccutil")
+    }
+
+    /// After a reset, macOS can keep reporting "not determined" in the same
+    /// process even though the person just chose Don't Allow.
+    static func testDeclinedRequestCountsAsDeniedWhileStatusLags() {
+        precondition(AppleCalendarAuthorization.effective(reported: .notDetermined, lastRequestDeclined: true) == .denied)
+        precondition(AppleCalendarAuthorization.effective(reported: .notDetermined, lastRequestDeclined: false) == .notDetermined)
+        precondition(AppleCalendarAuthorization.effective(reported: .granted, lastRequestDeclined: true) == .granted)
+        precondition(AppleCalendarAuthorization.effective(reported: .denied, lastRequestDeclined: false) == .denied)
     }
 }

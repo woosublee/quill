@@ -924,6 +924,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor private lazy var appleCalendarService = AppleCalendarService()
     private var appleCalendarChangeObserver: NSObjectProtocol?
     private var appleCalendarChangeDebounce: DispatchWorkItem?
+    private var appleCalendarLastRequestDeclined = false
 
     var appleCalendarRowState: AppleCalendarRowState {
         AppleCalendarRowState.resolve(
@@ -1924,7 +1925,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func refreshAppleCalendarAuthorization() {
-        let authorization = AppleCalendarService.authorization()
+        let reported = AppleCalendarService.authorization()
+        if reported == .granted {
+            appleCalendarLastRequestDeclined = false
+        }
+        let authorization = AppleCalendarAuthorization.effective(
+            reported: reported,
+            lastRequestDeclined: appleCalendarLastRequestDeclined
+        )
         if authorization != appleCalendarAuthorization {
             appleCalendarService.resetStore()
             appleCalendarAuthorization = authorization
@@ -1936,13 +1944,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    /// Asks for Calendar access only when it has never been asked; after a
-    /// denial the Apple row offers the System Settings guide instead.
+    /// Asks for Calendar access when Quill does not have it yet; a declined
+    /// request shows the Ask Again state on the Apple row.
     @MainActor
     func connectAppleCalendar() {
         Task { @MainActor in
-            if AppleCalendarService.authorization() == .notDetermined {
-                _ = await appleCalendarService.requestAccess()
+            if AppleCalendarService.authorization() != .granted {
+                // Returns at once without a prompt when macOS already has a
+                // decision; a false result shows the Ask Again state.
+                let granted = await appleCalendarService.requestAccess()
+                appleCalendarLastRequestDeclined = !granted
             }
             appleCalendarEnabled = true
             UserDefaults.standard.set(true, forKey: Self.appleCalendarEnabledStorageKey)
@@ -1956,23 +1967,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     /// After Don't Allow, macOS neither lists Quill in the Calendars pane nor
     /// shows the prompt again, so reset Quill's own decision and ask again.
-    /// If the prompt still cannot appear, fall back to the System Settings
-    /// guide.
+    /// Declining again leaves the row in the Ask Again state.
     @MainActor
     func askForAppleCalendarAccessAgain() {
         Task { @MainActor in
             _ = await AppleCalendarAccessReset.run()
             appleCalendarService.resetStore()
-            if AppleCalendarService.authorization() == .notDetermined {
-                _ = await appleCalendarService.requestAccess()
-            }
+            let granted = await appleCalendarService.requestAccess()
+            appleCalendarLastRequestDeclined = !granted
             refreshAppleCalendarAuthorization()
             if appleCalendarAuthorization == .granted {
                 if appleCalendarSelectedIDs.isEmpty {
                     calendarSelectionSheetProvider = .apple
                 }
-            } else {
-                guidePermission(.calendars)
             }
         }
     }

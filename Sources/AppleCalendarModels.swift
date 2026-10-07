@@ -212,3 +212,15 @@ enum AppleCalendarAccessReset {
         }.value
     }
 }
+
+extension AppleCalendarAuthorization {
+    /// macOS can keep reporting "not determined" in the same process after
+    /// Quill resets its decision and the person declines again, so a
+    /// declined request outranks that report.
+    static func effective(reported: AppleCalendarAuthorization, lastRequestDeclined: Bool) -> AppleCalendarAuthorization {
+        if reported == .notDetermined && lastRequestDeclined {
+            return .denied
+        }
+        return reported
+    }
+}
