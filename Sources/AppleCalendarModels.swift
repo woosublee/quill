@@ -115,33 +115,53 @@ enum AppleCalendarSelection {
     }
 }
 
-/// The detail after a source's "Connected" label:
-/// "account (Calendar, Calendar) · Last checked 2:30 PM".
+/// Text for a calendar source row: the selected calendar names beside the
+/// source name, and the detail after its "Connected" label.
 enum CalendarSelectionSummary {
-    static func text(account: String?, names: [String], checkedAt: Date?) -> String {
-        text(
+    /// "(Personal, Work)" or "(Personal, Work and 2 more)"; `nil` when none
+    /// is selected.
+    static func names(_ names: [String], language: String = preferredLocalizedStringLanguage(), bundle: Bundle = .main) -> String? {
+        switch names.count {
+        case 0:
+            return nil
+        case 1, 2:
+            return "(" + names.joined(separator: ", ") + ")"
+        default:
+            let shortened = localizedCatalogFormat(
+                "%@, %@ and %lld more",
+                names[0],
+                names[1],
+                Int64(names.count - 2),
+                language: language,
+                bundle: bundle
+            )
+            return "(" + shortened + ")"
+        }
+    }
+
+    static func status(account: String?, hasSelection: Bool, checkedAt: Date?) -> String? {
+        status(
             account: account,
-            names: names,
+            hasSelection: hasSelection,
             checkedTime: checkedAt?.formatted(date: .omitted, time: .shortened),
             language: preferredLocalizedStringLanguage(),
             bundle: .main
         )
     }
 
-    static func text(account: String?, names: [String], checkedTime: String?, language: String, bundle: Bundle) -> String {
+    /// "Last checked 2:30 PM · account", or the selection hint when nothing
+    /// is selected yet.
+    static func status(account: String?, hasSelection: Bool, checkedTime: String?, language: String, bundle: Bundle) -> String? {
         var parts: [String] = []
-        let account = account?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if names.isEmpty {
-            if !account.isEmpty { parts.append(account) }
+        if !hasSelection {
             parts.append(localizedCatalogString("Choose calendars to use", language: language, bundle: bundle))
-        } else {
-            let list = "(" + names.joined(separator: ", ") + ")"
-            parts.append(account.isEmpty ? list : "\(account) \(list)")
-        }
-        if let checkedTime, !checkedTime.isEmpty {
+        } else if let checkedTime, !checkedTime.isEmpty {
             parts.append(localizedCatalogFormat("Last checked %@", checkedTime, language: language, bundle: bundle))
         }
-        return parts.joined(separator: " · ")
+        if let account = account?.trimmingCharacters(in: .whitespacesAndNewlines), !account.isEmpty {
+            parts.append(account)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
 

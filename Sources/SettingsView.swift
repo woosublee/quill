@@ -731,15 +731,51 @@ struct CalendarSettingsView: View {
         }
     }
 
-    private var googleSelectionSummary: String {
+    private var googleSelectedNames: [String] {
+        let selected = appState.googleCalendarConnection.selectedCalendarIDs
+        return appState.availableGoogleCalendars
+            .filter { selected.contains($0.id) }
+            .map(\.displayName)
+    }
+
+    private var googleStatusDetail: String? {
         let connection = appState.googleCalendarConnection
-        return CalendarSelectionSummary.text(
+        return CalendarSelectionSummary.status(
             account: connection.accountEmail,
-            names: appState.availableGoogleCalendars
-                .filter { connection.selectedCalendarIDs.contains($0.id) }
-                .map(\.displayName),
+            hasSelection: !connection.selectedCalendarIDs.isEmpty,
             checkedAt: connection.health.checkedAt
         )
+    }
+
+    /// Source name with the selected calendars beside it in small text.
+    private func sourceTitle(_ title: Text, names: [String]) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            title
+                .font(.body.weight(.semibold))
+                .fixedSize()
+            if let names = CalendarSelectionSummary.names(names) {
+                Text(verbatim: names)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        }
+    }
+
+    /// The green "Connected" label followed by secondary details.
+    private func statusLine<Status: View>(_ status: Status, detail: String?) -> some View {
+        HStack(spacing: 4) {
+            status
+                .fixedSize()
+            if let detail {
+                Text(verbatim: "· " + detail)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        }
+        .font(.caption)
     }
 
     private var googleCalendarRow: some View {
@@ -750,19 +786,14 @@ struct CalendarSettingsView: View {
                     .frame(width: 24)
                 VStack(alignment: .leading, spacing: 2) {
                     // Product name; kept in English in every language.
-                    Text(verbatim: "Google Calendar")
-                        .font(.body.weight(.semibold))
-                    HStack(spacing: 4) {
-                        googleCalendarConnectionStatusLabel
-                            .fixedSize()
-                        if appState.googleCalendarConnection.isConnected {
-                            Text(verbatim: "· " + googleSelectionSummary)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-                    }
-                    .font(.caption)
+                    sourceTitle(
+                        Text(verbatim: "Google Calendar"),
+                        names: appState.googleCalendarConnection.isConnected ? googleSelectedNames : []
+                    )
+                    statusLine(
+                        googleCalendarConnectionStatusLabel,
+                        detail: appState.googleCalendarConnection.isConnected ? googleStatusDetail : nil
+                    )
                 }
                 Spacer(minLength: 8)
                 refreshActivityIndicator(isVisible: appState.isGoogleCalendarBusy)
@@ -831,14 +862,10 @@ struct CalendarSettingsView: View {
         }
     }
 
-    private var appleSelectionSummary: String {
-        CalendarSelectionSummary.text(
-            account: localizedCatalogString("Mac Calendar app"),
-            names: AppleCalendarSelection
-                .visible(appState.appleCalendarSelectedIDs, available: appState.availableAppleCalendars)
-                .map(\.title),
-            checkedAt: appState.appleCalendarLastCheckedAt
-        )
+    private var appleSelectedNames: [String] {
+        AppleCalendarSelection
+            .visible(appState.appleCalendarSelectedIDs, available: appState.availableAppleCalendars)
+            .map(\.title)
     }
 
     private var appleCalendarRow: some View {
@@ -852,8 +879,10 @@ struct CalendarSettingsView: View {
                     .frame(width: 24)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Apple Calendar")
-                        .font(.body.weight(.semibold))
+                    sourceTitle(
+                        Text("Apple Calendar"),
+                        names: appState.appleCalendarRowState == .notConnected ? [] : appleSelectedNames
+                    )
                     switch appState.appleCalendarRowState {
                     case .notConnected:
                         HStack(spacing: 6) {
@@ -867,17 +896,16 @@ struct CalendarSettingsView: View {
                         Label("Calendar access is off", systemImage: "exclamationmark.triangle.fill")
                             .font(.caption)
                             .foregroundStyle(.orange)
-                    case .connected:
-                        HStack(spacing: 4) {
+                    case .connected(let needsSelection):
+                        statusLine(
                             Label("Connected", systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                                .fixedSize()
-                            Text(verbatim: "· " + appleSelectionSummary)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-                        .font(.caption)
+                                .foregroundStyle(.green),
+                            detail: CalendarSelectionSummary.status(
+                                account: nil,
+                                hasSelection: !needsSelection,
+                                checkedAt: appState.appleCalendarLastCheckedAt
+                            )
+                        )
                     }
                 }
                 Spacer(minLength: 8)

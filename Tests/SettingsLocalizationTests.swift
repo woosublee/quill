@@ -230,7 +230,8 @@ struct SettingsLocalizationTests {
             "Turn on the switch next to %@": "목록에서 %@ 옆 스위치를 켜 주세요",
             "%@ connects as soon as it’s on.": "켜면 %@이(가) 바로 연결됩니다.",
             "More": "더 보기",
-            "Last checked %@": "마지막 확인 %@"
+            "Last checked %@": "마지막 확인 %@",
+            "%@, %@ and %lld more": "%@, %@ 외 %lld개"
         ]
         for (key, ko) in expected {
             assert(localizedCatalogString(key, language: "en", bundle: bundle) == key, "Missing en for \(key)")
@@ -248,6 +249,8 @@ struct SettingsLocalizationTests {
         assert(settings.contains("appState.guidePermission(.calendars)"))
         assert(settings.contains("appState.connectAppleCalendar()"))
         assert(settings.contains("checkedAt: connection.health.checkedAt"))
+        assert(!settings.contains("localizedCatalogString(\"Mac Calendar app\")"))
+        assert(settings.contains("CalendarSelectionSummary.names("))
         assert(settings.contains("checkedAt: appState.appleCalendarLastCheckedAt"))
         // Both rows use the same "Connected · account (calendars)" line.
         assert(!settings.contains("\"Connected · Last checked"))

@@ -19669,22 +19669,6 @@
         }
       }
     },
-    "Mac Calendar app": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac Calendar app"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mac 캘린더 앱"
-          }
-        }
-      }
-    },
     "Ask Again": {
       "localizations": {
         "en": {
@@ -19729,6 +19713,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "마지막 확인 %@"
+          }
+        }
+      }
+    },
+    "%@, %@ and %lld more": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@ and %lld more"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, %@ 외 %lld개"
           }
         }
       }
