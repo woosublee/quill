@@ -8045,7 +8045,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func importAudioFile(_ fileURL: URL, choice: TranscriptionBackendChoice) {
-        importAudioFile(fileURL, choice: choice, recordingTime: nil, calendarEvent: nil)
+        importAudioFile(fileURL, choice: choice, recordingTime: nil, calendarEvent: nil, calendarDay: nil)
     }
 
     /// `recordingTime` comes from the file's embedded creation date; with it
@@ -8056,7 +8056,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         _ fileURL: URL,
         choice: TranscriptionBackendChoice,
         recordingTime: AudioFileRecordingTime?,
-        calendarEvent: CalendarEvent?
+        calendarEvent: CalendarEvent?,
+        calendarDay: Date?
     ) {
         guard requireAvailableHistoryForMutation() else { return }
         guard !choice.usesCloudAPI || hasTranscriptionAPIKey else {
@@ -8141,7 +8142,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 contextAppName: nil,
                 contextBundleIdentifier: nil,
                 contextWindowTitle: nil,
-                customTitle: calendarEvent.map { ImportCalendarTitle.title(for: $0, recording: recordingTime) }
+                customTitle: calendarEvent.map {
+                    ImportCalendarTitle.title(for: $0, recording: recordingTime, chosenDay: calendarDay ?? $0.start)
+                }
             )
 
             do {
@@ -12884,9 +12887,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    @MainActor
     /// Imported audio can carry an earlier recording time; keep the list
     /// newest first like the store.
+    @MainActor
     private func insertPipelineHistoryItemInTimeOrder(_ item: PipelineHistoryItem) {
         let index = PipelineHistoryOrdering.insertionIndex(
             for: item.timestamp,
@@ -12895,6 +12898,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         pipelineHistory.insert(item, at: index)
     }
 
+    @MainActor
     private func updatePipelineHistoryItem(_ item: PipelineHistoryItem) {
         if let index = pipelineHistory.firstIndex(where: { $0.id == item.id }) {
             pipelineHistory[index] = item
@@ -13105,7 +13109,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     /// Google events for a recording interval, or `nil` when no Google
     /// calendar is selected. Health is reported as before.
-    private func googleCalendarEventsForMatch(from start: Date, to end: Date) async -> Result<[CalendarEvent], Error>? {
+    private func googleCalendarEventsForMatch(from start: Date, to end: Date, reportsHealth: Bool = true) async -> Result<[CalendarEvent], Error>? {
         let selectedCalendarIDs = await MainActor.run {
             googleCalendarConnection.selectedCalendarIDs
         }
@@ -13114,6 +13118,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         do {
             guard let token = try await validGoogleCalendarToken() else {
                 await MainActor.run {
+                    guard reportsHealth else { return }
                     markGoogleCalendarNeedsReconnect(
                         feature: .recordingMatch,
                         message: localizedCatalogString("Google Calendar needs reconnecting. Calendar-based note titles may be unavailable.")
@@ -13129,6 +13134,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     timeMax: end
                 )
             await MainActor.run {
+                guard reportsHealth else { return }
                 if fetchResult.failedCalendarIDs.isEmpty {
                     markGoogleCalendarHealthy(feature: .recordingMatch)
                 } else {
@@ -13141,6 +13147,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return .success(fetchResult.events)
         } catch {
             await MainActor.run {
+                guard reportsHealth else { return }
                 if Self.isGoogleCalendarReconnectError(error) {
                     markGoogleCalendarNeedsReconnect(
                         feature: .recordingMatch,
@@ -13160,22 +13167,23 @@ final class AppState: ObservableObject, @unchecked Sendable {
     struct CalendarDayEventsResult: Equatable {
         let events: [CalendarEvent]
         let googleFailed: Bool
-        let hasConnectedSource: Bool
+        /// A connected source with at least one calendar Quill can read.
+        let hasReadableSource: Bool
     }
 
     /// Meeting candidates for one local day from the selected Google and
     /// Apple calendars, for the import sheet. Nothing is cached.
     func calendarDayEvents(on day: Date) async -> CalendarDayEventsResult {
         let interval = CalendarDayEvents.dayInterval(containing: day)
-        let (googleConnected, appleIDs, appleConnected) = await MainActor.run {
+        let (googleConnected, appleIDs) = await MainActor.run {
             (
-                googleCalendarConnection.isConnected,
-                readableAppleCalendarIDs,
-                appleCalendarRowState != .notConnected
+                googleCalendarConnection.isConnected && !googleCalendarConnection.selectedCalendarIDs.isEmpty,
+                readableAppleCalendarIDs
             )
         }
+        // Browsing days in the import sheet must not change Google health.
         let google = googleConnected
-            ? await googleCalendarEventsForMatch(from: interval.start, to: interval.end)
+            ? await googleCalendarEventsForMatch(from: interval.start, to: interval.end, reportsHealth: false)
             : nil
         let apple: [CalendarEvent]? = appleIDs.isEmpty
             ? nil
@@ -13192,7 +13200,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return CalendarDayEventsResult(
             events: CalendarDayEvents.meetingCandidates(merged),
             googleFailed: googleFailed,
-            hasConnectedSource: googleConnected || appleConnected
+            hasReadableSource: googleConnected || !appleIDs.isEmpty
         )
     }
 

@@ -49,12 +49,22 @@ enum CalendarDayEvents {
 }
 
 enum ImportCalendarTitle {
-    /// Same form as applying a calendar suggestion after recording.
-    static func title(for event: CalendarEvent, recording: AudioFileRecordingTime?) -> String {
+    /// Same form as applying a calendar suggestion after recording. Without a
+    /// recording time the date is the day the person chose in the sheet.
+    static func title(for event: CalendarEvent, recording: AudioFileRecordingTime?, chosenDay: Date) -> String {
         NoteTitleResolver.calendarAppliedTitle(
             suggestedTitle: event.title.trimmingCharacters(in: .whitespacesAndNewlines),
-            recordingStartedAt: recording?.start ?? event.start
+            recordingStartedAt: recording?.start ?? chosenDay
         )
+    }
+}
+
+enum ImportCalendarSelection {
+    /// The event to keep selected after the list reloads. `nil` is "No event".
+    static func next(current: String?, userChose: Bool, events: [CalendarEvent], recommendedID: String?) -> String? {
+        guard userChose else { return recommendedID }
+        guard let current else { return nil }
+        return events.contains { $0.id == current } ? current : recommendedID
     }
 }
 

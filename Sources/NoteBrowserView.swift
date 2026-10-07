@@ -264,11 +264,17 @@ struct TranscriptionChoiceSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
                     .font(.system(size: 18, weight: .semibold))
-                Text(verbatim: subtitleDetail.map { "\(subtitle) · \($0)" } ?? subtitle)
+                Text(verbatim: subtitle)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                if let subtitleDetail {
+                    Text(verbatim: subtitleDetail)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             if showsSettingNote {
@@ -816,7 +822,8 @@ struct NoteBrowserView: View {
                     importRequest.fileURL,
                     choice: choice,
                     recordingTime: calendarModel.recordingTime,
-                    calendarEvent: calendarModel.selectedEvent
+                    calendarEvent: calendarModel.selectedEvent,
+                    calendarDay: calendarModel.day
                 )
             } onOpenProviderSettings: {
                 pendingAudioImport = nil
@@ -894,9 +901,17 @@ struct NoteBrowserView: View {
             // Opening a note here goes through the search, so typing a query
             // keeps the search field focused and the search open (#436).
             guard let current = selectedItemID, ids.contains(current) else {
-                openNoteForSearch(visibleIDs.first)
-                if isRecoveryImport, let fallback = visibleIDs.first {
-                    scheduleRecoveryScrollRestore(for: fallback)
+                // With nothing open, open a note that just arrived (imported
+                // audio can land below the top) and scroll to it.
+                let insertedID = ids.first(where: { !knownHistoryIDs.contains($0) && visibleIDs.contains($0) })
+                if !isRecoveryImport, let insertedID {
+                    openNoteForSearch(insertedID)
+                    scheduleRecoveryScrollRestore(for: insertedID)
+                } else {
+                    openNoteForSearch(visibleIDs.first)
+                    if isRecoveryImport, let fallback = visibleIDs.first {
+                        scheduleRecoveryScrollRestore(for: fallback)
+                    }
                 }
                 knownHistoryIDs = Set(ids)
                 return

@@ -15,8 +15,10 @@ final class AudioImportCalendarModel: ObservableObject {
     @Published var selectedEventID: String?
     @Published private(set) var isLoading = true
     @Published private(set) var googleFailed = false
-    @Published private(set) var hasConnectedSource = true
+    @Published private(set) var hasReadableSource = true
     private var loadGeneration = 0
+    private var dayChosenByUser = false
+    private var eventChosenByUser = false
 
     var selectedEvent: CalendarEvent? {
         selectedEventID.flatMap { id in events.first { $0.id == id } }
@@ -29,9 +31,29 @@ final class AudioImportCalendarModel: ObservableObject {
             if accessGranted { fileURL.stopAccessingSecurityScopedResource() }
             recordingTime = time
             hasReadRecordingTime = true
-            if let time { day = time.start }
-            load(appState: appState)
+            applyRecordingDay(time, appState: appState)
         }
+    }
+
+    /// A late metadata read must not move a date the person already picked.
+    private func applyRecordingDay(_ time: AudioFileRecordingTime?, appState: AppState) {
+        guard !dayChosenByUser else {
+            load(appState: appState)
+            return
+        }
+        if let time { day = time.start }
+        load(appState: appState)
+    }
+
+    func pickDay(_ newDay: Date, appState: AppState) {
+        dayChosenByUser = true
+        day = newDay
+        load(appState: appState)
+    }
+
+    func pickEvent(_ id: String?) {
+        eventChosenByUser = true
+        selectedEventID = id
     }
 
     func load(appState: AppState) {
@@ -44,10 +66,15 @@ final class AudioImportCalendarModel: ObservableObject {
             guard generation == loadGeneration else { return }
             events = result.events
             googleFailed = result.googleFailed
-            hasConnectedSource = result.hasConnectedSource
+            hasReadableSource = result.hasReadableSource
             let recommended = CalendarDayEvents.recommendation(in: result.events, recording: recordingTime)
             recommendedID = recommended?.id
-            selectedEventID = recommended?.id
+            selectedEventID = ImportCalendarSelection.next(
+                current: selectedEventID,
+                userChose: eventChosenByUser,
+                events: result.events,
+                recommendedID: recommended?.id
+            )
             isLoading = false
         }
     }
@@ -79,7 +106,7 @@ struct AudioImportCalendarSection: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
 
-            if !model.hasConnectedSource {
+            if !model.hasReadableSource {
                 Text("Connect a calendar to add the meeting title and attendees.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
@@ -106,19 +133,23 @@ struct AudioImportCalendarSection: View {
                 }
             }
         }
-        .onChange(of: model.day) { _ in
-            showsDatePicker = false
-            model.load(appState: appState)
-        }
+        // Reload after Calendar Settings… connects, reconnects, grants access,
+        // or changes which calendars are selected.
         .onReceive(
             appState.$googleCalendarConnection
-                .map(\.selectedCalendarIDs)
+                .map { "\($0.isConnected)|\($0.selectedCalendarIDs.sorted())" }
                 .removeDuplicates()
                 .dropFirst()
         ) { _ in
             model.load(appState: appState)
         }
         .onReceive(appState.$appleCalendarSelectedIDs.removeDuplicates().dropFirst()) { _ in
+            model.load(appState: appState)
+        }
+        .onReceive(appState.$appleCalendarAuthorization.removeDuplicates().dropFirst()) { _ in
+            model.load(appState: appState)
+        }
+        .onReceive(appState.$appleCalendarEnabled.removeDuplicates().dropFirst()) { _ in
             model.load(appState: appState)
         }
     }
@@ -134,7 +165,17 @@ struct AudioImportCalendarSection: View {
             }
         }
         .popover(isPresented: $showsDatePicker, arrowEdge: .bottom) {
-            DatePicker("", selection: $model.day, displayedComponents: .date)
+            DatePicker(
+                "",
+                selection: Binding(
+                    get: { model.day },
+                    set: { newDay in
+                        showsDatePicker = false
+                        model.pickDay(newDay, appState: appState)
+                    }
+                ),
+                displayedComponents: .date
+            )
                 .datePickerStyle(.graphical)
                 .labelsHidden()
                 .padding(12)
@@ -150,7 +191,7 @@ struct AudioImportCalendarSection: View {
                     isSuggested: event.id == model.recommendedID,
                     detail: detail(for: event)
                 ) {
-                    model.selectedEventID = event.id
+                    model.pickEvent(event.id)
                 }
             }
             row(
@@ -159,7 +200,7 @@ struct AudioImportCalendarSection: View {
                 isSuggested: false,
                 detail: localizedCatalogString("The title comes from the first line of the transcript")
             ) {
-                model.selectedEventID = nil
+                model.pickEvent(nil)
             }
         }
         .padding(10)
@@ -179,7 +220,7 @@ struct AudioImportCalendarSection: View {
         if event.id == model.recommendedID {
             parts.append(localizedCatalogFormat(
                 "Title: %@",
-                ImportCalendarTitle.title(for: event, recording: model.recordingTime)
+                ImportCalendarTitle.title(for: event, recording: model.recordingTime, chosenDay: model.day)
             ))
         }
         return parts.joined(separator: " · ")

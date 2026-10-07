@@ -12,6 +12,9 @@ struct AudioImportCalendarTests {
         testImportSelectionSourceRoundTrips()
         try testAppStateImportWiring()
         try testBrowserFocusesInsertedNote()
+        testTitleUsesChosenDayWithoutRecordingTime()
+        testSelectionSurvivesReload()
+        try testReviewFixesWiring()
         print("AudioImportCalendarTests passed")
     }
 
@@ -75,8 +78,7 @@ struct AudioImportCalendarTests {
         let meeting = event("a", "주간 기획 회의", 7_200, 10_800)
         let recording = AudioFileRecordingTime.make(creationDate: base.addingTimeInterval(7_320), duration: 600)
         let expectedDay = NoteTitleResolver.calendarAppliedTitle(suggestedTitle: "주간 기획 회의", recordingStartedAt: recording!.start)
-        precondition(ImportCalendarTitle.title(for: meeting, recording: recording) == expectedDay)
-        precondition(ImportCalendarTitle.title(for: meeting, recording: nil) == NoteTitleResolver.calendarAppliedTitle(suggestedTitle: "주간 기획 회의", recordingStartedAt: meeting.start))
+        precondition(ImportCalendarTitle.title(for: meeting, recording: recording, chosenDay: base.addingTimeInterval(86_400 * 3)) == expectedDay)
         _ = utc
     }
 
@@ -113,5 +115,43 @@ struct AudioImportCalendarTests {
         let browser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
         precondition(browser.contains("ids.first(where: { !knownHistoryIDs.contains($0) })"), "a new note anywhere in the list is opened")
         precondition(browser.contains("scheduleRecoveryScrollRestore(for: newID)"), "and scrolled into view")
+    }
+
+    /// Without a recording time the date is the day the person chose, even
+    /// for an event that started the evening before.
+    static func testTitleUsesChosenDayWithoutRecordingTime() {
+        let overnight = event("n", "Release", -3_600, 3_600)
+        let chosen = base.addingTimeInterval(1_800)
+        precondition(ImportCalendarTitle.title(for: overnight, recording: nil, chosenDay: chosen)
+            == NoteTitleResolver.calendarAppliedTitle(suggestedTitle: "Release", recordingStartedAt: chosen))
+    }
+
+    static func testSelectionSurvivesReload() {
+        let events = [event("a", "Planning", 0, 600), event("b", "Review", 700, 900)]
+        // Not chosen by hand yet: follow the recommendation.
+        precondition(ImportCalendarSelection.next(current: "b", userChose: false, events: events, recommendedID: "a") == "a")
+        // Chosen by hand and still listed: keep it, including "No event".
+        precondition(ImportCalendarSelection.next(current: "b", userChose: true, events: events, recommendedID: "a") == "b")
+        precondition(ImportCalendarSelection.next(current: nil, userChose: true, events: events, recommendedID: "a") == nil)
+        // Chosen event gone from the new list: fall back to the recommendation.
+        precondition(ImportCalendarSelection.next(current: "gone", userChose: true, events: events, recommendedID: "a") == "a")
+    }
+
+    static func testReviewFixesWiring() throws {
+        let app = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        precondition(app.contains("@MainActor\n    private func updatePipelineHistoryItem("), "list updates stay on the main actor")
+        precondition(app.contains("@MainActor\n    private func insertPipelineHistoryItemInTimeOrder("))
+        precondition(app.contains("reportsHealth: false"), "browsing days does not change Google health")
+        precondition(app.contains("hasReadableSource:"), "empty sources show the connect hint")
+        let browser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+        precondition(browser.contains("let insertedID = ids.first(where: { !knownHistoryIDs.contains($0) && visibleIDs.contains($0) })"), "nothing open: open the inserted note")
+        precondition(browser.contains("if let subtitleDetail {\n                    Text(verbatim: subtitleDetail)"), "recording time on its own line")
+        let section = try String(contentsOfFile: "Sources/AudioImportCalendarSection.swift", encoding: .utf8)
+        precondition(section.contains("func pickDay("), "user date changes go through one path")
+        precondition(!section.contains(".onChange(of: model.day)"), "no second load from onChange")
+        precondition(section.contains("guard !dayChosenByUser"), "a late metadata read does not move the user's date")
+        precondition(section.contains("ImportCalendarSelection.next("))
+        precondition(section.contains("appState.$appleCalendarAuthorization"), "reload when access changes")
+        precondition(section.contains("$0.isConnected"), "reload when Google connects")
     }
 }
