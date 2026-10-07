@@ -2043,6 +2043,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     @MainActor
+    func setGoogleCalendarSelection(_ calendarIDs: Set<String>) {
+        googleCalendarConnection.selectedCalendarIDs = calendarIDs
+        Self.saveStringSet(calendarIDs, forKey: googleCalendarSelectedIDsStorageKey)
+        scheduleCalendarRecordingReminderRefresh()
+    }
+
+    @MainActor
+    func setAppleCalendarSelection(_ calendarIDs: Set<String>) {
+        appleCalendarSelectedIDs = calendarIDs
+        Self.saveStringSet(calendarIDs, forKey: Self.appleCalendarSelectedIDsStorageKey)
+        scheduleCalendarRecordingReminderRefresh()
+    }
+
+    @MainActor
     func setCalendarRecordingReminderLeadTime(_ minutes: Int, isSelected: Bool) {
         var selection = Set(calendarRecordingReminderLeadMinutes)
         if isSelected {

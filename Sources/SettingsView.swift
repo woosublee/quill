@@ -1098,8 +1098,15 @@ private struct CalendarSelectionSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(provider == .google ? "Choose Google Calendars" : "Choose Apple Calendars")
-                .font(.headline)
+            HStack {
+                Text(provider == .google ? "Choose Google Calendars" : "Choose Apple Calendars")
+                    .font(.headline)
+                Spacer()
+                Button(allListedSelected ? "Deselect All" : "Select All") {
+                    toggleAll()
+                }
+                .disabled(listedIDs.isEmpty)
+            }
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     switch provider {
@@ -1128,6 +1135,32 @@ private struct CalendarSelectionSheet: View {
             if provider == .apple {
                 appState.reloadAppleCalendars()
             }
+        }
+    }
+
+    private var listedIDs: [String] {
+        switch provider {
+        case .google: appState.availableGoogleCalendars.map(\.id)
+        case .apple: appState.availableAppleCalendars.map(\.id)
+        }
+    }
+
+    private var selectedIDs: Set<String> {
+        switch provider {
+        case .google: appState.googleCalendarConnection.selectedCalendarIDs
+        case .apple: appState.appleCalendarSelectedIDs
+        }
+    }
+
+    private var allListedSelected: Bool {
+        CalendarBulkSelection.allSelected(selectedIDs, listed: listedIDs)
+    }
+
+    private func toggleAll() {
+        let next = CalendarBulkSelection.toggled(selectedIDs, listed: listedIDs)
+        switch provider {
+        case .google: appState.setGoogleCalendarSelection(next)
+        case .apple: appState.setAppleCalendarSelection(next)
         }
     }
 

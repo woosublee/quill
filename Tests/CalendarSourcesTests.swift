@@ -21,6 +21,8 @@ struct CalendarSourcesTests {
         testGoogleLogoPathsStayInsideTheirViewBox()
         testCalendarAccessResetTargetsOnlyQuill()
         testGoogleAccountFallsBackToPrimaryCalendarID()
+        testSelectAllTogglesEveryListedCalendar()
+        try testSelectionSheetHasSelectAll()
         testDeclinedRequestCountsAsDeniedWhileStatusLags()
         print("CalendarSourcesTests passed")
     }
@@ -242,5 +244,25 @@ struct CalendarSourcesTests {
         precondition(GoogleCalendarAccount.label(accountEmail: "  ", calendars: calendars) == "person@example.com")
         precondition(GoogleCalendarAccount.label(accountEmail: "stored@example.com", calendars: calendars) == "stored@example.com")
         precondition(GoogleCalendarAccount.label(accountEmail: nil, calendars: []) == nil)
+    }
+
+    static func testSelectAllTogglesEveryListedCalendar() {
+        let listed = ["A", "B", "C"]
+        precondition(!CalendarBulkSelection.allSelected(["A", "B"], listed: listed))
+        precondition(CalendarBulkSelection.allSelected(["A", "B", "C", "GONE"], listed: listed))
+        precondition(!CalendarBulkSelection.allSelected([], listed: []))
+        // Select All keeps choices for calendars that are hidden right now.
+        precondition(CalendarBulkSelection.toggled(["A", "GONE"], listed: listed) == ["A", "B", "C", "GONE"])
+        precondition(CalendarBulkSelection.toggled(["A", "B", "C", "GONE"], listed: listed) == ["GONE"])
+    }
+
+    static func testSelectionSheetHasSelectAll() throws {
+        let settings = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
+        let sheet = block(settings, from: "private struct CalendarSelectionSheet: View", to: "    @ViewBuilder\n    private var googleList")
+        precondition(sheet.contains("CalendarBulkSelection.allSelected("), "sheet knows whether all are selected")
+        precondition(sheet.contains("\"Deselect All\"") && sheet.contains("\"Select All\""), "sheet offers Select All / Deselect All")
+        let appState = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        precondition(appState.contains("func setGoogleCalendarSelection(_ calendarIDs: Set<String>)"))
+        precondition(appState.contains("func setAppleCalendarSelection(_ calendarIDs: Set<String>)"))
     }
 }

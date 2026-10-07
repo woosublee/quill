@@ -19732,6 +19732,22 @@
           }
         }
       }
+    },
+    "Deselect All": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deselect All"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 해제"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

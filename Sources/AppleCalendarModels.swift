@@ -259,3 +259,17 @@ enum GoogleCalendarAccount {
         return calendars.first(where: \.primary)?.id
     }
 }
+
+/// Select All / Deselect All in the calendar selection sheet. Only listed
+/// calendars change; choices for calendars hidden right now are kept.
+enum CalendarBulkSelection {
+    static func allSelected(_ selected: Set<String>, listed: [String]) -> Bool {
+        !listed.isEmpty && listed.allSatisfy(selected.contains)
+    }
+
+    static func toggled(_ selected: Set<String>, listed: [String]) -> Set<String> {
+        allSelected(selected, listed: listed)
+            ? selected.subtracting(listed)
+            : selected.union(listed)
+    }
+}
