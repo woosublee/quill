@@ -1,2 +1,4 @@
 "NSMicrophoneUsageDescription" = "Quill이 받아쓰기와 회의를 녹음하려면 마이크 접근 권한이 필요합니다.";
 "NSSpeechRecognitionUsageDescription" = "Apple Live 전사를 선택하면 Quill에 음성 인식 접근 권한이 필요합니다.";
+"NSCalendarsFullAccessUsageDescription" = "회의 알림과 노트 제목·참석자 정보를 위해 캘린더 일정을 읽습니다. 일정은 Mac 밖으로 전송되지 않습니다.";
+"NSCalendarsUsageDescription" = "회의 알림과 노트 제목·참석자 정보를 위해 캘린더 일정을 읽습니다. 일정은 Mac 밖으로 전송되지 않습니다.";

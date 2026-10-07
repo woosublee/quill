@@ -47,6 +47,10 @@
     <string>Quill needs microphone access to record audio.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Quill needs speech recognition to convert your voice to text.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Quill reads your calendar events for meeting reminders and for note titles and attendees. Events never leave your Mac.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>Quill reads your calendar events for meeting reminders and for note titles and attendees. Events never leave your Mac.</string>
     <key>NSAccessibilityUsageDescription</key>
     <string>Quill needs accessibility access to detect the text cursor position and paste transcribed text.</string>
 </dict>
