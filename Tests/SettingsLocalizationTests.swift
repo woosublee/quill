@@ -13,6 +13,7 @@ struct SettingsLocalizationTests {
         try testGoogleCalendarHealthMessagesLocalizeWithoutChangingDetail()
         try testCalendarReminderLeadTimeUsesLocalizedCopy()
         try testCalendarConnectionsCopyLocalizes()
+        try testImportCalendarCopyLocalizes()
         try testCalendarSettingsUsesSourceRowsAndSheet()
         try testRecordingOverlaySettingsCopyLocalizes()
         try testModelFirstSettingsCopyLocalizes()
@@ -267,6 +268,34 @@ struct SettingsLocalizationTests {
         let calendarSettings = settings.components(separatedBy: "struct CalendarSettingsView: View")[1]
             .components(separatedBy: "private struct CalendarSelectionSheet")[0]
         assert(calendarSettings.components(separatedBy: "Image(systemName: \"arrow.clockwise\")").count - 1 == 2, "each source row has a refresh button")
+    }
+
+    private static func testImportCalendarCopyLocalizes() throws {
+        let bundle = try compiledLocalizationBundle()
+        let expected: [String: String] = [
+            "Calendar Event": "캘린더 일정",
+            "No event": "일정 없음",
+            "The title comes from the first line of the transcript": "전사문 첫 줄로 제목을 정합니다",
+            "Suggested": "추천",
+            "Loading events…": "일정을 불러오는 중…",
+            "Some calendars couldn't be loaded.": "일부 캘린더를 불러오지 못했어요.",
+            "No recording time in this file; choose the date": "녹음 시각이 없어 날짜를 직접 골라 주세요",
+            "Connect a calendar to add the meeting title and attendees.": "캘린더를 연결하면 회의 제목과 참석자를 붙일 수 있어요.",
+            "Calendar Settings…": "캘린더 설정…",
+            "%lld attendees": "참석자 %lld명",
+            "Title: %@": "제목 “%@”"
+        ]
+        for (key, ko) in expected {
+            assert(localizedCatalogString(key, language: "en", bundle: bundle) == key, "Missing en for \(key)")
+            assert(localizedCatalogString(key, language: "ko", bundle: bundle) == ko, "Unexpected ko for \(key)")
+        }
+        let browser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+        assert(browser.contains("AudioImportCalendarSection("))
+        assert(browser.contains("calendarEvent: calendarModel.selectedEvent"))
+        let section = try String(contentsOfFile: "Sources/AudioImportCalendarSection.swift", encoding: .utf8)
+        assert(section.contains("DatePicker(") && section.contains(".datePickerStyle(.graphical)"))
+        assert(section.contains("appState.openCalendarSettings()"))
+        assert(!section.contains("in: ...Date()") && !section.contains("in: Date()..."), "any past or future date")
     }
 
     private static func testRecordingOverlaySettingsCopyLocalizes() throws {

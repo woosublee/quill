@@ -139,6 +139,7 @@ private struct PendingAudioImport: Identifiable {
     let legacyLocalWhisperModels: [TranscriptionModel]
     let localAIModels: [AudioImportLocalAIModel]
     let fileSizeBytes: Int64?
+    let calendarModel: AudioImportCalendarModel
 
     init(
         fileURL: URL,
@@ -147,8 +148,10 @@ private struct PendingAudioImport: Identifiable {
         hasAPIKey: Bool,
         hasNativeLocalWhisperModel: Bool,
         legacyLocalWhisperModels: [TranscriptionModel],
-        localAIModels: [AudioImportLocalAIModel]
+        localAIModels: [AudioImportLocalAIModel],
+        calendarModel: AudioImportCalendarModel
     ) {
+        self.calendarModel = calendarModel
         self.fileURL = fileURL
         self.currentChoice = currentChoice
         self.apiStandardModelID = apiStandardModelID
@@ -179,12 +182,43 @@ private struct PendingAudioImport: Identifiable {
     }
 }
 
+/// The import sheet: transcription choice plus the calendar event section,
+/// with the file's recording time beside its name.
+private struct AudioImportSheet: View {
+    @EnvironmentObject var appState: AppState
+    let request: PendingAudioImport
+    @ObservedObject var calendarModel: AudioImportCalendarModel
+    let onConfirm: (TranscriptionBackendChoice) -> Void
+    let onOpenProviderSettings: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        TranscriptionChoiceSheet(
+            title: "Import Audio File",
+            subtitle: request.fileURL.lastPathComponent,
+            subtitleDetail: calendarModel.headerDetail,
+            showsSettingNote: false,
+            options: request.options,
+            fallbackChoice: .apiStandard(modelID: request.apiStandardModelID),
+            accessory: AnyView(
+                AudioImportCalendarSection(model: calendarModel)
+                    .environmentObject(appState)
+            ),
+            onConfirm: onConfirm,
+            onOpenProviderSettings: onOpenProviderSettings,
+            onCancel: onCancel
+        )
+    }
+}
+
 /// Picks the model for one transcription the user starts by hand: an audio
 /// import, or transcribing a saved note when no usable model is selected.
 /// The choice applies to that transcription only.
 struct TranscriptionChoiceSheet: View {
     let title: LocalizedStringKey
     let subtitle: String
+    let subtitleDetail: String?
+    let accessory: AnyView?
     let showsSettingNote: Bool
     let options: AudioImportOptions
     let onConfirm: (TranscriptionBackendChoice) -> Void
@@ -196,15 +230,19 @@ struct TranscriptionChoiceSheet: View {
     init(
         title: LocalizedStringKey,
         subtitle: String,
+        subtitleDetail: String? = nil,
         showsSettingNote: Bool,
         options: AudioImportOptions,
         fallbackChoice: TranscriptionBackendChoice,
+        accessory: AnyView? = nil,
         onConfirm: @escaping (TranscriptionBackendChoice) -> Void,
         onOpenProviderSettings: @escaping () -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.title = title
         self.subtitle = subtitle
+        self.subtitleDetail = subtitleDetail
+        self.accessory = accessory
         self.showsSettingNote = showsSettingNote
         self.options = options
         self.onConfirm = onConfirm
@@ -226,7 +264,7 @@ struct TranscriptionChoiceSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
                     .font(.system(size: 18, weight: .semibold))
-                Text(verbatim: subtitle)
+                Text(verbatim: subtitleDetail.map { "\(subtitle) · \($0)" } ?? subtitle)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -256,6 +294,10 @@ struct TranscriptionChoiceSheet: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let accessory {
+                accessory
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -764,15 +806,18 @@ struct NoteBrowserView: View {
             }
         }
         .sheet(item: $pendingAudioImport) { importRequest in
-            TranscriptionChoiceSheet(
-                title: "Import Audio File",
-                subtitle: importRequest.fileURL.lastPathComponent,
-                showsSettingNote: false,
-                options: importRequest.options,
-                fallbackChoice: .apiStandard(modelID: importRequest.apiStandardModelID)
+            AudioImportSheet(
+                request: importRequest,
+                calendarModel: importRequest.calendarModel
             ) { choice in
+                let calendarModel = importRequest.calendarModel
                 pendingAudioImport = nil
-                appState.importAudioFile(importRequest.fileURL, choice: choice)
+                appState.importAudioFile(
+                    importRequest.fileURL,
+                    choice: choice,
+                    recordingTime: calendarModel.recordingTime,
+                    calendarEvent: calendarModel.selectedEvent
+                )
             } onOpenProviderSettings: {
                 pendingAudioImport = nil
                 appState.openProviderSettings()
@@ -1474,6 +1519,8 @@ struct NoteBrowserView: View {
         panel.message = String(localized: "Choose an audio file. Supported formats: FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, WEBM")
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
+            let calendarModel = AudioImportCalendarModel()
+            calendarModel.start(fileURL: url, appState: appState)
             pendingAudioImport = PendingAudioImport(
                 fileURL: url,
                 currentChoice: appState.currentNoteBrowserTranscriptionChoice,
@@ -1481,7 +1528,8 @@ struct NoteBrowserView: View {
                 hasAPIKey: appState.hasTranscriptionAPIKey,
                 hasNativeLocalWhisperModel: appState.hasNativeLocalWhisperModel,
                 legacyLocalWhisperModels: appState.installedLegacyLocalWhisperModels,
-                localAIModels: appState.audioImportLocalAIModels
+                localAIModels: appState.audioImportLocalAIModels,
+                calendarModel: calendarModel
             )
         }
     }
