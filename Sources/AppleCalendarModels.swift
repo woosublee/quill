@@ -62,9 +62,10 @@ struct AppleParticipantData {
     /// Uses Google's response strings so the reminder rules apply unchanged.
     func attendee() -> CalendarEventAttendee {
         let email: String? = {
-            guard let url, url.scheme?.lowercased() == "mailto" else { return nil }
-            let address = String(url.absoluteString.dropFirst("mailto:".count))
-            return address.isEmpty ? nil : address
+            guard let url, url.scheme?.lowercased() == "mailto",
+                  let address = URLComponents(url: url, resolvingAgainstBaseURL: false)?.path,
+                  !address.isEmpty else { return nil }
+            return address
         }()
         let status: String? = switch response {
         case .accepted: "accepted"
@@ -107,9 +108,10 @@ enum AppleCalendarRowState: Equatable {
 }
 
 enum AppleCalendarSelection {
-    /// Drops calendars that were removed from the Mac Calendar app.
-    static func pruned(_ selected: Set<String>, available: [AppleCalendarInfo]) -> Set<String> {
-        selected.intersection(available.map(\.id))
+    /// Selected calendars the Mac Calendar app lists right now. Missing ones
+    /// stay selected: a sync or a briefly disabled account can hide them.
+    static func visible(_ selected: Set<String>, available: [AppleCalendarInfo]) -> [AppleCalendarInfo] {
+        available.filter { selected.contains($0.id) }
     }
 }
 
@@ -140,19 +142,21 @@ enum CalendarSelectionSummary {
 }
 
 enum CalendarEventCollection {
-    /// `nil` means that source is not in use. One failing source does not
-    /// drop the other; a Google error surfaces only when Google is the only
-    /// source in use.
+    /// `nil` means that source is not in use. Note titles can use Apple
+    /// events alone when Google fails (`toleratesGoogleFailure`); reminder
+    /// scheduling cannot, because a partial list would remove reminders
+    /// already scheduled for Google meetings.
     static func combine(
         google: Result<[CalendarEvent], Error>?,
-        apple: [CalendarEvent]?
+        apple: [CalendarEvent]?,
+        toleratesGoogleFailure: Bool
     ) throws -> [CalendarEvent] {
         var groups: [[CalendarEvent]] = []
         switch google {
         case .success(let events):
             groups.append(events)
         case .failure(let error):
-            if apple == nil { throw error }
+            if apple == nil || !toleratesGoogleFailure { throw error }
         case nil:
             break
         }

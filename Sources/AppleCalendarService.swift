@@ -4,10 +4,19 @@ import Foundation
 
 /// Read-only access to the Mac Calendar app. Quill never creates or edits
 /// events. Logs must not include titles, attendees, or calendar names.
-final class AppleCalendarService: @unchecked Sendable {
-    let store = EKEventStore()
+/// All EventKit calls stay on the main actor so one store is never used
+/// from two threads at once.
+@MainActor
+final class AppleCalendarService {
+    private(set) var store = EKEventStore()
 
-    static func authorization() -> AppleCalendarAuthorization {
+    /// A store created before access was granted keeps returning no
+    /// calendars, so Quill makes a new one when access changes.
+    func resetStore() {
+        store = EKEventStore()
+    }
+
+    nonisolated static func authorization() -> AppleCalendarAuthorization {
         let status = EKEventStore.authorizationStatus(for: .event)
         if #available(macOS 14.0, *) {
             switch status {

@@ -9,7 +9,10 @@ struct CalendarSourcesTests {
         testMergeKeepsSameTitleAtDifferentTimes()
         testParticipantMapping()
         testRowState()
-        testSelectionPrunesRemovedCalendars()
+        testVisibleSelectionSkipsMissingCalendarsWithoutDroppingThem()
+        testParticipantEmailIsDecoded()
+        try testReminderRefreshKeepsExistingRemindersWhenGoogleFails()
+        try testAppStateCalendarWiringContract()
         testGroupsBySourceInFirstSeenOrder()
         testSelectionSummaryText()
         try testCombineKeepsAppleWhenGoogleFails()
@@ -72,9 +75,58 @@ struct CalendarSourcesTests {
         precondition(AppleCalendarRowState.resolve(isEnabled: true, authorization: .granted, selectedCount: 1) == .connected(needsSelection: false))
     }
 
-    static func testSelectionPrunesRemovedCalendars() {
+    /// A calendar missing for a moment (sync, account off) is skipped but
+    /// stays selected, so it comes back on its own.
+    static func testVisibleSelectionSkipsMissingCalendarsWithoutDroppingThem() {
         let available = [AppleCalendarInfo(id: "A", title: "Personal", sourceTitle: "iCloud", colorHex: nil)]
-        precondition(AppleCalendarSelection.pruned(["A", "GONE"], available: available) == ["A"])
+        let selected: Set<String> = ["A", "TEMPORARILY-MISSING"]
+        precondition(AppleCalendarSelection.visible(selected, available: available).map(\.id) == ["A"])
+        precondition(selected.count == 2)
+    }
+
+    static func testParticipantEmailIsDecoded() {
+        let plus = AppleParticipantData(name: nil, url: URL(string: "mailto:first%2Blast@example.com"), response: .accepted, isOptional: false, isCurrentUser: false)
+        precondition(plus.attendee().email == "first+last@example.com")
+        let query = AppleParticipantData(name: nil, url: URL(string: "mailto:a@example.com?subject=hi"), response: .accepted, isOptional: false, isCurrentUser: false)
+        precondition(query.attendee().email == "a@example.com")
+    }
+
+    /// Reminder scheduling must keep the last good reminders when Google
+    /// fails, instead of rescheduling from Apple events alone.
+    static func testReminderRefreshKeepsExistingRemindersWhenGoogleFails() throws {
+        let apple = [event("a6", "Sync", 1_000, 2_000, provider: .apple)]
+        do {
+            _ = try CalendarEventCollection.combine(google: .failure(FetchFailure()), apple: apple, toleratesGoogleFailure: false)
+            preconditionFailure("reminder refresh must fail when Google fails")
+        } catch is FetchFailure {}
+        let titles = try CalendarEventCollection.combine(google: .failure(FetchFailure()), apple: apple, toleratesGoogleFailure: true)
+        precondition(titles.map(\.id) == ["a6"])
+    }
+
+    /// Wiring that only shows up in AppState and Settings source.
+    static func testAppStateCalendarWiringContract() throws {
+        let appState = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let clear = block(appState, from: "private func clearGoogleCalendarConnectionState()", to: "\n    }\n")
+        precondition(clear.contains("scheduleCalendarRecordingReminderRefresh()"), "Google disconnect keeps Apple reminders running")
+        precondition(!clear.contains("stopCalendarRecordingReminderSchedulerIfNeeded()"), "Google disconnect must not stop all reminders")
+        let reload = block(appState, from: "func reloadAppleCalendars()", to: "\n    }\n")
+        precondition(!reload.contains("pruned"), "reload must not drop selected calendars")
+        precondition(reload.contains("scheduleCalendarRecordingReminderRefresh()"), "reload reschedules reminders")
+        precondition(appState.contains("appleCalendarService.resetStore()"), "store is recreated after access changes")
+        precondition(appState.contains("appleCalendarChangeDebounce"), "store-changed bursts are debounced")
+        precondition(appState.contains("toleratesGoogleFailure: false"), "reminders keep existing reminders on Google failure")
+        let settings = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
+        let row = block(settings, from: "private var appleCalendarRow: some View", to: "\n    }\n\n")
+        let needsAccess = block(row, from: "case .needsAccess:\n                    Button(", to: "case .connected(")
+        precondition(needsAccess.contains("appState.disconnectAppleCalendar()"), "denied state can be turned off")
+    }
+
+    static func block(_ source: String, from start: String, to end: String) -> String {
+        guard let startRange = source.range(of: start),
+              let endRange = source.range(of: end, range: startRange.upperBound..<source.endIndex) else {
+            preconditionFailure("Expected source block from \(start)")
+        }
+        return String(source[startRange.lowerBound..<endRange.upperBound])
     }
 
     static func testGroupsBySourceInFirstSeenOrder() {
@@ -102,16 +154,16 @@ struct CalendarSourcesTests {
     /// from driving reminders and note titles.
     static func testCombineKeepsAppleWhenGoogleFails() throws {
         let apple = [event("a5", "Sync", 1_000, 2_000, provider: .apple)]
-        let combined = try CalendarEventCollection.combine(google: .failure(FetchFailure()), apple: apple)
+        let combined = try CalendarEventCollection.combine(google: .failure(FetchFailure()), apple: apple, toleratesGoogleFailure: true)
         precondition(combined.map(\.id) == ["a5"])
         do {
-            _ = try CalendarEventCollection.combine(google: .failure(FetchFailure()), apple: nil)
+            _ = try CalendarEventCollection.combine(google: .failure(FetchFailure()), apple: nil, toleratesGoogleFailure: true)
             preconditionFailure("Google-only failure must still throw")
         } catch is FetchFailure {}
-        let none = try CalendarEventCollection.combine(google: nil, apple: nil)
+        let none = try CalendarEventCollection.combine(google: nil, apple: nil, toleratesGoogleFailure: true)
         precondition(none.isEmpty)
         let google = [event("g5", "Sync", 1_000, 2_000, provider: .google)]
-        let both = try CalendarEventCollection.combine(google: .success(google), apple: apple)
+        let both = try CalendarEventCollection.combine(google: .success(google), apple: apple, toleratesGoogleFailure: false)
         precondition(both.map(\.id) == ["g5"])
     }
 

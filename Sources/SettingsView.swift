@@ -843,9 +843,8 @@ struct CalendarSettingsView: View {
     }
 
     private var appleSelectionSummary: String {
-        let selected = appState.appleCalendarSelectedIDs
-        return CalendarSelectionSummary.text(names: appState.availableAppleCalendars
-            .filter { selected.contains($0.id) }
+        CalendarSelectionSummary.text(names: AppleCalendarSelection
+            .visible(appState.appleCalendarSelectedIDs, available: appState.availableAppleCalendars)
             .map(\.title))
     }
 
@@ -897,6 +896,17 @@ struct CalendarSettingsView: View {
                     Button("Open System Settings") {
                         appState.guidePermission(.calendars)
                     }
+                    Menu {
+                        Button("Disconnect") {
+                            appState.disconnectAppleCalendar()
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .accessibilityLabel(localizedCatalogString("More"))
                 case .connected(let needsSelection):
                     if needsSelection {
                         Button("Choose Calendars…") {

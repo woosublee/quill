@@ -158,8 +158,8 @@ from.
 | Situation | Behavior |
 |---|---|
 | Apple access denied or revoked | Apple row "off" + Open System Settings; Apple events skipped |
-| A selected Apple calendar disappears | Dropped from the selection; row names update |
-| Google fetch fails, Apple works (or the reverse) | Reminders and matching use the working source; warning on the failing row |
+| A selected Apple calendar disappears | Skipped while missing but kept selected (syncs and briefly disabled accounts hide calendars); row names show only listed calendars |
+| Google fetch fails, Apple works | Note titles use Apple events; reminder refresh is skipped so already scheduled reminders stay; warning on the Google row |
 | Same event from both sources | Merged into one; one reminder |
 | macOS 13 | Legacy access request; otherwise identical |
 
