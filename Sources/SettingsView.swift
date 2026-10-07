@@ -751,11 +751,9 @@ struct CalendarSettingsView: View {
     private var googleCalendarRow: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 10) {
-                Image(systemName: "g.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(.blue)
+                GoogleLogoMark()
+                    .frame(width: 20, height: 20)
                     .frame(width: 24)
-                    .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     // Product name; kept in English in every language.
                     Text(verbatim: "Google Calendar")

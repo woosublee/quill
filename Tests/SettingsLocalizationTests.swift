@@ -255,7 +255,7 @@ struct SettingsLocalizationTests {
         assert(settings.contains("Button(localizedCatalogString(connectionControls.primaryActionTitle))"))
         assert(!settings.contains("Button(connectionControls.primaryActionTitle)"))
         assert(settings.contains("Image(systemName: \"applelogo\")"))
-        assert(settings.contains("Image(systemName: \"g.circle.fill\")"))
+        assert(settings.contains("GoogleLogoMark()"))
         let calendarSettings = settings.components(separatedBy: "struct CalendarSettingsView: View")[1]
             .components(separatedBy: "private struct CalendarSelectionSheet")[0]
         assert(calendarSettings.components(separatedBy: "Image(systemName: \"arrow.clockwise\")").count - 1 == 2, "each source row has a refresh button")

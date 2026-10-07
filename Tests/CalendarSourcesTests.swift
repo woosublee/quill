@@ -17,6 +17,8 @@ struct CalendarSourcesTests {
         testSelectionSummaryText()
         try testCombineKeepsAppleWhenGoogleFails()
         testReminderAvailability()
+        testSVGPathParsesRelativeAndShorthandCommands()
+        testGoogleLogoPathsStayInsideTheirViewBox()
         print("CalendarSourcesTests passed")
     }
 
@@ -173,5 +175,24 @@ struct CalendarSourcesTests {
         precondition(CalendarReminderAvailability.isAvailable(googleConnected: false, googleSelected: 0, appleRowState: .connected(needsSelection: false), appleSelected: 2))
         precondition(!CalendarReminderAvailability.isAvailable(googleConnected: false, googleSelected: 0, appleRowState: .needsAccess, appleSelected: 2))
         precondition(!CalendarReminderAvailability.isAvailable(googleConnected: true, googleSelected: 0, appleRowState: .connected(needsSelection: true), appleSelected: 0))
+    }
+
+    static func testSVGPathParsesRelativeAndShorthandCommands() {
+        let square = SVGPath.cgPath("M0 0h10v10H0z")
+        precondition(square.boundingBoxOfPath == CGRect(x: 0, y: 0, width: 10, height: 10))
+        // Packed numbers: "-.5-1" is two numbers, ".27.5" is two numbers.
+        let packed = SVGPath.cgPath("M1 1l-.5-1l.25.5")
+        precondition(abs(packed.currentPoint.x - 0.75) < 0.0001 && abs(packed.currentPoint.y - 0.5) < 0.0001)
+        let curve = SVGPath.cgPath("M0 0c0 10 10 10 10 0s10-10 10 0")
+        precondition(abs(curve.currentPoint.x - 20) < 0.0001 && abs(curve.currentPoint.y) < 0.0001)
+    }
+
+    static func testGoogleLogoPathsStayInsideTheirViewBox() {
+        precondition(GoogleLogoMark.paths.count == 4)
+        for (data, _) in GoogleLogoMark.paths {
+            let box = SVGPath.cgPath(data).boundingBoxOfPath
+            precondition(box.minX >= -0.01 && box.minY >= -0.01 && box.maxX <= 48.01 && box.maxY <= 48.01, "Google G path out of bounds")
+            precondition(box.width > 5 && box.height > 5)
+        }
     }
 }

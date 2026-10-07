@@ -621,7 +621,7 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@swiftc -parse-as-library Sources/AppName.swift Sources/ShortcutCore/DictationShortcutSessionController.swift Sources/ShortcutCore/ShortcutMatcher.swift Sources/ShortcutCore/ShortcutModels.swift Tests/ShortcutCoreTests.swift -o $(TEST_BUILD_DIR)/ShortcutCoreTests
 	@$(TEST_BUILD_DIR)/ShortcutCoreTests
 	@$(TEST_BUILD_DIR)/CalendarEventMatcherTests
-	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/CalendarEventMerger.swift Sources/AppleCalendarModels.swift Tests/CalendarSourcesTests.swift -o $(TEST_BUILD_DIR)/CalendarSourcesTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/CalendarEventMerger.swift Sources/AppleCalendarModels.swift Sources/SVGPath.swift Sources/GoogleLogoMark.swift Tests/CalendarSourcesTests.swift -o $(TEST_BUILD_DIR)/CalendarSourcesTests
 	@$(TEST_BUILD_DIR)/CalendarSourcesTests
 	@swiftc -parse-as-library Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/NoteTitleResolver.swift Tests/NoteTitleResolutionTests.swift -o $(TEST_BUILD_DIR)/NoteTitleResolutionTests
 	@$(TEST_BUILD_DIR)/NoteTitleResolutionTests
