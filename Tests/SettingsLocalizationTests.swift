@@ -250,6 +250,15 @@ struct SettingsLocalizationTests {
         assert(settings.contains("CalendarSelectionSummary.text(names:"))
         assert(settings.contains("!appState.hasSelectedCalendarSource"))
         assert(!settings.contains("\"Connect Google Calendar first.\""))
+        // Google's connect/reconnect/cancel title is a String key, so it
+        // must be looked up or it shows in English in Korean.
+        assert(settings.contains("Button(localizedCatalogString(connectionControls.primaryActionTitle))"))
+        assert(!settings.contains("Button(connectionControls.primaryActionTitle)"))
+        assert(settings.contains("Image(systemName: \"applelogo\")"))
+        assert(settings.contains("Image(systemName: \"g.circle.fill\")"))
+        let calendarSettings = settings.components(separatedBy: "struct CalendarSettingsView: View")[1]
+            .components(separatedBy: "private struct CalendarSelectionSheet")[0]
+        assert(calendarSettings.components(separatedBy: "Image(systemName: \"arrow.clockwise\")").count - 1 == 2, "each source row has a refresh button")
     }
 
     private static func testRecordingOverlaySettingsCopyLocalizes() throws {

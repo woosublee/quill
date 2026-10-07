@@ -754,6 +754,7 @@ struct CalendarSettingsView: View {
                 Image(systemName: "g.circle.fill")
                     .font(.title2)
                     .foregroundStyle(.blue)
+                    .frame(width: 24)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     // Product name; kept in English in every language.
@@ -783,6 +784,15 @@ struct CalendarSettingsView: View {
                 Spacer(minLength: 8)
                 refreshActivityIndicator(isVisible: appState.isGoogleCalendarBusy)
                 if appState.googleCalendarConnection.isConnected && !appState.hasPendingGoogleCalendarOAuthConnection {
+                    Button {
+                        appState.refreshGoogleCalendars()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(!connectionControls.allowsRefresh)
+                    .help(localizedCatalogString("Sync Now"))
+                    .accessibilityLabel(localizedCatalogString("Sync Now"))
                     Button("Choose Calendars…") {
                         appState.calendarSelectionSheetProvider = .google
                     }
@@ -792,10 +802,6 @@ struct CalendarSettingsView: View {
                             appState.connectGoogleCalendar()
                         }
                         .disabled(!connectionControls.allowsPrimaryAction)
-                        Button("Sync Now") {
-                            appState.refreshGoogleCalendars()
-                        }
-                        .disabled(!connectionControls.allowsRefresh)
                         Divider()
                         Button("Disconnect") {
                             appState.disconnectGoogleCalendar()
@@ -809,7 +815,7 @@ struct CalendarSettingsView: View {
                     .fixedSize()
                     .accessibilityLabel(localizedCatalogString("More"))
                 } else {
-                    Button(connectionControls.primaryActionTitle) {
+                    Button(localizedCatalogString(connectionControls.primaryActionTitle)) {
                         if appState.hasPendingGoogleCalendarOAuthConnection {
                             appState.cancelGoogleCalendarConnection()
                         } else {
@@ -851,9 +857,10 @@ struct CalendarSettingsView: View {
     private var appleCalendarRow: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 10) {
-                Image(systemName: "calendar")
+                Image(systemName: "applelogo")
                     .font(.title2)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(.primary)
+                    .frame(width: 24)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Apple Calendar")
@@ -908,6 +915,14 @@ struct CalendarSettingsView: View {
                     .fixedSize()
                     .accessibilityLabel(localizedCatalogString("More"))
                 case .connected(let needsSelection):
+                    Button {
+                        appState.reloadAppleCalendars()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .help(localizedCatalogString("Reload Calendars"))
+                    .accessibilityLabel(localizedCatalogString("Reload Calendars"))
                     if needsSelection {
                         Button("Choose Calendars…") {
                             appState.calendarSelectionSheetProvider = .apple
@@ -919,10 +934,6 @@ struct CalendarSettingsView: View {
                         }
                     }
                     Menu {
-                        Button("Reload Calendars") {
-                            appState.reloadAppleCalendars()
-                        }
-                        Divider()
                         Button("Disconnect") {
                             appState.disconnectAppleCalendar()
                         }
