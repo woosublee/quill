@@ -903,10 +903,13 @@ struct NoteBrowserView: View {
             }
             if isRecoveryImport {
                 scheduleRecoveryScrollRestore(for: current)
-            } else if let newest = ids.first, newest != current, !knownHistoryIDs.contains(newest),
-                      visibleIDs.contains(newest) {
-                // Auto-select only genuinely new items; ignore existing item edits.
-                openNoteForSearch(newest)
+            } else if let newID = ids.first(where: { !knownHistoryIDs.contains($0) }),
+                      newID != current, visibleIDs.contains(newID) {
+                // Auto-select only genuinely new items; ignore existing item
+                // edits. Imported audio can land below the top at its
+                // recording time, so scroll to it too.
+                openNoteForSearch(newID)
+                scheduleRecoveryScrollRestore(for: newID)
             }
             knownHistoryIDs = Set(ids)
                 }

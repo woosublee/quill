@@ -11,6 +11,7 @@ struct AudioImportCalendarTests {
         testInsertionIndexKeepsNewestFirst()
         testImportSelectionSourceRoundTrips()
         try testAppStateImportWiring()
+        try testBrowserFocusesInsertedNote()
         print("AudioImportCalendarTests passed")
     }
 
@@ -106,5 +107,11 @@ struct AudioImportCalendarTests {
         precondition(source.contains("recordingStartedAt: activeTranscriptionJobs[jobID]?.recordingStartedAt ?? existingEntry?.recordingStartedAt"))
         precondition(source.contains("customTitle: existingEntry?.customTitle"))
         precondition(source.contains("func openCalendarSettings()"))
+    }
+
+    static func testBrowserFocusesInsertedNote() throws {
+        let browser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+        precondition(browser.contains("ids.first(where: { !knownHistoryIDs.contains($0) })"), "a new note anywhere in the list is opened")
+        precondition(browser.contains("scheduleRecoveryScrollRestore(for: newID)"), "and scrolled into view")
     }
 }
