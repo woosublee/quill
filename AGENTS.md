@@ -51,12 +51,14 @@ git diff --check
 
 `make check` validates plist, entitlement, shell, and YAML files, then runs the
 complete Core, Recording, Transcription, and App State test suite. For a local
-development app bundle build, sign with the team's Developer ID Application
-certificate from the login keychain (the Makefile default; official releases are
-signed and notarized in CI):
+development app bundle build, the Makefile signs with the first valid Developer ID
+Application identity in the login keychain (official releases are signed and
+notarized in CI). If several are valid, pick one by hash from
+`security find-identity -v -p codesigning`:
 
 ```bash
-make ARCH="$(uname -m)" CODESIGN_IDENTITY="Developer ID Application"
+make ARCH="$(uname -m)"
+make ARCH="$(uname -m)" CODESIGN_IDENTITY=<sha1>
 ```
 
 Do not claim end-to-end behavior is verified from compilation or unit tests.

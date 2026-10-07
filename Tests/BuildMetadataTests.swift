@@ -81,8 +81,12 @@ struct BuildMetadataTests {
     private static func testBuildSettingsTrackCodesignIdentity() throws {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
 
-        assertContains(makefile, "CODESIGN_IDENTITY ?= Developer ID Application")
+        // Resolve one valid Developer ID by hash: a partial name is
+        // ambiguous while an old and a renewed certificate both exist.
+        assertContains(makefile, "ifeq ($(origin CODESIGN_IDENTITY),undefined)")
+        assertContains(makefile, #"CODESIGN_IDENTITY := $(shell security find-identity -v -p codesigning 2>/dev/null | awk '/"Developer ID Application: / { print $$2; exit }')"#)
         assertDoesNotContain(makefile, "CODESIGN_IDENTITY ?= Quill")
+        assertDoesNotContain(makefile, "CODESIGN_IDENTITY ?= Developer ID Application")
         assertContains(makefile, "$(CODESIGN_IDENTITY)")
         assertContains(makefile, "$(BUILD_TAG)\" \"$(GOOGLE_CALENDAR_OAUTH_CLIENT_ID)\" \"$(GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET)\" \"$(CODESIGN_IDENTITY)")
     }
