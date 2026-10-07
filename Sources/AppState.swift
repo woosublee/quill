@@ -8951,9 +8951,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let isGranted: @MainActor () -> Bool = switch kind {
         case .screenRecording: { CGPreflightScreenCaptureAccess() }
         case .accessibility: { AXIsProcessTrusted() }
+        case .calendars: { AppleCalendarService.authorization() == .granted }
         }
         guard !isGranted() else {
-            refreshPermissionStatus()
+            if kind == .calendars {
+                refreshAppleCalendarAuthorization()
+            } else {
+                refreshPermissionStatus()
+            }
             if opensPaneWhenGranted {
                 NSWorkspace.shared.open(kind.settingsURL)
             }
@@ -8966,7 +8971,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
             appName: appName,
             appURL: Bundle.main.bundleURL,
             isGranted: isGranted,
-            onGranted: { [weak self] in self?.refreshPermissionStatus() }
+            onGranted: { [weak self] in
+                guard let self else { return }
+                guard kind == .calendars else {
+                    self.refreshPermissionStatus()
+                    return
+                }
+                self.refreshAppleCalendarAuthorization()
+                if self.appleCalendarSelectedIDs.isEmpty {
+                    self.calendarSelectionSheetProvider = .apple
+                }
+            }
         )
     }
 

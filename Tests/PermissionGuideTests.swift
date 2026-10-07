@@ -154,6 +154,17 @@ struct PermissionGuideTests {
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
             "accessibility pane"
         )
+        try expectEqual(
+            PermissionGuideKind.calendars.settingsURL.absoluteString,
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars",
+            "calendars pane"
+        )
+        // The Calendars list has no + button; Quill is listed after it asks.
+        guard PermissionGuideKind.accessibility.addsAppByDragging,
+              PermissionGuideKind.screenRecording.addsAppByDragging,
+              !PermissionGuideKind.calendars.addsAppByDragging else {
+            throw TestFailure("only list panes with a + button use dragging")
+        }
     }
 
     private static let settingsFrame = CGRect(x: 100, y: 100, width: 800, height: 600)
