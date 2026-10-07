@@ -548,6 +548,19 @@ actor LocalAIServerManager {
                     }
                     return try await waitForStartup(join, waiter: waiter)
                 }
+                if !startup.waiterIDs.isEmpty {
+                    // Requests are waiting for this model, so let it start
+                    // and serve them; the running branch then drains them
+                    // before switching, instead of failing them as superseded.
+                    _ = await startup.healthTask.value
+                    try Task.checkCancellation()
+                    if case let .starting(current) = state,
+                       current.launch.token == startup.launch.token {
+                        // Let the waiters resume and lease the server first.
+                        await Task.yield()
+                    }
+                    continue
+                }
                 lastRequestAt = nil
                 await stopStartup(startup)
                 try Task.checkCancellation()

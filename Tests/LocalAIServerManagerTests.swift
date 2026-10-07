@@ -25,7 +25,8 @@ struct LocalAIServerManagerTests {
         try await testConcurrentSameModelRequestsCoalesceOneStartup()
         try await testCancellingOneOfTwoSameModelWaitersKeepsSharedStartup()
         try await testCancellingSoleStartupWaiterCleansProcessAndThrowsCancellation()
-        try await testDifferentModelDuringStartupWaitsForDelayedExitBeforeLaunchingSecond()
+        try await testDifferentModelDuringStartupLetsWaitingRequestFinishFirst()
+        try await testDifferentModelReplacesAbandonedStartup()
         try await testRequestForDifferentRunningModelWaitsForDelayedExitBeforeLaunchingSecond()
         try await testLateOldTerminationCallbackDoesNotClearNewSameModelLaunch()
         try await testHealthSuccessAfterProcessExitThrowsAndDoesNotPublishProcess()
@@ -655,12 +656,17 @@ struct LocalAIServerManagerTests {
         try require(idle.phase == .idle, "last waiter cancellation should finish cleanup before returning")
     }
 
-    private static func testDifferentModelDuringStartupWaitsForDelayedExitBeforeLaunchingSecond() async throws {
-        let firstProcess = DelayedExitProcess()
+    /// Two imports in a row: one starts post-processing's model while the
+    /// other asks for the transcription model. The waiting request must get
+    /// its server and finish before the switch, instead of failing as
+    /// "superseded".
+    private static func testDifferentModelDuringStartupLetsWaitingRequestFinishFirst() async throws {
+        let firstProcess = FakeProcess()
         let secondProcess = FakeProcess()
         let firstHealth = ControlledHealthPoll()
+        let operationGate = AsyncGate()
+        let operationStarted = DispatchSemaphore(value: 0)
         let launches = LockedBox<[String]>([])
-        let secondLaunch = DispatchSemaphore(value: 0)
         let healthCallCount = LockedBox(0)
         let manager = makeManager(
             launchProcess: { model, _, port, _ in
@@ -668,7 +674,6 @@ struct LocalAIServerManagerTests {
                     records.append(model.id)
                     return records.count
                 }
-                if launchIndex == 2 { secondLaunch.signal() }
                 return (launchIndex == 1 ? firstProcess : secondProcess, port)
             },
             pollHealth: { _ in
@@ -680,25 +685,67 @@ struct LocalAIServerManagerTests {
             }
         )
 
-        let first = resultTask { try await manager.withBaseURL(for: testModel) { $0 } }
+        let first = resultTask {
+            try await manager.withBaseURL(for: testModel) { url in
+                operationStarted.signal()
+                await operationGate.wait()
+                return url
+            }
+        }
         try firstHealth.waitUntilEntered()
         let second = Task { try await manager.withBaseURL(for: otherModel) { $0 } }
-        try firstProcess.waitForTerminateRequest()
+        try await Task.sleep(nanoseconds: 100_000_000)
 
-        let stopping = await manager.lifecycleSnapshot()
-        try require(stopping.phase == .stopping, "model switch should wait in stopping for delayed process exit")
-        try require(stopping.modelID == testModel.id, "model switch should still own the first launch while stopping")
-        try require(launches.value == [testModel.id], "replacement launched before first process exited")
+        try require(firstProcess.terminateCallCount == 0, "a different model must not stop a startup someone is waiting for")
+        try require(launches.value == [testModel.id], "replacement launched while the first startup was pending")
 
-        firstProcess.completeTermination()
-        try wait(secondLaunch, "second model did not launch after first process exited")
+        firstHealth.finish(true)
+        try wait(operationStarted, "waiting request did not get its server")
+        try require(firstProcess.terminateCallCount == 0, "model switch stopped a process with an active operation")
+
+        operationGate.open()
+        let firstURL = try await first.value.get()
         let secondURL = try await second.value
-        let firstResult = await first.value
 
-        try requireFailure(firstResult, "superseded startup should fail")
+        try require(firstURL.absoluteString.hasSuffix("/v1"), "first request should succeed")
         try require(launches.value == [testModel.id, otherModel.id], "models launched in the wrong order")
-        try require(!firstProcess.isRunning, "first process must not remain resident")
+        try require(firstProcess.terminateCallCount == 1, "first process should stop after its request")
         try require(secondProcess.isRunning, "second process should remain active")
+        try require(secondURL.absoluteString.hasSuffix("/v1"), "second startup should return a base URL")
+    }
+
+    /// A startup nobody waits for any more is still replaced right away.
+    private static func testDifferentModelReplacesAbandonedStartup() async throws {
+        let firstProcess = FakeProcess()
+        let secondProcess = FakeProcess()
+        let firstHealth = ControlledHealthPoll()
+        let launchCount = LockedBox(0)
+        let healthCallCount = LockedBox(0)
+        let manager = makeManager(
+            launchProcess: { _, _, port, _ in
+                let count = launchCount.withValue { value -> Int in
+                    value += 1
+                    return value
+                }
+                return (count == 1 ? firstProcess : secondProcess, port)
+            },
+            pollHealth: { _ in
+                let call = healthCallCount.withValue { count -> Int in
+                    count += 1
+                    return count
+                }
+                return call == 1 ? await firstHealth.poll() : true
+            }
+        )
+
+        let first = Task { try await manager.withBaseURL(for: testModel) { $0 } }
+        try firstHealth.waitUntilEntered()
+        first.cancel()
+        _ = await first.result
+        let secondURL = try await manager.withBaseURL(for: otherModel) { $0 }
+
+        try require(!firstProcess.isRunning, "abandoned startup should not stay resident")
+        try require(launchCount.value == 2, "replacement should launch")
         try require(secondURL.absoluteString.hasSuffix("/v1"), "second startup should return a base URL")
     }
 
