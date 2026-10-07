@@ -248,3 +248,14 @@ extension AppleCalendarAuthorization {
         return reported
     }
 }
+
+enum GoogleCalendarAccount {
+    /// The stored account email, or the primary calendar's ID (the account
+    /// address) when an older connection saved no email.
+    static func label(accountEmail: String?, calendars: [GoogleCalendarInfo]) -> String? {
+        if let email = accountEmail?.trimmingCharacters(in: .whitespacesAndNewlines), !email.isEmpty {
+            return email
+        }
+        return calendars.first(where: \.primary)?.id
+    }
+}

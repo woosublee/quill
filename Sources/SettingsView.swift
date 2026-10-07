@@ -741,7 +741,10 @@ struct CalendarSettingsView: View {
     private var googleStatusDetail: String? {
         let connection = appState.googleCalendarConnection
         return CalendarSelectionSummary.status(
-            account: connection.accountEmail,
+            account: GoogleCalendarAccount.label(
+                accountEmail: connection.accountEmail,
+                calendars: appState.availableGoogleCalendars
+            ),
             hasSelection: !connection.selectedCalendarIDs.isEmpty,
             checkedAt: connection.health.checkedAt
         )

@@ -20,6 +20,7 @@ struct CalendarSourcesTests {
         testSVGPathParsesRelativeAndShorthandCommands()
         testGoogleLogoPathsStayInsideTheirViewBox()
         testCalendarAccessResetTargetsOnlyQuill()
+        testGoogleAccountFallsBackToPrimaryCalendarID()
         testDeclinedRequestCountsAsDeniedWhileStatusLags()
         print("CalendarSourcesTests passed")
     }
@@ -228,5 +229,18 @@ struct CalendarSourcesTests {
         precondition(AppleCalendarAuthorization.effective(reported: .notDetermined, lastRequestDeclined: false) == .notDetermined)
         precondition(AppleCalendarAuthorization.effective(reported: .granted, lastRequestDeclined: true) == .granted)
         precondition(AppleCalendarAuthorization.effective(reported: .denied, lastRequestDeclined: false) == .denied)
+    }
+
+    /// Some stored Google connections have no email; the primary calendar's
+    /// ID is the account address.
+    static func testGoogleAccountFallsBackToPrimaryCalendarID() {
+        let calendars = [
+            GoogleCalendarInfo(id: "team@group.calendar.google.com", summary: "Team", summaryOverride: nil, primary: false, accessRole: "reader"),
+            GoogleCalendarInfo(id: "person@example.com", summary: "person@example.com", summaryOverride: nil, primary: true, accessRole: "owner"),
+        ]
+        precondition(GoogleCalendarAccount.label(accountEmail: nil, calendars: calendars) == "person@example.com")
+        precondition(GoogleCalendarAccount.label(accountEmail: "  ", calendars: calendars) == "person@example.com")
+        precondition(GoogleCalendarAccount.label(accountEmail: "stored@example.com", calendars: calendars) == "stored@example.com")
+        precondition(GoogleCalendarAccount.label(accountEmail: nil, calendars: []) == nil)
     }
 }
