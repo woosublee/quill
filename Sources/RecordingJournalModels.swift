@@ -140,6 +140,20 @@ struct RecordingCalendarSnapshot: Codable, Equatable {
     let endDate: Date?
     let matchSource: String?
     let attendeeNames: [String]
+    /// `CalendarProvider` raw value; missing in journals written before
+    /// Apple Calendar support.
+    let provider: String?
+
+    init(eventID: String?, calendarID: String?, title: String?, startDate: Date?, endDate: Date?, matchSource: String?, attendeeNames: [String], provider: String? = nil) {
+        self.eventID = eventID
+        self.calendarID = calendarID
+        self.title = title
+        self.startDate = startDate
+        self.endDate = endDate
+        self.matchSource = matchSource
+        self.attendeeNames = attendeeNames
+        self.provider = provider
+    }
 }
 
 struct RecordingPipelineSnapshot: Codable, Equatable {

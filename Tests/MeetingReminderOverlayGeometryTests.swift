@@ -307,7 +307,7 @@ struct MeetingReminderOverlayGeometryTests {
             contextProvider: { MeetingReminderOverlayContext(phase: .idle, layout: .centerDropdownFill) },
             screenProvider: { nil }
         )
-        let event = GoogleCalendarEvent(
+        let event = CalendarEvent(
             id: "meeting",
             calendarID: "calendar",
             title: "Meeting",

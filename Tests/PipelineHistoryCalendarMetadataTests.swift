@@ -14,7 +14,29 @@ struct PipelineHistoryCalendarMetadataTests {
         try testMultipleInMemoryStoresRemainIsolated()
         try testDeletedAssetsIncludeHistoryIDForDeleteClearAndTrim()
         testGoogleCalendarConnectionMetadataBuildsConnectedState()
+        try testCalendarMatchWithoutProviderDecodesAsGoogle()
         print("PipelineHistoryCalendarMetadataTests passed")
+    }
+
+    private static func testCalendarMatchWithoutProviderDecodesAsGoogle() throws {
+        let legacyJSON = """
+        {"accountID":"person@example.com","calendarID":"primary","eventID":"evt-1","title":"Weekly sync",
+         "start":0,"end":1800,"attendees":[],"matchSource":"overlap_suggestion","titleState":"suggested"}
+        """
+        let decoder = JSONDecoder()
+        let match = try decoder.decode(CalendarEventMatch.self, from: Data(legacyJSON.utf8))
+        precondition(match.provider == nil)
+        precondition(match.resolvedProvider == .google)
+        precondition(match.title == "Weekly sync")
+
+        let apple = CalendarEvent(
+            id: "evt-2", calendarID: "A1B2", title: "Design review",
+            start: Date(timeIntervalSince1970: 0), end: Date(timeIntervalSince1970: 1800),
+            isAllDay: false, attendees: [], provider: .apple
+        ).match(accountID: "apple-calendar", source: .overlapSuggestion, titleState: .suggested)
+        let roundTrip = try decoder.decode(CalendarEventMatch.self, from: JSONEncoder().encode(apple))
+        precondition(roundTrip.resolvedProvider == .apple)
+        precondition(roundTrip.applyingTitle().provider == .apple)
     }
 
     private static func testMultipleInMemoryStoresRemainIsolated() throws {

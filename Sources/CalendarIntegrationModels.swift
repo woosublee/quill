@@ -52,6 +52,15 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     }
 }
 
+enum CalendarProvider: String, Codable, Equatable, CaseIterable {
+    case google
+    case apple
+}
+
+extension CalendarProvider: Identifiable {
+    var id: String { rawValue }
+}
+
 enum CalendarMatchSource: String, Codable, Equatable {
     case overlapSuggestion = "overlap_suggestion"
     case calendarNotification = "calendar_notification"
@@ -88,8 +97,10 @@ struct CalendarEventMatch: Codable, Equatable {
     let attendees: [CalendarEventAttendee]
     let matchSource: CalendarMatchSource
     let titleState: CalendarTitleState
+    /// Missing in notes saved before Apple Calendar support; those are Google.
+    let provider: CalendarProvider?
 
-    init(accountID: String? = nil, calendarID: String, eventID: String, title: String, start: Date, end: Date, attendees: [CalendarEventAttendee] = [], matchSource: CalendarMatchSource, titleState: CalendarTitleState) {
+    init(accountID: String? = nil, calendarID: String, eventID: String, title: String, start: Date, end: Date, attendees: [CalendarEventAttendee] = [], matchSource: CalendarMatchSource, titleState: CalendarTitleState, provider: CalendarProvider? = nil) {
         self.accountID = accountID
         self.calendarID = calendarID
         self.eventID = eventID
@@ -99,7 +110,10 @@ struct CalendarEventMatch: Codable, Equatable {
         self.attendees = attendees
         self.matchSource = matchSource
         self.titleState = titleState
+        self.provider = provider
     }
+
+    var resolvedProvider: CalendarProvider { provider ?? .google }
 
     var suggestedTitle: String? {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -112,7 +126,7 @@ struct CalendarEventMatch: Codable, Equatable {
     }
 
     func applyingTitle() -> CalendarEventMatch {
-        CalendarEventMatch(accountID: accountID, calendarID: calendarID, eventID: eventID, title: title, start: start, end: end, attendees: attendees, matchSource: matchSource, titleState: .applied)
+        CalendarEventMatch(accountID: accountID, calendarID: calendarID, eventID: eventID, title: title, start: start, end: end, attendees: attendees, matchSource: matchSource, titleState: .applied, provider: provider)
     }
 }
 
@@ -169,7 +183,7 @@ extension Array where Element == GoogleCalendarInfo {
     }
 }
 
-struct GoogleCalendarEvent: Identifiable, Equatable {
+struct CalendarEvent: Identifiable, Equatable {
     let id: String
     let calendarID: String
     let title: String
@@ -177,13 +191,34 @@ struct GoogleCalendarEvent: Identifiable, Equatable {
     let end: Date
     let isAllDay: Bool
     let attendees: [CalendarEventAttendee]
+    let provider: CalendarProvider
+
+    init(
+        id: String,
+        calendarID: String,
+        title: String,
+        start: Date,
+        end: Date,
+        isAllDay: Bool,
+        attendees: [CalendarEventAttendee],
+        provider: CalendarProvider = .google
+    ) {
+        self.id = id
+        self.calendarID = calendarID
+        self.title = title
+        self.start = start
+        self.end = end
+        self.isAllDay = isAllDay
+        self.attendees = attendees
+        self.provider = provider
+    }
 
     var hasUsableTitle: Bool {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     func match(accountID: String?, source: CalendarMatchSource, titleState: CalendarTitleState) -> CalendarEventMatch {
-        CalendarEventMatch(accountID: accountID, calendarID: calendarID, eventID: id, title: title, start: start, end: end, attendees: attendees, matchSource: source, titleState: titleState)
+        CalendarEventMatch(accountID: accountID, calendarID: calendarID, eventID: id, title: title, start: start, end: end, attendees: attendees, matchSource: source, titleState: titleState, provider: provider)
     }
 }
 

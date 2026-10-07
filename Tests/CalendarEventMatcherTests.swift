@@ -116,7 +116,7 @@ struct CalendarEventMatcherTests {
         assert(matched?.id == "named")
     }
 
-    private static func event(id: String, calendarID: String = "calendar", title: String, start: TimeInterval, end: TimeInterval, isAllDay: Bool = false) -> GoogleCalendarEvent {
-        GoogleCalendarEvent(id: id, calendarID: calendarID, title: title, start: Date(timeIntervalSince1970: start), end: Date(timeIntervalSince1970: end), isAllDay: isAllDay, attendees: [])
+    private static func event(id: String, calendarID: String = "calendar", title: String, start: TimeInterval, end: TimeInterval, isAllDay: Bool = false) -> CalendarEvent {
+        CalendarEvent(id: id, calendarID: calendarID, title: title, start: Date(timeIntervalSince1970: start), end: Date(timeIntervalSince1970: end), isAllDay: isAllDay, attendees: [])
     }
 }

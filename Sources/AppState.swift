@@ -502,6 +502,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let recordingOverlayLayoutStorageKey = "recording_overlay_layout"
     private let overlayWaveformDisplayModeStorageKey = "overlay_waveform_display_mode"
     private let googleCalendarSelectedIDsStorageKey = "google_calendar_selected_ids"
+    static let appleCalendarAccountID = "apple-calendar"
     private let calendarRecordingRemindersEnabledStorageKey = "calendar_recording_reminders_enabled"
     private let legacyCalendarRecordingReminderLeadMinutesStorageKey = "calendar_recording_reminder_lead_minutes"
     private let calendarRecordingReminderLeadMinutesListStorageKey = "calendar_recording_reminder_lead_minutes_list"
@@ -3431,7 +3432,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     matchSource: CalendarMatchSource.calendarNotification.rawValue,
                     attendeeNames: schedule.event.attendees.compactMap { attendee in
                         attendee.displayName ?? attendee.email
-                    }
+                    },
+                    provider: schedule.event.provider.rawValue
                 )
                 self.startRecordingFromCalendarReminder()
             }
@@ -4609,7 +4611,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return token
     }
 
-    private func fetchCalendarRecordingReminderEvents(timeMin: Date, timeMax: Date) async throws -> [GoogleCalendarEvent] {
+    private func fetchCalendarRecordingReminderEvents(timeMin: Date, timeMax: Date) async throws -> [CalendarEvent] {
         let selectedCalendarIDs = await MainActor.run { googleCalendarConnection.selectedCalendarIDs }
         guard !selectedCalendarIDs.isEmpty else { return [] }
         let token: GoogleCalendarOAuthToken
@@ -12785,7 +12787,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     isSelf: false
                 )
             }
+            let provider = calendarSnapshot.provider.flatMap(CalendarProvider.init(rawValue:))
             return CalendarEventMatch(
+                accountID: provider == .apple ? Self.appleCalendarAccountID : nil,
                 calendarID: calendarID,
                 eventID: eventID,
                 title: title,
@@ -12793,7 +12797,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 end: end,
                 attendees: attendees,
                 matchSource: matchSource,
-                titleState: .applied
+                titleState: .applied,
+                provider: provider
             )
         }
 
@@ -13584,7 +13589,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func showDebugMeetingReminderOverlay() {
         let now = Date()
-        let event = GoogleCalendarEvent(
+        let event = CalendarEvent(
             id: "debug-meeting-reminder-\(UUID().uuidString)",
             calendarID: "primary",
             title: "Team Standup",

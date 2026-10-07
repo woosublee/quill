@@ -14,7 +14,7 @@ struct CalendarRecordingReminderNotificationAction: Equatable {
 struct CalendarRecordingReminderSchedule: Equatable {
     let identifier: String
     let fireDate: Date
-    let event: GoogleCalendarEvent
+    let event: CalendarEvent
     let delivery: Delivery
 
     var reminderGroupIdentifier: String {
@@ -51,7 +51,7 @@ extension AppNotificationManager: CalendarRecordingReminderNotificationManaging 
 
 @MainActor
 final class CalendarRecordingReminderScheduler {
-    typealias EventProvider = (_ timeMin: Date, _ timeMax: Date) async throws -> [GoogleCalendarEvent]
+    typealias EventProvider = (_ timeMin: Date, _ timeMax: Date) async throws -> [CalendarEvent]
 
     nonisolated static let notificationIdentifierPrefix = "calendar-recording-reminder"
     nonisolated static let notificationCategoryIdentifier = "calendar-recording-reminder"
@@ -355,7 +355,7 @@ final class CalendarRecordingReminderScheduler {
     }
 
     nonisolated static func schedules(
-        for events: [GoogleCalendarEvent],
+        for events: [CalendarEvent],
         leadMinutes: [Int],
         now: Date,
         calendar: Calendar
@@ -364,7 +364,7 @@ final class CalendarRecordingReminderScheduler {
     }
 
     nonisolated static func reminderPlan(
-        for events: [GoogleCalendarEvent],
+        for events: [CalendarEvent],
         leadMinutes: [Int],
         now: Date,
         calendar: Calendar
@@ -443,15 +443,15 @@ final class CalendarRecordingReminderScheduler {
         return localizedCatalogString("Meeting is starting now", language: language, bundle: bundle)
     }
 
-    nonisolated static func notificationBody(for event: GoogleCalendarEvent) -> String {
+    nonisolated static func notificationBody(for event: CalendarEvent) -> String {
         notificationBody(for: event, language: preferredLocalizedStringLanguage(), bundle: .main)
     }
 
-    nonisolated static func notificationBody(for event: GoogleCalendarEvent, language: String, bundle: Bundle) -> String {
+    nonisolated static func notificationBody(for event: CalendarEvent, language: String, bundle: Bundle) -> String {
         String(format: localizedCatalogString("Tap to start recording: %@", language: language, bundle: bundle), event.title)
     }
 
-    nonisolated static func isReminderEligible(_ event: GoogleCalendarEvent) -> Bool {
+    nonisolated static func isReminderEligible(_ event: CalendarEvent) -> Bool {
         guard !event.isAllDay,
               event.hasUsableTitle,
               event.end > event.start else {
@@ -463,13 +463,13 @@ final class CalendarRecordingReminderScheduler {
         return true
     }
 
-    nonisolated static func notificationIdentifier(for event: GoogleCalendarEvent, leadMinutes: Int) -> String {
+    nonisolated static func notificationIdentifier(for event: CalendarEvent, leadMinutes: Int) -> String {
         let startTimestamp = Int(event.start.timeIntervalSince1970.rounded())
         let normalizedLeadMinutes = normalizedLeadMinuteOption(leadMinutes)
         return "\(notificationIdentifierPrefix):\(event.calendarID):\(event.id):\(startTimestamp):\(normalizedLeadMinutes)"
     }
 
-    nonisolated static func reminderGroupIdentifier(for event: GoogleCalendarEvent) -> String {
+    nonisolated static func reminderGroupIdentifier(for event: CalendarEvent) -> String {
         reminderGroupIdentifier(
             calendarID: event.calendarID,
             eventID: event.id,
