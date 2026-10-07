@@ -162,3 +162,18 @@ enum CalendarEventCollection {
         return CalendarEventMerger.merge(groups)
     }
 }
+
+enum CalendarReminderAvailability {
+    /// Reminders and title matching need at least one source with selected
+    /// calendars Quill can read.
+    static func isAvailable(
+        googleConnected: Bool,
+        googleSelected: Int,
+        appleRowState: AppleCalendarRowState,
+        appleSelected: Int
+    ) -> Bool {
+        let google = googleConnected && googleSelected > 0
+        let apple = appleRowState == .connected(needsSelection: false) && appleSelected > 0
+        return google || apple
+    }
+}

@@ -13,6 +13,7 @@ struct CalendarSourcesTests {
         testGroupsBySourceInFirstSeenOrder()
         testSelectionSummaryText()
         try testCombineKeepsAppleWhenGoogleFails()
+        testReminderAvailability()
         print("CalendarSourcesTests passed")
     }
 
@@ -112,5 +113,13 @@ struct CalendarSourcesTests {
         let google = [event("g5", "Sync", 1_000, 2_000, provider: .google)]
         let both = try CalendarEventCollection.combine(google: .success(google), apple: apple)
         precondition(both.map(\.id) == ["g5"])
+    }
+
+    static func testReminderAvailability() {
+        precondition(!CalendarReminderAvailability.isAvailable(googleConnected: false, googleSelected: 0, appleRowState: .notConnected, appleSelected: 0))
+        precondition(CalendarReminderAvailability.isAvailable(googleConnected: true, googleSelected: 1, appleRowState: .notConnected, appleSelected: 0))
+        precondition(CalendarReminderAvailability.isAvailable(googleConnected: false, googleSelected: 0, appleRowState: .connected(needsSelection: false), appleSelected: 2))
+        precondition(!CalendarReminderAvailability.isAvailable(googleConnected: false, googleSelected: 0, appleRowState: .needsAccess, appleSelected: 2))
+        precondition(!CalendarReminderAvailability.isAvailable(googleConnected: true, googleSelected: 0, appleRowState: .connected(needsSelection: true), appleSelected: 0))
     }
 }
