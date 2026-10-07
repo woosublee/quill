@@ -630,7 +630,10 @@ struct CalendarSettingsView: View {
     private var googleCalendarConnectionStatusLabel: some View {
         if appState.googleCalendarConnection.isConnected {
             switch appState.googleCalendarConnection.health.status {
-            case .unknown, .healthy:
+            case .unknown:
+                Label("Connected", systemImage: "checkmark.circle")
+                    .foregroundStyle(.secondary)
+            case .healthy:
                 Label("Connected", systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
             case .needsReconnect:
@@ -871,6 +874,11 @@ struct CalendarSettingsView: View {
             .map(\.title)
     }
 
+    private var appleConnected: Bool {
+        if case .connected = appState.appleCalendarRowState { return true }
+        return false
+    }
+
     private var appleCalendarRow: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 10) {
@@ -884,7 +892,7 @@ struct CalendarSettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     sourceTitle(
                         Text("Apple Calendar"),
-                        names: appState.appleCalendarRowState == .notConnected ? [] : appleSelectedNames
+                        names: appleConnected ? appleSelectedNames : []
                     )
                     switch appState.appleCalendarRowState {
                     case .notConnected:
@@ -921,6 +929,7 @@ struct CalendarSettingsView: View {
                     Button("Ask Again") {
                         appState.askForAppleCalendarAccessAgain()
                     }
+                    .disabled(appState.isAskingForAppleCalendarAccess)
                     Menu {
                         Button("Open System Settings") {
                             appState.guidePermission(.calendars)
@@ -938,7 +947,7 @@ struct CalendarSettingsView: View {
                     .accessibilityLabel(localizedCatalogString("More"))
                 case .connected(let needsSelection):
                     Button {
-                        appState.reloadAppleCalendars()
+                        appState.refreshAppleCalendarAuthorization()
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }

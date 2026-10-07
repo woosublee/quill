@@ -23,6 +23,8 @@ struct CalendarSourcesTests {
         testGoogleAccountFallsBackToPrimaryCalendarID()
         testSelectAllTogglesEveryListedCalendar()
         try testSelectionSheetHasSelectAll()
+        testLastCheckedMovesOnlyOnNewMinute()
+        try testReviewFixesWiring()
         testDeclinedRequestCountsAsDeniedWhileStatusLags()
         print("CalendarSourcesTests passed")
     }
@@ -264,5 +266,31 @@ struct CalendarSourcesTests {
         let appState = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
         precondition(appState.contains("func setGoogleCalendarSelection(_ calendarIDs: Set<String>)"))
         precondition(appState.contains("func setAppleCalendarSelection(_ calendarIDs: Set<String>)"))
+    }
+
+    static func testLastCheckedMovesOnlyOnNewMinute() {
+        let base = Date(timeIntervalSince1970: 1_000_020)
+        precondition(CalendarCheckTime.shouldUpdate(previous: nil, now: base))
+        precondition(!CalendarCheckTime.shouldUpdate(previous: base, now: base.addingTimeInterval(10)))
+        precondition(CalendarCheckTime.shouldUpdate(previous: base, now: base.addingTimeInterval(60)))
+    }
+
+    static func testReviewFixesWiring() throws {
+        let settings = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
+        let row = block(settings, from: "private var appleCalendarRow: some View", to: "\n    }\n\n")
+        precondition(!row.contains("appState.reloadAppleCalendars()"), "Apple refresh re-checks access first")
+        precondition(row.contains("names: appleConnected ? appleSelectedNames : []"), "names only while connected")
+        precondition(row.contains(".disabled(appState.isAskingForAppleCalendarAccess)"), "Ask Again is locked while running")
+        precondition(settings.contains("case .unknown:\n                Label(\"Connected\", systemImage: \"checkmark.circle\")\n                    .foregroundStyle(.secondary)"), "unchecked Google is not green")
+
+        let appState = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        let askAgain = block(appState, from: "func askForAppleCalendarAccessAgain()", to: "\n    }\n")
+        precondition(askAgain.contains("guard !isAskingForAppleCalendarAccess"), "one Ask Again at a time")
+        precondition(askAgain.contains("guidePermission(.calendars)"), "failed reset falls back to System Settings")
+        precondition(!appState.contains("appleCalendarLastCheckedAt = Date()"), "check time moves only after a real read")
+        let single = block(appState, from: "func setAppleCalendarSelected(_ calendarID: String, isSelected: Bool)", to: "\n    }\n")
+        precondition(single.contains("setAppleCalendarSelection("), "single toggle reuses the set-based setter")
+        let googleSingle = block(appState, from: "func setGoogleCalendarSelected(_ calendarID: String, isSelected: Bool)", to: "\n    }\n")
+        precondition(googleSingle.contains("setGoogleCalendarSelection("))
     }
 }

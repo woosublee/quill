@@ -273,3 +273,12 @@ enum CalendarBulkSelection {
             : selected.union(listed)
     }
 }
+
+enum CalendarCheckTime {
+    /// "Last checked" shows minutes, so updating more often only redraws
+    /// views that observe app state.
+    static func shouldUpdate(previous: Date?, now: Date) -> Bool {
+        guard let previous else { return true }
+        return Int(now.timeIntervalSince1970 / 60) != Int(previous.timeIntervalSince1970 / 60)
+    }
+}

@@ -920,6 +920,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published private(set) var availableAppleCalendars: [AppleCalendarInfo] = []
     /// When Quill last read the Mac Calendar app successfully.
     @Published private(set) var appleCalendarLastCheckedAt: Date?
+    /// True while Ask Again resets access and waits for the prompt.
+    @Published private(set) var isAskingForAppleCalendarAccess = false
     @Published private(set) var appleCalendarSelectedIDs = AppState.loadStringSet(forKey: AppState.appleCalendarSelectedIDsStorageKey)
     /// The source whose calendar selection sheet Settings should show.
     @Published var calendarSelectionSheetProvider: CalendarProvider?
@@ -1920,9 +1922,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         } else {
             selected.remove(calendarID)
         }
-        googleCalendarConnection.selectedCalendarIDs = selected
-        Self.saveStringSet(selected, forKey: googleCalendarSelectedIDsStorageKey)
-        scheduleCalendarRecordingReminderRefresh()
+        setGoogleCalendarSelection(selected)
     }
 
     @MainActor
@@ -1972,16 +1972,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// Declining again leaves the row in the Ask Again state.
     @MainActor
     func askForAppleCalendarAccessAgain() {
+        guard !isAskingForAppleCalendarAccess else { return }
+        isAskingForAppleCalendarAccess = true
         Task { @MainActor in
-            _ = await AppleCalendarAccessReset.run()
+            defer { isAskingForAppleCalendarAccess = false }
+            guard await AppleCalendarAccessReset.run() else {
+                // Without a reset macOS will not prompt again.
+                guidePermission(.calendars)
+                return
+            }
             appleCalendarService.resetStore()
             let granted = await appleCalendarService.requestAccess()
             appleCalendarLastRequestDeclined = !granted
             refreshAppleCalendarAuthorization()
-            if appleCalendarAuthorization == .granted {
-                if appleCalendarSelectedIDs.isEmpty {
-                    calendarSelectionSheetProvider = .apple
-                }
+            if appleCalendarAuthorization == .granted, appleCalendarSelectedIDs.isEmpty {
+                calendarSelectionSheetProvider = .apple
             }
         }
     }
@@ -2001,10 +2006,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func reloadAppleCalendars() {
         availableAppleCalendars = appleCalendarService.calendars()
-        if appleCalendarAuthorization == .granted {
-            appleCalendarLastCheckedAt = Date()
+        if AppleCalendarService.authorization() == .granted {
+            markAppleCalendarChecked()
         }
         scheduleCalendarRecordingReminderRefresh()
+    }
+
+    /// Records a successful read of the Mac Calendar app.
+    @MainActor
+    private func markAppleCalendarChecked() {
+        let now = Date()
+        if CalendarCheckTime.shouldUpdate(previous: appleCalendarLastCheckedAt, now: now) {
+            appleCalendarLastCheckedAt = now
+        }
     }
 
     @MainActor
@@ -2015,9 +2029,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         } else {
             selected.remove(calendarID)
         }
-        appleCalendarSelectedIDs = selected
-        Self.saveStringSet(selected, forKey: Self.appleCalendarSelectedIDsStorageKey)
-        scheduleCalendarRecordingReminderRefresh()
+        setAppleCalendarSelection(selected)
     }
 
     @MainActor
@@ -4806,7 +4818,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             ? nil
             : await MainActor.run {
                 let events = appleCalendarService.events(calendarIDs: appleIDs, from: timeMin, to: timeMax)
-                appleCalendarLastCheckedAt = Date()
+                if AppleCalendarService.authorization() == .granted {
+                    markAppleCalendarChecked()
+                }
                 return events
             }
         return try CalendarEventCollection.combine(google: google, apple: apple, toleratesGoogleFailure: false)
