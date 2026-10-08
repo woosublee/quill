@@ -271,6 +271,12 @@ actor LocalAIServerManager {
     private var activeRequestCounts: [UUID: Int] = [:]
     private var activeDrainWaiters: [UUID: [UUID: ActiveRequestWaiter]] = [:]
     private var switchDrain: SwitchDrainState?
+    /// Requests for another model waiting for a pending startup to settle.
+    private var pendingStartupSwitches = 0
+    /// Startup waiters counted as active requests from the moment their
+    /// launch is published as running until each takes its lease, so a model
+    /// switch cannot stop the process between the two.
+    private var reservedStartupLeases: [UUID: Set<UUID>] = [:]
 
     init(
         store: LocalAIModelStore = LocalAIModelStore(),
@@ -362,7 +368,9 @@ actor LocalAIServerManager {
                 let resolved = try await resolveBaseURL(for: model, waiter: waiter)
                 try Task.checkCancellation()
                 try ensureMaintenanceIsInactive()
-                activeRequestCounts[resolved.launchToken, default: 0] += 1
+                if !consumeStartupReservation(waiterID: waiter.id, launchToken: resolved.launchToken) {
+                    activeRequestCounts[resolved.launchToken, default: 0] += 1
+                }
                 lastRequestAt = now()
                 return RequestLease(
                     launchToken: resolved.launchToken,
@@ -371,6 +379,7 @@ actor LocalAIServerManager {
                     url: resolved.url
                 )
             } catch {
+                dropStartupReservation(waiterID: waiter.id)
                 if Task.isCancelled || error is CancellationError {
                     await cancelStartupWaiter(
                         waiterID: waiter.id,
@@ -392,17 +401,49 @@ actor LocalAIServerManager {
     }
 
     private func releaseLease(_ lease: RequestLease) {
-        guard let currentCount = activeRequestCounts[lease.launchToken], currentCount > 0 else { return }
+        decrementActiveRequests(launchToken: lease.launchToken)
+        lastRequestAt = now()
+    }
+
+    private func decrementActiveRequests(launchToken: UUID) {
+        guard let currentCount = activeRequestCounts[launchToken], currentCount > 0 else { return }
         if currentCount == 1 {
-            activeRequestCounts.removeValue(forKey: lease.launchToken)
-            let waiters = activeDrainWaiters.removeValue(forKey: lease.launchToken).map { Array($0.values) } ?? []
+            activeRequestCounts.removeValue(forKey: launchToken)
+            let waiters = activeDrainWaiters.removeValue(forKey: launchToken).map { Array($0.values) } ?? []
             for waiter in waiters {
                 waiter.resolve(.ready)
             }
         } else {
-            activeRequestCounts[lease.launchToken] = currentCount - 1
+            activeRequestCounts[launchToken] = currentCount - 1
         }
+    }
+
+    /// Publishes a healthy startup as running and reserves a request slot for
+    /// every waiter, so a pending model switch drains them all first.
+    private func promoteStartupToRunning(_ startup: StartupState) {
+        let token = startup.launch.token
+        setState(.running(startup.launch))
         lastRequestAt = now()
+        guard !startup.waiterIDs.isEmpty else { return }
+        reservedStartupLeases[token, default: []].formUnion(startup.waiterIDs)
+        activeRequestCounts[token, default: 0] += startup.waiterIDs.count
+    }
+
+    /// True when the waiter's slot was already counted at promotion.
+    private func consumeStartupReservation(waiterID: UUID, launchToken: UUID) -> Bool {
+        guard reservedStartupLeases[launchToken]?.remove(waiterID) != nil else { return false }
+        if reservedStartupLeases[launchToken]?.isEmpty == true {
+            reservedStartupLeases.removeValue(forKey: launchToken)
+        }
+        return true
+    }
+
+    /// A reserved waiter that fails or is cancelled before leasing gives its
+    /// slot back, which can complete a pending drain.
+    private func dropStartupReservation(waiterID: UUID) {
+        guard let token = reservedStartupLeases.first(where: { $0.value.contains(waiterID) })?.key else { return }
+        _ = consumeStartupReservation(waiterID: waiterID, launchToken: token)
+        decrementActiveRequests(launchToken: token)
     }
 
     private func clearExitedLaunchIfCurrent(_ lease: RequestLease) {
@@ -468,6 +509,10 @@ actor LocalAIServerManager {
     }
 
     /// Internal deterministic observation seam for lifecycle race tests.
+    func pendingStartupSwitchCount() -> Int {
+        pendingStartupSwitches
+    }
+
     func lifecycleSnapshot() -> LifecycleSnapshot {
         snapshot(for: state)
     }
@@ -549,16 +594,10 @@ actor LocalAIServerManager {
                     return try await waitForStartup(join, waiter: waiter)
                 }
                 if !startup.waiterIDs.isEmpty {
-                    // Requests are waiting for this model, so let it start
-                    // and serve them; the running branch then drains them
-                    // before switching, instead of failing them as superseded.
-                    _ = await startup.healthTask.value
-                    try Task.checkCancellation()
-                    if case let .starting(current) = state,
-                       current.launch.token == startup.launch.token {
-                        // Let the waiters resume and lease the server first.
-                        await Task.yield()
-                    }
+                    // Requests are waiting for this model: let it start and
+                    // serve them. The running branch then drains them before
+                    // switching, instead of failing them as superseded.
+                    try await waitForPendingStartup(startup)
                     continue
                 }
                 lastRequestAt = nil
@@ -599,6 +638,29 @@ actor LocalAIServerManager {
                 await finishStopping(stopping)
                 try Task.checkCancellation()
             }
+        }
+    }
+
+    /// Waits, cancellably, for another model's startup to settle, then
+    /// publishes it (or stops it if unhealthy) so its waiters are served.
+    private func waitForPendingStartup(_ startup: StartupState) async throws {
+        pendingStartupSwitches += 1
+        defer { pendingStartupSwitches -= 1 }
+        let observer = StartupWaiter()
+        let outcome = await withTaskCancellationHandler {
+            await observer.wait(for: startup.healthTask)
+        } onCancel: {
+            observer.cancel()
+        }
+        guard case let .health(isHealthy) = outcome, !Task.isCancelled else {
+            throw CancellationError()
+        }
+        guard case let .starting(current) = state,
+              current.launch.token == startup.launch.token else { return }
+        if isHealthy, current.launch.process.isRunning, !current.waiterIDs.isEmpty {
+            promoteStartupToRunning(current)
+        } else {
+            await stopStartup(current)
         }
     }
 
@@ -826,8 +888,7 @@ actor LocalAIServerManager {
                 )
             }
             try Task.checkCancellation()
-            setState(.running(current.launch))
-            lastRequestAt = now()
+            promoteStartupToRunning(current)
             return ResolvedBaseURL(
                 launchToken: current.launch.token,
                 modelID: current.launch.modelID,
