@@ -101,6 +101,7 @@ struct NoteFieldClock: Codable, Equatable, Sendable {
             ]
         case .status:
             return [
+                item.intent.rawValue,
                 item.postProcessingStatus,
                 item.aiProcessingOutcome,
                 item.localTranscriptionModelID,

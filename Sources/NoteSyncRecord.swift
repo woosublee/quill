@@ -33,6 +33,19 @@ enum NoteSyncField: String, CaseIterable, Sendable {
     case usedPostProcessing
     case audioFileName
 
+    /// Fields every record carries. A record missing one (a malformed or
+    /// partial record) never overwrites the local value with a default.
+    var isRequired: Bool {
+        switch self {
+        case .rawTranscript, .postProcessedTranscript, .timestamp, .transcriptionLanguageCode,
+             .intent, .postProcessingStatus, .aiProcessingOutcome, .localTranscriptionModelID,
+             .usedLocalTranscription, .usedPostProcessing:
+            return true
+        default:
+            return false
+        }
+    }
+
     var group: NoteFieldGroup {
         switch self {
         case .customTitle: return .title
@@ -91,7 +104,7 @@ struct NoteSyncRecord: Equatable, Sendable {
         put(.transcriptFileName, item.transcriptFileName.map(NoteSyncValue.string))
         put(.postProcessedTranscript, .string(item.postProcessedTranscript))
         put(.meetingSummaryJSON, item.meetingSummaryJSON.map(NoteSyncValue.data))
-        put(.meetingSummaryAttempt, Self.encoded(item.meetingSummaryAttempt))
+        put(.meetingSummaryAttempt, Self.encoded(item.meetingSummaryAttempt.map(Self.withoutProviderHost)))
         put(.calendarMatch, Self.encoded(item.calendarMatch))
         put(.timestamp, .date(item.timestamp))
         put(.recordingStartedAt, item.recordingStartedAt.map(NoteSyncValue.date))
@@ -109,7 +122,7 @@ struct NoteSyncRecord: Equatable, Sendable {
         self.init(
             noteID: item.id,
             fields: fields,
-            clock: item.fieldClock ?? NoteFieldClock.uniform(item.timestamp),
+            clock: (item.fieldClock ?? NoteFieldClock.uniform(item.timestamp)).roundedToMilliseconds(),
             deletedAt: item.deletedAt
         )
     }
@@ -127,8 +140,8 @@ struct NoteSyncRecord: Equatable, Sendable {
             recordingStartedAt: date(.recordingStartedAt),
             recordingEndedAt: date(.recordingEndedAt),
             calendarMatch: decoded(.calendarMatch),
-            rawTranscript: string(.rawTranscript) ?? "",
-            postProcessedTranscript: string(.postProcessedTranscript) ?? "",
+            rawTranscript: string(.rawTranscript) ?? base?.rawTranscript ?? "",
+            postProcessedTranscript: string(.postProcessedTranscript) ?? base?.postProcessedTranscript ?? "",
             postProcessingPrompt: base?.postProcessingPrompt,
             systemPrompt: base?.systemPrompt,
             contextSummary: base?.contextSummary ?? "",
@@ -136,21 +149,21 @@ struct NoteSyncRecord: Equatable, Sendable {
             contextPrompt: base?.contextPrompt,
             contextScreenshotDataURL: base?.contextScreenshotDataURL,
             contextScreenshotStatus: base?.contextScreenshotStatus ?? "No screenshot",
-            postProcessingStatus: string(.postProcessingStatus) ?? "",
-            aiProcessingOutcome: string(.aiProcessingOutcome) ?? "succeeded",
+            postProcessingStatus: string(.postProcessingStatus) ?? base?.postProcessingStatus ?? "",
+            aiProcessingOutcome: string(.aiProcessingOutcome) ?? base?.aiProcessingOutcome ?? "succeeded",
             debugStatus: base?.debugStatus ?? "",
             customVocabulary: base?.customVocabulary ?? "",
             customSystemPrompt: base?.customSystemPrompt ?? "",
             audioFileName: string(.audioFileName),
-            usedLocalTranscription: bool(.usedLocalTranscription) ?? false,
+            usedLocalTranscription: bool(.usedLocalTranscription) ?? base?.usedLocalTranscription ?? false,
             usedContextCapture: base?.usedContextCapture ?? false,
-            usedPostProcessing: bool(.usedPostProcessing) ?? false,
-            transcriptionLanguageCode: string(.transcriptionLanguageCode) ?? "auto",
+            usedPostProcessing: bool(.usedPostProcessing) ?? base?.usedPostProcessing ?? false,
+            transcriptionLanguageCode: string(.transcriptionLanguageCode) ?? base?.transcriptionLanguageCode ?? "auto",
             spokenLanguageCode: string(.spokenLanguageCode),
             spokenLanguageResolution: string(.spokenLanguageResolution)
                 .flatMap(SpokenLanguageResolutionSource.init(rawValue:)),
             meetingSummaryAttempt: decoded(.meetingSummaryAttempt),
-            localTranscriptionModelID: string(.localTranscriptionModelID),
+            localTranscriptionModelID: string(.localTranscriptionModelID) ?? base?.localTranscriptionModelID,
             transcriptFileName: string(.transcriptFileName),
             contextAppName: base?.contextAppName,
             contextBundleIdentifier: base?.contextBundleIdentifier,
@@ -159,6 +172,20 @@ struct NoteSyncRecord: Equatable, Sendable {
             meetingSummaryJSON: data(.meetingSummaryJSON),
             deletedAt: deletedAt,
             fieldClock: clock
+        )
+    }
+
+    /// The provider host can name a private server; it never leaves the Mac.
+    private static func withoutProviderHost(_ attempt: MeetingSummaryAttempt) -> MeetingSummaryAttempt {
+        MeetingSummaryAttempt(
+            occurredAt: attempt.occurredAt,
+            outcome: attempt.outcome,
+            backendKind: attempt.backendKind,
+            modelID: attempt.modelID,
+            providerHost: nil,
+            language: attempt.language,
+            issue: attempt.issue,
+            sourceFingerprint: attempt.sourceFingerprint
         )
     }
 
@@ -200,5 +227,15 @@ struct NoteSyncRecord: Equatable, Sendable {
 enum NoteSyncEligibility {
     static func isSyncable(_ item: PipelineHistoryItem) -> Bool {
         !item.isIncompleteTranscription && item.unrecoveredRecordingContext == nil
+    }
+}
+
+extension NoteFieldClock {
+    /// CloudKit keeps dates to the millisecond, so stamps are compared and
+    /// sent at that precision; the same edit then reads equal on every Mac.
+    func roundedToMilliseconds() -> NoteFieldClock {
+        NoteFieldClock(stamps: stamps.mapValues {
+            Date(timeIntervalSince1970: ($0.timeIntervalSince1970 * 1000).rounded() / 1000)
+        })
     }
 }

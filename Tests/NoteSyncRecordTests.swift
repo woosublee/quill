@@ -15,6 +15,12 @@ struct NoteSyncRecordTests {
         testMergeIsIdempotentAndIgnoresOlderCopy()
         testMergeKeepsUnknownKeys()
         testDeletionMergesLikeAField()
+        testProviderHostNeverLeaves()
+        testUnknownKeysMergeTheSameBothWays()
+        testMergeKeepsNewerBuildClockGroups()
+        testEachFieldChangesOnlyItsGroup()
+        testMissingRequiredKeysKeepLocalValues()
+        testStampsCompareAtMilliseconds()
         print("NoteSyncRecordTests passed")
     }
 
@@ -75,8 +81,8 @@ struct NoteSyncRecordTests {
     /// Every key the item encodes is either synced or local-only, so a new
     /// field can't slip into sync, or out of it, unnoticed.
     static func testEveryItemFieldIsClassified() throws {
-        let data = try JSONEncoder().encode(item())
-        let keys = Set((try JSONSerialization.jsonObject(with: data) as! [String: Any]).keys)
+        // Every stored property, nil or not (JSON leaves out nil optionals).
+        let keys = Set(Mirror(reflecting: item()).children.compactMap(\.label))
         let synced = Set(NoteSyncField.allCases.map(\.itemKey))
         let bookkeeping: Set<String> = ["id", "deletedAt", "fieldClock"]
         let unclassified = keys.subtracting(synced).subtracting(NoteSyncRecord.localOnlyItemKeys).subtracting(bookkeeping)
@@ -235,5 +241,124 @@ struct NoteSyncRecordTests {
         restoredLocally.clock = restoredLocally.clock.setting(.deletion, to: t0.addingTimeInterval(60))
         let restored = NoteSyncMerge.merge(local: restoredLocally, remote: deletedRemotely)
         precondition(restored.deletedAt == nil, "a later restore wins over the deletion")
+    }
+
+    static func attempt(host: String?) -> MeetingSummaryAttempt {
+        MeetingSummaryAttempt(
+            occurredAt: t0,
+            outcome: .succeeded,
+            backendKind: .cloud,
+            modelID: "synthetic-model",
+            providerHost: host,
+            language: nil,
+            issue: nil
+        )
+    }
+
+    static func testProviderHostNeverLeaves() {
+        let base = item()
+        let withAttempt = PipelineHistoryItem(
+            id: base.id, timestamp: t0, rawTranscript: "r", postProcessedTranscript: "e",
+            postProcessingPrompt: nil, contextSummary: "", contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot", postProcessingStatus: "succeeded",
+            debugStatus: "", customVocabulary: "",
+            meetingSummaryAttempt: attempt(host: "llm.internal.example")
+        )
+        let record = NoteSyncRecord(item: withAttempt)
+        guard case .data(let encoded)? = record.fields[NoteSyncField.meetingSummaryAttempt.rawValue] else {
+            preconditionFailure("the attempt syncs")
+        }
+        precondition(!String(decoding: encoded, as: UTF8.self).contains("llm.internal.example"),
+                     "a private provider host never leaves the Mac")
+        let received = record.applied(onto: nil)
+        precondition(received.meetingSummaryAttempt?.modelID == "synthetic-model")
+        precondition(received.meetingSummaryAttempt?.providerHost == nil)
+    }
+
+    static func testUnknownKeysMergeTheSameBothWays() {
+        let base = item()
+        var a = record(base, stamps: [.title: t0.addingTimeInterval(10)])
+        var b = record(base, stamps: [.title: t0.addingTimeInterval(10)])
+        a.fields["futureField"] = .string("alpha")
+        b.fields["futureField"] = .string("bravo")
+        let onA = NoteSyncMerge.merge(local: a, remote: b).fields["futureField"]
+        let onB = NoteSyncMerge.merge(local: b, remote: a).fields["futureField"]
+        precondition(onA == onB, "both Macs keep the same newer-build value")
+        var current = record(base, stamps: [.title: t0.addingTimeInterval(30)])
+        current.fields["futureField"] = .string("current")
+        var older = record(base, stamps: [.title: t0.addingTimeInterval(10)])
+        older.fields["futureField"] = .string("older")
+        older.fields[NoteSyncRecord.schemaVersionKey] = .int(0)
+        precondition(NoteSyncMerge.merge(local: current, remote: older) == current, "an older copy changes nothing")
+    }
+
+    static func testMergeKeepsNewerBuildClockGroups() {
+        let base = item()
+        let local = record(base, stamps: [:])
+        var remote = record(base, stamps: [:])
+        remote.clock = NoteFieldClock(stamps: remote.clock.stamps.merging(["attachments": t0.addingTimeInterval(99)]) { $1 })
+        let merged = NoteSyncMerge.merge(local: local, remote: remote)
+        precondition(merged.clock.stamps["attachments"] == t0.addingTimeInterval(99))
+    }
+
+    /// Each synced field belongs to exactly one clock group, the same one
+    /// `NoteFieldClock` stamps when that field changes.
+    static func testEachFieldChangesOnlyItsGroup() {
+        let base = item()
+        let baseRecord = NoteSyncRecord(item: base)
+        let match = CalendarEventMatch(
+            calendarID: "synthetic-calendar", eventID: "synthetic-event", title: "Synthetic",
+            start: t0, end: t0.addingTimeInterval(60), matchSource: .importSelection, titleState: .suggested
+        )
+        for field in NoteSyncField.allCases {
+            var changed = baseRecord
+            let key = field.rawValue
+            switch (field, changed.fields[key]) {
+            case (.intent, _): changed.fields[key] = .string("command:manual")
+            case (.spokenLanguageResolution, _): changed.fields[key] = .string("engineDetected")
+            case (.calendarMatch, _): changed.fields[key] = .data(try! JSONEncoder().encode(match))
+            case (.meetingSummaryAttempt, _): changed.fields[key] = .data(try! JSONEncoder().encode(attempt(host: nil)))
+            case (.meetingSummaryJSON, _): changed.fields[key] = .data(Data("{\"other\":1}".utf8))
+            case (_, .string(let text)?): changed.fields[key] = .string(text + " changed")
+            case (_, .date(let date)?): changed.fields[key] = .date(date.addingTimeInterval(1))
+            case (_, .bool(let flag)?): changed.fields[key] = .bool(!flag)
+            default: changed.fields[key] = .string("synthetic new")
+            }
+            let groups = NoteFieldClock.changedGroups(from: base, to: changed.applied(onto: base))
+            precondition(groups == [field.group], "\(key) changes \(groups), expected \(field.group)")
+        }
+    }
+
+    static func testMissingRequiredKeysKeepLocalValues() {
+        let local = item(edited: "local edited")
+        var remote = NoteSyncRecord(item: item(id: local.id, edited: "remote edited"))
+        for field in [NoteSyncField.rawTranscript, .postProcessedTranscript, .postProcessingStatus,
+                      .transcriptionLanguageCode, .aiProcessingOutcome, .localTranscriptionModelID,
+                      .usedLocalTranscription, .usedPostProcessing] {
+            remote.fields.removeValue(forKey: field.rawValue)
+        }
+        let applied = remote.applied(onto: local)
+        precondition(applied.postProcessedTranscript == "local edited")
+        precondition(applied.rawTranscript == local.rawTranscript)
+        precondition(applied.postProcessingStatus == local.postProcessingStatus)
+        precondition(applied.transcriptionLanguageCode == local.transcriptionLanguageCode)
+        precondition(applied.usedLocalTranscription == local.usedLocalTranscription)
+        var newer = remote
+        newer.clock = newer.clock.setting(.editedTranscript, to: t0.addingTimeInterval(100))
+        let merged = NoteSyncMerge.merge(local: NoteSyncRecord(item: local), remote: newer)
+        precondition(merged.fields[NoteSyncField.postProcessedTranscript.rawValue] == .string("local edited"),
+                     "a winning group missing a required key keeps the local value")
+    }
+
+    static func testStampsCompareAtMilliseconds() {
+        let fine = t0.addingTimeInterval(0.123_456_7)
+        let local = item(clock: NoteFieldClock.uniform(t0).setting(.title, to: fine))
+        let record = NoteSyncRecord(item: local)
+        precondition(record.clock.stamp(for: .title) == Date(timeIntervalSince1970: (fine.timeIntervalSince1970 * 1000).rounded() / 1000))
+        var unrounded = record
+        unrounded.clock = unrounded.clock.setting(.title, to: fine)
+        let merged = NoteSyncMerge.merge(local: unrounded, remote: record)
+        precondition(merged.fields[NoteSyncField.customTitle.rawValue] == record.fields[NoteSyncField.customTitle.rawValue])
+        precondition(merged.clock.stamp(for: .title) == record.clock.stamp(for: .title), "the same edit compares equal after rounding")
     }
 }
