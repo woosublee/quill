@@ -291,7 +291,7 @@ struct SettingsLocalizationTests {
         }
         let browser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
         assert(browser.contains("AudioImportCalendarSection("))
-        assert(browser.contains("calendarEvent: calendarModel.selectedEvent"))
+        assert(browser.contains("calendarEvent: calendarModel.isLoading ? nil : calendarModel.selectedEvent"))
         let section = try String(contentsOfFile: "Sources/AudioImportCalendarSection.swift", encoding: .utf8)
         assert(section.contains("DatePicker(") && section.contains(".datePickerStyle(.graphical)"))
         assert(section.contains("appState.openCalendarSettings()"))

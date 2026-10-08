@@ -197,5 +197,9 @@ struct AudioImportCalendarTests {
         let browser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
         precondition(browser.contains("isConfirmEnabled: calendarModel.isReadyToConfirm"), "Transcribe waits for the calendar section")
         precondition(browser.contains(".disabled(!isConfirmEnabled)"))
+        // The recording time is always awaited; a timed-out load proceeds
+        // with no event instead of the previous day's choice.
+        precondition(section.contains("hasReadRecordingTime && (!isLoading || loadTimedOut)"))
+        precondition(browser.contains("calendarEvent: calendarModel.isLoading ? nil : calendarModel.selectedEvent"))
     }
 }

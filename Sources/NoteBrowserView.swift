@@ -827,7 +827,9 @@ struct NoteBrowserView: View {
                     importRequest.fileURL,
                     choice: choice,
                     recordingTime: calendarModel.recordingTime,
-                    calendarEvent: calendarModel.selectedEvent,
+                    // A load that timed out proceeds with no event rather
+                    // than an event from the previously shown day.
+                    calendarEvent: calendarModel.isLoading ? nil : calendarModel.selectedEvent,
                     calendarDay: calendarModel.day
                 )
             } onOpenProviderSettings: {

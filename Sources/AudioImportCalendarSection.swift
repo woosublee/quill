@@ -34,7 +34,7 @@ final class AudioImportCalendarModel: ObservableObject {
     /// Transcribe waits until the recording time is read and the shown day's
     /// events are loaded, so the note gets the time and event shown.
     var isReadyToConfirm: Bool {
-        (hasReadRecordingTime && !isLoading) || loadTimedOut
+        hasReadRecordingTime && (!isLoading || loadTimedOut)
     }
 
     func start(fileURL: URL, appState: AppState) {
