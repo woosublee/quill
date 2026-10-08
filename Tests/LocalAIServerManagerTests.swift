@@ -25,7 +25,9 @@ struct LocalAIServerManagerTests {
         try await testConcurrentSameModelRequestsCoalesceOneStartup()
         try await testCancellingOneOfTwoSameModelWaitersKeepsSharedStartup()
         try await testCancellingSoleStartupWaiterCleansProcessAndThrowsCancellation()
-        try await testDifferentModelDuringStartupWaitsForDelayedExitBeforeLaunchingSecond()
+        try await testDifferentModelDuringStartupLetsEveryWaitingRequestFinishFirst()
+        try await testCancellingSwitchWaitingOnStartupReturnsPromptly()
+        try await testSwitchAfterPendingStartupWaitsForDelayedExit()
         try await testRequestForDifferentRunningModelWaitsForDelayedExitBeforeLaunchingSecond()
         try await testLateOldTerminationCallbackDoesNotClearNewSameModelLaunch()
         try await testHealthSuccessAfterProcessExitThrowsAndDoesNotPublishProcess()
@@ -655,7 +657,123 @@ struct LocalAIServerManagerTests {
         try require(idle.phase == .idle, "last waiter cancellation should finish cleanup before returning")
     }
 
-    private static func testDifferentModelDuringStartupWaitsForDelayedExitBeforeLaunchingSecond() async throws {
+    /// Two imports in a row: post-processing starts one model while the
+    /// other import asks for the transcription model. Every request waiting
+    /// on the startup must get its server and finish before the switch,
+    /// instead of failing as "superseded".
+    private static func testDifferentModelDuringStartupLetsEveryWaitingRequestFinishFirst() async throws {
+        let firstProcess = FakeProcess()
+        let secondProcess = FakeProcess()
+        let firstHealth = ControlledHealthPoll()
+        let gateA = AsyncGate()
+        let gateB = AsyncGate()
+        let startedA = DispatchSemaphore(value: 0)
+        let startedB = DispatchSemaphore(value: 0)
+        let launches = LockedBox<[String]>([])
+        let healthCallCount = LockedBox(0)
+        let manager = makeManager(
+            launchProcess: { model, _, port, _ in
+                let launchIndex = launches.withValue { records -> Int in
+                    records.append(model.id)
+                    return records.count
+                }
+                return (launchIndex == 1 ? firstProcess : secondProcess, port)
+            },
+            pollHealth: { _ in
+                let call = healthCallCount.withValue { count -> Int in
+                    count += 1
+                    return count
+                }
+                return call == 1 ? await firstHealth.poll() : true
+            }
+        )
+
+        let firstA = resultTask {
+            try await manager.withBaseURL(for: testModel) { url in
+                startedA.signal()
+                await gateA.wait()
+                return url
+            }
+        }
+        try firstHealth.waitUntilEntered()
+        let secondA = resultTask {
+            try await manager.withBaseURL(for: testModel) { url in
+                startedB.signal()
+                await gateB.wait()
+                return url
+            }
+        }
+        try await waitUntil("second same-model request did not join the startup") {
+            await manager.lifecycleSnapshot().startupWaiterCount == 2
+        }
+        let switchRequest = Task { try await manager.withBaseURL(for: otherModel) { $0 } }
+        try await waitUntil("model switch did not wait for the pending startup") {
+            await manager.pendingStartupSwitchCount() == 1
+        }
+        try require(firstProcess.terminateCallCount == 0, "a different model must not stop a startup someone is waiting for")
+        try require(launches.value == [testModel.id], "replacement launched while the first startup was pending")
+
+        firstHealth.finish(true)
+        try wait(startedA, "first waiting request did not get its server")
+        try wait(startedB, "second waiting request did not get its server")
+        try await waitUntil("model switch did not wait for both requests") {
+            await manager.lifecycleSnapshot().isWaitingForActiveRequests
+        }
+        try require(firstProcess.terminateCallCount == 0, "model switch stopped a process with active operations")
+
+        gateA.open()
+        _ = try await firstA.value.get()
+        try require(firstProcess.terminateCallCount == 0, "model switch stopped the process while a waiter still held it")
+        gateB.open()
+        _ = try await secondA.value.get()
+        let switchedURL = try await switchRequest.value
+
+        try require(launches.value == [testModel.id, otherModel.id], "models launched in the wrong order")
+        try require(firstProcess.terminateCallCount == 1, "first process should stop after its requests")
+        try require(secondProcess.isRunning, "second process should remain active")
+        try require(switchedURL.absoluteString.hasSuffix("/v1"), "second startup should return a base URL")
+    }
+
+    /// A request waiting to switch models can be cancelled without waiting
+    /// for the other model's startup to finish.
+    private static func testCancellingSwitchWaitingOnStartupReturnsPromptly() async throws {
+        let firstProcess = FakeProcess()
+        let firstHealth = ControlledHealthPoll()
+        let healthCallCount = LockedBox(0)
+        let manager = makeManager(
+            launchProcess: { _, _, port, _ in (firstProcess, port) },
+            pollHealth: { _ in
+                let call = healthCallCount.withValue { count -> Int in
+                    count += 1
+                    return count
+                }
+                return call == 1 ? await firstHealth.poll() : true
+            }
+        )
+
+        let first = resultTask { try await manager.withBaseURL(for: testModel) { $0 } }
+        try firstHealth.waitUntilEntered()
+        let switchRequest = resultTask { try await manager.withBaseURL(for: otherModel) { $0 } }
+        try await waitUntil("model switch did not wait for the pending startup") {
+            await manager.pendingStartupSwitchCount() == 1
+        }
+        switchRequest.cancel()
+        let switchResult = await switchRequest.value
+        guard case let .failure(error) = switchResult, error is CancellationError else {
+            throw TestFailure("cancelled switch should end with CancellationError while the startup is still pending")
+        }
+        try await waitUntil("cancelled switch should stop waiting") {
+            await manager.pendingStartupSwitchCount() == 0
+        }
+        try require(firstProcess.terminateCallCount == 0, "cancelled switch must not stop the pending startup")
+
+        firstHealth.finish(true)
+        _ = try await first.value.get()
+    }
+
+    /// After the waiting request finishes, the switch still waits for a slow
+    /// process exit before launching the next model.
+    private static func testSwitchAfterPendingStartupWaitsForDelayedExit() async throws {
         let firstProcess = DelayedExitProcess()
         let secondProcess = FakeProcess()
         let firstHealth = ControlledHealthPoll()
@@ -683,23 +801,22 @@ struct LocalAIServerManagerTests {
         let first = resultTask { try await manager.withBaseURL(for: testModel) { $0 } }
         try firstHealth.waitUntilEntered()
         let second = Task { try await manager.withBaseURL(for: otherModel) { $0 } }
+        try await waitUntil("model switch did not wait for the pending startup") {
+            await manager.pendingStartupSwitchCount() == 1
+        }
+        firstHealth.finish(true)
+        _ = try await first.value.get()
         try firstProcess.waitForTerminateRequest()
 
         let stopping = await manager.lifecycleSnapshot()
         try require(stopping.phase == .stopping, "model switch should wait in stopping for delayed process exit")
-        try require(stopping.modelID == testModel.id, "model switch should still own the first launch while stopping")
         try require(launches.value == [testModel.id], "replacement launched before first process exited")
 
         firstProcess.completeTermination()
         try wait(secondLaunch, "second model did not launch after first process exited")
         let secondURL = try await second.value
-        let firstResult = await first.value
-
-        try requireFailure(firstResult, "superseded startup should fail")
-        try require(launches.value == [testModel.id, otherModel.id], "models launched in the wrong order")
-        try require(!firstProcess.isRunning, "first process must not remain resident")
-        try require(secondProcess.isRunning, "second process should remain active")
         try require(secondURL.absoluteString.hasSuffix("/v1"), "second startup should return a base URL")
+        try require(secondProcess.isRunning, "second process should remain active")
     }
 
     private static func testRequestForDifferentRunningModelWaitsForDelayedExitBeforeLaunchingSecond() async throws {
