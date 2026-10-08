@@ -122,9 +122,14 @@ the store with the hook muted, so the change is not sent back. The note
 list updates through the normal `pipelineHistory` publishing.
 
 **Audio on another Mac.** The note shows `audioAvailability = remote`.
-Play, Retranscribe, or Export starts a download. The player button shows
-progress, and the file is saved under `audio/` once its hash matches. A
-later use is local.
+The existing audio bar stays. Only its play button changes: a download
+button before the audio is local, a filling ring with a stop mark while
+downloading, and a dimmed button with the reason in the time label when it
+can't download. The waveform shows flat placeholder bars until the file
+arrives, and the duration comes from the recording times. When the
+download finishes, playback starts. Retranscribe and Export download first
+in the same way. The file is saved under `audio/` once its hash matches,
+and later uses are local.
 
 **Delete.** Deleting sets `deletedAt` and syncs. The note moves to Recently
 Deleted on every Mac. Restore clears `deletedAt`. "Delete Now", or 30 days
@@ -153,8 +158,12 @@ The sync settings tab comes after Calendar.
   is deleted. Sync resumes only when the user turns it on again, so notes
   never cross into a different account.
 
-**Recently Deleted.** It is a row at the bottom of the note list. Each note
-shows its days left and has Restore and Delete Now. It works with sync off
+**Recently Deleted.** A trash button sits in the note list's title row, next
+to search and import, and appears only when deleted notes exist, with their
+count. It is not at the bottom, because the floating Record button lives
+there. The button switches the list to Recently Deleted, with Done to go
+back. The Record button is hidden in that mode. Each note shows its days
+left. The opened note is read-only and has Restore and Delete Now. It works with sync off
 too, kept on that Mac only.
 
 ## Build and signing
