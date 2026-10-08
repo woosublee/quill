@@ -188,6 +188,11 @@ struct PipelineHistoryItem: Identifiable, Codable {
     let contextWindowTitle: String?
     let customTitle: String?
     let meetingSummaryJSON: Data?
+    /// Set while the note is in Recently Deleted. Written only by
+    /// `PipelineHistoryStore.setDeletedAt(_:id:)`.
+    let deletedAt: Date?
+    /// When each field group last changed. Maintained by the store.
+    let fieldClock: NoteFieldClock?
 
     init(
         intent: PipelineHistoryItemIntent = .dictation,
@@ -226,7 +231,9 @@ struct PipelineHistoryItem: Identifiable, Codable {
         contextBundleIdentifier: String? = nil,
         contextWindowTitle: String? = nil,
         customTitle: String? = nil,
-        meetingSummaryJSON: Data? = nil
+        meetingSummaryJSON: Data? = nil,
+        deletedAt: Date? = nil,
+        fieldClock: NoteFieldClock? = nil
     ) {
         self.intent = intent
         self.selectedText = selectedText
@@ -265,6 +272,8 @@ struct PipelineHistoryItem: Identifiable, Codable {
         self.contextWindowTitle = contextWindowTitle
         self.customTitle = customTitle
         self.meetingSummaryJSON = meetingSummaryJSON
+        self.deletedAt = deletedAt
+        self.fieldClock = fieldClock
     }
 
     static func transcriptionRecoveryPlaceholder(
