@@ -253,6 +253,19 @@ struct AppStateHistoryProtectionSourceTests {
             section.contains("visibleRestoredNotes"),
             "a note deleted again leaves the Restored rows"
         )
+        try expect(
+            section.contains("appState.pipelineHistory.contains { $0.id == note.id }"),
+            "Restored rows show only notes that are live"
+        )
+        let browser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+        let openRequest = try browser.range(
+            from: "private func openRequestedNote() {",
+            to: "\n    }\n"
+        )
+        try expect(
+            browser[openRequest].contains("clearSearchForOpenRequest()"),
+            "Open Note clears a search that would hide the note"
+        )
         let delegate = try String(contentsOfFile: "Sources/AppDelegate.swift", encoding: .utf8)
         try expect(
             delegate.contains("appState.stopRecentlyDeletedPurgeSchedule()"),

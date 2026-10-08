@@ -7,10 +7,11 @@ struct RecentlyDeletedNotesSection: View {
     @State private var restoredNotes: [PipelineHistoryItem] = []
     @State private var pendingDeleteNow: PipelineHistoryItem?
 
-    /// Restored rows, minus any note that was deleted again since.
+    /// Restored rows for notes that are still live: not deleted again, and
+    /// not deleted for good since.
     private var visibleRestoredNotes: [PipelineHistoryItem] {
         restoredNotes.filter { note in
-            !appState.recentlyDeletedNotes.contains { $0.id == note.id }
+            appState.pipelineHistory.contains { $0.id == note.id }
         }
     }
 

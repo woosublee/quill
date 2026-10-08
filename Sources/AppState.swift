@@ -12931,6 +12931,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
             let restored = try pipelineHistoryStore.setDeletedAt(nil, id: id)
             recentlyDeletedNotes.removeAll { $0.id == id }
             insertPipelineHistoryItemInTimeOrder(restored)
+            // A note restored during its Cancel window leaves the toast too.
+            if let pending = pendingNoteDeletion {
+                let remaining = pending.entries.filter { $0.item.id != id }
+                if remaining.count != pending.entries.count {
+                    pendingNoteDeletion = remaining.isEmpty ? nil : pending.keeping(remaining)
+                }
+            }
         } catch {
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to restore the deleted note"), providerDetail: error.localizedDescription)
         }

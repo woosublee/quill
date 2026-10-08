@@ -16,6 +16,7 @@ struct AppStateStorageSafetyTests {
         try await verifiesExpiredNotesArePurged()
         try await verifiesRecentlyDeletedFilesSurviveStartupSweep()
         try await verifiesDeleteNowDuringCancelWindowEndsIt()
+        try await verifiesRestoreDuringCancelWindowEndsIt()
         try verifiesWarningBannerStateKeepsOnlyListedNotes()
         try await verifiesStartupPrunesWarningBannerStateOfMissingNotes()
         try await verifiesDeleteHistoryEntriesSkipsBusyNotesAndKeepsFailures()
@@ -368,6 +369,25 @@ struct AppStateStorageSafetyTests {
             try expect(result.0, "Delete Now ends the note's Cancel window")
             try expect(result.1 == nil, "Cancel afterwards shows no error")
             try expect(result.2.isEmpty, "Cancel afterwards does not bring the note back")
+        }
+    }
+
+    private static func verifiesRestoreDuringCancelWindowEndsIt() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let (item, _) = try makeNoteWithAudio(environment, timestamp: Date(timeIntervalSince1970: 2_000))
+            let historyStore = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            _ = try historyStore.append(item, maxCount: Int.max)
+            let appState = await MainActor.run { AppState(dependencies: environment.dependencies) }
+            let scheduler = ManualNoteDeletionScheduler()
+            let result = await MainActor.run { () -> (Bool, [UUID]) in
+                appState.scheduleNoteDeletionFinalization = { delay, work in scheduler.items.append((delay, work)) }
+                appState.deleteHistoryEntryCancellably(id: item.id)
+                appState.restoreRecentlyDeletedNote(id: item.id)
+                return (appState.pendingNoteDeletion == nil, appState.pipelineHistory.map(\.id))
+            }
+            try expect(result.0, "restoring from Settings ends the note's Cancel window")
+            try expect(result.1 == [item.id], "the restored note is listed once")
         }
     }
 

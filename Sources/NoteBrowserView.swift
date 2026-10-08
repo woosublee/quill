@@ -742,9 +742,21 @@ struct NoteBrowserView: View {
     private func openRequestedNote() {
         guard let id = appState.noteBrowserOpenRequest,
               appState.pipelineHistory.contains(where: { $0.id == id }) else { return }
-        selection.focus(id)
-        scheduleRecoveryScrollRestore(for: id)
         appState.noteBrowserOpenRequest = nil
+        clearSearchForOpenRequest()
+        // After the cleared search settles, so its own focus handling
+        // doesn't move the selection afterwards.
+        DispatchQueue.main.async {
+            selection.focus(id)
+            scheduleRecoveryScrollRestore(for: id)
+        }
+    }
+
+    /// A search that doesn't match the requested note would hide it.
+    private func clearSearchForOpenRequest() {
+        guard isSearchOpen || !searchText.isEmpty else { return }
+        closeSearch()
+        endSearchSession()
     }
 
     private func scheduleRecoveryScrollRestore(for itemID: UUID) {

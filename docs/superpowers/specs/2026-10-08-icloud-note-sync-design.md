@@ -71,7 +71,10 @@ New units, each with one job:
 5. **`SyncSettingsView`** and **`RecentlyDeletedView`**: the UI.
 
 `PipelineHistoryStore` stays the only writer. The coordinator observes it
-through one hook added to `append`, `update`, and `delete`. View code
+through one hook on every write: `append`, `upsert`, `update`,
+`setDeletedAt` (move to and restore from Recently Deleted), and `delete`.
+Each enqueues `.saveRecord(noteID)`, except `delete`, which enqueues
+`.deleteRecord(noteID)`. View code
 changes only for the Recently Deleted settings section and the audio bar states.
 
 ### Core Data changes (lightweight migration)
