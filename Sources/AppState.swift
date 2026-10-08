@@ -8045,6 +8045,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func importAudioFile(_ fileURL: URL, choice: TranscriptionBackendChoice) {
+        importAudioFile(fileURL, choice: choice, recordingTime: nil, calendarEvent: nil, calendarDay: nil)
+    }
+
+    /// `recordingTime` comes from the file's embedded creation date; with it
+    /// the note sits at its real recording time. `calendarEvent` is the event
+    /// chosen in the import sheet.
+    @MainActor
+    func importAudioFile(
+        _ fileURL: URL,
+        choice: TranscriptionBackendChoice,
+        recordingTime: AudioFileRecordingTime?,
+        calendarEvent: CalendarEvent?,
+        calendarDay: Date?
+    ) {
         guard requireAvailableHistoryForMutation() else { return }
         guard !choice.usesCloudAPI || hasTranscriptionAPIKey else {
             openProviderSettings()
@@ -8090,12 +8104,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 return
             }
 
+            let calendarMatch = calendarEvent.map { event in
+                event.match(
+                    accountID: event.provider == .apple
+                        ? Self.appleCalendarAccountID
+                        : self.googleCalendarConnection.accountEmail,
+                    source: .importSelection,
+                    titleState: .suggested
+                )
+            }
             let placeholder = PipelineHistoryItem(
                 id: noteID,
-                timestamp: startedAt,
-                recordingStartedAt: nil,
-                recordingEndedAt: nil,
-                calendarMatch: nil,
+                timestamp: recordingTime?.end ?? startedAt,
+                recordingStartedAt: recordingTime?.start,
+                recordingEndedAt: recordingTime?.end,
+                calendarMatch: calendarMatch,
                 rawTranscript: "",
                 postProcessedTranscript: "",
                 postProcessingPrompt: nil,
@@ -8118,7 +8141,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 localTranscriptionModelID: configuration.historyLocalTranscriptionModelID,
                 contextAppName: nil,
                 contextBundleIdentifier: nil,
-                contextWindowTitle: nil
+                contextWindowTitle: nil,
+                customTitle: calendarEvent.map {
+                    ImportCalendarTitle.title(for: $0, recording: recordingTime, chosenDay: calendarDay ?? $0.start)
+                }
             )
 
             do {
@@ -8140,8 +8166,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 sessionIntent: .dictation,
                 sessionContext: nil,
                 contextTask: nil,
-                recordingStartedAt: nil,
-                recordingEndedAt: nil,
+                recordingStartedAt: recordingTime?.start,
+                recordingEndedAt: recordingTime?.end,
                 isImportedAudio: true
             )
             self.pendingAudioImportJobIDs.remove(jobID)
@@ -8942,6 +8968,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func openProviderSettings() {
         selectedSettingsTab = .models
+        NotificationCenter.default.post(name: .showSettings, object: nil)
+    }
+
+    func openCalendarSettings() {
+        selectedSettingsTab = .calendar
         NotificationCenter.default.post(name: .showSettings, object: nil)
     }
 
@@ -12739,7 +12770,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return []
         }
         let removedStoredFiles = try pipelineHistoryStore.append(item, maxCount: maxPipelineHistoryCount)
-        pipelineHistory.insert(item, at: 0)
+        insertPipelineHistoryItemInTimeOrder(item)
         if pipelineHistory.count > maxPipelineHistoryCount {
             pipelineHistory.removeLast(pipelineHistory.count - maxPipelineHistoryCount)
         }
@@ -12854,6 +12885,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 self.dismissTranscribingOverlay()
             }
         }
+    }
+
+    /// Imported audio can carry an earlier recording time; keep the list
+    /// newest first like the store.
+    @MainActor
+    private func insertPipelineHistoryItemInTimeOrder(_ item: PipelineHistoryItem) {
+        let index = PipelineHistoryOrdering.insertionIndex(
+            for: item.timestamp,
+            in: pipelineHistory.map(\.timestamp)
+        )
+        pipelineHistory.insert(item, at: index)
     }
 
     @MainActor
@@ -13067,21 +13109,33 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     /// Google events for a recording interval, or `nil` when no Google
     /// calendar is selected. Health is reported as before.
-    private func googleCalendarEventsForMatch(from start: Date, to end: Date) async -> Result<[CalendarEvent], Error>? {
+    private func googleCalendarEventsForMatch(from start: Date, to end: Date, reportsHealth: Bool = true) async -> Result<[CalendarEvent], Error>? {
+        await googleCalendarEventFetch(from: start, to: end, reportsHealth: reportsHealth).result
+    }
+
+    /// Google events for an interval, or a `nil` result when no Google
+    /// calendar is selected. `hadPartialFailure` is true when some selected
+    /// calendars could not be read.
+    private func googleCalendarEventFetch(
+        from start: Date,
+        to end: Date,
+        reportsHealth: Bool
+    ) async -> (result: Result<[CalendarEvent], Error>?, hadPartialFailure: Bool) {
         let selectedCalendarIDs = await MainActor.run {
             googleCalendarConnection.selectedCalendarIDs
         }
-        guard !selectedCalendarIDs.isEmpty else { return nil }
+        guard !selectedCalendarIDs.isEmpty else { return (nil, false) }
 
         do {
             guard let token = try await validGoogleCalendarToken() else {
                 await MainActor.run {
+                    guard reportsHealth else { return }
                     markGoogleCalendarNeedsReconnect(
                         feature: .recordingMatch,
                         message: localizedCatalogString("Google Calendar needs reconnecting. Calendar-based note titles may be unavailable.")
                     )
                 }
-                return .failure(GoogleCalendarHealthError.needsReconnect)
+                return (.failure(GoogleCalendarHealthError.needsReconnect), false)
             }
             let fetchResult = await Self.googleCalendarServiceFactory()
                 .fetchEventsWithDiagnostics(
@@ -13091,6 +13145,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     timeMax: end
                 )
             await MainActor.run {
+                guard reportsHealth else { return }
                 if fetchResult.failedCalendarIDs.isEmpty {
                     markGoogleCalendarHealthy(feature: .recordingMatch)
                 } else {
@@ -13100,9 +13155,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     )
                 }
             }
-            return .success(fetchResult.events)
+            return (.success(fetchResult.events), !fetchResult.failedCalendarIDs.isEmpty)
         } catch {
             await MainActor.run {
+                guard reportsHealth else { return }
                 if Self.isGoogleCalendarReconnectError(error) {
                     markGoogleCalendarNeedsReconnect(
                         feature: .recordingMatch,
@@ -13115,8 +13171,56 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     )
                 }
             }
-            return .failure(error)
+            return (.failure(error), false)
         }
+    }
+
+    struct CalendarDayEventsResult: Equatable {
+        let events: [CalendarEvent]
+        let googleFailed: Bool
+        /// A connected source with at least one calendar Quill can read.
+        let hasReadableSource: Bool
+    }
+
+    /// Meeting candidates for one local day from the selected Google and
+    /// Apple calendars, for the import sheet. Nothing is cached.
+    func calendarDayEvents(on day: Date) async -> CalendarDayEventsResult {
+        let interval = CalendarDayEvents.dayInterval(containing: day)
+        let (googleConnected, appleIDs) = await MainActor.run {
+            (
+                googleCalendarConnection.isConnected && !googleCalendarConnection.selectedCalendarIDs.isEmpty,
+                readableAppleCalendarIDs
+            )
+        }
+        // Browsing days in the import sheet must not change Google health.
+        let googleFetch: (result: Result<[CalendarEvent], Error>?, hadPartialFailure: Bool) = googleConnected
+            ? await googleCalendarEventFetch(from: interval.start, to: interval.end, reportsHealth: false)
+            : (nil, false)
+        let google = googleFetch.result
+        let apple: [CalendarEvent]? = appleIDs.isEmpty
+            ? nil
+            : await MainActor.run {
+                appleCalendarService.events(calendarIDs: appleIDs, from: interval.start, to: interval.end)
+            }
+        let merged = (try? CalendarEventCollection.combine(
+            google: google,
+            apple: apple,
+            toleratesGoogleFailure: true
+        )) ?? []
+        var googleFailed = googleFetch.hadPartialFailure
+        var googleReadable = false
+        switch google {
+        case .failure: googleFailed = true
+        case .success: googleReadable = true
+        case nil: break
+        }
+        return CalendarDayEventsResult(
+            events: CalendarDayEvents.meetingCandidates(merged),
+            googleFailed: googleFailed,
+            // A connection whose token cannot be refreshed reads nothing, so
+            // it shows Calendar Settings like no connection at all.
+            hasReadableSource: googleReadable || !appleIDs.isEmpty
+        )
     }
 
     private func calendarMatchForHistoryItem(jobID: UUID) async -> CalendarEventMatch? {

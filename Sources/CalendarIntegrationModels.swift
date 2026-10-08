@@ -64,6 +64,7 @@ extension CalendarProvider: Identifiable {
 enum CalendarMatchSource: String, Codable, Equatable {
     case overlapSuggestion = "overlap_suggestion"
     case calendarNotification = "calendar_notification"
+    case importSelection = "import_selection"
 }
 
 enum CalendarTitleState: String, Codable, Equatable {
@@ -360,5 +361,13 @@ struct GoogleCalendarOAuthConfiguration: Equatable {
 
     var isConfigured: Bool {
         !clientID.isEmpty
+    }
+}
+
+extension CalendarEvent {
+    /// A timed, titled event the person has not declined.
+    var isMeetingCandidate: Bool {
+        guard !isAllDay, hasUsableTitle, end > start else { return false }
+        return !attendees.contains { $0.isSelf && $0.responseStatus == "declined" }
     }
 }

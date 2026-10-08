@@ -139,6 +139,7 @@ private struct PendingAudioImport: Identifiable {
     let legacyLocalWhisperModels: [TranscriptionModel]
     let localAIModels: [AudioImportLocalAIModel]
     let fileSizeBytes: Int64?
+    let calendarModel: AudioImportCalendarModel
 
     init(
         fileURL: URL,
@@ -147,8 +148,10 @@ private struct PendingAudioImport: Identifiable {
         hasAPIKey: Bool,
         hasNativeLocalWhisperModel: Bool,
         legacyLocalWhisperModels: [TranscriptionModel],
-        localAIModels: [AudioImportLocalAIModel]
+        localAIModels: [AudioImportLocalAIModel],
+        calendarModel: AudioImportCalendarModel
     ) {
+        self.calendarModel = calendarModel
         self.fileURL = fileURL
         self.currentChoice = currentChoice
         self.apiStandardModelID = apiStandardModelID
@@ -179,12 +182,45 @@ private struct PendingAudioImport: Identifiable {
     }
 }
 
+/// The import sheet: transcription choice plus the calendar event section,
+/// with the file's recording time beside its name.
+private struct AudioImportSheet: View {
+    @EnvironmentObject var appState: AppState
+    let request: PendingAudioImport
+    @ObservedObject var calendarModel: AudioImportCalendarModel
+    let onConfirm: (TranscriptionBackendChoice) -> Void
+    let onOpenProviderSettings: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        TranscriptionChoiceSheet(
+            title: "Import Audio File",
+            subtitle: request.fileURL.lastPathComponent,
+            subtitleDetail: calendarModel.headerDetail,
+            showsSettingNote: false,
+            options: request.options,
+            fallbackChoice: .apiStandard(modelID: request.apiStandardModelID),
+            accessory: AnyView(
+                AudioImportCalendarSection(model: calendarModel)
+                    .environmentObject(appState)
+            ),
+            isConfirmEnabled: calendarModel.isReadyToConfirm,
+            onConfirm: onConfirm,
+            onOpenProviderSettings: onOpenProviderSettings,
+            onCancel: onCancel
+        )
+    }
+}
+
 /// Picks the model for one transcription the user starts by hand: an audio
 /// import, or transcribing a saved note when no usable model is selected.
 /// The choice applies to that transcription only.
 struct TranscriptionChoiceSheet: View {
     let title: LocalizedStringKey
     let subtitle: String
+    let subtitleDetail: String?
+    let accessory: AnyView?
+    let isConfirmEnabled: Bool
     let showsSettingNote: Bool
     let options: AudioImportOptions
     let onConfirm: (TranscriptionBackendChoice) -> Void
@@ -196,15 +232,21 @@ struct TranscriptionChoiceSheet: View {
     init(
         title: LocalizedStringKey,
         subtitle: String,
+        subtitleDetail: String? = nil,
         showsSettingNote: Bool,
         options: AudioImportOptions,
         fallbackChoice: TranscriptionBackendChoice,
+        accessory: AnyView? = nil,
+        isConfirmEnabled: Bool = true,
         onConfirm: @escaping (TranscriptionBackendChoice) -> Void,
         onOpenProviderSettings: @escaping () -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.title = title
         self.subtitle = subtitle
+        self.subtitleDetail = subtitleDetail
+        self.accessory = accessory
+        self.isConfirmEnabled = isConfirmEnabled
         self.showsSettingNote = showsSettingNote
         self.options = options
         self.onConfirm = onConfirm
@@ -231,6 +273,12 @@ struct TranscriptionChoiceSheet: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                if let subtitleDetail {
+                    Text(verbatim: subtitleDetail)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             if showsSettingNote {
@@ -258,6 +306,10 @@ struct TranscriptionChoiceSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
             }
 
+            if let accessory {
+                accessory
+            }
+
             VStack(alignment: .leading, spacing: 8) {
                 Text("Transcription Method")
                     .font(.system(size: 12, weight: .semibold))
@@ -278,6 +330,7 @@ struct TranscriptionChoiceSheet: View {
                     Button("Transcribe") { onConfirm(selectedChoice) }
                         .keyboardShortcut(.defaultAction)
                         .buttonStyle(.borderedProminent)
+                        .disabled(!isConfirmEnabled)
                 } else {
                     Button("Open Provider Settings") {
                         onOpenProviderSettings()
@@ -764,15 +817,21 @@ struct NoteBrowserView: View {
             }
         }
         .sheet(item: $pendingAudioImport) { importRequest in
-            TranscriptionChoiceSheet(
-                title: "Import Audio File",
-                subtitle: importRequest.fileURL.lastPathComponent,
-                showsSettingNote: false,
-                options: importRequest.options,
-                fallbackChoice: .apiStandard(modelID: importRequest.apiStandardModelID)
+            AudioImportSheet(
+                request: importRequest,
+                calendarModel: importRequest.calendarModel
             ) { choice in
+                let calendarModel = importRequest.calendarModel
                 pendingAudioImport = nil
-                appState.importAudioFile(importRequest.fileURL, choice: choice)
+                appState.importAudioFile(
+                    importRequest.fileURL,
+                    choice: choice,
+                    recordingTime: calendarModel.recordingTime,
+                    // A load that timed out proceeds with no event rather
+                    // than an event from the previously shown day.
+                    calendarEvent: calendarModel.isLoading ? nil : calendarModel.selectedEvent,
+                    calendarDay: calendarModel.day
+                )
             } onOpenProviderSettings: {
                 pendingAudioImport = nil
                 appState.openProviderSettings()
@@ -849,19 +908,30 @@ struct NoteBrowserView: View {
             // Opening a note here goes through the search, so typing a query
             // keeps the search field focused and the search open (#436).
             guard let current = selectedItemID, ids.contains(current) else {
-                openNoteForSearch(visibleIDs.first)
-                if isRecoveryImport, let fallback = visibleIDs.first {
-                    scheduleRecoveryScrollRestore(for: fallback)
+                // With nothing open, open a note that just arrived (imported
+                // audio can land below the top) and scroll to it.
+                let insertedID = ids.first(where: { !knownHistoryIDs.contains($0) && visibleIDs.contains($0) })
+                if !isRecoveryImport, let insertedID {
+                    openNoteForSearch(insertedID)
+                    scheduleRecoveryScrollRestore(for: insertedID)
+                } else {
+                    openNoteForSearch(visibleIDs.first)
+                    if isRecoveryImport, let fallback = visibleIDs.first {
+                        scheduleRecoveryScrollRestore(for: fallback)
+                    }
                 }
                 knownHistoryIDs = Set(ids)
                 return
             }
             if isRecoveryImport {
                 scheduleRecoveryScrollRestore(for: current)
-            } else if let newest = ids.first, newest != current, !knownHistoryIDs.contains(newest),
-                      visibleIDs.contains(newest) {
-                // Auto-select only genuinely new items; ignore existing item edits.
-                openNoteForSearch(newest)
+            } else if let newID = ids.first(where: { !knownHistoryIDs.contains($0) }),
+                      newID != current, visibleIDs.contains(newID) {
+                // Auto-select only genuinely new items; ignore existing item
+                // edits. Imported audio can land below the top at its
+                // recording time, so scroll to it too.
+                openNoteForSearch(newID)
+                scheduleRecoveryScrollRestore(for: newID)
             }
             knownHistoryIDs = Set(ids)
                 }
@@ -1474,6 +1544,8 @@ struct NoteBrowserView: View {
         panel.message = String(localized: "Choose an audio file. Supported formats: FLAC, MP3, MP4, MPEG, MPGA, M4A, OGG, WAV, WEBM")
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
+            let calendarModel = AudioImportCalendarModel()
+            calendarModel.start(fileURL: url, appState: appState)
             pendingAudioImport = PendingAudioImport(
                 fileURL: url,
                 currentChoice: appState.currentNoteBrowserTranscriptionChoice,
@@ -1481,7 +1553,8 @@ struct NoteBrowserView: View {
                 hasAPIKey: appState.hasTranscriptionAPIKey,
                 hasNativeLocalWhisperModel: appState.hasNativeLocalWhisperModel,
                 legacyLocalWhisperModels: appState.installedLegacyLocalWhisperModels,
-                localAIModels: appState.audioImportLocalAIModels
+                localAIModels: appState.audioImportLocalAIModels,
+                calendarModel: calendarModel
             )
         }
     }

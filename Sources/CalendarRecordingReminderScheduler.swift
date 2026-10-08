@@ -452,15 +452,7 @@ final class CalendarRecordingReminderScheduler {
     }
 
     nonisolated static func isReminderEligible(_ event: CalendarEvent) -> Bool {
-        guard !event.isAllDay,
-              event.hasUsableTitle,
-              event.end > event.start else {
-            return false
-        }
-        if event.attendees.contains(where: { $0.isSelf && $0.responseStatus == "declined" }) {
-            return false
-        }
-        return true
+        event.isMeetingCandidate
     }
 
     nonisolated static func notificationIdentifier(for event: CalendarEvent, leadMinutes: Int) -> String {
