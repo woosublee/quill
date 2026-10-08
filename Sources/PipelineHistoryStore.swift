@@ -94,6 +94,11 @@ final class PipelineHistoryStore {
     private(set) var loadError: Error?
     private(set) var durability: PipelineHistoryDurability
     private(set) var referenceTrust: PipelineHistoryReferenceTrust
+    /// True for stores made in memory on purpose (tests), as opposed to a
+    /// durable store that fell back to memory after a load failure.
+    private let usesInMemoryStoreByDesign: Bool
+    /// The clock used to stamp field changes and deletions. Tests replace it.
+    var now: () -> Date = Date.init
 
     private var isDurableStore: Bool {
         durability == .durable
@@ -184,6 +189,7 @@ final class PipelineHistoryStore {
         loadError = nil
         durability = usesInMemoryStore ? .inMemory : .durable
         referenceTrust = .unavailable
+        usesInMemoryStoreByDesign = usesInMemoryStore
 
         if usesInMemoryStore {
             configureInMemoryStore()
@@ -390,10 +396,15 @@ final class PipelineHistoryStore {
         return deletedAssets
     }
 
+    /// `keepsImportedDeletion` is for snapshot imports only: a new row then
+    /// keeps the item's `deletedAt`, so a note archived while in Recently
+    /// Deleted stays there. Every other save leaves `deletedAt` to
+    /// `setDeletedAt`.
     func upsert(
         _ item: PipelineHistoryItem,
         maxCount: Int,
-        requiresDurableStore: Bool = false
+        requiresDurableStore: Bool = false,
+        keepsImportedDeletion: Bool = false
     ) throws -> [DeletedPipelineHistoryAssets] {
         guard availability == .ready, isStoreLoaded else {
             throw PipelineHistoryStoreError.storeUnavailable
@@ -407,9 +418,12 @@ final class PipelineHistoryStore {
             do {
                 let request = pipelineHistoryRequest()
                 request.predicate = NSPredicate(format: "id == %@", item.id as CVarArg)
-                let entity = try container.viewContext.fetch(request).first
-                    ?? PipelineHistoryEntry(context: container.viewContext)
-                Self.apply(item, to: entity)
+                let existing = try container.viewContext.fetch(request).first
+                let entity = existing ?? PipelineHistoryEntry(context: container.viewContext)
+                applyStamping(item, to: entity, isNew: existing == nil)
+                if existing == nil, keepsImportedDeletion {
+                    entity.deletedAt = item.deletedAt
+                }
                 try saveContext()
             } catch {
                 thrownError = error
@@ -446,7 +460,7 @@ final class PipelineHistoryStore {
                 }
                 didChangeAssetReferences = entity.audioFileName != item.audioFileName
                     || entity.transcriptFileName != item.transcriptFileName
-                Self.apply(item, to: entity)
+                applyStamping(item, to: entity, isNew: false)
                 try saveContext()
             } catch {
                 thrownError = error
@@ -456,6 +470,41 @@ final class PipelineHistoryStore {
         if didChangeAssetReferences {
             synchronizeAssetReferenceSnapshot()
         }
+    }
+
+    /// Moves a note into Recently Deleted (`date` set) or back out (`nil`).
+    /// This is the only writer of `deletedAt`.
+    @discardableResult
+    func setDeletedAt(_ date: Date?, id: UUID) throws -> PipelineHistoryItem {
+        guard availability == .ready, isStoreLoaded else {
+            throw PipelineHistoryStoreError.storeUnavailable
+        }
+        guard isDurableStore || usesInMemoryStoreByDesign else {
+            throw PipelineHistoryStoreError.durableStoreUnavailable
+        }
+        var result: PipelineHistoryItem?
+        var thrownError: Error?
+        container.viewContext.performAndWait {
+            do {
+                let request = pipelineHistoryRequest()
+                request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+                guard let entity = try container.viewContext.fetch(request).first else {
+                    throw PipelineHistoryStoreError.historyEntryNotFound
+                }
+                let clock = (Self.decodeClock(entity.fieldClockJSON)
+                    ?? NoteFieldClock.uniform(entity.timestamp ?? .distantPast))
+                    .setting(.deletion, to: now())
+                entity.deletedAt = date
+                entity.fieldClockJSON = Self.encodeClock(clock)
+                try saveContext()
+                result = Self.makeHistoryItem(from: entity)
+            } catch {
+                thrownError = error
+            }
+        }
+        if let thrownError { throw thrownError }
+        guard let result else { throw PipelineHistoryStoreError.historyEntryNotFound }
+        return result
     }
 
     func delete(
@@ -577,13 +626,40 @@ final class PipelineHistoryStore {
             do {
                 let context = container.viewContext
                 let entity = PipelineHistoryEntry(context: context)
-                Self.apply(item, to: entity)
+                applyStamping(item, to: entity, isNew: true)
                 try saveContext()
             } catch {
                 thrownError = error
             }
         }
         if let thrownError { throw thrownError }
+    }
+
+    /// Applies `item` and advances the clock of the field groups it
+    /// changed. `deletedAt` is left alone: only `setDeletedAt` and a
+    /// snapshot import write it.
+    private func applyStamping(
+        _ item: PipelineHistoryItem,
+        to entity: PipelineHistoryEntry,
+        isNew: Bool
+    ) {
+        let previous = isNew ? nil : Self.makeHistoryItem(from: entity)
+        let clock = NoteFieldClock.stamped(
+            previous: previous,
+            current: item,
+            existing: isNew ? nil : Self.decodeClock(entity.fieldClockJSON),
+            now: now()
+        )
+        Self.apply(item, to: entity)
+        entity.fieldClockJSON = Self.encodeClock(clock)
+    }
+
+    private static func decodeClock(_ data: Data?) -> NoteFieldClock? {
+        data.flatMap { try? JSONDecoder().decode(NoteFieldClock.self, from: $0) }
+    }
+
+    private static func encodeClock(_ clock: NoteFieldClock) -> Data? {
+        try? JSONEncoder().encode(clock)
     }
 
     private static func apply(
@@ -959,7 +1035,10 @@ final class PipelineHistoryStore {
             contextBundleIdentifier: entity.contextBundleIdentifier,
             contextWindowTitle: entity.contextWindowTitle,
             customTitle: entity.customTitle,
-            meetingSummaryJSON: entity.meetingSummaryJSON
+            meetingSummaryJSON: entity.meetingSummaryJSON,
+            deletedAt: entity.deletedAt,
+            fieldClock: decodeClock(entity.fieldClockJSON)
+                ?? NoteFieldClock.uniform(entity.timestamp ?? .distantPast)
         )
     }
 
@@ -1007,7 +1086,9 @@ final class PipelineHistoryStore {
             makeAttribute(name: "contextBundleIdentifier", type: .stringAttributeType, isOptional: true),
             makeAttribute(name: "contextWindowTitle", type: .stringAttributeType, isOptional: true),
             makeAttribute(name: "customTitle", type: .stringAttributeType, isOptional: true),
-            makeAttribute(name: "meetingSummaryJSON", type: .binaryDataAttributeType, isOptional: true)
+            makeAttribute(name: "meetingSummaryJSON", type: .binaryDataAttributeType, isOptional: true),
+            makeAttribute(name: "deletedAt", type: .dateAttributeType, isOptional: true),
+            makeAttribute(name: "fieldClockJSON", type: .binaryDataAttributeType, isOptional: true)
         ]
 
         model.entities = [entity]
@@ -1026,6 +1107,57 @@ final class PipelineHistoryStore {
         attribute.isOptional = isOptional
         attribute.defaultValue = defaultValue
         return attribute
+    }
+
+    func clearFieldClockForTesting(id: UUID) {
+        container.viewContext.performAndWait {
+            let request = pipelineHistoryRequest()
+            request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+            if let entity = try? container.viewContext.fetch(request).first {
+                entity.fieldClockJSON = nil
+                try? container.viewContext.save()
+            }
+        }
+    }
+
+    /// Writes a store with the model as it was before `deletedAt` and
+    /// `fieldClockJSON`, holding one synthetic row.
+    static func writeLegacyStoreForTesting(at url: URL, id: UUID, timestamp: Date) throws {
+        let model = makeModel()
+        let entity = model.entities[0]
+        // A plain NSManagedObject, so this second model never claims the
+        // PipelineHistoryEntry class that the shared model owns.
+        entity.managedObjectClassName = NSStringFromClass(NSManagedObject.self)
+        entity.properties = entity.properties.filter {
+            $0.name != "deletedAt" && $0.name != "fieldClockJSON"
+        }
+        let container = NSPersistentContainer(name: "PipelineHistory", managedObjectModel: model)
+        let description = NSPersistentStoreDescription(url: url)
+        description.shouldAddStoreAsynchronously = false
+        container.persistentStoreDescriptions = [description]
+        var loadError: Error?
+        container.loadPersistentStores { _, error in loadError = error }
+        if let loadError { throw loadError }
+        let row = NSEntityDescription.insertNewObject(
+            forEntityName: "PipelineHistoryEntry",
+            into: container.viewContext
+        )
+        row.setValue(id, forKey: "id")
+        row.setValue(timestamp, forKey: "timestamp")
+        row.setValue("synthetic raw", forKey: "rawTranscript")
+        row.setValue("", forKey: "postProcessedTranscript")
+        row.setValue("", forKey: "contextSummary")
+        row.setValue("No screenshot", forKey: "contextScreenshotStatus")
+        row.setValue("succeeded", forKey: "postProcessingStatus")
+        row.setValue("", forKey: "debugStatus")
+        row.setValue("", forKey: "customVocabulary")
+        for flag in ["usedLocalTranscription", "usedContextCapture", "usedPostProcessing"] {
+            row.setValue(false, forKey: flag)
+        }
+        try container.viewContext.save()
+        for store in container.persistentStoreCoordinator.persistentStores {
+            try container.persistentStoreCoordinator.remove(store)
+        }
     }
 }
 
@@ -1068,4 +1200,6 @@ final class PipelineHistoryEntry: NSManagedObject {
     @NSManaged var contextWindowTitle: String?
     @NSManaged var customTitle: String?
     @NSManaged var meetingSummaryJSON: Data?
+    @NSManaged var deletedAt: Date?
+    @NSManaged var fieldClockJSON: Data?
 }

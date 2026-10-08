@@ -188,6 +188,11 @@ struct PipelineHistoryItem: Identifiable, Codable {
     let contextWindowTitle: String?
     let customTitle: String?
     let meetingSummaryJSON: Data?
+    /// Set while the note is in Recently Deleted. Written only by
+    /// `PipelineHistoryStore.setDeletedAt(_:id:)`.
+    private(set) var deletedAt: Date?
+    /// When each field group last changed. Maintained by the store.
+    private(set) var fieldClock: NoteFieldClock?
 
     init(
         intent: PipelineHistoryItemIntent = .dictation,
@@ -226,7 +231,9 @@ struct PipelineHistoryItem: Identifiable, Codable {
         contextBundleIdentifier: String? = nil,
         contextWindowTitle: String? = nil,
         customTitle: String? = nil,
-        meetingSummaryJSON: Data? = nil
+        meetingSummaryJSON: Data? = nil,
+        deletedAt: Date? = nil,
+        fieldClock: NoteFieldClock? = nil
     ) {
         self.intent = intent
         self.selectedText = selectedText
@@ -265,6 +272,8 @@ struct PipelineHistoryItem: Identifiable, Codable {
         self.contextWindowTitle = contextWindowTitle
         self.customTitle = customTitle
         self.meetingSummaryJSON = meetingSummaryJSON
+        self.deletedAt = deletedAt
+        self.fieldClock = fieldClock
     }
 
     static func transcriptionRecoveryPlaceholder(
@@ -453,7 +462,9 @@ struct PipelineHistoryItem: Identifiable, Codable {
             contextBundleIdentifier: contextBundleIdentifier,
             contextWindowTitle: contextWindowTitle,
             customTitle: customTitle,
-            meetingSummaryJSON: meetingSummaryJSON
+            meetingSummaryJSON: meetingSummaryJSON,
+            deletedAt: deletedAt,
+            fieldClock: fieldClock
         )
     }
 
@@ -497,7 +508,9 @@ struct PipelineHistoryItem: Identifiable, Codable {
             contextBundleIdentifier: contextBundleIdentifier,
             contextWindowTitle: contextWindowTitle,
             customTitle: customTitle,
-            meetingSummaryJSON: meetingSummaryJSON
+            meetingSummaryJSON: meetingSummaryJSON,
+            deletedAt: deletedAt,
+            fieldClock: fieldClock
         )
     }
 
@@ -539,7 +552,9 @@ struct PipelineHistoryItem: Identifiable, Codable {
             contextBundleIdentifier: contextBundleIdentifier,
             contextWindowTitle: contextWindowTitle,
             customTitle: customTitle,
-            meetingSummaryJSON: meetingSummaryJSON
+            meetingSummaryJSON: meetingSummaryJSON,
+            deletedAt: deletedAt,
+            fieldClock: fieldClock
         )
     }
 
@@ -547,16 +562,25 @@ struct PipelineHistoryItem: Identifiable, Codable {
         guard id == other.id else { return false }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
+        // Deletion and the field clock are bookkeeping, not note content.
         let normalized = replacingAssetFileNames(audioFileName: nil, transcriptFileName: nil)
+            .withoutSyncBookkeeping()
         let otherNormalized = other.replacingAssetFileNames(
             audioFileName: nil,
             transcriptFileName: nil
-        )
+        ).withoutSyncBookkeeping()
         guard let normalizedData = try? encoder.encode(normalized),
               let otherData = try? encoder.encode(otherNormalized) else {
             return false
         }
         return normalizedData == otherData
+    }
+
+    private func withoutSyncBookkeeping() -> PipelineHistoryItem {
+        var copy = self
+        copy.deletedAt = nil
+        copy.fieldClock = nil
+        return copy
     }
 
     func normalizedAfterProcessInterruption() -> PipelineHistoryItem {
@@ -610,7 +634,9 @@ struct PipelineHistoryItem: Identifiable, Codable {
             contextBundleIdentifier: contextBundleIdentifier,
             contextWindowTitle: contextWindowTitle,
             customTitle: customTitle,
-            meetingSummaryJSON: meetingSummaryJSON
+            meetingSummaryJSON: meetingSummaryJSON,
+            deletedAt: deletedAt,
+            fieldClock: fieldClock
         )
     }
 }

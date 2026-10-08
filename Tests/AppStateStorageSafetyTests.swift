@@ -11,6 +11,12 @@ struct AppStateStorageSafetyTests {
         try await verifiesCancellableNoteDeletionGuards()
         try await verifiesCancellableBulkNoteDeletion()
         try await verifiesPendingDeletionMeetsLaterChanges()
+        try await verifiesDeletedNoteMovesToRecentlyDeletedAndRestores()
+        try await verifiesDeleteNowRemovesFiles()
+        try await verifiesExpiredNotesArePurged()
+        try await verifiesRecentlyDeletedFilesSurviveStartupSweep()
+        try await verifiesDeleteNowDuringCancelWindowEndsIt()
+        try await verifiesRestoreDuringCancelWindowEndsIt()
         try verifiesWarningBannerStateKeepsOnlyListedNotes()
         try await verifiesStartupPrunesWarningBannerStateOfMissingNotes()
         try await verifiesDeleteHistoryEntriesSkipsBusyNotesAndKeepsFailures()
@@ -252,6 +258,139 @@ struct AppStateStorageSafetyTests {
 
     /// #409: a deleted note leaves the list at once, keeps its files for the
     /// Cancel window, and loses them when the window ends or the app quits.
+    private static func makeNoteWithAudio(
+        _ environment: AppStateTestEnvironment,
+        timestamp: Date
+    ) throws -> (PipelineHistoryItem, URL) {
+        let assetStore = NoteAssetStore(storageLayout: environment.storageLayout)
+        let sourceURL = environment.rootDirectory
+            .appendingPathComponent("\(UUID().uuidString).wav")
+        try Data("synthetic audio".utf8).write(to: sourceURL)
+        let audio = try assetStore.saveAudio(from: sourceURL)
+        return (
+            makeHistoryItem(audioFileName: audio.fileName, transcriptFileName: nil, timestamp: timestamp),
+            audio.fileURL
+        )
+    }
+
+    private static func verifiesDeletedNoteMovesToRecentlyDeletedAndRestores() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let (item, audioURL) = try makeNoteWithAudio(environment, timestamp: Date(timeIntervalSince1970: 2_000))
+            let historyStore = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            _ = try historyStore.append(item, maxCount: Int.max)
+            let appState = await MainActor.run { AppState(dependencies: environment.dependencies) }
+            let scheduler = ManualNoteDeletionScheduler()
+            await MainActor.run {
+                appState.scheduleNoteDeletionFinalization = { delay, work in scheduler.items.append((delay, work)) }
+                appState.deleteHistoryEntryCancellably(id: item.id)
+                appState.finalizePendingNoteDeletion()
+            }
+            let afterDelete = await MainActor.run { (appState.pipelineHistory.map(\.id), appState.recentlyDeletedNotes.map(\.id)) }
+            try expect(afterDelete.0.isEmpty && afterDelete.1 == [item.id], "a deleted note moves to Recently Deleted")
+            try expect(FileManager.default.fileExists(atPath: audioURL.path), "its audio stays")
+            await MainActor.run { appState.restoreRecentlyDeletedNote(id: item.id) }
+            let afterRestore = await MainActor.run { (appState.pipelineHistory.map(\.id), appState.recentlyDeletedNotes.isEmpty) }
+            try expect(afterRestore.0 == [item.id] && afterRestore.1, "restore puts it back in the list")
+            let reopened = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            try expect(reopened.loadAllHistory().first { $0.id == item.id }?.deletedAt == nil, "restore is saved")
+        }
+    }
+
+    private static func verifiesDeleteNowRemovesFiles() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let (item, audioURL) = try makeNoteWithAudio(environment, timestamp: Date(timeIntervalSince1970: 2_000))
+            let historyStore = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            _ = try historyStore.append(item, maxCount: Int.max)
+            try historyStore.setDeletedAt(Date(), id: item.id)
+            let appState = await MainActor.run { AppState(dependencies: environment.dependencies) }
+            let listed = await MainActor.run { appState.recentlyDeletedNotes.map(\.id) }
+            try expect(listed == [item.id], "a deleted row loads into Recently Deleted")
+            await MainActor.run { appState.deleteRecentlyDeletedNoteNow(id: item.id) }
+            let left = await MainActor.run { appState.recentlyDeletedNotes.isEmpty }
+            try expect(left, "Delete Now removes it from the list")
+            try expect(!FileManager.default.fileExists(atPath: audioURL.path), "Delete Now removes its audio")
+            let reopened = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            try expect(!reopened.loadAllHistory().contains { $0.id == item.id }, "Delete Now removes the row")
+        }
+    }
+
+    private static func verifiesExpiredNotesArePurged() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let deletedAt = Date(timeIntervalSince1970: 1_800_000_000)
+            let (expired, expiredURL) = try makeNoteWithAudio(environment, timestamp: Date(timeIntervalSince1970: 1_000))
+            let (fresh, freshURL) = try makeNoteWithAudio(environment, timestamp: Date(timeIntervalSince1970: 2_000))
+            let historyStore = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            _ = try historyStore.append(expired, maxCount: Int.max)
+            _ = try historyStore.append(fresh, maxCount: Int.max)
+            try historyStore.setDeletedAt(deletedAt, id: expired.id)
+            try historyStore.setDeletedAt(deletedAt.addingTimeInterval(86_400), id: fresh.id)
+            let appState = await MainActor.run { AppState(dependencies: environment.dependencies) }
+            let now = deletedAt.addingTimeInterval(RecentlyDeletedPolicy.retention)
+            await MainActor.run { appState.purgeExpiredRecentlyDeletedNotes(now: now) }
+            let remaining = await MainActor.run { appState.recentlyDeletedNotes.map(\.id) }
+            try expect(remaining == [fresh.id], "only the note past 30 days is purged")
+            try expect(!FileManager.default.fileExists(atPath: expiredURL.path), "its audio goes")
+            try expect(FileManager.default.fileExists(atPath: freshURL.path), "the other stays")
+        }
+    }
+
+    private static func verifiesRecentlyDeletedFilesSurviveStartupSweep() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let (item, audioURL) = try makeNoteWithAudio(environment, timestamp: Date(timeIntervalSince1970: 2_000))
+            let historyStore = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            _ = try historyStore.append(item, maxCount: Int.max)
+            try historyStore.setDeletedAt(Date(), id: item.id)
+            // Two launches: the first writes the reference snapshot, the second sweeps.
+            _ = await MainActor.run { AppState(dependencies: environment.dependencies) }
+            _ = await MainActor.run { AppState(dependencies: environment.dependencies) }
+            try expect(FileManager.default.fileExists(atPath: audioURL.path), "startup sweep keeps a deleted note's audio")
+        }
+    }
+
+    private static func verifiesDeleteNowDuringCancelWindowEndsIt() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let (item, _) = try makeNoteWithAudio(environment, timestamp: Date(timeIntervalSince1970: 2_000))
+            let historyStore = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            _ = try historyStore.append(item, maxCount: Int.max)
+            let appState = await MainActor.run { AppState(dependencies: environment.dependencies) }
+            let scheduler = ManualNoteDeletionScheduler()
+            let result = await MainActor.run { () -> (Bool, String?, [UUID]) in
+                appState.scheduleNoteDeletionFinalization = { delay, work in scheduler.items.append((delay, work)) }
+                appState.deleteHistoryEntryCancellably(id: item.id)
+                appState.deleteRecentlyDeletedNoteNow(id: item.id)
+                appState.cancelPendingNoteDeletion()
+                return (appState.pendingNoteDeletion == nil, appState.errorMessage, appState.pipelineHistory.map(\.id))
+            }
+            try expect(result.0, "Delete Now ends the note's Cancel window")
+            try expect(result.1 == nil, "Cancel afterwards shows no error")
+            try expect(result.2.isEmpty, "Cancel afterwards does not bring the note back")
+        }
+    }
+
+    private static func verifiesRestoreDuringCancelWindowEndsIt() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            try prepareStorageDirectories(for: environment.storageLayout)
+            let (item, _) = try makeNoteWithAudio(environment, timestamp: Date(timeIntervalSince1970: 2_000))
+            let historyStore = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            _ = try historyStore.append(item, maxCount: Int.max)
+            let appState = await MainActor.run { AppState(dependencies: environment.dependencies) }
+            let scheduler = ManualNoteDeletionScheduler()
+            let result = await MainActor.run { () -> (Bool, [UUID]) in
+                appState.scheduleNoteDeletionFinalization = { delay, work in scheduler.items.append((delay, work)) }
+                appState.deleteHistoryEntryCancellably(id: item.id)
+                appState.restoreRecentlyDeletedNote(id: item.id)
+                return (appState.pendingNoteDeletion == nil, appState.pipelineHistory.map(\.id))
+            }
+            try expect(result.0, "restoring from Settings ends the note's Cancel window")
+            try expect(result.1 == [item.id], "the restored note is listed once")
+        }
+    }
+
     private static func verifiesCancellableNoteDeletion() async throws {
         enum Ending { case cancel, expire, quit, nextDeletion }
         for ending in [Ending.cancel, .expire, .quit, .nextDeletion] {
@@ -349,6 +488,8 @@ struct AppStateStorageSafetyTests {
                     try expect(restored.1?.customTitle == "Synthetic Title", "Cancel keeps the title")
                     try expect(restored.1?.meetingSummaryJSON == summaryJSON, "Cancel keeps the summary")
                     try expect(restored.2, "Cancel ends the pending deletion")
+                    let deletedList = await MainActor.run { appState.recentlyDeletedNotes.isEmpty }
+                    try expect(deletedList, "Cancel takes the note out of Recently Deleted")
                     let stored = PipelineHistoryStore(
                         storeURL: environment.storageLayout.historyStoreURL
                     ).loadAllHistory()
@@ -377,16 +518,18 @@ struct AppStateStorageSafetyTests {
                         appState.pendingNoteDeletion?.entries.contains { $0.item.id == item.id } == true
                     )
                 }
-                try expect(!finished.0 && !finished.1, "the deletion is final")
+                try expect(!finished.0 && !finished.1, "the Cancel window is over")
+                let waiting = await MainActor.run { appState.recentlyDeletedNotes.map(\.id) }
+                try expect(waiting.contains(item.id), "the note waits in Recently Deleted")
                 try expect(
-                    !FileManager.default.fileExists(atPath: audio.fileURL.path)
-                        && !FileManager.default.fileExists(atPath: transcriptURL.path),
-                    "ending the Cancel window removes the audio and transcript"
+                    FileManager.default.fileExists(atPath: audio.fileURL.path)
+                        && FileManager.default.fileExists(atPath: transcriptURL.path),
+                    "Recently Deleted keeps the audio and transcript"
                 )
                 let stored = PipelineHistoryStore(
                     storeURL: environment.storageLayout.historyStoreURL
                 ).loadAllHistory()
-                try expect(!stored.contains { $0.id == item.id }, "the stored row is gone")
+                try expect(stored.first { $0.id == item.id }?.deletedAt != nil, "the stored row is marked deleted")
             }
         }
     }
@@ -569,13 +712,18 @@ struct AppStateStorageSafetyTests {
                     )
                 }
                 try expect(
-                    batch.allSatisfy { !FileManager.default.fileExists(atPath: audioURLs[$0]!.path) },
-                    "ending the batch window removes every note's audio"
+                    batch.allSatisfy { FileManager.default.fileExists(atPath: audioURLs[$0]!.path) },
+                    "Recently Deleted keeps every note's audio"
                 )
+                let waiting = await MainActor.run { Set(appState.recentlyDeletedNotes.map(\.id)) }
+                try expect(Set(batch).isSubset(of: waiting), "the batch waits in Recently Deleted")
                 let stored = PipelineHistoryStore(
                     storeURL: environment.storageLayout.historyStoreURL
                 ).loadAllHistory()
-                try expect(!stored.contains { batch.contains($0.id) }, "the batch rows are gone")
+                try expect(
+                    stored.filter { batch.contains($0.id) }.allSatisfy { $0.deletedAt != nil },
+                    "the batch rows are marked deleted"
+                )
             }
         }
     }
@@ -645,9 +793,12 @@ struct AppStateStorageSafetyTests {
             try expect(finished.0, "an immediate delete dismisses the earlier Cancel window")
             try expect(finished.1 == [newest.id, items[1].id], "both deletions are final")
             try expect(
-                !FileManager.default.fileExists(atPath: audioURLs[items[2].id]!.path)
-                    && !FileManager.default.fileExists(atPath: audioURLs[items[0].id]!.path),
-                "the earlier pending note's audio is removed with the immediate delete"
+                FileManager.default.fileExists(atPath: audioURLs[items[2].id]!.path),
+                "the earlier pending note keeps its audio in Recently Deleted"
+            )
+            try expect(
+                !FileManager.default.fileExists(atPath: audioURLs[items[0].id]!.path),
+                "the immediate delete removes its own audio"
             )
         }
     }

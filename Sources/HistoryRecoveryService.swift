@@ -403,7 +403,8 @@ final class HistoryRecoveryService {
                 _ = try activeStore.upsert(
                     importedItem,
                     maxCount: Int.max,
-                    requiresDurableStore: true
+                    requiresDurableStore: true,
+                    keepsImportedDeletion: true
                 )
                 activeItems[importedItem.id] = importedItem
                 updateRecord(

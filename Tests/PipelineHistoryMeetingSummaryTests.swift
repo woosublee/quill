@@ -4,6 +4,7 @@ import Foundation
 struct PipelineHistoryMeetingSummaryTests {
     static func main() throws {
         try testLegacyItemDecodesMissingSummaryAsNil()
+        try testLegacyItemDecodesWithoutDeletionOrClock()
         try testSummaryRoundTripsThroughCodable()
         try testSummaryPersistsEvidenceBearingV2()
         try testUnverifiedSummaryRoundTripsThroughCoreDataStore()
@@ -31,6 +32,17 @@ struct PipelineHistoryMeetingSummaryTests {
 
         precondition(decoded.meetingSummaryJSON == nil)
         precondition(decoded.meetingSummary == nil)
+    }
+
+    private static func testLegacyItemDecodesWithoutDeletionOrClock() throws {
+        let data = try JSONEncoder().encode(makeItem())
+        var object = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        object.removeValue(forKey: "deletedAt")
+        object.removeValue(forKey: "fieldClock")
+        let legacy = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try JSONDecoder().decode(PipelineHistoryItem.self, from: legacy)
+        precondition(decoded.deletedAt == nil)
+        precondition(decoded.fieldClock == nil)
     }
 
     private static func testSummaryRoundTripsThroughCodable() throws {

@@ -164,6 +164,114 @@ struct AppStateHistoryProtectionSourceTests {
             "delayed orphan cleanup uses the startup reference snapshot time"
         )
 
+        // Recently Deleted rows are part of the stored history: recovery
+        // compares against them and a cancelled job never removes audio they
+        // still use. Exercising either needs a recovery snapshot import or a
+        // cancelled live transcription, so these stay source checks.
+        try expect(
+            !source.contains("activeHistory: pipelineHistory")
+                && source.contains("activeHistory: storedHistory"),
+            "history recovery compares against live and Recently Deleted notes"
+        )
+        let cancelRange = try source.range(
+            from: "let cancelledStatus = localizedCatalogString(\"Cancelled\")",
+            to: "finishTranscriptionJob(job.id)"
+        )
+        try expect(
+            String(source[cancelRange]).contains("storedHistory.contains(where: {"),
+            "a cancelled job keeps audio a Recently Deleted note uses"
+        )
+        // The purge runs from a timer and when Settings opens; it waits
+        // silently instead of raising the busy-history error banner.
+        let purgeRange = try source.range(
+            from: "func purgeExpiredRecentlyDeletedNotes(",
+            to: "\n    }\n"
+        )
+        let purge = String(source[purgeRange])
+        try expect(
+            purge.contains("HistoryWorkflowAdmission.mutation(")
+                && !purge.contains("deleteRecentlyDeletedNoteNow(id:"),
+            "the purge checks history admission silently and deletes in one batch"
+        )
+
+        // In-memory copies of a stored note keep its deletion and field
+        // clock, so a copy of a Recently Deleted note never shows as live.
+        // These copies are built inside long AppState and recovery flows.
+        let recovery = try String(contentsOfFile: "Sources/RecordingRecoveryHistory.swift", encoding: .utf8)
+        let unrecoveredCopy = try recovery.range(
+            from: "func replacingUnrecoveredStatus(",
+            to: "\n    }\n"
+        )
+        try expect(
+            recovery[unrecoveredCopy].contains("deletedAt: deletedAt")
+                && recovery[unrecoveredCopy].contains("fieldClock: fieldClock"),
+            "replacingUnrecoveredStatus keeps deletion and clock"
+        )
+        let liveCopy = try source.range(
+            from: "private func updateLiveNoteTranscript(",
+            to: "\n    }\n"
+        )
+        try expect(
+            source[liveCopy].contains("deletedAt: existing.deletedAt")
+                && source[liveCopy].contains("fieldClock: existing.fieldClock"),
+            "live transcript updates keep deletion and clock"
+        )
+
+        // Recently Deleted follow-ups that need a live Settings window, a
+        // failing store, or a run loop to exercise behaviorally.
+        let recoveryView = try String(contentsOfFile: "Sources/HistoryRecoveryView.swift", encoding: .utf8)
+        try expect(
+            recoveryView.contains("appState.$recentlyDeletedNotes.dropFirst()"),
+            "recovery inspection refreshes when Recently Deleted changes"
+        )
+        let invalidate = try source.range(
+            from: "func invalidateHistoryRecoveryInspectionResults() {",
+            to: "\n    }\n"
+        )
+        try expect(
+            source[invalidate].contains("guard !historyRecoverySnapshots.isEmpty else { return }"),
+            "no inspection work without snapshots"
+        )
+        let removal = try source.range(
+            from: "private func removeRecentlyDeletedNotes(",
+            to: "\n    }\n\n"
+        )
+        try expect(
+            source[removal].contains("meetingSummaryWorkflow.forget(noteID: id)")
+                && source[removal].contains("forgetWarningBannerState(for: id)")
+                && source[removal].contains("guard reportsErrors"),
+            "removal tears down note state and stays silent for the purge"
+        )
+        try expect(
+            source.contains("removeRecentlyDeletedNotes(ids: expiredIDs, reportsErrors: false)")
+                && source.contains("RunLoop.main.add(timer, forMode: .common)")
+                && source.contains("func stopRecentlyDeletedPurgeSchedule()"),
+            "the hourly purge is silent, runs in common modes, and stops at quit"
+        )
+        let section = try String(contentsOfFile: "Sources/RecentlyDeletedNotesSection.swift", encoding: .utf8)
+        try expect(
+            section.contains("visibleRestoredNotes"),
+            "a note deleted again leaves the Restored rows"
+        )
+        try expect(
+            section.contains("appState.pipelineHistory.contains { $0.id == note.id }"),
+            "Restored rows show only notes that are live"
+        )
+        let browser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+        let openRequest = try browser.range(
+            from: "private func openRequestedNote() {",
+            to: "\n    }\n"
+        )
+        try expect(
+            browser[openRequest].contains("clearSearchForOpenRequest()"),
+            "Open Note clears a search that would hide the note"
+        )
+        let delegate = try String(contentsOfFile: "Sources/AppDelegate.swift", encoding: .utf8)
+        try expect(
+            delegate.contains("appState.stopRecentlyDeletedPurgeSchedule()"),
+            "quitting stops the purge timer"
+        )
+
         print("AppStateHistoryProtectionSourceTests passed")
     }
 

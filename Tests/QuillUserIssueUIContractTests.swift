@@ -399,15 +399,12 @@ struct QuillUserIssueUIContractTests {
                 && !settings.contains("HistoryArchiveNoticeView"),
             "Note Browser and Run Log leave archive management to Settings Recovery"
         )
+        // Recovery also holds Recently Deleted Notes, so it is always listed;
+        // archived histories show inside it only when a snapshot exists.
         try expect(
-            settings.contains("HistoryRecoverySettingsView()")
-                && settings.contains("tab != .recovery || !appState.historyRecoverySnapshots.isEmpty"),
-            "Settings exposes Recovery only when a snapshot exists"
-        )
-        try expect(
-            settings.contains("case .recovery where !appState.historyRecoverySnapshots.isEmpty:")
-                && settings.contains("case .recovery:\n                    GeneralSettingsView()"),
-            "Settings falls back to General when an asynchronous snapshot deletion hides Recovery"
+            settings.contains("case .recovery:\n                    HistoryRecoverySettingsView()")
+                && !settings.contains("tab != .recovery ||"),
+            "Settings always exposes Recovery"
         )
         try expect(
             menuBar.contains("Button(\"Recovery…\")")

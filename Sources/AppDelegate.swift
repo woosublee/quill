@@ -79,6 +79,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             name: .showSettings,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleShowNoteBrowser),
+            name: .showNoteBrowser,
+            object: nil
+        )
 
         // noteBrowserEnabled 변경 시 독 아이콘 상태 갱신
         NotificationCenter.default.addObserver(
@@ -90,6 +96,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         appState.startLocalAIIdleShutdownMonitoring()
+        appState.startRecentlyDeletedPurgeSchedule()
 
         if !appState.hasCompletedSetup {
             showSetupWindow()
@@ -108,6 +115,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // Quitting ends the Cancel window of a just-deleted note.
         appState.finalizePendingNoteDeletion()
+        appState.stopRecentlyDeletedPurgeSchedule()
         // Pieces of a deleted unrecovered recording are removed in the
         // background; let that finish so the note does not come back.
         appState.waitForPendingRecordingPieceRemovals(timeout: 2)
@@ -180,6 +188,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func handleShowSettings() {
         showSettingsWindow()
+    }
+
+    @objc private func handleShowNoteBrowser() {
+        showNoteBrowserWindow()
     }
 
 

@@ -14,6 +14,7 @@ struct SettingsLocalizationTests {
         try testCalendarReminderLeadTimeUsesLocalizedCopy()
         try testCalendarConnectionsCopyLocalizes()
         try testImportCalendarCopyLocalizes()
+        try testRecentlyDeletedCopyLocalizes()
         try testCalendarSettingsUsesSourceRowsAndSheet()
         try testRecordingOverlaySettingsCopyLocalizes()
         try testModelFirstSettingsCopyLocalizes()
@@ -268,6 +269,41 @@ struct SettingsLocalizationTests {
         let calendarSettings = settings.components(separatedBy: "struct CalendarSettingsView: View")[1]
             .components(separatedBy: "private struct CalendarSelectionSheet")[0]
         assert(calendarSettings.components(separatedBy: "Image(systemName: \"arrow.clockwise\")").count - 1 == 2, "each source row has a refresh button")
+    }
+
+    private static func testRecentlyDeletedCopyLocalizes() throws {
+        let bundle = try compiledLocalizationBundle()
+        let expected: [String: String] = [
+            "Recently Deleted Notes": "최근 삭제된 노트",
+            "Deleted notes stay here for 30 days, then they're removed for good.": "지운 노트는 30일 동안 여기 남아요. 그 뒤에는 완전히 지워져요.",
+            "No recently deleted notes": "최근 삭제된 노트가 없어요",
+            "Restore": "복구",
+            "Delete Now": "지금 삭제",
+            "Restored": "복구했어요",
+            "Open Note": "노트 열기",
+            "%lld days left": "%lld일 남음",
+            "1 day left": "1일 남음",
+            "Delete this note now?": "이 노트를 바로 삭제할까요?",
+            "Its audio and transcript are removed too. This can't be undone.": "오디오와 전사문도 함께 지워져요. 되돌릴 수 없어요."
+        ]
+        for (key, ko) in expected {
+            assert(localizedCatalogString(key, language: "en", bundle: bundle) == key, "Missing en for \(key)")
+            assert(localizedCatalogString(key, language: "ko", bundle: bundle) == ko, "Unexpected ko for \(key)")
+        }
+        let recovery = try String(contentsOfFile: "Sources/HistoryRecoveryView.swift", encoding: .utf8)
+        assert(recovery.contains("RecentlyDeletedNotesSection()"))
+        let settings = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
+        assert(!settings.contains("tab != .recovery ||"), "Recovery is always listed, so Recently Deleted is reachable")
+        assert(!settings.contains("case .recovery where"), "Recovery always shows its own page")
+        assert(!recovery.contains("Text(\"No Recovery Snapshots\")"), "no empty snapshot block above the deleted notes")
+        let section = try String(contentsOfFile: "Sources/RecentlyDeletedNotesSection.swift", encoding: .utf8)
+        assert(section.contains("appState.restoreRecentlyDeletedNote(id:"))
+        assert(section.contains("appState.deleteRecentlyDeletedNoteNow(id:"))
+        assert(section.contains("appState.purgeExpiredRecentlyDeletedNotes()"))
+        assert(section.contains("days == 1"), "one day left uses the singular string")
+        assert(!section.contains("restoredIDs.values"), "restored rows keep their order")
+        let browser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+        assert(browser.contains("appState.noteBrowserOpenRequest"))
     }
 
     private static func testImportCalendarCopyLocalizes() throws {
