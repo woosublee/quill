@@ -2418,6 +2418,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var isDebugOverlayActive = false
     @Published var selectedSettingsTab: SettingsTab? = .general
     @Published var pipelineHistory: [PipelineHistoryItem] = []
+    /// Notes in Recently Deleted, newest deletion first. Their rows and files
+    /// stay until Delete Now or 30 days pass.
+    @Published private(set) var recentlyDeletedNotes: [PipelineHistoryItem] = []
     /// A note deleted from the Note Browser whose files are kept until the
     /// Cancel window ends. See `deleteHistoryEntryCancellably(id:)`.
     @Published private(set) var pendingNoteDeletion: PendingNoteDeletion?
@@ -3500,7 +3503,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             .string(forKey: localAITranscriptionModelStorageKey)
         self.soundVolume = soundVolume
         self.voiceMacros = initialMacros
-        self.pipelineHistory = savedHistory
+        let loadedHistory = RecentlyDeletedPolicy.partition(savedHistory)
+        self.pipelineHistory = loadedHistory.live
+        self.recentlyDeletedNotes = loadedHistory.deleted
         self.isHistoryUnavailable = historyStartup.state.isHistoryUnavailable
         self.historyArchiveSafety = historyStartup.state.archiveSafety
         self.historyRecoverySnapshots = historyStartup.state.snapshots
@@ -5289,6 +5294,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             recordingJournalStore = runtime.recordingJournalStore
             cloudTranscriptionJobStore = runtime.cloudTranscriptionJobStore
             pipelineHistory = []
+            recentlyDeletedNotes = []
             retryingItemIDs = []
             pendingAudioImportJobIDs = []
             cloudTranscriptionProgressByHistoryID = [:]
@@ -5296,7 +5302,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             forgetAllWarningBannerState()
         case .recovered(let historyStore, let history):
             pipelineHistoryStore = historyStore
-            pipelineHistory = history
+            applyLoadedHistory(history)
             // Restored notes can still say cloud-transcribing with no work
             // running for them; show those as stopped, as launch does (#432).
             markStoppedCloudTranscriptions(among: Set(
@@ -6422,10 +6428,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         item.markInterruptedBeforeCompletion()
                     )
                 }
-                pipelineHistory = Self.markInterruptedRecoveryPlaceholders(
+                applyLoadedHistory(Self.markInterruptedRecoveryPlaceholders(
                     in: pipelineHistoryStore.loadAllHistory(),
                     store: pipelineHistoryStore
-                )
+                ))
                 let context = RecoveredRecordingContext(
                     mode: recovered.mode,
                     interruptionReason: recovered.interruptionReason
@@ -7235,6 +7241,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             )
             pipelineHistory = []
+            recentlyDeletedNotes = []
             for removedAssets in removedStoredFiles {
                 cleanupDeletedPipelineHistoryAssets(
                     removedAssets,
@@ -7279,17 +7286,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    /// Removes notes from the list and the history store, but leaves their
-    /// audio, transcript, and cloud job files on disk for a short window so
-    /// the Note Browser can offer Cancel. The files are removed by
-    /// `finalizePendingNoteDeletion()` when the window ends, when more notes
-    /// are deleted the same way, or when the app quits. The notes' in-memory
-    /// state (retry, cloud session, summary workflow, banners) is also torn
-    /// down then. After a crash the rows are already gone, so the next
-    /// launch's orphan sweep removes the files, and its banner prune drops the
-    /// notes' saved retry and dismissal state. Notes that are still
-    /// recording or processing are skipped: their running work would outlive
-    /// the note, so they use `deleteHistoryEntry(id:)` instead.
+    /// Moves notes from the list to Recently Deleted. Their rows and files
+    /// stay for 30 days (until Delete Now or the purge), and for a short
+    /// window the Note Browser offers Cancel. When that window ends, when
+    /// more notes are deleted the same way, or when the app quits,
+    /// `finalizePendingNoteDeletion()` tears down the notes' in-memory state
+    /// (retry, cloud session, summary workflow, banners). Notes that are
+    /// still recording or processing are skipped: their running work would
+    /// outlive the note, so they use `deleteHistoryEntry(id:)` instead.
     @MainActor
     @discardableResult
     func deleteHistoryEntriesCancellably(ids: [UUID]) -> NoteBulkDeletionResult {
@@ -7302,14 +7306,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 result.skippedIDs.append(id)
                 continue
             }
-            guard let removed = removeHistoryEntryRecord(id: id, defersTeardown: true) else {
+            guard let removedItem = moveHistoryEntryToRecentlyDeleted(id: id) else {
                 result.failedIDs.append(id)
                 continue
             }
-            entries.append(PendingNoteDeletion.Entry(
-                item: removed.item,
-                assets: removed.assets
-            ))
+            // No assets: the files stay with the note in Recently Deleted.
+            entries.append(PendingNoteDeletion.Entry(item: removedItem, assets: nil))
             result.deletedIDs.append(id)
         }
         guard !entries.isEmpty else { return result }
@@ -7386,19 +7388,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
             // or list it twice.
             guard !pipelineHistory.contains(where: { $0.id == entry.item.id }) else { continue }
             do {
-                // No trimming: the restored note must stay in the store while
-                // it is listed.
-                _ = try pipelineHistoryStore.upsert(
-                    entry.item,
-                    maxCount: Int.max,
-                    requiresDurableStore: true
-                )
+                let restored = try pipelineHistoryStore.setDeletedAt(nil, id: entry.item.id)
+                recentlyDeletedNotes.removeAll { $0.id == entry.item.id }
                 // The list is newest first, like the store; place the note by
                 // its time rather than a position that may have shifted.
                 let index = pipelineHistory.firstIndex {
-                    $0.timestamp < entry.item.timestamp
+                    $0.timestamp < restored.timestamp
                 } ?? pipelineHistory.count
-                pipelineHistory.insert(entry.item, at: index)
+                pipelineHistory.insert(restored, at: index)
             } catch {
                 restoreError = restoreError ?? error
                 unrestored.append(entry)
@@ -7449,32 +7446,47 @@ final class AppState: ObservableObject, @unchecked Sendable {
         })
     }
 
+    /// Moves a settled note to Recently Deleted. Its row and files stay; the
+    /// in-memory teardown waits for `finalizePendingNoteDeletion()`.
     @MainActor
-    /// Removes the row. With `defersTeardown`, the note's in-memory state
-    /// (retry, cloud session, summary workflow, banners) is left for
-    /// `finalizePendingNoteDeletion()`, so Cancel brings it back intact.
+    private func moveHistoryEntryToRecentlyDeleted(id: UUID) -> PipelineHistoryItem? {
+        guard requireAvailableHistoryForMutation(),
+              !recoveringRecordingIDs.contains(id),
+              !isRecordingInProgress(noteID: id),
+              let index = pipelineHistory.firstIndex(where: { $0.id == id }) else { return nil }
+        let item = pipelineHistory[index]
+        do {
+            let deleted = try pipelineHistoryStore.setDeletedAt(Date(), id: id)
+            pipelineHistory.remove(at: index)
+            recentlyDeletedNotes.insert(deleted, at: 0)
+            return item
+        } catch {
+            errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to delete run history entry"), providerDetail: error.localizedDescription)
+            return nil
+        }
+    }
+
+    @MainActor
+    /// Removes the row and tears down the note's in-memory state (retry,
+    /// cloud session, summary workflow, banners).
     private func removeHistoryEntryRecord(
-        id: UUID,
-        defersTeardown: Bool = false
+        id: UUID
     ) -> (item: PipelineHistoryItem, assets: DeletedPipelineHistoryAssets?)? {
         guard requireAvailableHistoryForMutation(),
               !recoveringRecordingIDs.contains(id),
               !isRecordingInProgress(noteID: id),
               let index = pipelineHistory.firstIndex(where: { $0.id == id }) else { return nil }
         let item = pipelineHistory[index]
-        if !defersTeardown {
-            transcriptionRetryWorkflow.cancel(noteID: id)
-            cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
-                historyID: id,
-                store: cloudTranscriptionJobStore
-            )
-        }
+        transcriptionRetryWorkflow.cancel(noteID: id)
+        cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
+            historyID: id,
+            store: cloudTranscriptionJobStore
+        )
         do {
             let deletedAssets = try pipelineHistoryStore.delete(
                 id: id,
                 requiresDurableStore: true,
                 beforeDeleting: { assets in
-                    guard !defersTeardown else { return }
                     cloudTranscriptionHistoryCoordinator.cancelAndInvalidate(
                         historyID: assets.historyID,
                         store: cloudTranscriptionJobStore
@@ -7482,10 +7494,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             )
             pipelineHistory.remove(at: index)
-            if !defersTeardown {
-                meetingSummaryWorkflow.forget(noteID: id)
-                forgetWarningBannerState(for: id)
-            }
+            meetingSummaryWorkflow.forget(noteID: id)
+            forgetWarningBannerState(for: id)
             return (item, deletedAssets)
         } catch {
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to delete run history entry"), providerDetail: error.localizedDescription)
@@ -12654,7 +12664,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             for removedAssets in removed {
                 cleanupDeletedPipelineHistoryAssets(removedAssets)
             }
-            pipelineHistory = pipelineHistoryStore.loadAllHistory()
+            applyLoadedHistory(pipelineHistoryStore.loadAllHistory())
             return true
         } catch {
             updateTranscriptionJob(jobID) { $0.liveNoteID = nil }
@@ -12889,6 +12899,57 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     /// Imported audio can carry an earlier recording time; keep the list
     /// newest first like the store.
+    /// Shows the live rows in the note list and the deleted ones in Recently
+    /// Deleted. The store keeps both, so asset protection sees every file.
+    @MainActor
+    private func applyLoadedHistory(_ rows: [PipelineHistoryItem]) {
+        let split = RecentlyDeletedPolicy.partition(rows)
+        pipelineHistory = split.live
+        recentlyDeletedNotes = split.deleted
+    }
+
+    @MainActor
+    func restoreRecentlyDeletedNote(id: UUID) {
+        guard requireAvailableHistoryForMutation(),
+              recentlyDeletedNotes.contains(where: { $0.id == id }) else { return }
+        do {
+            let restored = try pipelineHistoryStore.setDeletedAt(nil, id: id)
+            recentlyDeletedNotes.removeAll { $0.id == id }
+            insertPipelineHistoryItemInTimeOrder(restored)
+        } catch {
+            errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to restore the deleted note"), providerDetail: error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    func deleteRecentlyDeletedNoteNow(id: UUID) {
+        guard requireAvailableHistoryForMutation(),
+              recentlyDeletedNotes.contains(where: { $0.id == id }) else { return }
+        do {
+            let assets = try pipelineHistoryStore.delete(id: id, requiresDurableStore: true)
+            recentlyDeletedNotes.removeAll { $0.id == id }
+            if let assets {
+                // Survivors come from the store, so files another row still
+                // uses (live or deleted) are kept.
+                cleanupDeletedPipelineHistoryAssets(assets)
+            }
+        } catch {
+            errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to delete run history entry"), providerDetail: error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    func purgeExpiredRecentlyDeletedNotes(now: Date = Date()) {
+        let expiredIDs = recentlyDeletedNotes.compactMap { note -> UUID? in
+            guard let deletedAt = note.deletedAt,
+                  RecentlyDeletedPolicy.isExpired(deletedAt: deletedAt, now: now) else { return nil }
+            return note.id
+        }
+        for id in expiredIDs {
+            deleteRecentlyDeletedNoteNow(id: id)
+        }
+    }
+
     @MainActor
     private func insertPipelineHistoryItemInTimeOrder(_ item: PipelineHistoryItem) {
         let index = PipelineHistoryOrdering.insertionIndex(
@@ -12935,10 +12996,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     try pipelineHistoryStore.update(normalized)
                 }
             }
-            pipelineHistory = Self.markInterruptedRecoveryPlaceholders(
+            applyLoadedHistory(Self.markInterruptedRecoveryPlaceholders(
                 in: pipelineHistoryStore.loadAllHistory(),
                 store: pipelineHistoryStore
-            )
+            ))
             presentation = (
                 localizedCatalogString(recovered.mode.descriptionLocalizationKey),
                 localizedCatalogString(recovered.mode.titleLocalizationKey)

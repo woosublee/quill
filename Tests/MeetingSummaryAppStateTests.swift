@@ -1580,6 +1580,8 @@ struct MeetingSummaryAppStateTests {
             )
         }
         object.removeValue(forKey: "postProcessedTranscript")
+        // The store advances the edited-transcript stamp of the field clock.
+        object.removeValue(forKey: "fieldClock")
         return try JSONSerialization.data(
             withJSONObject: object,
             options: [.sortedKeys]

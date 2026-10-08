@@ -66,13 +66,13 @@ struct AppStateCloudTranscriptionCleanupSourceTests {
             in: record,
             label: "single delete record removal order"
         )
-        // #409: restoring never trims, so the restored note stays stored while listed.
+        // Cancel takes the note back out of Recently Deleted; it never trims.
         let restore = block(
             source,
             from: "func cancelPendingNoteDeletion() {",
             to: "func finalizePendingNoteDeletion() {"
         )
-        precondition(restore.contains("maxCount: Int.max"))
+        precondition(restore.contains("pipelineHistoryStore.setDeletedAt(nil, id: entry.item.id)"))
         precondition(!restore.contains("maxPipelineHistoryCount"))
         // #409: the Cancel window defers the same cleanup instead of duplicating it.
         let finalize = block(
@@ -92,10 +92,17 @@ struct AppStateCloudTranscriptionCleanupSourceTests {
             in: finalize,
             label: "pending delete teardown and cleanup"
         )
-        // Cancellable deletion leaves in-memory state for finalize.
-        precondition(source.contains("removeHistoryEntryRecord(id: id, defersTeardown: true)"))
-        precondition(record.contains("if !defersTeardown {"))
-        precondition(record.contains("guard !defersTeardown else { return }"))
+        // Cancellable deletion moves the note to Recently Deleted and leaves
+        // its in-memory state for finalize.
+        precondition(source.contains("moveHistoryEntryToRecentlyDeleted(id: id)"))
+        let move = block(
+            source,
+            from: "private func moveHistoryEntryToRecentlyDeleted(",
+            to: "private func removeHistoryEntryRecord("
+        )
+        precondition(move.contains("pipelineHistoryStore.setDeletedAt(Date(), id: id)"))
+        precondition(!move.contains("meetingSummaryWorkflow.forget"))
+        precondition(!move.contains("pipelineHistoryStore.delete("))
     }
 
     private static func verifiesClearUsesCommonCleanup(_ source: String) throws {
