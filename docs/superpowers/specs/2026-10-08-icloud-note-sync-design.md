@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-08
 **Status:** Draft — awaiting review
-**Mockup:** added after review
+**Mockup:** https://claude.ai/artifact/4na7Q5WmB7yP8NGePqbMPH
 
 ## Goal
 
