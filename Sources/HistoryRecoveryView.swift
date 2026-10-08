@@ -84,6 +84,8 @@ struct HistoryRecoverySettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                RecentlyDeletedNotesSection()
+
                 if appState.historyRecoverySnapshots.isEmpty {
                     VStack(spacing: 8) {
                         Image(systemName: "archivebox")

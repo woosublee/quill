@@ -2421,6 +2421,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// Notes in Recently Deleted, newest deletion first. Their rows and files
     /// stay until Delete Now or 30 days pass.
     @Published private(set) var recentlyDeletedNotes: [PipelineHistoryItem] = []
+    /// A note the Note Browser should select and scroll to when it next
+    /// shows. The browser clears it after use.
+    @Published var noteBrowserOpenRequest: UUID?
     /// A note deleted from the Note Browser whose files are kept until the
     /// Cancel window ends. See `deleteHistoryEntryCancellably(id:)`.
     @Published private(set) var pendingNoteDeletion: PendingNoteDeletion?
@@ -8984,6 +8987,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func openCalendarSettings() {
         selectedSettingsTab = .calendar
         NotificationCenter.default.post(name: .showSettings, object: nil)
+    }
+
+    /// Opens the Note Browser on a note.
+    @MainActor
+    func openNoteInBrowser(id: UUID) {
+        noteBrowserOpenRequest = id
+        NotificationCenter.default.post(name: .showNoteBrowser, object: nil)
     }
 
     func openMicrophoneSettings() {

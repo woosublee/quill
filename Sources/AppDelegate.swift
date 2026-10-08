@@ -79,6 +79,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             name: .showSettings,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleShowNoteBrowser),
+            name: .showNoteBrowser,
+            object: nil
+        )
 
         // noteBrowserEnabled 변경 시 독 아이콘 상태 갱신
         NotificationCenter.default.addObserver(
@@ -181,6 +187,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func handleShowSettings() {
         showSettingsWindow()
+    }
+
+    @objc private func handleShowNoteBrowser() {
+        showNoteBrowserWindow()
     }
 
 

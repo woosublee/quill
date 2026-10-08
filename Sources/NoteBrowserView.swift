@@ -737,6 +737,16 @@ struct NoteBrowserView: View {
             : localizedCatalogFormat("%lld notes deleted", count)
     }
 
+    /// Selects and scrolls to the note another window asked for, then
+    /// clears the request.
+    private func openRequestedNote() {
+        guard let id = appState.noteBrowserOpenRequest,
+              appState.pipelineHistory.contains(where: { $0.id == id }) else { return }
+        selection.focus(id)
+        scheduleRecoveryScrollRestore(for: id)
+        appState.noteBrowserOpenRequest = nil
+    }
+
     private func scheduleRecoveryScrollRestore(for itemID: UUID) {
         recoveryScrollRestoreRequest = RecoveryScrollRestoreRequest(itemID: itemID)
     }
@@ -815,6 +825,7 @@ struct NoteBrowserView: View {
             if selectedItemID == nil {
                 selection.focus(appState.pipelineHistory.first?.id)
             }
+            openRequestedNote()
         }
         .sheet(item: $pendingAudioImport) { importRequest in
             AudioImportSheet(
@@ -869,6 +880,10 @@ struct NoteBrowserView: View {
         }
         .onChange(of: appState.recoveringRecordingIDs) { _ in
             selection.retainSelectable(isBulkSelectable)
+        }
+        // Open Note in Settings › Recovery asks for a restored note.
+        .onChange(of: appState.noteBrowserOpenRequest) { _ in
+            openRequestedNote()
         }
         .onChange(of: searchText) { _ in
             if selection.showsSelectionUI {
