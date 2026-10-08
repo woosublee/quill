@@ -21,6 +21,7 @@ struct NoteSyncRecordTests {
         testEachFieldChangesOnlyItsGroup()
         testMissingRequiredKeysKeepLocalValues()
         testStampsCompareAtMilliseconds()
+        testNewNoteNeedsEveryRequiredField()
         print("NoteSyncRecordTests passed")
     }
 
@@ -93,7 +94,7 @@ struct NoteSyncRecordTests {
     static func testRoundTripKeepsSyncedFields() {
         let original = item()
         let record = NoteSyncRecord(item: original)
-        let received = record.applied(onto: nil)
+        let received = record.newNote()!
         precondition(received.id == original.id)
         precondition(received.customTitle == original.customTitle)
         precondition(received.rawTranscript == original.rawTranscript)
@@ -146,7 +147,7 @@ struct NoteSyncRecordTests {
     }
 
     static func testNewNoteFromRecordLeavesLocalOnlyFieldsEmpty() {
-        let received = NoteSyncRecord(item: item()).applied(onto: nil)
+        let received = NoteSyncRecord(item: item()).newNote()!
         precondition(received.contextScreenshotDataURL == nil)
         precondition(received.contextWindowTitle == nil && received.contextAppName == nil)
         precondition(received.selectedText == nil && received.capturedSelection == nil)
@@ -159,7 +160,7 @@ struct NoteSyncRecordTests {
         var record = NoteSyncRecord(item: item())
         record.fields["futureField"] = .string("from a newer build")
         record.fields.removeValue(forKey: NoteSyncField.customTitle.rawValue)
-        let received = record.applied(onto: nil)
+        let received = record.newNote()!
         precondition(received.customTitle == nil, "a missing key reads as nil")
         precondition(received.rawTranscript == "synthetic raw")
         precondition(record.fields["futureField"] == .string("from a newer build"))
@@ -270,7 +271,7 @@ struct NoteSyncRecordTests {
         }
         precondition(!String(decoding: encoded, as: UTF8.self).contains("llm.internal.example"),
                      "a private provider host never leaves the Mac")
-        let received = record.applied(onto: nil)
+        let received = record.newNote()!
         precondition(received.meetingSummaryAttempt?.modelID == "synthetic-model")
         precondition(received.meetingSummaryAttempt?.providerHost == nil)
     }
@@ -360,5 +361,18 @@ struct NoteSyncRecordTests {
         let merged = NoteSyncMerge.merge(local: unrounded, remote: record)
         precondition(merged.fields[NoteSyncField.customTitle.rawValue] == record.fields[NoteSyncField.customTitle.rawValue])
         precondition(merged.clock.stamp(for: .title) == record.clock.stamp(for: .title), "the same edit compares equal after rounding")
+    }
+
+    static func testNewNoteNeedsEveryRequiredField() {
+        precondition(NoteSyncRecord(item: item()).newNote() != nil)
+        for field in NoteSyncField.allCases where field.isRequired {
+            var record = NoteSyncRecord(item: item())
+            record.fields.removeValue(forKey: field.rawValue)
+            precondition(record.newNote() == nil, "a record missing \(field.rawValue) never becomes a new note")
+        }
+        var noTimestamp = NoteSyncRecord(item: item())
+        noTimestamp.fields.removeValue(forKey: NoteSyncField.timestamp.rawValue)
+        precondition(noTimestamp.applied(onto: item(id: noTimestamp.noteID)).timestamp == t0,
+                     "an existing note keeps its own timestamp")
     }
 }

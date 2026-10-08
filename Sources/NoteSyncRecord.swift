@@ -127,9 +127,27 @@ struct NoteSyncRecord: Equatable, Sendable {
         )
     }
 
-    /// The note this record describes. Local-only fields come from `base`
-    /// (the note already on this Mac), or stay empty for a new note.
-    func applied(onto base: PipelineHistoryItem?) -> PipelineHistoryItem {
+    /// Whether every field a note needs is present. A record without them
+    /// can update a note this Mac has, but never create one.
+    var hasRequiredFields: Bool {
+        NoteSyncField.allCases.allSatisfy { !$0.isRequired || fields[$0.rawValue] != nil }
+    }
+
+    /// The note this record describes, applied onto the note already on
+    /// this Mac. Local-only fields and any missing required field keep
+    /// their local values.
+    func applied(onto base: PipelineHistoryItem) -> PipelineHistoryItem {
+        note(base: base)
+    }
+
+    /// A note this Mac does not have yet, with local-only fields empty.
+    /// Nil when a required field is missing, so a partial record never
+    /// creates a note with made-up values.
+    func newNote() -> PipelineHistoryItem? {
+        hasRequiredFields ? note(base: nil) : nil
+    }
+
+    private func note(base: PipelineHistoryItem?) -> PipelineHistoryItem {
         PipelineHistoryItem(
             intent: string(.intent).flatMap(PipelineHistoryItemIntent.init(rawValue:))
                 ?? base?.intent ?? .dictation,
