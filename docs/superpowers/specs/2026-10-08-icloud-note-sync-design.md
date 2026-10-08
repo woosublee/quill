@@ -55,7 +55,8 @@ New units, each with one job:
    field group: title, raw transcript, edited transcript, summary, calendar
    match, recording times, language, and deletion. `merge(local:remote:)`
    keeps, for each group, the value with the later time. A tie goes to the
-   larger device ID so that every Mac resolves it the same way.
+   group whose encoded values sort higher, so every Mac resolves it the same
+   way without needing a device ID.
 3. **`NoteSyncCoordinator`** (macOS 14, `CKSyncEngine` delegate).
    - It loads and saves the engine's state serialization in
      `Application Support/Quill/Sync/engine-state`.

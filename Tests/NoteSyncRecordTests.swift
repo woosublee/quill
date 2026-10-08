@@ -169,9 +169,71 @@ struct NoteSyncRecordTests {
         }
     }
 
-    static func testMergeTakesLaterGroupFromEachSide() {}
-    static func testTieResolvesTheSameBothWays() {}
-    static func testMergeIsIdempotentAndIgnoresOlderCopy() {}
-    static func testMergeKeepsUnknownKeys() {}
-    static func testDeletionMergesLikeAField() {}
+    static func record(
+        _ base: PipelineHistoryItem,
+        title: String? = nil,
+        edited: String? = nil,
+        stamps: [NoteFieldGroup: Date]
+    ) -> NoteSyncRecord {
+        var clock = NoteFieldClock.uniform(t0)
+        for (group, date) in stamps { clock = clock.setting(group, to: date) }
+        let source = item(
+            id: base.id,
+            title: title ?? base.customTitle,
+            edited: edited ?? base.postProcessedTranscript,
+            clock: clock
+        )
+        return NoteSyncRecord(item: source)
+    }
+
+    static func testMergeTakesLaterGroupFromEachSide() {
+        let base = item(title: "Base", edited: "base")
+        let local = record(base, title: "Local title", stamps: [.title: t0.addingTimeInterval(10)])
+        let remote = record(base, edited: "remote summary edit", stamps: [.editedTranscript: t0.addingTimeInterval(20)])
+        let merged = NoteSyncMerge.merge(local: local, remote: remote).applied(onto: base)
+        precondition(merged.customTitle == "Local title", "local's later title stays")
+        precondition(merged.postProcessedTranscript == "remote summary edit", "remote's later edit arrives")
+        precondition(merged.fieldClock?.stamp(for: .title) == t0.addingTimeInterval(10))
+        precondition(merged.fieldClock?.stamp(for: .editedTranscript) == t0.addingTimeInterval(20))
+    }
+
+    static func testTieResolvesTheSameBothWays() {
+        let base = item()
+        let a = record(base, title: "Alpha", stamps: [.title: t0.addingTimeInterval(5)])
+        let b = record(base, title: "Bravo", stamps: [.title: t0.addingTimeInterval(5)])
+        let onA = NoteSyncMerge.merge(local: a, remote: b).applied(onto: base).customTitle
+        let onB = NoteSyncMerge.merge(local: b, remote: a).applied(onto: base).customTitle
+        precondition(onA == onB, "both Macs settle on the same title")
+    }
+
+    static func testMergeIsIdempotentAndIgnoresOlderCopy() {
+        let base = item()
+        let current = record(base, title: "Current", stamps: [.title: t0.addingTimeInterval(30)])
+        let older = record(base, title: "Older", stamps: [.title: t0.addingTimeInterval(10)])
+        precondition(NoteSyncMerge.merge(local: current, remote: current) == current)
+        precondition(NoteSyncMerge.merge(local: current, remote: older) == current)
+    }
+
+    static func testMergeKeepsUnknownKeys() {
+        let base = item()
+        let local = record(base, stamps: [:])
+        var remote = record(base, stamps: [:])
+        remote.fields["futureField"] = .string("from a newer build")
+        let merged = NoteSyncMerge.merge(local: local, remote: remote)
+        precondition(merged.fields["futureField"] == .string("from a newer build"))
+    }
+
+    static func testDeletionMergesLikeAField() {
+        let base = item()
+        var deletedRemotely = record(base, stamps: [.deletion: t0.addingTimeInterval(40)])
+        deletedRemotely.deletedAt = t0.addingTimeInterval(40)
+        let editedLocally = record(base, title: "Edited", stamps: [.title: t0.addingTimeInterval(50)])
+        let merged = NoteSyncMerge.merge(local: editedLocally, remote: deletedRemotely)
+        precondition(merged.deletedAt == t0.addingTimeInterval(40), "a later deletion wins over no deletion")
+        precondition(merged.applied(onto: base).customTitle == "Edited", "the later title still applies")
+        var restoredLocally = editedLocally
+        restoredLocally.clock = restoredLocally.clock.setting(.deletion, to: t0.addingTimeInterval(60))
+        let restored = NoteSyncMerge.merge(local: restoredLocally, remote: deletedRemotely)
+        precondition(restored.deletedAt == nil, "a later restore wins over the deletion")
+    }
 }
