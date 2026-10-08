@@ -58,8 +58,8 @@ struct SettingsView: View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(SettingsTab.orderedCases.filter { tab in
-                    ((tab != .debug && tab != .runLog) || AppBuild.isDevBundle)
-                        && (tab != .recovery || !appState.historyRecoverySnapshots.isEmpty)
+                    // Recovery is always listed: it holds Recently Deleted Notes.
+                    (tab != .debug && tab != .runLog) || AppBuild.isDevBundle
                 }) { tab in
                     Button {
                         appState.selectedSettingsTab = tab
@@ -109,10 +109,8 @@ struct SettingsView: View {
                     InputSettingsView()
                 case .calendar:
                     CalendarSettingsView()
-                case .recovery where !appState.historyRecoverySnapshots.isEmpty:
-                    HistoryRecoverySettingsView()
                 case .recovery:
-                    GeneralSettingsView()
+                    HistoryRecoverySettingsView()
                 case .about:
                     AboutSettingsView()
                 case .runLog where AppBuild.isDevBundle:

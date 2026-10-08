@@ -292,6 +292,10 @@ struct SettingsLocalizationTests {
         }
         let recovery = try String(contentsOfFile: "Sources/HistoryRecoveryView.swift", encoding: .utf8)
         assert(recovery.contains("RecentlyDeletedNotesSection()"))
+        let settings = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
+        assert(!settings.contains("tab != .recovery ||"), "Recovery is always listed, so Recently Deleted is reachable")
+        assert(!settings.contains("case .recovery where"), "Recovery always shows its own page")
+        assert(!recovery.contains("Text(\"No Recovery Snapshots\")"), "no empty snapshot block above the deleted notes")
         let section = try String(contentsOfFile: "Sources/RecentlyDeletedNotesSection.swift", encoding: .utf8)
         assert(section.contains("appState.restoreRecentlyDeletedNote(id:"))
         assert(section.contains("appState.deleteRecentlyDeletedNoteNow(id:"))

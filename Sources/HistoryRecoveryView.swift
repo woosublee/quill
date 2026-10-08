@@ -77,29 +77,16 @@ struct HistoryRecoverySettingsView: View {
     var body: some View {
         SettingsPageScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Recovery")
-                        .font(.title2.weight(.semibold))
-                    Text("Review archived histories before importing them into the current history.")
-                        .foregroundStyle(.secondary)
-                }
+                Text("Recovery")
+                    .font(.title2.weight(.semibold))
 
                 RecentlyDeletedNotesSection()
 
-                if appState.historyRecoverySnapshots.isEmpty {
-                    VStack(spacing: 8) {
-                        Image(systemName: "archivebox")
-                            .font(.system(size: 30, weight: .light))
-                            .foregroundStyle(.secondary)
-                        Text("No Recovery Snapshots")
-                            .font(.headline)
-                        Text("Recovery snapshots appear here after you start a fresh history from protected mode.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 240)
-                } else {
+                // Archived histories appear only after a fresh start from
+                // protected mode, so the section shows only when there are some.
+                if !appState.historyRecoverySnapshots.isEmpty {
+                    Text("Review archived histories before importing them into the current history.")
+                        .foregroundStyle(.secondary)
                     ForEach(appState.historyRecoverySnapshots) { snapshot in
                         snapshotCard(snapshot)
                     }
