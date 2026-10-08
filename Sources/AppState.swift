@@ -5412,6 +5412,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @MainActor
     func invalidateHistoryRecoveryInspectionResults() {
+        // Recovery is always listed now; skip the work (and the copy of every
+        // note) when there is nothing to inspect.
+        guard !historyRecoverySnapshots.isEmpty else { return }
         historyWorkflow.invalidateInspection(
             activeHistory: storedHistory,
             shouldReschedule:
@@ -5645,18 +5648,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
             forKey: assets.historyID
         )
         retryingItemIDs.remove(assets.historyID)
-        let resolvedSurvivingHistory = survivingHistory
-            ?? pipelineHistoryStore.loadAllHistory()
         let canDeleteAssets = survivingHistory != nil
             || (
                 pipelineHistoryStore.availability == .ready
                     && pipelineHistoryStore.referenceTrust
                         .permitsStartupReferenceCleanup
             )
+        // Load the survivors only when files may be removed.
         let deletable = canDeleteAssets
             ? Self.deletableAssets(
                 removed: [assets],
-                survivingHistory: resolvedSurvivingHistory
+                survivingHistory: survivingHistory
+                    ?? pipelineHistoryStore.loadAllHistory()
             )
             : []
         for assets in deletable {
@@ -12758,7 +12761,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             contextBundleIdentifier: existing.contextBundleIdentifier,
             contextWindowTitle: existing.contextWindowTitle,
             customTitle: existing.customTitle,
-            meetingSummaryJSON: existing.meetingSummaryJSON
+            meetingSummaryJSON: existing.meetingSummaryJSON,
+            deletedAt: existing.deletedAt,
+            fieldClock: existing.fieldClock
         )
         // DB write 없이 메모리만 업데이트 — partial 결과는 최종 저장 시 반영됨
         pipelineHistory[index] = updated
@@ -12951,9 +12956,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func startRecentlyDeletedPurgeSchedule() {
         purgeExpiredRecentlyDeletedNotes()
         recentlyDeletedPurgeTimer?.invalidate()
-        recentlyDeletedPurgeTimer = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 60 * 60, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.purgeExpiredRecentlyDeletedNotes() }
         }
+        // Common modes keep it firing while a menu is open.
+        RunLoop.main.add(timer, forMode: .common)
+        recentlyDeletedPurgeTimer = timer
+    }
+
+    @MainActor
+    func stopRecentlyDeletedPurgeSchedule() {
+        recentlyDeletedPurgeTimer?.invalidate()
+        recentlyDeletedPurgeTimer = nil
     }
 
     /// Removes expired notes for good. It runs from a timer and when
@@ -12967,13 +12981,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                   RecentlyDeletedPolicy.isExpired(deletedAt: deletedAt, now: now) else { return nil }
             return note.id
         }
-        removeRecentlyDeletedNotes(ids: expiredIDs)
+        removeRecentlyDeletedNotes(ids: expiredIDs, reportsErrors: false)
     }
 
     /// Deletes Recently Deleted rows, then their files once, against one
     /// load of the surviving rows. A note in the Cancel window leaves it.
     @MainActor
-    private func removeRecentlyDeletedNotes(ids: [UUID]) {
+    private func removeRecentlyDeletedNotes(ids: [UUID], reportsErrors: Bool = true) {
         let ids = ids.filter { id in recentlyDeletedNotes.contains { $0.id == id } }
         guard !ids.isEmpty else { return }
         var removedAssets: [DeletedPipelineHistoryAssets] = []
@@ -12984,6 +12998,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     removedAssets.append(assets)
                 }
                 recentlyDeletedNotes.removeAll { $0.id == id }
+                // The same teardown as the end of the Cancel window, which
+                // this note may not reach now.
+                transcriptionRetryWorkflow.cancel(noteID: id)
+                meetingSummaryWorkflow.forget(noteID: id)
+                forgetWarningBannerState(for: id)
                 if let pending = pendingNoteDeletion {
                     let remaining = pending.entries.filter { $0.item.id != id }
                     if remaining.count != pending.entries.count {
@@ -13006,6 +13025,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
         }
         if let failure {
+            // The purge runs in the background; it never raises a banner.
+            guard reportsErrors else {
+                print("[RecentlyDeleted] Purge skipped notes it couldn't delete")
+                return
+            }
             errorMessage = LocalizedUserMessage.providerFailure(prefix: localizedCatalogString("Unable to delete run history entry"), providerDetail: failure.localizedDescription)
         }
     }
@@ -13445,7 +13469,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             contextBundleIdentifier: context.bundleIdentifier,
             contextWindowTitle: context.windowTitle,
             customTitle: existingEntry?.customTitle,
-            meetingSummaryJSON: existingEntry?.meetingSummaryJSON
+            meetingSummaryJSON: existingEntry?.meetingSummaryJSON,
+            deletedAt: existingEntry?.deletedAt,
+            fieldClock: existingEntry?.fieldClock
         )
         var historySaved = false
         do {

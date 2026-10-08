@@ -108,6 +108,10 @@ struct HistoryRecoverySettingsView: View {
         .onReceive(appState.$pipelineHistory.dropFirst()) { _ in
             appState.invalidateHistoryRecoveryInspectionResults()
         }
+        // Inspection compares against Recently Deleted notes too.
+        .onReceive(appState.$recentlyDeletedNotes.dropFirst()) { _ in
+            appState.invalidateHistoryRecoveryInspectionResults()
+        }
         .confirmationDialog(
             "Delete recovery snapshot?",
             isPresented: Binding(

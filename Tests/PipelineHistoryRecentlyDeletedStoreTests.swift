@@ -131,47 +131,38 @@ struct PipelineHistoryRecentlyDeletedStoreTests {
         precondition(row.fieldClock == NoteFieldClock.uniform(t0))
     }
 
-    /// A note imported from a recovery snapshot while it was in Recently
-    /// Deleted stays there; an existing row is never changed by an item.
+    /// Only a snapshot import keeps an item's deletion. An ordinary save of
+    /// a stale copy (a late job finishing after Delete Now) never creates a
+    /// row in Recently Deleted, and an existing row ignores the item's value.
     private static func testNewRowKeepsDeletionFromImportedItem() throws {
         let s = store(at: t0)
-        let imported = PipelineHistoryItem(
-            id: UUID(),
-            timestamp: t0,
-            rawTranscript: "synthetic raw",
-            postProcessedTranscript: "synthetic edited",
-            postProcessingPrompt: nil,
-            contextSummary: "",
-            contextScreenshotDataURL: nil,
-            contextScreenshotStatus: "No screenshot",
-            postProcessingStatus: "succeeded",
-            debugStatus: "",
-            customVocabulary: "",
-            deletedAt: t0
-        )
-        _ = try s.upsert(imported, maxCount: Int.max)
-        precondition(load(s, imported.id).deletedAt == t0, "upsert of a new row keeps its deletion")
-        let appended = PipelineHistoryItem(
-            id: UUID(),
-            timestamp: t0,
-            rawTranscript: "synthetic raw",
-            postProcessedTranscript: "synthetic edited",
-            postProcessingPrompt: nil,
-            contextSummary: "",
-            contextScreenshotDataURL: nil,
-            contextScreenshotStatus: "No screenshot",
-            postProcessingStatus: "succeeded",
-            debugStatus: "",
-            customVocabulary: "",
-            deletedAt: t0
-        )
-        _ = try s.append(appended, maxCount: Int.max)
-        precondition(load(s, appended.id).deletedAt == t0, "append of a new row keeps its deletion")
-        let live = makeItem()
-        _ = try s.append(live, maxCount: Int.max)
-        _ = try s.upsert(imported.withCustomTitle(nil), maxCount: Int.max)
+        func deletedItem() -> PipelineHistoryItem {
+            PipelineHistoryItem(
+                id: UUID(),
+                timestamp: t0,
+                rawTranscript: "synthetic raw",
+                postProcessedTranscript: "synthetic edited",
+                postProcessingPrompt: nil,
+                contextSummary: "",
+                contextScreenshotDataURL: nil,
+                contextScreenshotStatus: "No screenshot",
+                postProcessingStatus: "succeeded",
+                debugStatus: "",
+                customVocabulary: "",
+                deletedAt: t0
+            )
+        }
+        let imported = deletedItem()
+        _ = try s.upsert(imported, maxCount: Int.max, keepsImportedDeletion: true)
+        precondition(load(s, imported.id).deletedAt == t0, "a snapshot import keeps its deletion")
+        let lateUpsert = deletedItem()
+        _ = try s.upsert(lateUpsert, maxCount: Int.max)
+        precondition(load(s, lateUpsert.id).deletedAt == nil, "an ordinary upsert never writes a deletion")
+        let lateAppend = deletedItem()
+        _ = try s.append(lateAppend, maxCount: Int.max)
+        precondition(load(s, lateAppend.id).deletedAt == nil, "an ordinary append never writes a deletion")
         try s.setDeletedAt(nil, id: imported.id)
-        _ = try s.upsert(imported, maxCount: Int.max)
+        _ = try s.upsert(imported, maxCount: Int.max, keepsImportedDeletion: true)
         precondition(load(s, imported.id).deletedAt == nil, "an existing row ignores an item's deletion")
     }
 }

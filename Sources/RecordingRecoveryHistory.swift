@@ -505,7 +505,9 @@ extension PipelineHistoryItem {
             contextBundleIdentifier: contextBundleIdentifier,
             contextWindowTitle: contextWindowTitle,
             customTitle: customTitle,
-            meetingSummaryJSON: meetingSummaryJSON
+            meetingSummaryJSON: meetingSummaryJSON,
+            deletedAt: deletedAt,
+            fieldClock: fieldClock
         )
     }
 }

@@ -396,10 +396,15 @@ final class PipelineHistoryStore {
         return deletedAssets
     }
 
+    /// `keepsImportedDeletion` is for snapshot imports only: a new row then
+    /// keeps the item's `deletedAt`, so a note archived while in Recently
+    /// Deleted stays there. Every other save leaves `deletedAt` to
+    /// `setDeletedAt`.
     func upsert(
         _ item: PipelineHistoryItem,
         maxCount: Int,
-        requiresDurableStore: Bool = false
+        requiresDurableStore: Bool = false,
+        keepsImportedDeletion: Bool = false
     ) throws -> [DeletedPipelineHistoryAssets] {
         guard availability == .ready, isStoreLoaded else {
             throw PipelineHistoryStoreError.storeUnavailable
@@ -416,6 +421,9 @@ final class PipelineHistoryStore {
                 let existing = try container.viewContext.fetch(request).first
                 let entity = existing ?? PipelineHistoryEntry(context: container.viewContext)
                 applyStamping(item, to: entity, isNew: existing == nil)
+                if existing == nil, keepsImportedDeletion {
+                    entity.deletedAt = item.deletedAt
+                }
                 try saveContext()
             } catch {
                 thrownError = error
@@ -628,7 +636,8 @@ final class PipelineHistoryStore {
     }
 
     /// Applies `item` and advances the clock of the field groups it
-    /// changed.
+    /// changed. `deletedAt` is left alone: only `setDeletedAt` and a
+    /// snapshot import write it.
     private func applyStamping(
         _ item: PipelineHistoryItem,
         to entity: PipelineHistoryEntry,
@@ -643,12 +652,6 @@ final class PipelineHistoryStore {
         )
         Self.apply(item, to: entity)
         entity.fieldClockJSON = Self.encodeClock(clock)
-        // A new row takes the item's deletion, so a note imported from a
-        // snapshot while it was in Recently Deleted stays there. An existing
-        // row's deletion changes only through `setDeletedAt`.
-        if isNew {
-            entity.deletedAt = item.deletedAt
-        }
     }
 
     private static func decodeClock(_ data: Data?) -> NoteFieldClock? {

@@ -7,6 +7,13 @@ struct RecentlyDeletedNotesSection: View {
     @State private var restoredNotes: [PipelineHistoryItem] = []
     @State private var pendingDeleteNow: PipelineHistoryItem?
 
+    /// Restored rows, minus any note that was deleted again since.
+    private var visibleRestoredNotes: [PipelineHistoryItem] {
+        restoredNotes.filter { note in
+            !appState.recentlyDeletedNotes.contains { $0.id == note.id }
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
@@ -24,7 +31,7 @@ struct RecentlyDeletedNotesSection: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if appState.recentlyDeletedNotes.isEmpty && restoredNotes.isEmpty {
+            if appState.recentlyDeletedNotes.isEmpty && visibleRestoredNotes.isEmpty {
                 Text("No recently deleted notes")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
@@ -35,7 +42,7 @@ struct RecentlyDeletedNotesSection: View {
                         deletedRow(note)
                         Divider()
                     }
-                    ForEach(restoredNotes, id: \.id) { note in
+                    ForEach(visibleRestoredNotes, id: \.id) { note in
                         restoredRow(note)
                         Divider()
                     }

@@ -115,6 +115,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // Quitting ends the Cancel window of a just-deleted note.
         appState.finalizePendingNoteDeletion()
+        appState.stopRecentlyDeletedPurgeSchedule()
         // Pieces of a deleted unrecovered recording are removed in the
         // background; let that finish so the note does not come back.
         appState.waitForPendingRecordingPieceRemovals(timeout: 2)
