@@ -13110,10 +13110,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// Google events for a recording interval, or `nil` when no Google
     /// calendar is selected. Health is reported as before.
     private func googleCalendarEventsForMatch(from start: Date, to end: Date, reportsHealth: Bool = true) async -> Result<[CalendarEvent], Error>? {
+        await googleCalendarEventFetch(from: start, to: end, reportsHealth: reportsHealth).result
+    }
+
+    /// Google events for an interval, or a `nil` result when no Google
+    /// calendar is selected. `hadPartialFailure` is true when some selected
+    /// calendars could not be read.
+    private func googleCalendarEventFetch(
+        from start: Date,
+        to end: Date,
+        reportsHealth: Bool
+    ) async -> (result: Result<[CalendarEvent], Error>?, hadPartialFailure: Bool) {
         let selectedCalendarIDs = await MainActor.run {
             googleCalendarConnection.selectedCalendarIDs
         }
-        guard !selectedCalendarIDs.isEmpty else { return nil }
+        guard !selectedCalendarIDs.isEmpty else { return (nil, false) }
 
         do {
             guard let token = try await validGoogleCalendarToken() else {
@@ -13124,7 +13135,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         message: localizedCatalogString("Google Calendar needs reconnecting. Calendar-based note titles may be unavailable.")
                     )
                 }
-                return .failure(GoogleCalendarHealthError.needsReconnect)
+                return (.failure(GoogleCalendarHealthError.needsReconnect), false)
             }
             let fetchResult = await Self.googleCalendarServiceFactory()
                 .fetchEventsWithDiagnostics(
@@ -13144,7 +13155,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     )
                 }
             }
-            return .success(fetchResult.events)
+            return (.success(fetchResult.events), !fetchResult.failedCalendarIDs.isEmpty)
         } catch {
             await MainActor.run {
                 guard reportsHealth else { return }
@@ -13160,7 +13171,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     )
                 }
             }
-            return .failure(error)
+            return (.failure(error), false)
         }
     }
 
@@ -13182,9 +13193,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             )
         }
         // Browsing days in the import sheet must not change Google health.
-        let google = googleConnected
-            ? await googleCalendarEventsForMatch(from: interval.start, to: interval.end, reportsHealth: false)
-            : nil
+        let googleFetch: (result: Result<[CalendarEvent], Error>?, hadPartialFailure: Bool) = googleConnected
+            ? await googleCalendarEventFetch(from: interval.start, to: interval.end, reportsHealth: false)
+            : (nil, false)
+        let google = googleFetch.result
         let apple: [CalendarEvent]? = appleIDs.isEmpty
             ? nil
             : await MainActor.run {
@@ -13195,12 +13207,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
             apple: apple,
             toleratesGoogleFailure: true
         )) ?? []
-        var googleFailed = false
-        if case .failure = google { googleFailed = true }
+        var googleFailed = googleFetch.hadPartialFailure
+        var googleReadable = false
+        switch google {
+        case .failure: googleFailed = true
+        case .success: googleReadable = true
+        case nil: break
+        }
         return CalendarDayEventsResult(
             events: CalendarDayEvents.meetingCandidates(merged),
             googleFailed: googleFailed,
-            hasReadableSource: googleConnected || !appleIDs.isEmpty
+            // A connection whose token cannot be refreshed reads nothing, so
+            // it shows Calendar Settings like no connection at all.
+            hasReadableSource: googleReadable || !appleIDs.isEmpty
         )
     }
 

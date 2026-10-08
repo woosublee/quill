@@ -204,6 +204,7 @@ private struct AudioImportSheet: View {
                 AudioImportCalendarSection(model: calendarModel)
                     .environmentObject(appState)
             ),
+            isConfirmEnabled: calendarModel.isReadyToConfirm,
             onConfirm: onConfirm,
             onOpenProviderSettings: onOpenProviderSettings,
             onCancel: onCancel
@@ -219,6 +220,7 @@ struct TranscriptionChoiceSheet: View {
     let subtitle: String
     let subtitleDetail: String?
     let accessory: AnyView?
+    let isConfirmEnabled: Bool
     let showsSettingNote: Bool
     let options: AudioImportOptions
     let onConfirm: (TranscriptionBackendChoice) -> Void
@@ -235,6 +237,7 @@ struct TranscriptionChoiceSheet: View {
         options: AudioImportOptions,
         fallbackChoice: TranscriptionBackendChoice,
         accessory: AnyView? = nil,
+        isConfirmEnabled: Bool = true,
         onConfirm: @escaping (TranscriptionBackendChoice) -> Void,
         onOpenProviderSettings: @escaping () -> Void,
         onCancel: @escaping () -> Void
@@ -243,6 +246,7 @@ struct TranscriptionChoiceSheet: View {
         self.subtitle = subtitle
         self.subtitleDetail = subtitleDetail
         self.accessory = accessory
+        self.isConfirmEnabled = isConfirmEnabled
         self.showsSettingNote = showsSettingNote
         self.options = options
         self.onConfirm = onConfirm
@@ -326,6 +330,7 @@ struct TranscriptionChoiceSheet: View {
                     Button("Transcribe") { onConfirm(selectedChoice) }
                         .keyboardShortcut(.defaultAction)
                         .buttonStyle(.borderedProminent)
+                        .disabled(!isConfirmEnabled)
                 } else {
                     Button("Open Provider Settings") {
                         onOpenProviderSettings()

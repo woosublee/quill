@@ -10,18 +10,31 @@ final class AudioImportCalendarModel: ObservableObject {
     @Published private(set) var hasReadRecordingTime = false
     @Published var day = Date()
     @Published private(set) var events: [CalendarEvent] = []
-    @Published private(set) var recommendedID: String?
-    /// `nil` means "No event".
-    @Published var selectedEventID: String?
+    @Published private(set) var recommendedKey: String?
+    /// `CalendarEvent.selectionKey` of the chosen event; `nil` is "No event".
+    @Published var selectedEventKey: String?
     @Published private(set) var isLoading = true
+    /// Lets Transcribe proceed without an event when loading takes too long.
+    @Published private(set) var loadTimedOut = false
     @Published private(set) var googleFailed = false
     @Published private(set) var hasReadableSource = true
     private var loadGeneration = 0
     private var dayChosenByUser = false
     private var eventChosenByUser = false
+    /// The event picked by hand, kept when a failed Google read drops it
+    /// from the list.
+    private var chosenEvent: CalendarEvent?
 
     var selectedEvent: CalendarEvent? {
-        selectedEventID.flatMap { id in events.first { $0.id == id } }
+        guard let key = selectedEventKey else { return nil }
+        return events.first { $0.selectionKey == key }
+            ?? (chosenEvent?.selectionKey == key ? chosenEvent : nil)
+    }
+
+    /// Transcribe waits until the recording time is read and the shown day's
+    /// events are loaded, so the note gets the time and event shown.
+    var isReadyToConfirm: Bool {
+        (hasReadRecordingTime && !isLoading) || loadTimedOut
     }
 
     func start(fileURL: URL, appState: AppState) {
@@ -51,9 +64,10 @@ final class AudioImportCalendarModel: ObservableObject {
         load(appState: appState)
     }
 
-    func pickEvent(_ id: String?) {
+    func pickEvent(_ event: CalendarEvent?) {
         eventChosenByUser = true
-        selectedEventID = id
+        chosenEvent = event
+        selectedEventKey = event?.selectionKey
     }
 
     func load(appState: AppState) {
@@ -61,20 +75,37 @@ final class AudioImportCalendarModel: ObservableObject {
         let generation = loadGeneration
         let shownDay = day
         isLoading = true
+        loadTimedOut = false
+        Task {
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            guard generation == loadGeneration, isLoading else { return }
+            loadTimedOut = true
+        }
         Task {
             let result = await appState.calendarDayEvents(on: shownDay)
             guard generation == loadGeneration else { return }
-            events = result.events
             googleFailed = result.googleFailed
             hasReadableSource = result.hasReadableSource
-            let recommended = CalendarDayEvents.recommendation(in: result.events, recording: recordingTime)
-            recommendedID = recommended?.id
-            selectedEventID = ImportCalendarSelection.next(
-                current: selectedEventID,
+            let recommended = CalendarDayEvents.recommendation(
+                in: result.events,
+                recording: recordingTime,
+                day: shownDay
+            )
+            recommendedKey = recommended?.selectionKey
+            selectedEventKey = ImportCalendarSelection.next(
+                current: selectedEventKey,
                 userChose: eventChosenByUser,
                 events: result.events,
-                recommendedID: recommended?.id
+                recommendedKey: recommended?.selectionKey,
+                googleFailed: result.googleFailed
             )
+            var shown = result.events
+            if let chosenEvent, chosenEvent.selectionKey == selectedEventKey,
+               !shown.contains(where: { $0.selectionKey == chosenEvent.selectionKey }) {
+                // Keep a hand-picked Google event visible while Google is failing.
+                shown = CalendarDayEvents.meetingCandidates(shown + [chosenEvent])
+            }
+            events = shown
             isLoading = false
         }
     }
@@ -183,19 +214,31 @@ struct AudioImportCalendarSection: View {
     }
 
     private var eventList: some View {
+        ScrollView {
+            eventRows
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 220)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(Color(nsColor: .textBackgroundColor).opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08), lineWidth: 1))
+    }
+
+    private var eventRows: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(model.events) { event in
+            ForEach(model.events, id: \.selectionKey) { event in
                 row(
-                    isSelected: model.selectedEventID == event.id,
+                    isSelected: model.selectedEventKey == event.selectionKey,
                     title: event.title,
-                    isSuggested: event.id == model.recommendedID,
+                    isSuggested: event.selectionKey == model.recommendedKey,
                     detail: detail(for: event)
                 ) {
-                    model.pickEvent(event.id)
+                    model.pickEvent(event)
                 }
             }
             row(
-                isSelected: model.selectedEventID == nil,
+                isSelected: model.selectedEventKey == nil,
                 title: localizedCatalogString("No event"),
                 isSuggested: false,
                 detail: localizedCatalogString("The title comes from the first line of the transcript")
@@ -203,10 +246,6 @@ struct AudioImportCalendarSection: View {
                 model.pickEvent(nil)
             }
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .textBackgroundColor).opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.primary.opacity(0.08), lineWidth: 1))
     }
 
     private func detail(for event: CalendarEvent) -> String {
@@ -217,7 +256,7 @@ struct AudioImportCalendarSection: View {
         if !event.attendees.isEmpty {
             parts.append(localizedCatalogFormat("%lld attendees", Int64(event.attendees.count)))
         }
-        if event.id == model.recommendedID {
+        if event.selectionKey == model.recommendedKey {
             parts.append(localizedCatalogFormat(
                 "Title: %@",
                 ImportCalendarTitle.title(for: event, recording: model.recordingTime, chosenDay: model.day)

@@ -15,6 +15,10 @@ struct AudioImportCalendarTests {
         testTitleUsesChosenDayWithoutRecordingTime()
         testSelectionSurvivesReload()
         try testReviewFixesWiring()
+        testSelectionKeyIncludesCalendar()
+        testRecommendationOnlyOnDaysOverlappingRecording()
+        testManualSelectionSurvivesGoogleFailure()
+        try testCodeRabbitFixesWiring()
         print("AudioImportCalendarTests passed")
     }
 
@@ -68,9 +72,9 @@ struct AudioImportCalendarTests {
     static func testRecommendationPicksLargestOverlapOnly() {
         let recording = AudioFileRecordingTime.make(creationDate: base.addingTimeInterval(7_320), duration: 2_640)
         let events = [event("a", "Planning", 7_200, 10_800), event("b", "Review", 9_000, 10_800), event("c", "Lunch", 0, 3_600)]
-        precondition(CalendarDayEvents.recommendation(in: events, recording: recording)?.id == "a")
-        precondition(CalendarDayEvents.recommendation(in: [event("c", "Lunch", 0, 3_600)], recording: recording) == nil)
-        precondition(CalendarDayEvents.recommendation(in: events, recording: nil) == nil)
+        precondition(CalendarDayEvents.recommendation(in: events, recording: recording, day: recording!.start)?.id == "a")
+        precondition(CalendarDayEvents.recommendation(in: [event("c", "Lunch", 0, 3_600)], recording: recording, day: recording!.start) == nil)
+        precondition(CalendarDayEvents.recommendation(in: events, recording: nil, day: base) == nil)
     }
 
     static func testAppliedTitleUsesRecordingDayOrEventDay() {
@@ -129,12 +133,12 @@ struct AudioImportCalendarTests {
     static func testSelectionSurvivesReload() {
         let events = [event("a", "Planning", 0, 600), event("b", "Review", 700, 900)]
         // Not chosen by hand yet: follow the recommendation.
-        precondition(ImportCalendarSelection.next(current: "b", userChose: false, events: events, recommendedID: "a") == "a")
+        precondition(ImportCalendarSelection.next(current: events[1].selectionKey, userChose: false, events: events, recommendedKey: events[0].selectionKey, googleFailed: false) == events[0].selectionKey)
         // Chosen by hand and still listed: keep it, including "No event".
-        precondition(ImportCalendarSelection.next(current: "b", userChose: true, events: events, recommendedID: "a") == "b")
-        precondition(ImportCalendarSelection.next(current: nil, userChose: true, events: events, recommendedID: "a") == nil)
+        precondition(ImportCalendarSelection.next(current: events[1].selectionKey, userChose: true, events: events, recommendedKey: events[0].selectionKey, googleFailed: false) == events[1].selectionKey)
+        precondition(ImportCalendarSelection.next(current: nil, userChose: true, events: events, recommendedKey: events[0].selectionKey, googleFailed: false) == nil)
         // Chosen event gone from the new list: fall back to the recommendation.
-        precondition(ImportCalendarSelection.next(current: "gone", userChose: true, events: events, recommendedID: "a") == "a")
+        precondition(ImportCalendarSelection.next(current: "google|cal|gone", userChose: true, events: events, recommendedKey: events[0].selectionKey, googleFailed: false) == events[0].selectionKey)
     }
 
     static func testReviewFixesWiring() throws {
@@ -153,5 +157,45 @@ struct AudioImportCalendarTests {
         precondition(section.contains("ImportCalendarSelection.next("))
         precondition(section.contains("appState.$appleCalendarAuthorization"), "reload when access changes")
         precondition(section.contains("$0.isConnected"), "reload when Google connects")
+    }
+
+    /// Google event IDs are unique only per calendar.
+    static func testSelectionKeyIncludesCalendar() {
+        let shared = CalendarEvent(id: "evt", calendarID: "team", title: "Sync", start: base, end: base.addingTimeInterval(600), isAllDay: false, attendees: [], provider: .google)
+        let mine = CalendarEvent(id: "evt", calendarID: "me@example.com", title: "Sync", start: base, end: base.addingTimeInterval(600), isAllDay: false, attendees: [], provider: .google)
+        precondition(shared.selectionKey != mine.selectionKey)
+    }
+
+    /// An overnight event listed on the next day must not be suggested for
+    /// a recording made the day before.
+    static func testRecommendationOnlyOnDaysOverlappingRecording() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let midnight = calendar.startOfDay(for: base).addingTimeInterval(86_400)
+        let recording = AudioFileRecordingTime.make(creationDate: midnight.addingTimeInterval(-1_800), duration: 1_200)!
+        let overnight = CalendarEvent(id: "o", calendarID: "c", title: "Release", start: midnight.addingTimeInterval(-3_600), end: midnight.addingTimeInterval(3_600), isAllDay: false, attendees: [], provider: .google)
+        precondition(CalendarDayEvents.recommendation(in: [overnight], recording: recording, day: recording.start, calendar: calendar)?.id == "o")
+        precondition(CalendarDayEvents.recommendation(in: [overnight], recording: recording, day: midnight.addingTimeInterval(60), calendar: calendar) == nil)
+    }
+
+    /// A transient Google failure must not replace an event picked by hand.
+    static func testManualSelectionSurvivesGoogleFailure() {
+        let apple = [event("a", "Planning", 0, 600, provider: .apple)]
+        let chosenGoogle = "google|cal|g1"
+        precondition(ImportCalendarSelection.next(current: chosenGoogle, userChose: true, events: apple, recommendedKey: nil, googleFailed: true) == chosenGoogle)
+        precondition(ImportCalendarSelection.next(current: chosenGoogle, userChose: true, events: apple, recommendedKey: nil, googleFailed: false) == nil)
+    }
+
+    static func testCodeRabbitFixesWiring() throws {
+        let app = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        precondition(app.contains("hadPartialFailure"), "partial Google failures reach the sheet")
+        precondition(app.contains("googleReadable || !appleIDs.isEmpty"), "an unreadable Google connection shows Calendar Settings")
+        let section = try String(contentsOfFile: "Sources/AudioImportCalendarSection.swift", encoding: .utf8)
+        precondition(section.contains("ForEach(model.events, id: \\.selectionKey)"))
+        precondition(section.contains("ScrollView {") && section.contains(".frame(maxHeight: 220)"), "long lists scroll")
+        precondition(section.contains("var isReadyToConfirm: Bool"))
+        let browser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
+        precondition(browser.contains("isConfirmEnabled: calendarModel.isReadyToConfirm"), "Transcribe waits for the calendar section")
+        precondition(browser.contains(".disabled(!isConfirmEnabled)"))
     }
 }

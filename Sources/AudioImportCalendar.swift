@@ -38,8 +38,17 @@ enum CalendarDayEvents {
         }
     }
 
-    static func recommendation(in events: [CalendarEvent], recording: AudioFileRecordingTime?) -> CalendarEvent? {
+    /// Only for a shown day that overlaps the recording: an overnight event
+    /// listed on the next day is not suggested for yesterday's recording.
+    static func recommendation(
+        in events: [CalendarEvent],
+        recording: AudioFileRecordingTime?,
+        day: Date,
+        calendar: Calendar = .current
+    ) -> CalendarEvent? {
         guard let recording else { return nil }
+        let shown = dayInterval(containing: day, calendar: calendar)
+        guard recording.start < shown.end, recording.end > shown.start else { return nil }
         return CalendarEventMatcher.bestMatch(
             recordingStartedAt: recording.start,
             recordingEndedAt: recording.end,
@@ -59,12 +68,30 @@ enum ImportCalendarTitle {
     }
 }
 
+extension CalendarEvent {
+    /// Google event IDs are unique only within a calendar, so selection uses
+    /// provider, calendar, and event together.
+    var selectionKey: String {
+        "\(provider.rawValue)|\(calendarID)|\(id)"
+    }
+}
+
 enum ImportCalendarSelection {
-    /// The event to keep selected after the list reloads. `nil` is "No event".
-    static func next(current: String?, userChose: Bool, events: [CalendarEvent], recommendedID: String?) -> String? {
-        guard userChose else { return recommendedID }
+    /// The event key to keep selected after the list reloads. `nil` is
+    /// "No event". A Google event picked by hand survives a failed Google
+    /// read instead of snapping to the recommendation.
+    static func next(
+        current: String?,
+        userChose: Bool,
+        events: [CalendarEvent],
+        recommendedKey: String?,
+        googleFailed: Bool
+    ) -> String? {
+        guard userChose else { return recommendedKey }
         guard let current else { return nil }
-        return events.contains { $0.id == current } ? current : recommendedID
+        if events.contains(where: { $0.selectionKey == current }) { return current }
+        if googleFailed, current.hasPrefix("\(CalendarProvider.google.rawValue)|") { return current }
+        return recommendedKey
     }
 }
 
