@@ -72,7 +72,7 @@ New units, each with one job:
 
 `PipelineHistoryStore` stays the only writer. The coordinator observes it
 through one hook added to `append`, `update`, and `delete`. View code
-changes only for Recently Deleted and the audio download states.
+changes only for the Recently Deleted settings section and the audio bar states.
 
 ### Core Data changes (lightweight migration)
 
@@ -158,12 +158,11 @@ The sync settings tab comes after Calendar.
   is deleted. Sync resumes only when the user turns it on again, so notes
   never cross into a different account.
 
-**Recently Deleted.** A trash button sits in the note list's title row, next
-to search and import, and appears only when deleted notes exist, with their
-count. It is not at the bottom, because the floating Record button lives
-there. The button switches the list to Recently Deleted, with Done to go
-back. The Record button is hidden in that mode. Each note shows its days
-left. The opened note is read-only and has Restore and Delete Now. It works with sync off
+**Recently Deleted.** A "Recently Deleted Notes" section at the top of
+Settings › Recovery, above the existing archived-history section. The note
+list does not change. Each row shows the title, recording date, a one-line
+preview, and days left, with Restore and Delete Now. A restored row says so
+and offers Open Note. It works with sync off
 too, kept on that Mac only.
 
 ## Build and signing
@@ -258,7 +257,8 @@ same iCloud account):
 ## Delivery
 
 1. **Recently Deleted and field clock.** Core Data attributes, soft delete,
-   the 30-day purge, the Recently Deleted view, and clock stamping. Useful
+   the 30-day purge, the Recently Deleted section in Settings › Recovery, and
+   clock stamping. Useful
    without sync and can ship alone.
 2. **Record mapping and merge.** `NoteSyncRecord` and `NoteFieldClock`
    with tests. No CloudKit calls.
