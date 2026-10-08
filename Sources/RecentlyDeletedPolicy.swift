@@ -15,7 +15,7 @@ enum RecentlyDeletedPolicy {
 
     /// Whole days left, rounded up, so a note with 29 days and an hour left
     /// shows 30 and one about to expire shows 1.
-    static func daysLeft(deletedAt: Date, now: Date, calendar: Calendar = .current) -> Int {
+    static func daysLeft(deletedAt: Date, now: Date) -> Int {
         let remaining = expiry(deletedAt: deletedAt).timeIntervalSince(now)
         guard remaining > 0 else { return 0 }
         return Int((remaining / 86_400).rounded(.up))

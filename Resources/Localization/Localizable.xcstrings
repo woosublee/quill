@@ -20068,6 +20068,22 @@
           }
         }
       }
+    },
+    "1 day left": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 day left"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1일 남음"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

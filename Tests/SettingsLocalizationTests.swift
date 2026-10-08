@@ -282,6 +282,7 @@ struct SettingsLocalizationTests {
             "Restored": "복구했어요",
             "Open Note": "노트 열기",
             "%lld days left": "%lld일 남음",
+            "1 day left": "1일 남음",
             "Delete this note now?": "이 노트를 바로 삭제할까요?",
             "Its audio and transcript are removed too. This can't be undone.": "오디오와 전사문도 함께 지워져요. 되돌릴 수 없어요."
         ]
@@ -295,6 +296,8 @@ struct SettingsLocalizationTests {
         assert(section.contains("appState.restoreRecentlyDeletedNote(id:"))
         assert(section.contains("appState.deleteRecentlyDeletedNoteNow(id:"))
         assert(section.contains("appState.purgeExpiredRecentlyDeletedNotes()"))
+        assert(section.contains("days == 1"), "one day left uses the singular string")
+        assert(!section.contains("restoredIDs.values"), "restored rows keep their order")
         let browser = try String(contentsOfFile: "Sources/NoteBrowserView.swift", encoding: .utf8)
         assert(browser.contains("appState.noteBrowserOpenRequest"))
     }

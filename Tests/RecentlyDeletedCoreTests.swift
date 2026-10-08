@@ -10,6 +10,8 @@ struct RecentlyDeletedCoreTests {
         testExpiryBoundary()
         testDaysLeftCountsWholeDaysUp()
         testPartitionSplitsAndOrdersDeletedNewestFirst()
+        testCopyHelpersKeepDeletionAndClock()
+        testRecoveryEquivalenceIgnoresDeletionAndClock()
         print("RecentlyDeletedCoreTests passed")
     }
 
@@ -85,11 +87,9 @@ struct RecentlyDeletedCoreTests {
     }
 
     private static func testDaysLeftCountsWholeDaysUp() {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(identifier: "UTC")!
-        precondition(RecentlyDeletedPolicy.daysLeft(deletedAt: t0, now: t0, calendar: calendar) == 30)
-        precondition(RecentlyDeletedPolicy.daysLeft(deletedAt: t0, now: t0.addingTimeInterval(29 * 86_400 + 60), calendar: calendar) == 1)
-        precondition(RecentlyDeletedPolicy.daysLeft(deletedAt: t0, now: t0.addingTimeInterval(31 * 86_400), calendar: calendar) == 0)
+        precondition(RecentlyDeletedPolicy.daysLeft(deletedAt: t0, now: t0) == 30)
+        precondition(RecentlyDeletedPolicy.daysLeft(deletedAt: t0, now: t0.addingTimeInterval(29 * 86_400 + 60)) == 1)
+        precondition(RecentlyDeletedPolicy.daysLeft(deletedAt: t0, now: t0.addingTimeInterval(31 * 86_400)) == 0)
     }
 
     private static func testPartitionSplitsAndOrdersDeletedNewestFirst() {
@@ -99,5 +99,72 @@ struct RecentlyDeletedCoreTests {
         let result = RecentlyDeletedPolicy.partition([live, older, newer])
         precondition(result.live.map(\.id) == [live.id])
         precondition(result.deleted.map(\.id) == [newer.id, older.id])
+    }
+
+    private static func testCopyHelpersKeepDeletionAndClock() {
+        let clock = NoteFieldClock.uniform(t0)
+        let deleted = PipelineHistoryItem(
+            id: UUID(),
+            timestamp: t0,
+            rawTranscript: "synthetic raw",
+            postProcessedTranscript: "synthetic edited",
+            postProcessingPrompt: nil,
+            contextSummary: "",
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: "live-recording",
+            debugStatus: "",
+            customVocabulary: "",
+            deletedAt: t0,
+            fieldClock: clock
+        )
+        let replacement = PipelineHistoryTranscriptionReplacement(
+            rawTranscript: "new raw",
+            postProcessedTranscript: "new edited",
+            postProcessingPrompt: nil,
+            postProcessingStatus: "succeeded",
+            aiProcessingOutcome: "succeeded",
+            debugStatus: "",
+            customVocabulary: "",
+            customSystemPrompt: "",
+            usedLocalTranscription: true,
+            usedPostProcessing: true,
+            transcriptionLanguageCode: "auto",
+            spokenLanguage: nil,
+            localTranscriptionModelID: "synthetic-model",
+            transcriptFileName: nil
+        )
+        let copies: [(String, PipelineHistoryItem)] = [
+            ("withCustomTitle", deleted.withCustomTitle("Synthetic")),
+            ("withSpokenLanguage", deleted.withSpokenLanguage(SpokenLanguageResolution(languageCode: "en", source: .engineDetected))),
+            ("replacingTranscription", deleted.replacingTranscription(with: replacement)),
+            ("replacingAssetFileNames", deleted.replacingAssetFileNames(audioFileName: nil, transcriptFileName: nil)),
+            ("markInterruptedBeforeCompletion", deleted.markInterruptedBeforeCompletion())
+        ]
+        for (name, copy) in copies {
+            precondition(copy.deletedAt == t0, "\(name) keeps deletedAt")
+            precondition(copy.fieldClock == clock, "\(name) keeps fieldClock")
+        }
+    }
+
+    private static func testRecoveryEquivalenceIgnoresDeletionAndClock() {
+        let id = UUID()
+        let live = item(id: id)
+        let deleted = PipelineHistoryItem(
+            id: id,
+            timestamp: t0,
+            rawTranscript: "synthetic raw",
+            postProcessedTranscript: "synthetic edited",
+            postProcessingPrompt: nil,
+            contextSummary: "",
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: "succeeded",
+            debugStatus: "",
+            customVocabulary: "",
+            deletedAt: t0,
+            fieldClock: NoteFieldClock.uniform(t0)
+        )
+        precondition(live.isLogicallyEquivalentForHistoryRecovery(to: deleted))
     }
 }

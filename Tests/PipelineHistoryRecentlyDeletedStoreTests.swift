@@ -11,6 +11,7 @@ struct PipelineHistoryRecentlyDeletedStoreTests {
         try testLoadIncludesDeletedRows()
         try testRowWithoutClockGetsTimestampClock()
         try testStoreWithoutNewAttributesOpens()
+        try testNewRowKeepsDeletionFromImportedItem()
         print("PipelineHistoryRecentlyDeletedStoreTests passed")
     }
 
@@ -128,5 +129,49 @@ struct PipelineHistoryRecentlyDeletedStoreTests {
         let row = load(s, id)
         precondition(row.deletedAt == nil)
         precondition(row.fieldClock == NoteFieldClock.uniform(t0))
+    }
+
+    /// A note imported from a recovery snapshot while it was in Recently
+    /// Deleted stays there; an existing row is never changed by an item.
+    private static func testNewRowKeepsDeletionFromImportedItem() throws {
+        let s = store(at: t0)
+        let imported = PipelineHistoryItem(
+            id: UUID(),
+            timestamp: t0,
+            rawTranscript: "synthetic raw",
+            postProcessedTranscript: "synthetic edited",
+            postProcessingPrompt: nil,
+            contextSummary: "",
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: "succeeded",
+            debugStatus: "",
+            customVocabulary: "",
+            deletedAt: t0
+        )
+        _ = try s.upsert(imported, maxCount: Int.max)
+        precondition(load(s, imported.id).deletedAt == t0, "upsert of a new row keeps its deletion")
+        let appended = PipelineHistoryItem(
+            id: UUID(),
+            timestamp: t0,
+            rawTranscript: "synthetic raw",
+            postProcessedTranscript: "synthetic edited",
+            postProcessingPrompt: nil,
+            contextSummary: "",
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: "succeeded",
+            debugStatus: "",
+            customVocabulary: "",
+            deletedAt: t0
+        )
+        _ = try s.append(appended, maxCount: Int.max)
+        precondition(load(s, appended.id).deletedAt == t0, "append of a new row keeps its deletion")
+        let live = makeItem()
+        _ = try s.append(live, maxCount: Int.max)
+        _ = try s.upsert(imported.withCustomTitle(nil), maxCount: Int.max)
+        try s.setDeletedAt(nil, id: imported.id)
+        _ = try s.upsert(imported, maxCount: Int.max)
+        precondition(load(s, imported.id).deletedAt == nil, "an existing row ignores an item's deletion")
     }
 }

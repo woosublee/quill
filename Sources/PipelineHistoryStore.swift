@@ -628,7 +628,7 @@ final class PipelineHistoryStore {
     }
 
     /// Applies `item` and advances the clock of the field groups it
-    /// changed. `deletedAt` is left alone: only `setDeletedAt` writes it.
+    /// changed.
     private func applyStamping(
         _ item: PipelineHistoryItem,
         to entity: PipelineHistoryEntry,
@@ -643,6 +643,12 @@ final class PipelineHistoryStore {
         )
         Self.apply(item, to: entity)
         entity.fieldClockJSON = Self.encodeClock(clock)
+        // A new row takes the item's deletion, so a note imported from a
+        // snapshot while it was in Recently Deleted stays there. An existing
+        // row's deletion changes only through `setDeletedAt`.
+        if isNew {
+            entity.deletedAt = item.deletedAt
+        }
     }
 
     private static func decodeClock(_ data: Data?) -> NoteFieldClock? {

@@ -96,7 +96,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         appState.startLocalAIIdleShutdownMonitoring()
-        appState.purgeExpiredRecentlyDeletedNotes()
+        appState.startRecentlyDeletedPurgeSchedule()
 
         if !appState.hasCompletedSetup {
             showSetupWindow()

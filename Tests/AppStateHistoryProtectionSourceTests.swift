@@ -164,6 +164,36 @@ struct AppStateHistoryProtectionSourceTests {
             "delayed orphan cleanup uses the startup reference snapshot time"
         )
 
+        // Recently Deleted rows are part of the stored history: recovery
+        // compares against them and a cancelled job never removes audio they
+        // still use. Exercising either needs a recovery snapshot import or a
+        // cancelled live transcription, so these stay source checks.
+        try expect(
+            !source.contains("activeHistory: pipelineHistory")
+                && source.contains("activeHistory: storedHistory"),
+            "history recovery compares against live and Recently Deleted notes"
+        )
+        let cancelRange = try source.range(
+            from: "let cancelledStatus = localizedCatalogString(\"Cancelled\")",
+            to: "finishTranscriptionJob(job.id)"
+        )
+        try expect(
+            String(source[cancelRange]).contains("storedHistory.contains(where: {"),
+            "a cancelled job keeps audio a Recently Deleted note uses"
+        )
+        // The purge runs from a timer and when Settings opens; it waits
+        // silently instead of raising the busy-history error banner.
+        let purgeRange = try source.range(
+            from: "func purgeExpiredRecentlyDeletedNotes(",
+            to: "\n    }\n"
+        )
+        let purge = String(source[purgeRange])
+        try expect(
+            purge.contains("HistoryWorkflowAdmission.mutation(")
+                && !purge.contains("deleteRecentlyDeletedNoteNow(id:"),
+            "the purge checks history admission silently and deletes in one batch"
+        )
+
         print("AppStateHistoryProtectionSourceTests passed")
     }
 

@@ -3,7 +3,8 @@ import SwiftUI
 /// Settings › Recovery: deleted notes waiting out their 30 days.
 struct RecentlyDeletedNotesSection: View {
     @EnvironmentObject private var appState: AppState
-    @State private var restoredIDs: [UUID: PipelineHistoryItem] = [:]
+    /// Notes restored from this section, in the order they were restored.
+    @State private var restoredNotes: [PipelineHistoryItem] = []
     @State private var pendingDeleteNow: PipelineHistoryItem?
 
     var body: some View {
@@ -23,7 +24,7 @@ struct RecentlyDeletedNotesSection: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if appState.recentlyDeletedNotes.isEmpty && restoredIDs.isEmpty {
+            if appState.recentlyDeletedNotes.isEmpty && restoredNotes.isEmpty {
                 Text("No recently deleted notes")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
@@ -34,7 +35,7 @@ struct RecentlyDeletedNotesSection: View {
                         deletedRow(note)
                         Divider()
                     }
-                    ForEach(Array(restoredIDs.values), id: \.id) { note in
+                    ForEach(restoredNotes, id: \.id) { note in
                         restoredRow(note)
                         Divider()
                     }
@@ -81,15 +82,18 @@ struct RecentlyDeletedNotesSection: View {
             Spacer(minLength: 8)
             if let deletedAt = note.deletedAt {
                 let days = RecentlyDeletedPolicy.daysLeft(deletedAt: deletedAt, now: Date())
-                Text(localizedCatalogFormat("%lld days left", Int64(days)))
+                Text(days == 1
+                    ? localizedCatalogString("1 day left")
+                    : localizedCatalogFormat("%lld days left", Int64(days)))
                     .font(.system(size: 11))
                     .foregroundStyle(days <= 1 ? Color.orange : Color.secondary)
                     .monospacedDigit()
             }
             Button("Restore") {
                 appState.restoreRecentlyDeletedNote(id: note.id)
-                if !appState.recentlyDeletedNotes.contains(where: { $0.id == note.id }) {
-                    restoredIDs[note.id] = note
+                if !appState.recentlyDeletedNotes.contains(where: { $0.id == note.id }),
+                   !restoredNotes.contains(where: { $0.id == note.id }) {
+                    restoredNotes.append(note)
                 }
             }
             Button("Delete Now", role: .destructive) {
