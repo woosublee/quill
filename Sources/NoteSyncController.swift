@@ -48,6 +48,7 @@ final class NoteSyncController: ObservableObject {
 
     private let defaults: UserDefaults
     private let createZone: () async throws -> Void
+    private let localAudioURL: (String) -> URL?
     private let makeEngine: (NoteSyncEngineEvents) -> NoteSyncEngineHandle?
     private weak var store: NoteSyncLocalStore?
     private var engine: NoteSyncEngineHandle?
@@ -57,11 +58,13 @@ final class NoteSyncController: ObservableObject {
         defaults: UserDefaults = .standard,
         unavailableReason: NoteSyncUnavailableReason? = NoteSyncAvailability.current(),
         createZone: @escaping () async throws -> Void,
+        localAudioURL: @escaping (String) -> URL? = { _ in nil },
         makeEngine: @escaping (NoteSyncEngineEvents) -> NoteSyncEngineHandle?
     ) {
         self.defaults = defaults
         self.unavailableReason = unavailableReason
         self.createZone = createZone
+        self.localAudioURL = localAudioURL
         self.makeEngine = makeEngine
         isEnabled = unavailableReason == nil && defaults.bool(forKey: Self.enabledKey)
     }
@@ -80,6 +83,25 @@ final class NoteSyncController: ObservableObject {
 
     var syncableNoteCount: Int {
         store?.syncableNoteIDs().count ?? 0
+    }
+
+    /// Audio the first upload sends, for the turn-on confirmation: audio on
+    /// this Mac that isn't in iCloud yet.
+    var uploadAudioByteCount: Int64 {
+        guard let store else { return 0 }
+        return store.syncableNoteIDs().reduce(Int64(0)) { total, id in
+            guard store.audioManifest(id: id) == nil else { return total }
+            return total + (store.localAudioFile(id: id, resolve: localAudioURL)?.bytes ?? 0)
+        }
+    }
+
+    /// Notes whose audio is in iCloud but not on this Mac, for the turn-off
+    /// confirmation: deleting from iCloud loses that audio.
+    var notesWithAudioOnlyInICloud: Int {
+        guard let store else { return 0 }
+        return store.syncableNoteIDs().filter { id in
+            store.audioManifest(id: id) != nil && store.localAudioFile(id: id, resolve: localAudioURL) == nil
+        }.count
     }
 
     /// Returns why sync stayed off, or nil once it is on. The status from
@@ -142,7 +164,7 @@ final class NoteSyncController: ObservableObject {
               let engine = makeEngine(NoteSyncEngineEvents(remoteChange: { [weak self] change in
                   self?.onRemoteChange?(change)
               })) else { return }
-        let coordinator = NoteSyncCoordinator(store: store, engine: engine)
+        let coordinator = NoteSyncCoordinator(store: store, engine: engine, localAudioURL: localAudioURL)
         coordinator.onStatusChange = { [weak self] status in
             self?.coordinatorStatusChanged(status)
         }
@@ -155,7 +177,11 @@ final class NoteSyncController: ObservableObject {
         self.coordinator = coordinator
         status = coordinator.status
         engine.start()
-        if initialUpload { coordinator.startInitialUpload() }
+        if initialUpload {
+            coordinator.startInitialUpload()
+        } else {
+            coordinator.resumeAudioUploads()
+        }
     }
 
     private func startOver() {

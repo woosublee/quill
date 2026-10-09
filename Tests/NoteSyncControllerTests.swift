@@ -3,7 +3,7 @@ import Foundation
 @main
 struct NoteSyncControllerTests {
     @MainActor
-    static func main() {
+    static func main() throws {
         testAvailabilityDecision()
         testStartsOffAndStaysOffWhenUnavailable()
         testTurnOnUploadsEverySyncableNote()
@@ -19,15 +19,54 @@ struct NoteSyncControllerTests {
         testTurnOnStaysOffWhenICloudIsUnreachable()
         testTurnOnWaitsForAReadyStore()
         testTurnOnFailureKeepsWhySyncStopped()
+        try testConfirmationsCountAudio()
         print("NoteSyncControllerTests passed")
+    }
+
+    @MainActor
+    static func testConfirmationsCountAudio() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quill-controller-audio-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data(count: 300).write(to: dir.appendingPathComponent("here.wav"))
+        try Data(count: 200).write(to: dir.appendingPathComponent("uploaded.wav"))
+        let store = FakeStore()
+        let here = UUID(), uploaded = UUID(), elsewhere = UUID()
+        for (id, name) in [(here, "here.wav"), (uploaded, "uploaded.wav"), (elsewhere, "elsewhere.wav")] {
+            store.ids.append(id)
+            store.records[id] = NoteSyncRecord(
+                noteID: id,
+                fields: [NoteSyncField.audioFileName.rawValue: .string(name)],
+                clock: NoteFieldClock(stamps: [:]),
+                deletedAt: nil
+            )
+        }
+        let manifest = NoteAudioManifest(sha256: "x", bytes: 1, partSize: 50_000_000, parts: 1)
+        store.manifests[uploaded] = manifest
+        store.manifests[elsewhere] = manifest
+        let controller = NoteSyncController(
+            defaults: UserDefaults(suiteName: "quill-controller-audio-\(UUID().uuidString)")!,
+            unavailableReason: nil,
+            createZone: {},
+            localAudioURL: { name in
+                let url = dir.appendingPathComponent(name)
+                return FileManager.default.fileExists(atPath: url.path) ? url : nil
+            },
+            makeEngine: { _ in nil }
+        )
+        controller.attach(store: store)
+        precondition(controller.uploadAudioByteCount == 300, "only audio that will upload")
+        precondition(controller.notesWithAudioOnlyInICloud == 1)
     }
 
     final class FakeStore: NoteSyncLocalStore {
         var ids: [UUID] = []
         var cleared = false
         var isReadyForSync = true
+        var records: [UUID: NoteSyncRecord] = [:]
         func syncRecord(id: UUID) -> NoteSyncRecord? {
-            ids.contains(id) ? NoteSyncRecord(noteID: id, fields: [:], clock: NoteFieldClock(stamps: [:]), deletedAt: nil) : nil
+            if let record = records[id] { return record }
+            return ids.contains(id) ? NoteSyncRecord(noteID: id, fields: [:], clock: NoteFieldClock(stamps: [:]), deletedAt: nil) : nil
         }
         func syncSystemFields(id: UUID) -> Data? { nil }
         func setSyncSystemFields(_ data: Data?, id: UUID) {}
@@ -36,8 +75,9 @@ struct NoteSyncControllerTests {
         func isSyncable(id: UUID) -> Bool { ids.contains(id) }
         func applySynced(_ record: NoteSyncRecord, systemFields: Data?) throws -> NoteSyncApplyResult { .inserted }
         func removeSynced(id: UUID) throws -> DeletedPipelineHistoryAssets? { nil }
-        func audioManifest(id: UUID) -> NoteAudioManifest? { nil }
-        func setAudioManifest(_ manifest: NoteAudioManifest, id: UUID) throws {}
+        var manifests: [UUID: NoteAudioManifest] = [:]
+        func audioManifest(id: UUID) -> NoteAudioManifest? { manifests[id] }
+        func setAudioManifest(_ manifest: NoteAudioManifest, id: UUID) throws { manifests[id] = manifest }
     }
 
     final class FakeEngine: NoteSyncEngineHandle {

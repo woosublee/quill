@@ -198,11 +198,13 @@ struct NoteAssetStore: Sendable {
     }
 
     func storedAudioURL(for item: PipelineHistoryItem) -> URL? {
-        guard let fileName = item.audioFileName else { return nil }
-        return Self.storedFileURL(
-            fileName: fileName,
-            in: storageLayout.audioDirectory
-        )
+        item.audioFileName.flatMap(storedAudioURL(fileName:))
+    }
+
+    /// Where a note's audio file lives, after the safe-name check. The file
+    /// may not exist.
+    func storedAudioURL(fileName: String) -> URL? {
+        Self.storedFileURL(fileName: fileName, in: storageLayout.audioDirectory)
     }
 
     private func sweepOrphans(

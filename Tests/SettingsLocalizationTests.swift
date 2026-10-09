@@ -311,6 +311,9 @@ struct SettingsLocalizationTests {
             "Turn Off and Delete from iCloud": "끄고 iCloud에서도 지우기",
             "Couldn't delete from iCloud": "iCloud에서 지우지 못했어요",
             "Couldn't turn on iCloud sync": "iCloud 동기화를 켜지 못했어요",
+            "This includes %@ of audio.": "오디오 %@도 함께 올라가요.",
+            "1 note has audio that isn't on this Mac yet. Turn Off and Delete from iCloud deletes it for good.": "아직 이 Mac으로 받지 않은 오디오가 있는 노트가 1개 있어요. 끄고 iCloud에서도 지우면 그 오디오는 영영 사라져요.",
+            "%lld notes have audio that isn't on this Mac yet. Turn Off and Delete from iCloud deletes it for good.": "아직 이 Mac으로 받지 않은 오디오가 있는 노트가 %lld개 있어요. 끄고 iCloud에서도 지우면 그 오디오는 영영 사라져요.",
             "Check your internet connection and try again. Sync is still off.": "인터넷 연결을 확인하고 다시 시도해 주세요. 동기화는 꺼진 상태예요.",
             "Check your iCloud account in System Settings, then try again.": "시스템 설정에서 iCloud 계정을 확인한 뒤 다시 시도해 주세요.",
             "Notes can't sync right now. If history recovery is running, try again after it finishes.": "지금은 노트를 동기화할 수 없어요. 기록 복구 중이라면 끝난 뒤 다시 시도해 주세요.",
@@ -356,7 +359,10 @@ struct SettingsLocalizationTests {
         assert(view.contains("Text(\"Notes, transcripts, and summaries are saved to your iCloud. They appear on your other Macs with the same iCloud account.\")\n                VStack(alignment: .leading, spacing: 2) {\n                    Text(\"Screenshots and window details stay on this Mac.\")\n                    Text(\"Settings, vocabulary, and API keys don't sync. Each Mac keeps its own.\")"))
         assert(view.contains("Button(\"Turn Off and Delete from iCloud\", role: .destructive) {\n                turnOff(deleteFromICloud: true)"))
         assert(view.contains("Button(\"Turn Off Sync\") {\n                turnOff(deleteFromICloud: false)"))
-        assert(!view.lowercased().contains("audio"), "audio sync arrives in a later step")
+        // The confirmations say how much audio goes up, and what deleting
+        // from iCloud would lose.
+        assert(view.contains("Text(turnOnMessage) + audioSizeText + Text(\"\\n\\n\")"))
+        assert(view.contains("each Mac keeps its notes.\") + audioOnlyInICloudText"))
         let settings = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
         assert(settings.contains("case .sync:\n                    SyncSettingsView()"))
     }

@@ -20740,6 +20740,54 @@
           }
         }
       }
+    },
+    "This includes %@ of audio.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This includes %@ of audio."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오 %@도 함께 올라가요."
+          }
+        }
+      }
+    },
+    "1 note has audio that isn't on this Mac yet. Turn Off and Delete from iCloud deletes it for good.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 note has audio that isn't on this Mac yet. Turn Off and Delete from iCloud deletes it for good."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 이 Mac으로 받지 않은 오디오가 있는 노트가 1개 있어요. 끄고 iCloud에서도 지우면 그 오디오는 영영 사라져요."
+          }
+        }
+      }
+    },
+    "%lld notes have audio that isn't on this Mac yet. Turn Off and Delete from iCloud deletes it for good.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld notes have audio that isn't on this Mac yet. Turn Off and Delete from iCloud deletes it for good."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 이 Mac으로 받지 않은 오디오가 있는 노트가 %lld개 있어요. 끄고 iCloud에서도 지우면 그 오디오는 영영 사라져요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
