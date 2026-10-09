@@ -677,24 +677,38 @@ final class PipelineHistoryStore {
         return data
     }
 
-    func setSyncSystemFields(_ data: Data?, id: UUID) {
+    func setSyncSystemFields(_ data: Data?, id: UUID) throws {
+        var thrownError: Error?
         container.viewContext.performAndWait {
-            guard let entity = (try? fetchEntry(id: id)) ?? nil else { return }
-            entity.syncSystemFields = data
-            try? saveContext()
+            do {
+                guard let entity = try fetchEntry(id: id) else {
+                    throw PipelineHistoryStoreError.historyEntryNotFound
+                }
+                entity.syncSystemFields = data
+                try saveContext()
+            } catch {
+                thrownError = error
+            }
         }
+        if let thrownError { throw thrownError }
     }
 
     /// Forgets which notes reached iCloud, after the iCloud data went away
     /// (account change, or deleted from iCloud).
-    func clearAllSyncSystemFields() {
+    func clearAllSyncSystemFields() throws {
+        var thrownError: Error?
         container.viewContext.performAndWait {
-            let request = pipelineHistoryRequest()
-            request.predicate = NSPredicate(format: "syncSystemFields != nil")
-            guard let entities = try? historyFetcher(container.viewContext, request) else { return }
-            for entity in entities { entity.syncSystemFields = nil }
-            try? saveContext()
+            do {
+                let request = pipelineHistoryRequest()
+                request.predicate = NSPredicate(format: "syncSystemFields != nil")
+                let entities = try historyFetcher(container.viewContext, request)
+                for entity in entities { entity.syncSystemFields = nil }
+                try saveContext()
+            } catch {
+                thrownError = error
+            }
         }
+        if let thrownError { throw thrownError }
     }
 
     /// Every note settled enough to send, Recently Deleted included.

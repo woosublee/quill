@@ -16,6 +16,7 @@ struct PipelineHistorySyncStoreTests {
         try testClearAllReportsEveryDelete()
         try testClearAllSyncSystemFields()
         try testLegacyStoreMigratesWithNewAttributes()
+        testChangeTagForMissingNoteThrows()
         try testUnreadableRecordIsRejected()
         try testLocalOnlyEditsAreNotReported()
         print("PipelineHistorySyncStoreTests passed")
@@ -150,7 +151,7 @@ struct PipelineHistorySyncStoreTests {
         let s = store()
         let note = makeItem()
         _ = try s.append(note, maxCount: Int.max)
-        s.setSyncSystemFields(Data([9]), id: note.id)
+        try s.setSyncSystemFields(Data([9]), id: note.id)
         var changes: [PipelineHistoryChange] = []
         s.onChange = { changes += $0 }
         _ = try s.delete(id: note.id)
@@ -186,7 +187,7 @@ struct PipelineHistorySyncStoreTests {
         let a = makeItem(), b = makeItem()
         _ = try s.append(a, maxCount: Int.max)
         _ = try s.append(b, maxCount: Int.max)
-        s.setSyncSystemFields(Data([1]), id: a.id)
+        try s.setSyncSystemFields(Data([1]), id: a.id)
         var changes: [PipelineHistoryChange] = []
         s.onChange = { changes += $0 }
         _ = try s.clearAll()
@@ -200,8 +201,8 @@ struct PipelineHistorySyncStoreTests {
         let s = store()
         let a = makeItem()
         _ = try s.append(a, maxCount: Int.max)
-        s.setSyncSystemFields(Data([1]), id: a.id)
-        s.clearAllSyncSystemFields()
+        try s.setSyncSystemFields(Data([1]), id: a.id)
+        try s.clearAllSyncSystemFields()
         precondition(s.syncSystemFields(id: a.id) == nil)
     }
 
@@ -255,5 +256,13 @@ struct PipelineHistorySyncStoreTests {
         precondition(changes.isEmpty, "a change only to fields that never sync uploads nothing")
         try s.update(localOnly.withCustomTitle("Visible"))
         precondition(changes == [.saved(note.id)])
+    }
+
+    private static func testChangeTagForMissingNoteThrows() {
+        let s = store()
+        do {
+            try s.setSyncSystemFields(Data([1]), id: UUID())
+            preconditionFailure("recording a change tag for a missing note must fail")
+        } catch {}
     }
 }

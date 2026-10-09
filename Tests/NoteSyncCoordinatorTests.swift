@@ -24,6 +24,8 @@ struct NoteSyncCoordinatorTests {
         testServerChangedWithUnreadableServerCopyIsNotOverwritten()
         testSavedNoteThatIsGoneIsDeletedFromICloud()
         try testStoppedCoordinatorIgnoresEverything()
+        testUnsavedChangeTagIsNotCountedAsUploaded()
+        testAccountChangeStaysPausedWhenClearingFails()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -39,8 +41,16 @@ struct NoteSyncCoordinatorTests {
 
         func syncRecord(id: UUID) -> NoteSyncRecord? { records[id] }
         func syncSystemFields(id: UUID) -> Data? { systemFields[id] }
-        func setSyncSystemFields(_ data: Data?, id: UUID) { systemFields[id] = data }
-        func clearAllSyncSystemFields() { clearedSystemFields = true; systemFields = [:] }
+        var systemFieldsSaveError: Error?
+        func setSyncSystemFields(_ data: Data?, id: UUID) throws {
+            if let systemFieldsSaveError { throw systemFieldsSaveError }
+            systemFields[id] = data
+        }
+        func clearAllSyncSystemFields() throws {
+            if let systemFieldsSaveError { throw systemFieldsSaveError }
+            clearedSystemFields = true
+            systemFields = [:]
+        }
         func syncableNoteIDs() -> [UUID] { records.keys.filter(syncable.contains).sorted { $0.uuidString < $1.uuidString } }
         func isSyncable(id: UUID) -> Bool { syncable.contains(id) && records[id] != nil }
         func applySynced(_ record: NoteSyncRecord, systemFields: Data?) throws -> NoteSyncApplyResult {
@@ -303,5 +313,30 @@ struct NoteSyncCoordinatorTests {
         precondition(coordinator.outgoing(for: note.noteID) == nil, "queued saves are dropped")
         coordinator.handleSaved(id: note.noteID, systemFields: Data([5]))
         precondition(store.systemFields[note.noteID] == nil && engine.deletes.isEmpty)
+    }
+
+    @MainActor
+    static func testUnsavedChangeTagIsNotCountedAsUploaded() {
+        let (coordinator, store, _) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        store.syncable = [note.noteID]
+        coordinator.startInitialUpload()
+        store.systemFieldsSaveError = PipelineHistoryStoreError.storeUnavailable
+        coordinator.handleSaved(id: note.noteID, systemFields: Data([1]))
+        precondition(coordinator.status == .uploading(done: 0, total: 1), "a save this Mac couldn't record isn't counted as done")
+    }
+
+    @MainActor
+    static func testAccountChangeStaysPausedWhenClearingFails() {
+        let (coordinator, store, engine) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        store.syncable = [note.noteID]
+        store.systemFieldsSaveError = PipelineHistoryStoreError.storeUnavailable
+        coordinator.handleAccountChange(signedOut: false)
+        precondition(coordinator.status == .paused(.accountChanged))
+        coordinator.handleLocalChanges([.saved(note.noteID)])
+        precondition(engine.saves.isEmpty, "sync stays stopped even if clearing failed")
     }
 }

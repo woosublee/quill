@@ -5,8 +5,8 @@ import Foundation
 protocol NoteSyncLocalStore: AnyObject {
     func syncRecord(id: UUID) -> NoteSyncRecord?
     func syncSystemFields(id: UUID) -> Data?
-    func setSyncSystemFields(_ data: Data?, id: UUID)
-    func clearAllSyncSystemFields()
+    func setSyncSystemFields(_ data: Data?, id: UUID) throws
+    func clearAllSyncSystemFields() throws
     func syncableNoteIDs() -> [UUID]
     func isSyncable(id: UUID) -> Bool
     func applySynced(_ record: NoteSyncRecord, systemFields: Data?) throws -> NoteSyncApplyResult
@@ -136,7 +136,14 @@ final class NoteSyncCoordinator {
             engine.enqueueDeletes([id])
             return
         }
-        store.setSyncSystemFields(systemFields, id: id)
+        do {
+            try store.setSyncSystemFields(systemFields, id: id)
+        } catch {
+            // Without its change tag the next save conflicts and merges, so
+            // the note isn't lost; it just isn't counted as uploaded.
+            print("[NoteSync] Couldn't record an uploaded note")
+            return
+        }
         if case .uploading = status {
             uploadDone = min(uploadDone + 1, uploadTotal)
             status = .uploading(done: uploadDone, total: uploadTotal)
@@ -144,7 +151,8 @@ final class NoteSyncCoordinator {
     }
 
     func handleDeleted(id: UUID) {
-        store.setSyncSystemFields(nil, id: id)
+        // The note is usually gone already; nothing is left to update then.
+        try? store.setSyncSystemFields(nil, id: id)
     }
 
     func handleSendFailures(_ failures: [NoteSyncSendFailure]) {
@@ -175,7 +183,7 @@ final class NoteSyncCoordinator {
             case .network:
                 offline = true
             case .unknownItemOnDelete(let id):
-                store.setSyncSystemFields(nil, id: id)
+                try? store.setSyncSystemFields(nil, id: id)
             case .other:
                 break
             }
@@ -244,14 +252,25 @@ final class NoteSyncCoordinator {
     }
 
     func handleAccountChange(signedOut: Bool) {
-        store.clearAllSyncSystemFields()
+        // Paused first, so sync stays stopped even if clearing fails.
         status = .paused(signedOut ? .signedOut : .accountChanged)
+        clearChangeTags()
         print("[NoteSync] Paused: iCloud account \(signedOut ? "signed out" : "changed")")
     }
 
     func handleZoneDeleted() {
-        store.clearAllSyncSystemFields()
         status = .paused(.deletedElsewhere)
+        clearChangeTags()
         print("[NoteSync] Paused: iCloud data was deleted from another Mac")
+    }
+
+    /// Stale change tags only cause conflicts that merge on the next upload,
+    /// so a failure here is logged, not fatal.
+    private func clearChangeTags() {
+        do {
+            try store.clearAllSyncSystemFields()
+        } catch {
+            print("[NoteSync] Couldn't clear change tags")
+        }
     }
 }
