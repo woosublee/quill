@@ -10,6 +10,7 @@ struct NoteSyncPayloadTests {
         testMalformedPayloadIsRejected()
         try testFieldsAloneRoundTrip()
         try testRecordFromItemSurvivesTransportUnchanged()
+        try testOnlyExactIntegersReadAsInt()
         print("NoteSyncPayloadTests passed")
     }
 
@@ -90,5 +91,14 @@ struct NoteSyncPayloadTests {
         let record = NoteSyncRecord(item: item)
         let received = try NoteSyncPayload.decode(NoteSyncPayload.encode(record))
         precondition(received == record, "a record reads back equal after transport")
+    }
+
+    static func testOnlyExactIntegersReadAsInt() throws {
+        let json = "{\"v\":1,\"id\":\"11111111-2222-3333-4444-555555555555\",\"fields\":{\"a\":{\"i\":1.5},\"b\":{\"i\":7},\"c\":{\"i\":1e20}},\"clock\":{}}"
+        let decoded = try NoteSyncPayload.decode(Data(json.utf8))
+        precondition(decoded.fields["b"] == .int(7))
+        guard case .raw? = decoded.fields["a"], case .raw? = decoded.fields["c"] else {
+            preconditionFailure("a number that is not an exact integer stays raw")
+        }
     }
 }

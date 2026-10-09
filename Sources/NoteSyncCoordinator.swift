@@ -125,11 +125,17 @@ final class NoteSyncCoordinator {
     /// The record to send for `id`, or nil when the note is gone or still
     /// in progress (its pending change is then dropped).
     func outgoing(for id: UUID) -> NoteSyncOutgoing? {
-        guard store.isSyncable(id: id), let record = store.syncRecord(id: id) else { return nil }
+        guard !isStopped, store.isSyncable(id: id), let record = store.syncRecord(id: id) else { return nil }
         return NoteSyncOutgoing(record: record, systemFields: store.syncSystemFields(id: id))
     }
 
     func handleSaved(id: UUID, systemFields: Data) {
+        guard !isStopped else { return }
+        guard store.syncRecord(id: id) != nil else {
+            // Deleted here while its upload was in flight.
+            engine.enqueueDeletes([id])
+            return
+        }
         store.setSyncSystemFields(systemFields, id: id)
         if case .uploading = status {
             uploadDone = min(uploadDone + 1, uploadTotal)
@@ -145,24 +151,25 @@ final class NoteSyncCoordinator {
         var quotaCount = 0
         var offline = false
         var resend: [UUID] = []
+        var deletes: [UUID] = []
         for failure in failures {
             switch failure {
             case .serverChanged(let id, let payload, let serverFields):
-                let server = payload.flatMap { try? NoteSyncPayload.decode($0) }
-                guard let server, server.noteID == id else {
-                    store.setSyncSystemFields(serverFields, id: id)
-                    resend.append(id)
+                guard store.syncRecord(id: id) != nil else {
+                    // Deleted here while the save was in flight: delete the
+                    // server copy rather than bring the note back.
+                    deletes.append(id)
                     continue
                 }
-                switch try? store.applySynced(server, systemFields: serverFields) {
-                case .updated(needsUpload: false)?:
-                    break
-                case .inserted?, .updated(needsUpload: true)?:
-                    resend.append(id)
-                case nil:
-                    store.setSyncSystemFields(serverFields, id: id)
-                    resend.append(id)
+                // Without a server copy merged in, the local note never
+                // overwrites the server; the next fetch brings the server
+                // copy, and the merge sends what this Mac has newer.
+                guard let server = payload.flatMap({ try? NoteSyncPayload.decode($0) }),
+                      server.noteID == id,
+                      let result = try? store.applySynced(server, systemFields: serverFields) else {
+                    continue
                 }
+                if result != .updated(needsUpload: false) { resend.append(id) }
             case .quotaExceeded:
                 quotaCount += 1
             case .network:
@@ -173,7 +180,10 @@ final class NoteSyncCoordinator {
                 break
             }
         }
-        if !resend.isEmpty, !isStopped { engine.enqueueSaves(resend) }
+        if !isStopped {
+            if !resend.isEmpty { engine.enqueueSaves(resend) }
+            if !deletes.isEmpty { engine.enqueueDeletes(deletes) }
+        }
         if quotaCount > 0 {
             status = .paused(.quotaExceeded(pending: quotaCount))
         } else if offline {
@@ -186,6 +196,9 @@ final class NoteSyncCoordinator {
 
     func handleFetched(_ records: [NoteSyncFetched], deletions: [UUID]) -> NoteSyncRemoteChange {
         var change = NoteSyncRemoteChange()
+        // After an account change or a deletion elsewhere, nothing that
+        // arrives touches local notes.
+        guard !isStopped else { return change }
         var needsUpload: [UUID] = []
         for fetched in records {
             guard let payload = fetched.payload,

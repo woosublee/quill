@@ -63,6 +63,18 @@ enum NoteSyncField: String, CaseIterable, Sendable {
         }
     }
 
+    enum ValueKind { case string, date, bool, data }
+
+    /// The kind of value this field always carries.
+    var valueKind: ValueKind {
+        switch self {
+        case .meetingSummaryJSON, .meetingSummaryAttempt, .calendarMatch: return .data
+        case .timestamp, .recordingStartedAt, .recordingEndedAt: return .date
+        case .usedLocalTranscription, .usedPostProcessing: return .bool
+        default: return .string
+        }
+    }
+
     /// The `PipelineHistoryItem` coding key this field comes from.
     var itemKey: String {
         self == .aiProcessingOutcome ? "storedAIProcessingOutcome" : rawValue
@@ -127,6 +139,31 @@ struct NoteSyncRecord: Equatable, Sendable {
             clock: (item.fieldClock ?? NoteFieldClock.uniform(item.timestamp)).roundedToMilliseconds(),
             deletedAt: item.deletedAt?.roundedToMilliseconds()
         )
+    }
+
+    /// Whether a known field holds a value this build can't read: another
+    /// value kind, or an intent or language source it doesn't know. Such a
+    /// record is skipped rather than applied with values lost. Newer builds
+    /// never change the shape of a shipped key; a new shape gets a new key.
+    var hasUnreadableKnownFields: Bool {
+        if let version = fields[Self.schemaVersionKey], case .int = version {} else if fields[Self.schemaVersionKey] != nil {
+            return true
+        }
+        return NoteSyncField.allCases.contains { field in
+            guard let value = fields[field.rawValue] else { return false }
+            switch (field.valueKind, value) {
+            case (.string, .string(let text)):
+                switch field {
+                case .intent: return PipelineHistoryItemIntent(rawValue: text) == nil
+                case .spokenLanguageResolution: return SpokenLanguageResolutionSource(rawValue: text) == nil
+                default: return false
+                }
+            case (.date, .date), (.bool, .bool), (.data, .data):
+                return false
+            default:
+                return true
+            }
+        }
     }
 
     /// Whether every field a note needs is present. A record without them

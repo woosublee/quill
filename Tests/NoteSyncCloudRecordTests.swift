@@ -10,6 +10,7 @@ struct NoteSyncCloudRecordTests {
         try testSystemFieldsKeepIdentity()
         testNoteIDRejectsForeignNames()
         try testMismatchedSystemFieldsAreIgnored()
+        try testOutboxFilesAreRemoved()
         print("NoteSyncCloudRecordTests passed")
     }
 
@@ -71,5 +72,18 @@ struct NoteSyncCloudRecordTests {
         let mine = outgoing(systemFields: NoteSyncCloudRecord.systemFields(of: other))
         let record = try NoteSyncCloudRecord.makeRecord(mine, outbox: folder)
         precondition(record.recordID.recordName == mine.record.noteID.uuidString, "another note's system fields never rename a record")
+    }
+
+    static func testOutboxFilesAreRemoved() throws {
+        let folder = outbox()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let a = outgoing(), b = outgoing()
+        _ = try NoteSyncCloudRecord.makeRecord(a, outbox: folder)
+        _ = try NoteSyncCloudRecord.makeRecord(b, outbox: folder)
+        NoteSyncCloudRecord.removeOutboxFile(for: a.record.noteID, in: folder)
+        precondition(!FileManager.default.fileExists(atPath: NoteSyncCloudRecord.outboxFile(for: a.record.noteID, in: folder).path))
+        precondition(FileManager.default.fileExists(atPath: NoteSyncCloudRecord.outboxFile(for: b.record.noteID, in: folder).path))
+        NoteSyncCloudRecord.removeAllOutboxFiles(in: folder)
+        precondition(((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).isEmpty, "no note content is left on disk")
     }
 }

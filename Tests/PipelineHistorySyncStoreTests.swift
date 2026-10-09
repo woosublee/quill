@@ -16,6 +16,8 @@ struct PipelineHistorySyncStoreTests {
         try testClearAllReportsEveryDelete()
         try testClearAllSyncSystemFields()
         try testLegacyStoreMigratesWithNewAttributes()
+        try testUnreadableRecordIsRejected()
+        try testLocalOnlyEditsAreNotReported()
         print("PipelineHistorySyncStoreTests passed")
     }
 
@@ -211,5 +213,47 @@ struct PipelineHistorySyncStoreTests {
         let reopened = PipelineHistoryStore(storeURL: url)
         precondition(reopened.availability == .ready)
         precondition(reopened.syncRecord(id: id) != nil && reopened.syncSystemFields(id: id) == nil)
+    }
+
+    private static func testUnreadableRecordIsRejected() throws {
+        let s = store()
+        let note = makeItem(title: "Local")
+        _ = try s.append(note, maxCount: Int.max)
+        var remote = NoteSyncRecord(item: makeItem(id: note.id, title: "Remote", clock: .uniform(t0.addingTimeInterval(500))))
+        remote.fields[NoteSyncField.intent.rawValue] = .string("meetingV2")
+        do {
+            _ = try s.applySynced(remote, systemFields: nil)
+            preconditionFailure("a record with a value this build can't read is not applied")
+        } catch PipelineHistorySyncError.unreadableRecord {
+        } catch {
+            preconditionFailure("wrong error \(error)")
+        }
+        precondition(load(s, note.id).customTitle == "Local")
+    }
+
+    private static func testLocalOnlyEditsAreNotReported() throws {
+        let s = store()
+        let note = makeItem()
+        _ = try s.append(note, maxCount: Int.max)
+        var changes: [PipelineHistoryChange] = []
+        s.onChange = { changes += $0 }
+        let localOnly = PipelineHistoryItem(
+            id: note.id,
+            timestamp: t0,
+            rawTranscript: "synthetic raw",
+            postProcessedTranscript: "synthetic edited",
+            postProcessingPrompt: "a new local prompt",
+            contextSummary: "",
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: "succeeded",
+            debugStatus: "new debug detail",
+            customVocabulary: ""
+        )
+        try s.update(localOnly)
+        _ = try s.upsert(localOnly, maxCount: Int.max)
+        precondition(changes.isEmpty, "a change only to fields that never sync uploads nothing")
+        try s.update(localOnly.withCustomTitle("Visible"))
+        precondition(changes == [.saved(note.id)])
     }
 }

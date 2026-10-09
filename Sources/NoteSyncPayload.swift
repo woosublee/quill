@@ -79,9 +79,18 @@ enum NoteSyncPayload {
         case "d": return (inner as? NSNumber).map { .date(date($0.doubleValue)) }
         case "b": return (inner as? NSNumber).flatMap { CFGetTypeID($0) == CFBooleanGetTypeID() ? .bool($0.boolValue) : nil }
         case "x": return (inner as? String).flatMap { Data(base64Encoded: $0) }.map(NoteSyncValue.data)
-        case "i": return (inner as? NSNumber).flatMap { CFGetTypeID($0) == CFBooleanGetTypeID() ? nil : .int($0.intValue) }
+        case "i": return (inner as? NSNumber).flatMap(exactInteger).map(NoteSyncValue.int)
         default: return nil
         }
+    }
+
+    /// Only a whole number that fits an `Int` reads as one; anything else is
+    /// kept as raw JSON rather than changed.
+    private static func exactInteger(_ number: NSNumber) -> Int? {
+        guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+        let value = number.doubleValue
+        guard value == value.rounded(), abs(value) < 9_007_199_254_740_992 else { return nil }
+        return Int(exactly: value)
     }
 
     private static func milliseconds(_ date: Date) -> Int64 {

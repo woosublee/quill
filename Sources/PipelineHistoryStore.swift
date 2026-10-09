@@ -30,6 +30,8 @@ enum NoteSyncApplyResult: Equatable, Sendable {
 enum PipelineHistorySyncError: Error {
     /// A record for a note this Mac doesn't have lacks a required field.
     case incompleteRecord
+    /// A known field holds a value this build can't read.
+    case unreadableRecord
 }
 
 struct HistoryArchiveSnapshotComponent: Codable, Equatable, Sendable {
@@ -437,13 +439,14 @@ final class PipelineHistoryStore {
         }
 
         var thrownError: Error?
+        var didChangeSyncedContent = false
         container.viewContext.performAndWait {
             do {
                 let request = pipelineHistoryRequest()
                 request.predicate = NSPredicate(format: "id == %@", item.id as CVarArg)
                 let existing = try container.viewContext.fetch(request).first
                 let entity = existing ?? PipelineHistoryEntry(context: container.viewContext)
-                applyStamping(item, to: entity, isNew: existing == nil)
+                didChangeSyncedContent = applyStamping(item, to: entity, isNew: existing == nil)
                 if existing == nil, keepsImportedDeletion {
                     entity.deletedAt = item.deletedAt
                 }
@@ -453,7 +456,7 @@ final class PipelineHistoryStore {
             }
         }
         if let thrownError { throw thrownError }
-        onChange?([.saved(item.id)])
+        if didChangeSyncedContent { onChange?([.saved(item.id)]) }
         let deletedAssets = try trim(
             to: maxCount,
             shouldSynchronizeAssetReferenceSnapshot: false
@@ -475,6 +478,7 @@ final class PipelineHistoryStore {
 
         var thrownError: Error?
         var didChangeAssetReferences = false
+        var didChangeSyncedContent = false
         container.viewContext.performAndWait {
             do {
                 let request = pipelineHistoryRequest()
@@ -484,14 +488,14 @@ final class PipelineHistoryStore {
                 }
                 didChangeAssetReferences = entity.audioFileName != item.audioFileName
                     || entity.transcriptFileName != item.transcriptFileName
-                applyStamping(item, to: entity, isNew: false)
+                didChangeSyncedContent = applyStamping(item, to: entity, isNew: false)
                 try saveContext()
             } catch {
                 thrownError = error
             }
         }
         if let thrownError { throw thrownError }
-        onChange?([.saved(item.id)])
+        if didChangeSyncedContent { onChange?([.saved(item.id)]) }
         if didChangeAssetReferences {
             synchronizeAssetReferenceSnapshot()
         }
@@ -724,6 +728,9 @@ final class PipelineHistoryStore {
         guard availability == .ready, isStoreLoaded else {
             throw PipelineHistoryStoreError.storeUnavailable
         }
+        guard !record.hasUnreadableKnownFields else {
+            throw PipelineHistorySyncError.unreadableRecord
+        }
         var remote = record
         remote.clock = record.clock.roundedToMilliseconds()
         var result: NoteSyncApplyResult?
@@ -852,20 +859,26 @@ final class PipelineHistoryStore {
     /// Applies `item` and advances the clock of the field groups it
     /// changed. `deletedAt` is left alone: only `setDeletedAt` and a
     /// snapshot import write it.
+    /// Returns whether a synced field group changed (always for a new row),
+    /// so only those writes are reported to sync.
+    @discardableResult
     private func applyStamping(
         _ item: PipelineHistoryItem,
         to entity: PipelineHistoryEntry,
         isNew: Bool
-    ) {
+    ) -> Bool {
         let previous = isNew ? nil : Self.makeHistoryItem(from: entity)
+        let existing = isNew ? nil : Self.decodeClock(entity.fieldClockJSON)
         let clock = NoteFieldClock.stamped(
             previous: previous,
             current: item,
-            existing: isNew ? nil : Self.decodeClock(entity.fieldClockJSON),
+            existing: existing,
             now: now()
         )
         Self.apply(item, to: entity)
         entity.fieldClockJSON = Self.encodeClock(clock)
+        guard let previous, existing != nil else { return true }
+        return !NoteFieldClock.changedGroups(from: previous, to: item).isEmpty
     }
 
     private static func decodeClock(_ data: Data?) -> NoteFieldClock? {

@@ -20,6 +20,10 @@ struct NoteSyncCoordinatorTests {
         testAccountChangePausesWithoutDeleting()
         testZoneDeletedElsewherePausesWithoutPurging()
         testOutgoingSkipsGoneAndInProgressNotes()
+        try testServerChangedForDeletedNoteDeletesInsteadOfReviving()
+        testServerChangedWithUnreadableServerCopyIsNotOverwritten()
+        testSavedNoteThatIsGoneIsDeletedFromICloud()
+        try testStoppedCoordinatorIgnoresEverything()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -161,6 +165,7 @@ struct NoteSyncCoordinatorTests {
         let (coordinator, store, engine) = make()
         let server = record(title: "Server")
         store.applyResult = .updated(needsUpload: true)
+        store.records[server.noteID] = record(server.noteID, title: "Local")
         coordinator.handleSendFailures([
             .serverChanged(noteID: server.noteID, serverPayload: try NoteSyncPayload.encode(server), serverSystemFields: Data([3]))
         ])
@@ -173,6 +178,7 @@ struct NoteSyncCoordinatorTests {
         let (coordinator, store, engine) = make()
         let server = record()
         store.applyResult = .updated(needsUpload: false)
+        store.records[server.noteID] = record(server.noteID, title: "Local")
         coordinator.handleSendFailures([
             .serverChanged(noteID: server.noteID, serverPayload: try NoteSyncPayload.encode(server), serverSystemFields: Data([3]))
         ])
@@ -244,5 +250,58 @@ struct NoteSyncCoordinatorTests {
         precondition(coordinator.outgoing(for: settled.noteID) == NoteSyncOutgoing(record: settled, systemFields: Data([4])))
         precondition(coordinator.outgoing(for: inProgress.noteID) == nil)
         precondition(coordinator.outgoing(for: UUID()) == nil)
+    }
+
+    @MainActor
+    static func testServerChangedForDeletedNoteDeletesInsteadOfReviving() throws {
+        let (coordinator, store, engine) = make()
+        let server = record()
+        coordinator.handleSendFailures([
+            .serverChanged(noteID: server.noteID, serverPayload: try NoteSyncPayload.encode(server), serverSystemFields: Data([3]))
+        ])
+        precondition(store.applied.isEmpty, "a note deleted here is not brought back")
+        precondition(engine.saves.isEmpty && engine.deletes == [server.noteID])
+    }
+
+    @MainActor
+    static func testServerChangedWithUnreadableServerCopyIsNotOverwritten() {
+        let (coordinator, store, engine) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        store.syncable = [note.noteID]
+        store.systemFields[note.noteID] = Data([1])
+        coordinator.handleSendFailures([
+            .serverChanged(noteID: note.noteID, serverPayload: nil, serverSystemFields: Data([3])),
+            .serverChanged(noteID: note.noteID, serverPayload: Data("not json".utf8), serverSystemFields: Data([3]))
+        ])
+        store.applyError = PipelineHistorySyncError.unreadableRecord
+        coordinator.handleSendFailures([
+            .serverChanged(noteID: note.noteID, serverPayload: try! NoteSyncPayload.encode(note), serverSystemFields: Data([3]))
+        ])
+        precondition(engine.saves.isEmpty, "an unmerged local copy never overwrites the server")
+        precondition(store.systemFields[note.noteID] == Data([1]), "the old change tag is kept, so the next send conflicts again")
+    }
+
+    @MainActor
+    static func testSavedNoteThatIsGoneIsDeletedFromICloud() {
+        let (coordinator, store, engine) = make()
+        let id = UUID()
+        coordinator.handleSaved(id: id, systemFields: Data([1]))
+        precondition(engine.deletes == [id], "a note deleted while its upload was in flight is deleted from iCloud")
+        precondition(store.systemFields[id] == nil)
+    }
+
+    @MainActor
+    static func testStoppedCoordinatorIgnoresEverything() throws {
+        let (coordinator, store, engine) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        store.syncable = [note.noteID]
+        coordinator.handleZoneDeleted()
+        let change = coordinator.handleFetched([try fetched(record())], deletions: [UUID()])
+        precondition(change == NoteSyncRemoteChange() && store.applied.isEmpty && store.removed.isEmpty)
+        precondition(coordinator.outgoing(for: note.noteID) == nil, "queued saves are dropped")
+        coordinator.handleSaved(id: note.noteID, systemFields: Data([5]))
+        precondition(store.systemFields[note.noteID] == nil && engine.deletes.isEmpty)
     }
 }
