@@ -244,11 +244,9 @@ enum GoogleCalendarFetchFailure: Equatable {
 
     /// `isOnline` is the network monitor's view: a timeout or a missing
     /// host while it says offline is the network, otherwise the server.
-    static func of(_ error: Error, isOnline: Bool) -> GoogleCalendarFetchFailure {
-        of(error, isOnline: { isOnline })
-    }
-
-    /// Reads `isOnline` when the request failed, not when it started.
+    /// Reads `isOnline` when the request failed, not when it started. An
+    /// error other than a `URLError` means Google answered, so the network
+    /// works.
     static func of(_ error: Error, isOnline: () -> Bool) -> GoogleCalendarFetchFailure {
         if error is CancellationError { return .cancelled }
         if let urlError = error as? URLError {
@@ -258,10 +256,10 @@ enum GoogleCalendarFetchFailure: Equatable {
             case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed, .internationalRoamingOff:
                 return .offline
             default:
-                break
+                return isOnline() ? .failed : .offline
             }
         }
-        return isOnline() ? .failed : .offline
+        return .failed
     }
 }
 
@@ -270,12 +268,15 @@ enum GoogleCalendarFetchFailure: Equatable {
 /// Only a complete fetch is saved, with the account and calendars it read.
 struct GoogleReminderEventsCache: Equatable {
     let fetchedAt: Date
+    /// The window the events were fetched for.
+    let timeMin: Date
+    let timeMax: Date
     let accountEmail: String?
     let calendarIDs: Set<String>
     let events: [CalendarEvent]
 
-    /// The cached events in the window, or nil when they are too old or
-    /// were read for another account or other calendars.
+    /// The cached events in the window, or nil when they are too old, don't
+    /// cover the window, or were read for another account or calendars.
     func events(
         from start: Date,
         to end: Date,
@@ -285,7 +286,7 @@ struct GoogleReminderEventsCache: Equatable {
         calendarIDs: Set<String>
     ) -> [CalendarEvent]? {
         let age = now.timeIntervalSince(fetchedAt)
-        guard age >= 0, age <= maxAge,
+        guard age >= 0, age <= maxAge, start >= timeMin, end <= timeMax,
               accountEmail == self.accountEmail, calendarIDs == self.calendarIDs else { return nil }
         return events.filter { $0.end > start && $0.start < end }
     }

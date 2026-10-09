@@ -109,7 +109,11 @@ struct GoogleCalendarService {
                 continue
             }
         }
-        let failure: GoogleCalendarFetchFailure? = failedCalendarIDs.isEmpty ? nil : (allOffline ? .offline : .failed)
+        // A calendar that loaded shows the network works.
+        let someLoaded = failedCalendarIDs.count < calendarIDs.count
+        let failure: GoogleCalendarFetchFailure? = failedCalendarIDs.isEmpty
+            ? nil
+            : (allOffline && !someLoaded ? .offline : .failed)
         return GoogleCalendarEventFetchResult(events: events, failedCalendarIDs: failedCalendarIDs, failure: failure)
     }
 

@@ -28,6 +28,7 @@ struct CalendarRecordingReminderSchedulerTests {
         await testImmediateReminderUsesInAppPresenterBeforeNotification()
         await testPresenterFailureFallsBackToImmediateNotification()
         await testShownInAppReminderRemovesOnlyMatchingPendingNotification()
+        await testRefreshTellsTheProviderWhetherCachedEventsMayBeReused()
         await testAcceptedButNotYetShownReminderKeepsPendingNotificationUntilShown()
         await testImmediateReminderUsesInAppPresenterWhenAlertsAreUnavailable()
         await testScheduledReminderCreatesInAppTimerAndKeepsLocalFallback()
@@ -563,6 +564,38 @@ struct CalendarRecordingReminderSchedulerTests {
             guard let schedule = schedulesByIdentifier[identifier] else { return }
             pendingPresentedHandlers[identifier]?(schedule)
         }
+    }
+
+    /// An Apple-only change may reuse cached Google events, but never in
+    /// place of a fresh refresh that hasn't finished.
+    @MainActor
+    private static func testRefreshTellsTheProviderWhetherCachedEventsMayBeReused() async {
+        let manager = FakeNotificationManager()
+        var seen: [Bool] = []
+        var gate: CheckedContinuation<Void, Never>?
+        var blocksNext = true
+        let scheduler = CalendarRecordingReminderScheduler(notificationManager: manager) { _, _ in
+            seen.append(CalendarRecordingReminderScheduler.reusesCachedEvents)
+            if blocksNext {
+                blocksNext = false
+                await withCheckedContinuation { gate = $0 }
+            }
+            return []
+        }
+        func settle(until count: Int) async {
+            for _ in 0..<200 where seen.count < count { await Task.yield() }
+        }
+        scheduler.start(leadMinutes: [10], refreshIntervalMinutes: 15)
+        await settle(until: 1)
+        scheduler.start(leadMinutes: [10], refreshIntervalMinutes: 15, reusesCachedEvents: true)
+        gate?.resume()
+        await settle(until: 2)
+        precondition(seen == [false, false], "a fresh refresh in flight isn't replaced by a reuse")
+        for _ in 0..<50 { await Task.yield() }
+        scheduler.start(leadMinutes: [10], refreshIntervalMinutes: 15, reusesCachedEvents: true)
+        await settle(until: 3)
+        precondition(seen == [false, false, true])
+        scheduler.stop()
     }
 
     @MainActor
