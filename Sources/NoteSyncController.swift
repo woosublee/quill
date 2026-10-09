@@ -83,7 +83,9 @@ final class NoteSyncController: ObservableObject {
                 print("[NoteSync] Deleting from iCloud failed")
                 return false
             }
-            store?.clearAllSyncSystemFields()
+            // iCloud no longer holds these notes; a stale tag would only
+            // cause a conflict that merges on the next upload.
+            try? store?.clearAllSyncSystemFields()
         }
         stopEngine(forgetState: true)
         setEnabled(false)
