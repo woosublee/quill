@@ -34,6 +34,7 @@ enum NoteSyncField: String, CaseIterable, Sendable {
     case usedLocalTranscription
     case usedPostProcessing
     case audioFileName
+    case audioManifest
 
     /// Fields every record carries. A record missing one (a malformed or
     /// partial record) never overwrites the local value with a default.
@@ -59,7 +60,7 @@ enum NoteSyncField: String, CaseIterable, Sendable {
         case .transcriptionLanguageCode, .spokenLanguageCode, .spokenLanguageResolution: return .language
         case .intent, .postProcessingStatus, .aiProcessingOutcome, .localTranscriptionModelID,
              .usedLocalTranscription, .usedPostProcessing: return .status
-        case .audioFileName: return .audio
+        case .audioFileName, .audioManifest: return .audio
         }
     }
 
@@ -68,12 +69,16 @@ enum NoteSyncField: String, CaseIterable, Sendable {
     /// The kind of value this field always carries.
     var valueKind: ValueKind {
         switch self {
-        case .meetingSummaryJSON, .meetingSummaryAttempt, .calendarMatch: return .data
+        case .meetingSummaryJSON, .meetingSummaryAttempt, .calendarMatch, .audioManifest: return .data
         case .timestamp, .recordingStartedAt, .recordingEndedAt: return .date
         case .usedLocalTranscription, .usedPostProcessing: return .bool
         default: return .string
         }
     }
+
+    /// Kept by the store beside the note rather than on
+    /// `PipelineHistoryItem`: the item never carries it.
+    var isStoreLevel: Bool { self == .audioManifest }
 
     /// The `PipelineHistoryItem` coding key this field comes from.
     var itemKey: String {

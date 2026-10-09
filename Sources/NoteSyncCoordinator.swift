@@ -143,7 +143,7 @@ final class NoteSyncCoordinator {
             switch change {
             case .saved(let id):
                 if store.isSyncable(id: id) { saves.append(id) }
-            case .deleted(let id, let wasSynced):
+            case .deleted(let id, let wasSynced, _):
                 if wasSynced { deletes.append(id) }
             }
         }

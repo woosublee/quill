@@ -65,7 +65,7 @@ APP_EXECUTABLE_TARGET := $(subst $(space),\ ,$(APP_EXECUTABLE))
 SOURCES = $(shell find Sources -name '*.swift' -type f | LC_ALL=C sort)
 SHELL_SCRIPTS = $(shell git ls-files '*.sh' | LC_ALL=C sort)
 YAML_FILES = $(shell git ls-files '*.yml' '*.yaml' | LC_ALL=C sort)
-PIPELINE_HISTORY_LANGUAGE_SOURCES = Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/MeetingSummaryModels.swift Sources/NoteFieldClock.swift Sources/NoteSyncRecord.swift Sources/NoteSyncMerge.swift Sources/NoteSyncPayload.swift
+PIPELINE_HISTORY_LANGUAGE_SOURCES = Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/MeetingSummaryModels.swift Sources/NoteFieldClock.swift Sources/NoteSyncRecord.swift Sources/NoteSyncMerge.swift Sources/NoteSyncPayload.swift Sources/NoteAudioSync.swift
 RESOURCES = $(CONTENTS)/Resources
 LOCALIZATION_CATALOG = Resources/Localization/Localizable.xcstrings
 LOCALIZATION_INFO_DIR = Resources/Localization

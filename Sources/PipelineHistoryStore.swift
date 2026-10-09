@@ -17,7 +17,8 @@ enum PipelineHistoryStoreError: Error {
 enum PipelineHistoryChange: Equatable, Sendable {
     case saved(UUID)
     /// `wasSynced`: the note had reached iCloud (it has system fields).
-    case deleted(UUID, wasSynced: Bool)
+    /// `audioParts`: how many audio parts its manifest says are in iCloud.
+    case deleted(UUID, wasSynced: Bool, audioParts: Int = 0)
 }
 
 enum NoteSyncApplyResult: Equatable, Sendable {
@@ -551,6 +552,7 @@ final class PipelineHistoryStore {
 
         var deletedAssets: DeletedPipelineHistoryAssets?
         var wasSynced = false
+        var audioParts = 0
         var thrownError: Error?
         container.viewContext.performAndWait {
             do {
@@ -563,6 +565,7 @@ final class PipelineHistoryStore {
                 beforeDeleting(assets)
                 deletedAssets = assets
                 wasSynced = entity.syncSystemFields != nil
+                audioParts = Self.audioParts(of: entity)
                 container.viewContext.delete(entity)
                 try saveContext()
             } catch {
@@ -570,7 +573,7 @@ final class PipelineHistoryStore {
             }
         }
         if let thrownError { throw thrownError }
-        onChange?([.deleted(id, wasSynced: wasSynced)])
+        onChange?([.deleted(id, wasSynced: wasSynced, audioParts: audioParts)])
         if deletedAssets != nil {
             synchronizeAssetReferenceSnapshot()
         }
@@ -697,6 +700,42 @@ final class PipelineHistoryStore {
         if let thrownError { throw thrownError }
     }
 
+    /// The marker saying this note's audio is all in iCloud, if set.
+    func audioManifest(id: UUID) -> NoteAudioManifest? {
+        var data: Data?
+        container.viewContext.performAndWait {
+            data = (try? fetchEntry(id: id))??.audioSyncManifestJSON
+        }
+        return data.flatMap(NoteAudioManifest.decode)
+    }
+
+    /// Records that the audio is all in iCloud and stamps the audio group,
+    /// so the marker wins on other Macs. `onChange` is not called: the
+    /// coordinator queues the note itself.
+    func setAudioManifest(_ manifest: NoteAudioManifest, id: UUID) throws {
+        guard availability == .ready, isStoreLoaded else {
+            throw PipelineHistoryStoreError.storeUnavailable
+        }
+        var thrownError: Error?
+        container.viewContext.performAndWait {
+            do {
+                guard let entity = try fetchEntry(id: id) else {
+                    throw PipelineHistoryStoreError.historyEntryNotFound
+                }
+                let clock = (Self.decodeClock(entity.fieldClockJSON)
+                    ?? NoteFieldClock.uniform(entity.timestamp ?? .distantPast))
+                    .setting(.audio, to: now())
+                entity.audioSyncManifestJSON = manifest.encoded()
+                entity.fieldClockJSON = Self.encodeClock(clock)
+                try saveContext()
+            } catch {
+                container.viewContext.rollback()
+                thrownError = error
+            }
+        }
+        if let thrownError { throw thrownError }
+    }
+
     /// Forgets which notes reached iCloud, after the iCloud data went away
     /// (account change, or deleted from iCloud).
     func clearAllSyncSystemFields() throws {
@@ -781,6 +820,11 @@ final class PipelineHistoryStore {
                 entity.fieldClockJSON = Self.encodeClock(merged.clock)
                 entity.deletedAt = merged.deletedAt
                 entity.syncExtraFieldsJSON = Self.encodeExtraFields(merged.fields)
+                if case .data(let manifest)? = merged.fields[NoteSyncField.audioManifest.rawValue] {
+                    entity.audioSyncManifestJSON = manifest
+                } else {
+                    entity.audioSyncManifestJSON = nil
+                }
                 if let systemFields { entity.syncSystemFields = systemFields }
                 try saveContext()
             } catch {
@@ -825,13 +869,20 @@ final class PipelineHistoryStore {
     }
 
     private static func deletionChange(for entity: PipelineHistoryEntry) -> PipelineHistoryChange? {
-        .deleted(entity.id, wasSynced: entity.syncSystemFields != nil)
+        .deleted(entity.id, wasSynced: entity.syncSystemFields != nil, audioParts: audioParts(of: entity))
     }
 
     private static let knownSyncKeys = Set(NoteSyncField.allCases.map(\.rawValue))
 
+    private static func audioParts(of entity: PipelineHistoryEntry) -> Int {
+        entity.audioSyncManifestJSON.flatMap(NoteAudioManifest.decode)?.parts ?? 0
+    }
+
     private static func syncRecord(from entity: PipelineHistoryEntry) -> NoteSyncRecord {
         var record = NoteSyncRecord(item: makeHistoryItem(from: entity))
+        if let manifest = entity.audioSyncManifestJSON {
+            record.fields[NoteSyncField.audioManifest.rawValue] = .data(manifest)
+        }
         let extras = entity.syncExtraFieldsJSON.flatMap { try? NoteSyncPayload.decodeFields($0) } ?? [:]
         for (key, value) in extras {
             if key == NoteSyncRecord.schemaVersionKey {
@@ -893,6 +944,10 @@ final class PipelineHistoryStore {
             existing: existing,
             now: now()
         )
+        // A new audio file isn't in iCloud yet, whatever the old one was.
+        if let previous, previous.audioFileName != item.audioFileName {
+            entity.audioSyncManifestJSON = nil
+        }
         Self.apply(item, to: entity)
         entity.fieldClockJSON = Self.encodeClock(clock)
         guard let previous, existing != nil else { return true }
@@ -1335,7 +1390,8 @@ final class PipelineHistoryStore {
             makeAttribute(name: "deletedAt", type: .dateAttributeType, isOptional: true),
             makeAttribute(name: "fieldClockJSON", type: .binaryDataAttributeType, isOptional: true),
             makeAttribute(name: "syncExtraFieldsJSON", type: .binaryDataAttributeType, isOptional: true),
-            makeAttribute(name: "syncSystemFields", type: .binaryDataAttributeType, isOptional: true)
+            makeAttribute(name: "syncSystemFields", type: .binaryDataAttributeType, isOptional: true),
+            makeAttribute(name: "audioSyncManifestJSON", type: .binaryDataAttributeType, isOptional: true)
         ]
 
         model.entities = [entity]
@@ -1376,7 +1432,7 @@ final class PipelineHistoryStore {
         // PipelineHistoryEntry class that the shared model owns.
         entity.managedObjectClassName = NSStringFromClass(NSManagedObject.self)
         entity.properties = entity.properties.filter {
-            !["deletedAt", "fieldClockJSON", "syncExtraFieldsJSON", "syncSystemFields"].contains($0.name)
+            !["deletedAt", "fieldClockJSON", "syncExtraFieldsJSON", "syncSystemFields", "audioSyncManifestJSON"].contains($0.name)
         }
         let container = NSPersistentContainer(name: "PipelineHistory", managedObjectModel: model)
         let description = NSPersistentStoreDescription(url: url)
@@ -1451,4 +1507,5 @@ final class PipelineHistoryEntry: NSManagedObject {
     @NSManaged var fieldClockJSON: Data?
     @NSManaged var syncExtraFieldsJSON: Data?
     @NSManaged var syncSystemFields: Data?
+    @NSManaged var audioSyncManifestJSON: Data?
 }
