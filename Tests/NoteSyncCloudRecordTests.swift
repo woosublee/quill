@@ -50,12 +50,15 @@ struct NoteSyncCloudRecordTests {
         let outbox = dir.appendingPathComponent("outbox", isDirectory: true)
         let id = UUID()
 
-        let whole = NoteSyncOutgoingAudio(part: NoteAudioPartID(noteID: id, index: 0), fileURL: source, byteCount: 10)
+        let whole = NoteSyncOutgoingAudio(part: NoteAudioPartID(noteID: id, index: 0), fileURL: source, fileName: "a.wav", byteCount: 10)
         let single = try NoteAudioCloudRecord.makeRecord(whole, systemFields: nil, outbox: outbox, partSize: 16)
         precondition((single["data"] as? CKAsset)?.fileURL == source, "one part sends the file itself")
         precondition(single["index"] as? Int == 0 && single["noteID"] as? String == id.uuidString)
+        precondition(NoteAudioCloudRecord.stamp(of: single) == NoteAudioPartStamp(fileName: "a.wav", fileBytes: 10),
+                     "a part says which file it was cut from")
+        precondition(NoteAudioCloudRecord.stamp(of: CKRecord(recordType: "NoteAudio")) == nil)
 
-        let second = NoteSyncOutgoingAudio(part: NoteAudioPartID(noteID: id, index: 1), fileURL: source, byteCount: 10)
+        let second = NoteSyncOutgoingAudio(part: NoteAudioPartID(noteID: id, index: 1), fileURL: source, fileName: "a.wav", byteCount: 10)
         let split = try NoteAudioCloudRecord.makeRecord(second, systemFields: nil, outbox: outbox, partSize: 4)
         let partURL = (split["data"] as? CKAsset)?.fileURL
         precondition(partURL == NoteAudioCloudRecord.partFile(for: second.part, in: outbox))

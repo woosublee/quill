@@ -22,6 +22,13 @@ struct NoteAudioPartID: Hashable, Sendable {
     var recordName: String { "\(noteID.uuidString)-\(index)" }
 }
 
+/// What an audio part in iCloud was cut from: the note's audio file name
+/// and size. A part cut from an earlier file of the note doesn't match.
+struct NoteAudioPartStamp: Hashable, Sendable {
+    let fileName: String
+    let fileBytes: Int64
+}
+
 /// Says a note's audio is entirely in iCloud. It is set only after every
 /// part is saved, so a Mac that sees it can download the audio. Shared with
 /// the iPhone app: keys never change once shipped.

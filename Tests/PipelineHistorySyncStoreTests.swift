@@ -23,6 +23,8 @@ struct PipelineHistorySyncStoreTests {
         try testAudioManifestFromICloudIsKept()
         try testNewAudioFileClearsTheManifest()
         try testDeleteReportsAudioParts()
+        try testClearingChangeTagsClearsAudioManifests()
+        try testAudioManifestCanBeCleared()
         print("PipelineHistorySyncStoreTests passed")
     }
 
@@ -310,6 +312,32 @@ struct PipelineHistorySyncStoreTests {
         s.onChange = { changes += $0 }
         _ = try s.delete(id: note.id)
         precondition(changes == [.deleted(note.id, wasSynced: false, audioParts: 3)])
+    }
+
+    /// When iCloud loses the notes, it lost their audio too: the marker
+    /// goes, stamped newer, so a Mac still holding it can't bring it back.
+    private static func testClearingChangeTagsClearsAudioManifests() throws {
+        let s = store()
+        let marked = makeItem(audio: "\(UUID().uuidString).wav")
+        _ = try s.append(marked, maxCount: Int.max)
+        try s.setAudioManifest(manifest, id: marked.id)
+        s.now = { t0.addingTimeInterval(90) }
+        try s.clearAllSyncSystemFields()
+        precondition(s.audioManifest(id: marked.id) == nil)
+        let record = s.syncRecord(id: marked.id)!
+        precondition(record.fields[NoteSyncField.audioManifest.rawValue] == nil)
+        precondition(record.clock.stamp(for: .audio) == t0.addingTimeInterval(90), "the cleared marker wins merges")
+    }
+
+    private static func testAudioManifestCanBeCleared() throws {
+        let s = store()
+        let note = makeItem(audio: "\(UUID().uuidString).wav")
+        _ = try s.append(note, maxCount: Int.max)
+        try s.setAudioManifest(manifest, id: note.id)
+        s.now = { t0.addingTimeInterval(30) }
+        try s.setAudioManifest(nil, id: note.id)
+        precondition(s.audioManifest(id: note.id) == nil)
+        precondition(s.syncRecord(id: note.id)!.clock.stamp(for: .audio) == t0.addingTimeInterval(30))
     }
 
     private static func testChangeTagForMissingNoteThrows() {

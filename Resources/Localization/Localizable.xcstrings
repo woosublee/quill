@@ -20757,34 +20757,34 @@
         }
       }
     },
-    "1 note has audio that isn't on this Mac yet. Turn Off and Delete from iCloud deletes it for good.": {
+    "1 note has audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "1 note has audio that isn't on this Mac yet. Turn Off and Delete from iCloud deletes it for good."
+            "value": "1 note has audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아직 이 Mac으로 받지 않은 오디오가 있는 노트가 1개 있어요. 끄고 iCloud에서도 지우면 그 오디오는 영영 사라져요."
+            "value": "노트 1개의 오디오는 iCloud에 있지만 이 Mac에는 없어요. 끄고 iCloud에서도 지우면 이 Mac에서는 그 오디오를 받을 수 없어요."
           }
         }
       }
     },
-    "%lld notes have audio that isn't on this Mac yet. Turn Off and Delete from iCloud deletes it for good.": {
+    "%lld notes have audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%lld notes have audio that isn't on this Mac yet. Turn Off and Delete from iCloud deletes it for good."
+            "value": "%lld notes have audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아직 이 Mac으로 받지 않은 오디오가 있는 노트가 %lld개 있어요. 끄고 iCloud에서도 지우면 그 오디오는 영영 사라져요."
+            "value": "노트 %lld개의 오디오는 iCloud에 있지만 이 Mac에는 없어요. 끄고 iCloud에서도 지우면 이 Mac에서는 그 오디오를 받을 수 없어요."
           }
         }
       }

@@ -18,15 +18,16 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
     private var syncEngine: CKSyncEngine?
     private weak var coordinator: NoteSyncCoordinator?
     /// Guards `syncEngine`, `isStopped`, `isFetching`, `isDeletingZone`,
-    /// `zoneDeleteFailed`, `zoneDeleted`, and `audioServerFields`, which CloudKit's queues and the
-    /// main thread share.
+    /// `zoneDeleteFailed`, `deletedZones`, and `audioServerFields`, which
+    /// CloudKit's queues and the main thread share.
     /// Timers and observers are touched on the main thread only.
     private let lock = NSLock()
     private var isStopped = false
     private var isFetching = false
     private var isDeletingZone = false
     private var zoneDeleteFailed = false
-    private var zoneDeleted = false
+    /// Zones this Mac's delete removed, or found already gone.
+    private var deletedZones: Set<CKRecordZone.ID> = []
     /// Change tags of audio parts iCloud already had, to send over them.
     private var audioServerFields: [CKRecord.ID: Data] = [:]
     private var timer: Timer?
@@ -129,19 +130,54 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         engine.state.add(pendingRecordZoneChanges: parts.map { .deleteRecord(NoteAudioCloudRecord.recordID(for: $0)) })
     }
 
-    func pendingAudioSaves(noteID: UUID) -> [NoteAudioPartID] {
+    func pendingAudioSaves() -> [NoteAudioPartID] {
         guard let engine = activeEngine() else { return [] }
         return engine.state.pendingRecordZoneChanges.compactMap { change in
-            guard case .saveRecord(let id) = change, let part = NoteAudioCloudRecord.part(from: id),
-                  part.noteID == noteID else { return nil }
-            return part
+            guard case .saveRecord(let id) = change else { return nil }
+            return NoteAudioCloudRecord.part(from: id)
         }
     }
 
     func cancelAudioSaves(noteID: UUID) {
         guard let engine = activeEngine() else { return }
-        let parts = pendingAudioSaves(noteID: noteID)
+        let parts = pendingAudioSaves().filter { $0.noteID == noteID }
         engine.state.remove(pendingRecordZoneChanges: parts.map { .saveRecord(NoteAudioCloudRecord.recordID(for: $0)) })
+    }
+
+    /// Looks parts up a few hundred at a time, asking only for their stamp
+    /// fields. A part iCloud doesn't have, or a missing zone, reads as
+    /// absent; any other error throws.
+    func audioPartStamps(_ parts: [NoteAudioPartID]) async throws -> [NoteAudioPartID: NoteAudioPartStamp] {
+        guard activeEngine() != nil else { throw NoteSyncEngineError.notRunning }
+        var stamps: [NoteAudioPartID: NoteAudioPartStamp] = [:]
+        var start = 0
+        while start < parts.count {
+            let chunk = parts[start..<min(start + 200, parts.count)]
+            start += 200
+            let results: [CKRecord.ID: Result<CKRecord, Error>]
+            do {
+                results = try await database.records(
+                    for: chunk.map(NoteAudioCloudRecord.recordID(for:)),
+                    desiredKeys: NoteAudioCloudRecord.stampKeys
+                )
+            } catch let error as CKError where error.code == .zoneNotFound {
+                continue
+            }
+            for (recordID, result) in results {
+                switch result {
+                case .success(let record):
+                    if let part = NoteAudioCloudRecord.part(from: recordID),
+                       let stamp = NoteAudioCloudRecord.stamp(of: record) {
+                        stamps[part] = stamp
+                    }
+                case .failure(let error):
+                    let code = (error as? CKError)?.code
+                    if code == .unknownItem || code == .zoneNotFound { continue }
+                    throw error
+                }
+            }
+        }
+        return stamps
     }
 
     /// Overlapping calls are coalesced: a fetch already running is enough.
@@ -164,17 +200,19 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         }
     }
 
-    /// Deletes the `Notes` zone, and with it every note in iCloud. Queued
-    /// uploads are dropped first so nothing recreates the zone, and the
-    /// result is checked: a failed delete throws. On success the engine
-    /// keeps ignoring the missing zone until it is stopped, so this Mac's
-    /// own delete never reads as another Mac's.
+    /// Deletes the `Notes` and `NoteAudio` zones, and with them every note
+    /// and its audio in iCloud. Queued uploads are dropped first so nothing
+    /// recreates a zone, and the result is checked: unless both zones are
+    /// gone, it throws. Once the `Notes` zone is gone the engine keeps
+    /// ignoring the missing zone until it is stopped, so this Mac's own
+    /// delete never reads as another Mac's, even when the audio zone still
+    /// has to be deleted again.
     func deleteAllFromICloud() async throws {
         guard let engine = activeEngine() else { throw NoteSyncEngineError.notRunning }
         lock.withLock {
             isDeletingZone = true
             zoneDeleteFailed = false
-            zoneDeleted = false
+            deletedZones = []
         }
         let droppedUploads = engine.state.pendingRecordZoneChanges
         let zoneIDs = [NoteSyncCloudRecord.zoneID(), NoteAudioCloudRecord.zoneID()]
@@ -190,14 +228,21 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
                 throw NoteSyncEngineError.zoneDeleteFailed
             }
         } catch {
-            // CloudKit confirmed the zone is gone, so the delete succeeded
-            // even though a later step failed.
-            if lock.withLock({ zoneDeleted }) { return }
+            let deleted = lock.withLock { deletedZones }
+            // CloudKit confirmed both zones are gone, so the delete
+            // succeeded even though a later step failed.
+            if deleted.isSuperset(of: zoneIDs) { return }
             // Sync stays on: cancel the delete so the engine can't send it
-            // later by itself, and put back the uploads dropped for it.
+            // later by itself.
             engine.state.remove(pendingDatabaseChanges: zoneIDs.map { .deleteZone($0) })
-            engine.state.add(pendingRecordZoneChanges: droppedUploads)
-            lock.withLock { isDeletingZone = false }
+            if !deleted.contains(NoteSyncCloudRecord.zoneID()) {
+                // Nothing is gone yet: put back the uploads dropped for it.
+                engine.state.add(pendingRecordZoneChanges: droppedUploads)
+                lock.withLock { isDeletingZone = false }
+            }
+            // Otherwise the notes are gone but their audio isn't: uploads
+            // stay dropped and the missing zone stays expected, so trying
+            // again deletes the audio.
             throw error
         }
     }
@@ -279,13 +324,15 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
             await handleSent(sent, engine: syncEngine)
 
         case .sentDatabaseChanges(let sent):
-            let zoneID = NoteSyncCloudRecord.zoneID()
-            if sent.deletedZoneIDs.contains(zoneID) {
-                lock.withLock { zoneDeleted = true }
-            }
-            for failedZoneID in [zoneID, NoteAudioCloudRecord.zoneID()] {
-                if let error = sent.failedZoneDeletes[failedZoneID], error.code != .zoneNotFound {
-                    lock.withLock { zoneDeleteFailed = true }
+            for zoneID in [NoteSyncCloudRecord.zoneID(), NoteAudioCloudRecord.zoneID()] {
+                if sent.deletedZoneIDs.contains(zoneID) {
+                    lock.withLock { _ = deletedZones.insert(zoneID) }
+                } else if let error = sent.failedZoneDeletes[zoneID] {
+                    if error.code == .zoneNotFound {
+                        lock.withLock { _ = deletedZones.insert(zoneID) }
+                    } else {
+                        lock.withLock { zoneDeleteFailed = true }
+                    }
                 }
             }
 
@@ -304,11 +351,22 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
     ) async -> CKSyncEngine.RecordZoneChangeBatch? {
         guard activeEngine() === syncEngine else { return nil }
         let scope = context.options.scope
-        let changes = NoteAudioCloudRecord.nextBatch(
-            syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
-        )
-        return await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: changes) { recordID in
-            await self.record(for: recordID, engine: syncEngine)
+        // A stale audio part is dropped while the batch is built, which can
+        // leave it empty; the next part is tried, so one stale part doesn't
+        // hold up the rest until the next sync.
+        while true {
+            let changes = NoteAudioCloudRecord.nextBatch(
+                syncEngine.state.pendingRecordZoneChanges.filter { scope.contains($0) }
+            )
+            guard !changes.isEmpty else { return nil }
+            let batch = await CKSyncEngine.RecordZoneChangeBatch(pendingChanges: changes) { recordID in
+                await self.record(for: recordID, engine: syncEngine)
+            }
+            guard let batch else { return nil }
+            if !batch.recordsToSave.isEmpty || !batch.recordIDsToDelete.isEmpty { return batch }
+            // Each pass drops what it built nothing for, so this ends.
+            let dropped = !syncEngine.state.pendingRecordZoneChanges.contains { changes.contains($0) }
+            guard dropped, activeEngine() === syncEngine else { return batch }
         }
     }
 
@@ -456,9 +514,13 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
             if !sendFailures.isEmpty { coordinator.handleSendFailures(sendFailures) }
             if !audioFailureList.isEmpty { coordinator.handleAudioSendFailures(audioFailureList) }
         }
-        guard !stopForDeletion, let coordinator else { return }
-        for part in savedParts {
-            await coordinator.handleAudioPartSaved(part)
+        guard !stopForDeletion, let coordinator, !savedParts.isEmpty else { return }
+        // Checking iCloud and hashing the file take a while; the engine
+        // goes on sending meanwhile.
+        Task { @MainActor in
+            for part in savedParts {
+                await coordinator.handleAudioPartSaved(part)
+            }
         }
     }
 

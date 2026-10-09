@@ -164,9 +164,9 @@ private struct NoteSyncSettingsCard: View {
         case 0:
             return Text("")
         case 1:
-            return Text("\n\n") + Text("1 note has audio that isn't on this Mac yet. Turn Off and Delete from iCloud deletes it for good.")
+            return Text("\n\n") + Text("1 note has audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it.")
         default:
-            return Text("\n\n") + Text("\(audioOnlyInICloud) notes have audio that isn't on this Mac yet. Turn Off and Delete from iCloud deletes it for good.")
+            return Text("\n\n") + Text("\(audioOnlyInICloud) notes have audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it.")
         }
     }
 

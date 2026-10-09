@@ -709,10 +709,10 @@ final class PipelineHistoryStore {
         return data.flatMap(NoteAudioManifest.decode)
     }
 
-    /// Records that the audio is all in iCloud and stamps the audio group,
-    /// so the marker wins on other Macs. `onChange` is not called: the
-    /// coordinator queues the note itself.
-    func setAudioManifest(_ manifest: NoteAudioManifest, id: UUID) throws {
+    /// Records that the audio is all in iCloud, or with nil that it isn't,
+    /// and stamps the audio group so the change wins on other Macs.
+    /// `onChange` is not called: the coordinator queues the note itself.
+    func setAudioManifest(_ manifest: NoteAudioManifest?, id: UUID) throws {
         guard availability == .ready, isStoreLoaded else {
             throw PipelineHistoryStoreError.storeUnavailable
         }
@@ -725,7 +725,7 @@ final class PipelineHistoryStore {
                 let clock = (Self.decodeClock(entity.fieldClockJSON)
                     ?? NoteFieldClock.uniform(entity.timestamp ?? .distantPast))
                     .setting(.audio, to: now())
-                entity.audioSyncManifestJSON = manifest.encoded()
+                entity.audioSyncManifestJSON = manifest?.encoded()
                 entity.fieldClockJSON = Self.encodeClock(clock)
                 try saveContext()
             } catch {
@@ -736,16 +736,28 @@ final class PipelineHistoryStore {
         if let thrownError { throw thrownError }
     }
 
-    /// Forgets which notes reached iCloud, after the iCloud data went away
-    /// (account change, or deleted from iCloud).
+    /// Forgets which notes, and which audio, reached iCloud, after the
+    /// iCloud data went away (account change, or deleted from iCloud). A
+    /// cleared audio marker is stamped, so a Mac that still holds the old
+    /// one can't merge it back.
     func clearAllSyncSystemFields() throws {
         var thrownError: Error?
         container.viewContext.performAndWait {
             do {
                 let request = pipelineHistoryRequest()
-                request.predicate = NSPredicate(format: "syncSystemFields != nil")
+                request.predicate = NSPredicate(format: "syncSystemFields != nil OR audioSyncManifestJSON != nil")
                 let entities = try historyFetcher(container.viewContext, request)
-                for entity in entities { entity.syncSystemFields = nil }
+                let stamp = now()
+                for entity in entities {
+                    entity.syncSystemFields = nil
+                    if entity.audioSyncManifestJSON != nil {
+                        entity.audioSyncManifestJSON = nil
+                        let clock = (Self.decodeClock(entity.fieldClockJSON)
+                            ?? NoteFieldClock.uniform(entity.timestamp ?? .distantPast))
+                            .setting(.audio, to: stamp)
+                        entity.fieldClockJSON = Self.encodeClock(clock)
+                    }
+                }
                 try saveContext()
             } catch {
                 thrownError = error

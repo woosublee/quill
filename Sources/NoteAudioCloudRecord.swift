@@ -11,7 +11,12 @@ enum NoteAudioCloudRecord {
         static let data = "data"
         static let index = "index"
         static let noteID = "noteID"
+        static let fileName = "fileName"
+        static let fileBytes = "fileBytes"
     }
+
+    /// The fields `stamp(of:)` reads, so a lookup never downloads audio.
+    static let stampKeys = [Key.fileName, Key.fileBytes]
 
     static func zoneID() -> CKRecordZone.ID {
         CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
@@ -54,7 +59,16 @@ enum NoteAudioCloudRecord {
         record[Key.data] = CKAsset(fileURL: file)
         record[Key.index] = outgoing.part.index
         record[Key.noteID] = outgoing.part.noteID.uuidString
+        record[Key.fileName] = outgoing.fileName
+        record[Key.fileBytes] = outgoing.byteCount
         return record
+    }
+
+    /// What the part was cut from, or nil for a record without it.
+    static func stamp(of record: CKRecord) -> NoteAudioPartStamp? {
+        guard let name = record[Key.fileName] as? String,
+              let bytes = (record[Key.fileBytes] as? NSNumber)?.int64Value else { return nil }
+        return NoteAudioPartStamp(fileName: name, fileBytes: bytes)
     }
 
     static func removePartFile(for part: NoteAudioPartID, in outbox: URL) {
