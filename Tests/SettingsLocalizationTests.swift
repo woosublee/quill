@@ -328,6 +328,10 @@ struct SettingsLocalizationTests {
         assert(view.contains("if interval < 60 { return localizedCatalogString(\"Just now\") }"))
         assert(view.contains("formatter.dateTimeStyle = .named"))
         assert(view.contains("TimelineView(.periodic(from: .now, by: 30))"))
+        // The switch already says off, and the status sits beside the title,
+        // dropping below it only when the line is too narrow.
+        assert(view.contains("case .off:\n            EmptyView()"))
+        assert(view.contains("ViewThatFits(in: .horizontal) {\n                    HStack(alignment: .firstTextBaseline, spacing: 8) {\n                        title\n                        statusLine\n                    }"))
         // What syncs on one line, what stays on the next two, all in the card.
         assert(view.contains("Text(\"Notes, transcripts, and summaries are saved to your iCloud. They appear on your other Macs with the same iCloud account.\")\n                VStack(alignment: .leading, spacing: 2) {\n                    Text(\"Screenshots and window details stay on this Mac.\")\n                    Text(\"Settings, vocabulary, and API keys don't sync. Each Mac keeps its own.\")"))
         assert(view.contains("Button(\"Turn Off and Delete from iCloud\", role: .destructive) {\n                turnOff(deleteFromICloud: true)"))

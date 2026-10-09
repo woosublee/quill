@@ -49,13 +49,18 @@ private struct NoteSyncSettingsCard: View {
 
     var body: some View {
         SettingsCard("iCloud Sync", icon: "icloud") {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Sync this Mac's notes with iCloud")
-                        .font(.body.weight(.semibold))
-                    statusLine
+            HStack(alignment: .center, spacing: 12) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        title
+                        statusLine
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        title
+                        statusLine
+                    }
                 }
-                Spacer()
+                Spacer(minLength: 0)
                 Toggle(isOn: switchBinding) {
                     Text("Sync this Mac's notes with iCloud")
                 }
@@ -111,6 +116,11 @@ private struct NoteSyncSettingsCard: View {
         }
     }
 
+    private var title: some View {
+        Text("Sync this Mac's notes with iCloud")
+            .font(.body.weight(.semibold))
+    }
+
     private var turnOnMessage: LocalizedStringKey {
         noteCount == 1
             ? "Upload 1 note from this Mac to iCloud. Notes from your other Macs download too, and the lists merge into one."
@@ -150,9 +160,7 @@ private struct NoteSyncSettingsCard: View {
     private var availableStatusLine: some View {
         switch controller.status {
         case .off:
-            Text("Off")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            EmptyView()
         case .starting:
             Text("Checking iCloud…")
                 .font(.caption)
