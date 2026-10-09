@@ -79,7 +79,9 @@ final class NoteAudioDownloader: ObservableObject {
     private let fetcher: @MainActor () -> NoteAudioPartFetching?
     private let isSyncOn: @MainActor () -> Bool
     private let hashFile: (URL) async throws -> String
-    private var running: [UUID: Task<URL?, Never>] = [:]
+    /// Each download has its own token, so one that was cancelled can't
+    /// clear what a new download for the same note set up.
+    private var running: [UUID: (token: UUID, task: Task<URL?, Never>)] = [:]
 
     init(
         downloadsDirectory: URL,
@@ -114,24 +116,37 @@ final class NoteAudioDownloader: ObservableObject {
     /// Returns `destination` once the audio is there, or nil when it
     /// couldn't be downloaded (the reason is in `state`) or was cancelled.
     func download(noteID: UUID, manifest: NoteAudioManifest, to destination: URL) async -> URL? {
-        if let task = running[noteID] { return await task.value }
+        if let current = running[noteID] { return await current.task.value }
         failures[noteID] = nil
         progress[noteID] = 0
-        let task = Task { await self.run(noteID: noteID, manifest: manifest, destination: destination) }
-        running[noteID] = task
+        let token = UUID()
+        let task = Task { await self.run(noteID: noteID, token: token, manifest: manifest, destination: destination) }
+        running[noteID] = (token, task)
         return await task.value
     }
 
-    /// Stops a download and removes what it had fetched.
+    /// Stops a download and removes what it had fetched. A request right
+    /// after starts a new download rather than joining the stopped one.
     func cancel(noteID: UUID) {
-        running[noteID]?.cancel()
+        running.removeValue(forKey: noteID)?.task.cancel()
+        progress[noteID] = nil
     }
 
-    /// Sync turned off: every download stops, and every download file goes,
-    /// including any a quit left behind.
+    /// Sync turned off: every download stops. (The engine removes download
+    /// files when it starts and stops.)
     func cancelAll() {
-        for task in running.values { task.cancel() }
-        Self.removeDownloadFiles(in: downloadsDirectory)
+        for noteID in Array(running.keys) { cancel(noteID: noteID) }
+    }
+
+    private func isCurrent(_ noteID: UUID, _ token: UUID) -> Bool {
+        running[noteID]?.token == token
+    }
+
+    /// Progress only moves forward, and only in steps a person can see.
+    private func report(_ fraction: Double, for noteID: UUID, token: UUID) {
+        guard isCurrent(noteID, token) else { return }
+        let current = progress[noteID] ?? 0
+        if fraction >= current + 0.01 || (fraction >= 1 && current < 1) { progress[noteID] = fraction }
     }
 
     nonisolated static func removeDownloadFiles(in directory: URL) {
@@ -141,16 +156,18 @@ final class NoteAudioDownloader: ObservableObject {
         }
     }
 
-    private func partialFile(for noteID: UUID) -> URL {
-        downloadsDirectory.appendingPathComponent("\(noteID.uuidString).partial")
+    private func partialFile(for noteID: UUID, token: UUID) -> URL {
+        downloadsDirectory.appendingPathComponent("\(noteID.uuidString)-\(token.uuidString).partial")
     }
 
-    private func run(noteID: UUID, manifest: NoteAudioManifest, destination: URL) async -> URL? {
-        let partial = partialFile(for: noteID)
+    private func run(noteID: UUID, token: UUID, manifest: NoteAudioManifest, destination: URL) async -> URL? {
+        let partial = partialFile(for: noteID, token: token)
         defer {
             try? FileManager.default.removeItem(at: partial)
-            running[noteID] = nil
-            progress[noteID] = nil
+            if isCurrent(noteID, token) {
+                running[noteID] = nil
+                progress[noteID] = nil
+            }
         }
         guard let fetcher = fetcher() else {
             // With sync off, `state` says so; nothing to remember.
@@ -159,7 +176,8 @@ final class NoteAudioDownloader: ObservableObject {
         }
         for attempt in 0..<2 {
             do {
-                try await fetchParts(noteID: noteID, manifest: manifest, from: fetcher, into: partial)
+                if isCurrent(noteID, token) { progress[noteID] = 0 }
+                try await fetchParts(noteID: noteID, token: token, manifest: manifest, from: fetcher, into: partial)
                 let size = (try? FileManager.default.attributesOfItem(atPath: partial.path))?[.size] as? NSNumber
                 let sha256 = try await hashFile(partial)
                 try Task.checkCancellation()
@@ -196,6 +214,7 @@ final class NoteAudioDownloader: ObservableObject {
     /// Fetches every part in order and appends it to `partial`.
     private func fetchParts(
         noteID: UUID,
+        token: UUID,
         manifest: NoteAudioManifest,
         from fetcher: NoteAudioPartFetching,
         into partial: URL
@@ -210,8 +229,7 @@ final class NoteAudioDownloader: ObservableObject {
             let count = Double(parts.count)
             let file = try await fetcher.fetchAudioPart(part) { [weak self] fraction in
                 Task { @MainActor in
-                    guard let self, self.running[noteID] != nil else { return }
-                    self.progress[noteID] = (Double(index) + fraction) / count
+                    self?.report((Double(index) + fraction) / count, for: noteID, token: token)
                 }
             }
             defer { try? FileManager.default.removeItem(at: file) }
@@ -221,7 +239,7 @@ final class NoteAudioDownloader: ObservableObject {
             while let chunk = try input.read(upToCount: 1 << 20), !chunk.isEmpty {
                 try output.write(contentsOf: chunk)
             }
-            progress[noteID] = Double(index + 1) / count
+            report(Double(index + 1) / count, for: noteID, token: token)
         }
     }
 }

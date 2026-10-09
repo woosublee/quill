@@ -9,6 +9,8 @@ struct NoteFileExportView: View {
     /// Downloads iCloud audio before saving: nil once it is here, or why
     /// it couldn't be.
     let downloadAudio: () async -> String?
+    /// Stops that download, for Cancel.
+    let cancelDownload: () -> Void
 
     @AppStorage("note_file_export_last_directory")
     private var lastDirectoryPath = ""
@@ -31,13 +33,15 @@ struct NoteFileExportView: View {
         suggestedBaseName: String,
         onDismiss: @escaping () -> Void,
         onSaved: @escaping (String) -> Void,
-        downloadAudio: @escaping () async -> String? = { nil }
+        downloadAudio: @escaping () async -> String? = { nil },
+        cancelDownload: @escaping () -> Void = {}
     ) {
         self.source = source
         self.suggestedBaseName = suggestedBaseName
         self.onDismiss = onDismiss
         self.onSaved = onSaved
         self.downloadAudio = downloadAudio
+        self.cancelDownload = cancelDownload
         _includeTranscript = State(initialValue: source.transcript != nil)
         _includeSummary = State(initialValue: source.summary != nil)
         _includeAudio = State(initialValue: source.audioURL != nil)
@@ -63,6 +67,7 @@ struct NoteFileExportView: View {
             Divider().padding(.vertical, 16)
             HStack {
                 Button("Cancel") {
+                    if isSaving, saveTask != nil, source.audioNeedsDownload { cancelDownload() }
                     saveTask?.cancel()
                     onDismiss()
                 }

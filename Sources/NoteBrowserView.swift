@@ -2582,6 +2582,7 @@ private struct NoteDetailView: View {
     private var storedAudioURL: URL? {
         appState.noteBrowserStoredAudioURL(for: item)
     }
+    @State private var isDownloadingToRetry = false
     private var retryAvailability: NoteBrowserRetryAvailability {
         appState.noteBrowserRetryAvailability(for: item)
     }
@@ -2741,7 +2742,8 @@ private struct NoteDetailView: View {
                     guard await appState.downloadNoteAudio(for: item) == nil else { return nil }
                     return appState.noteAudioState(for: item).unavailableMessage
                         ?? localizedCatalogString("Couldn't download this audio. Try again.")
-                }
+                },
+                cancelDownload: { appState.cancelNoteAudioDownload(for: item) }
             )
         }
         .sheet(item: $retryChoiceRequest) { request in
@@ -3977,8 +3979,12 @@ private struct NoteDetailView: View {
                 )
             )
         case .needsDownload:
-            // Downloads the audio first, then retries as usual.
+            // Downloads the audio first, then retries as usual. More presses
+            // while it downloads wait for that one.
+            guard !isDownloadingToRetry else { return }
+            isDownloadingToRetry = true
             Task { @MainActor in
+                defer { isDownloadingToRetry = false }
                 guard await appState.downloadNoteAudio(for: item) != nil else {
                     if let message = appState.noteAudioState(for: item).unavailableMessage { showToast(message) }
                     return
@@ -4571,6 +4577,11 @@ struct NoteAudioPlayerView: View {
     }
 
     private func formatDuration(_ t: TimeInterval) -> String {
+        Self.formatDuration(t)
+    }
+
+    /// `m:ss`, or `h:mm:ss` from an hour; shared with the download bar.
+    static func formatDuration(_ t: TimeInterval) -> String {
         guard t.isFinite else { return "0:00" }
         let total = Int(t)
         let h = total / 3600

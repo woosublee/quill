@@ -238,6 +238,9 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                     case .success:
                         continuation.resume(with: outcome.result)
                     case .failure(let error):
+                        // A part copied before the operation failed has no
+                        // owner now.
+                        if case .success(let copied) = outcome.result { try? FileManager.default.removeItem(at: copied) }
                         if (error as? CKError)?.code == .operationCancelled {
                             continuation.resume(throwing: CancellationError())
                         } else if case .failure(let partError) = outcome.result {

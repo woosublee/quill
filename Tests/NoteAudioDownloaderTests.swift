@@ -13,6 +13,7 @@ struct NoteAudioDownloaderTests {
         try await testRetryAfterAFailureStartsClean()
         try await testSyncTurnedBackOnCanDownload()
         try await testCancelAllStopsEveryDownload()
+        try await testRequestAfterStopStartsAFreshDownload()
         print("NoteAudioDownloaderTests passed")
     }
 
@@ -221,17 +222,34 @@ struct NoteAudioDownloaderTests {
     static func testCancelAllStopsEveryDownload() async throws {
         let s = try setup()
         defer { try? FileManager.default.removeItem(at: s.dir) }
-        let stray = s.dir.appendingPathComponent("downloads/left-from-last-run.fetched")
         s.fetcher.beforeEachPart = {
-            if s.fetcher.fetched.count == 1 {
-                try? Data([1]).write(to: stray)
-                s.downloader.cancelAll()
-            }
+            if s.fetcher.fetched.count == 1 { s.downloader.cancelAll() }
         }
         let url = await s.downloader.download(noteID: s.noteID, manifest: s.manifest, to: s.destination)
         precondition(url == nil)
         let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: s.dir.appendingPathComponent("downloads").path)) ?? []
-        precondition(leftovers.isEmpty, "every download file is removed: \(leftovers)")
+        precondition(leftovers.isEmpty, "the partial file is removed: \(leftovers)")
+        precondition(s.downloader.state(noteID: s.noteID, hasAudio: true, isLocal: false, manifest: s.manifest) == .downloadable)
+    }
+
+    /// A request right after Stop starts a fresh download; the stopped one
+    /// can't clear it or remove its file.
+    @MainActor
+    static func testRequestAfterStopStartsAFreshDownload() async throws {
+        let s = try setup()
+        defer { try? FileManager.default.removeItem(at: s.dir) }
+        var restarted: Task<URL?, Never>?
+        s.fetcher.beforeEachPart = {
+            if s.fetcher.fetched.count == 1, restarted == nil {
+                s.downloader.cancel(noteID: s.noteID)
+                restarted = Task { await s.downloader.download(noteID: s.noteID, manifest: s.manifest, to: s.destination) }
+            }
+        }
+        let first = await s.downloader.download(noteID: s.noteID, manifest: s.manifest, to: s.destination)
+        let second = await restarted?.value
+        precondition(first == nil && second == s.destination, "the new download finishes")
+        let joined = try Data(contentsOf: s.destination)
+        precondition(joined == Data((0..<10).map { UInt8($0) }))
     }
 
     @MainActor

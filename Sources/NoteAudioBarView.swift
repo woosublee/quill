@@ -80,7 +80,7 @@ struct NoteRemoteAudioBarView: View {
                 .frame(height: 44)
                 .accessibilityHidden(true)
                 if let duration {
-                    Text(verbatim: Self.formatDuration(duration))
+                    Text(verbatim: NoteAudioPlayerView.formatDuration(duration))
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
@@ -153,13 +153,5 @@ struct NoteRemoteAudioBarView: View {
     private var downloadProgressText: Text {
         guard case .downloading(let fraction) = state else { return Text(verbatim: "") }
         return Text(verbatim: "\(Int((fraction * 100).rounded()))%")
-    }
-
-    static func formatDuration(_ seconds: TimeInterval) -> String {
-        let total = Int(seconds.rounded())
-        let hours = total / 3600, minutes = (total % 3600) / 60, secs = total % 60
-        return hours > 0
-            ? String(format: "%d:%02d:%02d", hours, minutes, secs)
-            : String(format: "%d:%02d", minutes, secs)
     }
 }
