@@ -7,6 +7,8 @@ enum NoteSyncValue: Codable, Equatable, Sendable {
     case bool(Bool)
     case data(Data)
     case int(Int)
+    /// A value from a newer build, kept as its JSON and written back unchanged.
+    case raw(Data)
 }
 
 /// The note fields that sync, each in the field group it merges with. Raw
