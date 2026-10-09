@@ -14,6 +14,7 @@ struct NoteAudioDownloaderTests {
         try await testSyncTurnedBackOnCanDownload()
         try await testCancelAllStopsEveryDownload()
         try await testRequestAfterStopStartsAFreshDownload()
+        try await testVerifiedCopyReplacesAFileInTheWay()
         print("NoteAudioDownloaderTests passed")
     }
 
@@ -250,6 +251,19 @@ struct NoteAudioDownloaderTests {
         precondition(first == nil && second == s.destination, "the new download finishes")
         let joined = try Data(contentsOf: s.destination)
         precondition(joined == Data((0..<10).map { UInt8($0) }))
+    }
+
+    /// Whatever sits where the audio goes, the verified download wins.
+    @MainActor
+    static func testVerifiedCopyReplacesAFileInTheWay() async throws {
+        let s = try setup()
+        defer { try? FileManager.default.removeItem(at: s.dir) }
+        try FileManager.default.createDirectory(at: s.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data([9, 9]).write(to: s.destination)
+        let url = await s.downloader.download(noteID: s.noteID, manifest: s.manifest, to: s.destination)
+        precondition(url == s.destination)
+        let saved = try Data(contentsOf: s.destination)
+        precondition(saved == Data((0..<10).map { UInt8($0) }), "the unverified file was replaced")
     }
 
     @MainActor

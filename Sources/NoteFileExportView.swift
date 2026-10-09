@@ -27,6 +27,9 @@ struct NoteFileExportView: View {
     @State private var isSaving = false
     /// The save in progress, which Cancel stops (a download can be long).
     @State private var saveTask: Task<Void, Never>?
+    /// Whether that save is downloading the recording, whatever the
+    /// checkbox says now.
+    @State private var isDownloadingAudio = false
 
     init(
         source: NoteFileExportSource,
@@ -67,7 +70,7 @@ struct NoteFileExportView: View {
             Divider().padding(.vertical, 16)
             HStack {
                 Button("Cancel") {
-                    if isSaving, saveTask != nil, source.audioNeedsDownload, includeAudio { cancelDownload() }
+                    if isDownloadingAudio { cancelDownload() }
                     saveTask?.cancel()
                     onDismiss()
                 }
@@ -362,7 +365,9 @@ struct NoteFileExportView: View {
         pendingReplacementRequest = nil
         saveTask = Task {
             if request.source.audioNeedsDownload, request.selectedItems.contains(.audio) {
+                isDownloadingAudio = true
                 let failure = await downloadAudio()
+                isDownloadingAudio = false
                 // Cancelled while the audio downloaded: nothing is saved.
                 guard !Task.isCancelled else { return }
                 if let failure {

@@ -193,7 +193,11 @@ final class NoteAudioDownloader: ObservableObject {
                     at: destination.deletingLastPathComponent(),
                     withIntermediateDirectories: true
                 )
-                if !FileManager.default.fileExists(atPath: destination.path) {
+                // Only the verified copy is trusted, even over a file
+                // already in the way.
+                if FileManager.default.fileExists(atPath: destination.path) {
+                    _ = try FileManager.default.replaceItemAt(destination, withItemAt: partial)
+                } else {
                     try FileManager.default.moveItem(at: partial, to: destination)
                 }
                 return destination
