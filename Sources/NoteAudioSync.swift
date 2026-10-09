@@ -1,32 +1,59 @@
 import CryptoKit
 import Foundation
 
-/// One part of a note's audio in iCloud: record `<note UUID>-<index>`.
+/// One part of a note's audio in iCloud: record
+/// `<note UUID>-<key>-<index>`, where `key` is the first 16 hex digits of
+/// the file's SHA-256. A part is named after the bytes it holds, so a
+/// changed file never writes over the parts of the earlier one.
 struct NoteAudioPartID: Hashable, Sendable {
+    static let keyLength = 16
+
     let noteID: UUID
+    let key: String
     let index: Int
 
-    init(noteID: UUID, index: Int) {
+    init(noteID: UUID, key: String, index: Int) {
         self.noteID = noteID
+        self.key = key
         self.index = index
     }
 
     init?(recordName: String) {
-        guard let dash = recordName.lastIndex(of: "-"),
-              let noteID = UUID(uuidString: String(recordName[..<dash])),
-              let index = Int(recordName[recordName.index(after: dash)...]),
+        guard let lastDash = recordName.lastIndex(of: "-"),
+              let index = Int(recordName[recordName.index(after: lastDash)...]),
               index >= 0 else { return nil }
-        self.init(noteID: noteID, index: index)
+        let rest = recordName[..<lastDash]
+        guard let keyDash = rest.lastIndex(of: "-"),
+              let noteID = UUID(uuidString: String(rest[..<keyDash])) else { return nil }
+        let key = String(rest[rest.index(after: keyDash)...])
+        guard Self.isKey(key) else { return nil }
+        self.init(noteID: noteID, key: key, index: index)
     }
 
-    var recordName: String { "\(noteID.uuidString)-\(index)" }
+    var recordName: String { "\(noteID.uuidString)-\(key)-\(index)" }
+
+    /// The part key for a file's SHA-256 (lowercase hex).
+    static func key(sha256: String) -> String {
+        String(sha256.prefix(keyLength))
+    }
+
+    static func isKey(_ text: String) -> Bool {
+        text.count == keyLength && text.allSatisfy { "0123456789abcdef".contains($0) }
+    }
+
+    /// Every part of a file with this SHA-256 and part count.
+    static func parts(of noteID: UUID, sha256: String, count: Int) -> [NoteAudioPartID] {
+        let key = key(sha256: sha256)
+        return (0..<count).map { NoteAudioPartID(noteID: noteID, key: key, index: $0) }
+    }
 }
 
-/// What an audio part in iCloud was cut from: the note's audio file name
-/// and size. A part cut from an earlier file of the note doesn't match.
-struct NoteAudioPartStamp: Hashable, Sendable {
-    let fileName: String
-    let fileBytes: Int64
+/// What iCloud may hold of a deleted or replaced note's audio: the parts
+/// its marker names, and the parts of an upload this Mac had started.
+struct NoteAudioSyncState: Equatable, Sendable {
+    var manifest: NoteAudioManifest?
+    /// The SHA-256 of the file this Mac was uploading.
+    var uploadKey: String?
 }
 
 /// Says a note's audio is entirely in iCloud. It is set only after every
@@ -66,6 +93,11 @@ struct NoteAudioManifest: Codable, Equatable, Sendable {
         try container.encode(bytes, forKey: .bytes)
         try container.encode(partSize, forKey: .partSize)
         try container.encode(parts, forKey: .parts)
+    }
+
+    /// The parts this marker says are in iCloud.
+    func partIDs(noteID: UUID) -> [NoteAudioPartID] {
+        NoteAudioPartID.parts(of: noteID, sha256: sha256, count: parts)
     }
 
     func encoded() -> Data {

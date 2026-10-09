@@ -70,13 +70,19 @@ struct NoteAudioSyncTests {
 
     static func testPartIDRoundTrip() {
         let id = UUID()
-        let part = NoteAudioPartID(noteID: id, index: 12)
-        precondition(part.recordName == "\(id.uuidString)-12")
+        let sha = String(repeating: "0123456789abcdef", count: 4)
+        let part = NoteAudioPartID(noteID: id, key: NoteAudioPartID.key(sha256: sha), index: 12)
+        precondition(part.recordName == "\(id.uuidString)-0123456789abcdef-12", "named after the file's bytes")
         precondition(NoteAudioPartID(recordName: part.recordName) == part)
+        precondition(NoteAudioPartID.parts(of: id, sha256: sha, count: 2).map(\.index) == [0, 1])
         precondition(NoteAudioPartID(recordName: id.uuidString) == nil, "a note record name is not a part")
-        precondition(NoteAudioPartID(recordName: "\(id.uuidString)--1") == nil)
-        precondition(NoteAudioPartID(recordName: "synthetic-1") == nil)
-        precondition(NoteAudioPartID(recordName: "\(id.uuidString)-") == nil)
+        precondition(NoteAudioPartID(recordName: "\(id.uuidString)-12") == nil, "a part needs its file key")
+        precondition(NoteAudioPartID(recordName: "\(id.uuidString)-0123456789abcdef--1") == nil)
+        precondition(NoteAudioPartID(recordName: "\(id.uuidString)-0123456789ABCDEF-1") == nil, "keys are lowercase hex")
+        precondition(NoteAudioPartID(recordName: "\(id.uuidString)-0123-1") == nil)
+        precondition(NoteAudioPartID(recordName: "synthetic-0123456789abcdef-1") == nil)
+        let manifest = NoteAudioManifest(sha256: sha, bytes: 120_000_000, partSize: 50_000_000, parts: 3)
+        precondition(manifest.partIDs(noteID: id) == NoteAudioPartID.parts(of: id, sha256: sha, count: 3))
     }
 
     static func testManifestShape() {

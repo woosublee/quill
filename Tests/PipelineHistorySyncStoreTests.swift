@@ -23,6 +23,7 @@ struct PipelineHistorySyncStoreTests {
         try testAudioManifestFromICloudIsKept()
         try testNewAudioFileClearsTheManifest()
         try testDeleteReportsAudioParts()
+        try testReplacedAudioIsReported()
         try testClearingChangeTagsClearsAudioManifests()
         try testAudioManifestCanBeCleared()
         print("PipelineHistorySyncStoreTests passed")
@@ -311,7 +312,37 @@ struct PipelineHistorySyncStoreTests {
         try s.setAudioManifest(manifest, id: note.id)
         s.onChange = { changes += $0 }
         _ = try s.delete(id: note.id)
-        precondition(changes == [.deleted(note.id, wasSynced: false, audioParts: 3, hasAudio: true)])
+        precondition(changes == [.deleted(note.id, wasSynced: false, audio: NoteAudioSyncState(manifest: manifest))])
+    }
+
+    /// The upload key names the parts of the file being sent; a new file
+    /// clears it, and the store says what the earlier one left in iCloud.
+    private static func testReplacedAudioIsReported() throws {
+        let s = store()
+        let note = makeItem(audio: "\(UUID().uuidString).wav")
+        _ = try s.append(note, maxCount: Int.max)
+        try s.setAudioManifest(manifest, id: note.id)
+        try s.setAudioUploadKey(manifest.sha256, id: note.id)
+        precondition(s.audioUploadKey(id: note.id) == manifest.sha256)
+        var changes: [PipelineHistoryChange] = []
+        s.onChange = { changes += $0 }
+        try s.update(note.withCustomTitle("Renamed"))
+        precondition(changes == [.saved(note.id)], "an edit that keeps the audio reports no replacement")
+        changes = []
+        try s.update(note.replacingAssetFileNames(audioFileName: "\(UUID().uuidString).wav", transcriptFileName: nil))
+        precondition(changes == [
+            .audioReplaced(note.id, previous: NoteAudioSyncState(manifest: manifest, uploadKey: manifest.sha256)),
+            .saved(note.id)
+        ])
+        precondition(s.audioUploadKey(id: note.id) == nil && s.audioManifest(id: note.id) == nil)
+        changes = []
+        _ = try s.delete(id: note.id)
+        precondition(changes == [.deleted(note.id, wasSynced: false, audio: NoteAudioSyncState())], "audio with nothing in iCloud yet")
+        let silent = makeItem()
+        _ = try s.append(silent, maxCount: Int.max)
+        changes = []
+        _ = try s.delete(id: silent.id)
+        precondition(changes == [.deleted(silent.id, wasSynced: false)], "no audio, nothing to delete")
     }
 
     /// When iCloud loses the notes, it lost their audio too: the marker
