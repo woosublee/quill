@@ -315,8 +315,9 @@ endif
 		fi
 	@staged_profile="$(BUILD_DIR)/codesign-staging/$(APP_NAME).app/Contents/embedded.provisionprofile"; \
 		if [ -n "$(PROVISIONING_PROFILE)" ]; then \
-			bash $(PROVISIONING_SCRIPT) entitlements "$(PROVISIONING_PROFILE)" "$(BUNDLE_ID)" "$(ICLOUD_ENVIRONMENT)" "$(ICLOUD_CONTAINER)" Quill.entitlements "$(SIGNING_ENTITLEMENTS)"; \
-			cp "$(PROVISIONING_PROFILE)" "$$staged_profile"; \
+			rm -f "$(SIGNING_ENTITLEMENTS)"; \
+			bash $(PROVISIONING_SCRIPT) entitlements "$(PROVISIONING_PROFILE)" "$(BUNDLE_ID)" "$(ICLOUD_ENVIRONMENT)" "$(ICLOUD_CONTAINER)" "$(CODESIGN_IDENTITY)" Quill.entitlements "$(SIGNING_ENTITLEMENTS)" || exit 1; \
+			cp "$(PROVISIONING_PROFILE)" "$$staged_profile" || exit 1; \
 		else \
 			rm -f "$$staged_profile"; \
 		fi

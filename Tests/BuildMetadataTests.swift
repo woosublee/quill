@@ -353,7 +353,11 @@ struct BuildMetadataTests {
         assertDoesNotContain(makefile, "--entitlements Quill.entitlements")
         assertDoesNotContain(entitlements, "icloud")
         assertContains(makefile, "rm -f \"$$staged_profile\"")
-        assertContains(makefile, "cp \"$(PROVISIONING_PROFILE)\" \"$$staged_profile\"")
+        assertContains(makefile, "cp \"$(PROVISIONING_PROFILE)\" \"$$staged_profile\" || exit 1")
+        // A rejected profile stops the build instead of signing with an
+        // entitlements file left by an earlier build.
+        assertContains(makefile, "rm -f \"$(SIGNING_ENTITLEMENTS)\"")
+        assertContains(makefile, "\"$(CODESIGN_IDENTITY)\" Quill.entitlements \"$(SIGNING_ENTITLEMENTS)\" || exit 1")
         assertContains(makefile, "\"$(PROVISIONING_PROFILE)\" \"$(ICLOUD_CONTAINER)\" \"$(ICLOUD_ENVIRONMENT)\" > \"$@.tmp\"")
 
         // Releases use Production; only Quill Dev uses Development, with
