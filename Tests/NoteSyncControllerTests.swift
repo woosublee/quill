@@ -70,7 +70,7 @@ struct NoteSyncControllerTests {
         }
         func syncSystemFields(id: UUID) -> Data? { nil }
         func setSyncSystemFields(_ data: Data?, id: UUID) {}
-        func clearAllSyncSystemFields() { cleared = true }
+        func clearAllSyncSystemFields(forgettingAudio: Bool) { cleared = true }
         func syncableNoteIDs() -> [UUID] { ids }
         func isSyncable(id: UUID) -> Bool { ids.contains(id) }
         func applySynced(_ record: NoteSyncRecord, systemFields: Data?) throws -> NoteSyncApplyResult { .inserted }

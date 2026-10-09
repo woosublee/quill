@@ -208,7 +208,7 @@ struct PipelineHistorySyncStoreTests {
         let a = makeItem()
         _ = try s.append(a, maxCount: Int.max)
         try s.setSyncSystemFields(Data([1]), id: a.id)
-        try s.clearAllSyncSystemFields()
+        try s.clearAllSyncSystemFields(forgettingAudio: true)
         precondition(s.syncSystemFields(id: a.id) == nil)
     }
 
@@ -322,7 +322,9 @@ struct PipelineHistorySyncStoreTests {
         _ = try s.append(marked, maxCount: Int.max)
         try s.setAudioManifest(manifest, id: marked.id)
         s.now = { t0.addingTimeInterval(90) }
-        try s.clearAllSyncSystemFields()
+        try s.clearAllSyncSystemFields(forgettingAudio: false)
+        precondition(s.audioManifest(id: marked.id) == manifest, "after an account change iCloud may still hold it")
+        try s.clearAllSyncSystemFields(forgettingAudio: true)
         precondition(s.audioManifest(id: marked.id) == nil)
         let record = s.syncRecord(id: marked.id)!
         precondition(record.fields[NoteSyncField.audioManifest.rawValue] == nil)

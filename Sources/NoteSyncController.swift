@@ -142,7 +142,7 @@ final class NoteSyncController: ObservableObject {
                 return false
             }
             // iCloud no longer holds these notes.
-            store?.clearChangeTags()
+            store?.clearChangeTags(forgettingAudio: true)
         }
         stopEngine(forgetState: true)
         setEnabled(false)
@@ -192,6 +192,7 @@ final class NoteSyncController: ObservableObject {
     }
 
     private func stopEngine(forgetState: Bool) {
+        coordinator?.stop()
         engine?.stop(forgetState: forgetState)
         engine = nil
         coordinator = nil

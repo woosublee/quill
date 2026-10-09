@@ -8,7 +8,8 @@ protocol NoteSyncLocalStore: AnyObject {
     func syncRecord(id: UUID) -> NoteSyncRecord?
     func syncSystemFields(id: UUID) -> Data?
     func setSyncSystemFields(_ data: Data?, id: UUID) throws
-    func clearAllSyncSystemFields() throws
+    /// `forgettingAudio`: iCloud lost the audio too, so markers go.
+    func clearAllSyncSystemFields(forgettingAudio: Bool) throws
     func syncableNoteIDs() -> [UUID]
     func isSyncable(id: UUID) -> Bool
     func applySynced(_ record: NoteSyncRecord, systemFields: Data?) throws -> NoteSyncApplyResult
@@ -32,9 +33,9 @@ extension PipelineHistoryStore: NoteSyncLocalStore {}
 extension NoteSyncLocalStore {
     /// Stale change tags only cause conflicts that merge on the next upload,
     /// so a failure here is logged, not fatal.
-    func clearChangeTags() {
+    func clearChangeTags(forgettingAudio: Bool) {
         do {
-            try clearAllSyncSystemFields()
+            try clearAllSyncSystemFields(forgettingAudio: forgettingAudio)
         } catch {
             print("[NoteSync] Couldn't clear change tags")
         }
@@ -175,12 +176,16 @@ final class NoteSyncCoordinator {
     /// again after the next sync because a check couldn't finish.
     private var audioChecking: Set<UUID> = []
     private var audioToCheck: Set<UUID> = []
+    /// Set once the controller replaces or drops this coordinator: work
+    /// still running (an audio check, a hash) must not touch the store.
+    private var isRetired = false
     /// The most recent audio check, for tests to wait on.
     private(set) var lastAudioCheck: Task<Void, Never>?
 
     /// After an account change or a deletion elsewhere nothing more is sent;
     /// sync starts again only when the user turns it on.
     private var isStopped: Bool {
+        if isRetired { return true }
         switch status {
         case .paused(.accountChanged), .paused(.signedOut), .paused(.deletedElsewhere): return true
         default: return false
@@ -269,23 +274,42 @@ final class NoteSyncCoordinator {
         lastAudioCheck = Task { await self.checkAudio(ids, verifyMarked: verifyMarked) }
     }
 
+    /// One note's audio as a check sees it: the file here, or only the
+    /// marker for audio another Mac recorded.
+    private struct AudioToCheck {
+        let id: UUID
+        let file: NoteSyncLocalAudio?
+        let manifest: NoteAudioManifest?
+        let stamp: NoteAudioPartStamp
+        let count: Int
+    }
+
     /// Compares each note's audio with the parts iCloud holds. Missing
     /// parts, or parts cut from an earlier file, are sent; when every part
     /// is there the marker is written. With `verifyMarked`, audio already
-    /// marked is checked too, and a marker iCloud can't back is cleared.
+    /// marked is checked too, including audio that isn't on this Mac, and a
+    /// marker iCloud can't back is cleared.
     func checkAudio(_ ids: [UUID], verifyMarked: Bool) async {
         guard !isStopped else { return }
         let busy = notesWithAudioInFlight()
-        var notes: [(id: UUID, file: NoteSyncLocalAudio, marked: Bool)] = []
-        for id in ids where !busy.contains(id) {
+        var notes: [AudioToCheck] = []
+        for id in ids {
+            let manifest = store.audioManifest(id: id)
+            let file = localAudio(id)
+            // Parts may already be in iCloud, so a delete must know how many.
+            if manifest == nil, let file { noteAudioParts(file.partCount, of: id) }
+            guard !busy.contains(id) else { continue }
             if audioChecking.contains(id) {
                 audioToCheck.insert(id)
                 continue
             }
-            let marked = store.audioManifest(id: id) != nil
-            guard !marked || verifyMarked, let file = localAudio(id), file.partCount > 0 else { continue }
-            noteAudioParts(file.partCount, of: id)
-            notes.append((id, file, marked))
+            if let file, file.partCount > 0, manifest == nil || verifyMarked {
+                notes.append(AudioToCheck(id: id, file: file, manifest: manifest, stamp: file.stamp, count: file.partCount))
+            } else if verifyMarked, file == nil, let manifest, manifest.parts > 0,
+                      case .string(let name)? = store.syncRecord(id: id)?.fields[NoteSyncField.audioFileName.rawValue] {
+                let stamp = NoteAudioPartStamp(fileName: name, fileBytes: manifest.bytes)
+                notes.append(AudioToCheck(id: id, file: nil, manifest: manifest, stamp: stamp, count: manifest.parts))
+            }
         }
         guard !notes.isEmpty else { return }
         let checking = Set(notes.map(\.id))
@@ -293,7 +317,7 @@ final class NoteSyncCoordinator {
         defer { audioChecking.subtract(checking) }
         let stamps: [NoteAudioPartID: NoteAudioPartStamp]
         do {
-            stamps = try await engine.audioPartStamps(notes.flatMap { Self.parts(of: $0.id, count: $0.file.partCount) })
+            stamps = try await engine.audioPartStamps(notes.flatMap { Self.parts(of: $0.id, count: $0.count) })
         } catch {
             if !isStopped { audioToCheck.formUnion(checking) }
             print("[NoteSync] Couldn't check audio in iCloud")
@@ -308,19 +332,20 @@ final class NoteSyncCoordinator {
         for note in notes {
             // The note may have changed while iCloud answered.
             guard !busyNow.contains(note.id), localAudio(note.id) == note.file,
-                  (store.audioManifest(id: note.id) != nil) == note.marked else { continue }
-            let count = note.file.partCount
-            if let known = audioPartCounts[note.id], known > count {
-                // An earlier, longer file left parts past the end.
-                extra += (count..<known).map { NoteAudioPartID(noteID: note.id, index: $0) }
+                  store.audioManifest(id: note.id) == note.manifest else { continue }
+            if note.file != nil {
+                if let known = audioPartCounts[note.id], known > note.count, note.manifest == nil {
+                    // An earlier, longer file left parts past the end.
+                    extra += (note.count..<known).map { NoteAudioPartID(noteID: note.id, index: $0) }
+                }
+                if note.manifest == nil { audioPartCounts[note.id] = note.count }
             }
-            audioPartCounts[note.id] = count
-            let missing = Self.parts(of: note.id, count: count).filter { stamps[$0] != note.file.stamp }
+            let missing = Self.parts(of: note.id, count: note.count).filter { stamps[$0] != note.stamp }
             if missing.isEmpty {
-                if !note.marked { complete.append((note.id, note.file)) }
+                if note.manifest == nil, let file = note.file { complete.append((note.id, file)) }
                 continue
             }
-            if note.marked {
+            if note.manifest != nil {
                 do {
                     try store.setAudioManifest(nil, id: note.id)
                     unmarked.append(note.id)
@@ -329,6 +354,9 @@ final class NoteSyncCoordinator {
                     continue
                 }
             }
+            // Audio that isn't here can't be sent; only its marker goes.
+            guard let file = note.file else { continue }
+            noteAudioParts(file.partCount, of: note.id)
             send += missing.filter { !audioPartsGivenUp.contains($0) }
         }
         if !extra.isEmpty { engine.enqueueAudioDeletes(extra) }
@@ -338,7 +366,9 @@ final class NoteSyncCoordinator {
         }
         if !unmarked.isEmpty {
             engine.enqueueSaves(unmarked)
-            if case .uploading = status { uploadWaitingAudio.formUnion(unmarked) }
+            if case .uploading = status {
+                uploadWaitingAudio.formUnion(unmarked.filter { localAudio($0) != nil })
+            }
             print("[NoteSync] Cleared \(unmarked.count) audio markers iCloud couldn't back")
         }
         for (id, file) in complete {
@@ -620,12 +650,11 @@ final class NoteSyncCoordinator {
             // already sent is removed: the other Mac may not know about it.
             let pending = engine.pendingAudioSaves()
             for id in deletions {
+                let parts = max(store.audioManifest(id: id)?.parts ?? 0, localAudio(id)?.partCount ?? 0)
                 if let assets = try? store.removeSynced(id: id) {
                     change.purged.append(assets)
                 }
-                if audioPartCounts[id] != nil || pending.contains(where: { $0.noteID == id }) {
-                    audioDeletes += dropAudio(of: id, markedParts: 0, pending: pending)
-                }
+                audioDeletes += dropAudio(of: id, markedParts: parts, pending: pending)
             }
         }
         if !audioDeletes.isEmpty { engine.enqueueAudioDeletes(audioDeletes) }
@@ -692,16 +721,23 @@ final class NoteSyncCoordinator {
         }
     }
 
+    /// The engine is stopping: nothing more is sent or written.
+    func stop() {
+        isRetired = true
+    }
+
     func handleAccountChange(signedOut: Bool) {
         // Paused first, so sync stays stopped even if clearing fails.
         status = .paused(signedOut ? .signedOut : .accountChanged)
-        store.clearChangeTags()
+        // Markers stay: signing back into the same account finds the audio
+        // there, and turning sync on checks them against iCloud.
+        store.clearChangeTags(forgettingAudio: false)
         print("[NoteSync] Paused: iCloud account \(signedOut ? "signed out" : "changed")")
     }
 
     func handleZoneDeleted() {
         status = .paused(.deletedElsewhere)
-        store.clearChangeTags()
+        store.clearChangeTags(forgettingAudio: true)
         print("[NoteSync] Paused: iCloud data was deleted from another Mac")
     }
 }

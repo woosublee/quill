@@ -736,21 +736,23 @@ final class PipelineHistoryStore {
         if let thrownError { throw thrownError }
     }
 
-    /// Forgets which notes, and which audio, reached iCloud, after the
-    /// iCloud data went away (account change, or deleted from iCloud). A
-    /// cleared audio marker is stamped, so a Mac that still holds the old
-    /// one can't merge it back.
-    func clearAllSyncSystemFields() throws {
+    /// Forgets which notes reached iCloud, after the iCloud data went away
+    /// (account change, or deleted from iCloud). With `forgettingAudio`
+    /// (iCloud lost the audio too) the audio markers go as well, stamped
+    /// so a Mac that still holds one can't merge it back.
+    func clearAllSyncSystemFields(forgettingAudio: Bool) throws {
         var thrownError: Error?
         container.viewContext.performAndWait {
             do {
                 let request = pipelineHistoryRequest()
-                request.predicate = NSPredicate(format: "syncSystemFields != nil OR audioSyncManifestJSON != nil")
+                request.predicate = forgettingAudio
+                    ? NSPredicate(format: "syncSystemFields != nil OR audioSyncManifestJSON != nil")
+                    : NSPredicate(format: "syncSystemFields != nil")
                 let entities = try historyFetcher(container.viewContext, request)
                 let stamp = now()
                 for entity in entities {
                     entity.syncSystemFields = nil
-                    if entity.audioSyncManifestJSON != nil {
+                    if forgettingAudio, entity.audioSyncManifestJSON != nil {
                         entity.audioSyncManifestJSON = nil
                         let clock = (Self.decodeClock(entity.fieldClockJSON)
                             ?? NoteFieldClock.uniform(entity.timestamp ?? .distantPast))

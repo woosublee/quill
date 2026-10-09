@@ -235,14 +235,26 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
             // Sync stays on: cancel the delete so the engine can't send it
             // later by itself.
             engine.state.remove(pendingDatabaseChanges: zoneIDs.map { .deleteZone($0) })
-            if !deleted.contains(NoteSyncCloudRecord.zoneID()) {
+            if deleted.contains(NoteSyncCloudRecord.zoneID()) {
+                // The notes are gone: try the audio once more on its own.
+                let audioZone = NoteAudioCloudRecord.zoneID()
+                if let result = try? await database.modifyRecordZones(saving: [], deleting: [audioZone]) {
+                    switch result.deleteResults[audioZone] {
+                    case .success?:
+                        return
+                    case .failure(let error)? where (error as? CKError)?.code == .zoneNotFound:
+                        return
+                    default:
+                        break
+                    }
+                }
+                // Still there: uploads stay dropped and the missing notes
+                // zone stays expected, so trying again deletes the audio.
+            } else {
                 // Nothing is gone yet: put back the uploads dropped for it.
                 engine.state.add(pendingRecordZoneChanges: droppedUploads)
                 lock.withLock { isDeletingZone = false }
             }
-            // Otherwise the notes are gone but their audio isn't: uploads
-            // stay dropped and the missing zone stays expected, so trying
-            // again deletes the audio.
             throw error
         }
     }
@@ -426,7 +438,16 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
                 NoteAudioCloudRecord.removePartFile(for: part, in: outbox)
                 switch NoteSyncCloudRecord.sendErrorKind(failure.error.code) {
                 case .serverChanged:
-                    // Same part sent before: send again over the server copy.
+                    // iCloud already holds this very part (it went up just
+                    // before a quit): count it as saved.
+                    if let server = failure.error.serverRecord,
+                       let sent = NoteAudioCloudRecord.stamp(of: failure.record),
+                       NoteAudioCloudRecord.stamp(of: server) == sent {
+                        lock.withLock { audioServerFields[recordID] = nil }
+                        savedParts.append(part)
+                        continue
+                    }
+                    // A part of an earlier file: send again over it.
                     if let server = failure.error.serverRecord {
                         lock.withLock { audioServerFields[recordID] = NoteSyncCloudRecord.systemFields(of: server) }
                     }
