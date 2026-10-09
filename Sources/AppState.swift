@@ -928,6 +928,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor private lazy var appleCalendarService = AppleCalendarService()
     private var appleCalendarChangeObserver: NSObjectProtocol?
     private var networkReturnObserver: NSObjectProtocol?
+    private var networkReturnCheck: Task<Void, Never>?
     private var appleCalendarChangeDebounce: DispatchWorkItem?
     private var appleCalendarLastRequestDeclined = false
 
@@ -2043,12 +2044,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
             queue: .main
         ) { [weak self] _ in
             // The path can read online before DNS and routes work, so the
-            // check waits a moment and tries once more if still offline.
+            // check waits a moment and tries once more if still offline. A
+            // newer return replaces a check still waiting.
             Task { @MainActor [weak self] in
-                for delay in [2, 30] {
-                    try? await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
-                    guard let self, self.googleCalendarConnection.health.status == .offline else { return }
-                    self.startGoogleCalendarHealthCheck()
+                guard let self else { return }
+                self.networkReturnCheck?.cancel()
+                self.networkReturnCheck = Task { @MainActor [weak self] in
+                    for delay in [2, 30] {
+                        try? await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
+                        guard !Task.isCancelled, let self,
+                              self.googleCalendarConnection.health.status == .offline else { return }
+                        self.startGoogleCalendarHealthCheck()
+                    }
                 }
             }
         }
@@ -2141,6 +2148,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         Self.clearGoogleCalendarConnectionMetadata()
         availableGoogleCalendars = []
         googleCalendarConnection = .disconnected
+        googleReminderEventsCache = nil
         UserDefaults.standard.removeObject(forKey: googleCalendarSelectedIDsStorageKey)
         // Apple Calendar may still be connected; this stops reminders only
         // when no source has a selected calendar.
@@ -4937,6 +4945,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         if fetchResult.failure == .cancelled { throw CancellationError() }
         await MainActor.run {
             if let failure = fetchResult.failure {
+                // Older saved events must not stand in for this newer fetch.
+                googleReminderEventsCache = nil
                 recordGoogleCalendarFailure(
                     failure,
                     feature: .recordingReminders,
@@ -4955,6 +4965,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 )
             }
         }
+        // Offline, no Google calendar was read: failing keeps the reminders
+        // already scheduled instead of replacing them with Apple's alone.
+        if fetchResult.failure == .offline { throw URLError(.notConnectedToInternet) }
         return fetchResult.events.filter { $0.end > timeMin && $0.start < timeMax }
     }
 

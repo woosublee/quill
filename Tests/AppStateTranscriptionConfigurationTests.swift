@@ -234,6 +234,8 @@ struct AppStateTranscriptionConfigurationTests {
         await testFailedGoogleFetchIsNotReused()
         await testCancelledDayFetchIsNotComplete()
         await testOfflineDoesNotHideAnotherFeaturesFailure()
+        await testOfflineReminderFetchKeepsExistingReminders()
+        await testIncompleteFetchDropsTheCache()
         await testGoogleCalendarRefreshMarksHealthyWhenCalendarListLoads()
         await testRetryAvailabilityRequiresStoredAudio()
         await testRetryAvailabilityOffersSelectableCloudAlternative()
@@ -3284,6 +3286,36 @@ struct AppStateTranscriptionConfigurationTests {
         stub.fails = false
         _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end, reusingGoogleEvents: true)
         assert(stub.requests == 2, "Google is asked again")
+    }
+
+    /// Offline, the reminder refresh fails instead of returning no Google
+    /// events, so the reminders already scheduled are kept.
+    private static func testOfflineReminderFetchKeepsExistingReminders() async {
+        let restore = connectGoogleForTest { _ in throw URLError(.notConnectedToInternet) }
+        defer { restore() }
+        let appState = makeAppState()
+        await MainActor.run { appState.setGoogleCalendarSelection(["primary"]) }
+        do {
+            _ = try await appState.fetchCalendarRecordingReminderEvents(timeMin: Date(), timeMax: Date().addingTimeInterval(3600))
+            assertionFailure("an offline refresh must not replace reminders with Apple events alone")
+        } catch {}
+    }
+
+    /// A fresh fetch that didn't complete drops the saved events, so an
+    /// Apple-only refresh can't bring back older Google data.
+    private static func testIncompleteFetchDropsTheCache() async {
+        let stub = GoogleTransportStub()
+        let restore = connectGoogleForTest(transport: stub.transport)
+        defer { restore() }
+        let appState = makeAppState()
+        await MainActor.run { appState.setGoogleCalendarSelection(["primary"]) }
+        let start = Date(), end = Date().addingTimeInterval(3600)
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end)
+        stub.fails = true
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end)
+        stub.fails = false
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end, reusingGoogleEvents: true)
+        assert(stub.requests == 3, "the older snapshot isn't reused")
     }
 
     private static func testOfflineDoesNotHideAnotherFeaturesFailure() async {

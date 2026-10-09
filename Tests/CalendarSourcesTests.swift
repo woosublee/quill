@@ -118,6 +118,7 @@ struct CalendarSourcesTests {
         let clear = block(appState, from: "private func clearGoogleCalendarConnectionState()", to: "\n    }\n")
         precondition(clear.contains("scheduleCalendarRecordingReminderRefresh()"), "Google disconnect keeps Apple reminders running")
         precondition(!clear.contains("stopCalendarRecordingReminderSchedulerIfNeeded()"), "Google disconnect must not stop all reminders")
+        precondition(clear.contains("googleReminderEventsCache = nil"), "Google disconnect forgets saved Google events")
         let reload = block(appState, from: "func reloadAppleCalendars()", to: "\n    }\n")
         precondition(!reload.contains("pruned"), "reload must not drop selected calendars")
         precondition(reload.contains("scheduleCalendarRecordingReminderRefresh(reusingGoogleEvents: true)"), "reload reschedules reminders without asking Google again")
