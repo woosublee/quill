@@ -20,6 +20,7 @@ struct NoteSyncControllerTests {
         testTurnOnWaitsForAReadyStore()
         testTurnOnFailureKeepsWhySyncStopped()
         try testConfirmationsCountAudio()
+        testSyncNowRunsOnceAtATime()
         print("NoteSyncControllerTests passed")
     }
 
@@ -100,6 +101,12 @@ struct NoteSyncControllerTests {
         func attach(_ coordinator: NoteSyncCoordinator) { self.coordinator = coordinator }
         func start() { started += 1; log?.calls.append("start") }
         func fetchNow() { fetches += 1 }
+        var syncsNow = 0
+        var whileSyncing: (() -> Void)?
+        func syncNow() async {
+            syncsNow += 1
+            whileSyncing?()
+        }
         func deleteAllFromICloud() async throws { deletedFromICloud = true }
         func stop(forgetState: Bool) { stopped.append(forgetState) }
     }
@@ -219,6 +226,22 @@ struct NoteSyncControllerTests {
         precondition(engine()?.saves.count == before + 1)
         controller.fetchSoon()
         precondition(engine()?.fetches == 1)
+    }
+
+    /// Sync Now fetches and sends right away; a second press while it runs
+    /// does nothing.
+    @MainActor
+    static func testSyncNowRunsOnceAtATime() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        var busyWhileSyncing = false
+        engine()?.whileSyncing = {
+            busyWhileSyncing = controller.isSyncingNow
+            Task { @MainActor in await controller.syncNow() }
+        }
+        precondition(expectation { await controller.syncNow() })
+        precondition(busyWhileSyncing && !controller.isSyncingNow)
+        precondition(engine()?.syncsNow == 1, "a press while syncing is ignored")
     }
 
     /// Runs an async call to completion on the main run loop.

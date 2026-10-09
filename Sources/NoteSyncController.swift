@@ -8,6 +8,8 @@ protocol NoteSyncEngineHandle: NoteSyncEngineClient {
     /// schedules regular fetches, and fetches once.
     func start()
     func fetchNow()
+    /// Fetches, then sends what is waiting, and returns when both finished.
+    func syncNow() async
     func deleteAllFromICloud() async throws
     func stop(forgetState: Bool)
 }
@@ -43,6 +45,7 @@ final class NoteSyncController: ObservableObject {
     @Published private(set) var status: NoteSyncStatus = .off
     @Published private(set) var isEnabled: Bool
     @Published private(set) var isTurningOn = false
+    @Published private(set) var isSyncingNow = false
     let unavailableReason: NoteSyncUnavailableReason?
     var onRemoteChange: ((NoteSyncRemoteChange) -> Void)?
 
@@ -157,6 +160,14 @@ final class NoteSyncController: ObservableObject {
     /// Fetches now when sync is on: at launch, and when notes or Settings open.
     func fetchSoon() {
         engine?.fetchNow()
+    }
+
+    /// Sync Now in Settings. A press while it runs does nothing.
+    func syncNow() async {
+        guard let engine, !isSyncingNow else { return }
+        isSyncingNow = true
+        defer { isSyncingNow = false }
+        await engine.syncNow()
     }
 
     private func startEngine(initialUpload: Bool) {

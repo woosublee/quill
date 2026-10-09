@@ -30,6 +30,7 @@ struct AppStateNoteSyncTests {
         func attach(_ coordinator: NoteSyncCoordinator) { self.coordinator = coordinator }
         func start() {}
         func fetchNow() {}
+        func syncNow() async {}
         func deleteAllFromICloud() async throws {}
         func stop(forgetState: Bool) {}
     }

@@ -187,6 +187,18 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         return stamps
     }
 
+    /// Sync Now: fetches, then sends what is waiting. Failures are left to
+    /// the status the engine's events already report.
+    func syncNow() async {
+        guard let engine = activeEngine() else { return }
+        do {
+            try await engine.fetchChanges()
+            try await engine.sendChanges()
+        } catch {
+            print("[NoteSync] Sync Now didn't finish")
+        }
+    }
+
     /// Overlapping calls are coalesced: a fetch already running is enough.
     func fetchNow() {
         guard let engine = activeEngine() else { return }

@@ -20117,22 +20117,6 @@
         }
       }
     },
-    "Settings, vocabulary, and API keys don't sync. Each Mac keeps its own.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Settings, vocabulary, and API keys don't sync. Each Mac keeps its own."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "설정·단어장·API 키는 동기화하지 않아요. 각 Mac에서 따로 정해요."
-          }
-        }
-      }
-    },
     "1 note": {
       "localizations": {
         "en": {
@@ -20709,38 +20693,6 @@
         }
       }
     },
-    "Screenshots and window details stay on this Mac.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Screenshots and window details stay on this Mac."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "스크린샷과 창 정보는 이 Mac에만 남아요."
-          }
-        }
-      }
-    },
-    "Notes, transcripts, and summaries are saved to your iCloud. They appear on your other Macs with the same iCloud account.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notes, transcripts, and summaries are saved to your iCloud. They appear on your other Macs with the same iCloud account."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "노트·전사문·요약이 내 iCloud에 저장돼요. 같은 iCloud 계정의 다른 Mac에서도 보여요."
-          }
-        }
-      }
-    },
     "This includes %@ of audio.": {
       "localizations": {
         "en": {
@@ -20785,6 +20737,22 @@
           "stringUnit": {
             "state": "translated",
             "value": "노트 %lld개의 오디오는 iCloud에 있지만 이 Mac에는 없어요. 끄고 iCloud에서도 지우면 이 Mac에서는 그 오디오를 받을 수 없어요."
+          }
+        }
+      }
+    },
+    "Keeps your notes the same on your Macs with this iCloud account.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps your notes the same on your Macs with this iCloud account."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "같은 iCloud 계정의 다른 Mac과 노트를 맞춰요."
           }
         }
       }

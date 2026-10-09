@@ -66,6 +66,22 @@ private struct NoteSyncSettingsCard: View {
                     }
                 }
                 Spacer(minLength: 0)
+                if showsSyncNow {
+                    Button {
+                        Task { @MainActor in await controller.syncNow() }
+                    } label: {
+                        if controller.isSyncingNow {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(controller.isSyncingNow)
+                    .help("Sync Now")
+                    .accessibilityLabel(Text("Sync Now"))
+                }
                 Toggle(isOn: switchBinding) {
                     Text("Sync this Mac's notes with iCloud")
                 }
@@ -76,23 +92,12 @@ private struct NoteSyncSettingsCard: View {
 
             statusDetail
 
-            // What goes to iCloud, then what stays here, one sentence pair
-            // per line so lines break where the thought does.
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Notes, transcripts, and summaries are saved to your iCloud. They appear on your other Macs with the same iCloud account.")
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Screenshots and window details stay on this Mac.")
-                    Text("Settings, vocabulary, and API keys don't sync. Each Mac keeps its own.")
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-
-            if controller.isEnabled {
-                Text(noteCountText(controller.syncableNoteCount))
+            // What goes to iCloud is said once, when turning on.
+            if !controller.isEnabled, controller.unavailableReason == nil {
+                Text("Keeps your notes the same on your Macs with this iCloud account.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .alert("Turn on iCloud sync?", isPresented: $isConfirmingTurnOn) {
@@ -174,6 +179,17 @@ private struct NoteSyncSettingsCard: View {
         count == 1 ? "1 note" : "\(count) notes"
     }
 
+    /// Sync Now shows while sync runs, not after it stopped.
+    private var showsSyncNow: Bool {
+        guard controller.isEnabled, controller.unavailableReason == nil else { return false }
+        switch controller.status {
+        case .paused(.accountChanged), .paused(.signedOut), .paused(.deletedElsewhere), .off:
+            return false
+        default:
+            return true
+        }
+    }
+
     private func turnOff(deleteFromICloud: Bool) {
         isTurningOff = true
         Task { @MainActor in
@@ -216,6 +232,7 @@ private struct NoteSyncSettingsCard: View {
             TimelineView(.periodic(from: .now, by: 30)) { context in
                 Label {
                     Text("Up to date · \(NoteSyncStatusText.relativeTime(date, now: context.date))")
+                        + Text(verbatim: " · ") + Text(noteCountText(controller.syncableNoteCount))
                 } icon: {
                     Image(systemName: "checkmark.circle.fill")
                 }
