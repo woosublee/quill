@@ -31,7 +31,7 @@ private struct NoteSyncSettingsCard: View {
     @State private var isConfirmingTurnOff = false
     @State private var isTurningOff = false
     @State private var turnOffFailed = false
-    @State private var turnOnFailed = false
+    @State private var turnOnFailure: NoteSyncTurnOnFailure?
     @State private var noteCount = 0
 
     private var switchBinding: Binding<Bool> {
@@ -95,7 +95,7 @@ private struct NoteSyncSettingsCard: View {
             Button("Cancel", role: .cancel) {}
             Button("Turn On and Upload") {
                 Task { @MainActor in
-                    if await controller.turnOn() == false { turnOnFailed = true }
+                    turnOnFailure = await controller.turnOn()
                 }
             }
         } message: {
@@ -112,16 +112,30 @@ private struct NoteSyncSettingsCard: View {
         } message: {
             Text("Notes on this Mac stay. Turn Off Sync keeps notes in iCloud for your other Macs. Turn Off and Delete from iCloud deletes all Quill data in iCloud: sync stops on every Mac, and each Mac keeps its notes.")
         }
-        .alert("Couldn't turn on iCloud sync", isPresented: $turnOnFailed) {
+        .alert("Couldn't turn on iCloud sync", isPresented: isShowingTurnOnFailure) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("Check your internet connection and try again. Sync is still off.")
+            switch turnOnFailure {
+            case .signedOut?:
+                Text("Sign in to iCloud in System Settings, then try again.")
+            case .notReady?:
+                Text("Your notes need recovery first. Try again after it finishes.")
+            case .unreachable?, nil:
+                Text("Check your internet connection and try again. Sync is still off.")
+            }
         }
         .alert("Couldn't delete from iCloud", isPresented: $turnOffFailed) {
             Button("OK", role: .cancel) {}
         } message: {
             Text("Check your internet connection and try again. Sync is still on.")
         }
+    }
+
+    private var isShowingTurnOnFailure: Binding<Bool> {
+        Binding(
+            get: { turnOnFailure != nil },
+            set: { if !$0 { turnOnFailure = nil } }
+        )
     }
 
     private var title: some View {

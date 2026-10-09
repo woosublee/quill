@@ -17,6 +17,8 @@ struct NoteSyncControllerTests {
         testDeleteFromICloudWithoutEngineFails()
         testTurnOnCreatesTheZoneBeforeSyncing()
         testTurnOnStaysOffWhenICloudIsUnreachable()
+        testTurnOnWaitsForAReadyStore()
+        testTurnOnFailureKeepsWhySyncStopped()
         print("NoteSyncControllerTests passed")
     }
 
@@ -59,7 +61,6 @@ struct NoteSyncControllerTests {
         var zoneError: Error?
     }
 
-    struct Unreachable: Error {}
 
     @MainActor
     static func make(
@@ -226,9 +227,9 @@ struct NoteSyncControllerTests {
         let log = CallLog()
         let (controller, store, engine, _) = make(log: log)
         controller.attach(store: store)
-        var succeeded = false
-        precondition(expectation { succeeded = await controller.turnOn() })
-        precondition(succeeded && controller.isEnabled)
+        var failure: NoteSyncTurnOnFailure? = .unreachable
+        precondition(expectation { failure = await controller.turnOn() })
+        precondition(failure == nil && controller.isEnabled)
         precondition(log.calls == ["createZone", "start"], "the zone exists before the first fetch")
         precondition(Set(engine()?.saves ?? []) == Set(store.ids))
 
@@ -242,12 +243,49 @@ struct NoteSyncControllerTests {
     @MainActor
     static func testTurnOnStaysOffWhenICloudIsUnreachable() {
         let log = CallLog()
-        log.zoneError = Unreachable()
+        log.zoneError = NoteSyncTurnOnFailure.unreachable
         let (controller, store, engine, defaults) = make(log: log)
         controller.attach(store: store)
-        var succeeded = true
-        precondition(expectation { succeeded = await controller.turnOn() })
-        precondition(!succeeded && !controller.isEnabled && !defaults.bool(forKey: NoteSyncController.enabledKey))
+        var failure: NoteSyncTurnOnFailure?
+        precondition(expectation { failure = await controller.turnOn() })
+        precondition(failure == .unreachable && !controller.isEnabled && !defaults.bool(forKey: NoteSyncController.enabledKey))
         precondition(engine() == nil && controller.status == .off, "nothing starts without the zone")
+
+        // Signed out of iCloud says so instead of blaming the network, and
+        // an unexpected error reads as unreachable.
+        log.zoneError = NoteSyncTurnOnFailure.signedOut
+        precondition(expectation { failure = await controller.turnOn() })
+        precondition(failure == .signedOut)
+        struct Unexpected: Error {}
+        log.zoneError = Unexpected()
+        precondition(expectation { failure = await controller.turnOn() })
+        precondition(failure == .unreachable)
+    }
+
+    /// A store that can't save yet is checked before iCloud is contacted,
+    /// so the status never sticks at "Checking iCloud…".
+    @MainActor
+    static func testTurnOnWaitsForAReadyStore() {
+        let log = CallLog()
+        let (controller, store, engine, _) = make(log: log)
+        store.isReadyForSync = false
+        controller.attach(store: store)
+        var failure: NoteSyncTurnOnFailure?
+        precondition(expectation { failure = await controller.turnOn() })
+        precondition(failure == .notReady && !controller.isEnabled)
+        precondition(log.calls.isEmpty && engine() == nil && controller.status == .off)
+    }
+
+    /// Why sync stopped stays on screen when turning it on again fails.
+    @MainActor
+    static func testTurnOnFailureKeepsWhySyncStopped() {
+        let log = CallLog()
+        let (controller, store, engine, _) = make(enabled: true, log: log)
+        controller.attach(store: store)
+        engine()?.coordinator?.handleZoneDeleted()
+        precondition(controller.status == .paused(.deletedElsewhere) && !controller.isEnabled)
+        log.zoneError = NoteSyncTurnOnFailure.unreachable
+        precondition(expectation { _ = await controller.turnOn() })
+        precondition(controller.status == .paused(.deletedElsewhere))
     }
 }

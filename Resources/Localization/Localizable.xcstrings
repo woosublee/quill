@@ -20645,6 +20645,38 @@
         }
       }
     },
+    "Sign in to iCloud in System Settings, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to iCloud in System Settings, then try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정에서 iCloud에 로그인한 뒤 다시 시도해 주세요."
+          }
+        }
+      }
+    },
+    "Your notes need recovery first. Try again after it finishes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your notes need recovery first. Try again after it finishes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 기록을 먼저 복구해야 해요. 복구가 끝난 뒤 다시 시도해 주세요."
+          }
+        }
+      }
+    },
     "Turn off iCloud sync to clear history.": {
       "localizations": {
         "en": {

@@ -34,7 +34,6 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         self.outbox = outbox
         self.events = events
         database = CKContainer(identifier: NoteSyncAvailability.containerIdentifier).privateCloudDatabase
-        let isFirstRun = !FileManager.default.fileExists(atPath: stateURL.path)
         super.init()
         let configuration = CKSyncEngine.Configuration(
             database: database,
@@ -42,12 +41,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
             delegate: self
         )
         let engine = CKSyncEngine(configuration)
+        // The zone is made only when the user turns sync on, never here:
+        // a restart that forgets its state (starting over, history
+        // recovery) must not recreate a zone another Mac deleted.
         lock.withLock { syncEngine = engine }
-        if isFirstRun {
-            engine.state.add(pendingDatabaseChanges: [
-                .saveZone(CKRecordZone(zoneID: NoteSyncCloudRecord.zoneID()))
-            ])
-        }
     }
 
     /// Makes the `Notes` zone, or keeps it if it's there. Turning sync on
@@ -56,8 +53,12 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
     static func createZone() async throws {
         let database = CKContainer(identifier: NoteSyncAvailability.containerIdentifier).privateCloudDatabase
         let zone = CKRecordZone(zoneID: NoteSyncCloudRecord.zoneID())
-        let result = try await database.modifyRecordZones(saving: [zone], deleting: [])
-        if case .failure(let error)? = result.saveResults[zone.zoneID] { throw error }
+        do {
+            let result = try await database.modifyRecordZones(saving: [zone], deleting: [])
+            if case .failure(let error)? = result.saveResults[zone.zoneID] { throw error }
+        } catch let error as CKError where error.code == .notAuthenticated {
+            throw NoteSyncTurnOnFailure.signedOut
+        }
     }
 
     // MARK: - NoteSyncEngineHandle
@@ -125,23 +126,29 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
 
     /// Deletes the `Notes` zone, and with it every note in iCloud. Queued
     /// uploads are dropped first so nothing recreates the zone, and the
-    /// result is checked: a failed delete throws.
+    /// result is checked: a failed delete throws. On success the engine
+    /// keeps ignoring the missing zone until it is stopped, so this Mac's
+    /// own delete never reads as another Mac's.
     func deleteAllFromICloud() async throws {
         guard let engine = activeEngine() else { throw NoteSyncEngineError.notRunning }
         lock.withLock {
             isDeletingZone = true
             zoneDeleteFailed = false
         }
-        defer { lock.withLock { isDeletingZone = false } }
-        engine.state.remove(pendingRecordZoneChanges: engine.state.pendingRecordZoneChanges)
-        engine.state.add(pendingDatabaseChanges: [.deleteZone(NoteSyncCloudRecord.zoneID())])
-        try await engine.sendChanges()
-        let stillPending = engine.state.pendingDatabaseChanges.contains {
-            if case .deleteZone(let zoneID) = $0 { return zoneID == NoteSyncCloudRecord.zoneID() }
-            return false
-        }
-        if stillPending || lock.withLock({ zoneDeleteFailed }) {
-            throw NoteSyncEngineError.zoneDeleteFailed
+        do {
+            engine.state.remove(pendingRecordZoneChanges: engine.state.pendingRecordZoneChanges)
+            engine.state.add(pendingDatabaseChanges: [.deleteZone(NoteSyncCloudRecord.zoneID())])
+            try await engine.sendChanges()
+            let stillPending = engine.state.pendingDatabaseChanges.contains {
+                if case .deleteZone(let zoneID) = $0 { return zoneID == NoteSyncCloudRecord.zoneID() }
+                return false
+            }
+            if stillPending || lock.withLock({ zoneDeleteFailed }) {
+                throw NoteSyncEngineError.zoneDeleteFailed
+            }
+        } catch {
+            lock.withLock { isDeletingZone = false }
+            throw error
         }
     }
 
@@ -193,7 +200,8 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
 
         case .fetchedDatabaseChanges(let changes):
             let zoneID = NoteSyncCloudRecord.zoneID()
-            if changes.deletions.contains(where: { $0.zoneID == zoneID }) {
+            if changes.deletions.contains(where: { $0.zoneID == zoneID }),
+               !lock.withLock({ isDeletingZone }) {
                 await MainActor.run { coordinator?.handleZoneDeleted() }
             }
 

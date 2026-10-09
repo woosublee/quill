@@ -312,6 +312,8 @@ struct SettingsLocalizationTests {
             "Couldn't delete from iCloud": "iCloud에서 지우지 못했어요",
             "Couldn't turn on iCloud sync": "iCloud 동기화를 켜지 못했어요",
             "Check your internet connection and try again. Sync is still off.": "인터넷 연결을 확인하고 다시 시도해 주세요. 동기화는 꺼진 상태예요.",
+            "Sign in to iCloud in System Settings, then try again.": "시스템 설정에서 iCloud에 로그인한 뒤 다시 시도해 주세요.",
+            "Your notes need recovery first. Try again after it finishes.": "노트 기록을 먼저 복구해야 해요. 복구가 끝난 뒤 다시 시도해 주세요.",
             "Check your internet connection and try again. Sync is still on.": "인터넷 연결을 확인하고 다시 시도해 주세요. 동기화는 아직 켜져 있어요.",
             "Turn off iCloud sync to clear history.": "기록을 지우려면 iCloud 동기화를 먼저 꺼 주세요."
         ]
@@ -344,8 +346,8 @@ struct SettingsLocalizationTests {
         assert(view.contains("NoteSyncStatusText.relativeTime(date, now: context.date)"))
         assert(view.contains("TimelineView(.periodic(from: .now, by: 30))"))
         // Turning on waits for iCloud and says so when it can't be reached.
-        assert(view.contains("if await controller.turnOn() == false { turnOnFailed = true }"))
-        assert(view.contains(".alert(\"Couldn't turn on iCloud sync\", isPresented: $turnOnFailed)"))
+        assert(view.contains("turnOnFailure = await controller.turnOn()"))
+        assert(view.contains(".alert(\"Couldn't turn on iCloud sync\", isPresented: isShowingTurnOnFailure)"))
         // The switch already says off, and the status sits beside the title,
         // dropping below it only when the line is too narrow.
         assert(view.contains("case .off:\n            EmptyView()"))

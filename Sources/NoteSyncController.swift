@@ -17,6 +17,15 @@ enum NoteSyncEngineError: Error {
     case zoneDeleteFailed
 }
 
+/// Why turning sync on didn't happen. `createZone` throws one of these;
+/// any other error reads as `.unreachable`.
+enum NoteSyncTurnOnFailure: Error, Equatable {
+    case unreachable
+    case signedOut
+    /// The note store can't save yet (it needs recovery).
+    case notReady
+}
+
 struct NoteSyncEngineEvents {
     let remoteChange: @MainActor (NoteSyncRemoteChange) -> Void
 }
@@ -72,11 +81,13 @@ final class NoteSyncController: ObservableObject {
         store?.syncableNoteIDs().count ?? 0
     }
 
-    /// Returns false, leaving sync off, when the iCloud zone couldn't be
-    /// made (offline, for example).
+    /// Returns why sync stayed off, or nil once it is on. The status from
+    /// before (such as why sync stopped) stays when turning on fails.
     @discardableResult
-    func turnOn() async -> Bool {
-        guard unavailableReason == nil, store != nil, !isEnabled, !isTurningOn else { return false }
+    func turnOn() async -> NoteSyncTurnOnFailure? {
+        guard unavailableReason == nil, !isEnabled, !isTurningOn else { return nil }
+        guard store?.isReadyForSync == true else { return .notReady }
+        let previousStatus = status
         isTurningOn = true
         status = .starting
         defer { isTurningOn = false }
@@ -84,12 +95,16 @@ final class NoteSyncController: ObservableObject {
             try await createZone()
         } catch {
             print("[NoteSync] Couldn't create the iCloud zone")
-            status = .off
-            return false
+            status = previousStatus
+            return error as? NoteSyncTurnOnFailure ?? .unreachable
+        }
+        guard store?.isReadyForSync == true else {
+            status = previousStatus
+            return .notReady
         }
         setEnabled(true)
         startEngine(initialUpload: true)
-        return true
+        return nil
     }
 
     /// Returns false, leaving sync on, when deleting from iCloud failed.
