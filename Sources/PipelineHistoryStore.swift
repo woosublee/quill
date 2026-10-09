@@ -18,7 +18,9 @@ enum PipelineHistoryChange: Equatable, Sendable {
     case saved(UUID)
     /// `wasSynced`: the note had reached iCloud (it has system fields).
     /// `audioParts`: how many audio parts its manifest says are in iCloud.
-    case deleted(UUID, wasSynced: Bool, audioParts: Int = 0)
+    /// `hasAudio`: the note had audio, so parts may be in iCloud even
+    /// without a manifest (another Mac stopped mid-upload).
+    case deleted(UUID, wasSynced: Bool, audioParts: Int = 0, hasAudio: Bool = false)
 }
 
 enum NoteSyncApplyResult: Equatable, Sendable {
@@ -553,6 +555,7 @@ final class PipelineHistoryStore {
         var deletedAssets: DeletedPipelineHistoryAssets?
         var wasSynced = false
         var audioParts = 0
+        var hasAudio = false
         var thrownError: Error?
         container.viewContext.performAndWait {
             do {
@@ -566,6 +569,7 @@ final class PipelineHistoryStore {
                 deletedAssets = assets
                 wasSynced = entity.syncSystemFields != nil
                 audioParts = Self.audioParts(of: entity)
+                hasAudio = entity.audioFileName != nil
                 container.viewContext.delete(entity)
                 try saveContext()
             } catch {
@@ -573,7 +577,7 @@ final class PipelineHistoryStore {
             }
         }
         if let thrownError { throw thrownError }
-        onChange?([.deleted(id, wasSynced: wasSynced, audioParts: audioParts)])
+        onChange?([.deleted(id, wasSynced: wasSynced, audioParts: audioParts, hasAudio: hasAudio)])
         if deletedAssets != nil {
             synchronizeAssetReferenceSnapshot()
         }
@@ -883,7 +887,12 @@ final class PipelineHistoryStore {
     }
 
     private static func deletionChange(for entity: PipelineHistoryEntry) -> PipelineHistoryChange? {
-        .deleted(entity.id, wasSynced: entity.syncSystemFields != nil, audioParts: audioParts(of: entity))
+        .deleted(
+            entity.id,
+            wasSynced: entity.syncSystemFields != nil,
+            audioParts: audioParts(of: entity),
+            hasAudio: entity.audioFileName != nil
+        )
     }
 
     private static let knownSyncKeys = Set(NoteSyncField.allCases.map(\.rawValue))

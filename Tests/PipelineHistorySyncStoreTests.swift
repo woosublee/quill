@@ -311,7 +311,7 @@ struct PipelineHistorySyncStoreTests {
         try s.setAudioManifest(manifest, id: note.id)
         s.onChange = { changes += $0 }
         _ = try s.delete(id: note.id)
-        precondition(changes == [.deleted(note.id, wasSynced: false, audioParts: 3)])
+        precondition(changes == [.deleted(note.id, wasSynced: false, audioParts: 3, hasAudio: true)])
     }
 
     /// When iCloud loses the notes, it lost their audio too: the marker
