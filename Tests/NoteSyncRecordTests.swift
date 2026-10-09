@@ -22,6 +22,7 @@ struct NoteSyncRecordTests {
         testMissingRequiredKeysKeepLocalValues()
         testStampsCompareAtMilliseconds()
         testNewNoteNeedsEveryRequiredField()
+        testUnreadableKnownValuesAreDetected()
         print("NoteSyncRecordTests passed")
     }
 
@@ -374,5 +375,27 @@ struct NoteSyncRecordTests {
         noTimestamp.fields.removeValue(forKey: NoteSyncField.timestamp.rawValue)
         precondition(noTimestamp.applied(onto: item(id: noTimestamp.noteID)).timestamp == t0,
                      "an existing note keeps its own timestamp")
+    }
+
+    static func testUnreadableKnownValuesAreDetected() {
+        precondition(!NoteSyncRecord(item: item()).hasUnreadableKnownFields)
+        let cases: [(String, NoteSyncValue)] = [
+            (NoteSyncField.customTitle.rawValue, .raw(Data("[1]".utf8))),
+            (NoteSyncField.rawTranscript.rawValue, .int(3)),
+            (NoteSyncField.timestamp.rawValue, .string("yesterday")),
+            (NoteSyncField.intent.rawValue, .string("meetingV2")),
+            (NoteSyncField.spokenLanguageResolution.rawValue, .string("future")),
+            (NoteSyncField.usedPostProcessing.rawValue, .string("yes")),
+            (NoteSyncField.meetingSummaryJSON.rawValue, .string("{}")),
+            (NoteSyncRecord.schemaVersionKey, .string("2"))
+        ]
+        for (key, value) in cases {
+            var record = NoteSyncRecord(item: item())
+            record.fields[key] = value
+            precondition(record.hasUnreadableKnownFields, "\(key) with a value this build can't read is detected")
+        }
+        var future = NoteSyncRecord(item: item())
+        future.fields["futureField"] = .raw(Data("[1]".utf8))
+        precondition(!future.hasUnreadableKnownFields, "unknown keys are fine")
     }
 }

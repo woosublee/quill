@@ -1,7 +1,7 @@
 import Foundation
 import CoreData
 
-struct DeletedPipelineHistoryAssets {
+struct DeletedPipelineHistoryAssets: Equatable, Sendable {
     let historyID: UUID
     let audioFileName: String?
     let transcriptFileName: String?
@@ -11,6 +11,27 @@ enum PipelineHistoryStoreError: Error {
     case storeUnavailable
     case durableStoreUnavailable
     case historyEntryNotFound
+}
+
+/// A local note write, reported to iCloud sync through `onChange`.
+enum PipelineHistoryChange: Equatable, Sendable {
+    case saved(UUID)
+    /// `wasSynced`: the note had reached iCloud (it has system fields).
+    case deleted(UUID, wasSynced: Bool)
+}
+
+enum NoteSyncApplyResult: Equatable, Sendable {
+    case inserted
+    /// `needsUpload`: this Mac had newer field groups, so the merged note
+    /// goes back up.
+    case updated(needsUpload: Bool)
+}
+
+enum PipelineHistorySyncError: Error {
+    /// A record for a note this Mac doesn't have lacks a required field.
+    case incompleteRecord
+    /// A known field holds a value this build can't read.
+    case unreadableRecord
 }
 
 struct HistoryArchiveSnapshotComponent: Codable, Equatable, Sendable {
@@ -99,6 +120,9 @@ final class PipelineHistoryStore {
     private let usesInMemoryStoreByDesign: Bool
     /// The clock used to stamp field changes and deletions. Tests replace it.
     var now: () -> Date = Date.init
+    /// Called after every successful local write. Applying a synced record
+    /// (`applySynced`, `removeSynced`) never calls it, so nothing echoes.
+    var onChange: (([PipelineHistoryChange]) -> Void)?
 
     private var isDurableStore: Bool {
         durability == .durable
@@ -388,6 +412,7 @@ final class PipelineHistoryStore {
             throw PipelineHistoryStoreError.storeUnavailable
         }
         try insert(item)
+        onChange?([.saved(item.id)])
         let deletedAssets = try trim(
             to: maxCount,
             shouldSynchronizeAssetReferenceSnapshot: false
@@ -414,13 +439,14 @@ final class PipelineHistoryStore {
         }
 
         var thrownError: Error?
+        var didChangeSyncedContent = false
         container.viewContext.performAndWait {
             do {
                 let request = pipelineHistoryRequest()
                 request.predicate = NSPredicate(format: "id == %@", item.id as CVarArg)
                 let existing = try container.viewContext.fetch(request).first
                 let entity = existing ?? PipelineHistoryEntry(context: container.viewContext)
-                applyStamping(item, to: entity, isNew: existing == nil)
+                didChangeSyncedContent = applyStamping(item, to: entity, isNew: existing == nil)
                 if existing == nil, keepsImportedDeletion {
                     entity.deletedAt = item.deletedAt
                 }
@@ -430,6 +456,7 @@ final class PipelineHistoryStore {
             }
         }
         if let thrownError { throw thrownError }
+        if didChangeSyncedContent { onChange?([.saved(item.id)]) }
         let deletedAssets = try trim(
             to: maxCount,
             shouldSynchronizeAssetReferenceSnapshot: false
@@ -451,6 +478,7 @@ final class PipelineHistoryStore {
 
         var thrownError: Error?
         var didChangeAssetReferences = false
+        var didChangeSyncedContent = false
         container.viewContext.performAndWait {
             do {
                 let request = pipelineHistoryRequest()
@@ -460,13 +488,14 @@ final class PipelineHistoryStore {
                 }
                 didChangeAssetReferences = entity.audioFileName != item.audioFileName
                     || entity.transcriptFileName != item.transcriptFileName
-                applyStamping(item, to: entity, isNew: false)
+                didChangeSyncedContent = applyStamping(item, to: entity, isNew: false)
                 try saveContext()
             } catch {
                 thrownError = error
             }
         }
         if let thrownError { throw thrownError }
+        if didChangeSyncedContent { onChange?([.saved(item.id)]) }
         if didChangeAssetReferences {
             synchronizeAssetReferenceSnapshot()
         }
@@ -504,6 +533,7 @@ final class PipelineHistoryStore {
         }
         if let thrownError { throw thrownError }
         guard let result else { throw PipelineHistoryStoreError.historyEntryNotFound }
+        onChange?([.saved(id)])
         return result
     }
 
@@ -520,6 +550,7 @@ final class PipelineHistoryStore {
         }
 
         var deletedAssets: DeletedPipelineHistoryAssets?
+        var wasSynced = false
         var thrownError: Error?
         container.viewContext.performAndWait {
             do {
@@ -531,6 +562,7 @@ final class PipelineHistoryStore {
                 let assets = Self.deletedAssets(from: entity)
                 beforeDeleting(assets)
                 deletedAssets = assets
+                wasSynced = entity.syncSystemFields != nil
                 container.viewContext.delete(entity)
                 try saveContext()
             } catch {
@@ -538,6 +570,7 @@ final class PipelineHistoryStore {
             }
         }
         if let thrownError { throw thrownError }
+        onChange?([.deleted(id, wasSynced: wasSynced)])
         if deletedAssets != nil {
             synchronizeAssetReferenceSnapshot()
         }
@@ -556,6 +589,7 @@ final class PipelineHistoryStore {
         }
 
         var deletedAssets: [DeletedPipelineHistoryAssets] = []
+        var changes: [PipelineHistoryChange] = []
         var thrownError: Error?
         container.viewContext.performAndWait {
             do {
@@ -564,6 +598,7 @@ final class PipelineHistoryStore {
                 let entities = try historyFetcher(container.viewContext, request)
                 deletedAssets = entities.map(Self.deletedAssets(from:))
                 beforeDeleting(deletedAssets)
+                changes = entities.compactMap(Self.deletionChange(for:))
                 for entity in entities {
                     container.viewContext.delete(entity)
                 }
@@ -573,6 +608,7 @@ final class PipelineHistoryStore {
             }
         }
         if let thrownError { throw thrownError }
+        if !changes.isEmpty { onChange?(changes) }
         if !deletedAssets.isEmpty {
             synchronizeAssetReferenceSnapshot()
         }
@@ -593,6 +629,7 @@ final class PipelineHistoryStore {
         }
 
         var deletedAssets: [DeletedPipelineHistoryAssets] = []
+        var changes: [PipelineHistoryChange] = []
         var thrownError: Error?
         container.viewContext.performAndWait {
             do {
@@ -603,6 +640,7 @@ final class PipelineHistoryStore {
                 let dropped = entities[maxCount...]
                 deletedAssets = dropped.map(Self.deletedAssets(from:))
                 beforeDeleting(deletedAssets)
+                changes = dropped.compactMap(Self.deletionChange(for:))
                 for entity in dropped {
                     container.viewContext.delete(entity)
                 }
@@ -612,10 +650,207 @@ final class PipelineHistoryStore {
             }
         }
         if let thrownError { throw thrownError }
+        if !changes.isEmpty { onChange?(changes) }
         if shouldSynchronizeAssetReferenceSnapshot, !deletedAssets.isEmpty {
             synchronizeAssetReferenceSnapshot()
         }
         return deletedAssets
+    }
+
+    // MARK: - iCloud sync
+
+    /// The note as it travels to other Macs, with the unknown keys a newer
+    /// build sent kept.
+    func syncRecord(id: UUID) -> NoteSyncRecord? {
+        var record: NoteSyncRecord?
+        container.viewContext.performAndWait {
+            record = (try? fetchEntry(id: id)).flatMap { $0.map(Self.syncRecord(from:)) }
+        }
+        return record
+    }
+
+    func syncSystemFields(id: UUID) -> Data? {
+        var data: Data?
+        container.viewContext.performAndWait {
+            data = (try? fetchEntry(id: id))??.syncSystemFields
+        }
+        return data
+    }
+
+    func setSyncSystemFields(_ data: Data?, id: UUID) throws {
+        var thrownError: Error?
+        container.viewContext.performAndWait {
+            do {
+                guard let entity = try fetchEntry(id: id) else {
+                    throw PipelineHistoryStoreError.historyEntryNotFound
+                }
+                entity.syncSystemFields = data
+                try saveContext()
+            } catch {
+                thrownError = error
+            }
+        }
+        if let thrownError { throw thrownError }
+    }
+
+    /// Forgets which notes reached iCloud, after the iCloud data went away
+    /// (account change, or deleted from iCloud).
+    func clearAllSyncSystemFields() throws {
+        var thrownError: Error?
+        container.viewContext.performAndWait {
+            do {
+                let request = pipelineHistoryRequest()
+                request.predicate = NSPredicate(format: "syncSystemFields != nil")
+                let entities = try historyFetcher(container.viewContext, request)
+                for entity in entities { entity.syncSystemFields = nil }
+                try saveContext()
+            } catch {
+                thrownError = error
+            }
+        }
+        if let thrownError { throw thrownError }
+    }
+
+    /// Every note settled enough to send, Recently Deleted included.
+    func syncableNoteIDs() -> [UUID] {
+        var ids: [UUID] = []
+        container.viewContext.performAndWait {
+            let request = pipelineHistoryRequest()
+            request.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
+            let entities = (try? historyFetcher(container.viewContext, request)) ?? []
+            ids = entities.map(Self.makeHistoryItem(from:))
+                .filter(NoteSyncEligibility.isSyncable)
+                .map(\.id)
+        }
+        return ids
+    }
+
+    func isSyncable(id: UUID) -> Bool {
+        var syncable = false
+        container.viewContext.performAndWait {
+            if let entity = (try? fetchEntry(id: id)) ?? nil {
+                syncable = NoteSyncEligibility.isSyncable(Self.makeHistoryItem(from: entity))
+            }
+        }
+        return syncable
+    }
+
+    /// Saves a record from iCloud, merged field group by field group with
+    /// the note on this Mac. The merged clock and deletion are written as
+    /// they are, never re-stamped, and `onChange` is not called.
+    func applySynced(_ record: NoteSyncRecord, systemFields: Data?) throws -> NoteSyncApplyResult {
+        guard availability == .ready, isStoreLoaded else {
+            throw PipelineHistoryStoreError.storeUnavailable
+        }
+        guard !record.hasUnreadableKnownFields else {
+            throw PipelineHistorySyncError.unreadableRecord
+        }
+        var remote = record
+        remote.clock = record.clock.roundedToMilliseconds()
+        var result: NoteSyncApplyResult?
+        var didChangeAssetReferences = false
+        var thrownError: Error?
+        container.viewContext.performAndWait {
+            do {
+                let existing = try fetchEntry(id: remote.noteID)
+                let merged: NoteSyncRecord
+                let item: PipelineHistoryItem
+                let entity: PipelineHistoryEntry
+                if let existing {
+                    merged = NoteSyncMerge.merge(local: Self.syncRecord(from: existing), remote: remote)
+                    item = merged.applied(onto: Self.makeHistoryItem(from: existing))
+                    didChangeAssetReferences = existing.audioFileName != item.audioFileName
+                        || existing.transcriptFileName != item.transcriptFileName
+                    entity = existing
+                    result = .updated(needsUpload: merged != remote)
+                } else {
+                    guard let newItem = remote.newNote() else {
+                        throw PipelineHistorySyncError.incompleteRecord
+                    }
+                    merged = remote
+                    item = newItem
+                    entity = PipelineHistoryEntry(context: container.viewContext)
+                    didChangeAssetReferences = true
+                    result = .inserted
+                }
+                Self.apply(item, to: entity)
+                entity.fieldClockJSON = Self.encodeClock(merged.clock)
+                entity.deletedAt = merged.deletedAt
+                entity.syncExtraFieldsJSON = Self.encodeExtraFields(merged.fields)
+                if let systemFields { entity.syncSystemFields = systemFields }
+                try saveContext()
+            } catch {
+                container.viewContext.rollback()
+                thrownError = error
+            }
+        }
+        if let thrownError { throw thrownError }
+        if didChangeAssetReferences { synchronizeAssetReferenceSnapshot() }
+        guard let result else { throw PipelineHistoryStoreError.historyEntryNotFound }
+        return result
+    }
+
+    /// Deletes a note that was deleted in iCloud. `onChange` is not called.
+    /// Returns nil when the note is already gone.
+    func removeSynced(id: UUID) throws -> DeletedPipelineHistoryAssets? {
+        guard availability == .ready, isStoreLoaded else {
+            throw PipelineHistoryStoreError.storeUnavailable
+        }
+        var deletedAssets: DeletedPipelineHistoryAssets?
+        var thrownError: Error?
+        container.viewContext.performAndWait {
+            do {
+                guard let entity = try fetchEntry(id: id) else { return }
+                deletedAssets = Self.deletedAssets(from: entity)
+                container.viewContext.delete(entity)
+                try saveContext()
+            } catch {
+                thrownError = error
+            }
+        }
+        if let thrownError { throw thrownError }
+        if deletedAssets != nil { synchronizeAssetReferenceSnapshot() }
+        return deletedAssets
+    }
+
+    /// Call inside `performAndWait`.
+    private func fetchEntry(id: UUID) throws -> PipelineHistoryEntry? {
+        let request = pipelineHistoryRequest()
+        request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+        return try container.viewContext.fetch(request).first
+    }
+
+    private static func deletionChange(for entity: PipelineHistoryEntry) -> PipelineHistoryChange? {
+        .deleted(entity.id, wasSynced: entity.syncSystemFields != nil)
+    }
+
+    private static let knownSyncKeys = Set(NoteSyncField.allCases.map(\.rawValue))
+
+    private static func syncRecord(from entity: PipelineHistoryEntry) -> NoteSyncRecord {
+        var record = NoteSyncRecord(item: makeHistoryItem(from: entity))
+        let extras = entity.syncExtraFieldsJSON.flatMap { try? NoteSyncPayload.decodeFields($0) } ?? [:]
+        for (key, value) in extras {
+            if key == NoteSyncRecord.schemaVersionKey {
+                if case .int(let kept) = value, case .int(let current)? = record.fields[key], kept > current {
+                    record.fields[key] = value
+                }
+            } else if record.fields[key] == nil {
+                record.fields[key] = value
+            }
+        }
+        return record
+    }
+
+    /// Keys this build doesn't know, plus a newer schema version.
+    private static func encodeExtraFields(_ fields: [String: NoteSyncValue]) -> Data? {
+        let extras = fields.filter { key, value in
+            if key == NoteSyncRecord.schemaVersionKey {
+                if case .int(let version) = value { return version > NoteSyncRecord.schemaVersion }
+                return true
+            }
+            return !knownSyncKeys.contains(key)
+        }
+        return extras.isEmpty ? nil : try? NoteSyncPayload.encodeFields(extras)
     }
 
     private func insert(_ item: PipelineHistoryItem) throws {
@@ -638,20 +873,26 @@ final class PipelineHistoryStore {
     /// Applies `item` and advances the clock of the field groups it
     /// changed. `deletedAt` is left alone: only `setDeletedAt` and a
     /// snapshot import write it.
+    /// Returns whether a synced field group changed (always for a new row),
+    /// so only those writes are reported to sync.
+    @discardableResult
     private func applyStamping(
         _ item: PipelineHistoryItem,
         to entity: PipelineHistoryEntry,
         isNew: Bool
-    ) {
+    ) -> Bool {
         let previous = isNew ? nil : Self.makeHistoryItem(from: entity)
+        let existing = isNew ? nil : Self.decodeClock(entity.fieldClockJSON)
         let clock = NoteFieldClock.stamped(
             previous: previous,
             current: item,
-            existing: isNew ? nil : Self.decodeClock(entity.fieldClockJSON),
+            existing: existing,
             now: now()
         )
         Self.apply(item, to: entity)
         entity.fieldClockJSON = Self.encodeClock(clock)
+        guard let previous, existing != nil else { return true }
+        return !NoteFieldClock.changedGroups(from: previous, to: item).isEmpty
     }
 
     private static func decodeClock(_ data: Data?) -> NoteFieldClock? {
@@ -1088,7 +1329,9 @@ final class PipelineHistoryStore {
             makeAttribute(name: "customTitle", type: .stringAttributeType, isOptional: true),
             makeAttribute(name: "meetingSummaryJSON", type: .binaryDataAttributeType, isOptional: true),
             makeAttribute(name: "deletedAt", type: .dateAttributeType, isOptional: true),
-            makeAttribute(name: "fieldClockJSON", type: .binaryDataAttributeType, isOptional: true)
+            makeAttribute(name: "fieldClockJSON", type: .binaryDataAttributeType, isOptional: true),
+            makeAttribute(name: "syncExtraFieldsJSON", type: .binaryDataAttributeType, isOptional: true),
+            makeAttribute(name: "syncSystemFields", type: .binaryDataAttributeType, isOptional: true)
         ]
 
         model.entities = [entity]
@@ -1120,8 +1363,8 @@ final class PipelineHistoryStore {
         }
     }
 
-    /// Writes a store with the model as it was before `deletedAt` and
-    /// `fieldClockJSON`, holding one synthetic row.
+    /// Writes a store with the model as it was before `deletedAt`,
+    /// `fieldClockJSON`, and the sync attributes, holding one synthetic row.
     static func writeLegacyStoreForTesting(at url: URL, id: UUID, timestamp: Date) throws {
         let model = makeModel()
         let entity = model.entities[0]
@@ -1129,7 +1372,7 @@ final class PipelineHistoryStore {
         // PipelineHistoryEntry class that the shared model owns.
         entity.managedObjectClassName = NSStringFromClass(NSManagedObject.self)
         entity.properties = entity.properties.filter {
-            $0.name != "deletedAt" && $0.name != "fieldClockJSON"
+            !["deletedAt", "fieldClockJSON", "syncExtraFieldsJSON", "syncSystemFields"].contains($0.name)
         }
         let container = NSPersistentContainer(name: "PipelineHistory", managedObjectModel: model)
         let description = NSPersistentStoreDescription(url: url)
@@ -1202,4 +1445,6 @@ final class PipelineHistoryEntry: NSManagedObject {
     @NSManaged var meetingSummaryJSON: Data?
     @NSManaged var deletedAt: Date?
     @NSManaged var fieldClockJSON: Data?
+    @NSManaged var syncExtraFieldsJSON: Data?
+    @NSManaged var syncSystemFields: Data?
 }

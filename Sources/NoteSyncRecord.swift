@@ -7,6 +7,8 @@ enum NoteSyncValue: Codable, Equatable, Sendable {
     case bool(Bool)
     case data(Data)
     case int(Int)
+    /// A value from a newer build, kept as its JSON and written back unchanged.
+    case raw(Data)
 }
 
 /// The note fields that sync, each in the field group it merges with. Raw
@@ -61,6 +63,18 @@ enum NoteSyncField: String, CaseIterable, Sendable {
         }
     }
 
+    enum ValueKind { case string, date, bool, data }
+
+    /// The kind of value this field always carries.
+    var valueKind: ValueKind {
+        switch self {
+        case .meetingSummaryJSON, .meetingSummaryAttempt, .calendarMatch: return .data
+        case .timestamp, .recordingStartedAt, .recordingEndedAt: return .date
+        case .usedLocalTranscription, .usedPostProcessing: return .bool
+        default: return .string
+        }
+    }
+
     /// The `PipelineHistoryItem` coding key this field comes from.
     var itemKey: String {
         self == .aiProcessingOutcome ? "storedAIProcessingOutcome" : rawValue
@@ -106,9 +120,9 @@ struct NoteSyncRecord: Equatable, Sendable {
         put(.meetingSummaryJSON, item.meetingSummaryJSON.map(NoteSyncValue.data))
         put(.meetingSummaryAttempt, Self.encoded(item.meetingSummaryAttempt.map(Self.withoutProviderHost)))
         put(.calendarMatch, Self.encoded(item.calendarMatch))
-        put(.timestamp, .date(item.timestamp))
-        put(.recordingStartedAt, item.recordingStartedAt.map(NoteSyncValue.date))
-        put(.recordingEndedAt, item.recordingEndedAt.map(NoteSyncValue.date))
+        put(.timestamp, .date(item.timestamp.roundedToMilliseconds()))
+        put(.recordingStartedAt, item.recordingStartedAt.map { .date($0.roundedToMilliseconds()) })
+        put(.recordingEndedAt, item.recordingEndedAt.map { .date($0.roundedToMilliseconds()) })
         put(.transcriptionLanguageCode, .string(item.transcriptionLanguageCode))
         put(.spokenLanguageCode, item.spokenLanguageCode.map(NoteSyncValue.string))
         put(.spokenLanguageResolution, item.spokenLanguageResolution.map { .string($0.rawValue) })
@@ -123,8 +137,33 @@ struct NoteSyncRecord: Equatable, Sendable {
             noteID: item.id,
             fields: fields,
             clock: (item.fieldClock ?? NoteFieldClock.uniform(item.timestamp)).roundedToMilliseconds(),
-            deletedAt: item.deletedAt
+            deletedAt: item.deletedAt?.roundedToMilliseconds()
         )
+    }
+
+    /// Whether a known field holds a value this build can't read: another
+    /// value kind, or an intent or language source it doesn't know. Such a
+    /// record is skipped rather than applied with values lost. Newer builds
+    /// never change the shape of a shipped key; a new shape gets a new key.
+    var hasUnreadableKnownFields: Bool {
+        if let version = fields[Self.schemaVersionKey], case .int = version {} else if fields[Self.schemaVersionKey] != nil {
+            return true
+        }
+        return NoteSyncField.allCases.contains { field in
+            guard let value = fields[field.rawValue] else { return false }
+            switch (field.valueKind, value) {
+            case (.string, .string(let text)):
+                switch field {
+                case .intent: return PipelineHistoryItemIntent(rawValue: text) == nil
+                case .spokenLanguageResolution: return SpokenLanguageResolutionSource(rawValue: text) == nil
+                default: return false
+                }
+            case (.date, .date), (.bool, .bool), (.data, .data):
+                return false
+            default:
+                return true
+            }
+        }
     }
 
     /// Whether every field a note needs is present. A record without them
@@ -252,8 +291,13 @@ extension NoteFieldClock {
     /// CloudKit keeps dates to the millisecond, so stamps are compared and
     /// sent at that precision; the same edit then reads equal on every Mac.
     func roundedToMilliseconds() -> NoteFieldClock {
-        NoteFieldClock(stamps: stamps.mapValues {
-            Date(timeIntervalSince1970: ($0.timeIntervalSince1970 * 1000).rounded() / 1000)
-        })
+        NoteFieldClock(stamps: stamps.mapValues { $0.roundedToMilliseconds() })
+    }
+}
+
+extension Date {
+    /// The date as the sync payload carries it.
+    func roundedToMilliseconds() -> Date {
+        Date(timeIntervalSince1970: (timeIntervalSince1970 * 1000).rounded() / 1000)
     }
 }
