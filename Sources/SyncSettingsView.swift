@@ -31,6 +31,7 @@ private struct NoteSyncSettingsCard: View {
     @State private var isConfirmingTurnOff = false
     @State private var isTurningOff = false
     @State private var turnOffFailed = false
+    @State private var turnOnFailed = false
     @State private var noteCount = 0
 
     private var switchBinding: Binding<Bool> {
@@ -66,7 +67,7 @@ private struct NoteSyncSettingsCard: View {
                 }
                 .toggleStyle(.switch)
                 .labelsHidden()
-                .disabled(controller.unavailableReason != nil || isTurningOff)
+                .disabled(controller.unavailableReason != nil || isTurningOff || controller.isTurningOn)
             }
 
             statusDetail
@@ -93,7 +94,9 @@ private struct NoteSyncSettingsCard: View {
         .alert("Turn on iCloud sync?", isPresented: $isConfirmingTurnOn) {
             Button("Cancel", role: .cancel) {}
             Button("Turn On and Upload") {
-                controller.turnOn()
+                Task { @MainActor in
+                    if await controller.turnOn() == false { turnOnFailed = true }
+                }
             }
         } message: {
             Text(turnOnMessage) + Text("\n\n") + Text("Screenshots, window titles, selected text, and AI instructions aren't uploaded. You can keep using Quill while it uploads.")
@@ -108,6 +111,11 @@ private struct NoteSyncSettingsCard: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Notes on this Mac stay. Turn Off Sync keeps notes in iCloud for your other Macs. Turn Off and Delete from iCloud deletes all Quill data in iCloud: sync stops on every Mac, and each Mac keeps its notes.")
+        }
+        .alert("Couldn't turn on iCloud sync", isPresented: $turnOnFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Check your internet connection and try again. Sync is still off.")
         }
         .alert("Couldn't delete from iCloud", isPresented: $turnOffFailed) {
             Button("OK", role: .cancel) {}

@@ -15,7 +15,8 @@ struct NoteSyncControllerTests {
         testReplacedStoreStartsOverWithFullUpload()
         testUnreadyStoreDoesNotStartSync()
         testDeleteFromICloudWithoutEngineFails()
-        testOnlyTurningOnMarksAUserTurnOn()
+        testTurnOnCreatesTheZoneBeforeSyncing()
+        testTurnOnStaysOffWhenICloudIsUnreachable()
         print("NoteSyncControllerTests passed")
     }
 
@@ -42,23 +43,29 @@ struct NoteSyncControllerTests {
         var fetches = 0
         var stopped: [Bool] = []
         var deletedFromICloud = false
-        var calls: [String] = []
+        var log: CallLog?
         weak var coordinator: NoteSyncCoordinator?
         func enqueueSaves(_ ids: [UUID]) { saves += ids }
         func enqueueDeletes(_ ids: [UUID]) { deletes += ids }
         func attach(_ coordinator: NoteSyncCoordinator) { self.coordinator = coordinator }
-        func start() { started += 1; calls.append("start") }
-        func noteTurnedOnByUser() { calls.append("turnedOnByUser") }
-        func forgetUserTurnOn() { calls.append("forgetUserTurnOn") }
+        func start() { started += 1; log?.calls.append("start") }
         func fetchNow() { fetches += 1 }
         func deleteAllFromICloud() async throws { deletedFromICloud = true }
         func stop(forgetState: Bool) { stopped.append(forgetState) }
     }
 
+    final class CallLog {
+        var calls: [String] = []
+        var zoneError: Error?
+    }
+
+    struct Unreachable: Error {}
+
     @MainActor
     static func make(
         enabled: Bool = false,
-        unavailable: NoteSyncUnavailableReason? = nil
+        unavailable: NoteSyncUnavailableReason? = nil,
+        log: CallLog = CallLog()
     ) -> (NoteSyncController, FakeStore, () -> FakeEngine?, UserDefaults) {
         let defaults = UserDefaults(suiteName: "quill-sync-controller-tests-\(UUID().uuidString)")!
         defaults.set(enabled, forKey: NoteSyncController.enabledKey)
@@ -66,8 +73,13 @@ struct NoteSyncControllerTests {
         let controller = NoteSyncController(
             defaults: defaults,
             unavailableReason: unavailable,
+            createZone: {
+                log.calls.append("createZone")
+                if let error = log.zoneError { throw error }
+            },
             makeEngine: { _ in
                 let engine = FakeEngine()
+                engine.log = log
                 engines.append(engine)
                 return engine
             }
@@ -91,7 +103,7 @@ struct NoteSyncControllerTests {
         let (controller, store, engine, _) = make(unavailable: .buildWithoutICloud)
         controller.attach(store: store)
         precondition(!controller.isEnabled && controller.status == .off)
-        controller.turnOn()
+        precondition(expectation { await controller.turnOn() })
         precondition(!controller.isEnabled && engine() == nil, "sync can't turn on without iCloud")
     }
 
@@ -100,7 +112,7 @@ struct NoteSyncControllerTests {
         let (controller, store, engine, defaults) = make()
         controller.attach(store: store)
         precondition(controller.syncableNoteCount == 2)
-        controller.turnOn()
+        precondition(expectation { await controller.turnOn() })
         precondition(controller.isEnabled && defaults.bool(forKey: NoteSyncController.enabledKey))
         precondition(engine()?.started == 1 && Set(engine()?.saves ?? []) == Set(store.ids))
         precondition(controller.status == .uploading(done: 0, total: 2))
@@ -123,7 +135,6 @@ struct NoteSyncControllerTests {
         precondition(done)
         precondition(!controller.isEnabled && !defaults.bool(forKey: NoteSyncController.enabledKey))
         precondition(running?.stopped == [true] && running?.deletedFromICloud == false)
-        precondition(running?.calls.last == "forgetUserTurnOn", "turning off closes a pending turn-on")
         precondition(controller.status == .off && !store.cleared, "plain off keeps change tags for next time")
     }
 
@@ -144,7 +155,6 @@ struct NoteSyncControllerTests {
         engine()?.coordinator?.handleAccountChange(signedOut: false)
         precondition(!controller.isEnabled && !defaults.bool(forKey: NoteSyncController.enabledKey))
         precondition(engine()?.stopped == [true])
-        precondition(engine()?.calls.last == "forgetUserTurnOn", "a stop for the account closes a pending turn-on")
         precondition(controller.status == .paused(.accountChanged), "the reason stays visible after sync turns off")
     }
 
@@ -154,7 +164,7 @@ struct NoteSyncControllerTests {
         controller.attach(store: store)
         controller.handleLocalChanges([.saved(store.ids[0])])
         precondition(engine() == nil)
-        controller.turnOn()
+        precondition(expectation { await controller.turnOn() })
         let before = engine()?.saves.count ?? 0
         controller.handleLocalChanges([.saved(store.ids[0])])
         precondition(engine()?.saves.count == before + 1)
@@ -208,21 +218,36 @@ struct NoteSyncControllerTests {
         precondition(!succeeded && controller.isEnabled, "nothing was deleted, so sync stays on and says so")
     }
 
-    /// Only the user's own turn-on tells the engine that an old iCloud
-    /// deletion is history, and before its first fetch. A relaunch or a
-    /// replaced store doesn't, so another Mac's deletion still stops sync.
+    /// Turning on makes the iCloud zone before sync starts, so the engine
+    /// never meets a zone this Mac deleted earlier and mistakes it for
+    /// another Mac's deletion.
     @MainActor
-    static func testOnlyTurningOnMarksAUserTurnOn() {
-        let (controller, store, engine, _) = make()
+    static func testTurnOnCreatesTheZoneBeforeSyncing() {
+        let log = CallLog()
+        let (controller, store, engine, _) = make(log: log)
         controller.attach(store: store)
-        controller.turnOn()
-        precondition(engine()?.calls == ["turnedOnByUser", "start"], "marked before the first fetch")
-        let replacement = FakeStore()
-        controller.attach(store: replacement)
-        precondition(engine()?.calls == ["start"], "history recovery is not a turn-on")
+        var succeeded = false
+        precondition(expectation { succeeded = await controller.turnOn() })
+        precondition(succeeded && controller.isEnabled)
+        precondition(log.calls == ["createZone", "start"], "the zone exists before the first fetch")
+        precondition(Set(engine()?.saves ?? []) == Set(store.ids))
 
-        let (relaunched, relaunchStore, relaunchEngine, _) = make(enabled: true)
+        // A relaunch or a replaced store doesn't make the zone again.
+        let relaunchLog = CallLog()
+        let (relaunched, relaunchStore, _, _) = make(enabled: true, log: relaunchLog)
         relaunched.attach(store: relaunchStore)
-        precondition(relaunchEngine()?.calls == ["start"], "a relaunch is not a turn-on")
+        precondition(relaunchLog.calls == ["start"])
+    }
+
+    @MainActor
+    static func testTurnOnStaysOffWhenICloudIsUnreachable() {
+        let log = CallLog()
+        log.zoneError = Unreachable()
+        let (controller, store, engine, defaults) = make(log: log)
+        controller.attach(store: store)
+        var succeeded = true
+        precondition(expectation { succeeded = await controller.turnOn() })
+        precondition(!succeeded && !controller.isEnabled && !defaults.bool(forKey: NoteSyncController.enabledKey))
+        precondition(engine() == nil && controller.status == .off, "nothing starts without the zone")
     }
 }

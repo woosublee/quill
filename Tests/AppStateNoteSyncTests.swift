@@ -23,8 +23,6 @@ struct AppStateNoteSyncTests {
         func enqueueDeletes(_ ids: [UUID]) {}
         func attach(_ coordinator: NoteSyncCoordinator) { self.coordinator = coordinator }
         func start() {}
-        func noteTurnedOnByUser() {}
-        func forgetUserTurnOn() {}
         func fetchNow() {}
         func deleteAllFromICloud() async throws {}
         func stop(forgetState: Bool) {}
@@ -66,18 +64,19 @@ struct AppStateNoteSyncTests {
         for item in items { _ = try store.append(item, maxCount: Int.max) }
         let engine = FakeEngine()
         let defaults = UserDefaults(suiteName: "quill-note-sync-app-state-\(UUID().uuidString)")!
+        // Sync already on, as after a relaunch.
+        defaults.set(true, forKey: NoteSyncController.enabledKey)
         var dependencies = AppStateDependencies.live
         dependencies.storageLayout = layout
         dependencies.makePipelineHistoryStore = { _ in store }
         dependencies.makeNoteSyncController = { _ in
-            NoteSyncController(defaults: defaults, unavailableReason: nil, makeEngine: { events in
+            NoteSyncController(defaults: defaults, unavailableReason: nil, createZone: {}, makeEngine: { events in
                 engine.events = events
                 return engine
             })
         }
         let appState = AppState(dependencies: dependencies)
         appState.startNoteSync()
-        appState.noteSyncController?.turnOn()
         engine.saves = []
         return Fixture(root: root, layout: layout, store: store, engine: engine, appState: appState)
     }

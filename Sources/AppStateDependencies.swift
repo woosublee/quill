@@ -149,12 +149,14 @@ struct AppStateDependencies {
             },
             makeRetryCloudTranscriptionDependencies: { .live },
             makeNoteSyncController: { layout in
-                NoteSyncController(makeEngine: { events in
+                NoteSyncController(createZone: {
+                    guard #available(macOS 14.0, *) else { return }
+                    try await NoteSyncCloudKitEngine.createZone()
+                }, makeEngine: { events in
                     guard #available(macOS 14.0, *) else { return nil }
                     return NoteSyncCloudKitEngine(
                         stateURL: layout.noteSyncDirectory.appendingPathComponent("engine-state"),
                         outbox: layout.noteSyncDirectory.appendingPathComponent("outbox", isDirectory: true),
-                        zoneMarker: layout.noteSyncDirectory.appendingPathComponent("awaiting-zone"),
                         events: events
                     )
                 })

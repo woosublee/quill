@@ -7,12 +7,6 @@ protocol NoteSyncEngineHandle: NoteSyncEngineClient {
     /// Starts syncing: removes payload files left from an earlier run,
     /// schedules regular fetches, and fetches once.
     func start()
-    /// The user turned sync on: a deletion of this Mac's iCloud data seen
-    /// before the zone is saved again predates that choice. Called before
-    /// `start()`.
-    func noteTurnedOnByUser()
-    /// Sync turned off or stopped: a pending turn-on no longer applies.
-    func forgetUserTurnOn()
     func fetchNow()
     func deleteAllFromICloud() async throws
     func stop(forgetState: Bool)
@@ -30,16 +24,20 @@ struct NoteSyncEngineEvents {
 /// iCloud sync on and off, its status for Settings, and the engine's life.
 /// Sync is off until the user turns it on; an account change or a deletion
 /// from another Mac turns it off again, keeping every local note.
+/// Turning on makes the iCloud zone first, so once sync runs, a missing
+/// zone always means another Mac deleted it.
 @MainActor
 final class NoteSyncController: ObservableObject {
     static let enabledKey = "iCloudNoteSyncEnabled"
 
     @Published private(set) var status: NoteSyncStatus = .off
     @Published private(set) var isEnabled: Bool
+    @Published private(set) var isTurningOn = false
     let unavailableReason: NoteSyncUnavailableReason?
     var onRemoteChange: ((NoteSyncRemoteChange) -> Void)?
 
     private let defaults: UserDefaults
+    private let createZone: () async throws -> Void
     private let makeEngine: (NoteSyncEngineEvents) -> NoteSyncEngineHandle?
     private weak var store: NoteSyncLocalStore?
     private var engine: NoteSyncEngineHandle?
@@ -48,10 +46,12 @@ final class NoteSyncController: ObservableObject {
     init(
         defaults: UserDefaults = .standard,
         unavailableReason: NoteSyncUnavailableReason? = NoteSyncAvailability.current(),
+        createZone: @escaping () async throws -> Void,
         makeEngine: @escaping (NoteSyncEngineEvents) -> NoteSyncEngineHandle?
     ) {
         self.defaults = defaults
         self.unavailableReason = unavailableReason
+        self.createZone = createZone
         self.makeEngine = makeEngine
         isEnabled = unavailableReason == nil && defaults.bool(forKey: Self.enabledKey)
     }
@@ -72,10 +72,24 @@ final class NoteSyncController: ObservableObject {
         store?.syncableNoteIDs().count ?? 0
     }
 
-    func turnOn() {
-        guard unavailableReason == nil, store != nil, !isEnabled else { return }
+    /// Returns false, leaving sync off, when the iCloud zone couldn't be
+    /// made (offline, for example).
+    @discardableResult
+    func turnOn() async -> Bool {
+        guard unavailableReason == nil, store != nil, !isEnabled, !isTurningOn else { return false }
+        isTurningOn = true
+        status = .starting
+        defer { isTurningOn = false }
+        do {
+            try await createZone()
+        } catch {
+            print("[NoteSync] Couldn't create the iCloud zone")
+            status = .off
+            return false
+        }
         setEnabled(true)
-        startEngine(initialUpload: true, turnedOnByUser: true)
+        startEngine(initialUpload: true)
+        return true
     }
 
     /// Returns false, leaving sync on, when deleting from iCloud failed.
@@ -92,7 +106,6 @@ final class NoteSyncController: ObservableObject {
             // iCloud no longer holds these notes.
             store?.clearChangeTags()
         }
-        engine?.forgetUserTurnOn()
         stopEngine(forgetState: true)
         setEnabled(false)
         status = .off
@@ -108,7 +121,7 @@ final class NoteSyncController: ObservableObject {
         engine?.fetchNow()
     }
 
-    private func startEngine(initialUpload: Bool, turnedOnByUser: Bool = false) {
+    private func startEngine(initialUpload: Bool) {
         guard let store, store.isReadyForSync,
               let engine = makeEngine(NoteSyncEngineEvents(remoteChange: { [weak self] change in
                   self?.onRemoteChange?(change)
@@ -125,7 +138,6 @@ final class NoteSyncController: ObservableObject {
         self.engine = engine
         self.coordinator = coordinator
         status = coordinator.status
-        if turnedOnByUser { engine.noteTurnedOnByUser() }
         engine.start()
         if initialUpload { coordinator.startInitialUpload() }
     }
@@ -149,7 +161,6 @@ final class NoteSyncController: ObservableObject {
         case .paused(.accountChanged), .paused(.signedOut), .paused(.deletedElsewhere):
             // Sync starts again only when the user turns it on, so notes
             // never cross into another account.
-            engine?.forgetUserTurnOn()
             stopEngine(forgetState: true)
             setEnabled(false)
         default:

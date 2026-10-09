@@ -310,6 +310,8 @@ struct SettingsLocalizationTests {
             "Turn Off Sync": "동기화만 끄기",
             "Turn Off and Delete from iCloud": "끄고 iCloud에서도 지우기",
             "Couldn't delete from iCloud": "iCloud에서 지우지 못했어요",
+            "Couldn't turn on iCloud sync": "iCloud 동기화를 켜지 못했어요",
+            "Check your internet connection and try again. Sync is still off.": "인터넷 연결을 확인하고 다시 시도해 주세요. 동기화는 꺼진 상태예요.",
             "Check your internet connection and try again. Sync is still on.": "인터넷 연결을 확인하고 다시 시도해 주세요. 동기화는 아직 켜져 있어요.",
             "Turn off iCloud sync to clear history.": "기록을 지우려면 iCloud 동기화를 먼저 꺼 주세요."
         ]
@@ -341,6 +343,9 @@ struct SettingsLocalizationTests {
         // The line refreshes while Settings stays open.
         assert(view.contains("NoteSyncStatusText.relativeTime(date, now: context.date)"))
         assert(view.contains("TimelineView(.periodic(from: .now, by: 30))"))
+        // Turning on waits for iCloud and says so when it can't be reached.
+        assert(view.contains("if await controller.turnOn() == false { turnOnFailed = true }"))
+        assert(view.contains(".alert(\"Couldn't turn on iCloud sync\", isPresented: $turnOnFailed)"))
         // The switch already says off, and the status sits beside the title,
         // dropping below it only when the line is too narrow.
         assert(view.contains("case .off:\n            EmptyView()"))

@@ -20613,6 +20613,38 @@
         }
       }
     },
+    "Couldn't turn on iCloud sync": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't turn on iCloud sync"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 동기화를 켜지 못했어요"
+          }
+        }
+      }
+    },
+    "Check your internet connection and try again. Sync is still off.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check your internet connection and try again. Sync is still off."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인터넷 연결을 확인하고 다시 시도해 주세요. 동기화는 꺼진 상태예요."
+          }
+        }
+      }
+    },
     "Turn off iCloud sync to clear history.": {
       "localizations": {
         "en": {
