@@ -738,6 +738,15 @@ final class PipelineHistoryStore {
         if let thrownError { throw thrownError }
     }
 
+    /// Upload keys that applying another Mac's record cleared, until sync
+    /// takes them.
+    private var clearedUploadKeys: [UUID: String] = [:]
+
+    func takeClearedAudioUploadKeys() -> [UUID: String] {
+        defer { clearedUploadKeys = [:] }
+        return clearedUploadKeys
+    }
+
     /// The SHA-256 of the audio file this Mac is uploading, which names its
     /// parts. Kept on this Mac only; cleared when the audio file changes.
     func audioUploadKey(id: UUID) -> String? {
@@ -859,8 +868,12 @@ final class PipelineHistoryStore {
                     didChangeAssetReferences = true
                     result = .inserted
                 }
-                // Another Mac's audio file: this Mac's upload of the old one is moot.
-                if entity.audioFileName != item.audioFileName { entity.audioSyncUploadKey = nil }
+                // Another Mac's audio file: this Mac's upload of the old one
+                // is moot, and what it sent is left for sync to clean up.
+                if entity.audioFileName != item.audioFileName, let key = entity.audioSyncUploadKey {
+                    entity.audioSyncUploadKey = nil
+                    clearedUploadKeys[remote.noteID] = key
+                }
                 Self.apply(item, to: entity)
                 entity.fieldClockJSON = Self.encodeClock(merged.clock)
                 entity.deletedAt = merged.deletedAt
@@ -1016,8 +1029,9 @@ final class PipelineHistoryStore {
         // A new audio file isn't in iCloud yet, whatever the old one was.
         var replacedAudio: NoteAudioSyncState?
         if let previous, previous.audioFileName != item.audioFileName {
-            let state = Self.audioState(of: entity)
-            if let state, state.manifest != nil || state.uploadKey != nil { replacedAudio = state }
+            // Reported even with nothing marked: another Mac may have left
+            // parts of the earlier file.
+            replacedAudio = Self.audioState(of: entity)
             entity.audioSyncManifestJSON = nil
             entity.audioSyncUploadKey = nil
         }

@@ -81,6 +81,7 @@ struct NoteSyncControllerTests {
         func setAudioManifest(_ manifest: NoteAudioManifest?, id: UUID) throws { manifests[id] = manifest }
         func audioUploadKey(id: UUID) -> String? { nil }
         func setAudioUploadKey(_ key: String?, id: UUID) throws {}
+        func takeClearedAudioUploadKeys() -> [UUID: String] { [:] }
     }
 
     final class FakeEngine: NoteSyncEngineHandle {
@@ -102,6 +103,7 @@ struct NoteSyncControllerTests {
         func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] { [] }
         func cancelAudioSaves(noteID: UUID) {}
         func cancelAudioDeletes(noteID: UUID) {}
+        func cancelAudioDeletes(_ parts: [NoteAudioPartID]) {}
         func attach(_ coordinator: NoteSyncCoordinator) { self.coordinator = coordinator }
         func start() { started += 1; log?.calls.append("start") }
         func fetchNow() { fetches += 1 }
