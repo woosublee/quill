@@ -321,6 +321,12 @@ struct SettingsLocalizationTests {
         assert(orderedTabs[calendarIndex + 1] == .sync, "the iCloud Sync tab comes right after Calendar")
         assert(SettingsTab.sync.title == "iCloud Sync" && SettingsTab.sync.icon == "icloud")
         let view = try String(contentsOfFile: "Sources/SyncSettingsView.swift", encoding: .utf8)
+        assert(localizedCatalogString("Just now", language: "ko", bundle: bundle) == "방금 전")
+        // A sync that just finished reads "Just now", never "in 0 seconds",
+        // and the line refreshes while Settings stays open.
+        assert(view.contains("if interval < 60 { return localizedCatalogString(\"Just now\") }"))
+        assert(view.contains("formatter.dateTimeStyle = .named"))
+        assert(view.contains("TimelineView(.periodic(from: .now, by: 30))"))
         assert(view.contains("Button(\"Turn Off and Delete from iCloud\", role: .destructive) {\n                turnOff(deleteFromICloud: true)"))
         assert(view.contains("Button(\"Turn Off Sync\") {\n                turnOff(deleteFromICloud: false)"))
         assert(!view.lowercased().contains("audio"), "audio sync arrives in a later step")

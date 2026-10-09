@@ -20644,6 +20644,22 @@
           }
         }
       }
+    },
+    "Just now": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Just now"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "방금 전"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

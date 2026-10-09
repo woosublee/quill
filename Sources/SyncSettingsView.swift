@@ -158,13 +158,15 @@ private struct NoteSyncSettingsCard: View {
                 .font(.caption)
                 .foregroundStyle(Color.accentColor)
         case .upToDate(let date):
-            Label {
-                Text("Up to date · \(Self.relativeTime(date))")
-            } icon: {
-                Image(systemName: "checkmark.circle.fill")
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                Label {
+                    Text("Up to date · \(Self.relativeTime(date, now: context.date))")
+                } icon: {
+                    Image(systemName: "checkmark.circle.fill")
+                }
+                .font(.caption)
+                .foregroundStyle(.green)
             }
-            .font(.caption)
-            .foregroundStyle(.green)
         case .paused(.offline):
             Text("Paused · Syncs again when you're online")
                 .font(.caption)
@@ -230,9 +232,14 @@ private struct NoteSyncSettingsCard: View {
         }
     }
 
-    private static func relativeTime(_ date: Date) -> String {
+    /// "Just now" for the first minute, then "3 min. ago" and so on; a sync
+    /// that just finished never reads "in 0 seconds".
+    private static func relativeTime(_ date: Date, now: Date) -> String {
+        let interval = now.timeIntervalSince(date)
+        if interval < 60 { return localizedCatalogString("Just now") }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
-        return formatter.localizedString(for: date, relativeTo: Date())
+        formatter.dateTimeStyle = .named
+        return formatter.localizedString(for: date, relativeTo: now)
     }
 }
