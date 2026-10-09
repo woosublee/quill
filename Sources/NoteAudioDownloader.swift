@@ -186,7 +186,7 @@ final class NoteAudioDownloader: ObservableObject {
                     print("[NoteSync] Downloaded audio didn't match its marker")
                     try? FileManager.default.removeItem(at: partial)
                     if attempt == 0 { continue }
-                    failures[noteID] = .failed
+                    if isCurrent(noteID, token) { failures[noteID] = .failed }
                     return nil
                 }
                 try FileManager.default.createDirectory(
@@ -199,12 +199,16 @@ final class NoteAudioDownloader: ObservableObject {
                 return destination
             } catch is CancellationError {
                 return nil
-            } catch NoteAudioFetchError.offline {
-                failures[noteID] = .offline
-                return nil
             } catch {
-                print("[NoteSync] Couldn't download audio")
-                failures[noteID] = .failed
+                // A stopped download didn't fail; whatever it hit after the
+                // stop (sync gone, its file removed) isn't the audio's fault.
+                guard !Task.isCancelled, isCurrent(noteID, token) else { return nil }
+                if case NoteAudioFetchError.offline = error {
+                    failures[noteID] = .offline
+                } else {
+                    print("[NoteSync] Couldn't download audio")
+                    failures[noteID] = .failed
+                }
                 return nil
             }
         }

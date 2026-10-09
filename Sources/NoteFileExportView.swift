@@ -67,7 +67,7 @@ struct NoteFileExportView: View {
             Divider().padding(.vertical, 16)
             HStack {
                 Button("Cancel") {
-                    if isSaving, saveTask != nil, source.audioNeedsDownload { cancelDownload() }
+                    if isSaving, saveTask != nil, source.audioNeedsDownload, includeAudio { cancelDownload() }
                     saveTask?.cancel()
                     onDismiss()
                 }
