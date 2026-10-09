@@ -75,7 +75,7 @@ enum NoteSyncCloudRecord {
         return record
     }
 
-    /// Payload files hold note content, so each is removed once its save is
+    /// Payload and audio part files hold note content, so each is removed once its save is
     /// done, and any left from an earlier run are removed when sync starts.
     static func removeOutboxFile(for noteID: UUID, in outbox: URL) {
         try? FileManager.default.removeItem(at: outboxFile(for: noteID, in: outbox))
@@ -83,7 +83,7 @@ enum NoteSyncCloudRecord {
 
     static func removeAllOutboxFiles(in outbox: URL) {
         let files = (try? FileManager.default.contentsOfDirectory(at: outbox, includingPropertiesForKeys: nil)) ?? []
-        for file in files where file.pathExtension == "json" {
+        for file in files where file.pathExtension == "json" || file.pathExtension == "part" {
             try? FileManager.default.removeItem(at: file)
         }
     }

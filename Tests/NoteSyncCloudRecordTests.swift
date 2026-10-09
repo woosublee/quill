@@ -12,7 +12,61 @@ struct NoteSyncCloudRecordTests {
         try testMismatchedSystemFieldsAreIgnored()
         try testOutboxFilesAreRemoved()
         testSendErrorsAreClassified()
+        testAudioPartRecordIDs()
+        if #available(macOS 14.0, *) { testBatchesSendNotesFirstThenOneAudioPart() }
+        try testAudioPartRecords()
         print("NoteSyncCloudRecordTests passed")
+    }
+
+    static func testAudioPartRecordIDs() {
+        let part = NoteAudioPartID(noteID: UUID(), index: 2)
+        let id = NoteAudioCloudRecord.recordID(for: part)
+        precondition(id.zoneID.zoneName == "NoteAudio" && id.recordName == part.recordName)
+        precondition(NoteAudioCloudRecord.part(from: id) == part)
+        let noteRecord = NoteSyncCloudRecord.recordID(for: part.noteID)
+        precondition(NoteAudioCloudRecord.part(from: noteRecord) == nil, "a note record is not a part")
+        precondition(NoteSyncCloudRecord.noteID(from: id) == nil, "a part is not a note")
+    }
+
+    @available(macOS 14.0, *)
+    static func testBatchesSendNotesFirstThenOneAudioPart() {
+        let note = CKSyncEngine.PendingRecordZoneChange.saveRecord(NoteSyncCloudRecord.recordID(for: UUID()))
+        let id = UUID()
+        let part0 = CKSyncEngine.PendingRecordZoneChange.saveRecord(NoteAudioCloudRecord.recordID(for: NoteAudioPartID(noteID: id, index: 0)))
+        let part1 = CKSyncEngine.PendingRecordZoneChange.saveRecord(NoteAudioCloudRecord.recordID(for: NoteAudioPartID(noteID: id, index: 1)))
+        let deletePart = CKSyncEngine.PendingRecordZoneChange.deleteRecord(NoteAudioCloudRecord.recordID(for: NoteAudioPartID(noteID: UUID(), index: 0)))
+        precondition(NoteAudioCloudRecord.nextBatch([part0, note, part1]) == [note], "text first")
+        precondition(NoteAudioCloudRecord.nextBatch([part0, deletePart, part1]) == [deletePart], "small deletes before big uploads")
+        precondition(NoteAudioCloudRecord.nextBatch([part0, part1]) == [part0], "one part per request")
+        precondition(NoteAudioCloudRecord.nextBatch([]).isEmpty)
+    }
+
+    static func testAudioPartRecords() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quill-audio-record-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let source = dir.appendingPathComponent("a.wav")
+        try Data((0..<10).map { UInt8($0) }).write(to: source)
+        let outbox = dir.appendingPathComponent("outbox", isDirectory: true)
+        let id = UUID()
+
+        let whole = NoteSyncOutgoingAudio(part: NoteAudioPartID(noteID: id, index: 0), fileURL: source, fileName: "a.wav", byteCount: 10)
+        let single = try NoteAudioCloudRecord.makeRecord(whole, systemFields: nil, outbox: outbox, partSize: 16)
+        precondition((single["data"] as? CKAsset)?.fileURL == source, "one part sends the file itself")
+        precondition(single["index"] as? Int == 0 && single["noteID"] as? String == id.uuidString)
+        precondition(NoteAudioCloudRecord.stamp(of: single) == NoteAudioPartStamp(fileName: "a.wav", fileBytes: 10),
+                     "a part says which file it was cut from")
+        precondition(NoteAudioCloudRecord.stamp(of: CKRecord(recordType: "NoteAudio")) == nil)
+
+        let second = NoteSyncOutgoingAudio(part: NoteAudioPartID(noteID: id, index: 1), fileURL: source, fileName: "a.wav", byteCount: 10)
+        let split = try NoteAudioCloudRecord.makeRecord(second, systemFields: nil, outbox: outbox, partSize: 4)
+        let partURL = (split["data"] as? CKAsset)?.fileURL
+        precondition(partURL == NoteAudioCloudRecord.partFile(for: second.part, in: outbox))
+        let partBytes = try Data(contentsOf: partURL!)
+        precondition(partBytes == Data([4, 5, 6, 7]))
+
+        NoteSyncCloudRecord.removeAllOutboxFiles(in: outbox)
+        precondition(!FileManager.default.fileExists(atPath: partURL!.path), "part files are cleaned up with payloads")
     }
 
     static func outbox() -> URL {

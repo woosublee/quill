@@ -19,6 +19,12 @@ struct PipelineHistorySyncStoreTests {
         testChangeTagForMissingNoteThrows()
         try testUnreadableRecordIsRejected()
         try testLocalOnlyEditsAreNotReported()
+        try testAudioManifestTravelsWithTheNote()
+        try testAudioManifestFromICloudIsKept()
+        try testNewAudioFileClearsTheManifest()
+        try testDeleteReportsAudioParts()
+        try testClearingChangeTagsClearsAudioManifests()
+        try testAudioManifestCanBeCleared()
         print("PipelineHistorySyncStoreTests passed")
     }
 
@@ -202,7 +208,7 @@ struct PipelineHistorySyncStoreTests {
         let a = makeItem()
         _ = try s.append(a, maxCount: Int.max)
         try s.setSyncSystemFields(Data([1]), id: a.id)
-        try s.clearAllSyncSystemFields()
+        try s.clearAllSyncSystemFields(forgettingAudio: true)
         precondition(s.syncSystemFields(id: a.id) == nil)
     }
 
@@ -256,6 +262,84 @@ struct PipelineHistorySyncStoreTests {
         precondition(changes.isEmpty, "a change only to fields that never sync uploads nothing")
         try s.update(localOnly.withCustomTitle("Visible"))
         precondition(changes == [.saved(note.id)])
+    }
+
+    private static let manifest = NoteAudioManifest(sha256: "synthetic", bytes: 120_000_000, partSize: 50_000_000, parts: 3)
+
+    private static func testAudioManifestTravelsWithTheNote() throws {
+        let s = store()
+        var changes: [PipelineHistoryChange] = []
+        let note = makeItem(audio: "\(UUID().uuidString).wav")
+        _ = try s.append(note, maxCount: Int.max)
+        s.onChange = { changes += $0 }
+        s.now = { t0.addingTimeInterval(10) }
+        try s.setAudioManifest(manifest, id: note.id)
+        precondition(s.audioManifest(id: note.id) == manifest)
+        let record = s.syncRecord(id: note.id)!
+        precondition(record.fields[NoteSyncField.audioManifest.rawValue] == .data(manifest.encoded()))
+        precondition(record.clock.stamp(for: .audio) == t0.addingTimeInterval(10), "the audio group is stamped")
+        precondition(changes.isEmpty, "the coordinator sends the note itself")
+    }
+
+    private static func testAudioManifestFromICloudIsKept() throws {
+        let s = store()
+        let note = makeItem(audio: "\(UUID().uuidString).wav")
+        _ = try s.append(note, maxCount: Int.max)
+        var remote = s.syncRecord(id: note.id)!
+        remote.fields[NoteSyncField.audioManifest.rawValue] = .data(manifest.encoded())
+        remote.clock = remote.clock.setting(.audio, to: t0.addingTimeInterval(60))
+        _ = try s.applySynced(remote, systemFields: nil)
+        precondition(s.audioManifest(id: note.id) == manifest)
+        _ = try s.applySynced(remote, systemFields: nil)
+        precondition(s.syncRecord(id: note.id) == remote, "applying the same record again changes nothing")
+    }
+
+    private static func testNewAudioFileClearsTheManifest() throws {
+        let s = store()
+        let note = makeItem(audio: "\(UUID().uuidString).wav")
+        _ = try s.append(note, maxCount: Int.max)
+        try s.setAudioManifest(manifest, id: note.id)
+        try s.update(note.replacingAssetFileNames(audioFileName: "\(UUID().uuidString).wav", transcriptFileName: nil))
+        precondition(s.audioManifest(id: note.id) == nil, "a new file has to upload again")
+    }
+
+    private static func testDeleteReportsAudioParts() throws {
+        let s = store()
+        var changes: [PipelineHistoryChange] = []
+        let note = makeItem(audio: "\(UUID().uuidString).wav")
+        _ = try s.append(note, maxCount: Int.max)
+        try s.setAudioManifest(manifest, id: note.id)
+        s.onChange = { changes += $0 }
+        _ = try s.delete(id: note.id)
+        precondition(changes == [.deleted(note.id, wasSynced: false, audioParts: 3, hasAudio: true)])
+    }
+
+    /// When iCloud loses the notes, it lost their audio too: the marker
+    /// goes, stamped newer, so a Mac still holding it can't bring it back.
+    private static func testClearingChangeTagsClearsAudioManifests() throws {
+        let s = store()
+        let marked = makeItem(audio: "\(UUID().uuidString).wav")
+        _ = try s.append(marked, maxCount: Int.max)
+        try s.setAudioManifest(manifest, id: marked.id)
+        s.now = { t0.addingTimeInterval(90) }
+        try s.clearAllSyncSystemFields(forgettingAudio: false)
+        precondition(s.audioManifest(id: marked.id) == manifest, "after an account change iCloud may still hold it")
+        try s.clearAllSyncSystemFields(forgettingAudio: true)
+        precondition(s.audioManifest(id: marked.id) == nil)
+        let record = s.syncRecord(id: marked.id)!
+        precondition(record.fields[NoteSyncField.audioManifest.rawValue] == nil)
+        precondition(record.clock.stamp(for: .audio) == t0.addingTimeInterval(90), "the cleared marker wins merges")
+    }
+
+    private static func testAudioManifestCanBeCleared() throws {
+        let s = store()
+        let note = makeItem(audio: "\(UUID().uuidString).wav")
+        _ = try s.append(note, maxCount: Int.max)
+        try s.setAudioManifest(manifest, id: note.id)
+        s.now = { t0.addingTimeInterval(30) }
+        try s.setAudioManifest(nil, id: note.id)
+        precondition(s.audioManifest(id: note.id) == nil)
+        precondition(s.syncRecord(id: note.id)!.clock.stamp(for: .audio) == t0.addingTimeInterval(30))
     }
 
     private static func testChangeTagForMissingNoteThrows() {

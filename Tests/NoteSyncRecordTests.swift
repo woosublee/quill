@@ -312,7 +312,7 @@ struct NoteSyncRecordTests {
             calendarID: "synthetic-calendar", eventID: "synthetic-event", title: "Synthetic",
             start: t0, end: t0.addingTimeInterval(60), matchSource: .importSelection, titleState: .suggested
         )
-        for field in NoteSyncField.allCases {
+        for field in NoteSyncField.allCases where !field.isStoreLevel {
             var changed = baseRecord
             let key = field.rawValue
             switch (field, changed.fields[key]) {

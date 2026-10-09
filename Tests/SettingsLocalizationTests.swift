@@ -277,9 +277,8 @@ struct SettingsLocalizationTests {
         let expected: [String: String] = [
             "iCloud Sync": "iCloud 동기화",
             "Sync this Mac's notes with iCloud": "이 Mac의 노트를 iCloud로 동기화",
-            "Notes, transcripts, and summaries are saved to your iCloud. They appear on your other Macs with the same iCloud account.": "노트·전사문·요약이 내 iCloud에 저장돼요. 같은 iCloud 계정의 다른 Mac에서도 보여요.",
-            "Screenshots and window details stay on this Mac.": "스크린샷과 창 정보는 이 Mac에만 남아요.",
-            "Settings, vocabulary, and API keys don't sync. Each Mac keeps its own.": "설정·단어장·API 키는 동기화하지 않아요. 각 Mac에서 따로 정해요.",
+            "Keeps your notes the same on your Macs with this iCloud account.": "같은 iCloud 계정의 다른 Mac과 노트를 맞춰요.",
+            "Sync Now": "지금 동기화",
             "1 note": "노트 1개",
             "%lld notes": "노트 %lld개",
             "Off": "끔",
@@ -311,6 +310,9 @@ struct SettingsLocalizationTests {
             "Turn Off and Delete from iCloud": "끄고 iCloud에서도 지우기",
             "Couldn't delete from iCloud": "iCloud에서 지우지 못했어요",
             "Couldn't turn on iCloud sync": "iCloud 동기화를 켜지 못했어요",
+            "This includes %@ of audio.": "오디오 %@도 함께 올라가요.",
+            "1 note has audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it.": "노트 1개의 오디오는 iCloud에 있지만 이 Mac에는 없어요. 끄고 iCloud에서도 지우면 이 Mac에서는 그 오디오를 받을 수 없어요.",
+            "%lld notes have audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it.": "노트 %lld개의 오디오는 iCloud에 있지만 이 Mac에는 없어요. 끄고 iCloud에서도 지우면 이 Mac에서는 그 오디오를 받을 수 없어요.",
             "Check your internet connection and try again. Sync is still off.": "인터넷 연결을 확인하고 다시 시도해 주세요. 동기화는 꺼진 상태예요.",
             "Check your iCloud account in System Settings, then try again.": "시스템 설정에서 iCloud 계정을 확인한 뒤 다시 시도해 주세요.",
             "Notes can't sync right now. If history recovery is running, try again after it finishes.": "지금은 노트를 동기화할 수 없어요. 기록 복구 중이라면 끝난 뒤 다시 시도해 주세요.",
@@ -352,11 +354,18 @@ struct SettingsLocalizationTests {
         // dropping below it only when the line is too narrow.
         assert(view.contains("case .off:\n            EmptyView()"))
         assert(view.contains("ViewThatFits(in: .horizontal) {\n                    HStack(alignment: .firstTextBaseline, spacing: 8) {\n                        title\n                        statusLine\n                    }"))
-        // What syncs on one line, what stays on the next two, all in the card.
-        assert(view.contains("Text(\"Notes, transcripts, and summaries are saved to your iCloud. They appear on your other Macs with the same iCloud account.\")\n                VStack(alignment: .leading, spacing: 2) {\n                    Text(\"Screenshots and window details stay on this Mac.\")\n                    Text(\"Settings, vocabulary, and API keys don't sync. Each Mac keeps its own.\")"))
+        // On, the card is the status line and Sync Now; what goes to iCloud
+        // is said once, when turning on. Off, one line says what it does.
+        assert(!view.contains("Screenshots and window details stay on this Mac."))
+        assert(view.contains("Text(\"Keeps your notes the same on your Macs with this iCloud account.\")"))
+        assert(view.contains("await controller.syncNow()"))
+        assert(view.contains(".help(\"Sync Now\")"))
         assert(view.contains("Button(\"Turn Off and Delete from iCloud\", role: .destructive) {\n                turnOff(deleteFromICloud: true)"))
         assert(view.contains("Button(\"Turn Off Sync\") {\n                turnOff(deleteFromICloud: false)"))
-        assert(!view.lowercased().contains("audio"), "audio sync arrives in a later step")
+        // The confirmations say how much audio goes up, and what deleting
+        // from iCloud would lose.
+        assert(view.contains("Text(turnOnMessage) + audioSizeText + Text(\"\\n\\n\")"))
+        assert(view.contains("each Mac keeps its notes.\") + audioOnlyInICloudText"))
         let settings = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
         assert(settings.contains("case .sync:\n                    SyncSettingsView()"))
     }

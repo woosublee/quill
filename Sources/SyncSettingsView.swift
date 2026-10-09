@@ -33,6 +33,8 @@ private struct NoteSyncSettingsCard: View {
     @State private var turnOffFailed = false
     @State private var turnOnFailure: NoteSyncTurnOnFailure?
     @State private var noteCount = 0
+    @State private var audioBytes: Int64 = 0
+    @State private var audioOnlyInICloud = 0
 
     private var switchBinding: Binding<Bool> {
         Binding(
@@ -40,8 +42,10 @@ private struct NoteSyncSettingsCard: View {
             set: { wantsOn in
                 if wantsOn {
                     noteCount = controller.syncableNoteCount
+                    audioBytes = controller.uploadAudioByteCount
                     isConfirmingTurnOn = true
                 } else {
+                    audioOnlyInICloud = controller.notesWithAudioOnlyInICloud
                     isConfirmingTurnOff = true
                 }
             }
@@ -62,6 +66,22 @@ private struct NoteSyncSettingsCard: View {
                     }
                 }
                 Spacer(minLength: 0)
+                if showsSyncNow {
+                    Button {
+                        Task { @MainActor in await controller.syncNow() }
+                    } label: {
+                        if controller.isSyncingNow {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(controller.isSyncingNow)
+                    .help("Sync Now")
+                    .accessibilityLabel(Text("Sync Now"))
+                }
                 Toggle(isOn: switchBinding) {
                     Text("Sync this Mac's notes with iCloud")
                 }
@@ -72,23 +92,12 @@ private struct NoteSyncSettingsCard: View {
 
             statusDetail
 
-            // What goes to iCloud, then what stays here, one sentence pair
-            // per line so lines break where the thought does.
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Notes, transcripts, and summaries are saved to your iCloud. They appear on your other Macs with the same iCloud account.")
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Screenshots and window details stay on this Mac.")
-                    Text("Settings, vocabulary, and API keys don't sync. Each Mac keeps its own.")
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-
-            if controller.isEnabled {
-                Text(noteCountText(controller.syncableNoteCount))
+            // What goes to iCloud is said once, when turning on.
+            if !controller.isEnabled, controller.unavailableReason == nil {
+                Text("Keeps your notes the same on your Macs with this iCloud account.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .alert("Turn on iCloud sync?", isPresented: $isConfirmingTurnOn) {
@@ -99,7 +108,7 @@ private struct NoteSyncSettingsCard: View {
                 }
             }
         } message: {
-            Text(turnOnMessage) + Text("\n\n") + Text("Screenshots, window titles, selected text, and AI instructions aren't uploaded. You can keep using Quill while it uploads.")
+            Text(turnOnMessage) + audioSizeText + Text("\n\n") + Text("Screenshots, window titles, selected text, and AI instructions aren't uploaded. You can keep using Quill while it uploads.")
         }
         .confirmationDialog("Turn off iCloud sync?", isPresented: $isConfirmingTurnOff, titleVisibility: .visible) {
             Button("Turn Off Sync") {
@@ -110,7 +119,7 @@ private struct NoteSyncSettingsCard: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Notes on this Mac stay. Turn Off Sync keeps notes in iCloud for your other Macs. Turn Off and Delete from iCloud deletes all Quill data in iCloud: sync stops on every Mac, and each Mac keeps its notes.")
+            Text("Notes on this Mac stay. Turn Off Sync keeps notes in iCloud for your other Macs. Turn Off and Delete from iCloud deletes all Quill data in iCloud: sync stops on every Mac, and each Mac keeps its notes.") + audioOnlyInICloudText
         }
         .alert("Couldn't turn on iCloud sync", isPresented: isShowingTurnOnFailure) {
             Button("OK", role: .cancel) {}
@@ -149,8 +158,36 @@ private struct NoteSyncSettingsCard: View {
             : "Upload \(noteCount) notes from this Mac to iCloud. Notes from your other Macs download too, and the lists merge into one."
     }
 
+    private var audioSizeText: Text {
+        guard audioBytes > 0 else { return Text("") }
+        let size = ByteCountFormatter.string(fromByteCount: audioBytes, countStyle: .file)
+        return Text(" ") + Text("This includes \(size) of audio.")
+    }
+
+    private var audioOnlyInICloudText: Text {
+        switch audioOnlyInICloud {
+        case 0:
+            return Text("")
+        case 1:
+            return Text("\n\n") + Text("1 note has audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it.")
+        default:
+            return Text("\n\n") + Text("\(audioOnlyInICloud) notes have audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it.")
+        }
+    }
+
     private func noteCountText(_ count: Int) -> LocalizedStringKey {
         count == 1 ? "1 note" : "\(count) notes"
+    }
+
+    /// Sync Now shows while sync runs, not after it stopped.
+    private var showsSyncNow: Bool {
+        guard controller.isEnabled, controller.unavailableReason == nil else { return false }
+        switch controller.status {
+        case .paused(.accountChanged), .paused(.signedOut), .paused(.deletedElsewhere), .off:
+            return false
+        default:
+            return true
+        }
     }
 
     private func turnOff(deleteFromICloud: Bool) {
@@ -195,6 +232,7 @@ private struct NoteSyncSettingsCard: View {
             TimelineView(.periodic(from: .now, by: 30)) { context in
                 Label {
                     Text("Up to date · \(NoteSyncStatusText.relativeTime(date, now: context.date))")
+                        + Text(verbatim: " · ") + Text(noteCountText(controller.syncableNoteCount))
                 } icon: {
                     Image(systemName: "checkmark.circle.fill")
                 }

@@ -3,7 +3,7 @@ import Foundation
 @main
 struct NoteSyncControllerTests {
     @MainActor
-    static func main() {
+    static func main() throws {
         testAvailabilityDecision()
         testStartsOffAndStaysOffWhenUnavailable()
         testTurnOnUploadsEverySyncableNote()
@@ -19,23 +19,66 @@ struct NoteSyncControllerTests {
         testTurnOnStaysOffWhenICloudIsUnreachable()
         testTurnOnWaitsForAReadyStore()
         testTurnOnFailureKeepsWhySyncStopped()
+        try testConfirmationsCountAudio()
+        testSyncNowRunsOnceAtATime()
         print("NoteSyncControllerTests passed")
+    }
+
+    @MainActor
+    static func testConfirmationsCountAudio() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quill-controller-audio-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data(count: 300).write(to: dir.appendingPathComponent("here.wav"))
+        try Data(count: 200).write(to: dir.appendingPathComponent("uploaded.wav"))
+        let store = FakeStore()
+        let here = UUID(), uploaded = UUID(), elsewhere = UUID()
+        for (id, name) in [(here, "here.wav"), (uploaded, "uploaded.wav"), (elsewhere, "elsewhere.wav")] {
+            store.ids.append(id)
+            store.records[id] = NoteSyncRecord(
+                noteID: id,
+                fields: [NoteSyncField.audioFileName.rawValue: .string(name)],
+                clock: NoteFieldClock(stamps: [:]),
+                deletedAt: nil
+            )
+        }
+        let manifest = NoteAudioManifest(sha256: "x", bytes: 1, partSize: 50_000_000, parts: 1)
+        store.manifests[uploaded] = manifest
+        store.manifests[elsewhere] = manifest
+        let controller = NoteSyncController(
+            defaults: UserDefaults(suiteName: "quill-controller-audio-\(UUID().uuidString)")!,
+            unavailableReason: nil,
+            createZone: {},
+            localAudioURL: { name in
+                let url = dir.appendingPathComponent(name)
+                return FileManager.default.fileExists(atPath: url.path) ? url : nil
+            },
+            makeEngine: { _ in nil }
+        )
+        controller.attach(store: store)
+        precondition(controller.uploadAudioByteCount == 300, "only audio that will upload")
+        precondition(controller.notesWithAudioOnlyInICloud == 1)
     }
 
     final class FakeStore: NoteSyncLocalStore {
         var ids: [UUID] = []
         var cleared = false
         var isReadyForSync = true
+        var records: [UUID: NoteSyncRecord] = [:]
         func syncRecord(id: UUID) -> NoteSyncRecord? {
-            ids.contains(id) ? NoteSyncRecord(noteID: id, fields: [:], clock: NoteFieldClock(stamps: [:]), deletedAt: nil) : nil
+            if let record = records[id] { return record }
+            return ids.contains(id) ? NoteSyncRecord(noteID: id, fields: [:], clock: NoteFieldClock(stamps: [:]), deletedAt: nil) : nil
         }
         func syncSystemFields(id: UUID) -> Data? { nil }
         func setSyncSystemFields(_ data: Data?, id: UUID) {}
-        func clearAllSyncSystemFields() { cleared = true }
+        func clearAllSyncSystemFields(forgettingAudio: Bool) { cleared = true }
         func syncableNoteIDs() -> [UUID] { ids }
         func isSyncable(id: UUID) -> Bool { ids.contains(id) }
         func applySynced(_ record: NoteSyncRecord, systemFields: Data?) throws -> NoteSyncApplyResult { .inserted }
         func removeSynced(id: UUID) throws -> DeletedPipelineHistoryAssets? { nil }
+        var manifests: [UUID: NoteAudioManifest] = [:]
+        func audioManifest(id: UUID) -> NoteAudioManifest? { manifests[id] }
+        func setAudioManifest(_ manifest: NoteAudioManifest?, id: UUID) throws { manifests[id] = manifest }
     }
 
     final class FakeEngine: NoteSyncEngineHandle {
@@ -50,9 +93,21 @@ struct NoteSyncControllerTests {
         func enqueueSaves(_ ids: [UUID]) { saves += ids }
         func enqueueDeletes(_ ids: [UUID]) { deletes += ids }
         func cancelDeletes(_ ids: [UUID]) {}
+        func enqueueAudioSaves(_ parts: [NoteAudioPartID]) {}
+        func enqueueAudioDeletes(_ parts: [NoteAudioPartID]) {}
+        func pendingAudioSaves() -> [NoteAudioPartID] { [] }
+        func audioPartStamps(_ parts: [NoteAudioPartID]) async throws -> [NoteAudioPartID: NoteAudioPartStamp] { [:] }
+        func cancelAudioSaves(noteID: UUID) {}
         func attach(_ coordinator: NoteSyncCoordinator) { self.coordinator = coordinator }
         func start() { started += 1; log?.calls.append("start") }
         func fetchNow() { fetches += 1 }
+        var syncsNow = 0
+        /// Runs while the sync is still in progress, before it returns.
+        var whileSyncing: (@MainActor () async -> Void)?
+        func syncNow() async {
+            syncsNow += 1
+            await whileSyncing?()
+        }
         func deleteAllFromICloud() async throws { deletedFromICloud = true }
         func stop(forgetState: Bool) { stopped.append(forgetState) }
     }
@@ -172,6 +227,23 @@ struct NoteSyncControllerTests {
         precondition(engine()?.saves.count == before + 1)
         controller.fetchSoon()
         precondition(engine()?.fetches == 1)
+    }
+
+    /// Sync Now fetches and sends right away; a second press while it runs
+    /// does nothing.
+    @MainActor
+    static func testSyncNowRunsOnceAtATime() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        var busyWhileSyncing = false
+        engine()?.whileSyncing = {
+            busyWhileSyncing = controller.isSyncingNow
+            // A second press while the first is still running.
+            await controller.syncNow()
+        }
+        precondition(expectation { await controller.syncNow() })
+        precondition(busyWhileSyncing && !controller.isSyncingNow)
+        precondition(engine()?.syncsNow == 1, "a press while syncing is ignored")
     }
 
     /// Runs an async call to completion on the main run loop.
