@@ -30,6 +30,8 @@ struct NoteSyncCoordinatorTests {
         testFailedSavesAreRetriedAfterTheNextSync()
         testFailedDeleteIsRetriedAsADelete()
         testLateFailuresDoNotRestartStoppedSync()
+        try testNoteBackFromAnotherMacCancelsItsDelete()
+        testSaveOfAMissingRecordStartsFresh()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -74,6 +76,8 @@ struct NoteSyncCoordinatorTests {
         var deletes: [UUID] = []
         func enqueueSaves(_ ids: [UUID]) { saves += ids }
         func enqueueDeletes(_ ids: [UUID]) { deletes += ids }
+        var cancelledDeletes: [UUID] = []
+        func cancelDeletes(_ ids: [UUID]) { cancelledDeletes += ids }
     }
 
     static func record(_ id: UUID = UUID(), title: String = "Synthetic") -> NoteSyncRecord {
@@ -406,5 +410,35 @@ struct NoteSyncCoordinatorTests {
         precondition(coordinator.status == .paused(.accountChanged))
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.saves.isEmpty && engine.deletes.isEmpty, "nothing reaches the new account")
+    }
+
+    /// A note deleted here while offline, then edited on another Mac, comes
+    /// back with that edit; the delete still waiting to go up is cancelled
+    /// so it can't remove the note from iCloud.
+    @MainActor
+    static func testNoteBackFromAnotherMacCancelsItsDelete() throws {
+        let (coordinator, store, engine) = make()
+        let note = record()
+        coordinator.handleSendFailures([.deleteFailed(noteID: note.noteID)])
+        _ = coordinator.handleFetched([try fetched(note)], deletions: [])
+        precondition(engine.cancelledDeletes == [note.noteID])
+        store.records[note.noteID] = nil
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.deletes.isEmpty, "the retry is cancelled too")
+    }
+
+    /// Saving with a change tag for a record iCloud no longer has keeps
+    /// failing; the tag is dropped so the next try saves it fresh.
+    @MainActor
+    static func testSaveOfAMissingRecordStartsFresh() {
+        let (coordinator, store, engine) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        store.syncable = [note.noteID]
+        store.systemFields[note.noteID] = Data([7])
+        coordinator.handleSendFailures([.unknownItemOnSave(noteID: note.noteID)])
+        precondition(store.systemFields[note.noteID] == nil)
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves == [note.noteID])
     }
 }

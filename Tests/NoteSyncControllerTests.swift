@@ -49,6 +49,7 @@ struct NoteSyncControllerTests {
         weak var coordinator: NoteSyncCoordinator?
         func enqueueSaves(_ ids: [UUID]) { saves += ids }
         func enqueueDeletes(_ ids: [UUID]) { deletes += ids }
+        func cancelDeletes(_ ids: [UUID]) {}
         func attach(_ coordinator: NoteSyncCoordinator) { self.coordinator = coordinator }
         func start() { started += 1; log?.calls.append("start") }
         func fetchNow() { fetches += 1 }

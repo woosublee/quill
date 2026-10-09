@@ -33,6 +33,8 @@ extension NoteSyncLocalStore {
 protocol NoteSyncEngineClient: AnyObject {
     func enqueueSaves(_ ids: [UUID])
     func enqueueDeletes(_ ids: [UUID])
+    /// Drops deletes still waiting to go up.
+    func cancelDeletes(_ ids: [UUID])
 }
 
 struct NoteSyncOutgoing: Equatable {
@@ -52,6 +54,9 @@ enum NoteSyncSendFailure {
     case quotaExceeded(noteID: UUID)
     case network(noteID: UUID)
     case unknownItemOnDelete(noteID: UUID)
+    /// iCloud has no record for the saved change tag (another Mac removed
+    /// it): the save is tried again without the tag.
+    case unknownItemOnSave(noteID: UUID)
     /// Any other failed delete: retried as a delete.
     case deleteFailed(noteID: UUID)
     case other(noteID: UUID)
@@ -213,6 +218,11 @@ final class NoteSyncCoordinator {
                 offline = true
             case .unknownItemOnDelete(let id):
                 try? store.setSyncSystemFields(nil, id: id)
+            case .unknownItemOnSave(let id):
+                // If the note was deleted elsewhere, the fetch removes it
+                // here first and the retry is dropped.
+                try? store.setSyncSystemFields(nil, id: id)
+                savesToRetry.insert(id)
             case .deleteFailed(let id):
                 deletesToRetry.insert(id)
             case .other(let id):
@@ -241,6 +251,7 @@ final class NoteSyncCoordinator {
             return change
         }
         var needsUpload: [UUID] = []
+        var returned: [UUID] = []
         var needsFullRefetch = false
         for fetched in records {
             guard let payload = fetched.payload,
@@ -251,7 +262,10 @@ final class NoteSyncCoordinator {
             }
             do {
                 switch try store.applySynced(record, systemFields: fetched.systemFields) {
-                case .inserted, .updated(needsUpload: false):
+                case .inserted:
+                    change.changed.append(record.noteID)
+                    returned.append(record.noteID)
+                case .updated(needsUpload: false):
                     change.changed.append(record.noteID)
                 case .updated(needsUpload: true):
                     change.changed.append(record.noteID)
@@ -273,6 +287,12 @@ final class NoteSyncCoordinator {
             if let assets = try? store.removeSynced(id: id) {
                 change.purged.append(assets)
             }
+        }
+        if !returned.isEmpty {
+            // A note deleted here while offline and edited on another Mac
+            // is back: its delete must not remove it from iCloud.
+            deletesToRetry.subtract(returned)
+            engine.cancelDeletes(returned)
         }
         if !needsUpload.isEmpty, !isStopped { engine.enqueueSaves(needsUpload) }
         if change.skipped > 0 {

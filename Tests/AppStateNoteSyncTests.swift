@@ -21,6 +21,7 @@ struct AppStateNoteSyncTests {
         weak var coordinator: NoteSyncCoordinator?
         func enqueueSaves(_ ids: [UUID]) { saves += ids }
         func enqueueDeletes(_ ids: [UUID]) {}
+        func cancelDeletes(_ ids: [UUID]) {}
         func attach(_ coordinator: NoteSyncCoordinator) { self.coordinator = coordinator }
         func start() {}
         func fetchNow() {}

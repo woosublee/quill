@@ -107,6 +107,11 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         engine.state.add(pendingRecordZoneChanges: ids.map { .deleteRecord(NoteSyncCloudRecord.recordID(for: $0)) })
     }
 
+    func cancelDeletes(_ ids: [UUID]) {
+        guard let engine = activeEngine() else { return }
+        engine.state.remove(pendingRecordZoneChanges: ids.map { .deleteRecord(NoteSyncCloudRecord.recordID(for: $0)) })
+    }
+
     /// Overlapping calls are coalesced: a fetch already running is enough.
     func fetchNow() {
         guard let engine = activeEngine() else { return }
@@ -309,7 +314,9 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
                 failures.append(.quotaExceeded(noteID: id))
             case .network:
                 failures.append(.network(noteID: id))
-            case .unknownItem, .other:
+            case .unknownItem:
+                failures.append(.unknownItemOnSave(noteID: id))
+            case .other:
                 failures.append(.other(noteID: id))
             }
         }
