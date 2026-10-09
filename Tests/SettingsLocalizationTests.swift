@@ -15,6 +15,7 @@ struct SettingsLocalizationTests {
         try testCalendarConnectionsCopyLocalizes()
         try testImportCalendarCopyLocalizes()
         try testRecentlyDeletedCopyLocalizes()
+        try testNoteSyncCopyLocalizes()
         try testCalendarSettingsUsesSourceRowsAndSheet()
         try testRecordingOverlaySettingsCopyLocalizes()
         try testModelFirstSettingsCopyLocalizes()
@@ -269,6 +270,95 @@ struct SettingsLocalizationTests {
         let calendarSettings = settings.components(separatedBy: "struct CalendarSettingsView: View")[1]
             .components(separatedBy: "private struct CalendarSelectionSheet")[0]
         assert(calendarSettings.components(separatedBy: "Image(systemName: \"arrow.clockwise\")").count - 1 == 2, "each source row has a refresh button")
+    }
+
+    private static func testNoteSyncCopyLocalizes() throws {
+        let bundle = try compiledLocalizationBundle()
+        let expected: [String: String] = [
+            "iCloud Sync": "iCloud 동기화",
+            "Sync this Mac's notes with iCloud": "이 Mac의 노트를 iCloud로 동기화",
+            "Notes, transcripts, and summaries are saved to your iCloud. They appear on your other Macs with the same iCloud account.": "노트·전사문·요약이 내 iCloud에 저장돼요. 같은 iCloud 계정의 다른 Mac에서도 보여요.",
+            "Screenshots and window details stay on this Mac.": "스크린샷과 창 정보는 이 Mac에만 남아요.",
+            "Settings, vocabulary, and API keys don't sync. Each Mac keeps its own.": "설정·단어장·API 키는 동기화하지 않아요. 각 Mac에서 따로 정해요.",
+            "1 note": "노트 1개",
+            "%lld notes": "노트 %lld개",
+            "Off": "끔",
+            "Checking iCloud…": "iCloud 확인 중…",
+            "Up to date · %@": "최신 상태 · %@",
+            "Uploading · %lld of %lld notes": "올리는 중 · 노트 %lld/%lld",
+            "You can keep using Quill while it uploads.": "그동안 Quill은 평소처럼 쓸 수 있어요.",
+            "Paused · Syncs again when you're online": "잠시 멈춤 · 인터넷에 연결되면 이어서 맞춰요",
+            "Notes on this Mac still work as usual.": "노트는 이 Mac에서 그대로 쓸 수 있어요.",
+            "iCloud storage is full, so uploads are paused": "iCloud 저장 공간이 부족해서 올리기를 멈췄어요",
+            "Some notes are still only on this Mac. Uploading continues when there's space.": "일부 노트가 아직 이 Mac에만 있어요. 공간이 생기면 이어서 올려요.",
+            "Manage iCloud Storage…": "iCloud 저장 공간 관리…",
+            "Sync stopped because the iCloud account changed": "iCloud 계정이 바뀌어서 동기화를 멈췄어요",
+            "Your notes weren't deleted. Turn sync on again to continue with the new account.": "노트는 지우지 않았어요. 새 계정으로 이어 가려면 스위치를 다시 켜 주세요.",
+            "Sync stopped because you signed out of iCloud": "iCloud에서 로그아웃해서 동기화를 멈췄어요",
+            "Your notes weren't deleted. Sign in to iCloud, then turn sync on again.": "노트는 지우지 않았어요. iCloud에 로그인한 뒤 스위치를 다시 켜 주세요.",
+            "iCloud data was deleted from another Mac, so sync stopped": "다른 Mac에서 iCloud 데이터를 지워서 동기화를 멈췄어요",
+            "Notes on this Mac weren't deleted.": "이 Mac의 노트는 지우지 않았어요.",
+            "iCloud sync needs macOS 14 or later": "iCloud 동기화는 macOS 14 이상에서 쓸 수 있어요",
+            "This build doesn't support iCloud sync": "이 빌드는 iCloud 동기화를 지원하지 않아요",
+            "Turn on iCloud sync?": "iCloud 동기화를 켤까요?",
+            "Upload 1 note from this Mac to iCloud. Notes from your other Macs download too, and the lists merge into one.": "이 Mac의 노트 1개를 iCloud에 올려요. 다른 Mac에서 올린 노트도 받아서 하나의 목록으로 합쳐요.",
+            "Upload %lld notes from this Mac to iCloud. Notes from your other Macs download too, and the lists merge into one.": "이 Mac의 노트 %lld개를 iCloud에 올려요. 다른 Mac에서 올린 노트도 받아서 하나의 목록으로 합쳐요.",
+            "Screenshots, window titles, selected text, and AI instructions aren't uploaded. You can keep using Quill while it uploads.": "스크린샷, 창 제목, 선택했던 텍스트, AI 지시문은 올리지 않아요. 올리는 동안에도 Quill을 평소처럼 쓸 수 있어요.",
+            "Turn On and Upload": "켜고 올리기",
+            "Turn off iCloud sync?": "iCloud 동기화를 끌까요?",
+            "Notes on this Mac stay. Turn Off Sync keeps notes in iCloud for your other Macs. Turn Off and Delete from iCloud deletes all Quill data in iCloud: sync stops on every Mac, and each Mac keeps its notes.": "이 Mac의 노트는 그대로 남아요. 동기화만 끄면 iCloud의 노트는 다른 Mac을 위해 남겨 둬요. 끄고 iCloud에서도 지우면 iCloud의 Quill 데이터를 모두 지워요. 모든 Mac의 동기화가 멈추고, 각 Mac의 노트는 남아요.",
+            "Turn Off Sync": "동기화만 끄기",
+            "Turn Off and Delete from iCloud": "끄고 iCloud에서도 지우기",
+            "Couldn't delete from iCloud": "iCloud에서 지우지 못했어요",
+            "Couldn't turn on iCloud sync": "iCloud 동기화를 켜지 못했어요",
+            "Check your internet connection and try again. Sync is still off.": "인터넷 연결을 확인하고 다시 시도해 주세요. 동기화는 꺼진 상태예요.",
+            "Check your iCloud account in System Settings, then try again.": "시스템 설정에서 iCloud 계정을 확인한 뒤 다시 시도해 주세요.",
+            "Notes can't sync right now. If history recovery is running, try again after it finishes.": "지금은 노트를 동기화할 수 없어요. 기록 복구 중이라면 끝난 뒤 다시 시도해 주세요.",
+            "Check your internet connection and try again. Sync is still on.": "인터넷 연결을 확인하고 다시 시도해 주세요. 동기화는 아직 켜져 있어요.",
+            "Turn off iCloud sync to clear history.": "기록을 지우려면 iCloud 동기화를 먼저 꺼 주세요."
+        ]
+        for (key, ko) in expected {
+            assert(localizedCatalogString(key, language: "en", bundle: bundle) == key, "Missing en for \(key)")
+            assert(localizedCatalogString(key, language: "ko", bundle: bundle) == ko, "Unexpected ko for \(key)")
+        }
+        let orderedTabs = SettingsTab.orderedCases
+        let calendarIndex = orderedTabs.firstIndex(of: .calendar)!
+        assert(orderedTabs[calendarIndex + 1] == .sync, "the iCloud Sync tab comes right after Calendar")
+        assert(SettingsTab.sync.title == "iCloud Sync" && SettingsTab.sync.icon == "icloud")
+        let view = try String(contentsOfFile: "Sources/SyncSettingsView.swift", encoding: .utf8)
+        assert(localizedCatalogString("Just now", language: "ko", bundle: bundle) == "방금 전")
+        // A sync that just finished reads "Just now", never "in 0 seconds",
+        // and later times stay in the same language as "Just now".
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        for (language, justNow) in [("en", "Just now"), ("ko", "방금 전")] {
+            let text = { (offset: TimeInterval) in
+                NoteSyncStatusText.relativeTime(now.addingTimeInterval(offset), now: now, language: language, bundle: bundle)
+            }
+            assert(text(0) == justNow && text(-59) == justNow)
+            // A clock set back must not read "in 10 minutes".
+            assert(text(600) == justNow)
+        }
+        let threeMinutesKo = NoteSyncStatusText.relativeTime(now.addingTimeInterval(-180), now: now, language: "ko", bundle: bundle)
+        assert(threeMinutesKo.contains("3") && threeMinutesKo.contains("분"), threeMinutesKo)
+        let threeMinutesEn = NoteSyncStatusText.relativeTime(now.addingTimeInterval(-180), now: now, language: "en", bundle: bundle)
+        assert(threeMinutesEn.contains("3") && threeMinutesEn.contains("min"), threeMinutesEn)
+        // The line refreshes while Settings stays open.
+        assert(view.contains("NoteSyncStatusText.relativeTime(date, now: context.date)"))
+        assert(view.contains("TimelineView(.periodic(from: .now, by: 30))"))
+        // Turning on waits for iCloud and says so when it can't be reached.
+        assert(view.contains("turnOnFailure = await controller.turnOn()"))
+        assert(view.contains(".alert(\"Couldn't turn on iCloud sync\", isPresented: isShowingTurnOnFailure)"))
+        // The switch already says off, and the status sits beside the title,
+        // dropping below it only when the line is too narrow.
+        assert(view.contains("case .off:\n            EmptyView()"))
+        assert(view.contains("ViewThatFits(in: .horizontal) {\n                    HStack(alignment: .firstTextBaseline, spacing: 8) {\n                        title\n                        statusLine\n                    }"))
+        // What syncs on one line, what stays on the next two, all in the card.
+        assert(view.contains("Text(\"Notes, transcripts, and summaries are saved to your iCloud. They appear on your other Macs with the same iCloud account.\")\n                VStack(alignment: .leading, spacing: 2) {\n                    Text(\"Screenshots and window details stay on this Mac.\")\n                    Text(\"Settings, vocabulary, and API keys don't sync. Each Mac keeps its own.\")"))
+        assert(view.contains("Button(\"Turn Off and Delete from iCloud\", role: .destructive) {\n                turnOff(deleteFromICloud: true)"))
+        assert(view.contains("Button(\"Turn Off Sync\") {\n                turnOff(deleteFromICloud: false)"))
+        assert(!view.lowercased().contains("audio"), "audio sync arrives in a later step")
+        let settings = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
+        assert(settings.contains("case .sync:\n                    SyncSettingsView()"))
     }
 
     private static func testRecentlyDeletedCopyLocalizes() throws {

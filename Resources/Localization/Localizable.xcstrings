@@ -20084,6 +20084,662 @@
           }
         }
       }
+    },
+    "iCloud Sync": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud Sync"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 동기화"
+          }
+        }
+      }
+    },
+    "Sync this Mac's notes with iCloud": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync this Mac's notes with iCloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 노트를 iCloud로 동기화"
+          }
+        }
+      }
+    },
+    "Settings, vocabulary, and API keys don't sync. Each Mac keeps its own.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings, vocabulary, and API keys don't sync. Each Mac keeps its own."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정·단어장·API 키는 동기화하지 않아요. 각 Mac에서 따로 정해요."
+          }
+        }
+      }
+    },
+    "1 note": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 note"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 1개"
+          }
+        }
+      }
+    },
+    "%lld notes": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld notes"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 %lld개"
+          }
+        }
+      }
+    },
+    "Checking iCloud…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking iCloud…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 확인 중…"
+          }
+        }
+      }
+    },
+    "Up to date · %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Up to date · %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최신 상태 · %@"
+          }
+        }
+      }
+    },
+    "Uploading · %lld of %lld notes": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uploading · %lld of %lld notes"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "올리는 중 · 노트 %lld/%lld"
+          }
+        }
+      }
+    },
+    "You can keep using Quill while it uploads.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can keep using Quill while it uploads."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그동안 Quill은 평소처럼 쓸 수 있어요."
+          }
+        }
+      }
+    },
+    "Paused · Syncs again when you're online": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused · Syncs again when you're online"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "잠시 멈춤 · 인터넷에 연결되면 이어서 맞춰요"
+          }
+        }
+      }
+    },
+    "Notes on this Mac still work as usual.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notes on this Mac still work as usual."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트는 이 Mac에서 그대로 쓸 수 있어요."
+          }
+        }
+      }
+    },
+    "iCloud storage is full, so uploads are paused": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud storage is full, so uploads are paused"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 저장 공간이 부족해서 올리기를 멈췄어요"
+          }
+        }
+      }
+    },
+    "Some notes are still only on this Mac. Uploading continues when there's space.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some notes are still only on this Mac. Uploading continues when there's space."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 노트가 아직 이 Mac에만 있어요. 공간이 생기면 이어서 올려요."
+          }
+        }
+      }
+    },
+    "Manage iCloud Storage…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manage iCloud Storage…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 저장 공간 관리…"
+          }
+        }
+      }
+    },
+    "Sync stopped because the iCloud account changed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync stopped because the iCloud account changed"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 계정이 바뀌어서 동기화를 멈췄어요"
+          }
+        }
+      }
+    },
+    "Your notes weren't deleted. Turn sync on again to continue with the new account.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your notes weren't deleted. Turn sync on again to continue with the new account."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트는 지우지 않았어요. 새 계정으로 이어 가려면 스위치를 다시 켜 주세요."
+          }
+        }
+      }
+    },
+    "Sync stopped because you signed out of iCloud": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync stopped because you signed out of iCloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud에서 로그아웃해서 동기화를 멈췄어요"
+          }
+        }
+      }
+    },
+    "Your notes weren't deleted. Sign in to iCloud, then turn sync on again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your notes weren't deleted. Sign in to iCloud, then turn sync on again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트는 지우지 않았어요. iCloud에 로그인한 뒤 스위치를 다시 켜 주세요."
+          }
+        }
+      }
+    },
+    "iCloud data was deleted from another Mac, so sync stopped": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud data was deleted from another Mac, so sync stopped"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 Mac에서 iCloud 데이터를 지워서 동기화를 멈췄어요"
+          }
+        }
+      }
+    },
+    "Notes on this Mac weren't deleted.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notes on this Mac weren't deleted."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 노트는 지우지 않았어요."
+          }
+        }
+      }
+    },
+    "iCloud sync needs macOS 14 or later": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud sync needs macOS 14 or later"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 동기화는 macOS 14 이상에서 쓸 수 있어요"
+          }
+        }
+      }
+    },
+    "This build doesn't support iCloud sync": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build doesn't support iCloud sync"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 빌드는 iCloud 동기화를 지원하지 않아요"
+          }
+        }
+      }
+    },
+    "Turn on iCloud sync?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on iCloud sync?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 동기화를 켤까요?"
+          }
+        }
+      }
+    },
+    "Upload 1 note from this Mac to iCloud. Notes from your other Macs download too, and the lists merge into one.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upload 1 note from this Mac to iCloud. Notes from your other Macs download too, and the lists merge into one."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 노트 1개를 iCloud에 올려요. 다른 Mac에서 올린 노트도 받아서 하나의 목록으로 합쳐요."
+          }
+        }
+      }
+    },
+    "Upload %lld notes from this Mac to iCloud. Notes from your other Macs download too, and the lists merge into one.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upload %lld notes from this Mac to iCloud. Notes from your other Macs download too, and the lists merge into one."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 노트 %lld개를 iCloud에 올려요. 다른 Mac에서 올린 노트도 받아서 하나의 목록으로 합쳐요."
+          }
+        }
+      }
+    },
+    "Screenshots, window titles, selected text, and AI instructions aren't uploaded. You can keep using Quill while it uploads.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshots, window titles, selected text, and AI instructions aren't uploaded. You can keep using Quill while it uploads."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크린샷, 창 제목, 선택했던 텍스트, AI 지시문은 올리지 않아요. 올리는 동안에도 Quill을 평소처럼 쓸 수 있어요."
+          }
+        }
+      }
+    },
+    "Turn On and Upload": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn On and Upload"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜고 올리기"
+          }
+        }
+      }
+    },
+    "Turn off iCloud sync?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn off iCloud sync?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 동기화를 끌까요?"
+          }
+        }
+      }
+    },
+    "Notes on this Mac stay. Turn Off Sync keeps notes in iCloud for your other Macs. Turn Off and Delete from iCloud deletes all Quill data in iCloud: sync stops on every Mac, and each Mac keeps its notes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notes on this Mac stay. Turn Off Sync keeps notes in iCloud for your other Macs. Turn Off and Delete from iCloud deletes all Quill data in iCloud: sync stops on every Mac, and each Mac keeps its notes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 노트는 그대로 남아요. 동기화만 끄면 iCloud의 노트는 다른 Mac을 위해 남겨 둬요. 끄고 iCloud에서도 지우면 iCloud의 Quill 데이터를 모두 지워요. 모든 Mac의 동기화가 멈추고, 각 Mac의 노트는 남아요."
+          }
+        }
+      }
+    },
+    "Turn Off Sync": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn Off Sync"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동기화만 끄기"
+          }
+        }
+      }
+    },
+    "Turn Off and Delete from iCloud": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn Off and Delete from iCloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끄고 iCloud에서도 지우기"
+          }
+        }
+      }
+    },
+    "Couldn't delete from iCloud": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't delete from iCloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud에서 지우지 못했어요"
+          }
+        }
+      }
+    },
+    "Check your internet connection and try again. Sync is still on.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check your internet connection and try again. Sync is still on."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인터넷 연결을 확인하고 다시 시도해 주세요. 동기화는 아직 켜져 있어요."
+          }
+        }
+      }
+    },
+    "Couldn't turn on iCloud sync": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't turn on iCloud sync"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud 동기화를 켜지 못했어요"
+          }
+        }
+      }
+    },
+    "Check your internet connection and try again. Sync is still off.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check your internet connection and try again. Sync is still off."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인터넷 연결을 확인하고 다시 시도해 주세요. 동기화는 꺼진 상태예요."
+          }
+        }
+      }
+    },
+    "Check your iCloud account in System Settings, then try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check your iCloud account in System Settings, then try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정에서 iCloud 계정을 확인한 뒤 다시 시도해 주세요."
+          }
+        }
+      }
+    },
+    "Notes can't sync right now. If history recovery is running, try again after it finishes.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notes can't sync right now. If history recovery is running, try again after it finishes."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금은 노트를 동기화할 수 없어요. 기록 복구 중이라면 끝난 뒤 다시 시도해 주세요."
+          }
+        }
+      }
+    },
+    "Turn off iCloud sync to clear history.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn off iCloud sync to clear history."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기록을 지우려면 iCloud 동기화를 먼저 꺼 주세요."
+          }
+        }
+      }
+    },
+    "Just now": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Just now"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "방금 전"
+          }
+        }
+      }
+    },
+    "Screenshots and window details stay on this Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshots and window details stay on this Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크린샷과 창 정보는 이 Mac에만 남아요."
+          }
+        }
+      }
+    },
+    "Notes, transcripts, and summaries are saved to your iCloud. They appear on your other Macs with the same iCloud account.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notes, transcripts, and summaries are saved to your iCloud. They appear on your other Macs with the same iCloud account."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트·전사문·요약이 내 iCloud에 저장돼요. 같은 iCloud 계정의 다른 Mac에서도 보여요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

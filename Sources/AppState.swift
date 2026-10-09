@@ -2838,7 +2838,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         CredentialStore(layout: dependencies.credentialStorageLayout)
     }
     private let historyWorkflow: HistoryArchiveRecoveryWorkflow
-    private var pipelineHistoryStore: PipelineHistoryStore
+    private var pipelineHistoryStore: PipelineHistoryStore {
+        didSet { connectNoteSync(to: pipelineHistoryStore) }
+    }
+    /// iCloud note sync; created at launch, off until the user turns it on.
+    private(set) var noteSyncController: NoteSyncController?
     private var recordingJournalStore: RecordingJournalStore
     private var cloudTranscriptionJobStore: CloudTranscriptionJobStore
     @MainActor private let cloudTranscriptionHistoryCoordinator =
@@ -12947,6 +12951,57 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// question is "does any note still use this?".
     var storedHistory: [PipelineHistoryItem] {
         pipelineHistory + recentlyDeletedNotes
+    }
+
+    // MARK: - iCloud note sync
+
+    /// Creates the sync controller at launch. It stays off until the user
+    /// turns it on in Settings.
+    @MainActor
+    func startNoteSync() {
+        guard noteSyncController == nil else { return }
+        let controller = dependencies.makeNoteSyncController(storageLayout)
+        controller.onRemoteChange = { [weak self] change in
+            self?.applyRemoteNoteChange(change)
+        }
+        noteSyncController = controller
+        // Attaching starts the engine when sync is on, and it fetches then.
+        connectNoteSync(to: pipelineHistoryStore)
+    }
+
+    private func connectNoteSync(to store: PipelineHistoryStore) {
+        store.onChange = { [weak self] changes in
+            Self.onMain { self?.noteSyncController?.handleLocalChanges(changes) }
+        }
+        Self.onMain { [weak self] in
+            self?.noteSyncController?.attach(store: store)
+        }
+    }
+
+    private static func onMain(_ work: @escaping @MainActor () -> Void) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated(work)
+        } else {
+            DispatchQueue.main.async { MainActor.assumeIsolated(work) }
+        }
+    }
+
+    /// Shows notes that arrived from other Macs: reloads the list, writes
+    /// their transcript files under the same names, and removes the files
+    /// of notes deleted elsewhere.
+    @MainActor
+    private func applyRemoteNoteChange(_ change: NoteSyncRemoteChange) {
+        guard !isHistoryRecoveryOperationInProgress, !isHistoryUnavailable else { return }
+        applyLoadedHistory(pipelineHistoryStore.loadAllHistory())
+        let changed = Set(change.changed)
+        for item in storedHistory where changed.contains(item.id) {
+            guard let fileName = item.transcriptFileName else { continue }
+            let content = item.postProcessedTranscript.isEmpty ? item.rawTranscript : item.postProcessedTranscript
+            try? noteAssetStore.writeTranscript(fileName: fileName, content: content)
+        }
+        for assets in change.purged {
+            cleanupDeletedPipelineHistoryAssets(assets, survivingHistory: storedHistory)
+        }
     }
 
     @MainActor

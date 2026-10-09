@@ -113,7 +113,8 @@ FULL_SOURCE_APP_STATE_TESTS = \
 	Tests/AppStateTranscriptionConfigurationTests.swift \
 	Tests/AppStateAIProcessingBackendTests.swift \
 	Tests/MeetingSummaryWorkflowTests.swift \
-	Tests/MeetingSummaryAppStateTests.swift
+	Tests/MeetingSummaryAppStateTests.swift \
+	Tests/AppStateNoteSyncTests.swift
 GROUPED_TEST_SOURCES = $(FULL_SOURCE_TRANSCRIPTION_TESTS) $(FULL_SOURCE_APP_STATE_TESTS)
 GROUPED_RUNNER_SOURCES = Tests/FullSourceTranscriptionTestRunner.swift Tests/FullSourceAppStateTestRunner.swift
 FULL_SOURCE_TRANSCRIPTION_RUNNER = $(TEST_BUILD_DIR)/FullSourceTranscriptionTestRunner
@@ -472,6 +473,9 @@ $(TEST_BUILD_DIR)/PipelineHistorySyncStoreTests: Sources/RecordingJournalFailure
 $(TEST_BUILD_DIR)/NoteSyncCoordinatorTests: Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/PipelineHistoryItem+MeetingSummary.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Sources/NoteSyncCoordinator.swift Tests/NoteSyncCoordinatorTests.swift | $(TEST_BUILD_DIR)
 	@swiftc -parse-as-library Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/PipelineHistoryItem+MeetingSummary.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Sources/NoteSyncCoordinator.swift Tests/NoteSyncCoordinatorTests.swift -o "$@"
 
+$(TEST_BUILD_DIR)/NoteSyncControllerTests: Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/PipelineHistoryItem+MeetingSummary.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Sources/NoteSyncCoordinator.swift Sources/NoteSyncAvailability.swift Sources/NoteSyncController.swift Tests/NoteSyncControllerTests.swift | $(TEST_BUILD_DIR)
+	@swiftc -parse-as-library Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/PipelineHistoryItem+MeetingSummary.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Sources/NoteSyncCoordinator.swift Sources/NoteSyncAvailability.swift Sources/NoteSyncController.swift Tests/NoteSyncControllerTests.swift -o "$@"
+
 $(TEST_BUILD_DIR)/NoteSyncCloudRecordTests: Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/PipelineHistoryItem+MeetingSummary.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Sources/NoteSyncCoordinator.swift Sources/NoteSyncCloudRecord.swift Tests/NoteSyncCloudRecordTests.swift | $(TEST_BUILD_DIR)
 	@swiftc -parse-as-library Sources/RecordingJournalFailure.swift Sources/RecoveredRecordingContext.swift Sources/RecoveredRecordingMode.swift Sources/RecordingJournalModels.swift Sources/LocalizedStringLookup.swift Sources/AppName.swift Sources/CalendarIntegrationModels.swift Sources/QuillUserIssue.swift $(PIPELINE_HISTORY_LANGUAGE_SOURCES) Sources/PipelineHistoryItem.swift Sources/PipelineHistoryItem+MeetingSummary.swift Sources/TranscriptionModel.swift Sources/PipelineHistoryStore.swift Sources/NoteSyncCoordinator.swift Sources/NoteSyncCloudRecord.swift Tests/NoteSyncCloudRecordTests.swift -o "$@"
 
@@ -714,7 +718,7 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@swiftc -parse-as-library Tests/AppNameDisplaySourceTests.swift -o $(TEST_BUILD_DIR)/AppNameDisplaySourceTests
 	@$(TEST_BUILD_DIR)/AppNameDisplaySourceTests
 	@$(TEST_BUILD_DIR)/LocalizationResourceTests
-	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/TranscriptionLanguage.swift Sources/TranscriptionModel.swift Sources/NativeWhisperModel.swift Sources/AudioImportOptions.swift Tests/SettingsLocalizationTests.swift -o $(TEST_BUILD_DIR)/SettingsLocalizationTests
+	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/TranscriptionLanguage.swift Sources/TranscriptionModel.swift Sources/NativeWhisperModel.swift Sources/AudioImportOptions.swift Sources/CalendarIntegrationModels.swift Sources/NoteSyncStatusText.swift Tests/SettingsLocalizationTests.swift -o $(TEST_BUILD_DIR)/SettingsLocalizationTests
 	@$(TEST_BUILD_DIR)/SettingsLocalizationTests
 	@swiftc -parse-as-library Tests/ModelsSettingsUIContractTests.swift -o $(TEST_BUILD_DIR)/ModelsSettingsUIContractTests
 	@$(TEST_BUILD_DIR)/ModelsSettingsUIContractTests
@@ -801,7 +805,7 @@ _test-recording: | $(TEST_BUILD_DIR)
 	@$(TEST_BUILD_DIR)/AudioWaveformHeightsTests
 	@swiftc -parse-as-library Sources/AudioInputDevice.swift Tests/SystemAudioAppStateRoutingTests.swift -o $(TEST_BUILD_DIR)/SystemAudioAppStateRoutingTests
 	@$(TEST_BUILD_DIR)/SystemAudioAppStateRoutingTests
-_test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSCRIPTION_RUNNER) $(TEST_BUILD_DIR)/PipelineHistoryMeetingSummaryTests $(TEST_BUILD_DIR)/PipelineHistoryRecentlyDeletedStoreTests $(TEST_BUILD_DIR)/PipelineHistorySyncStoreTests $(TEST_BUILD_DIR)/NoteSyncCoordinatorTests $(TEST_BUILD_DIR)/NoteSyncCloudRecordTests $(TEST_BUILD_DIR)/PipelineHistoryStoreRecoveryTests $(TEST_BUILD_DIR)/HistoryArchiveTransitionTests $(TEST_BUILD_DIR)/HistoryRecoveryServiceTests | $(TEST_BUILD_DIR)
+_test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSCRIPTION_RUNNER) $(TEST_BUILD_DIR)/PipelineHistoryMeetingSummaryTests $(TEST_BUILD_DIR)/PipelineHistoryRecentlyDeletedStoreTests $(TEST_BUILD_DIR)/PipelineHistorySyncStoreTests $(TEST_BUILD_DIR)/NoteSyncCoordinatorTests $(TEST_BUILD_DIR)/NoteSyncCloudRecordTests $(TEST_BUILD_DIR)/NoteSyncControllerTests $(TEST_BUILD_DIR)/PipelineHistoryStoreRecoveryTests $(TEST_BUILD_DIR)/HistoryArchiveTransitionTests $(TEST_BUILD_DIR)/HistoryRecoveryServiceTests | $(TEST_BUILD_DIR)
 	@swiftc -parse-as-library Sources/LocalizedStringLookup.swift Sources/TranscriptionLanguage.swift Sources/SpokenLanguageResolution.swift Sources/TranscriptTextCore.swift Tests/TranscriptTextCoreTests.swift -o $(TEST_BUILD_DIR)/TranscriptTextCoreTests
 	@$(TEST_BUILD_DIR)/TranscriptTextCoreTests
 	@$(TEST_BUILD_DIR)/PipelineHistoryMeetingSummaryTests
@@ -809,6 +813,7 @@ _test-transcription: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(FULL_SOURCE_TRANSC
 	@$(TEST_BUILD_DIR)/PipelineHistorySyncStoreTests
 	@$(TEST_BUILD_DIR)/NoteSyncCoordinatorTests
 	@$(TEST_BUILD_DIR)/NoteSyncCloudRecordTests
+	@$(TEST_BUILD_DIR)/NoteSyncControllerTests
 	@$(TEST_BUILD_DIR)/PipelineHistoryStoreRecoveryTests
 	@$(TEST_BUILD_DIR)/HistoryArchiveTransitionTests
 	@$(TEST_BUILD_DIR)/HistoryRecoveryServiceTests

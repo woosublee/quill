@@ -5,7 +5,7 @@ import UserNotifications
 
 // MARK: - Shared Helpers
 
-private struct SettingsCard<Content: View>: View {
+struct SettingsCard<Content: View>: View {
     let title: LocalizedStringKey
     let icon: String
     let content: Content
@@ -109,6 +109,8 @@ struct SettingsView: View {
                     InputSettingsView()
                 case .calendar:
                     CalendarSettingsView()
+                case .sync:
+                    SyncSettingsView()
                 case .recovery:
                     HistoryRecoverySettingsView()
                 case .about:
@@ -4463,7 +4465,10 @@ struct RunLogView: View {
                 Button("Clear History") {
                     appState.clearPipelineHistory()
                 }
-                .disabled(appState.pipelineHistory.isEmpty || appState.isHistoryUnavailable)
+                .help(appState.noteSyncController?.isEnabled == true
+                    ? localizedCatalogString("Turn off iCloud sync to clear history.")
+                    : "")
+                .disabled(appState.pipelineHistory.isEmpty || appState.isHistoryUnavailable || appState.noteSyncController?.isEnabled == true)
             }
             .padding(.horizontal, 24)
             .padding(.top, 20 + topInset)

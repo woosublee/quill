@@ -105,6 +105,26 @@ struct NoteAssetStore: Sendable {
         }
     }
 
+    /// Writes a transcript file under the name another Mac gave it. Names
+    /// are a UUID plus `.txt`; anything else is refused.
+    func writeTranscript(fileName: String, content: String) throws {
+        guard fileName.hasSuffix(".txt"),
+              UUID(uuidString: String(fileName.dropLast(4))) != nil,
+              let fileURL = Self.storedFileURL(
+                  fileName: fileName,
+                  in: prepareDirectories().transcriptDirectory
+              ) else {
+            throw NoteAssetStoreError.transcriptSaveFailed(
+                underlying: CocoaError(.fileWriteInvalidFileName)
+            )
+        }
+        do {
+            try content.write(to: fileURL, atomically: true, encoding: .utf8)
+        } catch {
+            throw NoteAssetStoreError.transcriptSaveFailed(underlying: error)
+        }
+    }
+
     func loadTranscript(fileName: String) throws -> String {
         guard let fileURL = Self.storedFileURL(
             fileName: fileName,

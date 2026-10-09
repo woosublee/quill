@@ -97,6 +97,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         appState.startLocalAIIdleShutdownMonitoring()
         appState.startRecentlyDeletedPurgeSchedule()
+        appState.startNoteSync()
 
         if !appState.hasCompletedSetup {
             showSetupWindow()
@@ -197,6 +198,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 private func showNoteBrowserWindow() {
         NSApp.setActivationPolicy(.regular)
+        MainActor.assumeIsolated { appState.noteSyncController?.fetchSoon() }
 
         if let noteBrowserWindow, noteBrowserWindow.isVisible {
             noteBrowserWindow.makeKeyAndOrderFront(nil)

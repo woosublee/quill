@@ -26,6 +26,12 @@ struct NoteSyncCoordinatorTests {
         try testStoppedCoordinatorIgnoresEverything()
         testUnsavedChangeTagIsNotCountedAsUploaded()
         testAccountChangeStaysPausedWhenClearingFails()
+        try testUnavailableStoreAsksForFullRefetch()
+        testFailedSavesAreRetriedAfterTheNextSync()
+        testFailedDeleteIsRetriedAsADelete()
+        testLateFailuresDoNotRestartStoppedSync()
+        try testNoteBackFromAnotherMacCancelsItsDelete()
+        testSaveOfAMissingRecordStartsFresh()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -38,6 +44,7 @@ struct NoteSyncCoordinatorTests {
         var applied: [(NoteSyncRecord, Data?)] = []
         var removed: [UUID] = []
         var clearedSystemFields = false
+        var isReadyForSync = true
 
         func syncRecord(id: UUID) -> NoteSyncRecord? { records[id] }
         func syncSystemFields(id: UUID) -> Data? { systemFields[id] }
@@ -69,6 +76,8 @@ struct NoteSyncCoordinatorTests {
         var deletes: [UUID] = []
         func enqueueSaves(_ ids: [UUID]) { saves += ids }
         func enqueueDeletes(_ ids: [UUID]) { deletes += ids }
+        var cancelledDeletes: [UUID] = []
+        func cancelDeletes(_ ids: [UUID]) { cancelledDeletes += ids }
     }
 
     static func record(_ id: UUID = UUID(), title: String = "Synthetic") -> NoteSyncRecord {
@@ -203,7 +212,9 @@ struct NoteSyncCoordinatorTests {
         coordinator.handleSendFailures([.quotaExceeded(noteID: UUID()), .quotaExceeded(noteID: UUID())])
         precondition(coordinator.status == .paused(.quotaExceeded(pending: 2)))
         coordinator.handleFetchFinished(pending: 0)
-        precondition(coordinator.status == .upToDate(t0), "a finished sync clears the pause")
+        precondition(coordinator.status == .paused(.quotaExceeded(pending: 2)), "notes still waiting for space aren't up to date")
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(coordinator.status == .upToDate(t0), "once the retried notes went up, the pause clears")
     }
 
     @MainActor
@@ -338,5 +349,96 @@ struct NoteSyncCoordinatorTests {
         precondition(coordinator.status == .paused(.accountChanged))
         coordinator.handleLocalChanges([.saved(note.noteID)])
         precondition(engine.saves.isEmpty, "sync stays stopped even if clearing failed")
+    }
+
+    @MainActor
+    static func testUnavailableStoreAsksForFullRefetch() throws {
+        let (coordinator, store, _) = make()
+        var refetches = 0
+        coordinator.onNeedsFullRefetch = { refetches += 1 }
+        store.applyError = PipelineHistoryStoreError.storeUnavailable
+        _ = coordinator.handleFetched([try fetched(record())], deletions: [])
+        precondition(refetches == 1, "a record the store couldn't take is fetched again from the start")
+        store.applyError = nil
+        store.isReadyForSync = false
+        let change = coordinator.handleFetched([try fetched(record())], deletions: [UUID()])
+        precondition(refetches == 2 && store.applied.isEmpty && store.removed.isEmpty && change == NoteSyncRemoteChange())
+    }
+
+    @MainActor
+    static func testFailedSavesAreRetriedAfterTheNextSync() {
+        let (coordinator, _, engine) = make()
+        let full = UUID(), other = UUID()
+        coordinator.handleSendFailures([.quotaExceeded(noteID: full), .other(noteID: other)])
+        precondition(engine.saves.isEmpty)
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(Set(engine.saves) == [full, other], "notes that couldn't upload are tried again")
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves.count == 2, "each failure is retried once per failure")
+    }
+
+    /// A note deleted here whose iCloud delete failed is deleted again,
+    /// never re-sent as a save that is dropped and leaves it in iCloud.
+    @MainActor
+    static func testFailedDeleteIsRetriedAsADelete() {
+        let (coordinator, store, engine) = make()
+        let gone = UUID()
+        coordinator.handleSendFailures([.deleteFailed(noteID: gone)])
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.deletes == [gone] && engine.saves.isEmpty)
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.deletes == [gone], "retried once per failure")
+
+        // A note back on this Mac (another Mac's edit arrived) isn't deleted.
+        let back = record()
+        coordinator.handleSendFailures([.deleteFailed(noteID: back.noteID)])
+        store.records[back.noteID] = back
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(!engine.deletes.contains(back.noteID))
+    }
+
+    /// A send that fails after sync stopped (for an account change) must
+    /// not replace the stop with a quota or offline pause and resume.
+    @MainActor
+    static func testLateFailuresDoNotRestartStoppedSync() {
+        let (coordinator, store, engine) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        store.syncable = [note.noteID]
+        coordinator.handleAccountChange(signedOut: false)
+        coordinator.handleSendFailures([.quotaExceeded(noteID: note.noteID), .network(noteID: note.noteID), .deleteFailed(noteID: UUID())])
+        precondition(coordinator.status == .paused(.accountChanged))
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves.isEmpty && engine.deletes.isEmpty, "nothing reaches the new account")
+    }
+
+    /// A note deleted here while offline, then edited on another Mac, comes
+    /// back with that edit; the delete still waiting to go up is cancelled
+    /// so it can't remove the note from iCloud.
+    @MainActor
+    static func testNoteBackFromAnotherMacCancelsItsDelete() throws {
+        let (coordinator, store, engine) = make()
+        let note = record()
+        coordinator.handleSendFailures([.deleteFailed(noteID: note.noteID)])
+        _ = coordinator.handleFetched([try fetched(note)], deletions: [])
+        precondition(engine.cancelledDeletes == [note.noteID])
+        store.records[note.noteID] = nil
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.deletes.isEmpty, "the retry is cancelled too")
+    }
+
+    /// Saving with a change tag for a record iCloud no longer has keeps
+    /// failing; the tag is dropped so the next try saves it fresh.
+    @MainActor
+    static func testSaveOfAMissingRecordStartsFresh() {
+        let (coordinator, store, engine) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        store.syncable = [note.noteID]
+        store.systemFields[note.noteID] = Data([7])
+        coordinator.handleSendFailures([.unknownItemOnSave(noteID: note.noteID)])
+        precondition(store.systemFields[note.noteID] == nil)
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves == [note.noteID])
     }
 }
