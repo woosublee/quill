@@ -17,6 +17,18 @@ protocol NoteSyncLocalStore: AnyObject {
 
 extension PipelineHistoryStore: NoteSyncLocalStore {}
 
+extension NoteSyncLocalStore {
+    /// Stale change tags only cause conflicts that merge on the next upload,
+    /// so a failure here is logged, not fatal.
+    func clearChangeTags() {
+        do {
+            try clearAllSyncSystemFields()
+        } catch {
+            print("[NoteSync] Couldn't clear change tags")
+        }
+    }
+}
+
 /// The sync engine's pending changes, as the coordinator sees them.
 protocol NoteSyncEngineClient: AnyObject {
     func enqueueSaves(_ ids: [UUID])
@@ -281,23 +293,13 @@ final class NoteSyncCoordinator {
     func handleAccountChange(signedOut: Bool) {
         // Paused first, so sync stays stopped even if clearing fails.
         status = .paused(signedOut ? .signedOut : .accountChanged)
-        clearChangeTags()
+        store.clearChangeTags()
         print("[NoteSync] Paused: iCloud account \(signedOut ? "signed out" : "changed")")
     }
 
     func handleZoneDeleted() {
         status = .paused(.deletedElsewhere)
-        clearChangeTags()
+        store.clearChangeTags()
         print("[NoteSync] Paused: iCloud data was deleted from another Mac")
-    }
-
-    /// Stale change tags only cause conflicts that merge on the next upload,
-    /// so a failure here is logged, not fatal.
-    private func clearChangeTags() {
-        do {
-            try store.clearAllSyncSystemFields()
-        } catch {
-            print("[NoteSync] Couldn't clear change tags")
-        }
     }
 }

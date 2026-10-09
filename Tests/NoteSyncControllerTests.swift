@@ -15,6 +15,7 @@ struct NoteSyncControllerTests {
         testReplacedStoreStartsOverWithFullUpload()
         testUnreadyStoreDoesNotStartSync()
         testDeleteFromICloudWithoutEngineFails()
+        testOnlyTurningOnMarksAUserTurnOn()
         print("NoteSyncControllerTests passed")
     }
 
@@ -41,11 +42,13 @@ struct NoteSyncControllerTests {
         var fetches = 0
         var stopped: [Bool] = []
         var deletedFromICloud = false
+        var calls: [String] = []
         weak var coordinator: NoteSyncCoordinator?
         func enqueueSaves(_ ids: [UUID]) { saves += ids }
         func enqueueDeletes(_ ids: [UUID]) { deletes += ids }
         func attach(_ coordinator: NoteSyncCoordinator) { self.coordinator = coordinator }
-        func start() { started += 1 }
+        func start() { started += 1; calls.append("start") }
+        func noteTurnedOnByUser() { calls.append("turnedOnByUser") }
         func fetchNow() { fetches += 1 }
         func deleteAllFromICloud() async throws { deletedFromICloud = true }
         func stop(forgetState: Bool) { stopped.append(forgetState) }
@@ -200,5 +203,23 @@ struct NoteSyncControllerTests {
         var succeeded = true
         precondition(expectation { succeeded = await controller.turnOff(deleteFromICloud: true) })
         precondition(!succeeded && controller.isEnabled, "nothing was deleted, so sync stays on and says so")
+    }
+
+    /// Only the user's own turn-on tells the engine that an old iCloud
+    /// deletion is history, and before its first fetch. A relaunch or a
+    /// replaced store doesn't, so another Mac's deletion still stops sync.
+    @MainActor
+    static func testOnlyTurningOnMarksAUserTurnOn() {
+        let (controller, store, engine, _) = make()
+        controller.attach(store: store)
+        controller.turnOn()
+        precondition(engine()?.calls == ["turnedOnByUser", "start"], "marked before the first fetch")
+        let replacement = FakeStore()
+        controller.attach(store: replacement)
+        precondition(engine()?.calls == ["start"], "history recovery is not a turn-on")
+
+        let (relaunched, relaunchStore, relaunchEngine, _) = make(enabled: true)
+        relaunched.attach(store: relaunchStore)
+        precondition(relaunchEngine()?.calls == ["start"], "a relaunch is not a turn-on")
     }
 }

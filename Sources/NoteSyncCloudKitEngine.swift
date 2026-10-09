@@ -25,18 +25,18 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
     private var isFetching = false
     private var isDeletingZone = false
     private var zoneDeleteFailed = false
-    private var zoneTracker: NoteSyncZoneTracker
+    private let zoneTracker: NoteSyncZoneTracker
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var pathMonitor: NWPathMonitor?
 
-    init(stateURL: URL, outbox: URL, events: NoteSyncEngineEvents) {
+    init(stateURL: URL, outbox: URL, zoneMarker: URL, events: NoteSyncEngineEvents) {
         self.stateURL = stateURL
         self.outbox = outbox
         self.events = events
         database = CKContainer(identifier: NoteSyncAvailability.containerIdentifier).privateCloudDatabase
         let isFirstRun = !FileManager.default.fileExists(atPath: stateURL.path)
-        zoneTracker = NoteSyncZoneTracker(startedFresh: isFirstRun)
+        zoneTracker = NoteSyncZoneTracker(markerURL: zoneMarker)
         super.init()
         let configuration = CKSyncEngine.Configuration(
             database: database,
@@ -45,7 +45,8 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         )
         let engine = CKSyncEngine(configuration)
         lock.withLock { syncEngine = engine }
-        if isFirstRun {
+        // A turn-on that quit before the zone was saved saves it again.
+        if isFirstRun || zoneTracker.actionForZoneDeletion == .recreateAndUploadAll {
             engine.state.add(pendingDatabaseChanges: [
                 .saveZone(CKRecordZone(zoneID: NoteSyncCloudRecord.zoneID()))
             ])
@@ -56,6 +57,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
 
     func attach(_ coordinator: NoteSyncCoordinator) {
         self.coordinator = coordinator
+    }
+
+    func noteTurnedOnByUser() {
+        lock.withLock { zoneTracker.turnedOnByUser() }
     }
 
     /// Call on the main thread.
@@ -186,11 +191,13 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         case .fetchedDatabaseChanges(let changes):
             let zoneID = NoteSyncCloudRecord.zoneID()
             if changes.deletions.contains(where: { $0.zoneID == zoneID }) {
-                if lock.withLock({ zoneTracker.zoneDeletionMeansDeletedElsewhere }) {
+                switch lock.withLock({ zoneTracker.actionForZoneDeletion }) {
+                case .stopSync:
                     await MainActor.run { coordinator?.handleZoneDeleted() }
-                } else {
+                case .recreateAndUploadAll:
                     // History from before sync was turned on again.
                     syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
+                    await MainActor.run { coordinator?.startInitialUpload() }
                 }
             }
 
@@ -227,9 +234,6 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
             }
 
         case .didFetchChanges, .didSendChanges:
-            if case .didFetchChanges = event {
-                lock.withLock { zoneTracker.firstFetchFinished() }
-            }
             let pending = syncEngine.state.pendingRecordZoneChanges.count
             await MainActor.run { coordinator?.handleFetchFinished(pending: pending) }
 
@@ -284,7 +288,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
                     serverSystemFields: server.map(NoteSyncCloudRecord.systemFields(of:)) ?? Data()
                 ))
             case .userDeletedZone:
-                if lock.withLock({ zoneTracker.recreatesZoneAfterUserDeletedZone }) {
+                if lock.withLock({ zoneTracker.actionForZoneDeletion }) == .recreateAndUploadAll {
                     // Deleted before sync was turned on again here.
                     engine.state.add(pendingDatabaseChanges: [
                         .saveZone(CKRecordZone(zoneID: NoteSyncCloudRecord.zoneID()))

@@ -23,6 +23,7 @@ struct AppStateNoteSyncTests {
         func enqueueDeletes(_ ids: [UUID]) {}
         func attach(_ coordinator: NoteSyncCoordinator) { self.coordinator = coordinator }
         func start() {}
+        func noteTurnedOnByUser() {}
         func fetchNow() {}
         func deleteAllFromICloud() async throws {}
         func stop(forgetState: Bool) {}

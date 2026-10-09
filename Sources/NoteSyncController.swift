@@ -7,6 +7,10 @@ protocol NoteSyncEngineHandle: NoteSyncEngineClient {
     /// Starts syncing: removes payload files left from an earlier run,
     /// schedules regular fetches, and fetches once.
     func start()
+    /// The user turned sync on: a deletion of this Mac's iCloud data seen
+    /// before the zone is saved again predates that choice. Called before
+    /// `start()`.
+    func noteTurnedOnByUser()
     func fetchNow()
     func deleteAllFromICloud() async throws
     func stop(forgetState: Bool)
@@ -69,7 +73,7 @@ final class NoteSyncController: ObservableObject {
     func turnOn() {
         guard unavailableReason == nil, store != nil, !isEnabled else { return }
         setEnabled(true)
-        startEngine(initialUpload: true)
+        startEngine(initialUpload: true, turnedOnByUser: true)
     }
 
     /// Returns false, leaving sync on, when deleting from iCloud failed.
@@ -83,9 +87,8 @@ final class NoteSyncController: ObservableObject {
                 print("[NoteSync] Deleting from iCloud failed")
                 return false
             }
-            // iCloud no longer holds these notes; a stale tag would only
-            // cause a conflict that merges on the next upload.
-            try? store?.clearAllSyncSystemFields()
+            // iCloud no longer holds these notes.
+            store?.clearChangeTags()
         }
         stopEngine(forgetState: true)
         setEnabled(false)
@@ -102,7 +105,7 @@ final class NoteSyncController: ObservableObject {
         engine?.fetchNow()
     }
 
-    private func startEngine(initialUpload: Bool) {
+    private func startEngine(initialUpload: Bool, turnedOnByUser: Bool = false) {
         guard let store, store.isReadyForSync,
               let engine = makeEngine(NoteSyncEngineEvents(remoteChange: { [weak self] change in
                   self?.onRemoteChange?(change)
@@ -119,6 +122,7 @@ final class NoteSyncController: ObservableObject {
         self.engine = engine
         self.coordinator = coordinator
         status = coordinator.status
+        if turnedOnByUser { engine.noteTurnedOnByUser() }
         engine.start()
         if initialUpload { coordinator.startInitialUpload() }
     }

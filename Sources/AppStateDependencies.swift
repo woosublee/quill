@@ -154,6 +154,7 @@ struct AppStateDependencies {
                     return NoteSyncCloudKitEngine(
                         stateURL: layout.noteSyncDirectory.appendingPathComponent("engine-state"),
                         outbox: layout.noteSyncDirectory.appendingPathComponent("outbox", isDirectory: true),
+                        zoneMarker: layout.noteSyncDirectory.appendingPathComponent("awaiting-zone"),
                         events: events
                     )
                 })
