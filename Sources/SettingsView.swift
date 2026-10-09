@@ -612,7 +612,7 @@ struct CalendarSettingsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .onAppear {
-            appState.loadStoredGoogleCalendarConnection()
+            Task { await appState.loadGoogleCalendarsIfNeeded() }
             appState.refreshAppleCalendarAuthorization()
             refreshNotificationAuthorizationStatus()
         }
@@ -643,7 +643,7 @@ struct CalendarSettingsView: View {
                 Label("Calendar refresh issue", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
             case .offline:
-                Label("Offline · Checks again when you're online", systemImage: "wifi.slash")
+                Label("Offline", systemImage: "wifi.slash")
                     .foregroundStyle(.secondary)
             }
         } else {

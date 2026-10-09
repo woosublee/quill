@@ -228,6 +228,8 @@ struct AppStateTranscriptionConfigurationTests {
         await testGoogleCalendarRefreshMarksTemporaryFailureWhenCalendarListFails()
         await testGoogleCalendarRefreshMarksOfflineWithoutNetwork()
         await testGoogleCalendarSuccessClearsOffline()
+        await testGoogleCalendarOfflineKeepsLastCheckedTime()
+        await testCalendarTabLoadsGoogleCalendarsOnlyOnce()
         await testCancelledReminderFetchLeavesHealthAlone()
         await testAppleOnlyRefreshReusesGoogleEvents()
         await testReusedGoogleEventsMustMatchTheSelection()
@@ -3210,6 +3212,43 @@ struct AppStateTranscriptionConfigurationTests {
             appState.markGoogleCalendarHealthy(feature: .calendarList)
         }
         assert(appState.googleCalendarConnection.health.status == .healthy, "any success means the network is back")
+    }
+
+    /// Offline didn't check anything: "Last checked" stays the last time
+    /// Google was actually read.
+    private static func testGoogleCalendarOfflineKeepsLastCheckedTime() async {
+        resetDefaults()
+        let appState = makeAppState()
+        await MainActor.run { appState.markGoogleCalendarHealthy(feature: .calendarList) }
+        let checkedAt = appState.googleCalendarConnection.health.checkedAt
+        assert(checkedAt != nil)
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        await MainActor.run { appState.markGoogleCalendarOffline(feature: .recordingReminders) }
+        assert(appState.googleCalendarConnection.health.status == .offline)
+        assert(appState.googleCalendarConnection.health.checkedAt == checkedAt)
+    }
+
+    /// Opening the Calendar tab reads the calendar list only when it
+    /// hasn't been read yet; after that the scheduled refresh and the
+    /// refresh button keep it current.
+    private static func testCalendarTabLoadsGoogleCalendarsOnlyOnce() async {
+        final class Counter: @unchecked Sendable { var requests = 0 }
+        let counter = Counter()
+        let restore = connectGoogleForTest { request in
+            // Only list reads: events fetched by the reminder refresh it
+            // schedules aren't what this counts.
+            if request.url?.path.contains("calendarList") == true { counter.requests += 1 }
+            let body = Data(#"{"items":[{"id":"primary","summary":"Work"}]}"#.utf8)
+            return (body, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        defer { restore() }
+        let appState = makeAppState()
+        await appState.loadGoogleCalendarsIfNeeded()
+        let afterFirst = counter.requests
+        assert(afterFirst > 0, "the first visit reads the list")
+        assert(!appState.availableGoogleCalendars.isEmpty)
+        await appState.loadGoogleCalendarsIfNeeded()
+        assert(counter.requests == afterFirst, "a later visit doesn't ask Google again")
     }
 
     /// A reminder refresh replaced by a newer one is cancelled mid-fetch;

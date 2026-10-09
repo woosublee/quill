@@ -2162,12 +2162,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// The Calendar tab reads the calendar list only when it hasn't been
+    /// read yet; after that the scheduled refresh, the refresh button, and
+    /// coming back online keep it current.
     @MainActor
-    func loadStoredGoogleCalendarConnection() {
-        guard !isGoogleCalendarBusy else { return }
-        Task { [weak self] in
-            await self?.loadGoogleCalendars(force: true)
-        }
+    func loadGoogleCalendarsIfNeeded() async {
+        guard availableGoogleCalendars.isEmpty, !isGoogleCalendarBusy else { return }
+        await loadGoogleCalendars(force: true)
     }
 
     @MainActor
@@ -5044,9 +5045,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard health.status != .needsReconnect,
               !(health.status == .temporaryFailure && health.affectedFeature != feature) else { return }
         googleCalendarConnection.lastErrorMessage = nil
+        // Nothing was checked: "Last checked" stays the last real read.
         googleCalendarConnection.health = GoogleCalendarHealth(
             status: .offline,
-            checkedAt: Date(),
+            checkedAt: health.checkedAt,
             affectedFeature: feature
         )
     }

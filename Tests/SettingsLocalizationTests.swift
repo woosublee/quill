@@ -213,7 +213,12 @@ struct SettingsLocalizationTests {
         assert(CalendarRefreshIntervalText.title(15, language: "ko", bundle: bundle) == "15분마다")
         assert(CalendarRefreshIntervalText.title(60, language: "ko", bundle: bundle) == "1시간마다")
         assert(CalendarRefreshIntervalText.title(15, language: "en", bundle: bundle) == "Every 15 minutes")
-        assert(localizedCatalogString("Offline · Checks again when you're online", language: "ko", bundle: bundle) == "오프라인 · 연결되면 다시 확인해요")
+        assert(localizedCatalogString("Offline", language: "ko", bundle: bundle) == "오프라인")
+        // Offline reads like the other states: status · last checked · account.
+        assert(settingsSource.contains("Label(\"Offline\", systemImage: \"wifi.slash\")"))
+        assert(!settingsSource.contains("Checks again when you're online"))
+        // The tab reads Google only when it hasn't yet.
+        assert(settingsSource.contains("appState.loadGoogleCalendarsIfNeeded()"))
         // An Apple-only change reuses the Google events it already has.
         let appStateSource = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
         assert(appStateSource.contains("scheduleCalendarRecordingReminderRefresh(reusingGoogleEvents: true)"))

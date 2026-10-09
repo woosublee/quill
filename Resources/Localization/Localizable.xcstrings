@@ -20757,18 +20757,18 @@
         }
       }
     },
-    "Offline · Checks again when you're online": {
+    "Offline": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Offline · Checks again when you're online"
+            "value": "Offline"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "오프라인 · 연결되면 다시 확인해요"
+            "value": "오프라인"
           }
         }
       }
