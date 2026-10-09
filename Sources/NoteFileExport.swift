@@ -56,12 +56,18 @@ struct NoteFileExportSource: Sendable {
     let summary: String?
     let audioURL: URL?
     let isSummaryStale: Bool
+    /// The audio is in iCloud: `audioURL` is where it lands once downloaded.
+    let audioNeedsDownload: Bool
+    /// Why there is no audio to save, when it isn't simply missing.
+    let audioUnavailableMessage: String?
 
     init(
         transcript: String,
         audioURL: URL?,
         summary: String? = nil,
-        isSummaryStale: Bool = false
+        isSummaryStale: Bool = false,
+        audioNeedsDownload: Bool = false,
+        audioUnavailableMessage: String? = nil
     ) {
         self.transcript = transcript
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -71,6 +77,8 @@ struct NoteFileExportSource: Sendable {
             .isEmpty == false ? summary : nil
         self.audioURL = audioURL
         self.isSummaryStale = self.summary != nil && isSummaryStale
+        self.audioNeedsDownload = audioURL != nil && audioNeedsDownload
+        self.audioUnavailableMessage = audioUnavailableMessage
     }
 
     var availableItems: Set<NoteFileExportItem> {

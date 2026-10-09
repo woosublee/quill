@@ -15,6 +15,8 @@ enum NoteAudioCloudRecord {
 
     /// The one small field a lookup asks for, so it never downloads audio.
     static let lookupKeys = [Key.index]
+    /// The field holding the part's bytes, for a download.
+    static let dataKey = Key.data
 
     static func zoneID() -> CKRecordZone.ID {
         CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)

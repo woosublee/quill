@@ -8,7 +8,7 @@ import Network
 /// push notifications it fetches every minute while sync is on, and right
 /// away when the Mac wakes or the network comes back.
 @available(macOS 14.0, *)
-final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngineDelegate, @unchecked Sendable {
+final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPartFetching, CKSyncEngineDelegate, @unchecked Sendable {
     static let fetchInterval: TimeInterval = 60
 
     private let stateURL: URL
@@ -191,6 +191,79 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
             }
         }
         return found
+    }
+
+    /// Downloads one part, reporting progress, and copies its bytes to a new
+    /// file under `Sync/downloads` before CloudKit removes its cached copy.
+    func fetchAudioPart(_ part: NoteAudioPartID, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+        guard activeEngine() != nil else { throw NoteAudioFetchError.failed }
+        let destination = outbox.deletingLastPathComponent()
+            .appendingPathComponent("downloads", isDirectory: true)
+            .appendingPathComponent("\(part.recordName)-\(UUID().uuidString).fetched")
+        let operation = CKFetchRecordsOperation(recordIDs: [NoteAudioCloudRecord.recordID(for: part)])
+        operation.desiredKeys = [NoteAudioCloudRecord.dataKey]
+        operation.qualityOfService = .userInitiated
+        operation.perRecordProgressBlock = { _, fraction in progress(fraction) }
+        let outcome = FetchOutcome()
+        operation.perRecordResultBlock = { _, result in
+            switch result {
+            case .success(let record):
+                guard let asset = record[NoteAudioCloudRecord.dataKey] as? CKAsset, let file = asset.fileURL else {
+                    outcome.result = .failure(NoteAudioFetchError.failed)
+                    return
+                }
+                do {
+                    try FileManager.default.createDirectory(
+                        at: destination.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
+                    try FileManager.default.copyItem(at: file, to: destination)
+                    outcome.result = .success(destination)
+                } catch {
+                    outcome.result = .failure(NoteAudioFetchError.failed)
+                }
+            case .failure(let error):
+                outcome.result = .failure(Self.fetchError(error))
+            }
+        }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+                operation.fetchRecordsResultBlock = { result in
+                    switch result {
+                    case .success:
+                        continuation.resume(with: outcome.result)
+                    case .failure(let error):
+                        if (error as? CKError)?.code == .operationCancelled {
+                            continuation.resume(throwing: CancellationError())
+                        } else if case .failure(let partError) = outcome.result {
+                            continuation.resume(throwing: partError)
+                        } else {
+                            continuation.resume(throwing: Self.fetchError(error))
+                        }
+                    }
+                }
+                database.add(operation)
+            }
+        } onCancel: {
+            operation.cancel()
+        }
+    }
+
+    /// The part a fetch delivers, set from CloudKit's callback queue.
+    private final class FetchOutcome: @unchecked Sendable {
+        var result: Result<URL, Error> = .failure(NoteAudioFetchError.failed)
+    }
+
+    private static func fetchError(_ error: Error) -> NoteAudioFetchError {
+        guard let error = error as? CKError else { return .failed }
+        switch error.code {
+        case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy:
+            return .offline
+        case .unknownItem, .zoneNotFound, .userDeletedZone:
+            return .missing
+        default:
+            return .failed
+        }
     }
 
     /// Lists the audio zone's records, names only, and keeps the parts of

@@ -4686,7 +4686,8 @@ struct RunLogEntryView: View {
                             case .needsModelSetup:
                                 // No model can transcribe this file yet.
                                 appState.selectedSettingsTab = .models
-                            case .noAudio:
+                            case .noAudio, .needsDownload:
+                                // Shown only for audio on this Mac.
                                 break
                             }
                         } label: {

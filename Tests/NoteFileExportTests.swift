@@ -17,6 +17,7 @@ struct NoteFileExportTests {
         try testConflictDoesNotOverwriteWithoutConsent()
         try testPreparedFileReportsLateConflict()
         try testReplaceOverwritesExistingFile()
+        testAudioInICloudIsOfferedForSaving()
         try testPartialFailureKeepsSuccessfulTranscript()
         testSummaryAvailability()
         testSummaryStalenessRequiresAvailableSummary()
@@ -586,5 +587,18 @@ struct NoteFileExportTests {
             .appendingPathComponent("note-file-export-\(UUID().uuidString)", isDirectory: true)
         try! FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
+    }
+
+    /// Audio in iCloud is offered (it is downloaded before saving); audio
+    /// that can't be had says why, and isn't offered.
+    private static func testAudioInICloudIsOfferedForSaving() {
+        let target = URL(fileURLWithPath: "/tmp/synthetic.wav")
+        let remote = NoteFileExportSource(transcript: "", audioURL: target, audioNeedsDownload: true)
+        precondition(remote.availableItems == [.audio] && remote.audioNeedsDownload)
+        let local = NoteFileExportSource(transcript: "", audioURL: target)
+        precondition(!local.audioNeedsDownload)
+        let missing = NoteFileExportSource(transcript: "", audioURL: nil, audioNeedsDownload: true, audioUnavailableMessage: "Synthetic reason")
+        precondition(missing.availableItems.isEmpty && !missing.audioNeedsDownload)
+        precondition(missing.audioUnavailableMessage == "Synthetic reason")
     }
 }

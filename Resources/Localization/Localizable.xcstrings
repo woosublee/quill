@@ -20756,6 +20756,118 @@
           }
         }
       }
+    },
+    "Audio hasn't reached iCloud yet from the Mac that recorded it.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio hasn't reached iCloud yet from the Mac that recorded it."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음한 Mac에서 아직 iCloud로 오디오가 올라오지 않았어요."
+          }
+        }
+      }
+    },
+    "Turn on iCloud sync to download this audio.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on iCloud sync to download this audio."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 오디오를 받으려면 iCloud 동기화를 켜 주세요."
+          }
+        }
+      }
+    },
+    "Connect to the internet to download this audio.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to the internet to download this audio."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 오디오를 받으려면 인터넷에 연결해 주세요."
+          }
+        }
+      }
+    },
+    "Couldn't download this audio. Try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't download this audio. Try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오를 받지 못했어요. 다시 시도해 주세요."
+          }
+        }
+      }
+    },
+    "Download Audio": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download Audio"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오디오 받기"
+          }
+        }
+      }
+    },
+    "Stop Download": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop Download"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받기 중지"
+          }
+        }
+      }
+    },
+    "The recording is downloaded from iCloud before it's saved.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The recording is downloaded from iCloud before it's saved."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "녹음 파일을 iCloud에서 받은 뒤 저장해요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

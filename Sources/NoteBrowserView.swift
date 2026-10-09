@@ -109,7 +109,7 @@ private class GlassNSView: NSView {
     }
 }
 
-private struct GlassView: NSViewRepresentable {
+struct GlassView: NSViewRepresentable {
     var material: NSVisualEffectView.Material = .popover
     var cornerRadius: CGFloat? = nil
 
@@ -2719,12 +2719,16 @@ private struct NoteDetailView: View {
             }
         }
         .sheet(isPresented: $showFileExportSheet) {
+            let audioState = appState.noteAudioState(for: item)
+            let downloadsAudio = storedAudioURL == nil && audioState.canStartDownload
             NoteFileExportView(
                 source: NoteFileExportSource(
                     transcript: displayContent,
-                    audioURL: storedAudioURL,
+                    audioURL: storedAudioURL ?? (downloadsAudio ? appState.storedAudioURL(for: item) : nil),
                     summary: summaryEnvelope.map { MeetingSummaryMarkdownRenderer.render($0) },
-                    isSummaryStale: isSummaryStale
+                    isSummaryStale: isSummaryStale,
+                    audioNeedsDownload: downloadsAudio,
+                    audioUnavailableMessage: audioState.unavailableMessage
                 ),
                 suggestedBaseName: NoteFileExportNaming.suggestedBaseName(
                     customTitle: item.customTitle,
@@ -2732,7 +2736,8 @@ private struct NoteDetailView: View {
                     timestamp: item.timestamp
                 ),
                 onDismiss: { showFileExportSheet = false },
-                onSaved: { showToast($0) }
+                onSaved: { showToast($0) },
+                downloadAudio: { await appState.downloadNoteAudio(for: item) != nil }
             )
         }
         .sheet(item: $retryChoiceRequest) { request in
@@ -2865,9 +2870,10 @@ private struct NoteDetailView: View {
                 .padding(.top, 2)
             }
 
-            // Show the audio player only when the stored audio file exists
-            if let storedAudioURL {
-                NoteAudioPlayerView(audioURL: storedAudioURL)
+            // The player when the audio is here, a download bar when it is in
+            // iCloud, and nothing for a note without audio.
+            if item.audioFileName != nil {
+                NoteAudioBar(item: item, downloader: appState.noteAudioDownloader)
                     .padding(.top, 4)
             }
         }
@@ -3966,6 +3972,15 @@ private struct NoteDetailView: View {
                     "Set up a model in Settings to retry transcription."
                 )
             )
+        case .needsDownload:
+            // Downloads the audio first, then retries as usual.
+            Task { @MainActor in
+                guard await appState.downloadNoteAudio(for: item) != nil else {
+                    if let message = appState.noteAudioState(for: item).unavailableMessage { showToast(message) }
+                    return
+                }
+                retryTranscription()
+            }
         case .noAudio:
             break
         }
@@ -4242,6 +4257,8 @@ private struct SummaryIssueViewAction {
 
 struct NoteAudioPlayerView: View {
     let audioURL: URL
+    /// Starts playing at once, after the audio was downloaded to be played.
+    var playsOnAppear = false
 
     @Environment(\.colorScheme) private var colorScheme
     @State private var player: AVAudioPlayer?
@@ -4401,6 +4418,7 @@ struct NoteAudioPlayerView: View {
         .onAppear {
             loadDuration()
             loadWaveform()
+            if playsOnAppear, !isPlaying { togglePlayback() }
         }
         .onChange(of: volume) { newValue in
             player?.volume = Float(newValue)

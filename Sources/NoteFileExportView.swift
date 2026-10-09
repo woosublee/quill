@@ -6,6 +6,8 @@ struct NoteFileExportView: View {
     let suggestedBaseName: String
     let onDismiss: () -> Void
     let onSaved: (String) -> Void
+    /// Downloads iCloud audio before saving; false when it couldn't.
+    let downloadAudio: () async -> Bool
 
     @AppStorage("note_file_export_last_directory")
     private var lastDirectoryPath = ""
@@ -25,12 +27,14 @@ struct NoteFileExportView: View {
         source: NoteFileExportSource,
         suggestedBaseName: String,
         onDismiss: @escaping () -> Void,
-        onSaved: @escaping (String) -> Void
+        onSaved: @escaping (String) -> Void,
+        downloadAudio: @escaping () async -> Bool = { true }
     ) {
         self.source = source
         self.suggestedBaseName = suggestedBaseName
         self.onDismiss = onDismiss
         self.onSaved = onSaved
+        self.downloadAudio = downloadAudio
         _includeTranscript = State(initialValue: source.transcript != nil)
         _includeSummary = State(initialValue: source.summary != nil)
         _includeAudio = State(initialValue: source.audioURL != nil)
@@ -127,7 +131,12 @@ struct NoteFileExportView: View {
                 .disabled(source.audioURL == nil)
                 .padding(.top, 6)
             if source.audioURL == nil {
-                Text("The saved recording file could not be found.")
+                Text(source.audioUnavailableMessage ?? localizedCatalogString("The saved recording file could not be found."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 22)
+            } else if source.audioNeedsDownload, includeAudio {
+                Text("The recording is downloaded from iCloud before it's saved.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.leading, 22)
@@ -341,6 +350,13 @@ struct NoteFileExportView: View {
         resultHasPartialSuccess = false
         pendingReplacementRequest = nil
         Task {
+            if request.source.audioNeedsDownload, request.selectedItems.contains(.audio) {
+                guard await downloadAudio() else {
+                    isSaving = false
+                    resultMessage = localizedCatalogString("Couldn't download this audio. Try again.")
+                    return
+                }
+            }
             let result = await Task.detached(priority: .userInitiated) {
                 NoteFileExporter.export(
                     request,

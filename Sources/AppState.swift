@@ -2843,6 +2843,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
     /// iCloud note sync; created at launch, off until the user turns it on.
     private(set) var noteSyncController: NoteSyncController?
+    /// Downloads note audio from iCloud when it is played, retranscribed, or
+    /// exported on a Mac that doesn't have it.
+    @MainActor lazy var noteAudioDownloader = NoteAudioDownloader(
+        downloadsDirectory: storageLayout.noteSyncDirectory.appendingPathComponent("downloads", isDirectory: true),
+        fetcher: { [weak self] in self?.noteSyncController?.audioPartFetcher },
+        isSyncOn: { [weak self] in self?.noteSyncController?.isEnabled == true }
+    )
     private var recordingJournalStore: RecordingJournalStore
     private var cloudTranscriptionJobStore: CloudTranscriptionJobStore
     @MainActor private let cloudTranscriptionHistoryCoordinator =
@@ -8361,12 +8368,38 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return audioURL
     }
 
+    /// The note's audio here, in iCloud, downloading, or out of reach.
+    @MainActor
+    func noteAudioState(for item: PipelineHistoryItem) -> NoteAudioState {
+        noteAudioDownloader.state(
+            noteID: item.id,
+            hasAudio: item.audioFileName != nil,
+            isLocal: noteBrowserStoredAudioURL(for: item) != nil,
+            manifest: pipelineHistoryStore.audioManifest(id: item.id)
+        )
+    }
+
+    /// Downloads the note's audio from iCloud into its usual place; nil when
+    /// it couldn't (the reason is in `noteAudioState`) or was cancelled.
+    @MainActor
+    func downloadNoteAudio(for item: PipelineHistoryItem) async -> URL? {
+        if let local = noteBrowserStoredAudioURL(for: item) { return local }
+        guard let destination = storedAudioURL(for: item),
+              let manifest = pipelineHistoryStore.audioManifest(id: item.id) else { return nil }
+        return await noteAudioDownloader.download(noteID: item.id, manifest: manifest, to: destination)
+    }
+
+    @MainActor
+    func cancelNoteAudioDownload(for item: PipelineHistoryItem) {
+        noteAudioDownloader.cancel(noteID: item.id)
+    }
+
     @MainActor
     func noteBrowserRetryAvailability(
         for item: PipelineHistoryItem
     ) -> NoteBrowserRetryAvailability {
         guard let audioURL = noteBrowserStoredAudioURL(for: item) else {
-            return .noAudio
+            return noteAudioState(for: item).canStartDownload ? .needsDownload : .noAudio
         }
         let options = retryOptions(for: audioURL)
         // Transcription Off means record-only: a transcription the user starts

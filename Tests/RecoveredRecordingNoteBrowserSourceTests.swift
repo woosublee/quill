@@ -27,7 +27,7 @@ struct RecoveredRecordingNoteBrowserSourceTests {
         precondition(source.contains("systemImageOverride: \"arrow.clockwise\""))
         // A failed note has no header indicator; its empty state explains.
         precondition(!source.contains(".help(\"Transcription failed\")"))
-        precondition(source.contains("NoteAudioPlayerView(audioURL: storedAudioURL)"))
+        precondition(source.contains("NoteAudioBar(item: item, downloader: appState.noteAudioDownloader)"))
         precondition(source.contains("appState.retryTranscription(item: item, choice: nil, comparesFirst: true)"))
         precondition(source.contains("case .needsModelSelection, .needsProviderConfiguration:"))
         precondition(source.contains("appState.openProviderSettings()"))

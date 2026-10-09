@@ -162,6 +162,11 @@ final class NoteSyncController: ObservableObject {
         engine?.fetchNow()
     }
 
+    /// What downloads note audio, while sync runs.
+    var audioPartFetcher: NoteAudioPartFetching? {
+        engine as? NoteAudioPartFetching
+    }
+
     /// Sync Now in Settings. A press while it runs does nothing.
     func syncNow() async {
         guard let engine, !isSyncingNow else { return }
