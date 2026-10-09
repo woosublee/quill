@@ -2720,7 +2720,7 @@ private struct NoteDetailView: View {
         }
         .sheet(isPresented: $showFileExportSheet) {
             let audioState = appState.noteAudioState(for: item)
-            let downloadsAudio = storedAudioURL == nil && audioState.canStartDownload
+            let downloadsAudio = storedAudioURL == nil && audioState.isInICloud
             NoteFileExportView(
                 source: NoteFileExportSource(
                     transcript: displayContent,
@@ -2737,7 +2737,11 @@ private struct NoteDetailView: View {
                 ),
                 onDismiss: { showFileExportSheet = false },
                 onSaved: { showToast($0) },
-                downloadAudio: { await appState.downloadNoteAudio(for: item) != nil }
+                downloadAudio: {
+                    guard await appState.downloadNoteAudio(for: item) == nil else { return nil }
+                    return appState.noteAudioState(for: item).unavailableMessage
+                        ?? localizedCatalogString("Couldn't download this audio. Try again.")
+                }
             )
         }
         .sheet(item: $retryChoiceRequest) { request in

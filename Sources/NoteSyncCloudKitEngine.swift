@@ -79,6 +79,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
     /// Call on the main thread.
     func start() {
         NoteSyncCloudRecord.removeAllOutboxFiles(in: outbox)
+        NoteAudioDownloader.removeDownloadFiles(in: downloadsDirectory)
         let timer = Timer(timeInterval: Self.fetchInterval, repeats: true) { [weak self] _ in
             self?.fetchNow()
         }
@@ -193,12 +194,16 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         return found
     }
 
+    /// Where downloaded parts and partial audio wait, beside the outbox.
+    private var downloadsDirectory: URL {
+        outbox.deletingLastPathComponent().appendingPathComponent("downloads", isDirectory: true)
+    }
+
     /// Downloads one part, reporting progress, and copies its bytes to a new
     /// file under `Sync/downloads` before CloudKit removes its cached copy.
     func fetchAudioPart(_ part: NoteAudioPartID, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         guard activeEngine() != nil else { throw NoteAudioFetchError.failed }
-        let destination = outbox.deletingLastPathComponent()
-            .appendingPathComponent("downloads", isDirectory: true)
+        let destination = downloadsDirectory
             .appendingPathComponent("\(part.recordName)-\(UUID().uuidString).fetched")
         let operation = CKFetchRecordsOperation(recordIDs: [NoteAudioCloudRecord.recordID(for: part)])
         operation.desiredKeys = [NoteAudioCloudRecord.dataKey]
@@ -416,6 +421,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         pathMonitor?.cancel()
         pathMonitor = nil
         NoteSyncCloudRecord.removeAllOutboxFiles(in: outbox)
+        NoteAudioDownloader.removeDownloadFiles(in: downloadsDirectory)
         if let engine {
             Task { await engine.cancelOperations() }
         }

@@ -6,8 +6,9 @@ struct NoteFileExportView: View {
     let suggestedBaseName: String
     let onDismiss: () -> Void
     let onSaved: (String) -> Void
-    /// Downloads iCloud audio before saving; false when it couldn't.
-    let downloadAudio: () async -> Bool
+    /// Downloads iCloud audio before saving: nil once it is here, or why
+    /// it couldn't be.
+    let downloadAudio: () async -> String?
 
     @AppStorage("note_file_export_last_directory")
     private var lastDirectoryPath = ""
@@ -22,13 +23,15 @@ struct NoteFileExportView: View {
     @State private var resultMessage: String?
     @State private var resultHasPartialSuccess = false
     @State private var isSaving = false
+    /// The save in progress, which Cancel stops (a download can be long).
+    @State private var saveTask: Task<Void, Never>?
 
     init(
         source: NoteFileExportSource,
         suggestedBaseName: String,
         onDismiss: @escaping () -> Void,
         onSaved: @escaping (String) -> Void,
-        downloadAudio: @escaping () async -> Bool = { true }
+        downloadAudio: @escaping () async -> String? = { nil }
     ) {
         self.source = source
         self.suggestedBaseName = suggestedBaseName
@@ -59,7 +62,10 @@ struct NoteFileExportView: View {
 
             Divider().padding(.vertical, 16)
             HStack {
-                Button("Cancel") { onDismiss() }
+                Button("Cancel") {
+                    saveTask?.cancel()
+                    onDismiss()
+                }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
                 Button(action: { prepareSave() }) {
@@ -349,11 +355,14 @@ struct NoteFileExportView: View {
         resultMessage = nil
         resultHasPartialSuccess = false
         pendingReplacementRequest = nil
-        Task {
+        saveTask = Task {
             if request.source.audioNeedsDownload, request.selectedItems.contains(.audio) {
-                guard await downloadAudio() else {
+                let failure = await downloadAudio()
+                // Cancelled while the audio downloaded: nothing is saved.
+                guard !Task.isCancelled else { return }
+                if let failure {
                     isSaving = false
-                    resultMessage = localizedCatalogString("Couldn't download this audio. Try again.")
+                    resultMessage = failure
                     return
                 }
             }

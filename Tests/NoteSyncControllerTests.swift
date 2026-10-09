@@ -21,6 +21,7 @@ struct NoteSyncControllerTests {
         testTurnOnFailureKeepsWhySyncStopped()
         try testConfirmationsCountAudio()
         testSyncNowRunsOnceAtATime()
+        testTurningOffStopsAudioDownloads()
         print("NoteSyncControllerTests passed")
     }
 
@@ -250,6 +251,17 @@ struct NoteSyncControllerTests {
         precondition(expectation { await controller.syncNow() })
         precondition(busyWhileSyncing && !controller.isSyncingNow)
         precondition(engine()?.syncsNow == 1, "a press while syncing is ignored")
+    }
+
+    /// Sync off means no talking to iCloud: audio downloads stop too.
+    @MainActor
+    static func testTurningOffStopsAudioDownloads() {
+        let (controller, store, _, _) = make(enabled: true)
+        var stops = 0
+        controller.onEngineStop = { stops += 1 }
+        controller.attach(store: store)
+        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: false) })
+        precondition(stops == 1)
     }
 
     /// Runs an async call to completion on the main run loop.

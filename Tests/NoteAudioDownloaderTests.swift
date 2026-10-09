@@ -11,6 +11,8 @@ struct NoteAudioDownloaderTests {
         try await testTwoRequestsShareOneDownload()
         try await testOfflineAndMissingPartsSayWhy()
         try await testRetryAfterAFailureStartsClean()
+        try await testSyncTurnedBackOnCanDownload()
+        try await testCancelAllStopsEveryDownload()
         print("NoteAudioDownloaderTests passed")
     }
 
@@ -105,6 +107,10 @@ struct NoteAudioDownloaderTests {
         precondition(downloader.state(noteID: id, hasAudio: true, isLocal: false, manifest: manifest) == .downloadable)
         precondition(downloader.state(noteID: id, hasAudio: true, isLocal: false, manifest: nil) == .unavailable(.notUploadedYet))
         precondition(off.state(noteID: id, hasAudio: true, isLocal: false, manifest: manifest) == .unavailable(.syncOff))
+        precondition(off.state(noteID: id, hasAudio: true, isLocal: false, manifest: nil) == .none,
+                     "a missing file on a Mac without sync looks like no audio, as before")
+        precondition(NoteAudioState.downloading(0.5).isInICloud && NoteAudioState.downloadable.isInICloud)
+        precondition(!NoteAudioState.local.isInICloud && !NoteAudioState.unavailable(.syncOff).isInICloud)
         precondition(NoteAudioState.downloadable.canStartDownload && NoteAudioState.unavailable(.failed).canStartDownload)
         precondition(NoteAudioState.unavailable(.offline).canStartDownload, "offline can be tried again")
         precondition(!NoteAudioState.unavailable(.notUploadedYet).canStartDownload && !NoteAudioState.unavailable(.syncOff).canStartDownload)
@@ -189,6 +195,43 @@ struct NoteAudioDownloaderTests {
         precondition(t.downloader.state(noteID: t.noteID, hasAudio: true, isLocal: false, manifest: t.manifest) == .unavailable(.failed),
                      "a marker whose parts are gone can't be downloaded")
         precondition(t.fetcher.fetched.count == 1, "a missing part isn't fetched again")
+    }
+
+    /// Trying while sync was off doesn't leave the audio stuck as "turn on
+    /// sync" once sync is back on.
+    @MainActor
+    static func testSyncTurnedBackOnCanDownload() async throws {
+        let s = try setup()
+        defer { try? FileManager.default.removeItem(at: s.dir) }
+        var syncOn = false
+        var fetcherAvailable = false
+        let downloader = NoteAudioDownloader(
+            downloadsDirectory: s.dir.appendingPathComponent("downloads", isDirectory: true),
+            fetcher: { fetcherAvailable ? s.fetcher : nil },
+            isSyncOn: { syncOn }
+        )
+        _ = await downloader.download(noteID: s.noteID, manifest: s.manifest, to: s.destination)
+        syncOn = true
+        fetcherAvailable = true
+        precondition(downloader.state(noteID: s.noteID, hasAudio: true, isLocal: false, manifest: s.manifest) == .downloadable)
+    }
+
+    /// Turning sync off stops every download and removes what it fetched.
+    @MainActor
+    static func testCancelAllStopsEveryDownload() async throws {
+        let s = try setup()
+        defer { try? FileManager.default.removeItem(at: s.dir) }
+        let stray = s.dir.appendingPathComponent("downloads/left-from-last-run.fetched")
+        s.fetcher.beforeEachPart = {
+            if s.fetcher.fetched.count == 1 {
+                try? Data([1]).write(to: stray)
+                s.downloader.cancelAll()
+            }
+        }
+        let url = await s.downloader.download(noteID: s.noteID, manifest: s.manifest, to: s.destination)
+        precondition(url == nil)
+        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: s.dir.appendingPathComponent("downloads").path)) ?? []
+        precondition(leftovers.isEmpty, "every download file is removed: \(leftovers)")
     }
 
     @MainActor

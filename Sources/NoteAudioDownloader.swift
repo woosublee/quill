@@ -33,6 +33,13 @@ enum NoteAudioState: Equatable {
         }
     }
 
+    /// The audio is in iCloud and can be had: ready to download, already
+    /// downloading (a request joins it), or worth trying again.
+    var isInICloud: Bool {
+        if case .downloading = self { return true }
+        return canStartDownload
+    }
+
     /// Whether choosing the audio starts a download: also after a failed
     /// or offline try, which can be tried again.
     var canStartDownload: Bool {
@@ -94,7 +101,11 @@ final class NoteAudioDownloader: ObservableObject {
         guard hasAudio else { return .none }
         if isLocal { return .local }
         if let progress = progress[noteID] { return .downloading(progress) }
-        guard isSyncOn() else { return .unavailable(.syncOff) }
+        guard isSyncOn() else {
+            // A file missing on a Mac that never synced it is no audio, as
+            // before sync; audio marked in iCloud waits for sync.
+            return manifest == nil ? .none : .unavailable(.syncOff)
+        }
         guard manifest != nil else { return .unavailable(.notUploadedYet) }
         if let reason = failures[noteID] { return .unavailable(reason) }
         return .downloadable
@@ -116,6 +127,20 @@ final class NoteAudioDownloader: ObservableObject {
         running[noteID]?.cancel()
     }
 
+    /// Sync turned off: every download stops, and every download file goes,
+    /// including any a quit left behind.
+    func cancelAll() {
+        for task in running.values { task.cancel() }
+        Self.removeDownloadFiles(in: downloadsDirectory)
+    }
+
+    nonisolated static func removeDownloadFiles(in directory: URL) {
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        for file in files where ["partial", "fetched"].contains(file.pathExtension) {
+            try? FileManager.default.removeItem(at: file)
+        }
+    }
+
     private func partialFile(for noteID: UUID) -> URL {
         downloadsDirectory.appendingPathComponent("\(noteID.uuidString).partial")
     }
@@ -128,7 +153,8 @@ final class NoteAudioDownloader: ObservableObject {
             progress[noteID] = nil
         }
         guard let fetcher = fetcher() else {
-            failures[noteID] = isSyncOn() ? .failed : .syncOff
+            // With sync off, `state` says so; nothing to remember.
+            if isSyncOn() { failures[noteID] = .failed }
             return nil
         }
         for attempt in 0..<2 {

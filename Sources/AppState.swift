@@ -8399,7 +8399,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         for item: PipelineHistoryItem
     ) -> NoteBrowserRetryAvailability {
         guard let audioURL = noteBrowserStoredAudioURL(for: item) else {
-            return noteAudioState(for: item).canStartDownload ? .needsDownload : .noAudio
+            return noteAudioState(for: item).isInICloud ? .needsDownload : .noAudio
         }
         let options = retryOptions(for: audioURL)
         // Transcription Off means record-only: a transcription the user starts
@@ -12994,6 +12994,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func startNoteSync() {
         guard noteSyncController == nil else { return }
         let controller = dependencies.makeNoteSyncController(storageLayout)
+        controller.onEngineStop = { [weak self] in
+            self?.noteAudioDownloader.cancelAll()
+        }
         controller.onRemoteChange = { [weak self] change in
             self?.applyRemoteNoteChange(change)
         }
