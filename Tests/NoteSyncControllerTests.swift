@@ -102,10 +102,11 @@ struct NoteSyncControllerTests {
         func start() { started += 1; log?.calls.append("start") }
         func fetchNow() { fetches += 1 }
         var syncsNow = 0
-        var whileSyncing: (() -> Void)?
+        /// Runs while the sync is still in progress, before it returns.
+        var whileSyncing: (@MainActor () async -> Void)?
         func syncNow() async {
             syncsNow += 1
-            whileSyncing?()
+            await whileSyncing?()
         }
         func deleteAllFromICloud() async throws { deletedFromICloud = true }
         func stop(forgetState: Bool) { stopped.append(forgetState) }
@@ -237,7 +238,8 @@ struct NoteSyncControllerTests {
         var busyWhileSyncing = false
         engine()?.whileSyncing = {
             busyWhileSyncing = controller.isSyncingNow
-            Task { @MainActor in await controller.syncNow() }
+            // A second press while the first is still running.
+            await controller.syncNow()
         }
         precondition(expectation { await controller.syncNow() })
         precondition(busyWhileSyncing && !controller.isSyncingNow)
