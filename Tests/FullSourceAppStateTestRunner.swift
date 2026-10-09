@@ -28,6 +28,7 @@ struct FullSourceAppStateTestRunner {
             try await AppStateAIProcessingBackendTests.main()
             try await MeetingSummaryWorkflowTests.main()
             try await MeetingSummaryAppStateTests.main()
+            try await AppStateNoteSyncTests.main()
         }
     }
 

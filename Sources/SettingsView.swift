@@ -4463,7 +4463,7 @@ struct RunLogView: View {
                 Button("Clear History") {
                     appState.clearPipelineHistory()
                 }
-                .disabled(appState.pipelineHistory.isEmpty || appState.isHistoryUnavailable)
+                .disabled(appState.pipelineHistory.isEmpty || appState.isHistoryUnavailable || appState.noteSyncController?.isEnabled == true)
             }
             .padding(.horizontal, 24)
             .padding(.top, 20 + topInset)

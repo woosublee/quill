@@ -15,6 +15,11 @@ struct AppStateStorageLayout: Sendable {
         rootDirectory.appendingPathComponent("PipelineHistory.sqlite")
     }
 
+    /// iCloud sync's engine state and the payload files waiting to upload.
+    var noteSyncDirectory: URL {
+        rootDirectory.appendingPathComponent("Sync", isDirectory: true)
+    }
+
     var cloudTranscriptionJobsDirectory: URL {
         rootDirectory.appendingPathComponent(
             "cloud-transcription/jobs",
@@ -126,6 +131,8 @@ struct AppStateDependencies {
             -> any MeetingSummaryGenerating
     var makeRetryCloudTranscriptionDependencies:
         @Sendable () -> CloudTranscriptionDependencies
+    var makeNoteSyncController:
+        @MainActor (AppStateStorageLayout) -> NoteSyncController
 
     static var live: AppStateDependencies {
         AppStateDependencies(
@@ -140,7 +147,17 @@ struct AppStateDependencies {
                     cloudFallbackModelID: configuration.cloudFallbackModelID
                 )
             },
-            makeRetryCloudTranscriptionDependencies: { .live }
+            makeRetryCloudTranscriptionDependencies: { .live },
+            makeNoteSyncController: { layout in
+                NoteSyncController(makeEngine: { events in
+                    guard #available(macOS 14.0, *) else { return nil }
+                    return NoteSyncCloudKitEngine(
+                        stateURL: layout.noteSyncDirectory.appendingPathComponent("engine-state"),
+                        outbox: layout.noteSyncDirectory.appendingPathComponent("outbox", isDirectory: true),
+                        events: events
+                    )
+                })
+            }
         )
     }
 }
