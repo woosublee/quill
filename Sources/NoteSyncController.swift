@@ -22,7 +22,7 @@ enum NoteSyncEngineError: Error {
 enum NoteSyncTurnOnFailure: Error, Equatable {
     case unreachable
     case signedOut
-    /// The note store can't save yet (it needs recovery).
+    /// The note store can't save yet (still loading, or needs recovery).
     case notReady
 }
 

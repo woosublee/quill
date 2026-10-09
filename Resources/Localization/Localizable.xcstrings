@@ -20661,18 +20661,18 @@
         }
       }
     },
-    "Your notes need recovery first. Try again after it finishes.": {
+    "Your notes are still loading. Try again in a moment.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your notes need recovery first. Try again after it finishes."
+            "value": "Your notes are still loading. Try again in a moment."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "노트 기록을 먼저 복구해야 해요. 복구가 끝난 뒤 다시 시도해 주세요."
+            "value": "노트를 아직 불러오는 중이에요. 잠시 뒤 다시 시도해 주세요."
           }
         }
       }

@@ -119,7 +119,7 @@ private struct NoteSyncSettingsCard: View {
             case .signedOut?:
                 Text("Sign in to iCloud in System Settings, then try again.")
             case .notReady?:
-                Text("Your notes need recovery first. Try again after it finishes.")
+                Text("Your notes are still loading. Try again in a moment.")
             case .unreachable?, nil:
                 Text("Check your internet connection and try again. Sync is still off.")
             }

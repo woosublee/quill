@@ -56,7 +56,9 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         do {
             let result = try await database.modifyRecordZones(saving: [zone], deleting: [])
             if case .failure(let error)? = result.saveResults[zone.zoneID] { throw error }
-        } catch let error as CKError where error.code == .notAuthenticated {
+        } catch let error as CKError
+                    where error.code == .notAuthenticated || error.code == .accountTemporarilyUnavailable {
+            // Signed out, or iCloud wants the password again.
             throw NoteSyncTurnOnFailure.signedOut
         }
     }
@@ -135,8 +137,9 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
             isDeletingZone = true
             zoneDeleteFailed = false
         }
+        let droppedUploads = engine.state.pendingRecordZoneChanges
         do {
-            engine.state.remove(pendingRecordZoneChanges: engine.state.pendingRecordZoneChanges)
+            engine.state.remove(pendingRecordZoneChanges: droppedUploads)
             engine.state.add(pendingDatabaseChanges: [.deleteZone(NoteSyncCloudRecord.zoneID())])
             try await engine.sendChanges()
             let stillPending = engine.state.pendingDatabaseChanges.contains {
@@ -147,6 +150,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
                 throw NoteSyncEngineError.zoneDeleteFailed
             }
         } catch {
+            // Sync stays on: cancel the delete so the engine can't send it
+            // later by itself, and put back the uploads dropped for it.
+            engine.state.remove(pendingDatabaseChanges: [.deleteZone(NoteSyncCloudRecord.zoneID())])
+            engine.state.add(pendingRecordZoneChanges: droppedUploads)
             lock.withLock { isDeletingZone = false }
             throw error
         }
