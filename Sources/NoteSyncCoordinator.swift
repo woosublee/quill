@@ -842,6 +842,8 @@ final class NoteSyncCoordinator {
         // Notes just queued again for lack of space aren't up to date yet;
         // the pause clears after a sync where they went up.
         if case .paused(.quotaExceeded) = status, retriedForQuota { return }
+        // Offline stays shown until the network comes back.
+        if isOffline, case .paused(.offline) = status { return }
         let busy = pending > 0 || queuedAgain || !audioChecking.isEmpty
         if case .uploading = status, uploadDone < uploadTotal, busy { return }
         if !busy {
@@ -851,6 +853,23 @@ final class NoteSyncCoordinator {
             status = .starting
         }
     }
+
+    /// The Mac lost or regained its network. CKSyncEngine waits quietly
+    /// while offline, so no send fails to say so; this does.
+    func handleNetworkChange(isOnline: Bool) {
+        isOffline = !isOnline
+        guard !isStopped else { return }
+        if !isOnline {
+            if case .paused(.quotaExceeded) = status { return }
+            status = .paused(.offline)
+        } else if case .paused(.offline) = status {
+            // The fetch that follows settles the status.
+            status = .starting
+        }
+    }
+
+    /// What the network monitor last said.
+    private var isOffline = false
 
     /// The engine is stopping: nothing more is sent or written.
     func stop() {

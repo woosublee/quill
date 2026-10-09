@@ -97,8 +97,13 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         var wasOffline = false
         monitor.pathUpdateHandler = { [weak self] path in
             let isOnline = path.status == .satisfied
-            if isOnline, wasOffline { self?.fetchNow() }
+            // Only a change matters; the first update says whether the Mac
+            // starts offline.
+            let changed = isOnline == wasOffline
             wasOffline = !isOnline
+            guard changed else { return }
+            Task { @MainActor [weak self] in self?.coordinator?.handleNetworkChange(isOnline: isOnline) }
+            if isOnline { self?.fetchNow() }
         }
         monitor.start(queue: DispatchQueue(label: "com.woosublee.quill.note-sync.network"))
         pathMonitor = monitor

@@ -71,6 +71,7 @@ struct NoteSyncCoordinatorTests {
         try await testEmptyLocalFileStillChecksTheMarker()
         try testGivenUpNotesAreNotLookedUpOnRemoteEdits()
         try await testFindKeepsGoingPastAMissingPart()
+        testLosingTheNetworkShowsOffline()
         try testEmptyAudioDoesNotHoldUpProgress()
         try await testHeldNoteDeletedDuringItsCheckIsNotSent()
         print("NoteSyncCoordinatorTests passed")
@@ -747,6 +748,31 @@ struct NoteSyncCoordinatorTests {
         store.applyResult = .updated(needsUpload: false)
         _ = coordinator.handleFetched([try fetched(store.records[id]!)], deletions: [])
         precondition(coordinator.lastAudioCheck == nil && engine.lookups == 0)
+    }
+
+    /// CKSyncEngine doesn't try to send without a network, so no send fails;
+    /// the network monitor reports it instead.
+    @MainActor
+    static func testLosingTheNetworkShowsOffline() {
+        let (coordinator, _, _) = make()
+        coordinator.handleFetchFinished(pending: 0)
+        coordinator.handleNetworkChange(isOnline: false)
+        precondition(coordinator.status == .paused(.offline))
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(coordinator.status == .paused(.offline), "nothing reads as up to date while offline")
+        coordinator.handleNetworkChange(isOnline: true)
+        precondition(coordinator.status == .starting, "back online, sync runs again")
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(coordinator.status == .upToDate(t0))
+
+        coordinator.handleSendFailures([.quotaExceeded(noteID: UUID())])
+        coordinator.handleNetworkChange(isOnline: true)
+        precondition(coordinator.status == .paused(.quotaExceeded(pending: 1)), "coming online doesn't hide a quota pause")
+
+        let (stopped, _, _) = make()
+        stopped.handleZoneDeleted()
+        stopped.handleNetworkChange(isOnline: false)
+        precondition(stopped.status == .paused(.deletedElsewhere), "a stop isn't replaced by offline")
     }
 
     /// A part given up at a window's last index doesn't hide the parts after it.
