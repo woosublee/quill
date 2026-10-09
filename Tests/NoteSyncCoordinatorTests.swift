@@ -61,6 +61,9 @@ struct NoteSyncCoordinatorTests {
         try await testStoppedCoordinatorWritesNoMarker()
         try await testMarkedNotesGoUpOnlyAfterTheCheck()
         try await testEditAfterAGivenUpPartChecksICloudFirst()
+        try await testEditAfterAFailedMarkerChecksICloudFirst()
+        try await testHeldNoteEditedDuringItsCheckStillWaits()
+        try testFullICloudCountsTowardTheRetryLimit()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -571,6 +574,71 @@ struct NoteSyncCoordinatorTests {
         coordinator.handleLocalChanges([.saved(id)])
         await coordinator.lastAudioCheck?.value
         precondition(engine.audioSaves.isEmpty, "the part in iCloud isn't sent again, and the given-up one waits")
+    }
+
+    /// Every part went up but the marker couldn't be written (the file
+    /// couldn't be read): an edit checks iCloud rather than sending it all.
+    @MainActor
+    static func testEditAfterAFailedMarkerChecksICloudFirst() async throws {
+        let store = FakeStore()
+        let engine = FakeEngine()
+        let dir = try audioDirectory(files: ["a.wav": 10])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var hashFails = true
+        let coordinator = NoteSyncCoordinator(
+            store: store, engine: engine, now: { t0 },
+            localAudioURL: { dir.appendingPathComponent($0) },
+            hashFile: { _ in
+                if hashFails { throw CocoaError(.fileReadUnknown) }
+                return "synthetic-hash"
+            }
+        )
+        let id = noteWithAudio(store)
+        coordinator.handleLocalChanges([.saved(id)])
+        let part = NoteAudioPartID(noteID: id, index: 0)
+        engine.finish(part, smallStamp)
+        await coordinator.handleAudioPartSaved(part)
+        precondition(store.manifests[id] == nil)
+        hashFails = false
+        engine.audioSaves = []
+        coordinator.handleLocalChanges([.saved(id)])
+        await coordinator.lastAudioCheck?.value
+        precondition(engine.audioSaves.isEmpty, "the audio isn't sent again")
+        precondition(store.manifests[id] != nil, "the marker is written this time")
+    }
+
+    /// A held note (its marker not yet checked) edited during the check
+    /// still waits, so an old account's marker can't slip out.
+    @MainActor
+    static func testHeldNoteEditedDuringItsCheckStillWaits() async throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio(["a.wav": 10])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let id = noteWithAudio(store)
+        store.manifests[id] = NoteAudioManifest(sha256: "x", bytes: 10, partSize: 50_000_000, parts: 1)
+        var savesDuringCheck: [UUID] = []
+        engine.onLookup = {
+            coordinator.handleLocalChanges([.saved(id)])
+            savesDuringCheck = engine.saves
+        }
+        coordinator.startInitialUpload()
+        await coordinator.lastAudioCheck?.value
+        precondition(savesDuringCheck.isEmpty, "the edit waits for the check")
+        precondition(engine.saves == [id] && store.manifests[id] == nil)
+    }
+
+    /// With iCloud full, a 50 MB part isn't sent again after every sync.
+    @MainActor
+    static func testFullICloudCountsTowardTheRetryLimit() throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio(["a.wav": 10])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let id = noteWithAudio(store)
+        let part = NoteAudioPartID(noteID: id, index: 0)
+        for _ in 0..<3 {
+            coordinator.handleAudioSendFailures([.quotaExceeded(part)])
+            coordinator.handleFetchFinished(pending: 1)
+        }
+        precondition(engine.audioSaves == [part, part])
+        precondition(coordinator.status == .paused(.quotaExceeded(pending: 1)), "still shown as out of space")
     }
 
     @MainActor

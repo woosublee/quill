@@ -246,8 +246,9 @@ final class NoteSyncCoordinator {
         var check: [UUID] = []
         for id in ids where !busy.contains(id) && !audioChecking.contains(id) && !audioToCheck.contains(id) {
             guard store.audioManifest(id: id) == nil, let file = localAudio(id), file.partCount > 0 else { continue }
-            if audioPartsGivenUp.contains(where: { $0.noteID == id }) {
-                // Some parts are already in iCloud: send only what's missing.
+            if audioPartCounts[id] != nil {
+                // Parts may already be in iCloud (sent earlier, or given up
+                // on): send only what's missing.
                 check.append(id)
                 continue
             }
@@ -260,6 +261,12 @@ final class NoteSyncCoordinator {
             print("[NoteSync] Queued \(parts.count) audio parts for \(notes) notes")
         }
         checkAudioSoon(check, verifyMarked: false)
+    }
+
+    /// Queues note saves, except notes held until their audio check ends.
+    private func enqueueNoteSaves(_ ids: [UUID]) {
+        let ready = ids.filter { !savesAfterCheck.contains($0) }
+        if !ready.isEmpty { engine.enqueueSaves(ready) }
     }
 
     private static func parts(of id: UUID, count: Int) -> [NoteAudioPartID] {
@@ -473,7 +480,7 @@ final class NoteSyncCoordinator {
         }
         if !deletes.isEmpty || !audioDeletes.isEmpty { reportUploadProgress() }
         if !saves.isEmpty {
-            engine.enqueueSaves(saves)
+            enqueueNoteSaves(saves)
             queueAudioUploads(for: saves)
         }
         if !deletes.isEmpty { engine.enqueueDeletes(deletes) }
@@ -539,19 +546,11 @@ final class NoteSyncCoordinator {
             case .quotaExceeded(let part):
                 quotaCount += 1
                 quotaRetryPending = true
-                audioSavesToRetry.insert(part)
+                retryAudio(part)
             case .network:
                 offline = true
             case .failed(let part):
-                let attempts = (audioFailures[part] ?? 0) + 1
-                audioFailures[part] = attempts
-                if attempts < Self.maxAudioAttempts {
-                    audioSavesToRetry.insert(part)
-                } else {
-                    // Sending it again keeps failing: try after the next launch.
-                    audioPartsGivenUp.insert(part)
-                    print("[NoteSync] Stopped retrying an audio part after \(attempts) tries")
-                }
+                retryAudio(part)
             case .deleteFailed(let part):
                 audioDeletesToRetry.insert(part)
             }
@@ -563,6 +562,19 @@ final class NoteSyncCoordinator {
         }
         if !failures.isEmpty {
             print("[NoteSync] \(failures.count) audio changes failed to send")
+        }
+    }
+
+    /// Retries a failed part after the next sync, up to a limit: a 50 MB
+    /// part that keeps failing (iCloud full, say) waits for a relaunch.
+    private func retryAudio(_ part: NoteAudioPartID) {
+        let attempts = (audioFailures[part] ?? 0) + 1
+        audioFailures[part] = attempts
+        if attempts < Self.maxAudioAttempts {
+            audioSavesToRetry.insert(part)
+        } else {
+            audioPartsGivenUp.insert(part)
+            print("[NoteSync] Stopped retrying an audio part after \(attempts) tries")
         }
     }
 
@@ -616,7 +628,7 @@ final class NoteSyncCoordinator {
                 savesToRetry.insert(id)
             }
         }
-        if !resend.isEmpty { engine.enqueueSaves(resend) }
+        if !resend.isEmpty { enqueueNoteSaves(resend) }
         if !deletes.isEmpty { engine.enqueueDeletes(deletes) }
         if quotaCount > 0 {
             status = .paused(.quotaExceeded(pending: quotaCount))
@@ -690,7 +702,7 @@ final class NoteSyncCoordinator {
             deletesToRetry.subtract(returned)
             engine.cancelDeletes(returned)
         }
-        if !needsUpload.isEmpty, !isStopped { engine.enqueueSaves(needsUpload) }
+        if !needsUpload.isEmpty, !isStopped { enqueueNoteSaves(needsUpload) }
         // Another Mac may have cleared a marker for audio this Mac holds:
         // it is checked against iCloud and marked again when it's all there.
         let unmarked = change.changed.filter { store.audioManifest(id: $0) == nil && localAudio($0) != nil }
@@ -709,7 +721,7 @@ final class NoteSyncCoordinator {
         if !savesToRetry.isEmpty {
             let retry = Array(savesToRetry)
             savesToRetry = []
-            engine.enqueueSaves(retry)
+            enqueueNoteSaves(retry)
         }
         if !deletesToRetry.isEmpty {
             // A note that came back (another Mac's edit) stays in iCloud.

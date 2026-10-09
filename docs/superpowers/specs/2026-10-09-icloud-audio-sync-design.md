@@ -92,8 +92,9 @@ total only when the last part is sent.
   these deletes counts as done.
 - Turn Off and Delete from iCloud deletes both zones.
 - `turnOn()` creates both zones before starting. A Quill Dev Mac that
-  turned sync on before item 5 has no `NoteAudio` zone: turn sync off and on
-  once. Sync has not shipped in a release, so no user is affected.
+  turned sync on before item 5 has no `NoteAudio` zone: a part saved into
+  the missing audio zone makes the zone and retries, rather than reading as
+  a delete from another Mac (that removes the `Notes` zone).
 - Turn-on confirmation: "Upload 12 notes (340 MB of audio) from this Mac to
   iCloud…". The size is the total local audio of the notes that will
   upload.
