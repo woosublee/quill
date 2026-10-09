@@ -26,6 +26,8 @@ struct NoteSyncCoordinatorTests {
         try testStoppedCoordinatorIgnoresEverything()
         testUnsavedChangeTagIsNotCountedAsUploaded()
         testAccountChangeStaysPausedWhenClearingFails()
+        try testUnavailableStoreAsksForFullRefetch()
+        testFailedSavesAreRetriedAfterTheNextSync()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -38,6 +40,7 @@ struct NoteSyncCoordinatorTests {
         var applied: [(NoteSyncRecord, Data?)] = []
         var removed: [UUID] = []
         var clearedSystemFields = false
+        var isReadyForSync = true
 
         func syncRecord(id: UUID) -> NoteSyncRecord? { records[id] }
         func syncSystemFields(id: UUID) -> Data? { systemFields[id] }
@@ -338,5 +341,31 @@ struct NoteSyncCoordinatorTests {
         precondition(coordinator.status == .paused(.accountChanged))
         coordinator.handleLocalChanges([.saved(note.noteID)])
         precondition(engine.saves.isEmpty, "sync stays stopped even if clearing failed")
+    }
+
+    @MainActor
+    static func testUnavailableStoreAsksForFullRefetch() throws {
+        let (coordinator, store, _) = make()
+        var refetches = 0
+        coordinator.onNeedsFullRefetch = { refetches += 1 }
+        store.applyError = PipelineHistoryStoreError.storeUnavailable
+        _ = coordinator.handleFetched([try fetched(record())], deletions: [])
+        precondition(refetches == 1, "a record the store couldn't take is fetched again from the start")
+        store.applyError = nil
+        store.isReadyForSync = false
+        let change = coordinator.handleFetched([try fetched(record())], deletions: [UUID()])
+        precondition(refetches == 2 && store.applied.isEmpty && store.removed.isEmpty && change == NoteSyncRemoteChange())
+    }
+
+    @MainActor
+    static func testFailedSavesAreRetriedAfterTheNextSync() {
+        let (coordinator, _, engine) = make()
+        let full = UUID(), other = UUID()
+        coordinator.handleSendFailures([.quotaExceeded(noteID: full), .other(noteID: other)])
+        precondition(engine.saves.isEmpty)
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(Set(engine.saves) == [full, other], "notes that couldn't upload are tried again")
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves.count == 2, "each failure is retried once per failure")
     }
 }

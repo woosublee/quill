@@ -3,6 +3,8 @@ import Foundation
 /// What the coordinator needs from the note store. `PipelineHistoryStore`
 /// provides it; tests use a fake.
 protocol NoteSyncLocalStore: AnyObject {
+    /// False while the store can't save (it needs recovery).
+    var isReadyForSync: Bool { get }
     func syncRecord(id: UUID) -> NoteSyncRecord?
     func syncSystemFields(id: UUID) -> Data?
     func setSyncSystemFields(_ data: Data?, id: UUID) throws
@@ -80,6 +82,12 @@ final class NoteSyncCoordinator {
         }
     }
     var onStatusChange: ((NoteSyncStatus) -> Void)?
+    /// A fetched record couldn't be saved locally while the engine moved
+    /// past it, so sync must start over from the beginning.
+    var onNeedsFullRefetch: (() -> Void)?
+    /// Saves that failed for lack of space or another lasting reason; tried
+    /// again after the next sync finishes.
+    private var savesToRetry: Set<UUID> = []
 
     /// After an account change or a deletion elsewhere nothing more is sent;
     /// sync starts again only when the user turns it on.
@@ -178,14 +186,15 @@ final class NoteSyncCoordinator {
                     continue
                 }
                 if result != .updated(needsUpload: false) { resend.append(id) }
-            case .quotaExceeded:
+            case .quotaExceeded(let id):
                 quotaCount += 1
+                savesToRetry.insert(id)
             case .network:
                 offline = true
             case .unknownItemOnDelete(let id):
                 try? store.setSyncSystemFields(nil, id: id)
-            case .other:
-                break
+            case .other(let id):
+                savesToRetry.insert(id)
             }
         }
         if !isStopped {
@@ -207,7 +216,12 @@ final class NoteSyncCoordinator {
         // After an account change or a deletion elsewhere, nothing that
         // arrives touches local notes.
         guard !isStopped else { return change }
+        guard store.isReadyForSync else {
+            onNeedsFullRefetch?()
+            return change
+        }
         var needsUpload: [UUID] = []
+        var needsFullRefetch = false
         for fetched in records {
             guard let payload = fetched.payload,
                   let record = try? NoteSyncPayload.decode(payload),
@@ -223,9 +237,17 @@ final class NoteSyncCoordinator {
                     change.changed.append(record.noteID)
                     needsUpload.append(record.noteID)
                 }
-            } catch {
+            } catch PipelineHistorySyncError.incompleteRecord, PipelineHistorySyncError.unreadableRecord {
                 change.skipped += 1
+            } catch {
+                // The store couldn't save it; the record would be lost once
+                // the engine saves its position.
+                needsFullRefetch = true
             }
+        }
+        if needsFullRefetch {
+            onNeedsFullRefetch?()
+            return change
         }
         for id in deletions {
             if let assets = try? store.removeSynced(id: id) {
@@ -242,6 +264,11 @@ final class NoteSyncCoordinator {
     /// A fetch or send finished. With nothing left to send, sync is up to date.
     func handleFetchFinished(pending: Int) {
         guard !isStopped else { return }
+        if !savesToRetry.isEmpty {
+            let retry = Array(savesToRetry)
+            savesToRetry = []
+            engine.enqueueSaves(retry)
+        }
         if case .uploading = status, uploadDone < uploadTotal, pending > 0 { return }
         if pending == 0 {
             status = .upToDate(now())

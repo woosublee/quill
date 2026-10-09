@@ -12,6 +12,11 @@ protocol NoteSyncEngineHandle: NoteSyncEngineClient {
     func stop(forgetState: Bool)
 }
 
+enum NoteSyncEngineError: Error {
+    case notRunning
+    case zoneDeleteFailed
+}
+
 struct NoteSyncEngineEvents {
     let remoteChange: @MainActor (NoteSyncRemoteChange) -> Void
 }
@@ -49,9 +54,12 @@ final class NoteSyncController: ObservableObject {
     /// replaced (history recovery); the engine restarts on the new one.
     func attach(store: NoteSyncLocalStore) {
         guard self.store !== store else { return }
-        stopEngine(forgetState: false)
+        let isReplacement = self.store != nil
+        // A replaced store (history recovery) doesn't hold what the old one
+        // synced, so its sync starts over: everything up, everything down.
+        stopEngine(forgetState: isReplacement)
         self.store = store
-        if isEnabled { startEngine(initialUpload: false) }
+        if isEnabled { startEngine(initialUpload: isReplacement) }
     }
 
     var syncableNoteCount: Int {
@@ -69,7 +77,8 @@ final class NoteSyncController: ObservableObject {
     func turnOff(deleteFromICloud: Bool) async -> Bool {
         if deleteFromICloud {
             do {
-                try await engine?.deleteAllFromICloud()
+                guard let engine else { throw NoteSyncEngineError.notRunning }
+                try await engine.deleteAllFromICloud()
             } catch {
                 print("[NoteSync] Deleting from iCloud failed")
                 return false
@@ -92,7 +101,7 @@ final class NoteSyncController: ObservableObject {
     }
 
     private func startEngine(initialUpload: Bool) {
-        guard let store,
+        guard let store, store.isReadyForSync,
               let engine = makeEngine(NoteSyncEngineEvents(remoteChange: { [weak self] change in
                   self?.onRemoteChange?(change)
               })) else { return }
@@ -100,12 +109,23 @@ final class NoteSyncController: ObservableObject {
         coordinator.onStatusChange = { [weak self] status in
             self?.coordinatorStatusChanged(status)
         }
+        coordinator.onNeedsFullRefetch = { [weak self] in
+            // Restart after the engine's current event returns.
+            DispatchQueue.main.async { self?.startOver() }
+        }
         engine.attach(coordinator)
         self.engine = engine
         self.coordinator = coordinator
         status = coordinator.status
         engine.start()
         if initialUpload { coordinator.startInitialUpload() }
+    }
+
+    private func startOver() {
+        guard isEnabled, coordinator != nil else { return }
+        print("[NoteSync] Starting over after a record couldn't be saved")
+        stopEngine(forgetState: true)
+        startEngine(initialUpload: true)
     }
 
     private func stopEngine(forgetState: Bool) {

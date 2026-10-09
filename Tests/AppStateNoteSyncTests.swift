@@ -155,6 +155,9 @@ struct AppStateNoteSyncTests {
     }
 
     static func testSourceContracts() throws {
+        let remoteChange = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        // Remote changes never overwrite the list mid-recovery.
+        precondition(remoteChange.contains("    private func applyRemoteNoteChange(_ change: NoteSyncRemoteChange) {\n        guard !isHistoryRecoveryOperationInProgress, !isHistoryUnavailable else { return }"))
         let appState = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
         let settings = try String(contentsOfFile: "Sources/SettingsView.swift", encoding: .utf8)
         let delegate = try String(contentsOfFile: "Sources/AppDelegate.swift", encoding: .utf8)

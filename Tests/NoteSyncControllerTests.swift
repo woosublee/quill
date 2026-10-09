@@ -12,12 +12,16 @@ struct NoteSyncControllerTests {
         testTurnOffAndDeleteFromICloud()
         testAccountChangeTurnsSyncOff()
         testLocalChangesReachTheEngineOnlyWhileOn()
+        testReplacedStoreStartsOverWithFullUpload()
+        testUnreadyStoreDoesNotStartSync()
+        testDeleteFromICloudWithoutEngineFails()
         print("NoteSyncControllerTests passed")
     }
 
     final class FakeStore: NoteSyncLocalStore {
         var ids: [UUID] = []
         var cleared = false
+        var isReadyForSync = true
         func syncRecord(id: UUID) -> NoteSyncRecord? {
             ids.contains(id) ? NoteSyncRecord(noteID: id, fields: [:], clock: NoteFieldClock(stamps: [:]), deletedAt: nil) : nil
         }
@@ -165,5 +169,36 @@ struct NoteSyncControllerTests {
             RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
         }
         return finished
+    }
+
+    @MainActor
+    static func testReplacedStoreStartsOverWithFullUpload() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        let first = engine()
+        let replacement = FakeStore()
+        replacement.ids = [UUID()]
+        controller.attach(store: replacement)
+        precondition(first?.stopped == [true], "the old store's sync position is forgotten")
+        precondition(engine() !== first && engine()?.saves == replacement.ids, "the new store uploads everything")
+    }
+
+    @MainActor
+    static func testUnreadyStoreDoesNotStartSync() {
+        let (controller, store, engine, _) = make(enabled: true)
+        store.isReadyForSync = false
+        controller.attach(store: store)
+        precondition(engine() == nil, "nothing is fetched into a store that can't save it")
+        precondition(controller.isEnabled)
+    }
+
+    @MainActor
+    static func testDeleteFromICloudWithoutEngineFails() {
+        let (controller, store, _, _) = make(enabled: true)
+        store.isReadyForSync = false
+        controller.attach(store: store)
+        var succeeded = true
+        precondition(expectation { succeeded = await controller.turnOff(deleteFromICloud: true) })
+        precondition(!succeeded && controller.isEnabled, "nothing was deleted, so sync stays on and says so")
     }
 }

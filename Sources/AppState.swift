@@ -12956,7 +12956,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     // MARK: - iCloud note sync
 
     /// Creates the sync controller at launch. It stays off until the user
-    /// turns it on in Settings; when it is on, it fetches right away.
+    /// turns it on in Settings.
     @MainActor
     func startNoteSync() {
         guard noteSyncController == nil else { return }
@@ -12965,8 +12965,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             self?.applyRemoteNoteChange(change)
         }
         noteSyncController = controller
+        // Attaching starts the engine when sync is on, and it fetches then.
         connectNoteSync(to: pipelineHistoryStore)
-        controller.fetchSoon()
     }
 
     private func connectNoteSync(to store: PipelineHistoryStore) {
@@ -12991,6 +12991,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// of notes deleted elsewhere.
     @MainActor
     private func applyRemoteNoteChange(_ change: NoteSyncRemoteChange) {
+        guard !isHistoryRecoveryOperationInProgress, !isHistoryUnavailable else { return }
         applyLoadedHistory(pipelineHistoryStore.loadAllHistory())
         let changed = Set(change.changed)
         for item in storedHistory where changed.contains(item.id) {

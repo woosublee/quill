@@ -659,6 +659,10 @@ final class PipelineHistoryStore {
 
     // MARK: - iCloud sync
 
+    var isReadyForSync: Bool {
+        availability == .ready && isStoreLoaded
+    }
+
     /// The note as it travels to other Macs, with the unknown keys a newer
     /// build sent kept.
     func syncRecord(id: UUID) -> NoteSyncRecord? {
