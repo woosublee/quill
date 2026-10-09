@@ -2162,12 +2162,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    /// The Calendar tab reads the calendar list only when it hasn't been
-    /// read yet; after that the scheduled refresh, the refresh button, and
-    /// coming back online keep it current.
+    /// The Calendar tab reads the calendar list when it hasn't been read
+    /// yet or a problem is showing; otherwise the refresh button, the
+    /// calendar picker, and coming back online keep it current.
     @MainActor
     func loadGoogleCalendarsIfNeeded() async {
-        guard availableGoogleCalendars.isEmpty, !isGoogleCalendarBusy else { return }
+        guard googleCalendarConnection.isConnected, !isGoogleCalendarBusy else { return }
+        guard availableGoogleCalendars.isEmpty || googleCalendarConnection.health.status != .healthy else { return }
         await loadGoogleCalendars(force: true)
     }
 
@@ -4910,6 +4911,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         do {
             guard let loadedToken = try await validGoogleCalendarToken() else {
                 await MainActor.run {
+                    googleReminderEventsCache = nil
                     markGoogleCalendarNeedsReconnect(
                         feature: .recordingReminders,
                         message: localizedCatalogString("Google Calendar needs reconnecting. Reconnect to restore meeting reminders.")
@@ -4920,6 +4922,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             token = loadedToken
         } catch {
             await MainActor.run {
+                // Older saved events must not stand in for this newer fetch.
+                googleReminderEventsCache = nil
                 if Self.isGoogleCalendarReconnectError(error) {
                     markGoogleCalendarNeedsReconnect(
                         feature: .recordingReminders,
@@ -4960,7 +4964,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     fetchedAt: Date(),
                     timeMin: timeMin,
                     timeMax: fetchMax,
-                    accountEmail: token.accountEmail,
+                    // Matched against the connection's account on reuse.
+                    accountEmail: googleCalendarConnection.accountEmail,
                     calendarIDs: selectedCalendarIDs,
                     events: fetchResult.events
                 )

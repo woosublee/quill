@@ -230,6 +230,10 @@ struct AppStateTranscriptionConfigurationTests {
         await testGoogleCalendarSuccessClearsOffline()
         await testGoogleCalendarOfflineKeepsLastCheckedTime()
         await testCalendarTabLoadsGoogleCalendarsOnlyOnce()
+        await testCalendarTabRechecksGoogleAfterAProblem()
+        await testCalendarTabLeavesDisconnectedGoogleAlone()
+        await testFailedTokenDropsSavedGoogleEvents()
+        await testSavedGoogleEventsReuseWithoutTokenEmail()
         await testCancelledReminderFetchLeavesHealthAlone()
         await testAppleOnlyRefreshReusesGoogleEvents()
         await testReusedGoogleEventsMustMatchTheSelection()
@@ -3249,6 +3253,83 @@ struct AppStateTranscriptionConfigurationTests {
         assert(!appState.availableGoogleCalendars.isEmpty)
         await appState.loadGoogleCalendarsIfNeeded()
         assert(counter.requests == afterFirst, "a later visit doesn't ask Google again")
+    }
+
+    /// A problem shown for Google is checked again when the tab opens.
+    private static func testCalendarTabRechecksGoogleAfterAProblem() async {
+        final class Counter: @unchecked Sendable { var requests = 0 }
+        let counter = Counter()
+        let restore = connectGoogleForTest { request in
+            if request.url?.path.contains("calendarList") == true { counter.requests += 1 }
+            let body = Data(#"{"items":[{"id":"primary","summary":"Work"}]}"#.utf8)
+            return (body, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        defer { restore() }
+        let appState = makeAppState()
+        await appState.loadGoogleCalendarsIfNeeded()
+        let afterFirst = counter.requests
+        await MainActor.run { appState.markGoogleCalendarOffline(feature: .calendarList) }
+        await appState.loadGoogleCalendarsIfNeeded()
+        assert(counter.requests == afterFirst + 1, "a problem is checked again")
+        assert(appState.googleCalendarConnection.health.status == .healthy)
+    }
+
+    /// With Google not connected, opening the tab leaves its state alone.
+    private static func testCalendarTabLeavesDisconnectedGoogleAlone() async {
+        resetDefaults()
+        let loader = AppState.googleCalendarTokenLoader
+        AppState.googleCalendarTokenLoader = { _ in nil }
+        defer { AppState.googleCalendarTokenLoader = loader }
+        let appState = makeAppState()
+        let before = appState.googleCalendarConnection
+        await appState.loadGoogleCalendarsIfNeeded()
+        assert(appState.googleCalendarConnection == before, "no reconnect state for a Google that isn't connected")
+    }
+
+    /// When the sign-in can't be renewed, the saved Google events aren't
+    /// reused: they were never confirmed after that.
+    private static func testFailedTokenDropsSavedGoogleEvents() async {
+        final class Counter: @unchecked Sendable { var requests = 0 }
+        let counter = Counter()
+        let restore = connectGoogleForTest { request in
+            counter.requests += 1
+            let body = Data(#"{"items":[]}"#.utf8)
+            return (body, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        defer { restore() }
+        let appState = makeAppState()
+        await MainActor.run { appState.setGoogleCalendarSelection(["primary"]) }
+        let start = Date(), end = Date().addingTimeInterval(3600)
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end)
+        assert(counter.requests == 1)
+        let loader = AppState.googleCalendarTokenLoader
+        AppState.googleCalendarTokenLoader = { _ in nil }
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end)
+        AppState.googleCalendarTokenLoader = loader
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end, reusingGoogleEvents: true)
+        assert(counter.requests == 2, "the Apple-only refresh asks Google rather than reusing unconfirmed events")
+    }
+
+    /// A token without an email still lets an Apple-only refresh reuse
+    /// the Google events (#474).
+    private static func testSavedGoogleEventsReuseWithoutTokenEmail() async {
+        final class Counter: @unchecked Sendable { var requests = 0 }
+        let counter = Counter()
+        let restore = connectGoogleForTest { request in
+            counter.requests += 1
+            let body = Data(#"{"items":[]}"#.utf8)
+            return (body, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        defer { restore() }
+        AppState.googleCalendarTokenLoader = { _ in
+            GoogleCalendarOAuthToken(accessToken: "access-token", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(3600), accountEmail: nil)
+        }
+        let appState = makeAppState()
+        await MainActor.run { appState.setGoogleCalendarSelection(["primary"]) }
+        let start = Date(), end = Date().addingTimeInterval(3600)
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end)
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end, reusingGoogleEvents: true)
+        assert(counter.requests == 1, "the saved events are reused")
     }
 
     /// A reminder refresh replaced by a newer one is cancelled mid-fetch;
