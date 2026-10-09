@@ -9,6 +9,7 @@ struct NoteSyncPayloadTests {
         try testUnknownValueShapesSurvive()
         testMalformedPayloadIsRejected()
         try testFieldsAloneRoundTrip()
+        try testRecordFromItemSurvivesTransportUnchanged()
         print("NoteSyncPayloadTests passed")
     }
 
@@ -63,5 +64,31 @@ struct NoteSyncPayloadTests {
         let fields: [String: NoteSyncValue] = ["futureField": .string("kept"), "n": .int(3)]
         let decoded = try NoteSyncPayload.decodeFields(NoteSyncPayload.encodeFields(fields))
         precondition(decoded == fields)
+    }
+
+    /// A note's own record must read back equal after the trip, or two Macs
+    /// keep re-sending it: dates in fields are kept to the millisecond too.
+    static func testRecordFromItemSurvivesTransportUnchanged() throws {
+        let fine = t0.addingTimeInterval(0.123_456_7)
+        let item = PipelineHistoryItem(
+            id: UUID(),
+            timestamp: fine,
+            recordingStartedAt: fine.addingTimeInterval(-60),
+            recordingEndedAt: fine,
+            rawTranscript: "synthetic raw",
+            postProcessedTranscript: "synthetic edited",
+            postProcessingPrompt: nil,
+            contextSummary: "",
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: "succeeded",
+            debugStatus: "",
+            customVocabulary: "",
+            deletedAt: fine,
+            fieldClock: NoteFieldClock.uniform(fine)
+        )
+        let record = NoteSyncRecord(item: item)
+        let received = try NoteSyncPayload.decode(NoteSyncPayload.encode(record))
+        precondition(received == record, "a record reads back equal after transport")
     }
 }

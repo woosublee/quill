@@ -108,9 +108,9 @@ struct NoteSyncRecord: Equatable, Sendable {
         put(.meetingSummaryJSON, item.meetingSummaryJSON.map(NoteSyncValue.data))
         put(.meetingSummaryAttempt, Self.encoded(item.meetingSummaryAttempt.map(Self.withoutProviderHost)))
         put(.calendarMatch, Self.encoded(item.calendarMatch))
-        put(.timestamp, .date(item.timestamp))
-        put(.recordingStartedAt, item.recordingStartedAt.map(NoteSyncValue.date))
-        put(.recordingEndedAt, item.recordingEndedAt.map(NoteSyncValue.date))
+        put(.timestamp, .date(item.timestamp.roundedToMilliseconds()))
+        put(.recordingStartedAt, item.recordingStartedAt.map { .date($0.roundedToMilliseconds()) })
+        put(.recordingEndedAt, item.recordingEndedAt.map { .date($0.roundedToMilliseconds()) })
         put(.transcriptionLanguageCode, .string(item.transcriptionLanguageCode))
         put(.spokenLanguageCode, item.spokenLanguageCode.map(NoteSyncValue.string))
         put(.spokenLanguageResolution, item.spokenLanguageResolution.map { .string($0.rawValue) })
@@ -125,7 +125,7 @@ struct NoteSyncRecord: Equatable, Sendable {
             noteID: item.id,
             fields: fields,
             clock: (item.fieldClock ?? NoteFieldClock.uniform(item.timestamp)).roundedToMilliseconds(),
-            deletedAt: item.deletedAt
+            deletedAt: item.deletedAt?.roundedToMilliseconds()
         )
     }
 
@@ -254,8 +254,13 @@ extension NoteFieldClock {
     /// CloudKit keeps dates to the millisecond, so stamps are compared and
     /// sent at that precision; the same edit then reads equal on every Mac.
     func roundedToMilliseconds() -> NoteFieldClock {
-        NoteFieldClock(stamps: stamps.mapValues {
-            Date(timeIntervalSince1970: ($0.timeIntervalSince1970 * 1000).rounded() / 1000)
-        })
+        NoteFieldClock(stamps: stamps.mapValues { $0.roundedToMilliseconds() })
+    }
+}
+
+extension Date {
+    /// The date as the sync payload carries it.
+    func roundedToMilliseconds() -> Date {
+        Date(timeIntervalSince1970: (timeIntervalSince1970 * 1000).rounded() / 1000)
     }
 }
