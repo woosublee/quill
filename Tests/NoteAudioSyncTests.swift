@@ -6,6 +6,7 @@ struct NoteAudioSyncTests {
         testPartCounts()
         testPartRanges()
         try testWritePartCopiesTheRightBytes()
+        try testWritePartPastTheEndThrows()
         try testSHA256()
         testPartIDRoundTrip()
         testManifestShape()
@@ -44,6 +45,19 @@ struct NoteAudioSyncTests {
         precondition(joined == bytes, "parts rejoin to the original bytes")
         let last = try Data(contentsOf: dir.appendingPathComponent("2.part"))
         precondition(last == Data([8, 9]))
+    }
+
+    /// The file got shorter after the part was planned: an error, not a crash.
+    static func testWritePartPastTheEndThrows() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quill-audio-short-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let source = dir.appendingPathComponent("source.wav")
+        try Data([1, 2, 3]).write(to: source)
+        do {
+            try NoteAudioParts.writePart(index: 2, of: source, partSize: 4, to: dir.appendingPathComponent("2.part"))
+            preconditionFailure("a part past the end of the file must throw")
+        } catch {}
     }
 
     static func testSHA256() throws {

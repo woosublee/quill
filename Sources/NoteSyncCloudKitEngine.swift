@@ -160,7 +160,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
                     for: chunk.map(NoteAudioCloudRecord.recordID(for:)),
                     desiredKeys: NoteAudioCloudRecord.stampKeys
                 )
-            } catch let error as CKError where error.code == .zoneNotFound {
+            } catch let error as CKError where Self.isZoneGone(error.code) {
                 continue
             }
             for (recordID, result) in results {
@@ -174,8 +174,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
                         stamps[part] = stamp
                     }
                 case .failure(let error):
-                    let code = (error as? CKError)?.code
-                    if code == .unknownItem || code == .zoneNotFound { continue }
+                    if let code = (error as? CKError)?.code, code == .unknownItem || Self.isZoneGone(code) { continue }
                     throw error
                 }
             }
@@ -259,7 +258,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         case .success?:
             return true
         case .failure(let error)?:
-            return (error as? CKError)?.code == .zoneNotFound
+            return ((error as? CKError)?.code).map(Self.isZoneGone) ?? false
         case nil:
             return false
         }
@@ -346,7 +345,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
                 if sent.deletedZoneIDs.contains(zoneID) {
                     lock.withLock { _ = deletedZones.insert(zoneID) }
                 } else if let error = sent.failedZoneDeletes[zoneID] {
-                    if error.code == .zoneNotFound {
+                    if Self.isZoneGone(error.code) {
                         lock.withLock { _ = deletedZones.insert(zoneID) }
                     } else {
                         lock.withLock { zoneDeleteFailed = true }
@@ -463,11 +462,13 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
                         savedParts.append(part)
                         continue
                     }
-                    // A part of an earlier file: send again over it.
+                    // A part of an earlier file: sent again over it after
+                    // the next sync, within the retry limit, so a conflict
+                    // that keeps coming back can't resend 50 MB forever.
                     if let server = failure.error.serverRecord {
                         lock.withLock { audioServerFields[recordID] = NoteSyncCloudRecord.systemFields(of: server) }
                     }
-                    engine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
+                    audioFailures.append(.failed(part))
                 case .unknownItem:
                     lock.withLock { audioServerFields[recordID] = nil }
                     engine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
@@ -579,11 +580,17 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         do {
             _ = try await database.recordZone(for: NoteSyncCloudRecord.zoneID())
             return true
-        } catch let error as CKError where error.code == .zoneNotFound {
+        } catch let error as CKError where Self.isZoneGone(error.code) {
             return false
         } catch {
             return nil
         }
+    }
+
+    /// The zone isn't there: never made, deleted by Quill, or deleted by
+    /// the user in System Settings.
+    private static func isZoneGone(_ code: CKError.Code) -> Bool {
+        code == .zoneNotFound || code == .userDeletedZone
     }
 
     /// The zone existed when sync started, so a missing one means another

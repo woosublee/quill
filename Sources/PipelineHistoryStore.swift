@@ -726,11 +726,8 @@ final class PipelineHistoryStore {
                 guard let entity = try fetchEntry(id: id) else {
                     throw PipelineHistoryStoreError.historyEntryNotFound
                 }
-                let clock = (Self.decodeClock(entity.fieldClockJSON)
-                    ?? NoteFieldClock.uniform(entity.timestamp ?? .distantPast))
-                    .setting(.audio, to: now())
                 entity.audioSyncManifestJSON = manifest?.encoded()
-                entity.fieldClockJSON = Self.encodeClock(clock)
+                Self.stampAudioGroup(of: entity, at: now())
                 try saveContext()
             } catch {
                 container.viewContext.rollback()
@@ -758,10 +755,7 @@ final class PipelineHistoryStore {
                     entity.syncSystemFields = nil
                     if forgettingAudio, entity.audioSyncManifestJSON != nil {
                         entity.audioSyncManifestJSON = nil
-                        let clock = (Self.decodeClock(entity.fieldClockJSON)
-                            ?? NoteFieldClock.uniform(entity.timestamp ?? .distantPast))
-                            .setting(.audio, to: stamp)
-                        entity.fieldClockJSON = Self.encodeClock(clock)
+                        Self.stampAudioGroup(of: entity, at: stamp)
                     }
                 }
                 try saveContext()
@@ -896,6 +890,13 @@ final class PipelineHistoryStore {
     }
 
     private static let knownSyncKeys = Set(NoteSyncField.allCases.map(\.rawValue))
+
+    /// Marks the audio group as changed now, so the change wins merges.
+    private static func stampAudioGroup(of entity: PipelineHistoryEntry, at date: Date) {
+        let clock = (decodeClock(entity.fieldClockJSON) ?? NoteFieldClock.uniform(entity.timestamp ?? .distantPast))
+            .setting(.audio, to: date)
+        entity.fieldClockJSON = encodeClock(clock)
+    }
 
     private static func audioParts(of entity: PipelineHistoryEntry) -> Int {
         entity.audioSyncManifestJSON.flatMap(NoteAudioManifest.decode)?.parts ?? 0

@@ -227,7 +227,7 @@ final class NoteSyncCoordinator {
         uploadWaitingText = Set(ids)
         savesAfterCheck = Set(ids.filter { store.audioManifest(id: $0) != nil })
         engine.enqueueSaves(ids.filter { !savesAfterCheck.contains($0) })
-        uploadWaitingAudio = Set(ids.filter { store.audioManifest(id: $0) == nil && localAudio($0) != nil })
+        uploadWaitingAudio = Set(ids.filter { store.audioManifest(id: $0) == nil && usableAudio($0) != nil })
         status = ids.isEmpty ? .starting : .uploading(done: 0, total: ids.count)
         print("[NoteSync] Queued \(ids.count) notes for the first upload")
         checkAudioSoon(ids, verifyMarked: true)
@@ -491,9 +491,10 @@ final class NoteSyncCoordinator {
                 engine.enqueueAudioDeletes(found)
                 print("[NoteSync] Deleting \(found.count) audio parts left without a marker")
             }
-            // A note with a part at the window's end may have more.
-            let last = start + Self.findWindow - 1
-            remaining = remaining.filter { found.contains(NoteAudioPartID(noteID: $0, index: last)) }
+            // A note with any part in this window may have more after it
+            // (a part can be missing in the middle, given up on).
+            let foundNotes = Set(found.map(\.noteID))
+            remaining = remaining.filter(foundNotes.contains)
             start += Self.findWindow
         }
     }
@@ -507,7 +508,10 @@ final class NoteSyncCoordinator {
         let count = max(markedParts, audioPartCounts[id] ?? 0, (waiting.map(\.index).max() ?? -1) + 1)
         audioPartCounts[id] = nil
         audioSavesToRetry = audioSavesToRetry.filter { $0.noteID != id }
+        audioPartsGivenUp = audioPartsGivenUp.filter { $0.noteID != id }
+        audioFailures = audioFailures.filter { $0.key.noteID != id }
         audioToCheck.remove(id)
+        savesAfterCheck.remove(id)
         uploadWaitingText.remove(id)
         uploadWaitingAudio.remove(id)
         return Self.parts(of: id, count: count)

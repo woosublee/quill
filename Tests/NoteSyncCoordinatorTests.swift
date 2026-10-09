@@ -70,6 +70,9 @@ struct NoteSyncCoordinatorTests {
         try await testAudioChangedDuringCheckIsCheckedAgain()
         try await testEmptyLocalFileStillChecksTheMarker()
         try testGivenUpNotesAreNotLookedUpOnRemoteEdits()
+        try await testFindKeepsGoingPastAMissingPart()
+        try testEmptyAudioDoesNotHoldUpProgress()
+        try await testHeldNoteDeletedDuringItsCheckIsNotSent()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -744,6 +747,46 @@ struct NoteSyncCoordinatorTests {
         store.applyResult = .updated(needsUpload: false)
         _ = coordinator.handleFetched([try fetched(store.records[id]!)], deletions: [])
         precondition(coordinator.lastAudioCheck == nil && engine.lookups == 0)
+    }
+
+    /// A part given up at a window's last index doesn't hide the parts after it.
+    @MainActor
+    static func testFindKeepsGoingPastAMissingPart() async throws {
+        let (coordinator, _, engine, dir) = try makeWithAudio([:])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let id = UUID()
+        let stamp = NoteAudioPartStamp(fileName: "x.wav", fileBytes: 1)
+        for index in 0..<31 where index != NoteSyncCoordinator.findWindow - 1 {
+            engine.stamps[NoteAudioPartID(noteID: id, index: index)] = stamp
+        }
+        coordinator.handleLocalChanges([.deleted(id, wasSynced: true, audioParts: 0, hasAudio: true)])
+        await coordinator.lastAudioCheck?.value
+        precondition(engine.audioDeletes.count == 30, "every part found is deleted")
+    }
+
+    @MainActor
+    static func testEmptyAudioDoesNotHoldUpProgress() throws {
+        let (coordinator, store, _, dir) = try makeWithAudio(["a.wav": 0])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let id = noteWithAudio(store)
+        coordinator.startInitialUpload()
+        coordinator.handleSaved(id: id, systemFields: Data([1]))
+        precondition(coordinator.status == .uploading(done: 1, total: 1), "an empty file has nothing to send")
+    }
+
+    @MainActor
+    static func testHeldNoteDeletedDuringItsCheckIsNotSent() async throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio(["a.wav": 10])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let id = noteWithAudio(store)
+        store.manifests[id] = NoteAudioManifest(sha256: "x", bytes: 10, partSize: 50_000_000, parts: 1)
+        engine.onLookup = {
+            store.records[id] = nil
+            coordinator.handleLocalChanges([.deleted(id, wasSynced: false, audioParts: 1, hasAudio: true)])
+        }
+        coordinator.startInitialUpload()
+        await coordinator.lastAudioCheck?.value
+        precondition(!engine.saves.contains(id), "a deleted note isn't sent")
     }
 
     @MainActor

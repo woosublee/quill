@@ -79,6 +79,11 @@ struct NoteAudioManifest: Codable, Equatable, Sendable {
     }
 }
 
+enum NoteAudioPartsError: Error {
+    /// The file is shorter than when the part was planned.
+    case pastEnd
+}
+
 /// How a note's audio file splits into parts for iCloud.
 enum NoteAudioParts {
     static let partSize: Int64 = 50_000_000
@@ -99,6 +104,7 @@ enum NoteAudioParts {
         let input = try FileHandle(forReadingFrom: source)
         defer { try? input.close() }
         let bytes = Int64(try input.seekToEnd())
+        guard Int64(index) * partSize < bytes else { throw NoteAudioPartsError.pastEnd }
         let range = range(index: index, bytes: bytes, partSize: partSize)
         try? FileManager.default.removeItem(at: destination)
         FileManager.default.createFile(atPath: destination.path, contents: nil)
