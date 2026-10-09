@@ -541,6 +541,13 @@ final class NoteSyncCoordinator {
         }
     }
 
+    /// Another Mac's new audio file replaced the one this Mac was sending
+    /// (a fetch or a conflict merge cleared the upload key): only what this
+    /// Mac sent goes; the other Mac's upload of the new file stays.
+    private func cleanUpsForClearedUploads() -> [UUID: Set<String>?] {
+        store.takeClearedAudioUploadKeys().mapValues { [NoteAudioPartID.key(sha256: $0)] }
+    }
+
     /// Adds clean-ups to retry; "every unused key" wins over a key set.
     private func mergeCleanUp(_ targets: [UUID: Set<String>?]) {
         for (id, keys) in targets {
@@ -778,6 +785,7 @@ final class NoteSyncCoordinator {
         }
         if !resend.isEmpty { enqueueNoteSaves(resend) }
         if !deletes.isEmpty { engine.enqueueDeletes(deletes) }
+        cleanUpAudioSoon(cleanUpsForClearedUploads())
         if quotaCount > 0 {
             status = .paused(.quotaExceeded(pending: quotaCount))
         } else if offline {
@@ -850,11 +858,8 @@ final class NoteSyncCoordinator {
             }
         }
         var cleanUps: [UUID: Set<String>?] = Dictionary(lookUp.map { ($0, nil) }, uniquingKeysWith: { first, _ in first })
-        // Another Mac's new audio file replaced the one this Mac was
-        // sending: only what this Mac sent goes; the other Mac's upload of
-        // the new file must stay.
-        for (id, key) in store.takeClearedAudioUploadKeys() where cleanUps[id] == nil {
-            cleanUps[id] = [NoteAudioPartID.key(sha256: key)]
+        for (id, keys) in cleanUpsForClearedUploads() where cleanUps[id] == nil {
+            cleanUps[id] = keys
         }
         if !audioDeletes.isEmpty { engine.enqueueAudioDeletes(audioDeletes) }
         cleanUpAudioSoon(cleanUps)
@@ -866,7 +871,12 @@ final class NoteSyncCoordinator {
             engine.cancelDeletes(returned)
             let back = Set(returned)
             audioDeletesToRetry = audioDeletesToRetry.filter { !back.contains($0.noteID) }
-            for id in returned { engine.cancelAudioDeletes(noteID: id) }
+            for id in returned {
+                engine.cancelAudioDeletes(noteID: id)
+                // A waiting clean-up would delete parts another Mac is
+                // still sending for it.
+                audioToClean[id] = nil
+            }
         }
         if !needsUpload.isEmpty, !isStopped { enqueueNoteSaves(needsUpload) }
         // Another Mac may have cleared a marker for audio this Mac holds:

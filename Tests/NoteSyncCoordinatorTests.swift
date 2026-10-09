@@ -76,6 +76,7 @@ struct NoteSyncCoordinatorTests {
         try await testReplacedWithTheSameBytesKeepsTheParts()
         try await testFileChangedOnAnotherMacCleansUpThisMacsParts()
         try testReturnedNoteKeepsItsAudio()
+        try await testReturnedNoteDropsItsWaitingCleanUp()
         try await testUnbackedMarkerForAnotherFileUploadsTheFileHere()
         try await testLocalReplaceCleansUpPartsNoMarkerNamed()
         print("NoteSyncCoordinatorTests passed")
@@ -593,6 +594,28 @@ struct NoteSyncCoordinatorTests {
         precondition(engine.cancelledAudioDeletes == [note.noteID] && engine.audioDeletes.isEmpty)
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.audioDeletes.isEmpty, "the failed delete isn't retried either")
+    }
+
+    /// Deleted here while offline, with a clean-up still waiting; another
+    /// Mac edited it and is uploading new audio. The note comes back, and
+    /// the waiting clean-up must not delete that upload.
+    @MainActor
+    static func testReturnedNoteDropsItsWaitingCleanUp() async throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio([:])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let note = record(audio: "b.wav")
+        engine.lookupError = URLError(.notConnectedToInternet)
+        coordinator.handleLocalChanges([.deleted(note.noteID, wasSynced: true, audio: NoteAudioSyncState())])
+        await coordinator.lastAudioCheck?.value
+        engine.lookupError = nil
+        let theirs = parts(note.noteID, 1, "b.wav")
+        engine.iCloud = Set(theirs)
+        store.applyResult = .inserted
+        store.onApply = { store.records[$0.noteID] = $0 }
+        _ = coordinator.handleFetched([try fetched(note)], deletions: [])
+        coordinator.handleFetchFinished(pending: 0)
+        await coordinator.lastAudioCheck?.value
+        precondition(engine.audioDeletes.isEmpty, "the other Mac's upload stays")
     }
 
     /// An upload of an earlier file was cut short (no marker names its
