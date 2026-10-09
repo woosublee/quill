@@ -3,6 +3,15 @@ import Foundation
 struct GoogleCalendarEventFetchResult: Equatable {
     let events: [CalendarEvent]
     let failedCalendarIDs: [String]
+    /// Nil when every calendar was read. `.offline` only when every failure
+    /// was the network; `.cancelled` when the fetch stopped early.
+    var failure: GoogleCalendarFetchFailure?
+
+    init(events: [CalendarEvent], failedCalendarIDs: [String], failure: GoogleCalendarFetchFailure? = nil) {
+        self.events = events
+        self.failedCalendarIDs = failedCalendarIDs
+        self.failure = failure
+    }
 }
 
 struct GoogleCalendarService {
@@ -74,10 +83,12 @@ struct GoogleCalendarService {
         accessToken: String,
         calendarIDs: [String],
         timeMin: Date,
-        timeMax: Date
+        timeMax: Date,
+        isOnline: Bool = true
     ) async -> GoogleCalendarEventFetchResult {
         var events: [CalendarEvent] = []
         var failedCalendarIDs: [String] = []
+        var allOffline = true
         for calendarID in calendarIDs {
             do {
                 let calendarEvents = try await fetchEvents(
@@ -88,11 +99,18 @@ struct GoogleCalendarService {
                 )
                 events.append(contentsOf: calendarEvents)
             } catch {
+                let kind = GoogleCalendarFetchFailure.of(error, isOnline: isOnline)
+                if kind == .cancelled {
+                    // A newer refresh replaced this one; what's left isn't read.
+                    return GoogleCalendarEventFetchResult(events: events, failedCalendarIDs: [], failure: .cancelled)
+                }
+                if kind != .offline { allOffline = false }
                 failedCalendarIDs.append(calendarID)
                 continue
             }
         }
-        return GoogleCalendarEventFetchResult(events: events, failedCalendarIDs: failedCalendarIDs)
+        let failure: GoogleCalendarFetchFailure? = failedCalendarIDs.isEmpty ? nil : (allOffline ? .offline : .failed)
+        return GoogleCalendarEventFetchResult(events: events, failedCalendarIDs: failedCalendarIDs, failure: failure)
     }
 
     private func send<Response: Decodable>(url: URL, accessToken: String) async throws -> Response {

@@ -207,6 +207,16 @@ struct SettingsLocalizationTests {
             )
         )
         assert(!settingsSource.contains("\"\\(minutes) min before\""))
+        assert(settingsSource.contains("CalendarRefreshIntervalText.title(minutes)"))
+        assert(!settingsSource.contains("\"Every \\(minutes) minutes\""))
+        let bundle = try compiledLocalizationBundle()
+        assert(CalendarRefreshIntervalText.title(15, language: "ko", bundle: bundle) == "15분마다")
+        assert(CalendarRefreshIntervalText.title(60, language: "ko", bundle: bundle) == "1시간마다")
+        assert(CalendarRefreshIntervalText.title(15, language: "en", bundle: bundle) == "Every 15 minutes")
+        assert(localizedCatalogString("Offline · Checks again when you're online", language: "ko", bundle: bundle) == "오프라인 · 연결되면 다시 확인해요")
+        // An Apple-only change reuses the Google events it already has.
+        let appStateSource = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        assert(appStateSource.contains("scheduleCalendarRecordingReminderRefresh(reusingGoogleEvents: true)"))
     }
 
     private static func testCalendarConnectionsCopyLocalizes() throws {

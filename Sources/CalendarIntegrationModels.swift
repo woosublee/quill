@@ -231,6 +231,47 @@ enum GoogleCalendarHealthStatus: String, Codable, Equatable {
     case healthy
     case needsReconnect
     case temporaryFailure
+    /// The Mac has no network; checked again when it comes back.
+    case offline
+}
+
+/// Why a Google Calendar request failed, so being offline, or a refresh
+/// replaced by a newer one, doesn't read as a Google problem.
+enum GoogleCalendarFetchFailure: Equatable {
+    case cancelled
+    case offline
+    case failed
+
+    /// `isOnline` is the network monitor's view: a timeout or a missing
+    /// host while it says offline is the network, otherwise the server.
+    static func of(_ error: Error, isOnline: Bool) -> GoogleCalendarFetchFailure {
+        if error is CancellationError { return .cancelled }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .cancelled:
+                return .cancelled
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed, .internationalRoamingOff:
+                return .offline
+            default:
+                break
+            }
+        }
+        return isOnline ? .failed : .offline
+    }
+}
+
+/// Google events from the last reminder refresh. A refresh caused only by
+/// an Apple Calendar change reuses them instead of asking Google again.
+struct GoogleReminderEventsCache: Equatable {
+    let fetchedAt: Date
+    let events: [CalendarEvent]
+
+    /// The cached events in the window, or nil when they are too old.
+    func events(from start: Date, to end: Date, now: Date, maxAge: TimeInterval) -> [CalendarEvent]? {
+        let age = now.timeIntervalSince(fetchedAt)
+        guard age >= 0, age <= maxAge else { return nil }
+        return events.filter { $0.end > start && $0.start < end }
+    }
 }
 
 enum GoogleCalendarHealthFeature: String, Codable, Equatable {

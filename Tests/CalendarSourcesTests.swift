@@ -120,7 +120,7 @@ struct CalendarSourcesTests {
         precondition(!clear.contains("stopCalendarRecordingReminderSchedulerIfNeeded()"), "Google disconnect must not stop all reminders")
         let reload = block(appState, from: "func reloadAppleCalendars()", to: "\n    }\n")
         precondition(!reload.contains("pruned"), "reload must not drop selected calendars")
-        precondition(reload.contains("scheduleCalendarRecordingReminderRefresh()"), "reload reschedules reminders")
+        precondition(reload.contains("scheduleCalendarRecordingReminderRefresh(reusingGoogleEvents: true)"), "reload reschedules reminders without asking Google again")
         precondition(appState.contains("appleCalendarService.resetStore()"), "store is recreated after access changes")
         precondition(appState.contains("appleCalendarChangeDebounce"), "store-changed bursts are debounced")
         precondition(appState.contains("toleratesGoogleFailure: false"), "reminders keep existing reminders on Google failure")

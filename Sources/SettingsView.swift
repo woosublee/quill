@@ -642,6 +642,9 @@ struct CalendarSettingsView: View {
             case .temporaryFailure:
                 Label("Calendar refresh issue", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
+            case .offline:
+                Label("Offline · Checks again when you're online", systemImage: "wifi.slash")
+                    .foregroundStyle(.secondary)
             }
         } else {
             Label("Not connected", systemImage: "xmark.circle")
@@ -653,7 +656,7 @@ struct CalendarSettingsView: View {
         guard appState.googleCalendarConnection.isConnected else { return nil }
         let health = appState.googleCalendarConnection.health
         switch health.status {
-        case .unknown, .healthy:
+        case .unknown, .healthy, .offline:
             return nil
         case .needsReconnect:
             return health.message ?? localizedCatalogString("Quill can’t access Google Calendar. Reconnect to restore meeting reminders and calendar-based note titles.")
@@ -671,7 +674,7 @@ struct CalendarSettingsView: View {
             return localizedCatalogString("Reconnect Google Calendar to keep meeting recording reminders working.")
         case .temporaryFailure:
             return localizedCatalogString("Calendar reminders may be incomplete until the next successful refresh.")
-        case .unknown, .healthy:
+        case .unknown, .healthy, .offline:
             return nil
         }
     }
@@ -684,10 +687,6 @@ struct CalendarSettingsView: View {
 
     private var googleCalendarHealthMessageColor: Color {
         appState.googleCalendarConnection.health.status == .needsReconnect ? .red : .orange
-    }
-
-    private func calendarRefreshIntervalTitle(_ minutes: Int) -> String {
-        minutes == 60 ? "Every hour" : "Every \(minutes) minutes"
     }
 
     @ViewBuilder
@@ -723,7 +722,7 @@ struct CalendarSettingsView: View {
                 Spacer()
                 Picker("Refresh calendars", selection: $appState.calendarRecordingReminderRefreshIntervalMinutes) {
                     ForEach(CalendarRecordingReminderScheduler.refreshIntervalMinuteOptions, id: \.self) { minutes in
-                        Text(calendarRefreshIntervalTitle(minutes)).tag(minutes)
+                        Text(CalendarRefreshIntervalText.title(minutes)).tag(minutes)
                     }
                 }
                 .pickerStyle(.menu)
