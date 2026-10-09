@@ -52,6 +52,8 @@ enum NoteSyncSendFailure {
     case quotaExceeded(noteID: UUID)
     case network(noteID: UUID)
     case unknownItemOnDelete(noteID: UUID)
+    /// Any other failed delete: retried as a delete.
+    case deleteFailed(noteID: UUID)
     case other(noteID: UUID)
 }
 
@@ -100,6 +102,8 @@ final class NoteSyncCoordinator {
     /// Saves that failed for lack of space or another lasting reason; tried
     /// again after the next sync finishes.
     private var savesToRetry: Set<UUID> = []
+    private var deletesToRetry: Set<UUID> = []
+    private var quotaRetryPending = false
 
     /// After an account change or a deletion elsewhere nothing more is sent;
     /// sync starts again only when the user turns it on.
@@ -200,11 +204,14 @@ final class NoteSyncCoordinator {
                 if result != .updated(needsUpload: false) { resend.append(id) }
             case .quotaExceeded(let id):
                 quotaCount += 1
+                quotaRetryPending = true
                 savesToRetry.insert(id)
             case .network:
                 offline = true
             case .unknownItemOnDelete(let id):
                 try? store.setSyncSystemFields(nil, id: id)
+            case .deleteFailed(let id):
+                deletesToRetry.insert(id)
             case .other(let id):
                 savesToRetry.insert(id)
             }
@@ -276,11 +283,21 @@ final class NoteSyncCoordinator {
     /// A fetch or send finished. With nothing left to send, sync is up to date.
     func handleFetchFinished(pending: Int) {
         guard !isStopped else { return }
+        let retriedForQuota = quotaRetryPending
+        quotaRetryPending = false
         if !savesToRetry.isEmpty {
             let retry = Array(savesToRetry)
             savesToRetry = []
             engine.enqueueSaves(retry)
         }
+        if !deletesToRetry.isEmpty {
+            let retry = Array(deletesToRetry)
+            deletesToRetry = []
+            engine.enqueueDeletes(retry)
+        }
+        // Notes just queued again for lack of space aren't up to date yet;
+        // the pause clears after a sync where they went up.
+        if case .paused(.quotaExceeded) = status, retriedForQuota { return }
         if case .uploading = status, uploadDone < uploadTotal, pending > 0 { return }
         if pending == 0 {
             status = .upToDate(now())

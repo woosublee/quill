@@ -21,8 +21,9 @@ enum NoteSyncEngineError: Error {
 /// any other error reads as `.unreachable`.
 enum NoteSyncTurnOnFailure: Error, Equatable {
     case unreachable
+    /// Signed out of iCloud, or iCloud wants the password again.
     case signedOut
-    /// The note store can't save yet (still loading, or needs recovery).
+    /// The note store can't save until history recovery finishes.
     case notReady
 }
 

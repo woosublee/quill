@@ -17,14 +17,16 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
     private let database: CKDatabase
     private var syncEngine: CKSyncEngine?
     private weak var coordinator: NoteSyncCoordinator?
-    /// Guards `syncEngine`, `isStopped`, `isFetching`, `isDeletingZone`, and
-    /// `zoneDeleteFailed`, which CloudKit's queues and the main thread share.
+    /// Guards `syncEngine`, `isStopped`, `isFetching`, `isDeletingZone`,
+    /// `zoneDeleteFailed`, and `zoneDeleted`, which CloudKit's queues and the
+    /// main thread share.
     /// Timers and observers are touched on the main thread only.
     private let lock = NSLock()
     private var isStopped = false
     private var isFetching = false
     private var isDeletingZone = false
     private var zoneDeleteFailed = false
+    private var zoneDeleted = false
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var pathMonitor: NWPathMonitor?
@@ -58,7 +60,6 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
             if case .failure(let error)? = result.saveResults[zone.zoneID] { throw error }
         } catch let error as CKError
                     where error.code == .notAuthenticated || error.code == .accountTemporarilyUnavailable {
-            // Signed out, or iCloud wants the password again.
             throw NoteSyncTurnOnFailure.signedOut
         }
     }
@@ -136,6 +137,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         lock.withLock {
             isDeletingZone = true
             zoneDeleteFailed = false
+            zoneDeleted = false
         }
         let droppedUploads = engine.state.pendingRecordZoneChanges
         do {
@@ -150,6 +152,9 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
                 throw NoteSyncEngineError.zoneDeleteFailed
             }
         } catch {
+            // CloudKit confirmed the zone is gone, so the delete succeeded
+            // even though a later step failed.
+            if lock.withLock({ zoneDeleted }) { return }
             // Sync stays on: cancel the delete so the engine can't send it
             // later by itself, and put back the uploads dropped for it.
             engine.state.remove(pendingDatabaseChanges: [.deleteZone(NoteSyncCloudRecord.zoneID())])
@@ -237,6 +242,9 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
 
         case .sentDatabaseChanges(let sent):
             let zoneID = NoteSyncCloudRecord.zoneID()
+            if sent.deletedZoneIDs.contains(zoneID) {
+                lock.withLock { zoneDeleted = true }
+            }
             if let error = sent.failedZoneDeletes[zoneID], error.code != .zoneNotFound {
                 lock.withLock { zoneDeleteFailed = true }
             }
@@ -316,7 +324,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         }
         for (recordID, error) in sent.failedRecordDeletes {
             guard let id = NoteSyncCloudRecord.noteID(from: recordID) else { continue }
-            failures.append(error.code == .unknownItem ? .unknownItemOnDelete(noteID: id) : .other(noteID: id))
+            failures.append(error.code == .unknownItem ? .unknownItemOnDelete(noteID: id) : .deleteFailed(noteID: id))
         }
         let savedRecords = saved
         let deletedIDs = deleted

@@ -28,6 +28,7 @@ struct NoteSyncCoordinatorTests {
         testAccountChangeStaysPausedWhenClearingFails()
         try testUnavailableStoreAsksForFullRefetch()
         testFailedSavesAreRetriedAfterTheNextSync()
+        testFailedDeleteIsRetriedAsADelete()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -206,7 +207,9 @@ struct NoteSyncCoordinatorTests {
         coordinator.handleSendFailures([.quotaExceeded(noteID: UUID()), .quotaExceeded(noteID: UUID())])
         precondition(coordinator.status == .paused(.quotaExceeded(pending: 2)))
         coordinator.handleFetchFinished(pending: 0)
-        precondition(coordinator.status == .upToDate(t0), "a finished sync clears the pause")
+        precondition(coordinator.status == .paused(.quotaExceeded(pending: 2)), "notes still waiting for space aren't up to date")
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(coordinator.status == .upToDate(t0), "once the retried notes went up, the pause clears")
     }
 
     @MainActor
@@ -367,5 +370,18 @@ struct NoteSyncCoordinatorTests {
         precondition(Set(engine.saves) == [full, other], "notes that couldn't upload are tried again")
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.saves.count == 2, "each failure is retried once per failure")
+    }
+
+    /// A note deleted here whose iCloud delete failed is deleted again,
+    /// never re-sent as a save that is dropped and leaves it in iCloud.
+    @MainActor
+    static func testFailedDeleteIsRetriedAsADelete() {
+        let (coordinator, _, engine) = make()
+        let gone = UUID()
+        coordinator.handleSendFailures([.deleteFailed(noteID: gone)])
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.deletes == [gone] && engine.saves.isEmpty)
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.deletes == [gone], "retried once per failure")
     }
 }

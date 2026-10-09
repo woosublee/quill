@@ -20645,34 +20645,34 @@
         }
       }
     },
-    "Sign in to iCloud in System Settings, then try again.": {
+    "Check your iCloud account in System Settings, then try again.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to iCloud in System Settings, then try again."
+            "value": "Check your iCloud account in System Settings, then try again."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "시스템 설정에서 iCloud에 로그인한 뒤 다시 시도해 주세요."
+            "value": "시스템 설정에서 iCloud 계정을 확인한 뒤 다시 시도해 주세요."
           }
         }
       }
     },
-    "Your notes are still loading. Try again in a moment.": {
+    "Your notes need recovery first. Try again after it finishes.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your notes are still loading. Try again in a moment."
+            "value": "Your notes need recovery first. Try again after it finishes."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "노트를 아직 불러오는 중이에요. 잠시 뒤 다시 시도해 주세요."
+            "value": "노트 기록을 먼저 복구해야 해요. 복구가 끝난 뒤 다시 시도해 주세요."
           }
         }
       }
