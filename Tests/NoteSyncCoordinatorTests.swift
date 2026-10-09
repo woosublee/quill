@@ -29,6 +29,7 @@ struct NoteSyncCoordinatorTests {
         try testUnavailableStoreAsksForFullRefetch()
         testFailedSavesAreRetriedAfterTheNextSync()
         testFailedDeleteIsRetriedAsADelete()
+        testLateFailuresDoNotRestartStoppedSync()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -376,12 +377,34 @@ struct NoteSyncCoordinatorTests {
     /// never re-sent as a save that is dropped and leaves it in iCloud.
     @MainActor
     static func testFailedDeleteIsRetriedAsADelete() {
-        let (coordinator, _, engine) = make()
+        let (coordinator, store, engine) = make()
         let gone = UUID()
         coordinator.handleSendFailures([.deleteFailed(noteID: gone)])
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.deletes == [gone] && engine.saves.isEmpty)
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.deletes == [gone], "retried once per failure")
+
+        // A note back on this Mac (another Mac's edit arrived) isn't deleted.
+        let back = record()
+        coordinator.handleSendFailures([.deleteFailed(noteID: back.noteID)])
+        store.records[back.noteID] = back
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(!engine.deletes.contains(back.noteID))
+    }
+
+    /// A send that fails after sync stopped (for an account change) must
+    /// not replace the stop with a quota or offline pause and resume.
+    @MainActor
+    static func testLateFailuresDoNotRestartStoppedSync() {
+        let (coordinator, store, engine) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        store.syncable = [note.noteID]
+        coordinator.handleAccountChange(signedOut: false)
+        coordinator.handleSendFailures([.quotaExceeded(noteID: note.noteID), .network(noteID: note.noteID), .deleteFailed(noteID: UUID())])
+        precondition(coordinator.status == .paused(.accountChanged))
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves.isEmpty && engine.deletes.isEmpty, "nothing reaches the new account")
     }
 }

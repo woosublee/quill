@@ -1,6 +1,18 @@
 import CloudKit
 import Foundation
 
+/// How a failed save or delete is handled, read from its CloudKit error.
+enum NoteSyncSendErrorKind: Equatable {
+    /// The `Notes` zone is gone: deleted by another Mac, or by this one.
+    case zoneGone
+    case serverChanged
+    case quotaExceeded
+    /// Offline or throttled; the engine retries these itself.
+    case network
+    case unknownItem
+    case other
+}
+
 /// Maps sync records to CloudKit `Note` records. The note travels as one
 /// JSON asset (`payload`), so long transcripts never hit the record size
 /// limit; `schemaVersion` and `deletedAt` are copied out for the console.
@@ -12,6 +24,17 @@ enum NoteSyncCloudRecord {
         static let payload = "payload"
         static let schemaVersion = "schemaVersion"
         static let deletedAt = "deletedAt"
+    }
+
+    static func sendErrorKind(_ code: CKError.Code) -> NoteSyncSendErrorKind {
+        switch code {
+        case .zoneNotFound, .userDeletedZone: return .zoneGone
+        case .serverRecordChanged: return .serverChanged
+        case .quotaExceeded: return .quotaExceeded
+        case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy: return .network
+        case .unknownItem: return .unknownItem
+        default: return .other
+        }
     }
 
     static func zoneID() -> CKRecordZone.ID {

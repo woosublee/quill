@@ -11,6 +11,7 @@ struct NoteSyncCloudRecordTests {
         testNoteIDRejectsForeignNames()
         try testMismatchedSystemFieldsAreIgnored()
         try testOutboxFilesAreRemoved()
+        testSendErrorsAreClassified()
         print("NoteSyncCloudRecordTests passed")
     }
 
@@ -85,5 +86,27 @@ struct NoteSyncCloudRecordTests {
         precondition(FileManager.default.fileExists(atPath: NoteSyncCloudRecord.outboxFile(for: b.record.noteID, in: folder).path))
         NoteSyncCloudRecord.removeAllOutboxFiles(in: folder)
         precondition(((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).isEmpty, "no note content is left on disk")
+    }
+
+    /// Saves and deletes read CloudKit errors the same way: a missing zone
+    /// means it was deleted, and a lost connection is a network pause.
+    static func testSendErrorsAreClassified() {
+        let expected: [(CKError.Code, NoteSyncSendErrorKind)] = [
+            (.zoneNotFound, .zoneGone),
+            (.userDeletedZone, .zoneGone),
+            (.serverRecordChanged, .serverChanged),
+            (.quotaExceeded, .quotaExceeded),
+            (.networkUnavailable, .network),
+            (.networkFailure, .network),
+            (.serviceUnavailable, .network),
+            (.requestRateLimited, .network),
+            (.zoneBusy, .network),
+            (.unknownItem, .unknownItem),
+            (.permissionFailure, .other),
+            (.limitExceeded, .other)
+        ]
+        for (code, kind) in expected {
+            precondition(NoteSyncCloudRecord.sendErrorKind(code) == kind, "\(code.rawValue)")
+        }
     }
 }

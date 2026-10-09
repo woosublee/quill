@@ -20661,18 +20661,18 @@
         }
       }
     },
-    "Your notes need recovery first. Try again after it finishes.": {
+    "Notes can't sync right now. If history recovery is running, try again after it finishes.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your notes need recovery first. Try again after it finishes."
+            "value": "Notes can't sync right now. If history recovery is running, try again after it finishes."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "노트 기록을 먼저 복구해야 해요. 복구가 끝난 뒤 다시 시도해 주세요."
+            "value": "지금은 노트를 동기화할 수 없어요. 기록 복구 중이라면 끝난 뒤 다시 시도해 주세요."
           }
         }
       }

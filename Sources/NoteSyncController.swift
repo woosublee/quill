@@ -23,7 +23,7 @@ enum NoteSyncTurnOnFailure: Error, Equatable {
     case unreachable
     /// Signed out of iCloud, or iCloud wants the password again.
     case signedOut
-    /// The note store can't save until history recovery finishes.
+    /// The note store can't save right now (history recovery, for example).
     case notReady
 }
 

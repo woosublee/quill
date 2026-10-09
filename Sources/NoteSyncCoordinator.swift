@@ -180,6 +180,9 @@ final class NoteSyncCoordinator {
     }
 
     func handleSendFailures(_ failures: [NoteSyncSendFailure]) {
+        // A send that fails after sync stopped must not swap the stop for
+        // a quota or offline pause, which would let sync resume.
+        guard !isStopped else { return }
         var quotaCount = 0
         var offline = false
         var resend: [UUID] = []
@@ -216,10 +219,8 @@ final class NoteSyncCoordinator {
                 savesToRetry.insert(id)
             }
         }
-        if !isStopped {
-            if !resend.isEmpty { engine.enqueueSaves(resend) }
-            if !deletes.isEmpty { engine.enqueueDeletes(deletes) }
-        }
+        if !resend.isEmpty { engine.enqueueSaves(resend) }
+        if !deletes.isEmpty { engine.enqueueDeletes(deletes) }
         if quotaCount > 0 {
             status = .paused(.quotaExceeded(pending: quotaCount))
         } else if offline {
@@ -291,9 +292,10 @@ final class NoteSyncCoordinator {
             engine.enqueueSaves(retry)
         }
         if !deletesToRetry.isEmpty {
-            let retry = Array(deletesToRetry)
+            // A note that came back (another Mac's edit) stays in iCloud.
+            let retry = deletesToRetry.filter { store.syncRecord(id: $0) == nil }
             deletesToRetry = []
-            engine.enqueueDeletes(retry)
+            if !retry.isEmpty { engine.enqueueDeletes(Array(retry)) }
         }
         // Notes just queued again for lack of space aren't up to date yet;
         // the pause clears after a sync where they went up.

@@ -213,7 +213,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         case .fetchedDatabaseChanges(let changes):
             let zoneID = NoteSyncCloudRecord.zoneID()
             if changes.deletions.contains(where: { $0.zoneID == zoneID }),
-               !lock.withLock({ isDeletingZone }) {
+               zoneGoneMeansDeletedElsewhere() {
                 await MainActor.run { coordinator?.handleZoneDeleted() }
             }
 
@@ -295,26 +295,21 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         for failure in sent.failedRecordSaves {
             guard let id = NoteSyncCloudRecord.noteID(from: failure.record.recordID) else { continue }
             NoteSyncCloudRecord.removeOutboxFile(for: id, in: outbox)
-            switch failure.error.code {
-            case .serverRecordChanged:
+            switch NoteSyncCloudRecord.sendErrorKind(failure.error.code) {
+            case .serverChanged:
                 let server = failure.error.serverRecord
                 failures.append(.serverChanged(
                     noteID: id,
                     serverPayload: server.flatMap(NoteSyncCloudRecord.payload(of:)),
                     serverSystemFields: server.map(NoteSyncCloudRecord.systemFields(of:)) ?? Data()
                 ))
-            case .userDeletedZone, .zoneNotFound:
-                // The zone existed when sync started, so it is gone because
-                // another Mac chose Turn Off and Delete from iCloud: stop
-                // rather than recreate what it deleted. This Mac's own
-                // delete is already turning sync off.
-                guard !lock.withLock({ isDeletingZone }) else { continue }
-                zoneDeletedElsewhere = true
+            case .zoneGone:
+                if zoneGoneMeansDeletedElsewhere() { zoneDeletedElsewhere = true }
             case .quotaExceeded:
                 failures.append(.quotaExceeded(noteID: id))
-            case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy:
+            case .network:
                 failures.append(.network(noteID: id))
-            default:
+            case .unknownItem, .other:
                 failures.append(.other(noteID: id))
             }
         }
@@ -324,7 +319,16 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         }
         for (recordID, error) in sent.failedRecordDeletes {
             guard let id = NoteSyncCloudRecord.noteID(from: recordID) else { continue }
-            failures.append(error.code == .unknownItem ? .unknownItemOnDelete(noteID: id) : .deleteFailed(noteID: id))
+            switch NoteSyncCloudRecord.sendErrorKind(error.code) {
+            case .zoneGone:
+                if zoneGoneMeansDeletedElsewhere() { zoneDeletedElsewhere = true }
+            case .network:
+                failures.append(.network(noteID: id))
+            case .unknownItem:
+                failures.append(.unknownItemOnDelete(noteID: id))
+            case .serverChanged, .quotaExceeded, .other:
+                failures.append(.deleteFailed(noteID: id))
+            }
         }
         let savedRecords = saved
         let deletedIDs = deleted
@@ -340,6 +344,13 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
             for id in deletedIDs { coordinator.handleDeleted(id: id) }
             if !sendFailures.isEmpty { coordinator.handleSendFailures(sendFailures) }
         }
+    }
+
+    /// The zone existed when sync started, so a missing one means another
+    /// Mac chose Turn Off and Delete from iCloud: stop rather than recreate
+    /// what it deleted. During this Mac's own delete it means nothing.
+    private func zoneGoneMeansDeletedElsewhere() -> Bool {
+        !lock.withLock { isDeletingZone }
     }
 
     private func activeEngine() -> CKSyncEngine? {

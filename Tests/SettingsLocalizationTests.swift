@@ -313,7 +313,7 @@ struct SettingsLocalizationTests {
             "Couldn't turn on iCloud sync": "iCloud 동기화를 켜지 못했어요",
             "Check your internet connection and try again. Sync is still off.": "인터넷 연결을 확인하고 다시 시도해 주세요. 동기화는 꺼진 상태예요.",
             "Check your iCloud account in System Settings, then try again.": "시스템 설정에서 iCloud 계정을 확인한 뒤 다시 시도해 주세요.",
-            "Your notes need recovery first. Try again after it finishes.": "노트 기록을 먼저 복구해야 해요. 복구가 끝난 뒤 다시 시도해 주세요.",
+            "Notes can't sync right now. If history recovery is running, try again after it finishes.": "지금은 노트를 동기화할 수 없어요. 기록 복구 중이라면 끝난 뒤 다시 시도해 주세요.",
             "Check your internet connection and try again. Sync is still on.": "인터넷 연결을 확인하고 다시 시도해 주세요. 동기화는 아직 켜져 있어요.",
             "Turn off iCloud sync to clear history.": "기록을 지우려면 iCloud 동기화를 먼저 꺼 주세요."
         ]
