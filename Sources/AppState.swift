@@ -4848,18 +4848,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     from: timeMin,
                     to: timeMax,
                     now: Date(),
-                    maxAge: TimeInterval(calendarRecordingReminderRefreshIntervalMinutes * 60)
+                    maxAge: TimeInterval(calendarRecordingReminderRefreshIntervalMinutes * 60),
+                    accountEmail: googleCalendarConnection.accountEmail,
+                    calendarIDs: googleCalendarConnection.selectedCalendarIDs
                 )
             }
             if let reused {
                 google = .success(reused)
             } else {
                 do {
-                    let events = try await fetchGoogleCalendarReminderEvents(timeMin: timeMin, timeMax: timeMax)
-                    await MainActor.run {
-                        googleReminderEventsCache = GoogleReminderEventsCache(fetchedAt: Date(), events: events)
-                    }
-                    google = .success(events)
+                    google = .success(try await fetchGoogleCalendarReminderEvents(timeMin: timeMin, timeMax: timeMax))
                 } catch {
                     google = .failure(error)
                 }
@@ -4914,7 +4912,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             calendarIDs: Array(selectedCalendarIDs),
             timeMin: timeMin,
             timeMax: timeMax,
-            isOnline: NetworkMonitor.shared.isOnline
+            isOnline: { NetworkMonitor.shared.isOnline }
         )
         // A newer refresh replaced this one: nothing to report (#474).
         if fetchResult.failure == .cancelled { throw CancellationError() }
@@ -4927,6 +4925,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 )
             } else {
                 markGoogleCalendarHealthy(feature: .recordingReminders)
+                // Complete, so an Apple-only refresh may reuse it.
+                googleReminderEventsCache = GoogleReminderEventsCache(
+                    fetchedAt: Date(),
+                    accountEmail: token.accountEmail,
+                    calendarIDs: selectedCalendarIDs,
+                    events: fetchResult.events
+                )
             }
         }
         return fetchResult.events
@@ -4961,11 +4966,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// reuses the Google events it already has instead of asking Google.
     @MainActor
     private func scheduleCalendarRecordingReminderRefresh(reusingGoogleEvents: Bool = false) {
-        reusesGoogleReminderEventsOnce = reusingGoogleEvents
         guard calendarRecordingRemindersEnabled, hasSelectedCalendarSource else {
+            reusesGoogleReminderEventsOnce = false
             stopCalendarRecordingReminderSchedulerIfNeeded()
             return
         }
+        reusesGoogleReminderEventsOnce = reusingGoogleEvents
         calendarRecordingReminderScheduler.start(
             leadMinutes: calendarRecordingReminderLeadMinutes,
             refreshIntervalMinutes: calendarRecordingReminderRefreshIntervalMinutes
@@ -4974,6 +4980,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     /// The next reminder refresh reuses the Google events it already has.
+    /// Settings paths go through `scheduleCalendarRecordingReminderRefresh`;
+    /// tests call this to check the reuse without starting the scheduler.
     @MainActor
     func reuseGoogleReminderEventsOnNextRefresh() {
         reusesGoogleReminderEventsOnce = true
@@ -13443,8 +13451,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     calendarIDs: Array(selectedCalendarIDs),
                     timeMin: start,
                     timeMax: end,
-                    isOnline: NetworkMonitor.shared.isOnline
+                    isOnline: { NetworkMonitor.shared.isOnline }
                 )
+            // Cut short by a newer request: not a complete list.
+            if fetchResult.failure == .cancelled {
+                return (.failure(CancellationError()), false)
+            }
             await MainActor.run {
                 guard reportsHealth else { return }
                 if let failure = fetchResult.failure {

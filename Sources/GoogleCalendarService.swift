@@ -84,7 +84,7 @@ struct GoogleCalendarService {
         calendarIDs: [String],
         timeMin: Date,
         timeMax: Date,
-        isOnline: Bool = true
+        isOnline: () -> Bool = { true }
     ) async -> GoogleCalendarEventFetchResult {
         var events: [CalendarEvent] = []
         var failedCalendarIDs: [String] = []

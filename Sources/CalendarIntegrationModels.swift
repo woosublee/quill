@@ -245,6 +245,11 @@ enum GoogleCalendarFetchFailure: Equatable {
     /// `isOnline` is the network monitor's view: a timeout or a missing
     /// host while it says offline is the network, otherwise the server.
     static func of(_ error: Error, isOnline: Bool) -> GoogleCalendarFetchFailure {
+        of(error, isOnline: { isOnline })
+    }
+
+    /// Reads `isOnline` when the request failed, not when it started.
+    static func of(_ error: Error, isOnline: () -> Bool) -> GoogleCalendarFetchFailure {
         if error is CancellationError { return .cancelled }
         if let urlError = error as? URLError {
             switch urlError.code {
@@ -256,20 +261,32 @@ enum GoogleCalendarFetchFailure: Equatable {
                 break
             }
         }
-        return isOnline ? .failed : .offline
+        return isOnline() ? .failed : .offline
     }
 }
 
 /// Google events from the last reminder refresh. A refresh caused only by
 /// an Apple Calendar change reuses them instead of asking Google again.
+/// Only a complete fetch is saved, with the account and calendars it read.
 struct GoogleReminderEventsCache: Equatable {
     let fetchedAt: Date
+    let accountEmail: String?
+    let calendarIDs: Set<String>
     let events: [CalendarEvent]
 
-    /// The cached events in the window, or nil when they are too old.
-    func events(from start: Date, to end: Date, now: Date, maxAge: TimeInterval) -> [CalendarEvent]? {
+    /// The cached events in the window, or nil when they are too old or
+    /// were read for another account or other calendars.
+    func events(
+        from start: Date,
+        to end: Date,
+        now: Date,
+        maxAge: TimeInterval,
+        accountEmail: String?,
+        calendarIDs: Set<String>
+    ) -> [CalendarEvent]? {
         let age = now.timeIntervalSince(fetchedAt)
-        guard age >= 0, age <= maxAge else { return nil }
+        guard age >= 0, age <= maxAge,
+              accountEmail == self.accountEmail, calendarIDs == self.calendarIDs else { return nil }
         return events.filter { $0.end > start && $0.start < end }
     }
 }
