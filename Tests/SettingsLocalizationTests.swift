@@ -277,7 +277,8 @@ struct SettingsLocalizationTests {
         let expected: [String: String] = [
             "iCloud Sync": "iCloud 동기화",
             "Sync this Mac's notes with iCloud": "이 Mac의 노트를 iCloud로 동기화",
-            "Notes, transcripts, and summaries are saved to your iCloud and appear on your other Macs with the same iCloud account. Screenshots and window details stay on this Mac.": "노트·전사문·요약이 내 iCloud에 저장돼요. 같은 iCloud 계정의 다른 Mac에서도 보여요. 스크린샷과 창 정보는 이 Mac에만 남아요.",
+            "Notes, transcripts, and summaries are saved to your iCloud. They appear on your other Macs with the same iCloud account.": "노트·전사문·요약이 내 iCloud에 저장돼요. 같은 iCloud 계정의 다른 Mac에서도 보여요.",
+            "Screenshots and window details stay on this Mac.": "스크린샷과 창 정보는 이 Mac에만 남아요.",
             "Settings, vocabulary, and API keys don't sync. Each Mac keeps its own.": "설정·단어장·API 키는 동기화하지 않아요. 각 Mac에서 따로 정해요.",
             "1 note": "노트 1개",
             "%lld notes": "노트 %lld개",
@@ -327,6 +328,8 @@ struct SettingsLocalizationTests {
         assert(view.contains("if interval < 60 { return localizedCatalogString(\"Just now\") }"))
         assert(view.contains("formatter.dateTimeStyle = .named"))
         assert(view.contains("TimelineView(.periodic(from: .now, by: 30))"))
+        // What syncs on one line, what stays on the next two, all in the card.
+        assert(view.contains("Text(\"Notes, transcripts, and summaries are saved to your iCloud. They appear on your other Macs with the same iCloud account.\")\n                VStack(alignment: .leading, spacing: 2) {\n                    Text(\"Screenshots and window details stay on this Mac.\")\n                    Text(\"Settings, vocabulary, and API keys don't sync. Each Mac keeps its own.\")"))
         assert(view.contains("Button(\"Turn Off and Delete from iCloud\", role: .destructive) {\n                turnOff(deleteFromICloud: true)"))
         assert(view.contains("Button(\"Turn Off Sync\") {\n                turnOff(deleteFromICloud: false)"))
         assert(!view.lowercased().contains("audio"), "audio sync arrives in a later step")

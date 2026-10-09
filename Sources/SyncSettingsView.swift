@@ -15,10 +15,6 @@ struct SyncSettingsView: View {
                 if let controller = appState.noteSyncController {
                     NoteSyncSettingsCard(controller: controller)
                 }
-
-                Text("Settings, vocabulary, and API keys don't sync. Each Mac keeps its own.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -70,10 +66,18 @@ private struct NoteSyncSettingsCard: View {
 
             statusDetail
 
-            Text("Notes, transcripts, and summaries are saved to your iCloud and appear on your other Macs with the same iCloud account. Screenshots and window details stay on this Mac.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            // What goes to iCloud, then what stays here, one sentence pair
+            // per line so lines break where the thought does.
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Notes, transcripts, and summaries are saved to your iCloud. They appear on your other Macs with the same iCloud account.")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Screenshots and window details stay on this Mac.")
+                    Text("Settings, vocabulary, and API keys don't sync. Each Mac keeps its own.")
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
 
             if controller.isEnabled {
                 Text(noteCountText(controller.syncableNoteCount))

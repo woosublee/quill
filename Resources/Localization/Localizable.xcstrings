@@ -20117,22 +20117,6 @@
         }
       }
     },
-    "Notes, transcripts, and summaries are saved to your iCloud and appear on your other Macs with the same iCloud account. Screenshots and window details stay on this Mac.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notes, transcripts, and summaries are saved to your iCloud and appear on your other Macs with the same iCloud account. Screenshots and window details stay on this Mac."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "노트·전사문·요약이 내 iCloud에 저장돼요. 같은 iCloud 계정의 다른 Mac에서도 보여요. 스크린샷과 창 정보는 이 Mac에만 남아요."
-          }
-        }
-      }
-    },
     "Settings, vocabulary, and API keys don't sync. Each Mac keeps its own.": {
       "localizations": {
         "en": {
@@ -20657,6 +20641,38 @@
           "stringUnit": {
             "state": "translated",
             "value": "방금 전"
+          }
+        }
+      }
+    },
+    "Screenshots and window details stay on this Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshots and window details stay on this Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크린샷과 창 정보는 이 Mac에만 남아요."
+          }
+        }
+      }
+    },
+    "Notes, transcripts, and summaries are saved to your iCloud. They appear on your other Macs with the same iCloud account.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notes, transcripts, and summaries are saved to your iCloud. They appear on your other Macs with the same iCloud account."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트·전사문·요약이 내 iCloud에 저장돼요. 같은 iCloud 계정의 다른 Mac에서도 보여요."
           }
         }
       }
