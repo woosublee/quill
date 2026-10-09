@@ -175,18 +175,29 @@ too, kept on that Mac only.
   - the container `iCloud.com.woosublee.quill`;
   - the iCloud capability on `com.woosublee.quill` and
     `com.woosublee.quill.dev`;
-  - a Developer ID provisioning profile for each.
+  - for Quill, a Developer ID provisioning profile;
+  - for Quill Dev, a macOS App Development profile with the team's Apple
+    Development certificate and the test Macs registered as devices.
 
-  The profiles are created with the App Store Connect API key when its role
-  allows. Otherwise they are made in the portal.
+  Developer ID profiles allow only the Production environment, so Quill Dev
+  cannot use Development with one. The profiles live outside the
+  repository, in `~/.config/quill/profiles/`.
 - `Makefile`: when `PROVISIONING_PROFILE` points to a profile, embed it as
   `Contents/embedded.provisionprofile` and sign with an entitlements file
   that adds the iCloud container, the CloudKit service, the container
   environment, the application identifier, and the team identifier.
+  The script `BuildSupport/Signing/provisioning.sh` writes that file and
+  stops the build when the profile is for another app, does not allow the
+  container or environment, or has expired.
   Without a profile, sign with today's entitlements. A restricted
   entitlement without a profile stops the app from launching.
-- Environment: Quill Dev uses CloudKit Development, and releases use
-  Production. Test data never reaches real notes. The schema is promoted to
+- `make run` uses `~/.config/quill/profiles/Quill_Dev_macOS_Development.provisionprofile`
+  when it exists. It signs Quill Dev with the keychain identity that profile
+  lists and sets the environment to Development. Without the file it builds
+  as before. Switching Quill Dev from Developer ID to Apple Development
+  signing asks for its macOS permissions again once.
+- Environment: Quill Dev uses CloudKit Development (Apple Development
+  signing), and releases use Production (Developer ID). Test data never reaches real notes. The schema is promoted to
   Production before the release that ships sync.
 - At runtime, sync is available when the entitlement is present, the OS is
   macOS 14 or later, and an account is signed in.
@@ -266,8 +277,9 @@ same iCloud account):
    without sync and can ship alone.
 2. **Record mapping and merge.** `NoteSyncRecord` and `NoteFieldClock`
    with tests. No CloudKit calls.
-3. **iCloud entitlements in the build.** Apple Developer setup, Makefile
-   profile embedding, and runtime availability checks for Quill Dev.
+3. **iCloud entitlements in the build.** Apple Developer setup and Makefile
+   profile embedding for Quill Dev. The runtime availability check moves to
+   item 4, where the sync tab uses it.
 4. **Note text sync.** `NoteSyncCoordinator`, the sync settings tab,
    on/off, initial upload, remote merge, and account handling.
 5. **Audio sync.** `NoteAudioSync`, upload in parts, on-demand download,

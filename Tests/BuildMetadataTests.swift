@@ -23,6 +23,7 @@ struct BuildMetadataTests {
         try testMakefileStripsExtendedAttributesDuringDmgStaging()
         try testMakefileCreatesDmgWithoutFinderMetadata()
         try testSparkleEntitlementsAllowFrameworkLoading()
+        try testProvisioningProfileAddsICloudOnlyWhenGiven()
         try testSparkleMetadataAndBuildIntegration()
         try testSparkleAppcastGeneratorValidatesSigningKey()
         try testReleaseWorkflowsPassBuildMetadataToMake()
@@ -340,6 +341,29 @@ struct BuildMetadataTests {
         assertContains(info, "<key>NSCalendarsUsageDescription</key>")
     }
 
+    private static func testProvisioningProfileAddsICloudOnlyWhenGiven() throws {
+        let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
+        let entitlements = try String(contentsOfFile: "Quill.entitlements", encoding: .utf8)
+
+        // Without a profile the app signs with today's entitlements: a
+        // restricted iCloud entitlement without a profile stops launch.
+        assertContains(makefile, "PROVISIONING_PROFILE ?=\n")
+        assertContains(makefile, "SIGNING_ENTITLEMENTS = $(if $(PROVISIONING_PROFILE),$(BUILD_DIR)/signing.entitlements,Quill.entitlements)")
+        assertContains(makefile, "--entitlements \"$(SIGNING_ENTITLEMENTS)\"")
+        assertDoesNotContain(makefile, "--entitlements Quill.entitlements")
+        assertDoesNotContain(entitlements, "icloud")
+        assertContains(makefile, "rm -f \"$$staged_profile\"")
+        assertContains(makefile, "cp \"$(PROVISIONING_PROFILE)\" \"$$staged_profile\"")
+        assertContains(makefile, "\"$(PROVISIONING_PROFILE)\" \"$(ICLOUD_CONTAINER)\" \"$(ICLOUD_ENVIRONMENT)\" > \"$@.tmp\"")
+
+        // Releases use Production; only Quill Dev uses Development, with
+        // the development profile and the identity that profile lists.
+        assertContains(makefile, "ICLOUD_ENVIRONMENT ?= Production")
+        assertContains(makefile, "ICLOUD_CONTAINER ?= iCloud.com.woosublee.quill")
+        assertContains(makefile, "$(if $(DEV_PROVISIONING_PROFILE), PROVISIONING_PROFILE=\"$(DEV_PROVISIONING_PROFILE)\" ICLOUD_ENVIRONMENT=Development CODESIGN_IDENTITY=\"$(DEV_CODESIGN_IDENTITY)\")")
+        assertContains(makefile, "\t@bash Tests/ProvisioningSigningTests.sh")
+    }
+
     private static func testSparkleMetadataAndBuildIntegration() throws {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
         let infoPlist = try String(contentsOfFile: "Info.plist", encoding: .utf8)
@@ -511,7 +535,7 @@ struct BuildMetadataTests {
         assertContains(notarizeScript, #"[ "$status" != "Accepted" ]"#)
 
         assertContains(makefile, "CODESIGN_TIMESTAMP ?=\n")
-        assertContains(makefile, #""$(CODESIGN_IDENTITY)" "$(CODESIGN_TIMESTAMP)" > "$@.tmp""#)
+        assertContains(makefile, #""$(CODESIGN_IDENTITY)" "$(CODESIGN_TIMESTAMP)" "$(PROVISIONING_PROFILE)""#)
         let codesignLines = makefile.split(separator: "\n").filter { $0.contains("codesign --force") }
         precondition(!codesignLines.isEmpty, "Expected codesign calls in Makefile")
         for line in codesignLines {

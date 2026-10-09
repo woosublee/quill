@@ -14,6 +14,18 @@ CODESIGN_IDENTITY := $(shell security find-identity -v -p codesigning 2>/dev/nul
 endif
 # Set to --timestamp for Developer ID builds that will be notarized.
 CODESIGN_TIMESTAMP ?=
+# iCloud note sync. With PROVISIONING_PROFILE the app embeds the profile and
+# gets the iCloud entitlements it allows; without one it signs with
+# Quill.entitlements as before. Developer ID profiles allow only Production, so
+# `make run` signs Quill Dev with the development profile below, when present,
+# to keep test notes in the Development environment.
+PROVISIONING_PROFILE ?=
+ICLOUD_CONTAINER ?= iCloud.com.woosublee.quill
+ICLOUD_ENVIRONMENT ?= Production
+DEV_PROVISIONING_PROFILE ?= $(wildcard $(HOME)/.config/quill/profiles/Quill_Dev_macOS_Development.provisionprofile)
+PROVISIONING_SCRIPT = BuildSupport/Signing/provisioning.sh
+# The keychain identity whose certificate the development profile lists.
+DEV_CODESIGN_IDENTITY = $(or $(shell bash $(PROVISIONING_SCRIPT) identity "$(DEV_PROVISIONING_PROFILE)"),$(error No keychain signing identity matches $(DEV_PROVISIONING_PROFILE)))
 GIT_RELEASE_TAG := $(shell git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null)
 GIT_SHORT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null)
 APP_VERSION ?= $(patsubst v%,%,$(if $(GIT_RELEASE_TAG),$(GIT_RELEASE_TAG),v0.0.1))
@@ -27,6 +39,7 @@ CONTENTS = $(APP_BUNDLE)/Contents
 MACOS_DIR = $(CONTENTS)/MacOS
 FRAMEWORKS = $(CONTENTS)/Frameworks
 BUILD_SETTINGS = $(BUILD_DIR)/.build-settings
+SIGNING_ENTITLEMENTS = $(if $(PROVISIONING_PROFILE),$(BUILD_DIR)/signing.entitlements,Quill.entitlements)
 SPARKLE_STAMP = $(BUILD_DIR)/.sparkle-framework
 SPARKLE_VERSION ?= 2.9.2
 SPARKLE_FRAMEWORK_FIND = find .build/artifacts -path '*/Sparkle.framework' -type d -print -quit
@@ -128,7 +141,7 @@ all: $(APP_EXECUTABLE_TARGET)
 
 $(BUILD_SETTINGS): FORCE
 	@mkdir -p "$(BUILD_DIR)"
-	@printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' "$(APP_NAME)" "$(BUNDLE_ID)" "$(APP_VERSION)" "$(BUILD_NUMBER)" "$(BUILD_TAG)" "$(GOOGLE_CALENDAR_OAUTH_CLIENT_ID)" "$(GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET)" "$(CODESIGN_IDENTITY)" "$(CODESIGN_TIMESTAMP)" > "$@.tmp"
+	@printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' "$(APP_NAME)" "$(BUNDLE_ID)" "$(APP_VERSION)" "$(BUILD_NUMBER)" "$(BUILD_TAG)" "$(GOOGLE_CALENDAR_OAUTH_CLIENT_ID)" "$(GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET)" "$(CODESIGN_IDENTITY)" "$(CODESIGN_TIMESTAMP)" "$(PROVISIONING_PROFILE)" "$(ICLOUD_CONTAINER)" "$(ICLOUD_ENVIRONMENT)" > "$@.tmp"
 	@if [ ! -f "$@" ] || ! cmp -s "$@.tmp" "$@"; then mv "$@.tmp" "$@"; else rm "$@.tmp"; fi
 
 $(SPARKLE_STAMP): Package.swift BuildSupport/SparkleResolver/main.swift
@@ -187,7 +200,7 @@ $(LOCALIZATION_STAMP): $(LOCALIZATION_CATALOG) $(LOCALIZATION_INFO_DIR)/en.lproj
 	done
 	@touch "$@"
 
-$(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS) $(BUILD_SETTINGS) $(SPARKLE_STAMP) $(WHISPER_STAMP) $(LLAMA_STAMP) $(LOCALIZATION_STAMP)
+$(APP_EXECUTABLE_TARGET): $(SOURCES) Info.plist $(ICON_ICNS) $(BUILD_SETTINGS) $(SPARKLE_STAMP) $(WHISPER_STAMP) $(LLAMA_STAMP) $(LOCALIZATION_STAMP) Quill.entitlements $(PROVISIONING_SCRIPT) $(PROVISIONING_PROFILE)
 	@mkdir -p "$(MACOS_DIR)" "$(RESOURCES)" "$(FRAMEWORKS)"
 	@framework="$$(cat "$(SPARKLE_STAMP)" 2>/dev/null)"; \
 		if [ -z "$$framework" ] || [ ! -d "$$framework" ]; then \
@@ -300,7 +313,14 @@ endif
 			echo "Missing bundled llama-server helper in staging app." >&2; \
 			exit 1; \
 		fi
-	@codesign --force --options runtime $(CODESIGN_TIMESTAMP) --sign "$(CODESIGN_IDENTITY)" --entitlements Quill.entitlements "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app"
+	@staged_profile="$(BUILD_DIR)/codesign-staging/$(APP_NAME).app/Contents/embedded.provisionprofile"; \
+		if [ -n "$(PROVISIONING_PROFILE)" ]; then \
+			bash $(PROVISIONING_SCRIPT) entitlements "$(PROVISIONING_PROFILE)" "$(BUNDLE_ID)" "$(ICLOUD_ENVIRONMENT)" "$(ICLOUD_CONTAINER)" Quill.entitlements "$(SIGNING_ENTITLEMENTS)"; \
+			cp "$(PROVISIONING_PROFILE)" "$$staged_profile"; \
+		else \
+			rm -f "$$staged_profile"; \
+		fi
+	@codesign --force --options runtime $(CODESIGN_TIMESTAMP) --sign "$(CODESIGN_IDENTITY)" --entitlements "$(SIGNING_ENTITLEMENTS)" "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app"
 	@rm -rf "$(APP_BUNDLE)"
 	@ditto --norsrc --noextattr "$(BUILD_DIR)/codesign-staging/$(APP_NAME).app" "$(APP_BUNDLE)"
 	@xattr -cr "$(APP_BUNDLE)"
@@ -378,7 +398,7 @@ install-and-run: install
 	@open "/Applications/$(APP_NAME).app"
 
 run:
-	$(MAKE) all APP_NAME="$(DEV_APP_NAME)" BUNDLE_ID="$(DEV_BUNDLE_ID)"
+	$(MAKE) all APP_NAME="$(DEV_APP_NAME)" BUNDLE_ID="$(DEV_BUNDLE_ID)"$(if $(DEV_PROVISIONING_PROFILE), PROVISIONING_PROFILE="$(DEV_PROVISIONING_PROFILE)" ICLOUD_ENVIRONMENT=Development CODESIGN_IDENTITY="$(DEV_CODESIGN_IDENTITY)")
 	open "$(BUILD_DIR)/$(DEV_APP_NAME).app"
 
 print-app-version:
@@ -614,6 +634,7 @@ _test-core: $(SPARKLE_STAMP) $(LOCALIZATION_STAMP) $(TEST_BUILD_DIR)/Localizatio
 	@$(TEST_BUILD_DIR)/UpdateSnapshotStoreTests
 	@python3 Tests/StableReleaseValidationTests.py
 	@bash Tests/SparkleKeyValidationTests.sh
+	@bash Tests/ProvisioningSigningTests.sh
 	@$(TEST_BUILD_DIR)/MeetingSummaryModelsTests
 	@$(TEST_BUILD_DIR)/MeetingSummaryTextChunkerTests
 	@$(TEST_BUILD_DIR)/SpokenLanguageResolutionTests
