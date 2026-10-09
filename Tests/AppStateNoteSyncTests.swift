@@ -22,6 +22,10 @@ struct AppStateNoteSyncTests {
         func enqueueSaves(_ ids: [UUID]) { saves += ids }
         func enqueueDeletes(_ ids: [UUID]) {}
         func cancelDeletes(_ ids: [UUID]) {}
+        func enqueueAudioSaves(_ parts: [NoteAudioPartID]) {}
+        func enqueueAudioDeletes(_ parts: [NoteAudioPartID]) {}
+        func pendingAudioSaves(noteID: UUID) -> [NoteAudioPartID] { [] }
+        func cancelAudioSaves(noteID: UUID) {}
         func attach(_ coordinator: NoteSyncCoordinator) { self.coordinator = coordinator }
         func start() {}
         func fetchNow() {}

@@ -112,6 +112,11 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         engine.state.remove(pendingRecordZoneChanges: ids.map { .deleteRecord(NoteSyncCloudRecord.recordID(for: $0)) })
     }
 
+    func enqueueAudioSaves(_ parts: [NoteAudioPartID]) {}
+    func enqueueAudioDeletes(_ parts: [NoteAudioPartID]) {}
+    func pendingAudioSaves(noteID: UUID) -> [NoteAudioPartID] { [] }
+    func cancelAudioSaves(noteID: UUID) {}
+
     /// Overlapping calls are coalesced: a fetch already running is enough.
     func fetchNow() {
         guard let engine = activeEngine() else { return }

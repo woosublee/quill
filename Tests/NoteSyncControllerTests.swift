@@ -36,6 +36,8 @@ struct NoteSyncControllerTests {
         func isSyncable(id: UUID) -> Bool { ids.contains(id) }
         func applySynced(_ record: NoteSyncRecord, systemFields: Data?) throws -> NoteSyncApplyResult { .inserted }
         func removeSynced(id: UUID) throws -> DeletedPipelineHistoryAssets? { nil }
+        func audioManifest(id: UUID) -> NoteAudioManifest? { nil }
+        func setAudioManifest(_ manifest: NoteAudioManifest, id: UUID) throws {}
     }
 
     final class FakeEngine: NoteSyncEngineHandle {
@@ -50,6 +52,10 @@ struct NoteSyncControllerTests {
         func enqueueSaves(_ ids: [UUID]) { saves += ids }
         func enqueueDeletes(_ ids: [UUID]) { deletes += ids }
         func cancelDeletes(_ ids: [UUID]) {}
+        func enqueueAudioSaves(_ parts: [NoteAudioPartID]) {}
+        func enqueueAudioDeletes(_ parts: [NoteAudioPartID]) {}
+        func pendingAudioSaves(noteID: UUID) -> [NoteAudioPartID] { [] }
+        func cancelAudioSaves(noteID: UUID) {}
         func attach(_ coordinator: NoteSyncCoordinator) { self.coordinator = coordinator }
         func start() { started += 1; log?.calls.append("start") }
         func fetchNow() { fetches += 1 }

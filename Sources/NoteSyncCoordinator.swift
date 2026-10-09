@@ -13,6 +13,14 @@ protocol NoteSyncLocalStore: AnyObject {
     func isSyncable(id: UUID) -> Bool
     func applySynced(_ record: NoteSyncRecord, systemFields: Data?) throws -> NoteSyncApplyResult
     func removeSynced(id: UUID) throws -> DeletedPipelineHistoryAssets?
+    func audioManifest(id: UUID) -> NoteAudioManifest?
+    func setAudioManifest(_ manifest: NoteAudioManifest, id: UUID) throws
+}
+
+/// A note's audio file on this Mac.
+struct NoteSyncLocalAudio: Equatable {
+    let url: URL
+    let bytes: Int64
 }
 
 extension PipelineHistoryStore: NoteSyncLocalStore {}
@@ -27,6 +35,15 @@ extension NoteSyncLocalStore {
             print("[NoteSync] Couldn't clear change tags")
         }
     }
+
+    /// The note's audio file on this Mac and its size, when it is here.
+    func localAudioFile(id: UUID, resolve: (String) -> URL?) -> NoteSyncLocalAudio? {
+        guard case .string(let name)? = syncRecord(id: id)?.fields[NoteSyncField.audioFileName.rawValue],
+              let url = resolve(name),
+              let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber
+        else { return nil }
+        return NoteSyncLocalAudio(url: url, bytes: size.int64Value)
+    }
 }
 
 /// The sync engine's pending changes, as the coordinator sees them.
@@ -35,6 +52,26 @@ protocol NoteSyncEngineClient: AnyObject {
     func enqueueDeletes(_ ids: [UUID])
     /// Drops deletes still waiting to go up.
     func cancelDeletes(_ ids: [UUID])
+    func enqueueAudioSaves(_ parts: [NoteAudioPartID])
+    func enqueueAudioDeletes(_ parts: [NoteAudioPartID])
+    /// Parts of this note's audio still waiting to go up.
+    func pendingAudioSaves(noteID: UUID) -> [NoteAudioPartID]
+    func cancelAudioSaves(noteID: UUID)
+}
+
+/// One audio part to send: which bytes of which file.
+struct NoteSyncOutgoingAudio: Equatable {
+    let part: NoteAudioPartID
+    let fileURL: URL
+    let byteCount: Int64
+}
+
+enum NoteAudioSendFailure {
+    case quotaExceeded(NoteAudioPartID)
+    /// Offline or throttled; the engine retries these itself.
+    case network
+    case failed(NoteAudioPartID)
+    case deleteFailed(NoteAudioPartID)
 }
 
 struct NoteSyncOutgoing: Equatable {
@@ -92,8 +129,13 @@ final class NoteSyncCoordinator {
     private let store: NoteSyncLocalStore
     private let engine: NoteSyncEngineClient
     private let now: () -> Date
-    private var uploadDone = 0
+    private let localAudioURL: (String) -> URL?
+    private let hashFile: (URL) async throws -> String
     private var uploadTotal = 0
+    /// Notes of the first upload whose text, or whose audio, isn't up yet.
+    private var uploadWaitingText: Set<UUID> = []
+    private var uploadWaitingAudio: Set<UUID> = []
+    private var uploadDone: Int { uploadTotal - uploadWaitingText.union(uploadWaitingAudio).count }
 
     private(set) var status: NoteSyncStatus = .starting {
         didSet {
@@ -108,6 +150,8 @@ final class NoteSyncCoordinator {
     /// again after the next sync finishes.
     private var savesToRetry: Set<UUID> = []
     private var deletesToRetry: Set<UUID> = []
+    private var audioSavesToRetry: Set<NoteAudioPartID> = []
+    private var audioDeletesToRetry: Set<NoteAudioPartID> = []
     private var quotaRetryPending = false
 
     /// After an account change or a deletion elsewhere nothing more is sent;
@@ -119,36 +163,100 @@ final class NoteSyncCoordinator {
         }
     }
 
-    init(store: NoteSyncLocalStore, engine: NoteSyncEngineClient, now: @escaping () -> Date = Date.init) {
+    init(
+        store: NoteSyncLocalStore,
+        engine: NoteSyncEngineClient,
+        now: @escaping () -> Date = Date.init,
+        localAudioURL: @escaping (String) -> URL? = { _ in nil },
+        hashFile: @escaping (URL) async throws -> String = NoteSyncCoordinator.hashOffMain
+    ) {
         self.store = store
         self.engine = engine
         self.now = now
+        self.localAudioURL = localAudioURL
+        self.hashFile = hashFile
+    }
+
+    nonisolated static func hashOffMain(_ url: URL) async throws -> String {
+        try await Task.detached(priority: .utility) { try NoteAudioParts.sha256(of: url) }.value
     }
 
     /// Queues every settled note on this Mac, for turning sync on.
     func startInitialUpload() {
         let ids = store.syncableNoteIDs()
-        uploadDone = 0
         uploadTotal = ids.count
+        uploadWaitingText = Set(ids)
         engine.enqueueSaves(ids)
+        uploadWaitingAudio = Set(queueAudioUploads(for: ids))
         status = ids.isEmpty ? .starting : .uploading(done: 0, total: ids.count)
         print("[NoteSync] Queued \(ids.count) notes for the first upload")
+    }
+
+    /// After a relaunch: audio that hasn't gone up and isn't waiting.
+    func resumeAudioUploads() {
+        queueAudioUploads(for: store.syncableNoteIDs())
+    }
+
+    /// Queues every part of each note whose audio is here but not in
+    /// iCloud. A note with parts already waiting is left alone, so nothing
+    /// goes up twice. Returns the notes queued.
+    @discardableResult
+    func queueAudioUploads(for ids: [UUID]) -> [UUID] {
+        guard !isStopped else { return [] }
+        var queued: [UUID] = []
+        var parts: [NoteAudioPartID] = []
+        for id in ids {
+            guard store.audioManifest(id: id) == nil,
+                  engine.pendingAudioSaves(noteID: id).isEmpty,
+                  let file = localAudio(id) else { continue }
+            let count = NoteAudioParts.count(bytes: file.bytes)
+            guard count > 0 else { continue }
+            parts += (0..<count).map { NoteAudioPartID(noteID: id, index: $0) }
+            queued.append(id)
+        }
+        if !parts.isEmpty {
+            engine.enqueueAudioSaves(parts)
+            print("[NoteSync] Queued \(parts.count) audio parts for \(queued.count) notes")
+        }
+        return queued
+    }
+
+    private func localAudio(_ id: UUID) -> NoteSyncLocalAudio? {
+        guard store.isSyncable(id: id) else { return nil }
+        return store.localAudioFile(id: id, resolve: localAudioURL)
+    }
+
+    private func reportUploadProgress() {
+        if case .uploading = status {
+            status = .uploading(done: uploadDone, total: uploadTotal)
+        }
     }
 
     func handleLocalChanges(_ changes: [PipelineHistoryChange]) {
         guard !isStopped else { return }
         var saves: [UUID] = []
         var deletes: [UUID] = []
+        var audioDeletes: [NoteAudioPartID] = []
         for change in changes {
             switch change {
             case .saved(let id):
                 if store.isSyncable(id: id) { saves.append(id) }
-            case .deleted(let id, let wasSynced, _):
+            case .deleted(let id, let wasSynced, let audioParts):
                 if wasSynced { deletes.append(id) }
+                // Parts still waiting never go up; parts already sent are
+                // deleted, counted from the manifest or the waiting ones.
+                let waiting = engine.pendingAudioSaves(noteID: id).map(\.index)
+                if !waiting.isEmpty { engine.cancelAudioSaves(noteID: id) }
+                let count = max(audioParts, (waiting.max() ?? -1) + 1)
+                audioDeletes += (0..<count).map { NoteAudioPartID(noteID: id, index: $0) }
             }
         }
-        if !saves.isEmpty { engine.enqueueSaves(saves) }
+        if !saves.isEmpty {
+            engine.enqueueSaves(saves)
+            queueAudioUploads(for: saves)
+        }
         if !deletes.isEmpty { engine.enqueueDeletes(deletes) }
+        if !audioDeletes.isEmpty { engine.enqueueAudioDeletes(audioDeletes) }
     }
 
     /// The record to send for `id`, or nil when the note is gone or still
@@ -173,9 +281,77 @@ final class NoteSyncCoordinator {
             print("[NoteSync] Couldn't record an uploaded note")
             return
         }
-        if case .uploading = status {
-            uploadDone = min(uploadDone + 1, uploadTotal)
-            status = .uploading(done: uploadDone, total: uploadTotal)
+        uploadWaitingText.remove(id)
+        reportUploadProgress()
+    }
+
+    /// The part to send, or nil when it is stale: sync stopped, the audio
+    /// is gone or already in iCloud, or the index is past the end.
+    func outgoingAudio(for part: NoteAudioPartID) -> NoteSyncOutgoingAudio? {
+        guard !isStopped, store.audioManifest(id: part.noteID) == nil,
+              let file = localAudio(part.noteID),
+              part.index < NoteAudioParts.count(bytes: file.bytes) else { return nil }
+        return NoteSyncOutgoingAudio(part: part, fileURL: file.url, byteCount: file.bytes)
+    }
+
+    /// After the last part is up, marks the audio as in iCloud and sends
+    /// the note again, so other Macs learn they can download it.
+    func handleAudioPartSaved(_ part: NoteAudioPartID) async {
+        let id = part.noteID
+        guard !isStopped, engine.pendingAudioSaves(noteID: id).isEmpty,
+              store.audioManifest(id: id) == nil,
+              let file = localAudio(id) else { return }
+        let hash: String
+        do {
+            hash = try await hashFile(file.url)
+        } catch {
+            print("[NoteSync] Couldn't read audio to finish its upload")
+            return
+        }
+        // The note may have changed while the file was read.
+        guard !isStopped, store.audioManifest(id: id) == nil, localAudio(id) == file else { return }
+        let manifest = NoteAudioManifest(
+            sha256: hash,
+            bytes: file.bytes,
+            partSize: NoteAudioParts.partSize,
+            parts: NoteAudioParts.count(bytes: file.bytes)
+        )
+        do {
+            try store.setAudioManifest(manifest, id: id)
+        } catch {
+            print("[NoteSync] Couldn't record uploaded audio")
+            return
+        }
+        engine.enqueueSaves([id])
+        uploadWaitingAudio.remove(id)
+        reportUploadProgress()
+    }
+
+    func handleAudioSendFailures(_ failures: [NoteAudioSendFailure]) {
+        guard !isStopped else { return }
+        var quotaCount = 0
+        var offline = false
+        for failure in failures {
+            switch failure {
+            case .quotaExceeded(let part):
+                quotaCount += 1
+                quotaRetryPending = true
+                audioSavesToRetry.insert(part)
+            case .network:
+                offline = true
+            case .failed(let part):
+                audioSavesToRetry.insert(part)
+            case .deleteFailed(let part):
+                audioDeletesToRetry.insert(part)
+            }
+        }
+        if quotaCount > 0 {
+            status = .paused(.quotaExceeded(pending: quotaCount))
+        } else if offline {
+            status = .paused(.offline)
+        }
+        if !failures.isEmpty {
+            print("[NoteSync] \(failures.count) audio changes failed to send")
         }
     }
 
@@ -316,6 +492,16 @@ final class NoteSyncCoordinator {
             let retry = deletesToRetry.filter { store.syncRecord(id: $0) == nil }
             deletesToRetry = []
             if !retry.isEmpty { engine.enqueueDeletes(Array(retry)) }
+        }
+        if !audioSavesToRetry.isEmpty {
+            let retry = audioSavesToRetry.filter { outgoingAudio(for: $0) != nil }
+            audioSavesToRetry = []
+            if !retry.isEmpty { engine.enqueueAudioSaves(Array(retry)) }
+        }
+        if !audioDeletesToRetry.isEmpty {
+            let retry = Array(audioDeletesToRetry)
+            audioDeletesToRetry = []
+            engine.enqueueAudioDeletes(retry)
         }
         // Notes just queued again for lack of space aren't up to date yet;
         // the pause clears after a sync where they went up.
