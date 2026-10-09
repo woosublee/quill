@@ -10,12 +10,15 @@ enum NoteSyncZoneDeletionAction: Equatable {
 
 /// Tells a deletion of the `Notes` zone by another Mac apart from history.
 /// After the user turns sync on, a fetch or save can still report the zone
-/// this Mac deleted earlier (Turn Off and Delete from iCloud). Until the
-/// zone is saved again, such a deletion is that history: turning sync on
+/// this Mac deleted earlier (Turn Off and Delete from iCloud). That stays
+/// history until the zone is saved again and a fetch has finished after
+/// it, since the save and the first fetch can run at once: turning sync on
 /// is the choice to use iCloud. A marker file keeps that window across a
-/// relaunch; starting over or history recovery never opens it.
+/// relaunch; turning off closes it, and starting over or history recovery
+/// never opens it.
 struct NoteSyncZoneTracker {
     let markerURL: URL
+    private var zoneSavedThisRun = false
 
     init(markerURL: URL) {
         self.markerURL = markerURL
@@ -26,14 +29,26 @@ struct NoteSyncZoneTracker {
     }
 
     func turnedOnByUser() {
-        try? FileManager.default.createDirectory(
-            at: markerURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try? Data().write(to: markerURL, options: .atomic)
+        do {
+            try FileManager.default.createDirectory(
+                at: markerURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data().write(to: markerURL, options: .atomic)
+        } catch {
+            print("[NoteSync] Couldn't note that sync was turned on")
+        }
     }
 
-    func zoneSaved() {
+    mutating func zoneSaved() {
+        zoneSavedThisRun = true
+    }
+
+    func fetchFinished() {
+        if zoneSavedThisRun { forgetTurnOn() }
+    }
+
+    func forgetTurnOn() {
         try? FileManager.default.removeItem(at: markerURL)
     }
 }

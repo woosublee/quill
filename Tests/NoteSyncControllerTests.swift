@@ -49,6 +49,7 @@ struct NoteSyncControllerTests {
         func attach(_ coordinator: NoteSyncCoordinator) { self.coordinator = coordinator }
         func start() { started += 1; calls.append("start") }
         func noteTurnedOnByUser() { calls.append("turnedOnByUser") }
+        func forgetUserTurnOn() { calls.append("forgetUserTurnOn") }
         func fetchNow() { fetches += 1 }
         func deleteAllFromICloud() async throws { deletedFromICloud = true }
         func stop(forgetState: Bool) { stopped.append(forgetState) }
@@ -122,6 +123,7 @@ struct NoteSyncControllerTests {
         precondition(done)
         precondition(!controller.isEnabled && !defaults.bool(forKey: NoteSyncController.enabledKey))
         precondition(running?.stopped == [true] && running?.deletedFromICloud == false)
+        precondition(running?.calls.last == "forgetUserTurnOn", "turning off closes a pending turn-on")
         precondition(controller.status == .off && !store.cleared, "plain off keeps change tags for next time")
     }
 
@@ -142,6 +144,7 @@ struct NoteSyncControllerTests {
         engine()?.coordinator?.handleAccountChange(signedOut: false)
         precondition(!controller.isEnabled && !defaults.bool(forKey: NoteSyncController.enabledKey))
         precondition(engine()?.stopped == [true])
+        precondition(engine()?.calls.last == "forgetUserTurnOn", "a stop for the account closes a pending turn-on")
         precondition(controller.status == .paused(.accountChanged), "the reason stays visible after sync turns off")
     }
 

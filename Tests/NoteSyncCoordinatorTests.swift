@@ -28,6 +28,7 @@ struct NoteSyncCoordinatorTests {
         testAccountChangeStaysPausedWhenClearingFails()
         try testUnavailableStoreAsksForFullRefetch()
         testFailedSavesAreRetriedAfterTheNextSync()
+        testRequeueKeepsUploadProgress()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -367,5 +368,25 @@ struct NoteSyncCoordinatorTests {
         precondition(Set(engine.saves) == [full, other], "notes that couldn't upload are tried again")
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.saves.count == 2, "each failure is retried once per failure")
+    }
+
+    /// Recreating the zone queues every note again without starting the
+    /// upload count over, and does nothing once sync stopped.
+    @MainActor
+    static func testRequeueKeepsUploadProgress() {
+        let (coordinator, store, engine) = make()
+        let a = record(), b = record()
+        store.records = [a.noteID: a, b.noteID: b]
+        store.syncable = [a.noteID, b.noteID]
+        coordinator.startInitialUpload()
+        coordinator.handleSaved(id: a.noteID, systemFields: Data([1]))
+        engine.saves = []
+        coordinator.requeueAllNotes()
+        precondition(Set(engine.saves) == [a.noteID, b.noteID])
+        precondition(coordinator.status == .uploading(done: 1, total: 2))
+        coordinator.handleZoneDeleted()
+        engine.saves = []
+        coordinator.requeueAllNotes()
+        precondition(engine.saves.isEmpty)
     }
 }

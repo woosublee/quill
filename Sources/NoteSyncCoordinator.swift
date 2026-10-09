@@ -126,6 +126,13 @@ final class NoteSyncCoordinator {
         print("[NoteSync] Queued \(ids.count) notes for the first upload")
     }
 
+    /// Queues every note again after the zone is made again, keeping the
+    /// upload count: notes already counted are not counted twice.
+    func requeueAllNotes() {
+        guard !isStopped else { return }
+        engine.enqueueSaves(store.syncableNoteIDs())
+    }
+
     func handleLocalChanges(_ changes: [PipelineHistoryChange]) {
         guard !isStopped else { return }
         var saves: [UUID] = []

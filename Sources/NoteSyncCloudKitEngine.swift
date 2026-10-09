@@ -25,7 +25,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
     private var isFetching = false
     private var isDeletingZone = false
     private var zoneDeleteFailed = false
-    private let zoneTracker: NoteSyncZoneTracker
+    private var zoneTracker: NoteSyncZoneTracker
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var pathMonitor: NWPathMonitor?
@@ -45,7 +45,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         )
         let engine = CKSyncEngine(configuration)
         lock.withLock { syncEngine = engine }
-        // A turn-on that quit before the zone was saved saves it again.
+        // A turn-on that quit before the zone was back saves it again.
         if isFirstRun || zoneTracker.actionForZoneDeletion == .recreateAndUploadAll {
             engine.state.add(pendingDatabaseChanges: [
                 .saveZone(CKRecordZone(zoneID: NoteSyncCloudRecord.zoneID()))
@@ -60,7 +60,15 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
     }
 
     func noteTurnedOnByUser() {
-        lock.withLock { zoneTracker.turnedOnByUser() }
+        let engine = lock.withLock { () -> CKSyncEngine? in
+            zoneTracker.turnedOnByUser()
+            return syncEngine
+        }
+        engine?.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: NoteSyncCloudRecord.zoneID()))])
+    }
+
+    func forgetUserTurnOn() {
+        lock.withLock { zoneTracker.forgetTurnOn() }
     }
 
     /// Call on the main thread.
@@ -197,7 +205,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
                 case .recreateAndUploadAll:
                     // History from before sync was turned on again.
                     syncEngine.state.add(pendingDatabaseChanges: [.saveZone(CKRecordZone(zoneID: zoneID))])
-                    await MainActor.run { coordinator?.startInitialUpload() }
+                    await MainActor.run { coordinator?.requeueAllNotes() }
                 }
             }
 
@@ -233,9 +241,12 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
                 lock.withLock { zoneDeleteFailed = true }
             }
 
-        case .didFetchChanges, .didSendChanges:
-            let pending = syncEngine.state.pendingRecordZoneChanges.count
-            await MainActor.run { coordinator?.handleFetchFinished(pending: pending) }
+        case .didFetchChanges:
+            lock.withLock { zoneTracker.fetchFinished() }
+            await reportFinished(engine: syncEngine)
+
+        case .didSendChanges:
+            await reportFinished(engine: syncEngine)
 
         default:
             break
@@ -267,10 +278,16 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
 
     // MARK: - Private
 
+    private func reportFinished(engine: CKSyncEngine) async {
+        let pending = engine.state.pendingRecordZoneChanges.count
+        await MainActor.run { coordinator?.handleFetchFinished(pending: pending) }
+    }
+
     private func handleSent(_ sent: CKSyncEngine.Event.SentRecordZoneChanges, engine: CKSyncEngine) async {
         var saved: [(UUID, Data)] = []
         var failures: [NoteSyncSendFailure] = []
         var zoneDeletedElsewhere = false
+        var recreatedZone = false
         for record in sent.savedRecords {
             guard let id = NoteSyncCloudRecord.noteID(from: record.recordID) else { continue }
             NoteSyncCloudRecord.removeOutboxFile(for: id, in: outbox)
@@ -293,7 +310,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
                     engine.state.add(pendingDatabaseChanges: [
                         .saveZone(CKRecordZone(zoneID: NoteSyncCloudRecord.zoneID()))
                     ])
-                    engine.state.add(pendingRecordZoneChanges: [.saveRecord(failure.record.recordID)])
+                    recreatedZone = true
                 } else {
                     // Another Mac chose Turn Off and Delete from iCloud: stop
                     // rather than recreate what it deleted.
@@ -325,6 +342,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         let deletedIDs = deleted
         let sendFailures = failures
         let stopForDeletion = zoneDeletedElsewhere
+        let requeueAll = recreatedZone
         await MainActor.run {
             guard let coordinator else { return }
             if stopForDeletion {
@@ -334,6 +352,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
             for (id, fields) in savedRecords { coordinator.handleSaved(id: id, systemFields: fields) }
             for id in deletedIDs { coordinator.handleDeleted(id: id) }
             if !sendFailures.isEmpty { coordinator.handleSendFailures(sendFailures) }
+            if requeueAll { coordinator.requeueAllNotes() }
         }
     }
 

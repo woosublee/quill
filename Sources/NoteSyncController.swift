@@ -11,6 +11,8 @@ protocol NoteSyncEngineHandle: NoteSyncEngineClient {
     /// before the zone is saved again predates that choice. Called before
     /// `start()`.
     func noteTurnedOnByUser()
+    /// Sync turned off or stopped: a pending turn-on no longer applies.
+    func forgetUserTurnOn()
     func fetchNow()
     func deleteAllFromICloud() async throws
     func stop(forgetState: Bool)
@@ -90,6 +92,7 @@ final class NoteSyncController: ObservableObject {
             // iCloud no longer holds these notes.
             store?.clearChangeTags()
         }
+        engine?.forgetUserTurnOn()
         stopEngine(forgetState: true)
         setEnabled(false)
         status = .off
@@ -146,6 +149,7 @@ final class NoteSyncController: ObservableObject {
         case .paused(.accountChanged), .paused(.signedOut), .paused(.deletedElsewhere):
             // Sync starts again only when the user turns it on, so notes
             // never cross into another account.
+            engine?.forgetUserTurnOn()
             stopEngine(forgetState: true)
             setEnabled(false)
         default:
