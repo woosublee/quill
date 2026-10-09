@@ -176,6 +176,9 @@ final class NoteSyncCoordinator {
     /// again after the next sync because a check couldn't finish.
     private var audioChecking: Set<UUID> = []
     private var audioToCheck: Set<UUID> = []
+    /// Marked notes of the first upload, held back until their marker is
+    /// checked: a marker from another account must not reach this one.
+    private var savesAfterCheck: Set<UUID> = []
     /// Set once the controller replaces or drops this coordinator: work
     /// still running (an audio check, a hash) must not touch the store.
     private var isRetired = false
@@ -217,7 +220,8 @@ final class NoteSyncCoordinator {
         let ids = store.syncableNoteIDs()
         uploadTotal = ids.count
         uploadWaitingText = Set(ids)
-        engine.enqueueSaves(ids)
+        savesAfterCheck = Set(ids.filter { store.audioManifest(id: $0) != nil })
+        engine.enqueueSaves(ids.filter { !savesAfterCheck.contains($0) })
         uploadWaitingAudio = Set(ids.filter { store.audioManifest(id: $0) == nil && localAudio($0) != nil })
         status = ids.isEmpty ? .starting : .uploading(done: 0, total: ids.count)
         print("[NoteSync] Queued \(ids.count) notes for the first upload")
@@ -239,8 +243,14 @@ final class NoteSyncCoordinator {
         let busy = notesWithAudioInFlight()
         var parts: [NoteAudioPartID] = []
         var notes = 0
+        var check: [UUID] = []
         for id in ids where !busy.contains(id) && !audioChecking.contains(id) && !audioToCheck.contains(id) {
             guard store.audioManifest(id: id) == nil, let file = localAudio(id), file.partCount > 0 else { continue }
+            if audioPartsGivenUp.contains(where: { $0.noteID == id }) {
+                // Some parts are already in iCloud: send only what's missing.
+                check.append(id)
+                continue
+            }
             noteAudioParts(file.partCount, of: id)
             parts += Self.parts(of: id, count: file.partCount)
             notes += 1
@@ -249,6 +259,7 @@ final class NoteSyncCoordinator {
             engine.enqueueAudioSaves(parts)
             print("[NoteSync] Queued \(parts.count) audio parts for \(notes) notes")
         }
+        checkAudioSoon(check, verifyMarked: false)
     }
 
     private static func parts(of id: UUID, count: Int) -> [NoteAudioPartID] {
@@ -293,12 +304,22 @@ final class NoteSyncCoordinator {
         guard !isStopped else { return }
         let busy = notesWithAudioInFlight()
         var notes: [AudioToCheck] = []
+        var release: [UUID] = []
+        defer {
+            if !release.isEmpty, !isStopped {
+                savesAfterCheck.subtract(release)
+                engine.enqueueSaves(release)
+            }
+        }
         for id in ids {
             let manifest = store.audioManifest(id: id)
             let file = localAudio(id)
             // Parts may already be in iCloud, so a delete must know how many.
             if manifest == nil, let file { noteAudioParts(file.partCount, of: id) }
-            guard !busy.contains(id) else { continue }
+            guard !busy.contains(id) else {
+                if savesAfterCheck.contains(id) { release.append(id) }
+                continue
+            }
             if audioChecking.contains(id) {
                 audioToCheck.insert(id)
                 continue
@@ -309,6 +330,9 @@ final class NoteSyncCoordinator {
                       case .string(let name)? = store.syncRecord(id: id)?.fields[NoteSyncField.audioFileName.rawValue] {
                 let stamp = NoteAudioPartStamp(fileName: name, fileBytes: manifest.bytes)
                 notes.append(AudioToCheck(id: id, file: nil, manifest: manifest, stamp: stamp, count: manifest.parts))
+            } else if savesAfterCheck.contains(id) {
+                // Nothing to check: it goes up as it is.
+                release.append(id)
             }
         }
         guard !notes.isEmpty else { return }
@@ -324,6 +348,8 @@ final class NoteSyncCoordinator {
             return
         }
         guard !isStopped else { return }
+        // Checked: held-back notes go up now, with whatever marker remains.
+        release += checking.filter { savesAfterCheck.contains($0) }
         let busyNow = notesWithAudioInFlight()
         var send: [NoteAudioPartID] = []
         var extra: [NoteAudioPartID] = []
@@ -365,7 +391,7 @@ final class NoteSyncCoordinator {
             print("[NoteSync] Queued \(send.count) audio parts iCloud doesn't have")
         }
         if !unmarked.isEmpty {
-            engine.enqueueSaves(unmarked)
+            engine.enqueueSaves(unmarked.filter { !release.contains($0) })
             if case .uploading = status {
                 uploadWaitingAudio.formUnion(unmarked.filter { localAudio($0) != nil })
             }
