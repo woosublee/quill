@@ -324,9 +324,22 @@ struct SettingsLocalizationTests {
         let view = try String(contentsOfFile: "Sources/SyncSettingsView.swift", encoding: .utf8)
         assert(localizedCatalogString("Just now", language: "ko", bundle: bundle) == "방금 전")
         // A sync that just finished reads "Just now", never "in 0 seconds",
-        // and the line refreshes while Settings stays open.
-        assert(view.contains("if interval < 60 { return localizedCatalogString(\"Just now\") }"))
-        assert(view.contains("formatter.dateTimeStyle = .named"))
+        // and later times stay in the same language as "Just now".
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        for (language, justNow) in [("en", "Just now"), ("ko", "방금 전")] {
+            let text = { (offset: TimeInterval) in
+                NoteSyncStatusText.relativeTime(now.addingTimeInterval(offset), now: now, language: language, bundle: bundle)
+            }
+            assert(text(0) == justNow && text(-59) == justNow)
+            // A clock set back must not read "in 10 minutes".
+            assert(text(600) == justNow)
+        }
+        let threeMinutesKo = NoteSyncStatusText.relativeTime(now.addingTimeInterval(-180), now: now, language: "ko", bundle: bundle)
+        assert(threeMinutesKo.contains("3") && threeMinutesKo.contains("분"), threeMinutesKo)
+        let threeMinutesEn = NoteSyncStatusText.relativeTime(now.addingTimeInterval(-180), now: now, language: "en", bundle: bundle)
+        assert(threeMinutesEn.contains("3") && threeMinutesEn.contains("min"), threeMinutesEn)
+        // The line refreshes while Settings stays open.
+        assert(view.contains("NoteSyncStatusText.relativeTime(date, now: context.date)"))
         assert(view.contains("TimelineView(.periodic(from: .now, by: 30))"))
         // The switch already says off, and the status sits beside the title,
         // dropping below it only when the line is too narrow.

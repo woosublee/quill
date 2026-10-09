@@ -172,7 +172,7 @@ private struct NoteSyncSettingsCard: View {
         case .upToDate(let date):
             TimelineView(.periodic(from: .now, by: 30)) { context in
                 Label {
-                    Text("Up to date · \(Self.relativeTime(date, now: context.date))")
+                    Text("Up to date · \(NoteSyncStatusText.relativeTime(date, now: context.date))")
                 } icon: {
                     Image(systemName: "checkmark.circle.fill")
                 }
@@ -242,16 +242,5 @@ private struct NoteSyncSettingsCard: View {
                 EmptyView()
             }
         }
-    }
-
-    /// "Just now" for the first minute, then "3 min. ago" and so on; a sync
-    /// that just finished never reads "in 0 seconds".
-    private static func relativeTime(_ date: Date, now: Date) -> String {
-        let interval = now.timeIntervalSince(date)
-        if interval < 60 { return localizedCatalogString("Just now") }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        formatter.dateTimeStyle = .named
-        return formatter.localizedString(for: date, relativeTo: now)
     }
 }
