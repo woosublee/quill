@@ -1,7 +1,7 @@
 import Foundation
 import CoreData
 
-struct DeletedPipelineHistoryAssets {
+struct DeletedPipelineHistoryAssets: Equatable, Sendable {
     let historyID: UUID
     let audioFileName: String?
     let transcriptFileName: String?
