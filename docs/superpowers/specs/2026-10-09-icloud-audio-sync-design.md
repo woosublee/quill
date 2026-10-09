@@ -42,7 +42,11 @@ or exports it.
   `<note UUID>-<key>-<part index>` (index from 0), where `key` is the first
   16 lowercase hex digits of the file's SHA-256. A part is named after the
   bytes it holds, so parts never change: a new audio file gets new names,
-  and a part saved twice is the same part.
+  and a part saved twice is the same part. This holds only while the part
+  size stays 50 MB; changing it needs a new name shape (for example the
+  part size in the name), or old and new parts would share names.
+- A manifest whose `sha256` isn't 64 lowercase hex digits can't name parts
+  and is read as no manifest.
 - Fields: `data` (`CKAsset`, one part), `index` (Int), `noteID` (String).
 - The engine's fetch scope excludes the `NoteAudio` zone, so other Macs
   never download audio during a normal fetch.

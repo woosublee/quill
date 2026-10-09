@@ -42,7 +42,7 @@ struct NoteSyncControllerTests {
                 deletedAt: nil
             )
         }
-        let manifest = NoteAudioManifest(sha256: "x", bytes: 1, partSize: 50_000_000, parts: 1)
+        let manifest = NoteAudioManifest(sha256: String(repeating: "ab", count: 32), bytes: 1, partSize: 50_000_000, parts: 1)
         store.manifests[uploaded] = manifest
         store.manifests[elsewhere] = manifest
         let controller = NoteSyncController(
@@ -101,6 +101,7 @@ struct NoteSyncControllerTests {
         func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> { [] }
         func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] { [] }
         func cancelAudioSaves(noteID: UUID) {}
+        func cancelAudioDeletes(noteID: UUID) {}
         func attach(_ coordinator: NoteSyncCoordinator) { self.coordinator = coordinator }
         func start() { started += 1; log?.calls.append("start") }
         func fetchNow() { fetches += 1 }

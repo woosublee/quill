@@ -265,7 +265,7 @@ struct PipelineHistorySyncStoreTests {
         precondition(changes == [.saved(note.id)])
     }
 
-    private static let manifest = NoteAudioManifest(sha256: "synthetic", bytes: 120_000_000, partSize: 50_000_000, parts: 3)
+    private static let manifest = NoteAudioManifest(sha256: String(repeating: "ab", count: 32), bytes: 120_000_000, partSize: 50_000_000, parts: 3)
 
     private static func testAudioManifestTravelsWithTheNote() throws {
         let s = store()

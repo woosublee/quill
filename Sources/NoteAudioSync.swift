@@ -81,6 +81,11 @@ struct NoteAudioManifest: Codable, Equatable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         sha256 = try container.decode(String.self, forKey: .sha256)
+        // The hash names the parts, so one that can't is no marker at all.
+        guard sha256.count == 64, NoteAudioPartID.isKey(String(sha256.prefix(NoteAudioPartID.keyLength))),
+              sha256.allSatisfy({ "0123456789abcdef".contains($0) }) else {
+            throw DecodingError.dataCorruptedError(forKey: .sha256, in: container, debugDescription: "Not a SHA-256")
+        }
         bytes = try container.decode(Int64.self, forKey: .bytes)
         partSize = try container.decode(Int64.self, forKey: .partSize)
         parts = try container.decode(Int.self, forKey: .parts)

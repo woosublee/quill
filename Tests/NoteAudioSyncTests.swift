@@ -83,12 +83,15 @@ struct NoteAudioSyncTests {
         precondition(NoteAudioPartID(recordName: "synthetic-0123456789abcdef-1") == nil)
         let manifest = NoteAudioManifest(sha256: sha, bytes: 120_000_000, partSize: 50_000_000, parts: 3)
         precondition(manifest.partIDs(noteID: id) == NoteAudioPartID.parts(of: id, sha256: sha, count: 3))
+        let malformed = Data(#"{"bytes":1,"partSize":50000000,"parts":1,"sha256":"not-a-hash","v":1}"#.utf8)
+        precondition(NoteAudioManifest.decode(malformed) == nil, "a marker whose hash can't name parts is rejected")
+        precondition(NoteAudioManifest.decode(manifest.encoded()) == manifest)
     }
 
     static func testManifestShape() {
-        let manifest = NoteAudioManifest(sha256: "abc", bytes: 120, partSize: 50, parts: 3)
+        let manifest = NoteAudioManifest(sha256: String(repeating: "ab", count: 32), bytes: 120, partSize: 50, parts: 3)
         let text = String(data: manifest.encoded(), encoding: .utf8)
-        precondition(text == #"{"bytes":120,"partSize":50,"parts":3,"sha256":"abc","v":1}"#, "shared shape: \(text ?? "")")
+        precondition(text == #"{"bytes":120,"partSize":50,"parts":3,"sha256":"abababababababababababababababababababababababababababababababab","v":1}"#, "shared shape: \(text ?? "")")
         precondition(NoteAudioManifest.decode(manifest.encoded()) == manifest)
         precondition(NoteAudioManifest.decode(Data("{}".utf8)) == nil)
     }

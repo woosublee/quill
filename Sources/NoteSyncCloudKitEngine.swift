@@ -141,6 +141,15 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         }
     }
 
+    func cancelAudioDeletes(noteID: UUID) {
+        guard let engine = activeEngine() else { return }
+        let deletes = engine.state.pendingRecordZoneChanges.filter { change in
+            guard case .deleteRecord(let id) = change else { return false }
+            return NoteAudioCloudRecord.part(from: id)?.noteID == noteID
+        }
+        if !deletes.isEmpty { engine.state.remove(pendingRecordZoneChanges: deletes) }
+    }
+
     func cancelAudioSaves(noteID: UUID) {
         guard let engine = activeEngine() else { return }
         let parts = pendingAudioSaves().filter { $0.noteID == noteID }

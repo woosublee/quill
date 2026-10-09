@@ -28,6 +28,7 @@ struct AppStateNoteSyncTests {
         func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> { [] }
         func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] { [] }
         func cancelAudioSaves(noteID: UUID) {}
+        func cancelAudioDeletes(noteID: UUID) {}
         func attach(_ coordinator: NoteSyncCoordinator) { self.coordinator = coordinator }
         func start() {}
         func fetchNow() {}
