@@ -112,6 +112,7 @@ struct NoteSyncCoordinatorTests {
         testNoteGivenUpThenWaitingForSpaceIsNotBoth()
         testRetriesWaitWhileThisMacDeletes()
         testSkippedSyncCountsUploadsPutBack()
+        testUndoneDeletePutsBackOnlyDeletesStillWanted()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -1871,5 +1872,23 @@ struct NoteSyncCoordinatorTests {
         engine.pendingCount = 0
         coordinator.handleFetchFinished(pending: 0)
         precondition(coordinator.status == .upToDate(clock))
+    }
+
+    /// An undone delete puts back the deletes it dropped or held, except for
+    /// a note that came back meanwhile, or a part its note uses; a note that
+    /// can't be read keeps nothing.
+    @MainActor
+    static func testUndoneDeletePutsBackOnlyDeletesStillWanted() {
+        let (coordinator, store, _) = make()
+        let back = record(), gone = UUID()
+        store.records[back.noteID] = back
+        precondition(coordinator.isDeleteStillWanted(noteID: gone))
+        precondition(!coordinator.isDeleteStillWanted(noteID: back.noteID), "the note came back")
+        store.manifests[back.noteID] = manifest("a.wav")
+        precondition(!coordinator.isDeleteStillWanted(parts(back.noteID, 1, "a.wav")[0]), "its note uses it")
+        precondition(coordinator.isDeleteStillWanted(parts(back.noteID, 1, "old.wav")[0]), "an earlier file's part")
+        precondition(coordinator.isDeleteStillWanted(parts(gone, 1)[0]), "its note is gone")
+        store.readFails = true
+        precondition(!coordinator.isDeleteStillWanted(noteID: gone) && !coordinator.isDeleteStillWanted(parts(gone, 1)[0]))
     }
 }

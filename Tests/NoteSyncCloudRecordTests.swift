@@ -223,6 +223,7 @@ struct NoteSyncCloudRecordTests {
         _ = hold.hold(["c"])
         hold.finish()
         precondition(hold.isDeleting, "sync turns off after a delete that went through")
+        precondition(hold.hold(["after"]).isEmpty, "nothing more is held, or put back")
         precondition(hold.undo().isEmpty, "nothing held goes back after it went through")
         hold.begin()
         precondition(hold.undo().isEmpty, "a new delete starts with nothing held")

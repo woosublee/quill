@@ -80,18 +80,20 @@ enum NoteSyncSendRoute: Equatable {
 /// The engine keeps it under its lock.
 struct NoteSyncDeleteHold<Change> {
     private(set) var isDeleting = false
+    private var isFinished = false
     private var held: [Change] = []
 
     mutating func begin() {
         isDeleting = true
+        isFinished = false
         held = []
     }
 
     /// Returns the changes to put back now: all of them once the delete was
-    /// undone (their send finished after it).
+    /// undone (their send finished after it), none once it went through.
     mutating func hold(_ changes: [Change]) -> [Change] {
         guard isDeleting else { return changes }
-        held += changes
+        if !isFinished { held += changes }
         return []
     }
 
@@ -102,9 +104,10 @@ struct NoteSyncDeleteHold<Change> {
         return held
     }
 
-    /// The delete went through: nothing held goes back. Sync turns off, so
-    /// it still counts as deleting.
+    /// The delete went through: nothing held goes back, and nothing more is
+    /// held. Sync turns off, so it still counts as deleting.
     mutating func finish() {
+        isFinished = true
         held = []
     }
 }
