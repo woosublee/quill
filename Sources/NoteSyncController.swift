@@ -270,7 +270,11 @@ final class NoteSyncController: ObservableObject {
                 isDeletingFromICloud = false
                 // Sync stays on: a start held back meanwhile goes ahead, or
                 // else what a finished sync skipped meanwhile runs now.
-                if heldBackStart == nil { coordinator?.stopHoldingRetries() }
+                if heldBackStart == nil {
+                    coordinator?.stopHoldingRetries()
+                } else {
+                    coordinator?.isHoldingRetries = false
+                }
                 if let initialUpload = heldBackStart {
                     heldBackStart = nil
                     stopEngine(forgetState: initialUpload)

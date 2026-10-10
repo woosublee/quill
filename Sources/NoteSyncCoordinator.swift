@@ -1033,15 +1033,24 @@ final class NoteSyncCoordinator {
 
     /// An undone delete puts back deletes it had dropped or held; one for a
     /// note that came back meanwhile, or a part its note uses again, must
-    /// not go. Can't tell keeps nothing.
+    /// not go. When the note can't be read, the delete is left to the
+    /// retries, which check again later.
     func isDeleteStillWanted(noteID id: UUID) -> Bool {
-        store.noteExists(id: id) == false
+        switch store.noteExists(id: id) {
+        case false?: return true
+        case true?: return false
+        case nil:
+            deleteRetries.failed(id, at: now(), keepTrying: true)
+            return false
+        }
     }
 
     func isDeleteStillWanted(_ part: NoteAudioPartID) -> Bool {
         switch store.noteExists(id: part.noteID) {
         case false?: return true
-        case nil: return false
+        case nil:
+            audioDeleteRetries.failed(part, at: now(), keepTrying: true)
+            return false
         case true?:
             let used = [store.audioManifest(id: part.noteID)?.sha256, store.audioUploadKey(id: part.noteID)]
                 .compactMap { $0.map(NoteAudioPartID.key(sha256:)) }

@@ -1879,7 +1879,7 @@ struct NoteSyncCoordinatorTests {
     /// can't be read keeps nothing.
     @MainActor
     static func testUndoneDeletePutsBackOnlyDeletesStillWanted() {
-        let (coordinator, store, _) = make()
+        let (coordinator, store, engine) = make()
         let back = record(), gone = UUID()
         store.records[back.noteID] = back
         precondition(coordinator.isDeleteStillWanted(noteID: gone))
@@ -1890,5 +1890,11 @@ struct NoteSyncCoordinatorTests {
         precondition(coordinator.isDeleteStillWanted(parts(gone, 1)[0]), "its note is gone")
         store.readFails = true
         precondition(!coordinator.isDeleteStillWanted(noteID: gone) && !coordinator.isDeleteStillWanted(parts(gone, 1)[0]))
+        // Those are left to the retries, which delete once the note reads
+        // as gone.
+        store.readFails = false
+        passTime(3600)
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.deletes == [gone] && engine.audioDeletes == [parts(gone, 1)[0]])
     }
 }
