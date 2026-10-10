@@ -15,12 +15,13 @@ struct NoteSyncControllerTests {
         testTurnOffAndDeleteFromICloud()
         testAudioLeftInICloudIsDeletedAtLaunch()
         testLeftoverAudioWaitsWhileSyncIsOn()
-        testLeftoverAudioInUseAgainIsKept()
-        testWhenLeftoverAudioIsDeleted()
-        testTurnOffRecordsTheAccountAudioWasLeftIn()
-        testTurnOnRemembersTheAccountForATurnOffLater()
-        testTurnOnInAnotherAccountKeepsLeftoverAudio()
         testTurnOnWaitsForTheLeftoverAudioDelete()
+        testLeftoverAudioInUseAgainIsForgotten()
+        testLeftoverAudioIsKeptPerAccount()
+        testOfflineTurnOffRecordsTheAccountSyncRanIn()
+        testTurnOnInAnotherAccountKeepsLeftoverAudio()
+        testSyncOnBeforeThisChangeLearnsItsAccount()
+        testTurnOffInAnotherAccountKeepsTheFirstOnesAudio()
         testAccountChangeTurnsSyncOff()
         testLocalChangesReachTheEngineOnlyWhileOn()
         testReplacedStoreStartsOverWithFullUpload()
@@ -145,7 +146,8 @@ struct NoteSyncControllerTests {
         var calls: [String] = []
         var zoneError: Error?
         var leftoverResult = NoteSyncLeftoverAudio.deleted
-        var accounts: [String?] = []
+        /// The signed-in account, nil when it can't be read.
+        var account: String? = "account-a"
         /// Holds an audio zone delete until set back to false.
         var holdAudioDelete = false
     }
@@ -513,23 +515,29 @@ struct NoteSyncControllerTests {
         precondition(engine()?.saves == [id], "the given-up note goes up with Sync Now")
     }
 
-    /// A controller as at launch, on `defaults`, whose audio zone delete
-    /// is logged and works as `log` says.
+    @MainActor static let leftKey = NoteSyncController.audioLeftInICloudKey
+
     @MainActor
-    static func launch(_ defaults: UserDefaults, log: CallLog) -> NoteSyncController {
+    static func freshDefaults() -> UserDefaults {
+        UserDefaults(suiteName: "quill-sync-controller-tests-\(UUID().uuidString)")!
+    }
+
+    /// A controller as at launch, on `defaults`, whose leftover audio
+    /// delete and account are `log`'s.
+    @MainActor
+    static func launch(_ defaults: UserDefaults, log: CallLog, engine: FakeEngine = FakeEngine()) -> NoteSyncController {
         NoteSyncController(
             defaults: defaults,
             unavailableReason: nil,
             createZone: { log.calls.append("createZone") },
-            deleteLeftoverAudio: { @MainActor account in
+            deleteLeftoverAudio: { @MainActor in
                 log.calls.append("deleteAudioZone")
-                log.accounts.append(account)
                 while log.holdAudioDelete { await Task.yield() }
                 log.calls.append("deleteAudioZone done")
                 return log.leftoverResult
             },
-            accountID: { "account-a" },
-            makeEngine: { _ in FakeEngine() }
+            accountID: { @MainActor in log.account },
+            makeEngine: { _ in engine }
         )
     }
 
@@ -538,32 +546,35 @@ struct NoteSyncControllerTests {
     /// goes.
     @MainActor
     static func testAudioLeftInICloudIsDeletedAtLaunch() {
-        let (controller, store, engine, defaults) = make(enabled: true)
+        let defaults = freshDefaults()
+        defaults.set(true, forKey: NoteSyncController.enabledKey)
+        let engine = FakeEngine()
+        engine.audioDeleteWorks = false
+        let log = CallLog()
+        let controller = launch(defaults, log: log, engine: engine)
+        let store = FakeStore()
         controller.attach(store: store)
-        engine()?.audioDeleteWorks = false
         var turnedOff = false
         precondition(expectation { turnedOff = await controller.turnOff(deleteFromICloud: true) })
         precondition(turnedOff && !controller.isEnabled, "sync turns off: the notes are gone")
-        precondition(controller.audioLeftInICloud)
+        precondition(controller.audioLeftInICloud && defaults.stringArray(forKey: leftKey) == ["account-a"])
 
-        let log = CallLog()
         log.leftoverResult = .failed
         let relaunched = launch(defaults, log: log)
         precondition(relaunched.audioLeftInICloud, "remembered across launches")
         precondition(expectation { await relaunched.deleteLeftoverAudio() })
         precondition(log.calls == ["deleteAudioZone", "deleteAudioZone done"] && relaunched.audioLeftInICloud)
-        precondition(log.accounts == [nil], "the account wasn't known, so only iCloud's notes are checked")
         log.leftoverResult = .deleted
         let again = launch(defaults, log: log)
         precondition(expectation { await again.deleteLeftoverAudio() })
-        precondition(!again.audioLeftInICloud && defaults.string(forKey: NoteSyncController.audioLeftInICloudKey) == nil)
+        precondition(!again.audioLeftInICloud && defaults.object(forKey: leftKey) == nil)
     }
 
     @MainActor
     static func testLeftoverAudioWaitsWhileSyncIsOn() {
-        let defaults = UserDefaults(suiteName: "quill-sync-controller-tests-\(UUID().uuidString)")!
+        let defaults = freshDefaults()
         defaults.set(true, forKey: NoteSyncController.enabledKey)
-        defaults.set("account-a", forKey: NoteSyncController.audioLeftInICloudKey)
+        defaults.set(["account-a"], forKey: leftKey)
         let log = CallLog()
         let controller = launch(defaults, log: log)
         precondition(expectation { await controller.deleteLeftoverAudio() })
@@ -575,8 +586,8 @@ struct NoteSyncControllerTests {
     /// still there is used again.
     @MainActor
     static func testTurnOnWaitsForTheLeftoverAudioDelete() {
-        let defaults = UserDefaults(suiteName: "quill-sync-controller-tests-\(UUID().uuidString)")!
-        defaults.set("account-a", forKey: NoteSyncController.audioLeftInICloudKey)
+        let defaults = freshDefaults()
+        defaults.set(["account-a"], forKey: leftKey)
         let log = CallLog()
         log.leftoverResult = .failed
         log.holdAudioDelete = true
@@ -595,93 +606,107 @@ struct NoteSyncControllerTests {
         precondition(controller.isEnabled && !controller.audioLeftInICloud, "the audio left is used again")
     }
 
-    /// The audio left behind is used again (another Mac turned sync on), or
-    /// another account is signed in: it isn't deleted, and nothing is left
-    /// to do. The account it was left in is what gets checked.
+    /// Another Mac turned sync on and uses the audio zone: it isn't
+    /// deleted, and nothing is left to do.
     @MainActor
-    static func testLeftoverAudioInUseAgainIsKept() {
-        let defaults = UserDefaults(suiteName: "quill-sync-controller-tests-\(UUID().uuidString)")!
-        defaults.set("account-a", forKey: NoteSyncController.audioLeftInICloudKey)
+    static func testLeftoverAudioInUseAgainIsForgotten() {
+        let defaults = freshDefaults()
+        defaults.set(["account-a"], forKey: leftKey)
         let log = CallLog()
         log.leftoverResult = .inUse
         let controller = launch(defaults, log: log)
         precondition(expectation { await controller.deleteLeftoverAudio() })
-        precondition(log.accounts == ["account-a"])
-        precondition(!controller.audioLeftInICloud && defaults.string(forKey: NoteSyncController.audioLeftInICloudKey) == nil)
+        precondition(!controller.audioLeftInICloud && defaults.object(forKey: leftKey) == nil)
     }
 
-    static func testWhenLeftoverAudioIsDeleted() {
-        typealias L = NoteSyncLeftoverAudio
-        precondition(L.reasonToKeep(leftIn: "a", current: "a", notesZoneExists: false) == nil, "same account, no notes in iCloud")
-        precondition(L.reasonToKeep(leftIn: nil, current: nil, notesZoneExists: false) == nil, "account unknown: iCloud's notes decide")
-        precondition(L.reasonToKeep(leftIn: "a", current: "b", notesZoneExists: false) == .otherAccount, "waits for the account it was left in")
-        precondition(L.reasonToKeep(leftIn: "a", current: nil, notesZoneExists: false) == .failed, "can't tell the account")
-        precondition(L.reasonToKeep(leftIn: "a", current: "a", notesZoneExists: true) == .inUse, "another Mac turned sync on")
-        precondition(L.reasonToKeep(leftIn: nil, current: nil, notesZoneExists: nil) == .failed, "can't tell")
-    }
-
+    /// Only audio left in the signed-in account is deleted; audio left in
+    /// another one waits. An entry whose account couldn't be read is left
+    /// to the notes zone check, in whichever account is signed in.
     @MainActor
-    static func testTurnOffRecordsTheAccountAudioWasLeftIn() {
-        let defaults = UserDefaults(suiteName: "quill-sync-controller-tests-\(UUID().uuidString)")!
-        defaults.set(true, forKey: NoteSyncController.enabledKey)
+    static func testLeftoverAudioIsKeptPerAccount() {
+        let defaults = freshDefaults()
+        defaults.set(["account-a", "account-b"], forKey: leftKey)
+        let log = CallLog()
+        log.account = "account-b"
+        precondition(expectation { await launch(defaults, log: log).deleteLeftoverAudio() })
+        precondition(defaults.stringArray(forKey: leftKey) == ["account-a"], "only account-b's audio went")
+        log.calls = []
+        log.account = "account-c"
+        precondition(expectation { await launch(defaults, log: log).deleteLeftoverAudio() })
+        precondition(log.calls.isEmpty && defaults.stringArray(forKey: leftKey) == ["account-a"], "account-a's audio waits for it")
+        log.account = nil
+        precondition(expectation { await launch(defaults, log: log).deleteLeftoverAudio() })
+        precondition(log.calls.isEmpty, "nothing is deleted while the account can't be read")
+        defaults.set(["", "account-a"], forKey: leftKey)
+        log.account = "account-c"
+        precondition(expectation { await launch(defaults, log: log).deleteLeftoverAudio() })
+        precondition(defaults.stringArray(forKey: leftKey) == ["account-a"], "the unknown entry goes by the notes zone check")
+    }
+
+    /// Offline at Turn Off, the account read while sync ran is recorded.
+    @MainActor
+    static func testOfflineTurnOffRecordsTheAccountSyncRanIn() {
+        let defaults = freshDefaults()
         let engine = FakeEngine()
         engine.audioDeleteWorks = false
-        let controller = NoteSyncController(
-            defaults: defaults,
-            unavailableReason: nil,
-            createZone: {},
-            accountID: { "account-a" },
-            makeEngine: { _ in engine }
-        )
-        let store = FakeStore()
-        controller.attach(store: store)
-        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
-        precondition(defaults.string(forKey: NoteSyncController.audioLeftInICloudKey) == "account-a")
-    }
-
-    /// The account is read when sync turns on (online then); a Turn Off
-    /// and Delete that leaves audio, often offline, records that one.
-    @MainActor
-    static func testTurnOnRemembersTheAccountForATurnOffLater() {
-        let defaults = UserDefaults(suiteName: "quill-sync-controller-tests-\(UUID().uuidString)")!
-        let engine = FakeEngine()
-        engine.audioDeleteWorks = false
-        var account: String? = "account-a"
-        let controller = NoteSyncController(
-            defaults: defaults,
-            unavailableReason: nil,
-            createZone: {},
-            accountID: { account },
-            makeEngine: { _ in engine }
-        )
+        let log = CallLog()
+        let controller = launch(defaults, log: log, engine: engine)
         let store = FakeStore()
         controller.attach(store: store)
         precondition(expectation { _ = await controller.turnOn() })
         precondition(defaults.string(forKey: NoteSyncController.syncAccountKey) == "account-a")
-        account = nil  // offline at turn-off
+        log.account = nil
         precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
-        precondition(defaults.string(forKey: NoteSyncController.audioLeftInICloudKey) == "account-a")
+        precondition(defaults.stringArray(forKey: leftKey) == ["account-a"])
         precondition(defaults.string(forKey: NoteSyncController.syncAccountKey) == nil, "forgotten once sync is off")
     }
 
     /// Turning on in another account doesn't forget audio left in the
-    /// first one; turning on in that account reuses it.
+    /// first; turning on in that account reuses it. With the account
+    /// unreadable, nothing is forgotten.
     @MainActor
     static func testTurnOnInAnotherAccountKeepsLeftoverAudio() {
-        for (current, kept) in [("account-b", true), ("account-a", false)] {
-            let defaults = UserDefaults(suiteName: "quill-sync-controller-tests-\(UUID().uuidString)")!
-            defaults.set("account-a", forKey: NoteSyncController.audioLeftInICloudKey)
-            let controller = NoteSyncController(
-                defaults: defaults,
-                unavailableReason: nil,
-                createZone: {},
-                accountID: { current },
-                makeEngine: { _ in FakeEngine() }
-            )
+        for (current, left) in [("account-b", ["account-a"]), ("account-a", []), (nil, ["account-a"])] as [(String?, [String])] {
+            let defaults = freshDefaults()
+            defaults.set(["account-a"], forKey: leftKey)
+            let log = CallLog()
+            log.account = current
+            let controller = launch(defaults, log: log)
             let store = FakeStore()
-        controller.attach(store: store)
+            controller.attach(store: store)
             precondition(expectation { _ = await controller.turnOn() })
-            precondition(controller.isEnabled && controller.audioLeftInICloud == kept, current)
+            precondition(controller.isEnabled && (defaults.stringArray(forKey: leftKey) ?? []) == left, "\(String(describing: current))")
         }
+    }
+
+    /// Sync turned on before Quill kept its account learns it while it runs.
+    @MainActor
+    static func testSyncOnBeforeThisChangeLearnsItsAccount() {
+        let defaults = freshDefaults()
+        defaults.set(true, forKey: NoteSyncController.enabledKey)
+        let log = CallLog()
+        let controller = launch(defaults, log: log)
+        let store = FakeStore()
+        controller.attach(store: store)
+        drainMainQueue()
+        precondition(defaults.string(forKey: NoteSyncController.syncAccountKey) == "account-a")
+    }
+
+    /// Audio left in account A, then Turn Off and Delete in account B also
+    /// leaves audio: both are remembered, each for its own account.
+    @MainActor
+    static func testTurnOffInAnotherAccountKeepsTheFirstOnesAudio() {
+        let defaults = freshDefaults()
+        defaults.set(["account-a"], forKey: leftKey)
+        let engine = FakeEngine()
+        engine.audioDeleteWorks = false
+        let log = CallLog()
+        log.account = "account-b"
+        let controller = launch(defaults, log: log, engine: engine)
+        let store = FakeStore()
+        controller.attach(store: store)
+        precondition(expectation { _ = await controller.turnOn() })
+        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
+        precondition(defaults.stringArray(forKey: leftKey) == ["account-a", "account-b"])
     }
 }

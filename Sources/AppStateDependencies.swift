@@ -152,9 +152,9 @@ struct AppStateDependencies {
                 NoteSyncController(createZone: {
                     guard #available(macOS 14.0, *) else { return }
                     try await NoteSyncCloudKitEngine.createZone()
-                }, deleteLeftoverAudio: { account in
+                }, deleteLeftoverAudio: {
                     guard #available(macOS 14.0, *) else { return .inUse }
-                    return await NoteSyncCloudKitEngine.deleteLeftoverAudio(account: account)
+                    return await NoteSyncCloudKitEngine.deleteLeftoverAudio()
                 }, accountID: {
                     guard #available(macOS 14.0, *) else { return nil }
                     return await NoteSyncCloudKitEngine.accountID()
