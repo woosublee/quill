@@ -404,9 +404,13 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             var gone = lock.withLock { deletedZones.contains(notesZone) }
             if !gone { gone = await notesZoneExists() == false }
             if !gone {
-                // Sync stays on: put back the dropped and held changes.
-                let held = lock.withLock { deleteHold.undo() }
+                // Sync stays on: put back the dropped and held changes, and
+                // only then stop counting as deleting, so a send meanwhile
+                // is still held rather than read as another Mac's delete.
+                let held = lock.withLock { deleteHold.takeHeld() }
                 await putBack(droppedUploads + held, engine: engine)
+                let late = lock.withLock { deleteHold.undo() }
+                await putBack(late, engine: engine)
                 throw error
             }
         }
@@ -422,24 +426,26 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
     /// for a record that has a newer one waiting, and a delete the
     /// coordinator no longer wants (its note came back meanwhile).
     private func putBack(_ changes: [CKSyncEngine.PendingRecordZoneChange], engine: CKSyncEngine) async {
-        let waiting = Set(engine.state.pendingRecordZoneChanges.map(Self.recordID(of:)))
-        let candidates = changes.filter { !waiting.contains(Self.recordID(of: $0)) }
-        let back = await MainActor.run { () -> [CKSyncEngine.PendingRecordZoneChange] in
+        guard !changes.isEmpty else { return }
+        let wanted = await MainActor.run { () -> [CKSyncEngine.PendingRecordZoneChange] in
             guard let coordinator else { return [] }
-            return candidates.filter { change in
+            return changes.filter { change in
                 guard case .deleteRecord(let id) = change else { return true }
                 if let part = NoteAudioCloudRecord.part(from: id) { return coordinator.isDeleteStillWanted(part) }
                 guard let noteID = NoteSyncCloudRecord.noteID(from: id) else { return false }
                 return coordinator.isDeleteStillWanted(noteID: noteID)
             }
         }
+        // Read just before adding, so a change queued during the hop wins.
+        let waiting = Set(engine.state.pendingRecordZoneChanges.compactMap(Self.recordID(of:)))
+        let back = wanted.filter { change in Self.recordID(of: change).map { !waiting.contains($0) } ?? true }
         if !back.isEmpty { engine.state.add(pendingRecordZoneChanges: back) }
     }
 
-    private static func recordID(of change: CKSyncEngine.PendingRecordZoneChange) -> CKRecord.ID {
+    private static func recordID(of change: CKSyncEngine.PendingRecordZoneChange) -> CKRecord.ID? {
         switch change {
         case .saveRecord(let id), .deleteRecord(let id): return id
-        @unknown default: return CKRecord.ID(recordName: "")
+        @unknown default: return nil
         }
     }
 
@@ -602,7 +608,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             }
 
         case .didFetchChanges, .didSendChanges:
-            let pending = pendingChangeCount()
+            let pending = syncEngine.state.pendingRecordZoneChanges.count
             await MainActor.run { coordinator?.handleFetchFinished(pending: pending) }
 
         default:
@@ -774,8 +780,8 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         if !held.isEmpty {
             // Put back if this Mac's delete from iCloud is undone; if it was
             // undone already, put back now.
-            let putBack = lock.withLock { deleteHold.hold(held) }
-            if !putBack.isEmpty { engine.state.add(pendingRecordZoneChanges: putBack) }
+            let late = lock.withLock { deleteHold.hold(held) }
+            await putBack(late, engine: engine)
         }
         if !partsWithoutZone.isEmpty, !zoneDeletedElsewhere {
             // The audio zone is missing. If the notes zone is gone too,

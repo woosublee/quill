@@ -97,7 +97,14 @@ struct NoteSyncDeleteHold<Change> {
         return []
     }
 
-    /// The delete was undone: the changes to put back.
+    /// What is held so far, while the delete still counts as running (the
+    /// undo puts these back before it ends).
+    mutating func takeHeld() -> [Change] {
+        defer { held = [] }
+        return held
+    }
+
+    /// The delete was undone: the changes held since `takeHeld`.
     mutating func undo() -> [Change] {
         isDeleting = false
         defer { held = [] }

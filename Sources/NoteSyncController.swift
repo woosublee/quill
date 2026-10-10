@@ -301,7 +301,11 @@ final class NoteSyncController: ObservableObject {
                 turnOffFailure = error as? NoteSyncTurnOffFailure ?? .unreachable
                 // Sync stays on: a start held back meanwhile goes ahead, or
                 // else what a finished sync skipped meanwhile runs now.
-                if heldBackStart == nil { coordinator?.stopHoldingRetries() }
+                if heldBackStart == nil {
+                    coordinator?.stopHoldingRetries()
+                } else {
+                    coordinator?.isHoldingRetries = false
+                }
                 if let initialUpload = heldBackStart {
                     let isStartOver = heldBackStartOver
                     heldBackStart = nil
