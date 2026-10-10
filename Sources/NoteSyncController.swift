@@ -252,6 +252,8 @@ final class NoteSyncController: ObservableObject {
             let audioDeleted: Bool
             do {
                 if let engine {
+                    coordinator?.isHoldingRetries = true
+                    defer { coordinator?.isHoldingRetries = false }
                     audioDeleted = try await engine.deleteAllFromICloud()
                 } else if let deleted = try await deleteWithoutEngine(signedIn: await signedIn.value) {
                     audioDeleted = deleted
@@ -491,6 +493,17 @@ final class NoteSyncController: ObservableObject {
             // never cross into another account.
             stopEngine(forgetState: true)
             setEnabled(false)
+        case .off:
+            // This Mac's Turn Off and Delete went through after it looked
+            // undone: sync turns off as asked, and the audio, never reached,
+            // is deleted as audio left behind.
+            finishTurningOff(status: .off)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let account = await self.accountID() ?? ""
+                self.accountsWithAudioLeft = Array(Set(self.accountsWithAudioLeft + [account])).sorted()
+                await self.deleteLeftoverAudio()
+            }
         default:
             break
         }

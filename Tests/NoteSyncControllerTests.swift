@@ -36,6 +36,8 @@ struct NoteSyncControllerTests {
         testStartOverAskedDuringAFailedDeleteHappensAfter()
         testOfflineDeleteWithoutEngineSaysSo()
         testTurnOnClearsTagsLeftFromADelete()
+        testOwnDeleteThatWentThroughTurnsSyncOff()
+        testEngineDeleteHoldsRetries()
         testTurnOnCreatesTheZoneBeforeSyncing()
         testTurnOnStaysOffWhenICloudIsUnreachable()
         testTurnOnWaitsForAReadyStore()
@@ -933,5 +935,34 @@ struct NoteSyncControllerTests {
         defaults.set(true, forKey: NoteSyncController.clearTagsOnAttachKey)
         precondition(expectation { _ = await controller.turnOn() })
         precondition(store.cleared && !defaults.bool(forKey: NoteSyncController.clearTagsOnAttachKey))
+    }
+
+    /// The delete looked undone (sync stayed on) but had gone through: when
+    /// the engine finds the zone gone, sync turns off quietly and the audio
+    /// it never reached is deleted as audio left behind.
+    @MainActor
+    static func testOwnDeleteThatWentThroughTurnsSyncOff() {
+        let defaults = freshDefaults()
+        defaults.set(true, forKey: NoteSyncController.enabledKey)
+        let engine = FakeEngine()
+        let log = CallLog()
+        let controller = launch(defaults, log: log, engine: engine)
+        let store = FakeStore()
+        controller.attach(store: store)
+        engine.coordinator?.handleZoneDeleted(byThisMac: true)
+        precondition(expectation { while log.calls.count < 2 { await Task.yield() } })
+        precondition(!controller.isEnabled && controller.status == .off && engine.stopped == [true])
+        precondition(log.calls == ["deleteAudioZone", "deleteAudioZone done"] && !controller.audioLeftInICloud)
+    }
+
+    @MainActor
+    static func testEngineDeleteHoldsRetries() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        let running = engine()
+        var held = false
+        running?.whileDeleting = { held = running?.coordinator?.isHoldingRetries == true }
+        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
+        precondition(held, "the coordinator held its retries during the delete")
     }
 }

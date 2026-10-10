@@ -110,6 +110,8 @@ struct NoteSyncCoordinatorTests {
         try await testEditKeepsAWaitingPartsWait()
         try testFetchedCopyClearsAFailedSave()
         testNoteGivenUpThenWaitingForSpaceIsNotBoth()
+        testZoneDeletedByThisMacTurnsSyncOff()
+        testRetriesWaitWhileThisMacDeletes()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -1835,5 +1837,34 @@ struct NoteSyncCoordinatorTests {
         for _ in 0..<4 { retries.failed(note.noteID, at: t0) }
         retries.failed(note.noteID, at: t0, keepTrying: true)
         precondition(retries.givenUp.isEmpty && retries.failing.isEmpty, "waiting for space, not given up")
+    }
+
+    /// This Mac's delete looked undone but went through: the missing zone
+    /// is its own, so sync turns off rather than blaming another Mac.
+    @MainActor
+    static func testZoneDeletedByThisMacTurnsSyncOff() {
+        let (coordinator, store, engine) = make()
+        coordinator.handleZoneDeleted(byThisMac: true)
+        precondition(coordinator.status == .off && store.clearedSystemFields)
+        coordinator.handleSendFailures([.other(noteID: UUID())])
+        passTime()
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves.isEmpty && coordinator.status == .off, "nothing more is sent")
+    }
+
+    /// While this Mac deletes its iCloud data, failed changes wait: sending
+    /// them would go into the zone being deleted.
+    @MainActor
+    static func testRetriesWaitWhileThisMacDeletes() {
+        let (coordinator, _, engine) = make()
+        let id = UUID()
+        coordinator.handleSendFailures([.other(noteID: id)])
+        coordinator.isHoldingRetries = true
+        passTime()
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves.isEmpty, "held during the delete")
+        coordinator.isHoldingRetries = false
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves == [id], "sent once the delete is undone")
     }
 }
