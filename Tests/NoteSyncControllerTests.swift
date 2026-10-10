@@ -33,6 +33,9 @@ struct NoteSyncControllerTests {
         testAudioOnlyInICloudCantBeCountedWithoutHistory()
         testSecondTurnOffWaitsForTheFirst()
         testEngineDeletingIsNotStartedOver()
+        testStartOverAskedDuringAFailedDeleteHappensAfter()
+        testOfflineDeleteWithoutEngineSaysSo()
+        testTurnOnClearsTagsLeftFromADelete()
         testTurnOnCreatesTheZoneBeforeSyncing()
         testTurnOnStaysOffWhenICloudIsUnreachable()
         testTurnOnWaitsForAReadyStore()
@@ -143,8 +146,10 @@ struct NoteSyncControllerTests {
         var audioDeleteWorks = true
         /// Runs while the delete is in progress.
         var whileDeleting: (@MainActor () async -> Void)?
+        var deleteError: Error?
         func deleteAllFromICloud() async throws -> Bool {
             await whileDeleting?()
+            if let deleteError { throw deleteError }
             deletedFromICloud = true
             return audioDeleteWorks
         }
@@ -848,7 +853,7 @@ struct NoteSyncControllerTests {
         controller.attach(store: store)
         precondition(controller.notesWithAudioOnlyInICloud == nil, "the turn-off dialog says it can't check")
         let (unattached, _, _, _) = make()
-        precondition(unattached.notesWithAudioOnlyInICloud == nil, "nor before history is attached")
+        precondition(unattached.notesWithAudioOnlyInICloud == 0, "not attached yet: nothing to warn about")
     }
 
     /// Settings reopened during a Turn Off and Delete: another press waits
@@ -885,5 +890,48 @@ struct NoteSyncControllerTests {
         }
         precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
         precondition(running?.deletedFromICloud == true && running?.stopped == [true] && !controller.isEnabled)
+    }
+
+    /// A start over the coordinator asked for while the engine deleted from
+    /// iCloud happens once the delete fails and sync stays on.
+    @MainActor
+    static func testStartOverAskedDuringAFailedDeleteHappensAfter() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        let running = engine()
+        running?.deleteError = URLError(.notConnectedToInternet)
+        running?.whileDeleting = {
+            running?.coordinator?.onNeedsFullRefetch?()
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        var succeeded = true
+        precondition(expectation { succeeded = await controller.turnOff(deleteFromICloud: true) })
+        precondition(!succeeded && controller.isEnabled)
+        precondition(engine() !== running && engine()?.saves == store.ids, "started over after the failed delete")
+    }
+
+    @MainActor
+    static func testOfflineDeleteWithoutEngineSaysSo() {
+        let defaults = freshDefaults()
+        defaults.set(true, forKey: NoteSyncController.enabledKey)
+        defaults.set("account-a", forKey: NoteSyncController.syncAccountKey)
+        let log = CallLog()
+        log.account = nil
+        let controller = launch(defaults, log: log)
+        let store = FakeStore()
+        store.isReadyForSync = false
+        controller.attach(store: store)
+        var succeeded = true
+        precondition(expectation { succeeded = await controller.turnOff(deleteFromICloud: true) })
+        precondition(!succeeded && controller.turnOffFailure == .unreachable, "the account can't be read: offline")
+    }
+
+    @MainActor
+    static func testTurnOnClearsTagsLeftFromADelete() {
+        let (controller, store, _, defaults) = make()
+        controller.attach(store: store)
+        defaults.set(true, forKey: NoteSyncController.clearTagsOnAttachKey)
+        precondition(expectation { _ = await controller.turnOn() })
+        precondition(store.cleared && !defaults.bool(forKey: NoteSyncController.clearTagsOnAttachKey))
     }
 }

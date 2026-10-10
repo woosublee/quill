@@ -162,7 +162,7 @@ struct AppStateDependencies {
                     return try await NoteSyncCloudKitEngine.deleteAllWithoutEngine()
                 }, removeEngineFiles: {
                     try? FileManager.default.removeItem(at: stateURL)
-                    try? FileManager.default.removeItem(at: outbox)
+                    NoteSyncCloudRecord.removeAllOutboxFiles(in: outbox)
                     NoteAudioDownloader.removeDownloadFiles(
                         in: layout.noteSyncDirectory.appendingPathComponent("downloads", isDirectory: true)
                     )
