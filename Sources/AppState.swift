@@ -2848,7 +2848,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor lazy var noteAudioDownloader = NoteAudioDownloader(
         downloadsDirectory: storageLayout.noteSyncDirectory.appendingPathComponent("downloads", isDirectory: true),
         fetcher: { [weak self] in self?.noteSyncController?.audioPartFetcher },
-        isSyncOn: { [weak self] in self?.noteSyncController?.isEnabled == true }
+        isSyncOn: { [weak self] in self?.noteSyncController?.isEnabled == true },
+        onMissingPart: { [weak self] in
+            Task { await self?.noteSyncController?.syncNow() }
+        }
     )
     private var recordingJournalStore: RecordingJournalStore
     private var cloudTranscriptionJobStore: CloudTranscriptionJobStore
@@ -8368,10 +8371,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return audioURL
     }
 
+    /// The note's audio file here, when it has bytes in it.
+    @MainActor
+    private func usableLocalAudioURL(for item: PipelineHistoryItem) -> URL? {
+        guard let url = storedAudioURL(for: item), NoteAudioDownloader.isUsableLocalAudio(at: url) else { return nil }
+        return url
+    }
+
     /// The note's audio here, in iCloud, downloading, or out of reach.
     @MainActor
     func noteAudioState(for item: PipelineHistoryItem) -> NoteAudioState {
-        let isLocal = noteBrowserStoredAudioURL(for: item) != nil
+        let isLocal = usableLocalAudioURL(for: item) != nil
         let manifest = isLocal ? nil : pipelineHistoryStore.audioManifest(id: item.id)
         // This Mac was sending audio it no longer has: the file was lost
         // here, so it isn't on its way from another Mac.
@@ -8388,14 +8398,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// it couldn't (the reason is in `noteAudioState`) or was cancelled.
     @MainActor
     func downloadNoteAudio(for item: PipelineHistoryItem) async -> URL? {
-        if let local = noteBrowserStoredAudioURL(for: item) { return local }
+        // The note as it is now: the view's copy may predate a sync.
+        let item = pipelineHistory.first { $0.id == item.id } ?? item
+        if let local = usableLocalAudioURL(for: item) { return local }
         guard let destination = storedAudioURL(for: item),
               let manifest = pipelineHistoryStore.audioManifest(id: item.id) else { return nil }
         guard let url = await noteAudioDownloader.download(noteID: item.id, manifest: manifest, to: destination) else {
             return nil
         }
-        // Deleted while it downloaded: the recording doesn't come back.
-        guard pipelineHistoryStore.syncRecord(id: item.id) != nil else {
+        // Deleted, or its audio replaced elsewhere, while it downloaded: the
+        // earlier recording isn't kept or used.
+        let current = pipelineHistory.first { $0.id == item.id }
+        guard pipelineHistoryStore.syncRecord(id: item.id) != nil,
+              let current, storedAudioURL(for: current) == destination,
+              pipelineHistoryStore.audioManifest(id: item.id) == manifest else {
             try? FileManager.default.removeItem(at: url)
             return nil
         }
@@ -13011,8 +13027,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
             self?.noteAudioDownloader.cancelAll()
         }
         controller.onRemoteChange = { [weak self] change in
-            for assets in change.purged { self?.noteAudioDownloader.cancel(noteID: assets.historyID) }
-            self?.applyRemoteNoteChange(change)
+            guard let self else { return }
+            for assets in change.purged { noteAudioDownloader.cancel(noteID: assets.historyID) }
+            // Another Mac replaced or removed the file: the earlier one's
+            // download stops.
+            for id in change.changed {
+                noteAudioDownloader.cancel(noteID: id, unlessDownloading: pipelineHistoryStore.audioManifest(id: id))
+            }
+            applyRemoteNoteChange(change)
         }
         noteSyncController = controller
         // Attaching starts the engine when sync is on, and it fetches then.

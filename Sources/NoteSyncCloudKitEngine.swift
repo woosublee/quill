@@ -267,7 +267,11 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         switch error.code {
         case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy:
             return .offline
-        case .unknownItem, .zoneNotFound, .userDeletedZone:
+        case .unknownItem:
+            return .missing
+        // The zone is gone (deleted from another Mac): the sync this asks
+        // for finds that and stops as deleted elsewhere.
+        case let code where isZoneGone(code):
             return .missing
         default:
             return .failed

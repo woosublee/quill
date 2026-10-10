@@ -73,26 +73,43 @@ protocol NoteAudioPartFetching: AnyObject {
 @MainActor
 final class NoteAudioDownloader: ObservableObject {
     @Published private(set) var progress: [UUID: Double] = [:]
-    @Published private(set) var failures: [UUID: NoteAudioUnavailableReason] = [:]
+    /// Why a download failed, for the marker it was for.
+    struct Failure: Equatable {
+        let reason: NoteAudioUnavailableReason
+        let sha256: String
+    }
+
+    @Published private(set) var failures: [UUID: Failure] = [:]
 
     private let downloadsDirectory: URL
     private let fetcher: @MainActor () -> NoteAudioPartFetching?
     private let isSyncOn: @MainActor () -> Bool
     private let hashFile: (URL) async throws -> String
+    /// A part is gone from iCloud: the marker here is likely out of date.
+    private let onMissingPart: @MainActor () -> Void
     /// Each download has its own token, so one that was cancelled can't
     /// clear what a new download for the same note set up.
-    private var running: [UUID: (token: UUID, task: Task<URL?, Never>)] = [:]
+    private var running: [UUID: (token: UUID, manifest: NoteAudioManifest, task: Task<URL?, Never>)] = [:]
 
     init(
         downloadsDirectory: URL,
         fetcher: @escaping @MainActor () -> NoteAudioPartFetching?,
         isSyncOn: @escaping @MainActor () -> Bool,
+        onMissingPart: @escaping @MainActor () -> Void = {},
         hashFile: @escaping (URL) async throws -> String = NoteAudioDownloader.hashOffMain
     ) {
         self.downloadsDirectory = downloadsDirectory
         self.fetcher = fetcher
         self.isSyncOn = isSyncOn
+        self.onMissingPart = onMissingPart
         self.hashFile = hashFile
+    }
+
+    /// Audio here is a file with bytes in it; an empty one (an interrupted
+    /// copy) isn't, so the copy in iCloud is offered.
+    nonisolated static func isUsableLocalAudio(at url: URL) -> Bool {
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber
+        return (size?.int64Value ?? 0) > 0
     }
 
     nonisolated static func hashOffMain(_ url: URL) async throws -> String {
@@ -108,8 +125,9 @@ final class NoteAudioDownloader: ObservableObject {
             // before sync; audio marked in iCloud waits for sync.
             return manifest == nil ? .none : .unavailable(.syncOff)
         }
-        guard manifest != nil else { return .unavailable(.notUploadedYet) }
-        if let reason = failures[noteID] { return .unavailable(reason) }
+        guard let manifest else { return .unavailable(.notUploadedYet) }
+        // A failure for an earlier marker says nothing about this one.
+        if let failure = failures[noteID], failure.sha256 == manifest.sha256 { return .unavailable(failure.reason) }
         return .downloadable
     }
 
@@ -121,7 +139,7 @@ final class NoteAudioDownloader: ObservableObject {
         progress[noteID] = 0
         let token = UUID()
         let task = Task { await self.run(noteID: noteID, token: token, manifest: manifest, destination: destination) }
-        running[noteID] = (token, task)
+        running[noteID] = (token, manifest, task)
         return await task.value
     }
 
@@ -130,6 +148,13 @@ final class NoteAudioDownloader: ObservableObject {
     func cancel(noteID: UUID) {
         running.removeValue(forKey: noteID)?.task.cancel()
         progress[noteID] = nil
+    }
+
+    /// The note's marker changed (another Mac replaced or removed the
+    /// file): a download of the earlier one stops.
+    func cancel(noteID: UUID, unlessDownloading manifest: NoteAudioManifest?) {
+        guard let current = running[noteID], current.manifest != manifest else { return }
+        cancel(noteID: noteID)
     }
 
     /// Sync turned off: every download stops. (The engine removes download
@@ -171,7 +196,7 @@ final class NoteAudioDownloader: ObservableObject {
         }
         guard let fetcher = fetcher() else {
             // With sync off, `state` says so; nothing to remember.
-            if isSyncOn() { failures[noteID] = .failed }
+            if isSyncOn() { failures[noteID] = Failure(reason: .failed, sha256: manifest.sha256) }
             return nil
         }
         for attempt in 0..<2 {
@@ -186,7 +211,7 @@ final class NoteAudioDownloader: ObservableObject {
                     print("[NoteSync] Downloaded audio didn't match its marker")
                     try? FileManager.default.removeItem(at: partial)
                     if attempt == 0 { continue }
-                    if isCurrent(noteID, token) { failures[noteID] = .failed }
+                    if isCurrent(noteID, token) { failures[noteID] = Failure(reason: .failed, sha256: manifest.sha256) }
                     return nil
                 }
                 try FileManager.default.createDirectory(
@@ -208,10 +233,13 @@ final class NoteAudioDownloader: ObservableObject {
                 // stop (sync gone, its file removed) isn't the audio's fault.
                 guard !Task.isCancelled, isCurrent(noteID, token) else { return nil }
                 if case NoteAudioFetchError.offline = error {
-                    failures[noteID] = .offline
+                    failures[noteID] = Failure(reason: .offline, sha256: manifest.sha256)
                 } else {
                     print("[NoteSync] Couldn't download audio")
-                    failures[noteID] = .failed
+                    failures[noteID] = Failure(reason: .failed, sha256: manifest.sha256)
+                    // Usually another Mac replaced the file: a sync brings
+                    // the new marker (or that the zone is gone).
+                    if case NoteAudioFetchError.missing = error { onMissingPart() }
                 }
                 return nil
             }
