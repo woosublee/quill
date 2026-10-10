@@ -108,6 +108,8 @@ struct NoteSyncCoordinatorTests {
         testFailedDeleteIsNeverGivenUp()
         testNoteDeletedElsewhereLeavesTheFailedList()
         try await testEditKeepsAWaitingPartsWait()
+        try testFetchedCopyClearsAFailedSave()
+        testNoteGivenUpThenWaitingForSpaceIsNotBoth()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -1666,10 +1668,14 @@ struct NoteSyncCoordinatorTests {
         let note = record()
         store.records[note.noteID] = note
         store.syncable = [note.noteID]
-        for wait: TimeInterval in [60, 5 * 60, 30 * 60] {
+        for (tries, wait) in [(1, 60.0), (2, 5 * 60), (3, 30 * 60)] {
             coordinator.handleSendFailures([.other(noteID: note.noteID)])
             coordinator.handleFetchFinished(pending: 0)
-            precondition(coordinator.status == .paused(.notesFailed(count: 1, willRetry: true)), "\(coordinator.status)")
+            if tries == 1 {
+                precondition(coordinator.status == .starting, "one failure isn't shown: the next try usually works")
+            } else {
+                precondition(coordinator.status == .paused(.notesFailed(count: 1, willRetry: true)), "\(coordinator.status)")
+            }
             let sent = engine.saves.count
             passTime(wait - 1)
             coordinator.handleFetchFinished(pending: 0)
@@ -1794,5 +1800,40 @@ struct NoteSyncCoordinatorTests {
         passTime()
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.audioSaves == [part])
+    }
+
+    /// A note given up here that another Mac's copy brought up to date is
+    /// no longer shown as one that couldn't sync.
+    @MainActor
+    static func testFetchedCopyClearsAFailedSave() throws {
+        let (coordinator, store, engine) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        for _ in 0..<4 { coordinator.handleSendFailures([.other(noteID: note.noteID)]) }
+        store.applyResult = .updated(needsUpload: false)
+        _ = coordinator.handleFetched([try fetched(note)], deletions: [])
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(coordinator.status == .upToDate(clock), "\(coordinator.status)")
+        passTime(3600)
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves.isEmpty, "nothing is sent again for it")
+    }
+
+    /// A given-up note sent again some other way (a merge) that then waits
+    /// for space only waits for space.
+    @MainActor
+    static func testNoteGivenUpThenWaitingForSpaceIsNotBoth() {
+        let (coordinator, store, _) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        for _ in 0..<4 { coordinator.handleSendFailures([.other(noteID: note.noteID)]) }
+        coordinator.handleSendFailures([.quotaExceeded(noteID: note.noteID)])
+        coordinator.handleFetchFinished(pending: 0)
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(coordinator.status == .paused(.quotaExceeded(pending: 1)), "\(coordinator.status)")
+        var retries = NoteSyncRetries<UUID>()
+        for _ in 0..<4 { retries.failed(note.noteID, at: t0) }
+        retries.failed(note.noteID, at: t0, keepTrying: true)
+        precondition(retries.givenUp.isEmpty && retries.failing.isEmpty, "waiting for space, not given up")
     }
 }

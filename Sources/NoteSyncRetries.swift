@@ -16,15 +16,21 @@ struct NoteSyncRetries<Key: Hashable> {
 
     /// Keys waiting for their next try.
     var waiting: Set<Key> { Set(due.keys) }
-    /// Waiting keys that are never given up.
-    var waitingToKeepTrying: Set<Key> { waiting.intersection(keepsTrying) }
-    /// Keys that failed and may be given up: waiting or given up already.
-    var failing: Set<Key> { waiting.subtracting(keepsTrying).union(givenUp) }
+    /// Waiting keys not shown as failing: ones that keep trying, and ones
+    /// that failed only once (the next try usually works).
+    var waitingQuietly: Set<Key> {
+        waiting.filter { keepsTrying.contains($0) || failures[$0] == 1 }
+    }
+    /// Keys that failed more than once and will be tried again.
+    var failingToRetry: Set<Key> { waiting.subtracting(waitingQuietly) }
+    /// Keys shown as failing: tried again or given up already.
+    var failing: Set<Key> { failingToRetry.union(givenUp) }
 
     mutating func failed(_ key: Key, at now: Date, keepTrying: Bool = false) {
         // Tries of the other kind don't count: a note that waited for space
         // gets its own tries once it fails for another reason.
         if keepsTrying.contains(key) != keepTrying { failures[key] = nil }
+        givenUp.remove(key)
         let count = (failures[key] ?? 0) + 1
         failures[key] = count
         let delays = Self.delays

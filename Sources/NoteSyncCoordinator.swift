@@ -922,7 +922,11 @@ final class NoteSyncCoordinator {
                 continue
             }
             do {
-                switch try store.applySynced(record, systemFields: fetched.systemFields) {
+                let result = try store.applySynced(record, systemFields: fetched.systemFields)
+                // The note now holds iCloud's copy: a failed save of it is
+                // moot, and one with newer changes here goes up below.
+                saveRetries.forget(record.noteID)
+                switch result {
                 case .inserted:
                     change.changed.append(record.noteID)
                     returned.append(record.noteID)
@@ -1059,9 +1063,9 @@ final class NoteSyncCoordinator {
         // the pause clears after a sync where they went up.
         if case .paused(.quotaExceeded) = status, retriedForQuota { return }
         // Saves that keep trying (for space, or until the note can be read)
-        // aren't up to date; ones that may be given up are shown. A waiting
-        // delete isn't shown: its note is already gone here.
-        let busy = pending > 0 || queuedAgain || !audioChecking.isEmpty || isWaitingToKeepTrying
+        // or failed once aren't up to date; ones that failed again are
+        // shown. A waiting delete isn't: its note is already gone here.
+        let busy = pending > 0 || queuedAgain || !audioChecking.isEmpty || isWaitingQuietly
         // Shown until a change goes through, or nothing is left to send.
         if case .paused(.accountNeedsAttention) = status, busy { return }
         // Offline stays shown until the network comes back.
@@ -1078,17 +1082,16 @@ final class NoteSyncCoordinator {
         }
     }
 
-    private var isWaitingToKeepTrying: Bool {
-        !saveRetries.waitingToKeepTrying.isEmpty || !audioSaveRetries.waitingToKeepTrying.isEmpty
+    private var isWaitingQuietly: Bool {
+        !saveRetries.waitingQuietly.isEmpty || !audioSaveRetries.waitingQuietly.isEmpty
     }
 
     /// Notes whose text or audio keeps failing to go up, and whether any of
     /// them waits for another try. Deletes aren't counted: they keep trying.
     private var failingNotes: (count: Int, willRetry: Bool) {
         let notes = saveRetries.failing.union(audioSaveRetries.failing.map(\.noteID))
-        let waiting = !saveRetries.failing.subtracting(saveRetries.givenUp).isEmpty
-            || !audioSaveRetries.failing.subtracting(audioSaveRetries.givenUp).isEmpty
-        return (notes.count, waiting)
+        let willRetry = !saveRetries.failingToRetry.isEmpty || !audioSaveRetries.failingToRetry.isEmpty
+        return (notes.count, willRetry)
     }
 
     /// Sync Now: every change that failed, given up or still waiting, is
