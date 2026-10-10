@@ -98,7 +98,17 @@ private struct NoteSyncSettingsCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if controller.audioLeftInICloud {
+                    Text("Some audio couldn't be deleted from iCloud yet. Quill tries again when it opens and when you open this page.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
+        }
+        .task {
+            // Audio a Turn Off and Delete left in iCloud is deleted again.
+            await controller.deleteLeftoverAudio()
         }
         .alert("Turn on iCloud sync?", isPresented: $isConfirmingTurnOn) {
             Button("Cancel", role: .cancel) {}
