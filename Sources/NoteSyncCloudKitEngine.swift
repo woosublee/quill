@@ -364,8 +364,9 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                     notes[id] = NoteAudioInICloud.read(payload: NoteSyncCloudRecord.payload(of: record))
                 case .failure(let error as CKError) where error.code == .unknownItem || Self.isZoneGone(error.code):
                     notes[id] = .noNote
-                case .failure(let error):
-                    throw error
+                case .failure:
+                    // This one note stays as it is; the rest go on.
+                    notes[id] = .unreadable
                 }
             }
         }

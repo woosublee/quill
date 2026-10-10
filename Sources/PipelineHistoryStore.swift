@@ -822,16 +822,7 @@ final class PipelineHistoryStore {
 
     /// Every note settled enough to send, Recently Deleted included.
     func syncableNoteIDs() -> [UUID] {
-        var ids: [UUID] = []
-        container.viewContext.performAndWait {
-            let request = pipelineHistoryRequest()
-            request.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
-            let entities = (try? historyFetcher(container.viewContext, request)) ?? []
-            ids = entities.map(Self.makeHistoryItem(from:))
-                .filter(NoteSyncEligibility.isSyncable)
-                .map(\.id)
-        }
-        return ids
+        audioSyncSnapshots().map(\.id)
     }
 
     /// One fetch for every syncable note, instead of several per note.
