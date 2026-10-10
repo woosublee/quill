@@ -20757,18 +20757,50 @@
         }
       }
     },
-    "Audio hasn't reached iCloud yet from the Mac that recorded it.": {
+    "It can be downloaded once the Mac that recorded it uploads it to iCloud.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Audio hasn't reached iCloud yet from the Mac that recorded it."
+            "value": "It can be downloaded once the Mac that recorded it uploads it to iCloud."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "녹음한 Mac에서 아직 iCloud로 오디오가 올라오지 않았어요."
+            "value": "녹음한 Mac에서 iCloud로 올리면 받을 수 있어요."
+          }
+        }
+      }
+    },
+    "Waiting for upload": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for upload"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업로드 대기 중"
+          }
+        }
+      }
+    },
+    "Sync off": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync off"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동기화 꺼짐"
           }
         }
       }

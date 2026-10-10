@@ -6,6 +6,8 @@ import SwiftUI
 struct NoteAudioBar: View {
     let item: PipelineHistoryItem
     @ObservedObject var downloader: NoteAudioDownloader
+    /// Shows a toast, as other note actions do.
+    let onMessage: (String) -> Void
 
     @EnvironmentObject private var appState: AppState
     @State private var playsWhenDownloaded = false
@@ -37,14 +39,16 @@ struct NoteAudioBar: View {
     private func download() {
         playsWhenDownloaded = true
         Task { @MainActor in
-            if await appState.downloadNoteAudio(for: item) == nil { playsWhenDownloaded = false }
+            guard await appState.downloadNoteAudio(for: item) == nil else { return }
+            playsWhenDownloaded = false
+            if let message = appState.noteAudioState(for: item).failureToast { onMessage(message) }
         }
     }
 }
 
 /// Audio that isn't on this Mac: a download button (a ring with a stop mark
-/// while downloading), flat bars, and the recorded length or the reason it
-/// can't be downloaded.
+/// while downloading), flat bars, and the recorded length, or in its place a
+/// lasting reason it can't be downloaded (the full sentence on hover).
 struct NoteRemoteAudioBarView: View {
     let state: NoteAudioState
     let duration: TimeInterval?
@@ -63,8 +67,7 @@ struct NoteRemoteAudioBarView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 14) {
+        HStack(spacing: 14) {
                 button
                 GeometryReader { geo in
                     let layout = AudioWaveformHeights.layout(width: geo.size.width, barCount: 80, preferredGap: 2)
@@ -79,7 +82,14 @@ struct NoteRemoteAudioBarView: View {
                 }
                 .frame(height: 44)
                 .accessibilityHidden(true)
-                if let duration {
+                if let status = state.barStatus {
+                    Text(status)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .help(state.unavailableMessage ?? status)
+                } else if let duration {
                     Text(verbatim: NoteAudioPlayerView.formatDuration(duration))
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(.secondary)
@@ -106,14 +116,6 @@ struct NoteRemoteAudioBarView: View {
                     }
             }
             .opacity(state.canStartDownload || isDownloading ? 1 : 0.6)
-            if let message = state.unavailableMessage {
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 4)
-            }
-        }
     }
 
     @ViewBuilder

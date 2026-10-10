@@ -124,6 +124,14 @@ struct NoteAudioDownloaderTests {
         precondition(NoteAudioState.downloadable.canStartDownload && NoteAudioState.unavailable(.failed).canStartDownload)
         precondition(NoteAudioState.unavailable(.offline).canStartDownload, "offline can be tried again")
         precondition(!NoteAudioState.unavailable(.notUploadedYet).canStartDownload && !NoteAudioState.unavailable(.syncOff).canStartDownload)
+        // Lasting states read in the bar; a pressed download that fails is
+        // a toast, so the bar shows no status for it.
+        precondition(NoteAudioState.unavailable(.notUploadedYet).barStatus == "Waiting for upload")
+        precondition(NoteAudioState.unavailable(.syncOff).barStatus == "Sync off")
+        precondition(NoteAudioState.unavailable(.offline).barStatus == nil && NoteAudioState.unavailable(.failed).barStatus == nil)
+        precondition(NoteAudioState.downloadable.barStatus == nil)
+        precondition(NoteAudioState.unavailable(.offline).failureToast != nil && NoteAudioState.unavailable(.failed).failureToast != nil)
+        precondition(NoteAudioState.unavailable(.syncOff).failureToast == nil && NoteAudioState.downloadable.failureToast == nil)
     }
 
     @MainActor

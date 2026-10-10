@@ -2879,7 +2879,7 @@ private struct NoteDetailView: View {
             // The player when the audio is here, a download bar when it is in
             // iCloud, and nothing for a note without audio.
             if item.audioFileName != nil {
-                NoteAudioBar(item: item, downloader: appState.noteAudioDownloader)
+                NoteAudioBar(item: item, downloader: appState.noteAudioDownloader, onMessage: { showToast($0) })
                     .padding(.top, 4)
             }
         }

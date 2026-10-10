@@ -236,17 +236,17 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                 operation.fetchRecordsResultBlock = { result in
                     switch result {
                     case .success:
-                        continuation.resume(with: outcome.result)
+                        continuation.resume(with: Self.audioFetchResult(part: outcome.result, operationError: nil))
                     case .failure(let error):
                         // A part copied before the operation failed has no
                         // owner now.
-                        if case .success(let copied) = outcome.result { try? FileManager.default.removeItem(at: copied) }
+                        if case .success(let copied)? = outcome.result { try? FileManager.default.removeItem(at: copied) }
                         if (error as? CKError)?.code == .operationCancelled {
                             continuation.resume(throwing: CancellationError())
-                        } else if case .failure(let partError) = outcome.result {
+                        } else if case .failure(let partError)? = outcome.result {
                             continuation.resume(throwing: partError)
                         } else {
-                            continuation.resume(throwing: Self.fetchError(error))
+                            continuation.resume(with: Self.audioFetchResult(part: nil, operationError: error))
                         }
                     }
                 }
@@ -259,11 +259,28 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
 
     /// The part a fetch delivers, set from CloudKit's callback queue.
     private final class FetchOutcome: @unchecked Sendable {
-        var result: Result<URL, Error> = .failure(NoteAudioFetchError.failed)
+        /// Nil until CloudKit reports the part; offline it never does.
+        var result: Result<URL, Error>?
+    }
+
+    /// The part's own result when CloudKit gave one, otherwise what the
+    /// operation's error says (offline fails the whole fetch).
+    static func audioFetchResult(part: Result<URL, Error>?, operationError: Error?) -> Result<URL, Error> {
+        if let part { return part }
+        guard let operationError else { return .failure(NoteAudioFetchError.failed) }
+        return .failure(fetchError(operationError))
     }
 
     private static func fetchError(_ error: Error) -> NoteAudioFetchError {
+        if let error = error as? URLError {
+            return [.notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotFindHost, .cannotConnectToHost]
+                .contains(error.code) ? .offline : .failed
+        }
         guard let error = error as? CKError else { return .failed }
+        // One part per fetch: its error is the one that counts.
+        if error.code == .partialFailure, let partError = error.partialErrorsByItemID?.values.first {
+            return fetchError(partError)
+        }
         switch error.code {
         case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy:
             return .offline

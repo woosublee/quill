@@ -23,13 +23,32 @@ enum NoteAudioState: Equatable {
         guard case .unavailable(let reason) = self else { return nil }
         switch reason {
         case .notUploadedYet:
-            return localizedCatalogString("Audio hasn't reached iCloud yet from the Mac that recorded it.")
+            return localizedCatalogString("It can be downloaded once the Mac that recorded it uploads it to iCloud.")
         case .syncOff:
             return localizedCatalogString("Turn on iCloud sync to download this audio.")
         case .offline:
             return localizedCatalogString("Connect to the internet to download this audio.")
         case .failed:
             return localizedCatalogString("Couldn't download this audio. Try again.")
+        }
+    }
+
+    /// A lasting reason, short enough for the audio bar in place of the
+    /// length; the full sentence is its tooltip.
+    var barStatus: String? {
+        switch self {
+        case .unavailable(.notUploadedYet): return localizedCatalogString("Waiting for upload")
+        case .unavailable(.syncOff): return localizedCatalogString("Sync off")
+        default: return nil
+        }
+    }
+
+    /// What a pressed download that didn't work says, as a toast like other
+    /// actions; the bar shows the download button again.
+    var failureToast: String? {
+        switch self {
+        case .unavailable(.offline), .unavailable(.failed): return unavailableMessage
+        default: return nil
         }
     }
 

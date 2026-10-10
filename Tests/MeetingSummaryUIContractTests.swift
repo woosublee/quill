@@ -141,7 +141,7 @@ struct MeetingSummaryUIContractTests {
             "MeetingSummaryView(",
             "generateMeetingSummary(id: item.id, asCandidate: toCompare)",
             "private var noteHeader: some View",
-            "NoteAudioBar(item: item, downloader: appState.noteAudioDownloader)",
+            "NoteAudioBar(item: item, downloader: appState.noteAudioDownloader, onMessage: { showToast($0) })",
             "@State private var highlightedSourceQuote: String?",
             "highlightedSourceQuote: highlightedSourceQuote",
             "MeetingSummarySourceLocator.range(",
