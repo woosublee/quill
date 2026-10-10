@@ -524,20 +524,25 @@ final class NoteSyncCoordinator {
         let checkingNow = Set(targets.keys).intersection(audioChecking)
         mergeCleanUp(targets.filter { checkingNow.contains($0.key) })
         let pending = Set(engine.pendingAudioSaves())
+        // The keys a note still uses, read once per note that needs them.
         var used: [UUID: Set<String>] = [:]
-        for id in Set(found.map(\.noteID)) where store.syncRecord(id: id) != nil {
-            used[id] = Set([store.audioManifest(id: id)?.sha256, store.audioUploadKey(id: id)]
+        func usedKeys(_ id: UUID) -> Set<String> {
+            if let keys = used[id] { return keys }
+            let keys = Set([store.audioManifest(id: id)?.sha256, store.audioUploadKey(id: id)]
                 .compactMap { $0.map(NoteAudioPartID.key(sha256:)) })
+            used[id] = keys
+            return keys
         }
+        var exists: [UUID: Bool] = [:]
         let leftover = found.filter { part in
-            guard !checkingNow.contains(part.noteID), !pending.contains(part),
-                  used[part.noteID]?.contains(part.key) != true else { return false }
+            guard !checkingNow.contains(part.noteID), !pending.contains(part) else { return false }
             guard case .some(.some(let keys)) = targets[part.noteID] else {
-                // A deleted note that came back (another Mac edited it)
-                // keeps every part: the other Mac may be uploading.
-                return store.syncRecord(id: part.noteID) == nil
+                // A deleted note: every part, unless it came back (another
+                // Mac edited it), when the other Mac may be uploading.
+                if exists[part.noteID] == nil { exists[part.noteID] = store.syncRecord(id: part.noteID) != nil }
+                return exists[part.noteID] == false
             }
-            return keys.contains(part.key)
+            return keys.contains(part.key) && !usedKeys(part.noteID).contains(part.key)
         }
         if !leftover.isEmpty {
             engine.enqueueAudioDeletes(leftover)
@@ -567,14 +572,17 @@ final class NoteSyncCoordinator {
     }
 
     /// Stops this Mac's work on a note's audio: waiting parts are cancelled
-    /// and retries forgotten.
-    private func stopAudioWork(on id: UUID, pending: [NoteAudioPartID]) -> Bool {
-        let waiting = pending.contains { $0.noteID == id }
-        if waiting { engine.cancelAudioSaves(noteID: id) }
-        audioSavesToRetry = audioSavesToRetry.filter { $0.noteID != id }
-        audioPartsGivenUp = audioPartsGivenUp.filter { $0.noteID != id }
+    /// and retries forgotten. Returns the keys of the parts it was sending
+    /// (waiting, to retry, or given up), some of which may be in iCloud.
+    private func stopAudioWork(on id: UUID, pending: [NoteAudioPartID]) -> Set<String> {
+        let waiting = pending.filter { $0.noteID == id }
+        if !waiting.isEmpty { engine.cancelAudioSaves(noteID: id) }
+        let retrying = audioSavesToRetry.filter { $0.noteID == id }
+        let givenUp = audioPartsGivenUp.filter { $0.noteID == id }
+        audioSavesToRetry.subtract(retrying)
+        audioPartsGivenUp.subtract(givenUp)
         audioFailures = audioFailures.filter { $0.key.noteID != id }
-        return waiting
+        return Set((waiting + retrying + givenUp).map(\.key))
     }
 
     /// What to delete for audio a note no longer uses: the parts its marker
@@ -589,7 +597,7 @@ final class NoteSyncCoordinator {
 
     /// A deleted note: nothing more goes up, and its parts are deleted.
     private func dropAudio(of id: UUID, _ audio: NoteAudioSyncState?, pending: [NoteAudioPartID]) -> (parts: [NoteAudioPartID], lookUp: Bool) {
-        let wasSending = stopAudioWork(on: id, pending: pending)
+        let wasSending = !stopAudioWork(on: id, pending: pending).isEmpty
         audioToCheck.remove(id)
         savesAfterCheck.remove(id)
         uploadWaitingText.remove(id)
@@ -628,10 +636,9 @@ final class NoteSyncCoordinator {
                 // engine, so a quit doesn't lose them; if the new file has
                 // the same bytes, its check drops them before they're sent.
                 if pending == nil { pending = engine.pendingAudioSaves() }
-                let sent = Set((pending ?? []).filter { $0.noteID == id }.map(\.key))
-                    .union([previous.uploadKey].compactMap { $0.map(NoteAudioPartID.key(sha256:)) })
-                let wasSending = stopAudioWork(on: id, pending: pending ?? [])
-                let drop = audioToDelete(of: id, previous, wasSending: wasSending)
+                let sending = stopAudioWork(on: id, pending: pending ?? [])
+                let sent = sending.union([previous.uploadKey].compactMap { $0.map(NoteAudioPartID.key(sha256:)) })
+                let drop = audioToDelete(of: id, previous, wasSending: !sending.isEmpty)
                 audioDeletes += drop.parts
                 // The note is still here, so only what this Mac sent is
                 // looked for: another Mac's upload for it stays.
