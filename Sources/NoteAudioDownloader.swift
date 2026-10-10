@@ -53,13 +53,13 @@ enum NoteAudioState: Equatable {
         }
     }
 
-    /// The audio is in iCloud and can be had: ready to download, already
-    /// downloading (a request joins it), or worth trying again.
     var isDownloading: Bool {
         if case .downloading = self { return true }
         return false
     }
 
+    /// The audio is in iCloud and can be had: ready to download, already
+    /// downloading (a request joins it), or worth trying again.
     var isInICloud: Bool {
         if case .downloading = self { return true }
         return canStartDownload
@@ -238,7 +238,9 @@ final class NoteAudioDownloader: ObservableObject {
                 let (sha256, size) = try await fetchParts(noteID: noteID, token: token, manifest: manifest, from: fetcher, into: partial)
                 try Task.checkCancellation()
                 guard isCurrent(noteID, token) else { return nil }
-                guard size == manifest.bytes, sha256 == manifest.sha256 else {
+                // What was hashed is what's on disk.
+                let onDisk = (try? FileManager.default.attributesOfItem(atPath: partial.path))?[.size] as? NSNumber
+                guard size == manifest.bytes, onDisk?.int64Value == size, sha256 == manifest.sha256 else {
                     // A bad copy: thrown away, and fetched once more.
                     print("[NoteSync] Downloaded audio didn't match its marker")
                     try? FileManager.default.removeItem(at: partial)

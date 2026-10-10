@@ -22,6 +22,7 @@ struct NoteAudioDownloaderTests {
         try await testChangedMarkerStopsTheDownload()
         try await testRequestForAnotherMarkerStartsItsOwnDownload()
         try await testAppendHashesWhatItWrites()
+        try await testStoppedAppendStopsCopying()
         try await testProgressStepsDontRepublishTheDownloader()
         print("NoteAudioDownloaderTests passed")
     }
@@ -404,5 +405,27 @@ struct NoteAudioDownloaderTests {
         _ = await s.downloader.download(noteID: s.noteID, manifest: s.manifest, to: s.destination)
         precondition(feedChanges > 3, "\(feedChanges)")
         precondition(downloaderChanges <= 3, "start (clearing an old failure) and end only: \(downloaderChanges)")
+    }
+
+    /// A stopped download stops copying at once, not after the whole part.
+    static func testStoppedAppendStopsCopying() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quill-append-stop-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let big = dir.appendingPathComponent("part")
+        FileManager.default.createFile(atPath: big.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: big)
+        try handle.truncate(atOffset: 64 << 20)
+        try handle.close()
+        let partial = dir.appendingPathComponent("joined")
+        FileManager.default.createFile(atPath: partial.path, contents: nil)
+        let copying = Task { try await NoteAudioParts.append(big, to: partial, hashing: SHA256()) }
+        copying.cancel()
+        do {
+            _ = try await copying.value
+            preconditionFailure("a stopped copy doesn't finish")
+        } catch is CancellationError {}
+        let size = (try FileManager.default.attributesOfItem(atPath: partial.path)[.size] as? NSNumber)?.int64Value ?? 0
+        precondition(size < 64 << 20, "stopped partway: \(size)")
     }
 }

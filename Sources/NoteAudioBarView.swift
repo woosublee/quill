@@ -20,10 +20,16 @@ struct NoteAudioBar: View {
             if let url = appState.noteBrowserStoredAudioURL(for: item) {
                 NoteAudioPlayerView(audioURL: url, playsOnAppear: playsWhenDownloaded)
             }
+        case let state where !state.isDownloading:
+            NoteRemoteAudioBarView(
+                state: state,
+                duration: recordedDuration,
+                onDownload: download,
+                onCancel: { appState.cancelNoteAudioDownload(for: item) }
+            )
         case let state:
             NoteDownloadingAudioBar(
                 noteID: item.id,
-                state: state,
                 feed: downloader.progressFeed,
                 duration: recordedDuration,
                 onDownload: download,
@@ -48,12 +54,11 @@ struct NoteAudioBar: View {
     }
 }
 
-/// The remote bar, with how far a running download got. Only this view
-/// follows each progress step; the note's own state is worked out once,
-/// above, when a download starts or ends.
+/// The remote bar of a running download, with how far it got. Only these
+/// bars follow each progress step; the note's own state is worked out
+/// once, above, when a download starts or ends.
 private struct NoteDownloadingAudioBar: View {
     let noteID: UUID
-    let state: NoteAudioState
     @ObservedObject var feed: NoteAudioDownloadProgress
     let duration: TimeInterval?
     let onDownload: () -> Void
@@ -61,7 +66,7 @@ private struct NoteDownloadingAudioBar: View {
 
     var body: some View {
         NoteRemoteAudioBarView(
-            state: state.isDownloading ? .downloading(feed.values[noteID] ?? 0) : state,
+            state: .downloading(feed.values[noteID] ?? 0),
             duration: duration,
             onDownload: onDownload,
             onCancel: onCancel

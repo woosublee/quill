@@ -183,6 +183,24 @@ enum NoteAudioParts {
     /// to `hasher`, off the main thread. Returns the hasher and the bytes
     /// appended, so the whole file is never read again to check it.
     static func append(_ file: URL, to partial: URL, hashing hasher: SHA256) async throws -> (SHA256, Int64) {
+        // The copy runs detached, so a stopped download tells it to stop
+        // rather than finishing a 50 MB part first.
+        let stop = StopFlag()
+        return try await withTaskCancellationHandler {
+            try await copy(file, to: partial, hashing: hasher, stop: stop)
+        } onCancel: {
+            stop.set()
+        }
+    }
+
+    private final class StopFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var isSet = false
+        func set() { lock.withLock { isSet = true } }
+        var isStopped: Bool { lock.withLock { isSet } }
+    }
+
+    private static func copy(_ file: URL, to partial: URL, hashing hasher: SHA256, stop: StopFlag) async throws -> (SHA256, Int64) {
         try await Task.detached(priority: .utility) {
             var hasher = hasher
             let output = try FileHandle(forWritingTo: partial)
@@ -192,6 +210,7 @@ enum NoteAudioParts {
             defer { try? input.close() }
             var written: Int64 = 0
             while let chunk = try input.read(upToCount: chunkSize), !chunk.isEmpty {
+                if stop.isStopped { throw CancellationError() }
                 hasher.update(data: chunk)
                 try output.write(contentsOf: chunk)
                 written += Int64(chunk.count)
