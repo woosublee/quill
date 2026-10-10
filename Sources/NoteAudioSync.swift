@@ -179,6 +179,31 @@ enum NoteAudioParts {
         }
     }
 
+    /// Appends `file` to the end of `partial` in chunks, feeding each chunk
+    /// to `hasher`, off the main thread. Returns the hasher and the bytes
+    /// appended, so the whole file is never read again to check it.
+    static func append(_ file: URL, to partial: URL, hashing hasher: SHA256) async throws -> (SHA256, Int64) {
+        try await Task.detached(priority: .utility) {
+            var hasher = hasher
+            let output = try FileHandle(forWritingTo: partial)
+            defer { try? output.close() }
+            try output.seekToEnd()
+            let input = try FileHandle(forReadingFrom: file)
+            defer { try? input.close() }
+            var written: Int64 = 0
+            while let chunk = try input.read(upToCount: chunkSize), !chunk.isEmpty {
+                hasher.update(data: chunk)
+                try output.write(contentsOf: chunk)
+                written += Int64(chunk.count)
+            }
+            return (hasher, written)
+        }.value
+    }
+
+    static func hex(_ hasher: SHA256) -> String {
+        hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
     /// The file's SHA-256 as lowercase hex, read in chunks.
     static func sha256(of url: URL) throws -> String {
         let input = try FileHandle(forReadingFrom: url)
