@@ -15,6 +15,7 @@ struct NoteBrowserRecoveryTests {
         testPostProcessingDisabledHidesRetryGuidance()
         testPostProcessingEnabledKeepsRetryGuidance()
         testPostProcessingDisabledDoesNotAffectUnrelatedIssues()
+        testAudioInICloudOffersRetryAndSaving()
         print("NoteBrowserRecoveryTests passed")
     }
 
@@ -36,6 +37,17 @@ struct NoteBrowserRecoveryTests {
         precondition(!transcriptOnly.showsRetryButton)
         precondition(transcriptOnly.canCopy)
         precondition(transcriptOnly.canSaveFiles)
+    }
+
+    /// Audio in iCloud, not on this Mac: Retranscribe and Save Files stay,
+    /// and choosing them downloads it first.
+    private static func testAudioInICloudOffersRetryAndSaving() {
+        let state = NoteBrowserActionState(
+            hasStoredAudio: false,
+            transcript: "",
+            retryAvailability: .needsDownload
+        )
+        precondition(state.showsRetryButton && state.canSaveFiles && !state.canCopy)
     }
 
     private static func testSummaryOnlyEnablesFileSaving() {

@@ -2,6 +2,8 @@ import Foundation
 
 enum NoteBrowserRetryAvailability: Equatable {
     case noAudio
+    /// The audio is in iCloud, not on this Mac: retrying downloads it first.
+    case needsDownload
     case needsModelSetup
     case needsModelSelection
     case needsProviderConfiguration
@@ -31,9 +33,11 @@ struct NoteBrowserActionState: Equatable {
         self.hasSummary = hasSummary
     }
 
-    var showsRetryButton: Bool { hasStoredAudio }
+    var showsRetryButton: Bool { hasStoredAudio || retryAvailability == .needsDownload }
     var canCopy: Bool { hasTranscriptText }
-    var canSaveFiles: Bool { hasStoredAudio || hasTranscriptText || hasSummary }
+    var canSaveFiles: Bool {
+        hasStoredAudio || retryAvailability == .needsDownload || hasTranscriptText || hasSummary
+    }
 }
 
 enum NoteBrowserRecoveryPresentation {
@@ -181,7 +185,7 @@ enum NoteBrowserRecoveryPresentation {
                 recoveryAction: .openProviderSettings,
                 severity: original.severity
             )
-        case .noAudio:
+        case .noAudio, .needsDownload:
             return original
         }
     }

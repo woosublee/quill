@@ -6,6 +6,11 @@ struct NoteFileExportView: View {
     let suggestedBaseName: String
     let onDismiss: () -> Void
     let onSaved: (String) -> Void
+    /// Downloads iCloud audio before saving: nil once it is here, or why
+    /// it couldn't be.
+    let downloadAudio: () async -> String?
+    /// Stops that download, for Cancel.
+    let cancelDownload: () -> Void
 
     @AppStorage("note_file_export_last_directory")
     private var lastDirectoryPath = ""
@@ -20,17 +25,26 @@ struct NoteFileExportView: View {
     @State private var resultMessage: String?
     @State private var resultHasPartialSuccess = false
     @State private var isSaving = false
+    /// The save in progress, which Cancel stops (a download can be long).
+    @State private var saveTask: Task<Void, Never>?
+    /// Whether that save is downloading the recording, whatever the
+    /// checkbox says now.
+    @State private var isDownloadingAudio = false
 
     init(
         source: NoteFileExportSource,
         suggestedBaseName: String,
         onDismiss: @escaping () -> Void,
-        onSaved: @escaping (String) -> Void
+        onSaved: @escaping (String) -> Void,
+        downloadAudio: @escaping () async -> String? = { nil },
+        cancelDownload: @escaping () -> Void = {}
     ) {
         self.source = source
         self.suggestedBaseName = suggestedBaseName
         self.onDismiss = onDismiss
         self.onSaved = onSaved
+        self.downloadAudio = downloadAudio
+        self.cancelDownload = cancelDownload
         _includeTranscript = State(initialValue: source.transcript != nil)
         _includeSummary = State(initialValue: source.summary != nil)
         _includeAudio = State(initialValue: source.audioURL != nil)
@@ -55,7 +69,11 @@ struct NoteFileExportView: View {
 
             Divider().padding(.vertical, 16)
             HStack {
-                Button("Cancel") { onDismiss() }
+                Button("Cancel") {
+                    if isDownloadingAudio { cancelDownload() }
+                    saveTask?.cancel()
+                    onDismiss()
+                }
                     .keyboardShortcut(.cancelAction)
                 Spacer()
                 Button(action: { prepareSave() }) {
@@ -127,7 +145,12 @@ struct NoteFileExportView: View {
                 .disabled(source.audioURL == nil)
                 .padding(.top, 6)
             if source.audioURL == nil {
-                Text("The saved recording file could not be found.")
+                Text(source.audioUnavailableMessage ?? localizedCatalogString("The saved recording file could not be found."))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 22)
+            } else if source.audioNeedsDownload, includeAudio {
+                Text("The recording is downloaded from iCloud before it's saved.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.leading, 22)
@@ -340,7 +363,19 @@ struct NoteFileExportView: View {
         resultMessage = nil
         resultHasPartialSuccess = false
         pendingReplacementRequest = nil
-        Task {
+        saveTask = Task {
+            if request.source.audioNeedsDownload, request.selectedItems.contains(.audio) {
+                isDownloadingAudio = true
+                let failure = await downloadAudio()
+                isDownloadingAudio = false
+                // Cancelled while the audio downloaded: nothing is saved.
+                guard !Task.isCancelled else { return }
+                if let failure {
+                    isSaving = false
+                    resultMessage = failure
+                    return
+                }
+            }
             let result = await Task.detached(priority: .userInitiated) {
                 NoteFileExporter.export(
                     request,

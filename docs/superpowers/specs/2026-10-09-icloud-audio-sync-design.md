@@ -163,7 +163,17 @@ total only when the note's marker is written.
   `Sync/downloads/<id>.partial`, checks the size and SHA-256, and moves the
   file to `audio/<audioFileName>`. A hash or size mismatch discards the file
   and tries once more, then reports `.failed`.
+- Each download has its own token and partial file
+  (`Sync/downloads/<id>-<token>.partial`), so a request right after Stop
+  starts a fresh download. Progress only moves forward.
 - `cancel(noteID)` stops the operation and removes the partial file.
+  Turning sync off, or sync stopping by itself, cancels every download, and
+  the engine removes download files when it starts and stops. Deleting a
+  note (here or from another Mac) cancels its download; a download that
+  finishes after the delete removes the file.
+- With sync off, a note without a marker shows no audio bar (a file lost
+  on a Mac that never synced it looks as before); audio this Mac was
+  uploading but has lost shows no bar either.
 - Downloads keep going when the note view closes, and a second request for
   the same note joins the running one.
 - It reaches CloudKit through a small protocol, so tests use a fake.

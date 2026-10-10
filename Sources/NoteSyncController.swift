@@ -48,6 +48,9 @@ final class NoteSyncController: ObservableObject {
     @Published private(set) var isSyncingNow = false
     let unavailableReason: NoteSyncUnavailableReason?
     var onRemoteChange: ((NoteSyncRemoteChange) -> Void)?
+    /// The engine stopped (sync turned off, or stopped by itself): audio
+    /// downloads stop with it, since sync off means no talking to iCloud.
+    var onEngineStop: (() -> Void)?
 
     private let defaults: UserDefaults
     private let createZone: () async throws -> Void
@@ -162,6 +165,11 @@ final class NoteSyncController: ObservableObject {
         engine?.fetchNow()
     }
 
+    /// What downloads note audio, while sync runs.
+    var audioPartFetcher: NoteAudioPartFetching? {
+        engine as? NoteAudioPartFetching
+    }
+
     /// Sync Now in Settings. A press while it runs does nothing.
     func syncNow() async {
         guard let engine, !isSyncingNow else { return }
@@ -203,6 +211,7 @@ final class NoteSyncController: ObservableObject {
     }
 
     private func stopEngine(forgetState: Bool) {
+        if engine != nil { onEngineStop?() }
         coordinator?.stop()
         engine?.stop(forgetState: forgetState)
         engine = nil
