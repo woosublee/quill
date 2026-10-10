@@ -253,7 +253,6 @@ final class NoteSyncController: ObservableObject {
             do {
                 if let engine {
                     coordinator?.isHoldingRetries = true
-                    defer { coordinator?.isHoldingRetries = false }
                     audioDeleted = try await engine.deleteAllFromICloud()
                 } else if let deleted = try await deleteWithoutEngine(signedIn: await signedIn.value) {
                     audioDeleted = deleted
@@ -269,6 +268,11 @@ final class NoteSyncController: ObservableObject {
                 print("[NoteSync] Deleting from iCloud failed")
                 turnOffFailure = error as? NoteSyncTurnOffFailure ?? .unreachable
                 isDeletingFromICloud = false
+                if let coordinator, coordinator.isHoldingRetries {
+                    // Undone: the sync skipped meanwhile runs now.
+                    coordinator.isHoldingRetries = false
+                    engine?.fetchNow()
+                }
                 // Sync stays on: a start held back meanwhile goes ahead.
                 if let initialUpload = heldBackStart {
                     heldBackStart = nil
@@ -324,6 +328,7 @@ final class NoteSyncController: ObservableObject {
     /// The end of Turn Off, or of a Turn Off that found another account.
     private func finishTurningOff(status newStatus: NoteSyncStatus) {
         isDeletingFromICloud = false
+        turnOffFailure = nil
         heldBackStart = nil
         // Without an engine, nothing else removes its saved state.
         if engine == nil { removeEngineFiles() }
@@ -495,11 +500,12 @@ final class NoteSyncController: ObservableObject {
             setEnabled(false)
         case .off:
             // This Mac's Turn Off and Delete went through after it looked
-            // undone: sync turns off as asked, and the audio, never reached,
-            // is deleted as audio left behind.
-            finishTurningOff(status: .off)
+            // undone: sync turns off as asked, after the engine's event
+            // returns, and the audio, never reached, is deleted as audio
+            // left behind.
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, self.isEnabled else { return }
+                self.finishTurningOff(status: .off)
                 let account = await self.accountID() ?? ""
                 self.accountsWithAudioLeft = Array(Set(self.accountsWithAudioLeft + [account])).sorted()
                 await self.deleteLeftoverAudio()

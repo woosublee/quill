@@ -38,6 +38,8 @@ struct NoteSyncControllerTests {
         testTurnOnClearsTagsLeftFromADelete()
         testOwnDeleteThatWentThroughTurnsSyncOff()
         testEngineDeleteHoldsRetries()
+        testUndoneDeleteLetsRetriesGoAndSyncs()
+        testOwnDeleteFoundLaterClearsTheFailure()
         testTurnOnCreatesTheZoneBeforeSyncing()
         testTurnOnStaysOffWhenICloudIsUnreachable()
         testTurnOnWaitsForAReadyStore()
@@ -964,5 +966,38 @@ struct NoteSyncControllerTests {
         running?.whileDeleting = { held = running?.coordinator?.isHoldingRetries == true }
         precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
         precondition(held, "the coordinator held its retries during the delete")
+    }
+
+    @MainActor
+    static func testUndoneDeleteLetsRetriesGoAndSyncs() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        let running = engine()
+        running?.deleteError = URLError(.notConnectedToInternet)
+        let fetches = running?.fetches ?? 0
+        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
+        precondition(running?.coordinator?.isHoldingRetries == false, "retries go again")
+        precondition(running?.fetches == fetches + 1, "the sync skipped during the delete runs")
+        // A delete that goes through leaves nothing to sync.
+        let (other, otherStore, otherEngine, _) = make(enabled: true)
+        other.attach(store: otherStore)
+        let deleting = otherEngine()
+        let before = deleting?.fetches ?? 0
+        precondition(expectation { _ = await other.turnOff(deleteFromICloud: true) })
+        precondition(deleting?.fetches == before)
+    }
+
+    /// A failed delete set the alert's reason; finding later that it went
+    /// through turns sync off and clears it.
+    @MainActor
+    static func testOwnDeleteFoundLaterClearsTheFailure() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        engine()?.deleteError = URLError(.notConnectedToInternet)
+        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
+        precondition(controller.turnOffFailure == .unreachable)
+        engine()?.coordinator?.handleZoneDeleted(byThisMac: true)
+        drainMainQueue()
+        precondition(!controller.isEnabled && controller.turnOffFailure == nil)
     }
 }

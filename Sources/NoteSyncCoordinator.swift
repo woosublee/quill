@@ -1016,9 +1016,10 @@ final class NoteSyncCoordinator {
         return change
     }
 
-    /// While this Mac deletes its iCloud data, nothing failed is sent again
-    /// and the status stays: sync turns off after, or carries on if the
-    /// delete is undone.
+    /// While this Mac deletes its iCloud data, a finished fetch or send
+    /// neither sends failed changes again nor settles the status: sync turns
+    /// off after, or, if the delete is undone, the next sync does both.
+    /// (New sends then meet the missing zone and are held by the engine.)
     var isHoldingRetries = false
 
     /// A fetch or send finished. With nothing left to send, sync is up to date.
