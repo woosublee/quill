@@ -155,6 +155,9 @@ struct AppStateDependencies {
                 }, deleteLeftoverAudio: {
                     guard #available(macOS 14.0, *) else { return .inUse }
                     return await NoteSyncCloudKitEngine.deleteLeftoverAudio()
+                }, deleteAllWithoutEngine: {
+                    guard #available(macOS 14.0, *) else { throw NoteSyncEngineError.notRunning }
+                    return try await NoteSyncCloudKitEngine.deleteAllWithoutEngine()
                 }, accountID: {
                     guard #available(macOS 14.0, *) else { return nil }
                     return await NoteSyncCloudKitEngine.accountID()

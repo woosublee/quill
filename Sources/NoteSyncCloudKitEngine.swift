@@ -435,6 +435,24 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         }
     }
 
+    /// Turn Off and Delete from iCloud while no engine runs (sync paused
+    /// because notes couldn't be saved here, or history can't be opened):
+    /// deletes the zones directly. Returns false when the notes are gone but
+    /// their audio couldn't be deleted.
+    static func deleteAllWithoutEngine() async throws -> Bool {
+        let zoneID = NoteSyncCloudRecord.zoneID()
+        let result = try await privateDatabase.modifyRecordZones(saving: [], deleting: [zoneID])
+        if case .failure(let error)? = result.deleteResults[zoneID],
+           !((error as? CKError).map { isZoneGone($0.code) } ?? false) {
+            throw error
+        }
+        for _ in 0..<2 {
+            if await deleteAudioZone() { return true }
+        }
+        print("[NoteSync] Notes were deleted from iCloud, but their audio couldn't be")
+        return false
+    }
+
     /// Deletes the `NoteAudio` zone; true once it's gone.
     private static func deleteAudioZone() async -> Bool {
         let database = privateDatabase
