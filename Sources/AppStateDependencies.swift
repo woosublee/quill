@@ -181,12 +181,14 @@ struct AppStateDependencies {
                             if FileManager.default.fileExists(atPath: failedChangesURL.path) {
                                 try FileManager.default.removeItem(at: failedChangesURL)
                             }
-                            return
+                            return true
                         }
                         try FileManager.default.createDirectory(at: layout.noteSyncDirectory, withIntermediateDirectories: true)
                         try JSONEncoder().encode(changes).write(to: failedChangesURL, options: .atomic)
+                        return true
                     } catch {
                         print("[NoteSync] Couldn't keep the failed changes for the next run")
+                        return false
                     }
                 }, accountID: {
                     guard #available(macOS 14.0, *) else { return nil }

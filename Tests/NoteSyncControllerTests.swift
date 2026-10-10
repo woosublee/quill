@@ -59,6 +59,7 @@ struct NoteSyncControllerTests {
         testLeftoverSearchDateAheadOfTheClockDoesNotHoldItOff()
         testFailedChangesOutliveARelaunch()
         testFullUploadStillSendsKeptDeletes()
+        testStartingOverKeepsDeletesWaitingInTheEngine()
         print("NoteSyncControllerTests passed")
     }
 
@@ -141,6 +142,7 @@ struct NoteSyncControllerTests {
         func enqueueAudioDeletes(_ parts: [NoteAudioPartID]) {}
         func pendingAudioSaves() -> [NoteAudioPartID] { [] }
         func pendingAudioDeletes() -> [NoteAudioPartID] { [] }
+        func pendingNoteDeletes() -> [UUID] { deletes }
         var pendingCount = 0
         func pendingChangeCount() -> Int { pendingCount }
         func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> { [] }
@@ -1145,7 +1147,7 @@ struct NoteSyncControllerTests {
             unavailableReason: nil,
             createZone: {},
             loadFailedChanges: { saved },
-            saveFailedChanges: { saved = $0 },
+            saveFailedChanges: { saved = $0; return true },
             makeEngine: { _ in
                 let engine = FakeEngine()
                 engines.append(engine)
@@ -1180,7 +1182,7 @@ struct NoteSyncControllerTests {
             unavailableReason: nil,
             createZone: {},
             loadFailedChanges: { saved },
-            saveFailedChanges: { saved = $0 },
+            saveFailedChanges: { saved = $0; return true },
             makeEngine: { _ in
                 let engine = FakeEngine()
                 engines.append(engine)
@@ -1190,5 +1192,36 @@ struct NoteSyncControllerTests {
         controller.attach(store: store)
         precondition(engines.last?.deletes == [gone], "the delete is still owed")
         precondition(saved == NoteSyncFailedChanges(deletes: [gone]), "the saves go with the full upload: \(String(describing: saved))")
+    }
+
+    /// Starting over drops the engine's saved state; deletes waiting in it
+    /// (failed offline, say) are kept and sent by the new engine.
+    @MainActor
+    static func testStartingOverKeepsDeletesWaitingInTheEngine() {
+        let defaults = freshDefaults()
+        defaults.set(true, forKey: NoteSyncController.enabledKey)
+        let store = FakeStore()
+        store.ids = [UUID()]
+        var saved: NoteSyncFailedChanges?
+        var engines: [FakeEngine] = []
+        let controller = NoteSyncController(
+            defaults: defaults,
+            unavailableReason: nil,
+            createZone: {},
+            loadFailedChanges: { saved },
+            saveFailedChanges: { saved = $0; return true },
+            makeEngine: { _ in
+                let engine = FakeEngine()
+                engines.append(engine)
+                return engine
+            }
+        )
+        controller.attach(store: store)
+        let gone = UUID()
+        engines.last?.deletes = [gone]
+        engines.last?.coordinator?.onNeedsFullRefetch?()
+        drainMainQueue()
+        precondition(engines.count == 2 && engines.last?.deletes == [gone], "sent by the new engine")
+        precondition(saved == NoteSyncFailedChanges(deletes: [gone]), "kept until confirmed: \(String(describing: saved))")
     }
 }

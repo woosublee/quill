@@ -123,6 +123,8 @@ struct NoteSyncCoordinatorTests {
         testRetryOfANoteNotSettledIsDropped()
         testSyncNowKeepsFailedChanges()
         testConfirmationsEndKeptChanges()
+        testDeletesWaitingInADroppedStateAreKept()
+        testFailedWriteIsTriedAgain()
         await testLeftoverScanKeepsNotesWhoseMarkedPartsAreBeingDeleted()
         try testAudioInICloudIsReadFromThePayload()
         print("NoteSyncCoordinatorTests passed")
@@ -209,6 +211,7 @@ struct NoteSyncCoordinatorTests {
         func enqueueAudioSaves(_ parts: [NoteAudioPartID]) { audioSaves += parts; pendingAudio += parts }
         func enqueueAudioDeletes(_ parts: [NoteAudioPartID]) { audioDeletes += parts }
         func pendingAudioDeletes() -> [NoteAudioPartID] { audioDeletes }
+        func pendingNoteDeletes() -> [UUID] { deletes }
         var pendingAudioReads = 0
         var pendingCount = 0
         func pendingChangeCount() -> Int { pendingCount }
@@ -2123,7 +2126,7 @@ struct NoteSyncCoordinatorTests {
     static func testFailedNoteChangesAreReported() {
         let (coordinator, store, engine) = make()
         var reported: [NoteSyncFailedChanges] = []
-        coordinator.onFailedChangesChange = { reported.append($0) }
+        coordinator.onFailedChangesChange = { reported.append($0); return true }
         let note = record(), other = record(), gone = UUID()
         for item in [note, other] {
             store.records[item.noteID] = item
@@ -2160,7 +2163,7 @@ struct NoteSyncCoordinatorTests {
     static func testFailedNoteChangesAreSentAgainAfterARelaunch() {
         let (coordinator, store, engine) = make()
         var reported: [NoteSyncFailedChanges] = []
-        coordinator.onFailedChangesChange = { reported.append($0) }
+        coordinator.onFailedChangesChange = { reported.append($0); return true }
         let kept = record(), back = record(), unsettled = record(), gone = UUID(), goneSave = UUID()
         for note in [kept, back, unsettled] { store.records[note.noteID] = note }
         store.syncable = [kept.noteID]
@@ -2169,27 +2172,27 @@ struct NoteSyncCoordinatorTests {
             deletes: [gone, back.noteID]
         ))
         precondition(engine.saves == [kept.noteID] && engine.deletes == [gone], "\(engine.saves) \(engine.deletes)")
-        precondition(reported.last == NoteSyncFailedChanges(saves: [kept.noteID], deletes: [gone]), "kept until confirmed: \(reported)")
+        precondition(reported.last == NoteSyncFailedChanges(saves: [kept.noteID, unsettled.noteID], deletes: [gone]), "kept until confirmed: \(reported)")
         coordinator.handleSaved(id: kept.noteID, systemFields: Data([1]))
         coordinator.handleDeleted(id: gone)
         coordinator.handleFetchFinished(pending: 0)
-        precondition(reported.last == NoteSyncFailedChanges())
+        precondition(reported.last == NoteSyncFailedChanges(saves: [unsettled.noteID]), "the unsettled note's save waits for it")
         let unreadable = UUID()
         store.readFails = true
         coordinator.restoreFailedChanges(NoteSyncFailedChanges(saves: [unreadable], deletes: [unreadable]))
         precondition(engine.saves == [kept.noteID], "nothing sent for a note that can't be read")
         coordinator.handleFetchFinished(pending: 0)
-        precondition(reported.last == NoteSyncFailedChanges(), "the file already held them: \(reported)")
+        precondition(reported.last == NoteSyncFailedChanges(saves: [unsettled.noteID, unreadable], deletes: [unreadable]), "kept for later: \(reported)")
     }
 
-    /// A save waiting for its retry whose note is no longer settled (or is
-    /// gone) isn't sent: the engine would drop it without a word, and it
-    /// would be kept forever. The note sends itself once it settles.
+    /// A save waiting for its retry whose note is no longer settled isn't
+    /// sent (the engine would drop it without a word) but stays kept until
+    /// the note settles and saves again; one whose note is gone ends.
     @MainActor
     static func testRetryOfANoteNotSettledIsDropped() {
         let (coordinator, store, engine) = make()
         var reported: [NoteSyncFailedChanges] = []
-        coordinator.onFailedChangesChange = { reported.append($0) }
+        coordinator.onFailedChangesChange = { reported.append($0); return true }
         let note = record()
         store.records[note.noteID] = note
         store.syncable.insert(note.noteID)
@@ -2197,7 +2200,17 @@ struct NoteSyncCoordinatorTests {
         store.syncable.remove(note.noteID)
         passTime()
         coordinator.handleFetchFinished(pending: 0)
-        precondition(engine.saves.isEmpty && reported.last == NoteSyncFailedChanges())
+        precondition(engine.saves.isEmpty && reported.last == NoteSyncFailedChanges(saves: [note.noteID]))
+        coordinator.handleLocalChanges([.saved(note.noteID)])
+        precondition(engine.saves.isEmpty && reported.last == NoteSyncFailedChanges(saves: [note.noteID]), "still not settled")
+        store.syncable.insert(note.noteID)
+        coordinator.handleLocalChanges([.saved(note.noteID)])
+        precondition(engine.saves == [note.noteID] && reported.last == NoteSyncFailedChanges(), "settled: its save goes")
+        coordinator.handleSendFailures([.other(noteID: note.noteID)])
+        store.records[note.noteID] = nil
+        passTime()
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(reported.last == NoteSyncFailedChanges(), "a note gone ends its save")
     }
 
     /// Sync Now starts the tries over but keeps every failed change until
@@ -2206,7 +2219,7 @@ struct NoteSyncCoordinatorTests {
     static func testSyncNowKeepsFailedChanges() {
         let (coordinator, store, _) = make()
         var reported: [NoteSyncFailedChanges] = []
-        coordinator.onFailedChangesChange = { reported.append($0) }
+        coordinator.onFailedChangesChange = { reported.append($0); return true }
         let gone = UUID(), other = record()
         store.records[other.noteID] = other
         store.syncable.insert(other.noteID)
@@ -2216,15 +2229,16 @@ struct NoteSyncCoordinatorTests {
         precondition(reported.last == NoteSyncFailedChanges(deletes: [gone]), "\(reported)")
     }
 
-    /// Ways a kept change ends besides a plain confirmation: a save that
-    /// went through though its change tag couldn't be recorded, a save the
-    /// engine drops because the note isn't settled, and a conflict on a
-    /// note deleted here, whose save gives way to a delete that is kept.
+    /// Kept changes at the edges: a save that went through but whose change
+    /// tag couldn't be recorded stays (the next launch sends and records
+    /// it), a save the engine drops because the note isn't settled stays,
+    /// and a conflict on a note deleted here ends its save and keeps the
+    /// delete; so does a save confirmed for a note deleted meanwhile.
     @MainActor
     static func testConfirmationsEndKeptChanges() {
         let (coordinator, store, _) = make()
         var reported: [NoteSyncFailedChanges] = []
-        coordinator.onFailedChangesChange = { reported.append($0) }
+        coordinator.onFailedChangesChange = { reported.append($0); return true }
         let a = record(), b = record(), c = record()
         for note in [a, b, c] {
             store.records[note.noteID] = note
@@ -2238,6 +2252,43 @@ struct NoteSyncCoordinatorTests {
         precondition(coordinator.outgoing(for: b.noteID) == nil)
         store.records[c.noteID] = nil
         coordinator.handleSendFailures([.serverChanged(noteID: c.noteID, serverPayload: nil, serverSystemFields: Data())])
-        precondition(reported.last == NoteSyncFailedChanges(deletes: [c.noteID]), "\(reported)")
+        precondition(reported.last == NoteSyncFailedChanges(saves: [a.noteID, b.noteID], deletes: [c.noteID]), "\(reported)")
+        let d = record()
+        store.records[d.noteID] = d
+        store.syncable.insert(d.noteID)
+        coordinator.handleSendFailures([.other(noteID: d.noteID)])
+        store.records[d.noteID] = nil
+        coordinator.handleSaved(id: d.noteID, systemFields: Data([1]))
+        coordinator.handleSendApplied()
+        precondition(reported.last == NoteSyncFailedChanges(saves: [a.noteID, b.noteID], deletes: [c.noteID, d.noteID]))
+    }
+
+    /// Starting over drops the engine's saved state: deletes waiting in it
+    /// (failed offline, say) are kept here instead.
+    @MainActor
+    static func testDeletesWaitingInADroppedStateAreKept() {
+        let (coordinator, _, engine) = make()
+        var reported: [NoteSyncFailedChanges] = []
+        coordinator.onFailedChangesChange = { reported.append($0); return true }
+        let gone = UUID()
+        engine.deletes = [gone]
+        coordinator.keepPendingDeletes()
+        precondition(reported.last == NoteSyncFailedChanges(deletes: [gone]))
+    }
+
+    /// A write that failed is tried again at the next change.
+    @MainActor
+    static func testFailedWriteIsTriedAgain() {
+        let (coordinator, _, _) = make()
+        var writes = 0
+        var works = false
+        coordinator.onFailedChangesChange = { _ in
+            writes += 1
+            return works
+        }
+        coordinator.handleSendFailures([.deleteFailed(noteID: UUID())])
+        works = true
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(writes == 2, "\(writes)")
     }
 }

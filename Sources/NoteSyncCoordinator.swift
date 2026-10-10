@@ -101,6 +101,8 @@ protocol NoteSyncEngineClient: AnyObject {
     func pendingAudioDeletes() -> [NoteAudioPartID]
     /// Changes of any kind still waiting to go up.
     func pendingChangeCount() -> Int
+    /// Note deletes waiting in the engine.
+    func pendingNoteDeletes() -> [UUID]
     func cancelAudioSaves(noteID: UUID)
     /// Drops audio deletes still waiting to go up, for a note that came back.
     func cancelAudioDeletes(noteID: UUID)
@@ -264,7 +266,9 @@ final class NoteSyncCoordinator {
     /// retries keep them until they go through or aren't wanted), so they
     /// outlive a relaunch: CKSyncEngine drops a change that failed for good.
     /// Reported when a send, fetch or local change has changed them.
-    var onFailedChangesChange: ((NoteSyncFailedChanges) -> Void)?
+    /// Returns false when they couldn't be kept, so the next change tries
+    /// again.
+    var onFailedChangesChange: ((NoteSyncFailedChanges) -> Bool)?
     private var reportedFailedChanges = NoteSyncFailedChanges()
     private var audioSaveRetries = NoteSyncRetries<NoteAudioPartID>()
     private var audioDeleteRetries = NoteSyncRetries<NoteAudioPartID>()
@@ -736,12 +740,15 @@ final class NoteSyncCoordinator {
             case .saved(let id):
                 // An edit sends its note again and tries its given-up
                 // audio again; parts still waiting keep their wait. Its new
-                // save is queued in the engine, which keeps it.
-                saveRetries.forget(id)
+                // save is queued in the engine, which keeps it; a note not
+                // settled yet keeps its failed save until it is.
                 for part in audioSaveRetries.givenUp where part.noteID == id {
                     audioSaveRetries.forget(part)
                 }
-                if store.isSyncable(id: id) { saves.append(id) }
+                if store.isSyncable(id: id) {
+                    saveRetries.forget(id)
+                    saves.append(id)
+                }
             case .deleted(let id, let wasSynced, let audio):
                 saveRetries.forget(id)
                 deleteRetries.forget(id)
@@ -784,9 +791,10 @@ final class NoteSyncCoordinator {
     func outgoing(for id: UUID) -> NoteSyncOutgoing? {
         guard !isStopped else { return nil }
         guard store.isSyncable(id: id), let record = store.syncRecord(id: id) else {
-            // The engine drops the save without a word: a failed one of it
-            // isn't kept either (the note sends itself once it settles).
-            saveRetries.forget(id)
+            // The engine drops the save without a word. A failed one of a
+            // note gone ends; one of a note not settled (or not readable
+            // right now) stays kept, and goes once the note saves again.
+            if store.noteExists(id: id) == false { saveRetries.forget(id) }
             return nil
         }
         return NoteSyncOutgoing(record: record, systemFields: store.syncSystemFields(id: id))
@@ -796,8 +804,10 @@ final class NoteSyncCoordinator {
         guard !isStopped else { return }
         switch store.noteExists(id: id) {
         case false?:
-            // Deleted here while its upload was in flight.
+            // Deleted here while its upload was in flight: the delete is
+            // kept until it goes through.
             saveRetries.forget(id)
+            deleteRetries.remember(id)
             engine.enqueueDeletes([id])
             return
         case nil:
@@ -810,16 +820,16 @@ final class NoteSyncCoordinator {
         case true?:
             break
         }
-        // It went through, whether or not its change tag can be recorded.
-        saveRetries.forget(id)
         do {
             try store.setSyncSystemFields(systemFields, id: id)
         } catch {
             // Without its change tag the next save conflicts and merges, so
-            // the note isn't lost; it just isn't counted as uploaded.
+            // the note isn't lost; it just isn't counted as uploaded. A kept
+            // save stays kept, so the next launch sends it and records it.
             print("[NoteSync] Couldn't record an uploaded note")
             return
         }
+        saveRetries.forget(id)
         uploadWaitingText.remove(id)
         reportUploadProgress()
     }
@@ -1316,7 +1326,9 @@ final class NoteSyncCoordinator {
             switch store.noteExists(id: id) {
             case true? where store.isSyncable(id: id): saves.append(id)
             case nil: saveRetries.failed(id, at: time, keepTrying: true)
-            default: saveRetries.forget(id)
+            case false?: saveRetries.forget(id)
+            // Not settled: kept, and sent once the note saves again.
+            case true?: continue
             }
         }
         if !saves.isEmpty {
@@ -1399,6 +1411,13 @@ final class NoteSyncCoordinator {
         return (notes.count, willRetry)
     }
 
+    /// The engine's saved state is about to be dropped (starting over, or a
+    /// replaced store): deletes waiting in it are kept here instead.
+    func keepPendingDeletes() {
+        for id in engine.pendingNoteDeletes() { deleteRetries.remember(id) }
+        reportFailedChanges()
+    }
+
     /// A sent batch was applied: what went through is known now.
     func handleSendApplied() {
         reportFailedChanges()
@@ -1407,8 +1426,7 @@ final class NoteSyncCoordinator {
     private func reportFailedChanges() {
         let current = NoteSyncFailedChanges(saves: saveRetries.unconfirmed, deletes: deleteRetries.unconfirmed)
         guard !isRetired, current != reportedFailedChanges else { return }
-        reportedFailedChanges = current
-        onFailedChangesChange?(current)
+        if onFailedChangesChange?(current) != false { reportedFailedChanges = current }
     }
 
     /// After a relaunch: note changes that had failed are sent again (a save
@@ -1429,7 +1447,10 @@ final class NoteSyncCoordinator {
                 saves.append(id)
             case nil:
                 saveRetries.failed(id, at: time, keepTrying: true)
-            default:
+            case true?:
+                // Not settled: kept, and sent once the note saves again.
+                saveRetries.remember(id)
+            case false?:
                 continue
             }
         }
