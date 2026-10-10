@@ -264,7 +264,8 @@ final class NoteSyncController: ObservableObject {
     private func coordinatorStatusChanged(_ newStatus: NoteSyncStatus) {
         status = newStatus
         switch newStatus {
-        case .upToDate:
+        case .upToDate, .paused(.notesFailed):
+            // A sync got through: a later store failure may start over again.
             startedOver = false
         case .paused(.accountChanged), .paused(.signedOut), .paused(.deletedElsewhere):
             // Sync starts again only when the user turns it on, so notes

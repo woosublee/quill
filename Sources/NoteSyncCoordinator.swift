@@ -639,9 +639,12 @@ final class NoteSyncCoordinator {
         for change in changes {
             switch change {
             case .saved(let id):
-                // An edit tries its note again, given up or not.
+                // An edit sends its note again and tries its given-up
+                // audio again; parts still waiting keep their wait.
                 saveRetries.forget(id)
-                audioSaveRetries.forget { $0.noteID == id }
+                for part in audioSaveRetries.givenUp where part.noteID == id {
+                    audioSaveRetries.forget(part)
+                }
                 if store.isSyncable(id: id) { saves.append(id) }
             case .deleted(let id, let wasSynced, let audio):
                 saveRetries.forget(id)
@@ -781,7 +784,7 @@ final class NoteSyncCoordinator {
                     print("[NoteSync] Stopped retrying an audio part")
                 }
             case .deleteFailed(let part):
-                audioDeleteRetries.failed(part, at: time)
+                audioDeleteRetries.failed(part, at: time, keepTrying: true)
             }
         }
         setFailureStatus(quotaCount: quotaCount, account: account, offline: offline)
@@ -883,7 +886,9 @@ final class NoteSyncCoordinator {
                 try? store.setSyncSystemFields(nil, id: id)
                 saveRetries.failed(id, at: time)
             case .deleteFailed(let id):
-                deleteRetries.failed(id, at: time)
+                // A delete is never given up: the note would stay in iCloud
+                // and on other Macs.
+                deleteRetries.failed(id, at: time, keepTrying: true)
             case .other(let id):
                 saveRetries.failed(id, at: time)
             }
@@ -953,6 +958,8 @@ final class NoteSyncCoordinator {
                 if let assets = try? store.removeSynced(id: id) {
                     change.purged.append(assets)
                 }
+                saveRetries.forget(id)
+                deleteRetries.forget(id)
                 let drop = dropAudio(of: id, audio, pending: pending)
                 audioDeletes += drop.parts
                 if drop.lookUp { lookUp.append(id) }
@@ -1051,8 +1058,9 @@ final class NoteSyncCoordinator {
         // Notes just queued again for lack of space aren't up to date yet;
         // the pause clears after a sync where they went up.
         if case .paused(.quotaExceeded) = status, retriedForQuota { return }
-        // Changes that keep trying (for space, or until the note can be
-        // read) aren't up to date; ones that may be given up are shown.
+        // Saves that keep trying (for space, or until the note can be read)
+        // aren't up to date; ones that may be given up are shown. A waiting
+        // delete isn't shown: its note is already gone here.
         let busy = pending > 0 || queuedAgain || !audioChecking.isEmpty || isWaitingToKeepTrying
         // Shown until a change goes through, or nothing is left to send.
         if case .paused(.accountNeedsAttention) = status, busy { return }
@@ -1071,13 +1079,11 @@ final class NoteSyncCoordinator {
     }
 
     private var isWaitingToKeepTrying: Bool {
-        !saveRetries.waitingToKeepTrying.isEmpty || !deleteRetries.waitingToKeepTrying.isEmpty
-            || !audioSaveRetries.waitingToKeepTrying.isEmpty || !audioDeleteRetries.waitingToKeepTrying.isEmpty
+        !saveRetries.waitingToKeepTrying.isEmpty || !audioSaveRetries.waitingToKeepTrying.isEmpty
     }
 
     /// Notes whose text or audio keeps failing to go up, and whether any of
-    /// them waits for another try. Deletes aren't counted: those notes are
-    /// gone here, and a delete that fails waits quietly.
+    /// them waits for another try. Deletes aren't counted: they keep trying.
     private var failingNotes: (count: Int, willRetry: Bool) {
         let notes = saveRetries.failing.union(audioSaveRetries.failing.map(\.noteID))
         let waiting = !saveRetries.failing.subtracting(saveRetries.givenUp).isEmpty

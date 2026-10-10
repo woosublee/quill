@@ -21045,18 +21045,18 @@
         }
       }
     },
-    "It will try again shortly. These notes are still on this Mac.": {
+    "It will try again automatically. These notes are still on this Mac.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "It will try again shortly. These notes are still on this Mac."
+            "value": "It will try again automatically. These notes are still on this Mac."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "잠시 뒤 다시 시도해요. 이 노트들은 이 Mac에 그대로 있어요."
+            "value": "자동으로 다시 시도해요. 이 노트들은 이 Mac에 그대로 있어요."
           }
         }
       }

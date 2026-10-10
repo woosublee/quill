@@ -24,6 +24,7 @@ struct NoteSyncControllerTests {
         testTurningOffStopsAudioDownloads()
         testStoreFailingAgainAfterStartingOverPauses()
         testStartingOverIsAllowedAgainOnceUpToDate()
+        testStartingOverIsAllowedAgainWithNotesThatFailed()
         testRelaunchAfterAPauseUploadsEverything()
         testHistoryLostMidSessionPausesUntilReplaced()
         testSyncNowTriesFailedChangesAgain()
@@ -470,5 +471,22 @@ struct NoteSyncControllerTests {
         precondition(expectation { await controller.syncNow() })
         engine()?.coordinator?.handleFetchFinished(pending: 0)
         precondition(engine()?.saves == [id], "the given-up note goes up with Sync Now")
+    }
+
+    /// A sync that got through with a note given up counts as getting
+    /// through: a later store failure may start over again.
+    @MainActor
+    static func testStartingOverIsAllowedAgainWithNotesThatFailed() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        engine()?.coordinator?.onNeedsFullRefetch?()
+        drainMainQueue()
+        let second = engine()
+        for _ in 0..<4 { second?.coordinator?.handleSendFailures([.other(noteID: store.ids[0])]) }
+        second?.coordinator?.handleFetchFinished(pending: 0)
+        precondition(controller.status == .paused(.notesFailed(count: 1, willRetry: false)))
+        second?.coordinator?.onNeedsFullRefetch?()
+        drainMainQueue()
+        precondition(engine() !== second, "started over again rather than pausing")
     }
 }

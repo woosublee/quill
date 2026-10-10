@@ -327,7 +327,7 @@ private struct NoteSyncSettingsCard: View {
                     .foregroundStyle(.secondary)
             case .paused(.notesFailed(_, let willRetry)):
                 Text(willRetry
-                     ? "It will try again shortly. These notes are still on this Mac."
+                     ? "It will try again automatically. These notes are still on this Mac."
                      : "These notes are still on this Mac. Edit a note or click ↻ to try again.")
                     .font(.caption)
                     .foregroundStyle(.secondary)

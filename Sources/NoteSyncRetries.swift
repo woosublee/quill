@@ -3,8 +3,9 @@ import Foundation
 /// Changes that failed to send, each tried again after a wait that grows
 /// with every failure: 1, 5, then 30 minutes. One that fails again after
 /// that is given up until its note changes, Sync Now, or a relaunch. A
-/// change that keeps trying (waiting for iCloud space, or for the store to
-/// be read) waits at most 30 minutes and is never given up.
+/// change that keeps trying (waiting for iCloud space, a delete, or one
+/// waiting for the store to be read) waits at most 30 minutes and is never
+/// given up.
 struct NoteSyncRetries<Key: Hashable> {
     static var delays: [TimeInterval] { [60, 5 * 60, 30 * 60] }
 
@@ -21,6 +22,9 @@ struct NoteSyncRetries<Key: Hashable> {
     var failing: Set<Key> { waiting.subtracting(keepsTrying).union(givenUp) }
 
     mutating func failed(_ key: Key, at now: Date, keepTrying: Bool = false) {
+        // Tries of the other kind don't count: a note that waited for space
+        // gets its own tries once it fails for another reason.
+        if keepsTrying.contains(key) != keepTrying { failures[key] = nil }
         let count = (failures[key] ?? 0) + 1
         failures[key] = count
         let delays = Self.delays

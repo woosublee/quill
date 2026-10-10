@@ -104,6 +104,10 @@ struct NoteSyncCoordinatorTests {
         testEditTriesAGivenUpNoteAgain()
         try await testSyncNowTriesEverythingThatFailedAgain()
         testFailedDeletesAreNotShownAsFailingNotes()
+        testWaitingForSpaceDoesNotUseUpTries()
+        testFailedDeleteIsNeverGivenUp()
+        testNoteDeletedElsewhereLeavesTheFailedList()
+        try await testEditKeepsAWaitingPartsWait()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -865,7 +869,6 @@ struct NoteSyncCoordinatorTests {
         passTime()
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.deletes.isEmpty, "a note that can't be read isn't deleted")
-        if case .upToDate = coordinator.status { preconditionFailure("a waiting delete isn't up to date") }
         store.readFails = false
         passTime(3600)
         coordinator.handleFetchFinished(pending: 0)
@@ -1727,5 +1730,69 @@ struct NoteSyncCoordinatorTests {
         coordinator.handleSendFailures([.deleteFailed(noteID: UUID())])
         coordinator.handleFetchFinished(pending: 0)
         precondition(coordinator.status == .upToDate(clock), "\(coordinator.status)")
+    }
+
+    /// Tries spent waiting for iCloud space don't count: once space is
+    /// free, a note that fails for another reason gets its full tries.
+    @MainActor
+    static func testWaitingForSpaceDoesNotUseUpTries() {
+        let (coordinator, store, engine) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        for _ in 0..<4 { coordinator.handleSendFailures([.quotaExceeded(noteID: note.noteID)]) }
+        coordinator.handleSendFailures([.other(noteID: note.noteID)])
+        passTime()
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves == [note.noteID], "tried again after a minute, not given up")
+    }
+
+    /// A delete that keeps failing is never given up, or the note would
+    /// stay in iCloud and on other Macs; it waits at most 30 minutes.
+    @MainActor
+    static func testFailedDeleteIsNeverGivenUp() {
+        let (coordinator, _, engine) = make()
+        let gone = UUID()
+        for tries in 1...6 {
+            coordinator.handleSendFailures([.deleteFailed(noteID: gone)])
+            passTime(30 * 60)
+            coordinator.handleFetchFinished(pending: 0)
+            precondition(engine.deletes.count == tries, "\(engine.deletes.count) after \(tries)")
+        }
+        coordinator.handleSendFailures([.deleteFailed(noteID: gone)])
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(coordinator.status == .upToDate(clock), "a waiting delete isn't shown as a note that couldn't sync")
+    }
+
+    /// A note given up here and then deleted on another Mac no longer
+    /// counts as a note that couldn't sync.
+    @MainActor
+    static func testNoteDeletedElsewhereLeavesTheFailedList() {
+        let (coordinator, store, _) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        for _ in 0..<4 { coordinator.handleSendFailures([.other(noteID: note.noteID)]) }
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(coordinator.status == .paused(.notesFailed(count: 1, willRetry: false)))
+        _ = coordinator.handleFetched([], deletions: [note.noteID])
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(coordinator.status == .upToDate(clock), "\(coordinator.status)")
+    }
+
+    /// Editing a note doesn't send a part still waiting for its retry right
+    /// away: with iCloud full, every edit would send 50 MB again.
+    @MainActor
+    static func testEditKeepsAWaitingPartsWait() async throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio(["a.wav": 10])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let id = noteWithAudio(store)
+        store.uploadKeys[id] = sha("a.wav")
+        let part = parts(id, 1)[0]
+        coordinator.handleAudioSendFailures([.quotaExceeded(part)])
+        coordinator.handleLocalChanges([.saved(id)])
+        await coordinator.lastAudioCheck?.value
+        precondition(engine.audioSaves.isEmpty, "the part keeps its wait")
+        passTime()
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.audioSaves == [part])
     }
 }
