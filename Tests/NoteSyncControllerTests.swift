@@ -18,6 +18,8 @@ struct NoteSyncControllerTests {
         testLeftoverAudioInUseAgainIsKept()
         testWhenLeftoverAudioIsDeleted()
         testTurnOffRecordsTheAccountAudioWasLeftIn()
+        testTurnOnRemembersTheAccountForATurnOffLater()
+        testTurnOnInAnotherAccountKeepsLeftoverAudio()
         testTurnOnWaitsForTheLeftoverAudioDelete()
         testAccountChangeTurnsSyncOff()
         testLocalChangesReachTheEngineOnlyWhileOn()
@@ -612,7 +614,7 @@ struct NoteSyncControllerTests {
         typealias L = NoteSyncLeftoverAudio
         precondition(L.reasonToKeep(leftIn: "a", current: "a", notesZoneExists: false) == nil, "same account, no notes in iCloud")
         precondition(L.reasonToKeep(leftIn: nil, current: nil, notesZoneExists: false) == nil, "account unknown: iCloud's notes decide")
-        precondition(L.reasonToKeep(leftIn: "a", current: "b", notesZoneExists: false) == .failed, "another account: waits for the one it was left in")
+        precondition(L.reasonToKeep(leftIn: "a", current: "b", notesZoneExists: false) == .otherAccount, "waits for the account it was left in")
         precondition(L.reasonToKeep(leftIn: "a", current: nil, notesZoneExists: false) == .failed, "can't tell the account")
         precondition(L.reasonToKeep(leftIn: "a", current: "a", notesZoneExists: true) == .inUse, "another Mac turned sync on")
         precondition(L.reasonToKeep(leftIn: nil, current: nil, notesZoneExists: nil) == .failed, "can't tell")
@@ -631,8 +633,55 @@ struct NoteSyncControllerTests {
             accountID: { "account-a" },
             makeEngine: { _ in engine }
         )
-        controller.attach(store: FakeStore())
+        let store = FakeStore()
+        controller.attach(store: store)
         precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
         precondition(defaults.string(forKey: NoteSyncController.audioLeftInICloudKey) == "account-a")
+    }
+
+    /// The account is read when sync turns on (online then); a Turn Off
+    /// and Delete that leaves audio, often offline, records that one.
+    @MainActor
+    static func testTurnOnRemembersTheAccountForATurnOffLater() {
+        let defaults = UserDefaults(suiteName: "quill-sync-controller-tests-\(UUID().uuidString)")!
+        let engine = FakeEngine()
+        engine.audioDeleteWorks = false
+        var account: String? = "account-a"
+        let controller = NoteSyncController(
+            defaults: defaults,
+            unavailableReason: nil,
+            createZone: {},
+            accountID: { account },
+            makeEngine: { _ in engine }
+        )
+        let store = FakeStore()
+        controller.attach(store: store)
+        precondition(expectation { _ = await controller.turnOn() })
+        precondition(defaults.string(forKey: NoteSyncController.syncAccountKey) == "account-a")
+        account = nil  // offline at turn-off
+        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
+        precondition(defaults.string(forKey: NoteSyncController.audioLeftInICloudKey) == "account-a")
+        precondition(defaults.string(forKey: NoteSyncController.syncAccountKey) == nil, "forgotten once sync is off")
+    }
+
+    /// Turning on in another account doesn't forget audio left in the
+    /// first one; turning on in that account reuses it.
+    @MainActor
+    static func testTurnOnInAnotherAccountKeepsLeftoverAudio() {
+        for (current, kept) in [("account-b", true), ("account-a", false)] {
+            let defaults = UserDefaults(suiteName: "quill-sync-controller-tests-\(UUID().uuidString)")!
+            defaults.set("account-a", forKey: NoteSyncController.audioLeftInICloudKey)
+            let controller = NoteSyncController(
+                defaults: defaults,
+                unavailableReason: nil,
+                createZone: {},
+                accountID: { current },
+                makeEngine: { _ in FakeEngine() }
+            )
+            let store = FakeStore()
+        controller.attach(store: store)
+            precondition(expectation { _ = await controller.turnOn() })
+            precondition(controller.isEnabled && controller.audioLeftInICloud == kept, current)
+        }
     }
 }

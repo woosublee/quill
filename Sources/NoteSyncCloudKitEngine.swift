@@ -411,9 +411,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         return false
     }
 
-    static var container: CKContainer {
-        CKContainer(identifier: NoteSyncAvailability.containerIdentifier)
-    }
+    static let container = CKContainer(identifier: NoteSyncAvailability.containerIdentifier)
 
     static var privateDatabase: CKDatabase { container.privateCloudDatabase }
 
@@ -429,10 +427,9 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
     /// signed in, or iCloud holds notes again (another Mac turned sync on
     /// and uses the zone). `account` is the one it was left in, if known.
     static func deleteLeftoverAudio(account: String?) async -> NoteSyncLeftoverAudio {
-        async let currentAccount = accountID()
-        async let notesZoneFound = notesZoneExists(in: privateDatabase)
-        let current = account == nil ? nil : await currentAccount
-        let notesZone = await notesZoneFound
+        let currentAccount = account == nil ? nil : Task { await accountID() }
+        let notesZone = await notesZoneExists(in: privateDatabase)
+        let current = await currentAccount?.value
         if let keep = NoteSyncLeftoverAudio.reasonToKeep(leftIn: account, current: current, notesZoneExists: notesZone) {
             return keep
         }
