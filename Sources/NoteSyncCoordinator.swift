@@ -1,5 +1,13 @@
 import Foundation
 
+/// Note changes that failed and haven't gone through: only note IDs.
+struct NoteSyncFailedChanges: Codable, Equatable {
+    var saves: [UUID] = []
+    var deletes: [UUID] = []
+
+    var isEmpty: Bool { saves.isEmpty && deletes.isEmpty }
+}
+
 /// What the coordinator needs from the note store. `PipelineHistoryStore`
 /// provides it; tests use a fake.
 protocol NoteSyncLocalStore: AnyObject {
@@ -250,8 +258,17 @@ final class NoteSyncCoordinator {
     var onNeedsFullRefetch: (() -> Void)?
     /// Changes that failed to send, tried again after a wait; ones that
     /// keep failing are given up until their note changes or Sync Now.
-    private var saveRetries = NoteSyncRetries<UUID>()
-    private var deleteRetries = NoteSyncRetries<UUID>()
+    private var saveRetries = NoteSyncRetries<UUID>() {
+        didSet { reportFailedChanges() }
+    }
+    private var deleteRetries = NoteSyncRetries<UUID>() {
+        didSet { reportFailedChanges() }
+    }
+    /// Note saves and deletes that failed and haven't gone through, as they
+    /// change, so they outlive a relaunch (CKSyncEngine drops a change that
+    /// failed for good).
+    var onFailedChangesChange: ((NoteSyncFailedChanges) -> Void)?
+    private var reportedFailedChanges = NoteSyncFailedChanges()
     private var audioSaveRetries = NoteSyncRetries<NoteAudioPartID>()
     private var audioDeleteRetries = NoteSyncRetries<NoteAudioPartID>()
     private var quotaRetryPending = false
@@ -912,6 +929,8 @@ final class NoteSyncCoordinator {
     }
 
     func handleDeleted(id: UUID) {
+        // Went through: a retry of it waiting from an earlier failure goes.
+        deleteRetries.forget(id)
         // The note is usually gone already; nothing is left to update then.
         try? store.setSyncSystemFields(nil, id: id)
     }
@@ -1348,6 +1367,38 @@ final class NoteSyncCoordinator {
         let notes = saveRetries.failing.union(audioSaveRetries.failing.map(\.noteID))
         let willRetry = !saveRetries.failingToRetry.isEmpty || !audioSaveRetries.failingToRetry.isEmpty
         return (notes.count, willRetry)
+    }
+
+    private func reportFailedChanges(evenIfUnchanged: Bool = false) {
+        let current = NoteSyncFailedChanges(
+            saves: saveRetries.unsent.sorted { $0.uuidString < $1.uuidString },
+            deletes: deleteRetries.unsent.sorted { $0.uuidString < $1.uuidString }
+        )
+        guard evenIfUnchanged || current != reportedFailedChanges else { return }
+        reportedFailedChanges = current
+        onFailedChangesChange?(current)
+    }
+
+    /// After a relaunch: note changes that had failed are sent again, those
+    /// still wanted (a save of a note that's still here, a delete of one
+    /// that's gone; a note that can't be read keeps its delete for later).
+    /// Once queued, the engine keeps them across launches itself, so what
+    /// is remembered starts over from what fails next.
+    func restoreFailedChanges(_ changes: NoteSyncFailedChanges) {
+        guard !isStopped else { return }
+        let saves = changes.saves.filter { store.isSyncable(id: $0) }
+        var deletes: [UUID] = []
+        for id in changes.deletes {
+            switch store.noteExists(id: id) {
+            case false?: deletes.append(id)
+            case nil: deleteRetries.failed(id, at: now(), keepTrying: true)
+            case true?: break
+            }
+        }
+        if !saves.isEmpty { enqueueNoteSaves(saves) }
+        if !deletes.isEmpty { engine.enqueueDeletes(deletes) }
+        // What was remembered is queued now, or kept in the retries.
+        reportFailedChanges(evenIfUnchanged: true)
     }
 
     /// Sync Now: every change that failed, given up or still waiting, is

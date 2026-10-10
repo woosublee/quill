@@ -25,6 +25,8 @@ struct NoteSyncRetries<Key: Hashable> {
     var failingToRetry: Set<Key> { waiting.subtracting(waitingQuietly) }
     /// Keys shown as failing: tried again or given up already.
     var failing: Set<Key> { failingToRetry.union(givenUp) }
+    /// Every key that failed and hasn't gone through: waiting or given up.
+    var unsent: Set<Key> { waiting.union(givenUp) }
 
     mutating func failed(_ key: Key, at now: Date, keepTrying: Bool = false) {
         // Tries of the other kind don't count: a note that waited for space

@@ -118,6 +118,8 @@ struct NoteSyncCoordinatorTests {
         await testLeftoverScanLeavesNotesItCantRead()
         testStoppedSearchReportsBack()
         await testPausedSearchRemovesNothing()
+        testFailedNoteChangesAreReported()
+        testFailedNoteChangesAreSentAgainAfterARelaunch()
         await testLeftoverScanKeepsNotesWhoseMarkedPartsAreBeingDeleted()
         try testAudioInICloudIsReadFromThePayload()
         print("NoteSyncCoordinatorTests passed")
@@ -2097,5 +2099,45 @@ struct NoteSyncCoordinatorTests {
         engine.onListAllParts = { coordinator.handleSendFailures([.accountNeedsAttention]) }
         let searched = await coordinator.removeLeftoverAudio()
         precondition(!searched && engine.audioDeletes.isEmpty)
+    }
+
+    /// Failed note saves and deletes are reported as they change, so they
+    /// can be kept across a relaunch; ones that went through drop out.
+    @MainActor
+    static func testFailedNoteChangesAreReported() {
+        let (coordinator, store, _) = make()
+        var reported: [NoteSyncFailedChanges] = []
+        coordinator.onFailedChangesChange = { reported.append($0) }
+        let note = record(), gone = UUID()
+        store.records[note.noteID] = note
+        for _ in 0..<4 { coordinator.handleSendFailures([.other(noteID: note.noteID)]) }
+        coordinator.handleSendFailures([.deleteFailed(noteID: gone)])
+        precondition(reported.last == NoteSyncFailedChanges(saves: [note.noteID], deletes: [gone]), "\(reported)")
+        coordinator.handleSaved(id: note.noteID, systemFields: Data([1]))
+        coordinator.handleDeleted(id: gone)
+        precondition(reported.last == NoteSyncFailedChanges(), "went through")
+    }
+
+    /// After a relaunch, remembered changes are sent again: saves of notes
+    /// still here, deletes of notes gone; a delete of a note that came back
+    /// is dropped, and one whose note can't be read waits.
+    @MainActor
+    static func testFailedNoteChangesAreSentAgainAfterARelaunch() {
+        let (coordinator, store, engine) = make()
+        var reported: [NoteSyncFailedChanges] = []
+        coordinator.onFailedChangesChange = { reported.append($0) }
+        let kept = record(), back = record(), gone = UUID(), notSyncable = record()
+        for note in [kept, back, notSyncable] { store.records[note.noteID] = note }
+        store.syncable = [kept.noteID]
+        coordinator.restoreFailedChanges(NoteSyncFailedChanges(
+            saves: [kept.noteID, notSyncable.noteID, UUID()],
+            deletes: [gone, back.noteID]
+        ))
+        precondition(engine.saves == [kept.noteID] && engine.deletes == [gone], "\(engine.saves) \(engine.deletes)")
+        precondition(reported.last == NoteSyncFailedChanges(), "queued now, so nothing is left to remember")
+        let unreadable = UUID()
+        store.readFails = true
+        coordinator.restoreFailedChanges(NoteSyncFailedChanges(deletes: [unreadable]))
+        precondition(reported.last == NoteSyncFailedChanges(deletes: [unreadable]), "kept for later")
     }
 }

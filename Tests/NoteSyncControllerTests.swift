@@ -57,6 +57,7 @@ struct NoteSyncControllerTests {
         testFailedLeftoverSearchIsTriedAtTheNextSync()
         testNoLeftoverSearchWhileNotesFailToSync()
         testLeftoverSearchDateAheadOfTheClockDoesNotHoldItOff()
+        testFailedChangesOutliveARelaunch()
         print("NoteSyncControllerTests passed")
     }
 
@@ -1126,5 +1127,36 @@ struct NoteSyncControllerTests {
         coordinator?.handleFetchFinished(pending: 0)
         precondition(expectation { await coordinator?.lastAudioCheck?.value })
         precondition(engine()?.partListings == 1, "the clock was set back")
+    }
+
+    /// Note changes that failed are kept across a relaunch and sent again;
+    /// a full upload or turning sync off forgets them.
+    @MainActor
+    static func testFailedChangesOutliveARelaunch() {
+        let defaults = freshDefaults()
+        defaults.set(true, forKey: NoteSyncController.enabledKey)
+        let store = FakeStore()
+        store.ids = [UUID()]
+        var saved: NoteSyncFailedChanges? = NoteSyncFailedChanges(saves: [store.ids[0]])
+        var engines: [FakeEngine] = []
+        let controller = NoteSyncController(
+            defaults: defaults,
+            unavailableReason: nil,
+            createZone: {},
+            loadFailedChanges: { saved },
+            saveFailedChanges: { saved = $0 },
+            makeEngine: { _ in
+                let engine = FakeEngine()
+                engines.append(engine)
+                return engine
+            }
+        )
+        controller.attach(store: store)
+        precondition(engines.last?.saves == store.ids, "sent again at launch")
+        precondition(saved == nil, "queued, so nothing is left to remember")
+        engines.last?.coordinator?.handleSendFailures([.other(noteID: store.ids[0])])
+        precondition(saved == NoteSyncFailedChanges(saves: store.ids), "a new failure is remembered")
+        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: false) })
+        precondition(saved == nil, "forgotten when sync turns off")
     }
 }

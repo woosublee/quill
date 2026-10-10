@@ -151,6 +151,7 @@ struct AppStateDependencies {
             makeNoteSyncController: { layout in
                 let stateURL = layout.noteSyncDirectory.appendingPathComponent("engine-state")
                 let outbox = layout.noteSyncDirectory.appendingPathComponent("outbox", isDirectory: true)
+                let failedChangesURL = layout.noteSyncDirectory.appendingPathComponent("failed-changes.json")
                 return NoteSyncController(createZone: {
                     guard #available(macOS 14.0, *) else { return }
                     try await NoteSyncCloudKitEngine.createZone()
@@ -166,6 +167,15 @@ struct AppStateDependencies {
                     NoteAudioDownloader.removeDownloadFiles(
                         in: layout.noteSyncDirectory.appendingPathComponent("downloads", isDirectory: true)
                     )
+                }, loadFailedChanges: {
+                    (try? Data(contentsOf: failedChangesURL)).flatMap { try? JSONDecoder().decode(NoteSyncFailedChanges.self, from: $0) }
+                }, saveFailedChanges: { changes in
+                    guard let changes, let data = try? JSONEncoder().encode(changes) else {
+                        try? FileManager.default.removeItem(at: failedChangesURL)
+                        return
+                    }
+                    try? FileManager.default.createDirectory(at: layout.noteSyncDirectory, withIntermediateDirectories: true)
+                    try? data.write(to: failedChangesURL, options: .atomic)
                 }, accountID: {
                     guard #available(macOS 14.0, *) else { return nil }
                     return await NoteSyncCloudKitEngine.accountID()
