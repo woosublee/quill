@@ -45,8 +45,10 @@ or exports it.
   and a part saved twice is the same part. This holds only while the part
   size stays 50 MB; changing it needs a new name shape (for example the
   part size in the name), or old and new parts would share names.
-- A manifest whose `sha256` isn't 64 lowercase hex digits can't name parts
-  and is read as no manifest.
+- A manifest whose `sha256` isn't 64 lowercase hex digits, or whose
+  `parts` isn't what `bytes` and `partSize` make (1 to 10,000), can't name
+  parts and is read as no manifest. A record name is a part only when it
+  is exactly the name the part would write.
 - Fields: `data` (`CKAsset`, one part), `index` (Int), `noteID` (String).
 - The engine's fetch scope excludes the `NoteAudio` zone, so other Macs
   never download audio during a normal fetch.
@@ -120,12 +122,15 @@ total only when the note's marker is written.
   purge) cancels waiting parts and deletes the parts the manifest names.
   When no manifest names them all (no manifest, an upload in progress, or
   another Mac stopped mid-upload), the coordinator lists the `NoteAudio`
-  zone's record names and deletes that note's parts. `unknownItem` or a
-  missing zone on these deletes counts as done.
+  zone's record names and deletes that note's parts, unless the note has
+  come back by then (another Mac edited it). `unknownItem` or a missing
+  zone on these deletes counts as done.
 - A note whose audio file changes: the store reports the earlier audio
   before the note's save. Its marked parts are deleted, and when no marker
-  names them, the zone listing deletes the note's parts that neither the
-  current marker nor the current upload key names.
+  names them, the zone listing deletes the parts this Mac sent (its upload
+  key and parts it had waiting) that neither the current marker nor the
+  current upload key names. The note is still in use, so another Mac's
+  upload for it is left alone; nothing sent from here means no listing.
 - Turn Off and Delete from iCloud deletes the `Notes` zone first. Only when
   it is gone is the `NoteAudio` zone deleted (two tries), so notes never
   point at audio that is gone. If the audio zone stays, sync still turns off

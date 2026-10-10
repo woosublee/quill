@@ -81,11 +81,27 @@ struct NoteAudioSyncTests {
         precondition(NoteAudioPartID(recordName: "\(id.uuidString)-0123456789ABCDEF-1") == nil, "keys are lowercase hex")
         precondition(NoteAudioPartID(recordName: "\(id.uuidString)-0123-1") == nil)
         precondition(NoteAudioPartID(recordName: "synthetic-0123456789abcdef-1") == nil)
+        precondition(NoteAudioPartID(recordName: "\(id.uuidString)-0123456789abcdef-01") == nil, "only the name it writes")
+        precondition(NoteAudioPartID(recordName: "\(id.uuidString)-0123456789abcdef-+1") == nil)
+        precondition(NoteAudioPartID(recordName: "\(id.uuidString.lowercased())-0123456789abcdef-1") == nil)
         let manifest = NoteAudioManifest(sha256: sha, bytes: 120_000_000, partSize: 50_000_000, parts: 3)
         precondition(manifest.partIDs(noteID: id) == NoteAudioPartID.parts(of: id, sha256: sha, count: 3))
         let malformed = Data(#"{"bytes":1,"partSize":50000000,"parts":1,"sha256":"not-a-hash","v":1}"#.utf8)
         precondition(NoteAudioManifest.decode(malformed) == nil, "a marker whose hash can't name parts is rejected")
         precondition(NoteAudioManifest.decode(manifest.encoded()) == manifest)
+        // Counts that don't fit together are no marker: they would name
+        // parts that can't exist.
+        let hash = sha
+        let marker = { (bytes: Int64, partSize: Int64, parts: Int) -> Data in
+            Data(#"{"bytes":\#(bytes),"partSize":\#(partSize),"parts":\#(parts),"sha256":"\#(hash)","v":1}"#.utf8)
+        }
+        precondition(NoteAudioManifest.decode(marker(120_000_000, 50_000_000, 3)) == manifest)
+        precondition(NoteAudioManifest.decode(marker(120_000_000, 50_000_000, -1)) == nil)
+        precondition(NoteAudioManifest.decode(marker(120_000_000, 50_000_000, 2)) == nil)
+        precondition(NoteAudioManifest.decode(marker(120_000_000, 0, 0)) == nil)
+        precondition(NoteAudioManifest.decode(marker(-5, 50_000_000, 0)) == nil)
+        precondition(NoteAudioManifest.decode(marker(Int64.max, 50_000_000, 1)) == nil)
+        precondition(NoteAudioManifest.decode(marker(9_000_000_000_000, 1, Int.max)) == nil)
     }
 
     static func testManifestShape() {

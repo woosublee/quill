@@ -79,6 +79,8 @@ struct NoteSyncCoordinatorTests {
         try await testReturnedNoteDropsItsWaitingCleanUp()
         try await testUnbackedMarkerForAnotherFileUploadsTheFileHere()
         try await testLocalReplaceCleansUpPartsNoMarkerNamed()
+        try await testLocalReplaceLeavesAnotherMacsUpload()
+        try await testNoteBackDuringItsCleanUpKeepsItsParts()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -171,8 +173,11 @@ struct NoteSyncCoordinatorTests {
             if let lookupError { throw lookupError }
             return iCloud.intersection(parts)
         }
+        /// Runs while the notes' parts are being listed.
+        var onListParts: (() -> Void)?
         func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] {
             lookups += 1
+            onListParts?()
             if let lookupError { throw lookupError }
             return iCloud.filter { ids.contains($0.noteID) }.sorted { $0.recordName < $1.recordName }
         }
@@ -561,8 +566,8 @@ struct NoteSyncCoordinatorTests {
         precondition(store.manifests[id] == nil && engine.audioSaves == parts(id, 1))
     }
 
-    /// The audio here changed while another Mac's upload of the earlier
-    /// file had stopped partway (no marker): those parts are found and go.
+    /// The audio here changed while this Mac's upload of the earlier file
+    /// had stopped partway (no marker): those parts are found and go.
     @MainActor
     static func testLocalReplaceCleansUpPartsNoMarkerNamed() async throws {
         let (coordinator, store, engine, dir) = try makeWithAudio(["b.wav": 10])
@@ -570,13 +575,56 @@ struct NoteSyncCoordinatorTests {
         let id = noteWithAudio(store, "b.wav")
         let left = parts(id, 2, "a.wav")
         engine.iCloud = Set(left)
-        coordinator.handleLocalChanges([.audioReplaced(id, previous: NoteAudioSyncState()), .saved(id)])
+        coordinator.handleLocalChanges([.audioReplaced(id, previous: NoteAudioSyncState(uploadKey: sha("a.wav"))), .saved(id)])
         await coordinator.lastAudioCheck?.value
         engine.lookups = 0
         coordinator.handleFetchFinished(pending: 0)
         await coordinator.lastAudioCheck?.value
         precondition(Set(engine.audioDeletes) == Set(left))
         precondition(engine.audioSaves == parts(id, 1, "b.wav"))
+    }
+
+    /// The note is still here, so only what this Mac sent goes: another
+    /// Mac's upload for the same note, still without a marker, stays.
+    @MainActor
+    static func testLocalReplaceLeavesAnotherMacsUpload() async throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio(["b.wav": 10])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let id = noteWithAudio(store, "b.wav")
+        let mine = parts(id, 1, "a.wav"), theirs = parts(id, 2, "elsewhere.wav")
+        engine.iCloud = Set(mine + theirs)
+        coordinator.handleLocalChanges([.audioReplaced(id, previous: NoteAudioSyncState(uploadKey: sha("a.wav"))), .saved(id)])
+        await coordinator.lastAudioCheck?.value
+        coordinator.handleFetchFinished(pending: 0)
+        await coordinator.lastAudioCheck?.value
+        precondition(Set(engine.audioDeletes) == Set(mine), "the other Mac's upload stays")
+
+        let (quiet, quietStore, quietEngine, quietDir) = try makeWithAudio(["b.wav": 10])
+        defer { try? FileManager.default.removeItem(at: quietDir) }
+        let quietID = noteWithAudio(quietStore, "b.wav")
+        quietEngine.iCloud = Set(parts(quietID, 2, "elsewhere.wav"))
+        quiet.handleLocalChanges([.audioReplaced(quietID, previous: NoteAudioSyncState())])
+        await quiet.lastAudioCheck?.value
+        precondition(quietEngine.audioDeletes.isEmpty, "nothing sent from here, nothing to clean up")
+    }
+
+    /// Deleted here with no marker, so every part of the note is looked
+    /// for; while the lookup runs, a fetch brings the note back with
+    /// another Mac's upload. Nothing of it is deleted.
+    @MainActor
+    static func testNoteBackDuringItsCleanUpKeepsItsParts() async throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio([:])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let note = record(audio: "b.wav")
+        let theirs = parts(note.noteID, 2, "b.wav")
+        engine.iCloud = Set(theirs)
+        engine.onListParts = {
+            engine.onListParts = nil
+            store.records[note.noteID] = note
+        }
+        coordinator.handleLocalChanges([.deleted(note.noteID, wasSynced: true, audio: NoteAudioSyncState())])
+        await coordinator.lastAudioCheck?.value
+        precondition(engine.audioDeletes.isEmpty, "a note that came back keeps its parts")
     }
 
     /// A note deleted here while offline and edited on another Mac comes
@@ -628,7 +676,8 @@ struct NoteSyncCoordinatorTests {
         store.uploadKeys[id] = sha("b.wav")
         let old = parts(id, 2, "a.wav"), current = parts(id, 1, "b.wav")
         engine.iCloud = Set(old + current)
-        await coordinator.cleanUpAudio([id: nil])
+        let sent: Set<String> = [NoteAudioPartID.key(sha256: sha("a.wav")), NoteAudioPartID.key(sha256: sha("b.wav"))]
+        await coordinator.cleanUpAudio([id: sent])
         precondition(Set(engine.audioDeletes) == Set(old))
     }
 

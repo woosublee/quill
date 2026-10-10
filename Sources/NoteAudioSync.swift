@@ -28,6 +28,8 @@ struct NoteAudioPartID: Hashable, Sendable {
         let key = String(rest[rest.index(after: keyDash)...])
         guard Self.isKey(key) else { return nil }
         self.init(noteID: noteID, key: key, index: index)
+        // Only the name this would write, so a delete hits the record listed.
+        guard self.recordName == recordName else { return nil }
     }
 
     var recordName: String { "\(noteID.uuidString)-\(key)-\(index)" }
@@ -44,7 +46,7 @@ struct NoteAudioPartID: Hashable, Sendable {
     /// Every part of a file with this SHA-256 and part count.
     static func parts(of noteID: UUID, sha256: String, count: Int) -> [NoteAudioPartID] {
         let key = key(sha256: sha256)
-        return (0..<count).map { NoteAudioPartID(noteID: noteID, key: key, index: $0) }
+        return (0..<max(count, 0)).map { NoteAudioPartID(noteID: noteID, key: key, index: $0) }
     }
 }
 
@@ -88,6 +90,20 @@ struct NoteAudioManifest: Codable, Equatable, Sendable {
         bytes = try container.decode(Int64.self, forKey: .bytes)
         partSize = try container.decode(Int64.self, forKey: .partSize)
         parts = try container.decode(Int.self, forKey: .parts)
+        // Counts that don't fit together would name parts that can't exist.
+        guard Self.fits(bytes: bytes, partSize: partSize, parts: parts) else {
+            throw DecodingError.dataCorruptedError(forKey: .parts, in: container, debugDescription: "Counts don't fit")
+        }
+    }
+
+    /// The most parts a marker may name; far past any real recording.
+    static let maxParts = 10_000
+
+    private static func fits(bytes: Int64, partSize: Int64, parts: Int) -> Bool {
+        guard bytes > 0, partSize > 0, (1...maxParts).contains(parts) else { return false }
+        // As NoteAudioParts.count, without overflowing for huge values.
+        let (whole, rest) = bytes.quotientAndRemainder(dividingBy: partSize)
+        return whole + (rest > 0 ? 1 : 0) == Int64(parts)
     }
 
     func encode(to encoder: Encoder) throws {
