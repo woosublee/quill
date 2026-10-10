@@ -21108,6 +21108,22 @@
           }
         }
       }
+    },
+    "Some audio couldn't be deleted from iCloud yet. Quill tries again each time it opens.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some audio couldn't be deleted from iCloud yet. Quill tries again each time it opens."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 오디오를 아직 iCloud에서 지우지 못했어요. 앱을 열 때마다 다시 지워요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

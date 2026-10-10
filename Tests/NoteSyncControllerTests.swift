@@ -13,6 +13,9 @@ struct NoteSyncControllerTests {
         testRelaunchResumesWithoutUploadingAgain()
         testTurnOffKeepsNotesAndForgetsEngineState()
         testTurnOffAndDeleteFromICloud()
+        testAudioLeftInICloudIsDeletedAtLaunch()
+        testLeftoverAudioWaitsWhileSyncIsOn()
+        testTurnOnWaitsForTheLeftoverAudioDelete()
         testAccountChangeTurnsSyncOff()
         testLocalChangesReachTheEngineOnlyWhileOn()
         testReplacedStoreStartsOverWithFullUpload()
@@ -124,13 +127,21 @@ struct NoteSyncControllerTests {
             syncsNow += 1
             await whileSyncing?()
         }
-        func deleteAllFromICloud() async throws { deletedFromICloud = true }
+        /// Whether the audio zone goes too.
+        var audioDeleteWorks = true
+        func deleteAllFromICloud() async throws -> Bool {
+            deletedFromICloud = true
+            return audioDeleteWorks
+        }
         func stop(forgetState: Bool) { stopped.append(forgetState) }
     }
 
     final class CallLog {
         var calls: [String] = []
         var zoneError: Error?
+        var audioDeleteWorks = true
+        /// Holds an audio zone delete until set back to false.
+        var holdAudioDelete = false
     }
 
 
@@ -494,5 +505,84 @@ struct NoteSyncControllerTests {
         precondition(expectation { await controller.syncNow() })
         engine()?.coordinator?.handleFetchFinished(pending: 0)
         precondition(engine()?.saves == [id], "the given-up note goes up with Sync Now")
+    }
+
+    /// A controller as at launch, on `defaults`, whose audio zone delete
+    /// is logged and works as `log` says.
+    @MainActor
+    static func launch(_ defaults: UserDefaults, log: CallLog) -> NoteSyncController {
+        NoteSyncController(
+            defaults: defaults,
+            unavailableReason: nil,
+            createZone: { log.calls.append("createZone") },
+            deleteAudioZone: {
+                log.calls.append("deleteAudioZone")
+                while log.holdAudioDelete { await Task.yield() }
+                log.calls.append("deleteAudioZone done")
+                return log.audioDeleteWorks
+            },
+            makeEngine: { _ in FakeEngine() }
+        )
+    }
+
+    /// Turn Off and Delete from iCloud deleted the notes but not their
+    /// audio: Settings says so, and each launch deletes it again until it
+    /// goes.
+    @MainActor
+    static func testAudioLeftInICloudIsDeletedAtLaunch() {
+        let (controller, store, engine, defaults) = make(enabled: true)
+        controller.attach(store: store)
+        engine()?.audioDeleteWorks = false
+        var turnedOff = false
+        precondition(expectation { turnedOff = await controller.turnOff(deleteFromICloud: true) })
+        precondition(turnedOff && !controller.isEnabled, "sync turns off: the notes are gone")
+        precondition(controller.audioLeftInICloud)
+
+        let log = CallLog()
+        log.audioDeleteWorks = false
+        let relaunched = launch(defaults, log: log)
+        precondition(relaunched.audioLeftInICloud, "remembered across launches")
+        precondition(expectation { await relaunched.deleteLeftoverAudio() })
+        precondition(log.calls == ["deleteAudioZone", "deleteAudioZone done"] && relaunched.audioLeftInICloud)
+        log.audioDeleteWorks = true
+        let again = launch(defaults, log: log)
+        precondition(expectation { await again.deleteLeftoverAudio() })
+        precondition(!again.audioLeftInICloud && !defaults.bool(forKey: NoteSyncController.audioLeftInICloudKey))
+    }
+
+    @MainActor
+    static func testLeftoverAudioWaitsWhileSyncIsOn() {
+        let defaults = UserDefaults(suiteName: "quill-sync-controller-tests-\(UUID().uuidString)")!
+        defaults.set(true, forKey: NoteSyncController.enabledKey)
+        defaults.set(true, forKey: NoteSyncController.audioLeftInICloudKey)
+        let log = CallLog()
+        let controller = launch(defaults, log: log)
+        precondition(expectation { await controller.deleteLeftoverAudio() })
+        precondition(log.calls.isEmpty, "the zone sync is using isn't deleted")
+    }
+
+    /// Turning on while leftover audio is being deleted waits for that
+    /// delete, so it can't remove the zone turning on makes; the audio
+    /// still there is used again.
+    @MainActor
+    static func testTurnOnWaitsForTheLeftoverAudioDelete() {
+        let defaults = UserDefaults(suiteName: "quill-sync-controller-tests-\(UUID().uuidString)")!
+        defaults.set(true, forKey: NoteSyncController.audioLeftInICloudKey)
+        let log = CallLog()
+        log.audioDeleteWorks = false
+        log.holdAudioDelete = true
+        let controller = launch(defaults, log: log)
+        let store = FakeStore()
+        controller.attach(store: store)
+        Task { @MainActor in await controller.deleteLeftoverAudio() }
+        drainMainQueue()
+        var turnedOn = false
+        Task { @MainActor in turnedOn = await controller.turnOn() == nil }
+        drainMainQueue()
+        precondition(log.calls == ["deleteAudioZone"], "turning on waits: \(log.calls)")
+        log.holdAudioDelete = false
+        precondition(expectation { while !turnedOn { await Task.yield() } })
+        precondition(log.calls == ["deleteAudioZone", "deleteAudioZone done", "createZone"])
+        precondition(controller.isEnabled && !controller.audioLeftInICloud, "the audio left is used again")
     }
 }

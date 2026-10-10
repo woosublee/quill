@@ -367,7 +367,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
     /// so notes never point at audio that is gone. Once the `Notes` zone is
     /// gone the engine keeps ignoring missing zones until it is stopped, so
     /// this Mac's own delete never reads as another Mac's.
-    func deleteAllFromICloud() async throws {
+    func deleteAllFromICloud() async throws -> Bool {
         guard let engine = activeEngine() else { throw NoteSyncEngineError.notRunning }
         lock.withLock {
             isDeletingZone = true
@@ -401,15 +401,19 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         }
         // The notes are gone, so sync turns off whatever happens to the
         // audio: staying on would send into a missing zone. If the audio
-        // zone stays, the next turn-on's check finds its parts and doesn't
-        // send them again.
+        // zone stays, it is deleted again at launch, or a turn-on finds its
+        // parts and doesn't send them again.
         for _ in 0..<2 {
-            if await deleteAudioZone() { return }
+            if await Self.deleteAudioZone() { return true }
         }
         print("[NoteSync] Notes were deleted from iCloud, but their audio couldn't be")
+        return false
     }
 
-    private func deleteAudioZone() async -> Bool {
+    /// Deletes the `NoteAudio` zone; true once it's gone. Needs no running
+    /// engine, so a delete left from Turn Off can be finished at launch.
+    static func deleteAudioZone() async -> Bool {
+        let database = CKContainer(identifier: NoteSyncAvailability.containerIdentifier).privateCloudDatabase
         let zoneID = NoteAudioCloudRecord.zoneID()
         guard let result = try? await database.modifyRecordZones(saving: [], deleting: [zoneID]) else { return false }
         switch result.deleteResults[zoneID] {

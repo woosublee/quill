@@ -98,6 +98,12 @@ private struct NoteSyncSettingsCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if controller.audioLeftInICloud {
+                    Text("Some audio couldn't be deleted from iCloud yet. Quill tries again each time it opens.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .alert("Turn on iCloud sync?", isPresented: $isConfirmingTurnOn) {
