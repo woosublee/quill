@@ -879,6 +879,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             for id in deletedIDs { coordinator.handleDeleted(id: id) }
             if !sendFailures.isEmpty { coordinator.handleSendFailures(sendFailures) }
             if !audioFailureList.isEmpty { coordinator.handleAudioSendFailures(audioFailureList) }
+            coordinator.handleSendApplied()
         }
         guard !stopForDeletion, let coordinator, !savedParts.isEmpty else { return }
         // Checking iCloud and hashing the file take a while; the engine

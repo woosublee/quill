@@ -82,7 +82,8 @@ struct NoteSyncRetries<Key: Hashable> {
     /// started over.
     mutating func retryAll(at now: Date) {
         for key in waiting.union(givenUp) { due[key] = now }
-        failures = [:]
+        // Tries start over; every key stays until it goes through.
+        for key in failures.keys { failures[key] = 0 }
         givenUp = []
     }
 }

@@ -121,6 +121,8 @@ struct NoteSyncCoordinatorTests {
         testFailedNoteChangesAreReported()
         testFailedNoteChangesAreSentAgainAfterARelaunch()
         testRetryOfANoteNotSettledIsDropped()
+        testSyncNowKeepsFailedChanges()
+        testConfirmationsEndKeptChanges()
         await testLeftoverScanKeepsNotesWhoseMarkedPartsAreBeingDeleted()
         try testAudioInICloudIsReadFromThePayload()
         print("NoteSyncCoordinatorTests passed")
@@ -2196,5 +2198,46 @@ struct NoteSyncCoordinatorTests {
         passTime()
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.saves.isEmpty && reported.last == NoteSyncFailedChanges())
+    }
+
+    /// Sync Now starts the tries over but keeps every failed change until
+    /// it goes through (offline, the sync may not even run).
+    @MainActor
+    static func testSyncNowKeepsFailedChanges() {
+        let (coordinator, store, _) = make()
+        var reported: [NoteSyncFailedChanges] = []
+        coordinator.onFailedChangesChange = { reported.append($0) }
+        let gone = UUID(), other = record()
+        store.records[other.noteID] = other
+        store.syncable.insert(other.noteID)
+        coordinator.handleSendFailures([.deleteFailed(noteID: gone)])
+        coordinator.retryFailedNow()
+        coordinator.handleLocalChanges([.saved(other.noteID)])
+        precondition(reported.last == NoteSyncFailedChanges(deletes: [gone]), "\(reported)")
+    }
+
+    /// Ways a kept change ends besides a plain confirmation: a save that
+    /// went through though its change tag couldn't be recorded, a save the
+    /// engine drops because the note isn't settled, and a conflict on a
+    /// note deleted here, whose save gives way to a delete that is kept.
+    @MainActor
+    static func testConfirmationsEndKeptChanges() {
+        let (coordinator, store, _) = make()
+        var reported: [NoteSyncFailedChanges] = []
+        coordinator.onFailedChangesChange = { reported.append($0) }
+        let a = record(), b = record(), c = record()
+        for note in [a, b, c] {
+            store.records[note.noteID] = note
+            store.syncable.insert(note.noteID)
+        }
+        coordinator.handleSendFailures([.other(noteID: a.noteID), .other(noteID: b.noteID), .other(noteID: c.noteID)])
+        store.systemFieldsSaveError = CocoaError(.fileWriteUnknown)
+        coordinator.handleSaved(id: a.noteID, systemFields: Data([1]))
+        store.systemFieldsSaveError = nil
+        store.syncable.remove(b.noteID)
+        precondition(coordinator.outgoing(for: b.noteID) == nil)
+        store.records[c.noteID] = nil
+        coordinator.handleSendFailures([.serverChanged(noteID: c.noteID, serverPayload: nil, serverSystemFields: Data())])
+        precondition(reported.last == NoteSyncFailedChanges(deletes: [c.noteID]), "\(reported)")
     }
 }

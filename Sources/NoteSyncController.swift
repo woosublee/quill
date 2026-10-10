@@ -493,8 +493,11 @@ final class NoteSyncController: ObservableObject {
         guard let engine = makeEngine(NoteSyncEngineEvents(remoteChange: { [weak self] change in
             self?.onRemoteChange?(change)
         })) else { return }
-        // Read before anything can fail and overwrite it.
-        let failedBefore = initialUpload ? nil : loadFailedChanges()
+        // Read before anything can fail and overwrite it. A full upload sends
+        // every note again, so only the deletes are still owed then.
+        let onDisk = loadFailedChanges()
+        var failedBefore = onDisk
+        if initialUpload { failedBefore?.saves = [] }
         let coordinator = NoteSyncCoordinator(store: store, engine: engine, localAudioURL: localAudioURL)
         coordinator.onStatusChange = { [weak self] status in
             self?.coordinatorStatusChanged(status)
@@ -511,12 +514,14 @@ final class NoteSyncController: ObservableObject {
         self.coordinator = coordinator
         status = coordinator.status
         engine.start()
-        if initialUpload {
-            // Every note goes up again, so nothing failed is left to keep.
+        if let failedBefore, !failedBefore.isEmpty {
+            coordinator.restoreFailedChanges(failedBefore, onDisk: onDisk)
+        } else if onDisk != nil {
             saveFailedChanges(nil)
+        }
+        if initialUpload {
             coordinator.startInitialUpload()
         } else {
-            if let failedBefore, !failedBefore.isEmpty { coordinator.restoreFailedChanges(failedBefore) }
             coordinator.resumeAudioUploads()
         }
     }

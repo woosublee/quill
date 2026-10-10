@@ -782,7 +782,13 @@ final class NoteSyncCoordinator {
     /// The record to send for `id`, or nil when the note is gone or still
     /// in progress (its pending change is then dropped).
     func outgoing(for id: UUID) -> NoteSyncOutgoing? {
-        guard !isStopped, store.isSyncable(id: id), let record = store.syncRecord(id: id) else { return nil }
+        guard !isStopped else { return nil }
+        guard store.isSyncable(id: id), let record = store.syncRecord(id: id) else {
+            // The engine drops the save without a word: a failed one of it
+            // isn't kept either (the note sends itself once it settles).
+            saveRetries.forget(id)
+            return nil
+        }
         return NoteSyncOutgoing(record: record, systemFields: store.syncSystemFields(id: id))
     }
 
@@ -804,6 +810,8 @@ final class NoteSyncCoordinator {
         case true?:
             break
         }
+        // It went through, whether or not its change tag can be recorded.
+        saveRetries.forget(id)
         do {
             try store.setSyncSystemFields(systemFields, id: id)
         } catch {
@@ -812,7 +820,6 @@ final class NoteSyncCoordinator {
             print("[NoteSync] Couldn't record an uploaded note")
             return
         }
-        saveRetries.forget(id)
         uploadWaitingText.remove(id)
         reportUploadProgress()
     }
@@ -951,7 +958,10 @@ final class NoteSyncCoordinator {
                 switch store.noteExists(id: id) {
                 case false?:
                     // Deleted here while the save was in flight: delete the
-                    // server copy rather than bring the note back.
+                    // server copy rather than bring the note back, and keep
+                    // that delete until it goes through.
+                    saveRetries.forget(id)
+                    deleteRetries.remember(id)
                     deletes.append(id)
                     continue
                 case nil:
@@ -1389,6 +1399,11 @@ final class NoteSyncCoordinator {
         return (notes.count, willRetry)
     }
 
+    /// A sent batch was applied: what went through is known now.
+    func handleSendApplied() {
+        reportFailedChanges()
+    }
+
     private func reportFailedChanges() {
         let current = NoteSyncFailedChanges(saves: saveRetries.unconfirmed, deletes: deleteRetries.unconfirmed)
         guard !isRetired, current != reportedFailedChanges else { return }
@@ -1401,9 +1416,10 @@ final class NoteSyncCoordinator {
     /// iCloud confirms them. One no longer wanted is forgotten (a note not
     /// settled sends itself once it is); one whose note can't be read waits
     /// in the retries.
-    func restoreFailedChanges(_ changes: NoteSyncFailedChanges) {
+    /// `onDisk` is what the kept file holds, when more than `changes`.
+    func restoreFailedChanges(_ changes: NoteSyncFailedChanges, onDisk: NoteSyncFailedChanges? = nil) {
         guard !isStopped else { return }
-        reportedFailedChanges = changes
+        reportedFailedChanges = onDisk ?? changes
         let time = now()
         var saves: [UUID] = []
         for id in changes.saves {
