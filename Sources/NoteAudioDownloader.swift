@@ -87,12 +87,6 @@ final class NoteAudioDownloader: ObservableObject {
     private let hashFile: (URL) async throws -> String
     /// A part is gone from iCloud: the marker here is likely out of date.
     private let onMissingPart: @MainActor () -> Void
-    /// The note's marker now; a download for another one isn't kept. Nil
-    /// skips the check.
-    private let currentManifest: (@MainActor (UUID) -> NoteAudioManifest?)?
-    /// The marker each note last asked for a sync about, so one that
-    /// brought nothing new isn't asked again.
-    private var syncAskedFor: [UUID: String] = [:]
     /// Each download has its own token, so one that was cancelled can't
     /// clear what a new download for the same note set up.
     private var running: [UUID: (token: UUID, manifest: NoteAudioManifest, task: Task<URL?, Never>)] = [:]
@@ -102,14 +96,12 @@ final class NoteAudioDownloader: ObservableObject {
         fetcher: @escaping @MainActor () -> NoteAudioPartFetching?,
         isSyncOn: @escaping @MainActor () -> Bool,
         onMissingPart: @escaping @MainActor () -> Void = {},
-        currentManifest: (@MainActor (UUID) -> NoteAudioManifest?)? = nil,
         hashFile: @escaping (URL) async throws -> String = NoteAudioDownloader.hashOffMain
     ) {
         self.downloadsDirectory = downloadsDirectory
         self.fetcher = fetcher
         self.isSyncOn = isSyncOn
         self.onMissingPart = onMissingPart
-        self.currentManifest = currentManifest
         self.hashFile = hashFile
     }
 
@@ -155,6 +147,9 @@ final class NoteAudioDownloader: ObservableObject {
         running.removeValue(forKey: noteID)?.task.cancel()
         progress[noteID] = nil
     }
+
+    /// The notes downloading now.
+    var downloadingNotes: Set<UUID> { Set(running.keys) }
 
     /// The note's marker changed (another Mac replaced or removed the
     /// file): a download of the earlier one stops.
@@ -221,9 +216,6 @@ final class NoteAudioDownloader: ObservableObject {
                     if isCurrent(noteID, token) { failures[noteID] = Failure(reason: .failed, sha256: manifest.sha256) }
                     return nil
                 }
-                // Another Mac replaced or removed the file meanwhile: this
-                // copy isn't moved in, and what's there is left alone.
-                if let currentManifest, currentManifest(noteID) != manifest { return nil }
                 try FileManager.default.createDirectory(
                     at: destination.deletingLastPathComponent(),
                     withIntermediateDirectories: true
@@ -249,10 +241,7 @@ final class NoteAudioDownloader: ObservableObject {
                     failures[noteID] = Failure(reason: .failed, sha256: manifest.sha256)
                     // Usually another Mac replaced the file: a sync brings
                     // the new marker (or that the zone is gone).
-                    if case NoteAudioFetchError.missing = error, syncAskedFor[noteID] != manifest.sha256 {
-                        syncAskedFor[noteID] = manifest.sha256
-                        onMissingPart()
-                    }
+                    if case NoteAudioFetchError.missing = error { onMissingPart() }
                 }
                 return nil
             }

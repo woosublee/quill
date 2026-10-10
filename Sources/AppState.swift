@@ -2849,10 +2849,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         downloadsDirectory: storageLayout.noteSyncDirectory.appendingPathComponent("downloads", isDirectory: true),
         fetcher: { [weak self] in self?.noteSyncController?.audioPartFetcher },
         isSyncOn: { [weak self] in self?.noteSyncController?.isEnabled == true },
-        onMissingPart: { [weak self] in
-            Task { await self?.noteSyncController?.syncNow() }
-        },
-        currentManifest: { [weak self] in self?.pipelineHistoryStore.audioManifest(id: $0) }
+        // A fetch brings the new marker when another Mac replaced the file,
+        // or finds the iCloud data deleted elsewhere.
+        onMissingPart: { [weak self] in self?.noteSyncController?.fetchSoon() }
     )
     private var recordingJournalStore: RecordingJournalStore
     private var cloudTranscriptionJobStore: CloudTranscriptionJobStore
@@ -8392,14 +8391,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// it couldn't (the reason is in `noteAudioState`) or was cancelled.
     @MainActor
     func downloadNoteAudio(for item: PipelineHistoryItem) async -> URL? {
-        await downloadNoteAudio(for: item, triesNewerAudio: true)
-    }
-
-    /// The downloader keeps a copy only while the note's marker is the one
-    /// it downloaded; when another Mac's new audio replaced it, that one is
-    /// downloaded instead, once.
-    @MainActor
-    private func downloadNoteAudio(for item: PipelineHistoryItem, triesNewerAudio: Bool) async -> URL? {
         // The note as it is now: the view's copy may predate a sync. A note
         // in Recently Deleted isn't listed, and keeps the copy it has.
         let item = pipelineHistory.first { $0.id == item.id } ?? item
@@ -8407,9 +8398,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard let destination = storedAudioURL(for: item),
               let manifest = pipelineHistoryStore.audioManifest(id: item.id) else { return nil }
         guard let url = await noteAudioDownloader.download(noteID: item.id, manifest: manifest, to: destination) else {
-            if triesNewerAudio, let newer = pipelineHistoryStore.audioManifest(id: item.id), newer != manifest {
-                return await downloadNoteAudio(for: item, triesNewerAudio: false)
-            }
             return nil
         }
         // Deleted for good while it downloaded: the recording doesn't come back.
@@ -13033,7 +13021,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             for assets in change.purged { noteAudioDownloader.cancel(noteID: assets.historyID) }
             // Another Mac replaced or removed the file: the earlier one's
             // download stops.
-            for id in change.changed {
+            for id in noteAudioDownloader.downloadingNotes.intersection(change.changed) {
                 noteAudioDownloader.cancel(noteID: id, unlessDownloading: pipelineHistoryStore.audioManifest(id: id))
             }
             applyRemoteNoteChange(change)
