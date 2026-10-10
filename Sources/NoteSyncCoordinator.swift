@@ -6,6 +6,9 @@ protocol NoteSyncLocalStore: AnyObject {
     /// False while the store can't save (it needs recovery).
     var isReadyForSync: Bool { get }
     func syncRecord(id: UUID) -> NoteSyncRecord?
+    /// Whether the note is on this Mac; nil when the store can't be read,
+    /// which must never count as gone.
+    func noteExists(id: UUID) -> Bool?
     func syncSystemFields(id: UUID) -> Data?
     func setSyncSystemFields(_ data: Data?, id: UUID) throws
     /// `forgettingAudio`: iCloud lost the audio too, so markers go.
@@ -88,8 +91,11 @@ struct NoteSyncOutgoingAudio: Equatable {
 
 enum NoteAudioSendFailure {
     case quotaExceeded(NoteAudioPartID)
-    /// Offline or throttled; the engine retries these itself.
+    /// Offline; the engine retries these itself.
     case network
+    /// The iCloud account needs attention. Says so only: how the part is
+    /// retried comes with its own failure, or from the engine.
+    case accountNeedsAttention
     case failed(NoteAudioPartID)
     case deleteFailed(NoteAudioPartID)
 }
@@ -110,6 +116,9 @@ enum NoteSyncSendFailure {
     case serverChanged(noteID: UUID, serverPayload: Data?, serverSystemFields: Data)
     case quotaExceeded(noteID: UUID)
     case network(noteID: UUID)
+    /// The iCloud account needs attention. Says so only: how the change is
+    /// retried comes with its own failure, or from the engine.
+    case accountNeedsAttention
     case unknownItemOnDelete(noteID: UUID)
     /// iCloud has no record for the saved change tag (another Mac removed
     /// it): the save is tried again without the tag.
@@ -122,6 +131,9 @@ enum NoteSyncSendFailure {
 enum NoteSyncPauseReason: Equatable {
     case offline
     case quotaExceeded(pending: Int)
+    /// iCloud needs the account looked at (a password, new terms) in
+    /// System Settings. Sync stays on and goes on once it works again.
+    case accountNeedsAttention
     case accountChanged
     case signedOut
     case deletedElsewhere
@@ -362,7 +374,7 @@ final class NoteSyncCoordinator {
             guard let sha256 = await uploadKey(note.id, file: note.file) else {
                 guard !isStopped else { return }
                 remaining.remove(note.id)
-                if store.syncRecord(id: note.id) != nil { audioToCheck.insert(note.id) }
+                if store.noteExists(id: note.id) != false { audioToCheck.insert(note.id) }
                 continue
             }
             guard await settleAudio([AudioToCheck(
@@ -414,7 +426,7 @@ final class NoteSyncCoordinator {
             guard !busyNow.contains(note.id), usableAudio(note.id) == note.file,
                   store.audioManifest(id: note.id) == note.manifest,
                   note.manifest != nil || store.audioUploadKey(id: note.id) == note.sha256 else {
-                if store.syncRecord(id: note.id) != nil { recheck.insert(note.id) }
+                if store.noteExists(id: note.id) != false { recheck.insert(note.id) }
                 continue
             }
             let missing = note.parts.filter { !found.contains($0) }
@@ -533,17 +545,20 @@ final class NoteSyncCoordinator {
             used[id] = keys
             return keys
         }
-        var exists: [UUID: Bool] = [:]
+        var exists: [UUID: Bool?] = [:]
         let leftover = found.filter { part in
             guard !checkingNow.contains(part.noteID), !pending.contains(part) else { return false }
             guard case .some(.some(let keys)) = targets[part.noteID] else {
                 // A deleted note: every part, unless it came back (another
                 // Mac edited it), when the other Mac may be uploading.
-                if exists[part.noteID] == nil { exists[part.noteID] = store.syncRecord(id: part.noteID) != nil }
-                return exists[part.noteID] == false
+                // A note that can't be read counts as here, and is looked
+                // at again after a later sync.
+                if exists[part.noteID] == nil { exists[part.noteID] = store.noteExists(id: part.noteID) }
+                return exists[part.noteID] == .some(false)
             }
             return keys.contains(part.key) && !usedKeys(part.noteID).contains(part.key)
         }
+        mergeCleanUp(targets.filter { exists[$0.key] == .some(nil) })
         if !leftover.isEmpty {
             engine.enqueueAudioDeletes(leftover)
             print("[NoteSync] Deleting \(leftover.count) leftover audio parts")
@@ -666,10 +681,19 @@ final class NoteSyncCoordinator {
 
     func handleSaved(id: UUID, systemFields: Data) {
         guard !isStopped else { return }
-        guard store.syncRecord(id: id) != nil else {
+        switch store.noteExists(id: id) {
+        case false?:
             // Deleted here while its upload was in flight.
             engine.enqueueDeletes([id])
             return
+        case nil:
+            // Can't tell: it went up all the same, and the next save
+            // records its change tag.
+            uploadWaitingText.remove(id)
+            reportUploadProgress()
+            return
+        case true?:
+            break
         }
         do {
             try store.setSyncSystemFields(systemFields, id: id)
@@ -701,10 +725,17 @@ final class NoteSyncCoordinator {
         let id = part.noteID
         audioFailures[part] = nil
         guard !isStopped else { return }
-        guard store.syncRecord(id: id) != nil else {
+        switch store.noteExists(id: id) {
+        case false?:
             // Deleted here while the part was in flight.
             engine.enqueueAudioDeletes([part])
             return
+        case nil:
+            // Can't tell: checked again after the next sync.
+            audioToCheck.insert(id)
+            return
+        case true?:
+            break
         }
         guard !notesWithAudioInFlight().contains(id) else { return }
         await checkAudio([id], verifyMarked: false)
@@ -723,6 +754,7 @@ final class NoteSyncCoordinator {
         guard !isStopped else { return }
         var quotaCount = 0
         var offline = false
+        var account = false
         for failure in failures {
             switch failure {
             case .quotaExceeded(let part):
@@ -731,19 +763,48 @@ final class NoteSyncCoordinator {
                 retryAudio(part)
             case .network:
                 offline = true
+            case .accountNeedsAttention:
+                account = true
             case .failed(let part):
                 retryAudio(part)
             case .deleteFailed(let part):
                 audioDeletesToRetry.insert(part)
             }
         }
-        if quotaCount > 0 {
-            status = .paused(.quotaExceeded(pending: quotaCount))
-        } else if offline {
-            status = .paused(.offline)
-        }
+        setFailureStatus(quotaCount: quotaCount, account: account, offline: offline)
         if !failures.isEmpty {
             print("[NoteSync] \(failures.count) audio changes failed to send")
+        }
+    }
+
+    /// A full iCloud outranks an account to look at, which outranks being
+    /// offline.
+    private func setFailureStatus(quotaCount: Int, account: Bool, offline: Bool) {
+        if quotaCount > 0 {
+            status = .paused(.quotaExceeded(pending: quotaCount))
+        } else if account {
+            if case .paused(.quotaExceeded) = status { return }
+            status = .paused(.accountNeedsAttention)
+        } else if offline {
+            showOffline()
+        }
+    }
+
+    /// Offline never replaces a full iCloud or an account to look at: coming
+    /// back online would clear a notice that still applies.
+    private func showOffline() {
+        switch status {
+        case .paused(.quotaExceeded), .paused(.accountNeedsAttention): return
+        default: status = .paused(.offline)
+        }
+    }
+
+    /// A change went through, so the account works again: the notice gives
+    /// way to the upload it interrupted, if any.
+    private func accountWorks() {
+        guard !isStopped else { return }
+        if case .paused(.accountNeedsAttention) = status {
+            status = uploadDone < uploadTotal ? .uploading(done: uploadDone, total: uploadTotal) : .starting
         }
     }
 
@@ -760,6 +821,12 @@ final class NoteSyncCoordinator {
         }
     }
 
+    /// Some of a send went through, so the account works: called before
+    /// that send's failures, which may show the notice again.
+    func handleChangesWentThrough() {
+        accountWorks()
+    }
+
     func handleDeleted(id: UUID) {
         // The note is usually gone already; nothing is left to update then.
         try? store.setSyncSystemFields(nil, id: id)
@@ -771,16 +838,24 @@ final class NoteSyncCoordinator {
         guard !isStopped else { return }
         var quotaCount = 0
         var offline = false
+        var account = false
         var resend: [UUID] = []
         var deletes: [UUID] = []
         for failure in failures {
             switch failure {
             case .serverChanged(let id, let payload, let serverFields):
-                guard store.syncRecord(id: id) != nil else {
+                switch store.noteExists(id: id) {
+                case false?:
                     // Deleted here while the save was in flight: delete the
                     // server copy rather than bring the note back.
                     deletes.append(id)
                     continue
+                case nil:
+                    // Can't tell: the save is tried again after a sync.
+                    savesToRetry.insert(id)
+                    continue
+                case true?:
+                    break
                 }
                 // Without a server copy merged in, the local note never
                 // overwrites the server; the next fetch brings the server
@@ -797,6 +872,8 @@ final class NoteSyncCoordinator {
                 savesToRetry.insert(id)
             case .network:
                 offline = true
+            case .accountNeedsAttention:
+                account = true
             case .unknownItemOnDelete(let id):
                 try? store.setSyncSystemFields(nil, id: id)
             case .unknownItemOnSave(let id):
@@ -813,11 +890,7 @@ final class NoteSyncCoordinator {
         if !resend.isEmpty { enqueueNoteSaves(resend) }
         if !deletes.isEmpty { engine.enqueueDeletes(deletes) }
         cleanUpAudioSoon(cleanUpsForClearedUploads())
-        if quotaCount > 0 {
-            status = .paused(.quotaExceeded(pending: quotaCount))
-        } else if offline {
-            status = .paused(.offline)
-        }
+        setFailureStatus(quotaCount: quotaCount, account: account, offline: offline)
         if !failures.isEmpty {
             print("[NoteSync] \(failures.count) changes failed to send")
         }
@@ -934,9 +1007,19 @@ final class NoteSyncCoordinator {
             queuedAgain = true
         }
         if !deletesToRetry.isEmpty {
-            // A note that came back (another Mac's edit) stays in iCloud.
-            let retry = deletesToRetry.filter { store.syncRecord(id: $0) == nil }
-            deletesToRetry = []
+            // A note that came back (another Mac's edit) stays in iCloud,
+            // and one that can't be read waits for a later sync.
+            var retry: [UUID] = []
+            var unreadable: Set<UUID> = []
+            for id in deletesToRetry {
+                switch store.noteExists(id: id) {
+                case false?: retry.append(id)
+                case nil: unreadable.insert(id)
+                case true?: break
+                }
+            }
+            deletesToRetry = unreadable
+            if !unreadable.isEmpty { queuedAgain = true }
             if !retry.isEmpty {
                 engine.enqueueDeletes(Array(retry))
                 queuedAgain = true
@@ -973,9 +1056,11 @@ final class NoteSyncCoordinator {
         // Notes just queued again for lack of space aren't up to date yet;
         // the pause clears after a sync where they went up.
         if case .paused(.quotaExceeded) = status, retriedForQuota { return }
+        let busy = pending > 0 || queuedAgain || !audioChecking.isEmpty
+        // Shown until a change goes through, or nothing is left to send.
+        if case .paused(.accountNeedsAttention) = status, busy { return }
         // Offline stays shown until the network comes back.
         if isOffline, case .paused(.offline) = status { return }
-        let busy = pending > 0 || queuedAgain || !audioChecking.isEmpty
         if case .uploading = status, uploadDone < uploadTotal, busy { return }
         if !busy {
             status = .upToDate(now())
@@ -991,8 +1076,7 @@ final class NoteSyncCoordinator {
         isOffline = !isOnline
         guard !isStopped else { return }
         if !isOnline {
-            if case .paused(.quotaExceeded) = status { return }
-            status = .paused(.offline)
+            showOffline()
         } else if case .paused(.offline) = status {
             // The fetch that follows settles the status.
             status = .starting

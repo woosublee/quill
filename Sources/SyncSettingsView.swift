@@ -247,6 +247,10 @@ private struct NoteSyncSettingsCard: View {
             Text("iCloud storage is full, so uploads are paused")
                 .font(.caption)
                 .foregroundStyle(.orange)
+        case .paused(.accountNeedsAttention):
+            Text("iCloud account needs attention")
+                .font(.caption)
+                .foregroundStyle(.orange)
         case .paused(.accountChanged):
             Text("Sync stopped because the iCloud account changed")
                 .font(.caption)
@@ -281,6 +285,17 @@ private struct NoteSyncSettingsCard: View {
                     .foregroundStyle(.secondary)
                 Button("Manage iCloud Storage…") {
                     if let url = URL(string: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings?iCloud") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                .buttonStyle(.link)
+                .font(.caption)
+            case .paused(.accountNeedsAttention):
+                Text("Check the Apple Account notice in System Settings to continue syncing.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Open System Settings") {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings") {
                         NSWorkspace.shared.open(url)
                     }
                 }

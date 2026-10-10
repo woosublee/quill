@@ -17,6 +17,7 @@ struct PipelineHistorySyncStoreTests {
         try testClearAllSyncSystemFields()
         try testLegacyStoreMigratesWithNewAttributes()
         testChangeTagForMissingNoteThrows()
+        try testNoteExistsSaysUnknownWhenTheStoreIsUnavailable()
         try testUnreadableRecordIsRejected()
         try testLocalOnlyEditsAreNotReported()
         try testAudioManifestTravelsWithTheNote()
@@ -221,6 +222,21 @@ struct PipelineHistorySyncStoreTests {
         let reopened = PipelineHistoryStore(storeURL: url)
         precondition(reopened.availability == .ready)
         precondition(reopened.syncRecord(id: id) != nil && reopened.syncSystemFields(id: id) == nil)
+    }
+
+    /// A store that didn't load answers "can't tell", never "gone": sync
+    /// would delete from iCloud every note it took for gone.
+    private static func testNoteExistsSaysUnknownWhenTheStoreIsUnavailable() throws {
+        let ready = PipelineHistoryStore(inMemory: true)
+        let item = makeItem()
+        try ready.append(item, maxCount: Int.max)
+        precondition(ready.noteExists(id: item.id) == true && ready.noteExists(id: UUID()) == false)
+        let url = temporaryStoreURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try Data("synthetic damaged store".utf8).write(to: url)
+        let broken = PipelineHistoryStore(storeURL: url)
+        precondition(broken.availability != .ready)
+        precondition(broken.noteExists(id: item.id) == nil, "an unavailable store can't say a note is gone")
     }
 
     private static func testUnreadableRecordIsRejected() throws {

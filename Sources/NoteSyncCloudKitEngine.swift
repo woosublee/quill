@@ -282,12 +282,13 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             return fetchError(partError)
         }
         switch error.code {
-        case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy:
+        case .networkUnavailable, .networkFailure:
             return .offline
-        // Gone: another Mac replaced the file, or deleted the iCloud data.
+        // Gone: a delete took the part, or the iCloud data was deleted.
         case let code where code == .unknownItem || isZoneGone(code):
             return .missing
         default:
+            // Including a busy server, which isn't offline: try again.
             return .failed
         }
     }
@@ -621,6 +622,12 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                     audioFailures.append(.quotaExceeded(part))
                 case .network:
                     audioFailures.append(.network)
+                case .throttled:
+                    break // the engine waits and retries it
+                case .signInNeeded:
+                    audioFailures.append(.accountNeedsAttention)
+                case .accountUnavailable:
+                    audioFailures += [.accountNeedsAttention, .failed(part)]
                 case .other:
                     audioFailures.append(.failed(part))
                 }
@@ -642,6 +649,12 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                 failures.append(.quotaExceeded(noteID: id))
             case .network:
                 failures.append(.network(noteID: id))
+            case .throttled:
+                break // the engine waits and retries it
+            case .signInNeeded:
+                failures.append(.accountNeedsAttention)
+            case .accountUnavailable:
+                failures += [.accountNeedsAttention, .other(noteID: id)]
             case .unknownItem:
                 failures.append(.unknownItemOnSave(noteID: id))
             case .other:
@@ -649,8 +662,12 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             }
         }
         var deleted: [UUID] = []
+        var deletedParts = 0
         for recordID in sent.deletedRecordIDs {
-            if NoteAudioCloudRecord.part(from: recordID) != nil { continue }
+            if NoteAudioCloudRecord.part(from: recordID) != nil {
+                deletedParts += 1
+                continue
+            }
             if let id = NoteSyncCloudRecord.noteID(from: recordID) { deleted.append(id) }
         }
         for (recordID, error) in sent.failedRecordDeletes {
@@ -660,6 +677,12 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                     break // already gone
                 case .network:
                     audioFailures.append(.network)
+                case .throttled:
+                    break // the engine waits and retries it
+                case .signInNeeded:
+                    audioFailures.append(.accountNeedsAttention)
+                case .accountUnavailable:
+                    audioFailures += [.accountNeedsAttention, .deleteFailed(part)]
                 case .serverChanged, .quotaExceeded, .other:
                     audioFailures.append(.deleteFailed(part))
                 }
@@ -671,6 +694,12 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                 if zoneGoneMeansDeletedElsewhere() { zoneDeletedElsewhere = true }
             case .network:
                 failures.append(.network(noteID: id))
+            case .throttled:
+                break // the engine waits and retries it
+            case .signInNeeded:
+                failures.append(.accountNeedsAttention)
+            case .accountUnavailable:
+                failures += [.accountNeedsAttention, .deleteFailed(noteID: id)]
             case .unknownItem:
                 failures.append(.unknownItemOnDelete(noteID: id))
             case .serverChanged, .quotaExceeded, .other:
@@ -697,12 +726,14 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         let sendFailures = failures
         let stopForDeletion = zoneDeletedElsewhere
         let audioFailureList = audioFailures
+        let wentThrough = !saved.isEmpty || !deleted.isEmpty || !savedParts.isEmpty || deletedParts > 0
         await MainActor.run {
             guard let coordinator else { return }
             if stopForDeletion {
                 coordinator.handleZoneDeleted()
                 return
             }
+            if wentThrough { coordinator.handleChangesWentThrough() }
             for (id, fields) in savedRecords { coordinator.handleSaved(id: id, systemFields: fields) }
             for id in deletedIDs { coordinator.handleDeleted(id: id) }
             if !sendFailures.isEmpty { coordinator.handleSendFailures(sendFailures) }
