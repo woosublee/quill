@@ -132,6 +132,9 @@ enum NoteSyncCloudRecord {
         static let deletedAt = "deletedAt"
     }
 
+    /// Fetches only the note's payload (no plain console fields).
+    static let payloadKeys = [Key.payload]
+
     static func sendErrorKind(_ code: CKError.Code) -> NoteSyncSendErrorKind {
         switch code {
         case .zoneNotFound, .userDeletedZone: return .zoneGone

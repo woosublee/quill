@@ -344,30 +344,32 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         return parts
     }
 
-    func notesInICloud(_ ids: Set<UUID>) async throws -> Set<UUID> {
+    func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud] {
         guard activeEngine() != nil else { throw NoteSyncEngineError.notRunning }
-        var found: Set<UUID> = []
+        var notes: [UUID: NoteAudioInICloud] = [:]
         let all = Array(ids)
-        for start in stride(from: 0, to: all.count, by: 200) {
-            let batch = all[start..<min(start + 200, all.count)].map(NoteSyncCloudRecord.recordID(for:))
+        for start in stride(from: 0, to: all.count, by: 100) {
+            let batch = all[start..<min(start + 100, all.count)].map(NoteSyncCloudRecord.recordID(for:))
             let results: [CKRecord.ID: Result<CKRecord, Error>]
             do {
-                results = try await database.records(for: batch, desiredKeys: [])
+                results = try await database.records(for: batch, desiredKeys: NoteSyncCloudRecord.payloadKeys)
             } catch let error as CKError where Self.isZoneGone(error.code) {
-                return found
+                for recordID in batch { NoteSyncCloudRecord.noteID(from: recordID).map { notes[$0] = .noNote } }
+                continue
             }
             for (recordID, result) in results {
+                guard let id = NoteSyncCloudRecord.noteID(from: recordID) else { continue }
                 switch result {
-                case .success:
-                    if let id = NoteSyncCloudRecord.noteID(from: recordID) { found.insert(id) }
+                case .success(let record):
+                    notes[id] = NoteAudioInICloud.read(payload: NoteSyncCloudRecord.payload(of: record))
                 case .failure(let error as CKError) where error.code == .unknownItem || Self.isZoneGone(error.code):
-                    continue
+                    notes[id] = .noNote
                 case .failure(let error):
                     throw error
                 }
             }
         }
-        return found
+        return notes
     }
 
     /// Sync Now: fetches, then sends what is waiting. Failures are left to

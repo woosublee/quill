@@ -54,6 +54,8 @@ struct NoteSyncControllerTests {
         testHistoryLostMidSessionPausesUntilReplaced()
         testSyncNowTriesFailedChangesAgain()
         testLeftoverAudioIsLookedForOnceADay()
+        testFailedLeftoverSearchIsTriedAtTheNextSync()
+        testNoLeftoverSearchWhileNotesFailToSync()
         print("NoteSyncControllerTests passed")
     }
 
@@ -138,11 +140,13 @@ struct NoteSyncControllerTests {
         func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> { [] }
         func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] { [] }
         var partListings = 0
+        var partListingError: Error?
         func allAudioParts() async throws -> [NoteAudioPartInICloud] {
             partListings += 1
+            if let partListingError { throw partListingError }
             return []
         }
-        func notesInICloud(_ ids: Set<UUID>) async throws -> Set<UUID> { [] }
+        func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud] { [:] }
         func cancelAudioSaves(noteID: UUID) {}
         func cancelAudioDeletes(noteID: UUID) {}
         func cancelAudioDeletes(_ parts: [NoteAudioPartID]) {}
@@ -1065,5 +1069,39 @@ struct NoteSyncControllerTests {
         coordinator?.handleFetchFinished(pending: 0)
         precondition(expectation { await coordinator?.lastAudioCheck?.value })
         precondition(engine()?.partListings == 2, "the next day")
+    }
+
+    @MainActor
+    static func testFailedLeftoverSearchIsTriedAtTheNextSync() {
+        let (controller, store, engine, defaults) = make(enabled: true)
+        controller.attach(store: store)
+        let running = engine()
+        let coordinator = running?.coordinator
+        running?.partListingError = URLError(.notConnectedToInternet)
+        coordinator?.handleFetchFinished(pending: 0)
+        precondition(expectation { await coordinator?.lastAudioCheck?.value })
+        precondition(defaults.object(forKey: NoteSyncController.lastLeftoverScanKey) == nil, "not counted as done")
+        running?.partListingError = nil
+        coordinator?.handleSendFailures([.network(noteID: UUID())])
+        coordinator?.handleNetworkChange(isOnline: true)
+        coordinator?.handleFetchFinished(pending: 0)
+        precondition(expectation { await coordinator?.lastAudioCheck?.value })
+        precondition(running?.partListings == 2 && defaults.object(forKey: NoteSyncController.lastLeftoverScanKey) != nil)
+        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: false) })
+        precondition(defaults.object(forKey: NoteSyncController.lastLeftoverScanKey) == nil, "forgotten when sync turns off")
+    }
+
+    /// Notes that couldn't sync may include one whose iCloud copy didn't
+    /// merge here: only a sync that is fully up to date searches.
+    @MainActor
+    static func testNoLeftoverSearchWhileNotesFailToSync() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        let coordinator = engine()?.coordinator
+        for _ in 0..<4 { coordinator?.handleSendFailures([.other(noteID: store.ids[0])]) }
+        coordinator?.handleFetchFinished(pending: 0)
+        precondition(controller.status == .paused(.notesFailed(count: 1, willRetry: false)))
+        precondition(expectation { await coordinator?.lastAudioCheck?.value })
+        precondition(engine()?.partListings == 0)
     }
 }

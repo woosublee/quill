@@ -122,6 +122,7 @@ final class NoteSyncController: ObservableObject {
     /// guard against starting over in a loop.
     private var heldBackStartOver = false
     private var isLearningAccount = false
+    private var isSearchingLeftoverAudio = false
     /// A Turn Off in progress, and whether it deletes from iCloud; another
     /// press waits for it.
     private var turnOffInProgress: (task: Task<Bool, Never>, deletes: Bool)?
@@ -543,7 +544,7 @@ final class NoteSyncController: ObservableObject {
             // A sync got all the way through, so its engine holds what a
             // full start queued.
             defaults.removeObject(forKey: Self.needsFullStartKey)
-            removeLeftoverAudioIfDue()
+            if case .upToDate = newStatus { removeLeftoverAudioIfDue() }
             if defaults.string(forKey: Self.syncAccountKey) == nil { learnSyncAccount() }
         case .paused(.accountChanged), .paused(.signedOut), .paused(.deletedElsewhere):
             // Sync starts again only when the user turns it on, so notes
@@ -555,14 +556,19 @@ final class NoteSyncController: ObservableObject {
         }
     }
 
-    /// This Mac has all iCloud holds now, so a part whose note isn't here
-    /// is one nothing uses.
+    /// Up to date, so this Mac's view of its notes is current; iCloud's
+    /// copy still decides each removal. A search that couldn't reach iCloud
+    /// is tried again at the next up-to-date sync.
     private func removeLeftoverAudioIfDue() {
         if let last = defaults.object(forKey: Self.lastLeftoverScanKey) as? Date,
            now().timeIntervalSince(last) < Self.leftoverScanInterval { return }
-        guard let coordinator else { return }
-        defaults.set(now(), forKey: Self.lastLeftoverScanKey)
-        coordinator.removeLeftoverAudioSoon()
+        guard let coordinator, !isSearchingLeftoverAudio else { return }
+        isSearchingLeftoverAudio = true
+        coordinator.removeLeftoverAudioSoon { [weak self] searched in
+            guard let self else { return }
+            self.isSearchingLeftoverAudio = false
+            if searched, self.isEnabled { self.defaults.set(self.now(), forKey: Self.lastLeftoverScanKey) }
+        }
     }
 
     /// For sync turned on before Quill kept its account, or when it
@@ -584,6 +590,9 @@ final class NoteSyncController: ObservableObject {
     private func setEnabled(_ enabled: Bool) {
         isEnabled = enabled
         defaults.set(enabled, forKey: Self.enabledKey)
-        if !enabled { defaults.removeObject(forKey: Self.syncAccountKey) }
+        if !enabled {
+            defaults.removeObject(forKey: Self.syncAccountKey)
+            defaults.removeObject(forKey: Self.lastLeftoverScanKey)
+        }
     }
 }
