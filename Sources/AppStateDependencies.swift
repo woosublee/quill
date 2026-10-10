@@ -150,6 +150,7 @@ struct AppStateDependencies {
             makeRetryCloudTranscriptionDependencies: { .live },
             makeNoteSyncController: { layout in
                 let stateURL = layout.noteSyncDirectory.appendingPathComponent("engine-state")
+                let outbox = layout.noteSyncDirectory.appendingPathComponent("outbox", isDirectory: true)
                 return NoteSyncController(createZone: {
                     guard #available(macOS 14.0, *) else { return }
                     try await NoteSyncCloudKitEngine.createZone()
@@ -159,8 +160,9 @@ struct AppStateDependencies {
                 }, deleteAllWithoutEngine: {
                     guard #available(macOS 14.0, *) else { throw NoteSyncEngineError.notRunning }
                     return try await NoteSyncCloudKitEngine.deleteAllWithoutEngine()
-                }, removeEngineState: {
+                }, removeEngineFiles: {
                     try? FileManager.default.removeItem(at: stateURL)
+                    try? FileManager.default.removeItem(at: outbox)
                 }, accountID: {
                     guard #available(macOS 14.0, *) else { return nil }
                     return await NoteSyncCloudKitEngine.accountID()
@@ -172,7 +174,7 @@ struct AppStateDependencies {
                     guard #available(macOS 14.0, *) else { return nil }
                     return NoteSyncCloudKitEngine(
                         stateURL: stateURL,
-                        outbox: layout.noteSyncDirectory.appendingPathComponent("outbox", isDirectory: true),
+                        outbox: outbox,
                         events: events
                     )
                 })
