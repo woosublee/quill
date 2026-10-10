@@ -627,8 +627,7 @@ final class NoteSyncCoordinator {
         var used: [UUID: Set<String>] = [:]
         func usedKeys(_ id: UUID) -> Set<String> {
             if let keys = used[id] { return keys }
-            let keys = Set([store.audioManifest(id: id)?.sha256, store.audioUploadKey(id: id)]
-                .compactMap { $0.map(NoteAudioPartID.key(sha256:)) })
+            let keys = Self.usedAudioKeys(manifest: store.audioManifest(id: id), uploadKey: store.audioUploadKey(id: id))
             used[id] = keys
             return keys
         }
@@ -1163,8 +1162,10 @@ final class NoteSyncCoordinator {
     /// before its parts were looked for, a note that came back mid-clean-up.
     /// Deleting audio can't be undone, so only this goes: week-old parts of
     /// a note whose marker in iCloud's copy names another file and whose
-    /// marked parts are all in iCloud (a note's audio then can't change, so
-    /// no upload of another file for it can be running). Everything else
+    /// marked parts are all in iCloud. This rests on a note's audio never
+    /// changing once set (no feature replaces it): then no upload of another
+    /// file for that note can be running. A feature that replaces audio
+    /// must revisit this search first. Everything else
     /// stays: notes without a marker (some Mac may still be uploading), a
     /// marker with parts missing (one may be uploading again), notes iCloud
     /// doesn't hold (a Mac may not have sent the note yet), records that
@@ -1224,6 +1225,10 @@ final class NoteSyncCoordinator {
             return isOtherFile(part, here)
         }
         guard !leftover.isEmpty else { return true }
+        // A pause since (the account to look at, offline, say) or a stop
+        // leaves the parts for the next search.
+        if isStopped { return false }
+        if case .paused = status { return false }
         engine.enqueueAudioDeletes(leftover)
         print("[NoteSync] Removing \(leftover.count) leftover audio parts")
         return true
@@ -1238,6 +1243,7 @@ final class NoteSyncCoordinator {
 
     private func notesHere() -> NotesHere {
         let unsettled = audioChecking.union(audioToCheck).union(savesAfterCheck)
+            .union(audioToClean.keys).union(notesWithAudioInFlight())
         var used: [UUID: Set<String>] = [:]
         for note in store.audioSyncSnapshots() where !unsettled.contains(note.id) {
             used[note.id] = Self.usedAudioKeys(manifest: note.manifest, uploadKey: note.uploadKey)
