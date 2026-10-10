@@ -282,12 +282,13 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             return fetchError(partError)
         }
         switch error.code {
-        case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy:
+        case .networkUnavailable, .networkFailure:
             return .offline
-        // Gone: another Mac replaced the file, or deleted the iCloud data.
+        // Gone: a delete took the part, or the iCloud data was deleted.
         case let code where code == .unknownItem || isZoneGone(code):
             return .missing
         default:
+            // Including a busy server, which isn't offline: try again.
             return .failed
         }
     }

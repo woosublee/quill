@@ -682,9 +682,15 @@ final class PipelineHistoryStore {
     }
 
     func noteExists(id: UUID) -> Bool? {
+        // A store that didn't load is an empty stand-in: it can't tell.
+        guard isReadyForSync else { return nil }
         var exists: Bool?
         container.viewContext.performAndWait {
-            exists = (try? fetchEntry(id: id)).map { $0 != nil }
+            do {
+                exists = try fetchEntry(id: id) != nil
+            } catch {
+                exists = nil
+            }
         }
         return exists
     }

@@ -31,6 +31,8 @@ struct NoteSyncCoordinatorTests {
         testFailedDeleteIsRetriedAsADelete()
         testDeleteRetryWaitsWhileTheStoreCantBeRead()
         testAccountNeedingAttentionPausesAndResumes()
+        testOfflineDoesNotReplaceTheAccountNotice()
+        await testUnreadableNoteIsNeverDeletedAfterASend()
         try testAudioAccountFailureIsRetriedWithoutALimit()
         try await testUnreadableNoteKeepsItsParts()
         testLateFailuresDoNotRestartStoppedSync()
@@ -855,10 +857,38 @@ struct NoteSyncCoordinatorTests {
         coordinator.handleSendFailures([.account(noteID: id, isDelete: false), .account(noteID: gone, isDelete: true)])
         precondition(coordinator.status == .paused(.accountNeedsAttention))
         coordinator.handleFetchFinished(pending: 0)
-        precondition(engine.saves == [id] && engine.deletes == [gone], "both changes are sent again")
-        precondition(coordinator.status == .paused(.accountNeedsAttention), "still paused until a sync goes through")
+        precondition(engine.saves.isEmpty && engine.deletes.isEmpty, "not sent again straight after failing")
+        precondition(coordinator.status == .paused(.accountNeedsAttention))
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves == [id] && engine.deletes == [gone], "sent again after a sync without account failures")
+        precondition(coordinator.status == .starting, "no longer paused while they go up")
         coordinator.handleFetchFinished(pending: 0)
         if case .upToDate = coordinator.status {} else { preconditionFailure("\(coordinator.status)") }
+    }
+
+    /// Being offline doesn't hide an account to look at: coming back online
+    /// would clear the notice while the account still needs attention.
+    @MainActor
+    static func testOfflineDoesNotReplaceTheAccountNotice() {
+        let (coordinator, _, _) = make()
+        coordinator.handleSendFailures([.account(noteID: UUID(), isDelete: false)])
+        coordinator.handleSendFailures([.network(noteID: UUID())])
+        coordinator.handleNetworkChange(isOnline: false)
+        precondition(coordinator.status == .paused(.accountNeedsAttention))
+    }
+
+    /// Notes that can't be read are left alone: a finished save, a
+    /// conflict and a saved audio part never turn into deletes.
+    @MainActor
+    static func testUnreadableNoteIsNeverDeletedAfterASend() async {
+        let (coordinator, store, engine) = make()
+        let id = UUID()
+        store.readFails = true
+        coordinator.handleSaved(id: id, systemFields: Data([1]))
+        coordinator.handleSendFailures([.serverChanged(noteID: id, serverPayload: nil, serverSystemFields: Data())])
+        await coordinator.handleAudioPartSaved(parts(id, 1)[0])
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.deletes.isEmpty && engine.audioDeletes.isEmpty, "nothing is deleted for a note that can't be read")
     }
 
     /// An audio part that failed on the account is sent again without
@@ -874,6 +904,8 @@ struct NoteSyncCoordinatorTests {
             coordinator.handleAudioSendFailures([.account(part, isDelete: false)])
             precondition(coordinator.status == .paused(.accountNeedsAttention))
             engine.audioSaves = []
+            coordinator.handleFetchFinished(pending: 0)
+            precondition(engine.audioSaves.isEmpty, "a 50 MB part isn't sent again straight after failing")
             coordinator.handleFetchFinished(pending: 0)
             precondition(engine.audioSaves == [part], "never given up for an account problem")
         }

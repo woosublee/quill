@@ -110,6 +110,9 @@ struct AppStateNoteSyncTests {
         precondition(reason(.failure(NoteAudioFetchError.missing), partial) == .missing, "the part's own result wins")
         precondition(reason(nil, nil) == .failed, "no result at all is a plain failure")
         precondition(reason(nil, CKError(.unknownItem)) == .missing)
+        for busy in [CKError.Code.requestRateLimited, .zoneBusy, .serviceUnavailable] {
+            precondition(reason(nil, CKError(busy)) == .failed, "a busy server isn't offline")
+        }
     }
 
     static func testLocalEditReachesTheEngine() async throws {
