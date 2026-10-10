@@ -1023,26 +1023,36 @@ final class NoteSyncCoordinator {
     /// off after, or, if the delete is undone, `stopHoldingRetries` does
     /// both. (New sends meet the missing zone and are held by the engine.)
     var isHoldingRetries = false
-    /// A finished sync was skipped while holding.
-    private var skippedFinish = false
-
+    /// The delete was undone: the sync skipped meanwhile runs, counting
+    /// what waits now, with what the undone delete put back.
     func stopHoldingRetries() {
         guard isHoldingRetries else { return }
         isHoldingRetries = false
-        if skippedFinish {
-            skippedFinish = false
-            // What waits now, with the uploads the undone delete put back.
-            handleFetchFinished(pending: engine.pendingChangeCount())
+        handleFetchFinished(pending: engine.pendingChangeCount())
+    }
+
+    /// An undone delete puts back deletes it had dropped or held; one for a
+    /// note that came back meanwhile, or a part its note uses again, must
+    /// not go. Can't tell keeps nothing.
+    func isDeleteStillWanted(noteID id: UUID) -> Bool {
+        store.noteExists(id: id) == false
+    }
+
+    func isDeleteStillWanted(_ part: NoteAudioPartID) -> Bool {
+        switch store.noteExists(id: part.noteID) {
+        case false?: return true
+        case nil: return false
+        case true?:
+            let used = [store.audioManifest(id: part.noteID)?.sha256, store.audioUploadKey(id: part.noteID)]
+                .compactMap { $0.map(NoteAudioPartID.key(sha256:)) }
+            return !used.contains(part.key)
         }
     }
 
     /// A fetch or send finished. With nothing left to send, sync is up to date.
     func handleFetchFinished(pending: Int) {
         guard !isStopped else { return }
-        guard !isHoldingRetries else {
-            skippedFinish = true
-            return
-        }
+        guard !isHoldingRetries else { return }
         let retriedForQuota = quotaRetryPending
         quotaRetryPending = false
         // Anything queued again here isn't sent yet, so it keeps sync busy.

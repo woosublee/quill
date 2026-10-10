@@ -379,7 +379,6 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             zoneDeleteFailed = false
             deletedZones = []
         }
-        var sent = true
         let droppedUploads = engine.state.pendingRecordZoneChanges
         let notesZone = NoteSyncCloudRecord.zoneID()
         do {
@@ -390,7 +389,6 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                 if case .deleteZone(let zoneID) = $0 { return zoneID == notesZone }
                 return false
             }
-            sent = !stillPending
             if stillPending || lock.withLock({ zoneDeleteFailed }) {
                 throw NoteSyncEngineError.zoneDeleteFailed
             }
@@ -399,16 +397,16 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             // iCloud is asked below.
             engine.state.remove(pendingDatabaseChanges: [.deleteZone(notesZone)])
             // CloudKit confirmed the zone is gone, so the delete succeeded
-            // even though a later step failed. Otherwise, if the request
-            // left, iCloud is asked: one cut off may have gone through all
-            // the same, and the zone missing later would read as another
-            // Mac's delete.
+            // even though a later step failed. Otherwise iCloud is asked: a
+            // request cut off (even one the engine kept to retry) may have
+            // gone through all the same, and the zone missing later would
+            // read as another Mac's delete.
             var gone = lock.withLock { deletedZones.contains(notesZone) }
-            if !gone, sent { gone = await notesZoneExists() == false }
+            if !gone { gone = await notesZoneExists() == false }
             if !gone {
-                // Sync stays on: put back the dropped uploads.
+                // Sync stays on: put back the dropped and held changes.
                 let held = lock.withLock { deleteHold.undo() }
-                engine.state.add(pendingRecordZoneChanges: droppedUploads + held)
+                await putBack(droppedUploads + held, engine: engine)
                 throw error
             }
         }
@@ -418,6 +416,31 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         // zone stays, it is deleted again at launch, or a turn-on finds its
         // parts and doesn't send them again.
         return await Self.deleteAudioZoneAfterNotes()
+    }
+
+    /// Puts back what an undone delete dropped or held, except a change
+    /// for a record that has a newer one waiting, and a delete the
+    /// coordinator no longer wants (its note came back meanwhile).
+    private func putBack(_ changes: [CKSyncEngine.PendingRecordZoneChange], engine: CKSyncEngine) async {
+        let waiting = Set(engine.state.pendingRecordZoneChanges.map(Self.recordID(of:)))
+        let candidates = changes.filter { !waiting.contains(Self.recordID(of: $0)) }
+        let back = await MainActor.run { () -> [CKSyncEngine.PendingRecordZoneChange] in
+            guard let coordinator else { return [] }
+            return candidates.filter { change in
+                guard case .deleteRecord(let id) = change else { return true }
+                if let part = NoteAudioCloudRecord.part(from: id) { return coordinator.isDeleteStillWanted(part) }
+                guard let noteID = NoteSyncCloudRecord.noteID(from: id) else { return false }
+                return coordinator.isDeleteStillWanted(noteID: noteID)
+            }
+        }
+        if !back.isEmpty { engine.state.add(pendingRecordZoneChanges: back) }
+    }
+
+    private static func recordID(of change: CKSyncEngine.PendingRecordZoneChange) -> CKRecord.ID {
+        switch change {
+        case .saveRecord(let id), .deleteRecord(let id): return id
+        @unknown default: return CKRecord.ID(recordName: "")
+        }
     }
 
     /// The notes are gone: their audio zone gets two tries.
@@ -579,7 +602,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             }
 
         case .didFetchChanges, .didSendChanges:
-            let pending = syncEngine.state.pendingRecordZoneChanges.count
+            let pending = pendingChangeCount()
             await MainActor.run { coordinator?.handleFetchFinished(pending: pending) }
 
         default:
