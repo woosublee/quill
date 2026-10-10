@@ -268,11 +268,8 @@ final class NoteSyncController: ObservableObject {
                 print("[NoteSync] Deleting from iCloud failed")
                 turnOffFailure = error as? NoteSyncTurnOffFailure ?? .unreachable
                 isDeletingFromICloud = false
-                if let coordinator, coordinator.isHoldingRetries {
-                    // Undone: the sync skipped meanwhile runs now.
-                    coordinator.isHoldingRetries = false
-                    engine?.fetchNow()
-                }
+                // Undone: what a finished sync skipped meanwhile runs now.
+                coordinator?.stopHoldingRetries()
                 // Sync stays on: a start held back meanwhile goes ahead.
                 if let initialUpload = heldBackStart {
                     heldBackStart = nil
@@ -498,18 +495,6 @@ final class NoteSyncController: ObservableObject {
             // never cross into another account.
             stopEngine(forgetState: true)
             setEnabled(false)
-        case .off:
-            // This Mac's Turn Off and Delete went through after it looked
-            // undone: sync turns off as asked, after the engine's event
-            // returns, and the audio, never reached, is deleted as audio
-            // left behind.
-            Task { @MainActor [weak self] in
-                guard let self, self.isEnabled else { return }
-                self.finishTurningOff(status: .off)
-                let account = await self.accountID() ?? ""
-                self.accountsWithAudioLeft = Array(Set(self.accountsWithAudioLeft + [account])).sorted()
-                await self.deleteLeftoverAudio()
-            }
         default:
             break
         }

@@ -216,7 +216,7 @@ final class NoteSyncCoordinator {
     private var isStopped: Bool {
         if isRetired { return true }
         switch status {
-        case .off, .paused(.accountChanged), .paused(.signedOut), .paused(.deletedElsewhere): return true
+        case .paused(.accountChanged), .paused(.signedOut), .paused(.deletedElsewhere): return true
         default: return false
         }
     }
@@ -1018,13 +1018,28 @@ final class NoteSyncCoordinator {
 
     /// While this Mac deletes its iCloud data, a finished fetch or send
     /// neither sends failed changes again nor settles the status: sync turns
-    /// off after, or, if the delete is undone, the next sync does both.
-    /// (New sends then meet the missing zone and are held by the engine.)
+    /// off after, or, if the delete is undone, `stopHoldingRetries` does
+    /// both. (New sends meet the missing zone and are held by the engine.)
     var isHoldingRetries = false
+    /// The last finished sync skipped while holding, with what it left.
+    private var skippedFinish: Int?
+
+    func stopHoldingRetries() {
+        guard isHoldingRetries else { return }
+        isHoldingRetries = false
+        if let pending = skippedFinish {
+            skippedFinish = nil
+            handleFetchFinished(pending: pending)
+        }
+    }
 
     /// A fetch or send finished. With nothing left to send, sync is up to date.
     func handleFetchFinished(pending: Int) {
-        guard !isStopped, !isHoldingRetries else { return }
+        guard !isStopped else { return }
+        guard !isHoldingRetries else {
+            skippedFinish = pending
+            return
+        }
         let retriedForQuota = quotaRetryPending
         quotaRetryPending = false
         // Anything queued again here isn't sent yet, so it keeps sync busy.
@@ -1151,14 +1166,9 @@ final class NoteSyncCoordinator {
         print("[NoteSync] Paused: iCloud account \(signedOut ? "signed out" : "changed")")
     }
 
-    /// The notes zone is gone: another Mac deleted it, or (`byThisMac`)
-    /// this Mac's Turn Off and Delete went through after it looked undone,
-    /// and sync turns off as the user asked.
-    func handleZoneDeleted(byThisMac: Bool = false) {
-        status = byThisMac ? .off : .paused(.deletedElsewhere)
+    func handleZoneDeleted() {
+        status = .paused(.deletedElsewhere)
         store.clearChangeTags(forgettingAudio: true)
-        print(byThisMac
-              ? "[NoteSync] This Mac's delete from iCloud went through after all"
-              : "[NoteSync] Paused: iCloud data was deleted from another Mac")
+        print("[NoteSync] Paused: iCloud data was deleted from another Mac")
     }
 }

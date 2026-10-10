@@ -19,8 +19,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
     private var syncEngine: CKSyncEngine?
     private weak var coordinator: NoteSyncCoordinator?
     /// Guards `syncEngine`, `isStopped`, `isFetching`, `isDeletingZone`,
-    /// `zoneDeleteFailed`, `deletedZones`, `heldDuringDelete` and
-    /// `ownDeleteMayHaveWorked`, which
+    /// `zoneDeleteFailed`, `deletedZones` and `heldDuringDelete`, which
     /// CloudKit's queues and the main thread share.
     /// Timers and observers are touched on the main thread only.
     private let lock = NSLock()
@@ -33,11 +32,6 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
     /// Changes that met the missing zone during this Mac's delete: put back
     /// if the delete is undone.
     private var heldDuringDelete: [CKSyncEngine.PendingRecordZoneChange] = []
-    /// This Mac's delete was undone without iCloud saying it failed (the
-    /// request was cut off): it may have gone through all the same. A zone
-    /// found gone then is this Mac's own delete, not another Mac's. Cleared
-    /// once a note goes through, which shows the zone is there.
-    private var ownDeleteMayHaveWorked = false
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var pathMonitor: NWPathMonitor?
@@ -400,16 +394,17 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             }
         } catch {
             // CloudKit confirmed the zone is gone, so the delete succeeded
-            // even though a later step failed.
-            if !lock.withLock({ deletedZones.contains(notesZone) }) {
+            // even though a later step failed. Otherwise iCloud is asked: a
+            // request cut off may have gone through all the same, and the
+            // zone missing later would read as another Mac's delete.
+            var gone = lock.withLock { deletedZones.contains(notesZone) }
+            if !gone { gone = await notesZoneExists() == false }
+            if !gone {
                 // Sync stays on: cancel the delete so the engine can't send
                 // it later by itself, and put back the dropped uploads.
                 engine.state.remove(pendingDatabaseChanges: [.deleteZone(notesZone)])
                 let held = lock.withLock {
                     isDeletingZone = false
-                    // Only a request cut off may have gone through: iCloud
-                    // refusing it, or it never leaving (still pending), not.
-                    ownDeleteMayHaveWorked = !zoneDeleteFailed && !(error is NoteSyncEngineError)
                     defer { heldDuringDelete = [] }
                     return heldDuringDelete
                 }
@@ -543,8 +538,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             let zoneID = NoteSyncCloudRecord.zoneID()
             if changes.deletions.contains(where: { $0.zoneID == zoneID }),
                zoneGoneMeansDeletedElsewhere() {
-                let mine = lock.withLock { ownDeleteMayHaveWorked }
-                await MainActor.run { coordinator?.handleZoneDeleted(byThisMac: mine) }
+                await MainActor.run { coordinator?.handleZoneDeleted() }
             }
 
         case .fetchedRecordZoneChanges(let changes):
@@ -584,11 +578,6 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             }
 
         case .didFetchChanges, .didSendChanges:
-            if case .didFetchChanges = event, !lock.withLock({ isDeletingZone }) {
-                // A fetch that found no zone deleted shows the notes zone
-                // is there, so a later missing zone is another Mac's doing.
-                lock.withLock { ownDeleteMayHaveWorked = false }
-            }
             let pending = syncEngine.state.pendingRecordZoneChanges.count
             await MainActor.run { coordinator?.handleFetchFinished(pending: pending) }
 
@@ -695,7 +684,9 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                 case .network: audioFailures.append(.network)
                 case .accountNeedsAttention: audioFailures.append(.accountNeedsAttention)
                 case .failed: audioFailures.append(.failed(part))
-                case .none, .zoneDeletedElsewhere, .serverChanged, .unknownItemOnSave, .unknownItemOnDelete: break
+                case .none: break
+                case .zoneDeletedElsewhere, .serverChanged, .unknownItemOnSave, .unknownItemOnDelete:
+                    assertionFailure("No such route for a part save")
                 }
                 continue
             }
@@ -716,7 +707,9 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             case .accountNeedsAttention: failures.append(.accountNeedsAttention)
             case .unknownItemOnSave: failures.append(.unknownItemOnSave(noteID: id))
             case .failed: failures.append(.other(noteID: id))
-            case .none, .savedAlready, .resendNow, .partWithoutZone, .unknownItemOnDelete: break
+            case .none: break
+            case .savedAlready, .resendNow, .partWithoutZone, .unknownItemOnDelete:
+                assertionFailure("No such route for a note save")
             }
         }
         var deleted: [UUID] = []
@@ -736,7 +729,8 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                 case .failed: audioFailures.append(.deleteFailed(part))
                 case .none: break // already gone, or the engine retries it
                 case .savedAlready, .resendNow, .holdForOwnDelete, .zoneDeletedElsewhere, .partWithoutZone,
-                     .serverChanged, .quotaExceeded, .unknownItemOnSave, .unknownItemOnDelete: break
+                     .serverChanged, .quotaExceeded, .unknownItemOnSave, .unknownItemOnDelete:
+                    assertionFailure("No such route for a part delete")
                 }
                 continue
             }
@@ -749,7 +743,8 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             case .unknownItemOnDelete: failures.append(.unknownItemOnDelete(noteID: id))
             case .failed: failures.append(.deleteFailed(noteID: id))
             case .none: break // the engine retries it
-            case .savedAlready, .resendNow, .partWithoutZone, .serverChanged, .quotaExceeded, .unknownItemOnSave: break
+            case .savedAlready, .resendNow, .partWithoutZone, .serverChanged, .quotaExceeded, .unknownItemOnSave:
+                assertionFailure("No such route for a note delete")
             }
         }
         if !held.isEmpty {
@@ -782,13 +777,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         let stopForDeletion = zoneDeletedElsewhere
         let audioFailureList = audioFailures
         let wentThrough = !saved.isEmpty || !deleted.isEmpty || !savedParts.isEmpty || deletedParts > 0
-        // A note that went through shows the notes zone is there.
-        if !saved.isEmpty || !deleted.isEmpty { lock.withLock { ownDeleteMayHaveWorked = false } }
-        let byThisMac = lock.withLock { ownDeleteMayHaveWorked }
         await MainActor.run {
             guard let coordinator else { return }
             if stopForDeletion {
-                coordinator.handleZoneDeleted(byThisMac: byThisMac)
+                coordinator.handleZoneDeleted()
                 return
             }
             if wentThrough { coordinator.handleChangesWentThrough() }
