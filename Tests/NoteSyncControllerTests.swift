@@ -31,6 +31,8 @@ struct NoteSyncControllerTests {
         testDeleteWhilePausedOnlyInTheAccountSyncRunsIn()
         testFailedDeleteLetsAHeldBackStartGoAhead()
         testAudioOnlyInICloudCantBeCountedWithoutHistory()
+        testSecondTurnOffWaitsForTheFirst()
+        testEngineDeletingIsNotStartedOver()
         testTurnOnCreatesTheZoneBeforeSyncing()
         testTurnOnStaysOffWhenICloudIsUnreachable()
         testTurnOnWaitsForAReadyStore()
@@ -139,7 +141,10 @@ struct NoteSyncControllerTests {
         }
         /// Whether the audio zone goes too.
         var audioDeleteWorks = true
+        /// Runs while the delete is in progress.
+        var whileDeleting: (@MainActor () async -> Void)?
         func deleteAllFromICloud() async throws -> Bool {
+            await whileDeleting?()
             deletedFromICloud = true
             return audioDeleteWorks
         }
@@ -805,6 +810,7 @@ struct NoteSyncControllerTests {
                 precondition(defaults.bool(forKey: NoteSyncController.clearTagsOnAttachKey), "tags go once history opens")
             } else {
                 precondition(!succeeded && controller.isEnabled)
+                if synced == nil { precondition(controller.turnOffFailure == .accountUnknown, "the alert says why") }
             }
         }
     }
@@ -841,5 +847,43 @@ struct NoteSyncControllerTests {
         store.isReadyForSync = false
         controller.attach(store: store)
         precondition(controller.notesWithAudioOnlyInICloud == nil, "the turn-off dialog says it can't check")
+        let (unattached, _, _, _) = make()
+        precondition(unattached.notesWithAudioOnlyInICloud == nil, "nor before history is attached")
+    }
+
+    /// Settings reopened during a Turn Off and Delete: another press waits
+    /// for the first one and gets its result, rather than stopping the
+    /// engine mid-delete or reporting a failure.
+    @MainActor
+    static func testSecondTurnOffWaitsForTheFirst() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        let running = engine()
+        var second: Bool?
+        running?.whileDeleting = {
+            Task { @MainActor in second = await controller.turnOff(deleteFromICloud: false) }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            precondition(running?.stopped.isEmpty == true && second == nil, "the second press waits for the delete")
+        }
+        var first: Bool?
+        Task { @MainActor in first = await controller.turnOff(deleteFromICloud: true) }
+        precondition(expectation { while first == nil || second == nil { await Task.yield() } })
+        precondition(first == true && second == true && running?.stopped == [true] && !controller.isEnabled)
+    }
+
+    /// A start over asked for while the engine deletes from iCloud doesn't
+    /// stop that engine mid-delete.
+    @MainActor
+    static func testEngineDeletingIsNotStartedOver() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        let running = engine()
+        running?.whileDeleting = {
+            running?.coordinator?.onNeedsFullRefetch?()
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            precondition(running?.stopped.isEmpty == true, "the deleting engine keeps running")
+        }
+        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
+        precondition(running?.deletedFromICloud == true && running?.stopped == [true] && !controller.isEnabled)
     }
 }

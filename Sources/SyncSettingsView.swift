@@ -146,7 +146,11 @@ private struct NoteSyncSettingsCard: View {
         .alert("Couldn't delete from iCloud", isPresented: $turnOffFailed) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("Check your internet connection and try again. Sync is still on.")
+            if controller.turnOffFailure == .accountUnknown {
+                Text("Quill couldn't confirm which iCloud account sync used, so nothing was deleted. Try again after sync runs again. Sync is still on.")
+            } else {
+                Text("Check your internet connection and try again. Sync is still on.")
+            }
         }
     }
 

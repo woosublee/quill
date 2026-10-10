@@ -163,6 +163,9 @@ struct AppStateDependencies {
                 }, removeEngineFiles: {
                     try? FileManager.default.removeItem(at: stateURL)
                     try? FileManager.default.removeItem(at: outbox)
+                    NoteAudioDownloader.removeDownloadFiles(
+                        in: layout.noteSyncDirectory.appendingPathComponent("downloads", isDirectory: true)
+                    )
                 }, accountID: {
                     guard #available(macOS 14.0, *) else { return nil }
                     return await NoteSyncCloudKitEngine.accountID()
