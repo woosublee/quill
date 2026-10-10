@@ -28,6 +28,7 @@ struct NoteSyncControllerTests {
         testDeleteFromICloudWhileHistoryCantBeOpened()
         testDeleteFromICloudWhilePausedForSaving()
         testFailedDeleteWhilePausedKeepsSyncOn()
+        testDeleteWhilePausedOnlyInTheAccountSyncRunsIn()
         testTurnOnCreatesTheZoneBeforeSyncing()
         testTurnOnStaysOffWhenICloudIsUnreachable()
         testTurnOnWaitsForAReadyStore()
@@ -147,6 +148,7 @@ struct NoteSyncControllerTests {
         var calls: [String] = []
         var zoneError: Error?
         var leftoverResult = NoteSyncLeftoverAudio.deleted
+        var enginesMade = 0
         /// Whether a delete without an engine takes the audio too.
         var directAudioDeleted = true
         /// The signed-in account, nil when it can't be read.
@@ -531,11 +533,16 @@ struct NoteSyncControllerTests {
             },
             deleteAllWithoutEngine: { @MainActor in
                 log.calls.append("deleteAllWithoutEngine")
+                while log.holdAudioDelete { await Task.yield() }
                 if let error = log.zoneError { throw error }
                 return log.directAudioDeleted
             },
+            removeEngineState: { log.calls.append("removeEngineState") },
             accountID: { @MainActor in log.account },
-            makeEngine: { _ in engine }
+            makeEngine: { _ in
+                log.enginesMade += 1
+                return engine
+            }
         )
     }
 
@@ -699,6 +706,7 @@ struct NoteSyncControllerTests {
     static func testDeleteFromICloudWhileHistoryCantBeOpened() {
         let defaults = freshDefaults()
         defaults.set(true, forKey: NoteSyncController.enabledKey)
+        defaults.set("account-a", forKey: NoteSyncController.syncAccountKey)
         let log = CallLog()
         log.directAudioDeleted = false
         let controller = launch(defaults, log: log)
@@ -709,8 +717,14 @@ struct NoteSyncControllerTests {
         var succeeded = false
         precondition(expectation { succeeded = await controller.turnOff(deleteFromICloud: true) })
         precondition(succeeded && !controller.isEnabled && controller.status == .off)
-        precondition(log.calls == ["deleteAllWithoutEngine"] && !store.cleared)
+        precondition(log.calls == ["deleteAllWithoutEngine", "removeEngineState"], "the saved engine state goes too: \(log.calls)")
+        precondition(!store.cleared && defaults.bool(forKey: NoteSyncController.clearTagsOnAttachKey))
+        precondition(defaults.string(forKey: NoteSyncController.syncAccountKey) == nil, "forgotten once sync is off")
         precondition(defaults.stringArray(forKey: leftKey) == ["account-a"], "audio left is remembered as usual")
+        // History that opens again forgets what pointed into iCloud.
+        let recovered = FakeStore()
+        controller.attach(store: recovered)
+        precondition(recovered.cleared && !defaults.bool(forKey: NoteSyncController.clearTagsOnAttachKey))
     }
 
     /// Paused because notes couldn't be saved here: the zones go directly,
@@ -724,13 +738,24 @@ struct NoteSyncControllerTests {
         let controller = launch(defaults, log: log, engine: engine)
         let store = FakeStore()
         controller.attach(store: store)
+        drainMainQueue()
+        precondition(defaults.string(forKey: NoteSyncController.syncAccountKey) == "account-a", "learned once the engine started")
         engine.coordinator?.onNeedsFullRefetch?()
         drainMainQueue()
         engine.coordinator?.onNeedsFullRefetch?()
         drainMainQueue()
         precondition(controller.status == .paused(.couldNotSaveHere))
-        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
-        precondition(log.calls == ["deleteAllWithoutEngine"] && !engine.deletedFromICloud && store.cleared)
+        // Sync Now while the delete runs doesn't start an engine.
+        let made = log.enginesMade
+        log.holdAudioDelete = true
+        var turnedOff = false
+        Task { @MainActor in turnedOff = await controller.turnOff(deleteFromICloud: true) }
+        drainMainQueue()
+        precondition(expectation { await controller.syncNow() })
+        precondition(log.enginesMade == made, "no engine starts during the delete")
+        log.holdAudioDelete = false
+        precondition(expectation { while !turnedOff { await Task.yield() } })
+        precondition(log.calls == ["deleteAllWithoutEngine", "removeEngineState"] && !engine.deletedFromICloud && store.cleared)
         precondition(!controller.isEnabled)
     }
 
@@ -738,6 +763,7 @@ struct NoteSyncControllerTests {
     static func testFailedDeleteWhilePausedKeepsSyncOn() {
         let defaults = freshDefaults()
         defaults.set(true, forKey: NoteSyncController.enabledKey)
+        defaults.set("account-a", forKey: NoteSyncController.syncAccountKey)
         let log = CallLog()
         log.zoneError = URLError(.notConnectedToInternet)
         let controller = launch(defaults, log: log)
@@ -747,5 +773,32 @@ struct NoteSyncControllerTests {
         var succeeded = true
         precondition(expectation { succeeded = await controller.turnOff(deleteFromICloud: true) })
         precondition(!succeeded && controller.isEnabled, "nothing was deleted, so sync stays on and says so")
+    }
+
+    /// With no engine, nothing hears an account change: Turn Off and Delete
+    /// deletes only in the account sync runs in. In another account it
+    /// deletes nothing and stops sync as for an account change; with the
+    /// account unknown it deletes nothing and keeps sync on.
+    @MainActor
+    static func testDeleteWhilePausedOnlyInTheAccountSyncRunsIn() {
+        for (synced, signedIn) in [("account-a", "account-b"), (nil, "account-a"), ("account-a", nil)] as [(String?, String?)] {
+            let defaults = freshDefaults()
+            defaults.set(true, forKey: NoteSyncController.enabledKey)
+            defaults.set(synced, forKey: NoteSyncController.syncAccountKey)
+            let log = CallLog()
+            log.account = signedIn
+            let controller = launch(defaults, log: log)
+            let store = FakeStore()
+            store.isReadyForSync = false
+            controller.attach(store: store)
+            var succeeded = false
+            precondition(expectation { succeeded = await controller.turnOff(deleteFromICloud: true) })
+            precondition(log.calls.isEmpty, "nothing is deleted: \(String(describing: synced)) \(String(describing: signedIn))")
+            if synced != nil, signedIn != nil {
+                precondition(succeeded && !controller.isEnabled && controller.status == .paused(.accountChanged))
+            } else {
+                precondition(!succeeded && controller.isEnabled)
+            }
+        }
     }
 }
