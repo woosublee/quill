@@ -109,9 +109,10 @@ final class NoteAudioDownloader: ObservableObject {
         set {
             let old = progressFeed.values
             guard newValue != old else { return }
-            // A download starting or ending changes what the bar shows; one
-            // note changes at a time, so the count tells.
-            if newValue.count != old.count { objectWillChange.send() }
+            // A download starting or ending changes what the bar shows.
+            if newValue.count != old.count || newValue.keys.contains(where: { old[$0] == nil }) {
+                objectWillChange.send()
+            }
             progressFeed.values = newValue
         }
     }

@@ -8510,8 +8510,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// exporting and downloading alike.
     @MainActor
     func noteBrowserStoredAudioURL(for item: PipelineHistoryItem) -> URL? {
-        guard case .usable(let url) = storedAudioFile(for: item) else { return nil }
-        return url
+        storedAudioFile(for: item).usableURL
     }
 
     enum StoredAudioFile: Equatable {
@@ -8520,13 +8519,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case empty
         /// The file is here; a size that can't be read counts as bytes.
         case usable(URL)
+
+        var usableURL: URL? {
+            if case .usable(let url) = self { return url }
+            return nil
+        }
     }
 
     /// The note's audio file here, looked up once.
     @MainActor
     func storedAudioFile(for item: PipelineHistoryItem) -> StoredAudioFile {
-        guard let url = storedAudioURL(for: item),
-              let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return .missing }
+        // A link is followed: its target is the file played (fileExists
+        // follows it, so a link to nothing is missing).
+        guard let url = storedAudioURL(for: item), FileManager.default.fileExists(atPath: url.path) else { return .missing }
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path) else {
+            return .usable(url)
+        }
         return (attributes[.size] as? NSNumber)?.int64Value == 0 ? .empty : .usable(url)
     }
 
@@ -8534,8 +8542,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @MainActor
     func noteAudioState(for item: PipelineHistoryItem) -> NoteAudioState {
         let file = storedAudioFile(for: item)
-        let isLocal: Bool
-        if case .usable = file { isLocal = true } else { isLocal = false }
+        let isLocal = file.usableURL != nil
         let manifest = isLocal ? nil : pipelineHistoryStore.audioManifest(id: item.id)
         // This Mac was sending audio it no longer has: the file was lost
         // here, so it isn't on its way from another Mac.

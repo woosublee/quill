@@ -142,6 +142,15 @@ struct AppStateNoteSyncTests {
             precondition(appState.noteAudioState(for: note) == .downloadable, "\(appState.noteAudioState(for: note))")
             try Data([1, 2, 3]).write(to: url)
             precondition(appState.noteBrowserStoredAudioURL(for: note) == url && appState.noteAudioState(for: note) == .local)
+            // A link is judged by its target: an empty or missing target is
+            // no file here.
+            let target = fixture.root.appendingPathComponent("target.wav")
+            try Data().write(to: target)
+            try FileManager.default.removeItem(at: url)
+            try FileManager.default.createSymbolicLink(at: url, withDestinationURL: target)
+            precondition(appState.noteBrowserStoredAudioURL(for: note) == nil, "a link to an empty file")
+            try FileManager.default.removeItem(at: target)
+            precondition(appState.noteBrowserStoredAudioURL(for: note) == nil, "a link to nothing")
         }
     }
 
