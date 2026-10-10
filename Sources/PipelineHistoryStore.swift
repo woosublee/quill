@@ -1029,8 +1029,8 @@ final class PipelineHistoryStore {
         // A new audio file isn't in iCloud yet, whatever the old one was.
         var replacedAudio: NoteAudioSyncState?
         if let previous, previous.audioFileName != item.audioFileName {
-            // Reported even with nothing marked: another Mac may have left
-            // parts of the earlier file.
+            // Reported even with nothing marked: this Mac may have parts of
+            // the earlier file waiting or partly sent.
             replacedAudio = Self.audioState(of: entity)
             entity.audioSyncManifestJSON = nil
             entity.audioSyncUploadKey = nil
