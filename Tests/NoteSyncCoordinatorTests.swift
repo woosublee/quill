@@ -29,6 +29,10 @@ struct NoteSyncCoordinatorTests {
         try testUnavailableStoreAsksForFullRefetch()
         testFailedSavesAreRetriedAfterTheNextSync()
         testFailedDeleteIsRetriedAsADelete()
+        testDeleteRetryWaitsWhileTheStoreCantBeRead()
+        testAccountNeedingAttentionPausesAndResumes()
+        try testAudioAccountFailureIsRetriedWithoutALimit()
+        try await testUnreadableNoteKeepsItsParts()
         testLateFailuresDoNotRestartStoppedSync()
         try testNoteBackFromAnotherMacCancelsItsDelete()
         testSaveOfAMissingRecordStartsFresh()
@@ -98,6 +102,9 @@ struct NoteSyncCoordinatorTests {
         var isReadyForSync = true
 
         func syncRecord(id: UUID) -> NoteSyncRecord? { records[id] }
+        /// The store couldn't be read.
+        var readFails = false
+        func noteExists(id: UUID) -> Bool? { readFails ? nil : records[id] != nil }
         func syncSystemFields(id: UUID) -> Data? { systemFields[id] }
         var systemFieldsSaveError: Error?
         func setSyncSystemFields(_ data: Data?, id: UUID) throws {
@@ -808,6 +815,68 @@ struct NoteSyncCoordinatorTests {
         store.manifests[id] = manifest("b.wav", bytes: 120_000_000, parts: 3)
         _ = coordinator.handleFetched([], deletions: [id])
         precondition(engine.audioDeletes == parts(id, 3, "b.wav"))
+    }
+
+    /// A note this Mac can't read might still be here: its parts stay.
+    @MainActor
+    static func testUnreadableNoteKeepsItsParts() async throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio([:])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let id = UUID()
+        engine.iCloud = Set(parts(id, 2, "x.wav"))
+        store.readFails = true
+        coordinator.handleLocalChanges([.deleted(id, wasSynced: true, audio: NoteAudioSyncState())])
+        await coordinator.lastAudioCheck?.value
+        precondition(engine.audioDeletes.isEmpty, "a note that can't be read isn't taken for gone")
+    }
+
+    /// A failed delete is sent again only once the store says the note is
+    /// gone; while it can't be read, the delete waits.
+    @MainActor
+    static func testDeleteRetryWaitsWhileTheStoreCantBeRead() {
+        let (coordinator, store, engine) = make()
+        let id = UUID()
+        store.readFails = true
+        coordinator.handleSendFailures([.deleteFailed(noteID: id)])
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.deletes.isEmpty, "a note that can't be read isn't deleted")
+        store.readFails = false
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.deletes == [id], "the delete goes once the note reads as gone")
+    }
+
+    /// iCloud needs the account looked at (a password, new terms): sync
+    /// pauses and says so, keeps the change, and goes on after a sync
+    /// where nothing failed that way.
+    @MainActor
+    static func testAccountNeedingAttentionPausesAndResumes() {
+        let (coordinator, _, engine) = make()
+        let id = UUID(), gone = UUID()
+        coordinator.handleSendFailures([.account(noteID: id, isDelete: false), .account(noteID: gone, isDelete: true)])
+        precondition(coordinator.status == .paused(.accountNeedsAttention))
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves == [id] && engine.deletes == [gone], "both changes are sent again")
+        precondition(coordinator.status == .paused(.accountNeedsAttention), "still paused until a sync goes through")
+        coordinator.handleFetchFinished(pending: 0)
+        if case .upToDate = coordinator.status {} else { preconditionFailure("\(coordinator.status)") }
+    }
+
+    /// An audio part that failed on the account is sent again without
+    /// counting toward the retry limit.
+    @MainActor
+    static func testAudioAccountFailureIsRetriedWithoutALimit() throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio(["a.wav": 10])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let id = noteWithAudio(store)
+        store.uploadKeys[id] = sha("a.wav")
+        let part = parts(id, 1)[0]
+        for _ in 0..<(NoteSyncCoordinator.maxAudioAttempts + 1) {
+            coordinator.handleAudioSendFailures([.account(part, isDelete: false)])
+            precondition(coordinator.status == .paused(.accountNeedsAttention))
+            engine.audioSaves = []
+            coordinator.handleFetchFinished(pending: 0)
+            precondition(engine.audioSaves == [part], "never given up for an account problem")
+        }
     }
 
     /// A Mac erased mid-upload left parts and no marker; deleting the note

@@ -681,6 +681,14 @@ final class PipelineHistoryStore {
         return record
     }
 
+    func noteExists(id: UUID) -> Bool? {
+        var exists: Bool?
+        container.viewContext.performAndWait {
+            exists = (try? fetchEntry(id: id)).map { $0 != nil }
+        }
+        return exists
+    }
+
     func syncSystemFields(id: UUID) -> Data? {
         var data: Data?
         container.viewContext.performAndWait {

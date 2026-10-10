@@ -140,7 +140,8 @@ struct NoteSyncCloudRecordTests {
     }
 
     /// Saves and deletes read CloudKit errors the same way: a missing zone
-    /// means it was deleted, and a lost connection is a network pause.
+    /// means it was deleted, a lost connection is a network pause, a busy
+    /// server isn't offline, and an account that needs attention says so.
     static func testSendErrorsAreClassified() {
         let expected: [(CKError.Code, NoteSyncSendErrorKind)] = [
             (.zoneNotFound, .zoneGone),
@@ -149,9 +150,11 @@ struct NoteSyncCloudRecordTests {
             (.quotaExceeded, .quotaExceeded),
             (.networkUnavailable, .network),
             (.networkFailure, .network),
-            (.serviceUnavailable, .network),
-            (.requestRateLimited, .network),
-            (.zoneBusy, .network),
+            (.serviceUnavailable, .throttled),
+            (.requestRateLimited, .throttled),
+            (.zoneBusy, .throttled),
+            (.notAuthenticated, .account),
+            (.accountTemporarilyUnavailable, .account),
             (.unknownItem, .unknownItem),
             (.permissionFailure, .other),
             (.limitExceeded, .other)

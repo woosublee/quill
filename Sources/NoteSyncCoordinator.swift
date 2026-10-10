@@ -6,6 +6,9 @@ protocol NoteSyncLocalStore: AnyObject {
     /// False while the store can't save (it needs recovery).
     var isReadyForSync: Bool { get }
     func syncRecord(id: UUID) -> NoteSyncRecord?
+    /// Whether the note is on this Mac; nil when the store can't be read,
+    /// which must never count as gone.
+    func noteExists(id: UUID) -> Bool?
     func syncSystemFields(id: UUID) -> Data?
     func setSyncSystemFields(_ data: Data?, id: UUID) throws
     /// `forgettingAudio`: iCloud lost the audio too, so markers go.
@@ -88,8 +91,10 @@ struct NoteSyncOutgoingAudio: Equatable {
 
 enum NoteAudioSendFailure {
     case quotaExceeded(NoteAudioPartID)
-    /// Offline or throttled; the engine retries these itself.
+    /// Offline; the engine retries these itself.
     case network
+    /// The iCloud account needs attention; sent again after a later sync.
+    case account(NoteAudioPartID, isDelete: Bool)
     case failed(NoteAudioPartID)
     case deleteFailed(NoteAudioPartID)
 }
@@ -110,6 +115,8 @@ enum NoteSyncSendFailure {
     case serverChanged(noteID: UUID, serverPayload: Data?, serverSystemFields: Data)
     case quotaExceeded(noteID: UUID)
     case network(noteID: UUID)
+    /// The iCloud account needs attention; sent again after a later sync.
+    case account(noteID: UUID, isDelete: Bool)
     case unknownItemOnDelete(noteID: UUID)
     /// iCloud has no record for the saved change tag (another Mac removed
     /// it): the save is tried again without the tag.
@@ -122,6 +129,9 @@ enum NoteSyncSendFailure {
 enum NoteSyncPauseReason: Equatable {
     case offline
     case quotaExceeded(pending: Int)
+    /// iCloud needs the account looked at (a password, new terms) in
+    /// System Settings. Sync stays on and goes on once it works again.
+    case accountNeedsAttention
     case accountChanged
     case signedOut
     case deletedElsewhere
@@ -539,7 +549,8 @@ final class NoteSyncCoordinator {
             guard case .some(.some(let keys)) = targets[part.noteID] else {
                 // A deleted note: every part, unless it came back (another
                 // Mac edited it), when the other Mac may be uploading.
-                if exists[part.noteID] == nil { exists[part.noteID] = store.syncRecord(id: part.noteID) != nil }
+                // A note that can't be read counts as here.
+                if exists[part.noteID] == nil { exists[part.noteID] = store.noteExists(id: part.noteID) ?? true }
                 return exists[part.noteID] == false
             }
             return keys.contains(part.key) && !usedKeys(part.noteID).contains(part.key)
@@ -723,6 +734,7 @@ final class NoteSyncCoordinator {
         guard !isStopped else { return }
         var quotaCount = 0
         var offline = false
+        var account = false
         for failure in failures {
             switch failure {
             case .quotaExceeded(let part):
@@ -731,19 +743,34 @@ final class NoteSyncCoordinator {
                 retryAudio(part)
             case .network:
                 offline = true
+            case .account(let part, let isDelete):
+                // Not the part's fault: no try is counted.
+                account = true
+                if isDelete { audioDeletesToRetry.insert(part) } else { audioSavesToRetry.insert(part) }
             case .failed(let part):
                 retryAudio(part)
             case .deleteFailed(let part):
                 audioDeletesToRetry.insert(part)
             }
         }
-        if quotaCount > 0 {
-            status = .paused(.quotaExceeded(pending: quotaCount))
-        } else if offline {
-            status = .paused(.offline)
-        }
+        setFailureStatus(quotaCount: quotaCount, account: account, offline: offline)
         if !failures.isEmpty {
             print("[NoteSync] \(failures.count) audio changes failed to send")
+        }
+    }
+
+    /// A full iCloud outranks an account to look at, which outranks being
+    /// offline. Changes failed on the account are sent again after the next
+    /// sync, which keeps sync busy, so the pause clears after a sync where
+    /// nothing was left to send.
+    private func setFailureStatus(quotaCount: Int, account: Bool, offline: Bool) {
+        if quotaCount > 0 {
+            status = .paused(.quotaExceeded(pending: quotaCount))
+        } else if account {
+            if case .paused(.quotaExceeded) = status { return }
+            status = .paused(.accountNeedsAttention)
+        } else if offline {
+            status = .paused(.offline)
         }
     }
 
@@ -771,6 +798,7 @@ final class NoteSyncCoordinator {
         guard !isStopped else { return }
         var quotaCount = 0
         var offline = false
+        var account = false
         var resend: [UUID] = []
         var deletes: [UUID] = []
         for failure in failures {
@@ -797,6 +825,9 @@ final class NoteSyncCoordinator {
                 savesToRetry.insert(id)
             case .network:
                 offline = true
+            case .account(let id, let isDelete):
+                account = true
+                if isDelete { deletesToRetry.insert(id) } else { savesToRetry.insert(id) }
             case .unknownItemOnDelete(let id):
                 try? store.setSyncSystemFields(nil, id: id)
             case .unknownItemOnSave(let id):
@@ -813,11 +844,7 @@ final class NoteSyncCoordinator {
         if !resend.isEmpty { enqueueNoteSaves(resend) }
         if !deletes.isEmpty { engine.enqueueDeletes(deletes) }
         cleanUpAudioSoon(cleanUpsForClearedUploads())
-        if quotaCount > 0 {
-            status = .paused(.quotaExceeded(pending: quotaCount))
-        } else if offline {
-            status = .paused(.offline)
-        }
+        setFailureStatus(quotaCount: quotaCount, account: account, offline: offline)
         if !failures.isEmpty {
             print("[NoteSync] \(failures.count) changes failed to send")
         }
@@ -934,9 +961,11 @@ final class NoteSyncCoordinator {
             queuedAgain = true
         }
         if !deletesToRetry.isEmpty {
-            // A note that came back (another Mac's edit) stays in iCloud.
-            let retry = deletesToRetry.filter { store.syncRecord(id: $0) == nil }
-            deletesToRetry = []
+            // A note that came back (another Mac's edit) stays in iCloud,
+            // and one that can't be read waits for a later sync.
+            let unreadable = deletesToRetry.filter { store.noteExists(id: $0) == nil }
+            let retry = deletesToRetry.filter { store.noteExists(id: $0) == false }
+            deletesToRetry = unreadable
             if !retry.isEmpty {
                 engine.enqueueDeletes(Array(retry))
                 queuedAgain = true

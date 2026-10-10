@@ -70,6 +70,7 @@ struct NoteSyncControllerTests {
             if let record = records[id] { return record }
             return ids.contains(id) ? NoteSyncRecord(noteID: id, fields: [:], clock: NoteFieldClock(stamps: [:]), deletedAt: nil) : nil
         }
+        func noteExists(id: UUID) -> Bool? { syncRecord(id: id) != nil }
         func syncSystemFields(id: UUID) -> Data? { nil }
         func setSyncSystemFields(_ data: Data?, id: UUID) {}
         func clearAllSyncSystemFields(forgettingAudio: Bool) { cleared = true }

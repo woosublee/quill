@@ -621,6 +621,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                     audioFailures.append(.quotaExceeded(part))
                 case .network:
                     audioFailures.append(.network)
+                case .throttled:
+                    break // the engine waits and retries it
+                case .account:
+                    audioFailures.append(.account(part, isDelete: false))
                 case .other:
                     audioFailures.append(.failed(part))
                 }
@@ -642,6 +646,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                 failures.append(.quotaExceeded(noteID: id))
             case .network:
                 failures.append(.network(noteID: id))
+            case .throttled:
+                break // the engine waits and retries it
+            case .account:
+                failures.append(.account(noteID: id, isDelete: false))
             case .unknownItem:
                 failures.append(.unknownItemOnSave(noteID: id))
             case .other:
@@ -660,6 +668,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                     break // already gone
                 case .network:
                     audioFailures.append(.network)
+                case .throttled:
+                    break // the engine waits and retries it
+                case .account:
+                    audioFailures.append(.account(part, isDelete: true))
                 case .serverChanged, .quotaExceeded, .other:
                     audioFailures.append(.deleteFailed(part))
                 }
@@ -671,6 +683,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                 if zoneGoneMeansDeletedElsewhere() { zoneDeletedElsewhere = true }
             case .network:
                 failures.append(.network(noteID: id))
+            case .throttled:
+                break // the engine waits and retries it
+            case .account:
+                failures.append(.account(noteID: id, isDelete: true))
             case .unknownItem:
                 failures.append(.unknownItemOnDelete(noteID: id))
             case .serverChanged, .quotaExceeded, .other:

@@ -247,6 +247,10 @@ private struct NoteSyncSettingsCard: View {
             Text("iCloud storage is full, so uploads are paused")
                 .font(.caption)
                 .foregroundStyle(.orange)
+        case .paused(.accountNeedsAttention):
+            Text("iCloud account needs attention")
+                .font(.caption)
+                .foregroundStyle(.orange)
         case .paused(.accountChanged):
             Text("Sync stopped because the iCloud account changed")
                 .font(.caption)
@@ -286,6 +290,10 @@ private struct NoteSyncSettingsCard: View {
                 }
                 .buttonStyle(.link)
                 .font(.caption)
+            case .paused(.accountNeedsAttention):
+                Text("Check the Apple Account notice in System Settings to continue syncing.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             case .paused(.accountChanged):
                 Text("Your notes weren't deleted. Turn sync on again to continue with the new account.")
                     .font(.caption)
