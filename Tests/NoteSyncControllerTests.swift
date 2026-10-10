@@ -1155,6 +1155,7 @@ struct NoteSyncControllerTests {
         precondition(engines.last?.saves == store.ids, "sent again at launch")
         precondition(saved == NoteSyncFailedChanges(saves: Set(store.ids)), "kept until iCloud confirms it")
         engines.last?.coordinator?.handleSaved(id: store.ids[0], systemFields: Data([1]))
+        engines.last?.coordinator?.handleFetchFinished(pending: 0)
         precondition(saved == nil, "confirmed")
         engines.last?.coordinator?.handleSendFailures([.other(noteID: store.ids[0])])
         precondition(saved == NoteSyncFailedChanges(saves: Set(store.ids)), "a new failure is remembered")

@@ -171,6 +171,7 @@ struct AppStateDependencies {
                     guard let data = try? Data(contentsOf: failedChangesURL) else { return nil }
                     guard let changes = try? JSONDecoder().decode(NoteSyncFailedChanges.self, from: data) else {
                         print("[NoteSync] Couldn't read the failed changes kept from the last run")
+                        try? FileManager.default.removeItem(at: failedChangesURL)
                         return nil
                     }
                     return changes

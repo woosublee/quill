@@ -549,9 +549,6 @@ final class NoteSyncController: ObservableObject {
 
     private func stopEngine(forgetState: Bool) {
         if engine != nil { onEngineStop?() }
-        // A retired coordinator's late events don't touch what the next one
-        // keeps.
-        coordinator?.onFailedChangesChange = nil
         coordinator?.stop()
         engine?.stop(forgetState: forgetState)
         engine = nil
