@@ -63,21 +63,19 @@ extension NoteSyncLocalStore {
 
     /// The note's audio file on this Mac and its size, when it is here.
     func localAudioFile(id: UUID, resolve: (String) -> URL?) -> NoteSyncLocalAudio? {
-        guard case .string(let name)? = syncRecord(id: id)?.fields[NoteSyncField.audioFileName.rawValue] else { return nil }
-        return NoteSyncLocalAudio.find(named: name, resolve: resolve)
+        NoteSyncLocalAudio.find(named: audioFileName(id: id), resolve: resolve)
     }
 
     /// Note by note, for stores without a single fetch.
     func audioSyncSnapshots() -> [NoteAudioSyncSnapshot] {
         syncableNoteIDs().map { id in
-            let name: String?
-            if case .string(let value)? = syncRecord(id: id)?.fields[NoteSyncField.audioFileName.rawValue] {
-                name = value
-            } else {
-                name = nil
-            }
-            return NoteAudioSyncSnapshot(id: id, audioFileName: name, manifest: audioManifest(id: id), uploadKey: audioUploadKey(id: id))
+            NoteAudioSyncSnapshot(id: id, audioFileName: audioFileName(id: id), manifest: audioManifest(id: id), uploadKey: audioUploadKey(id: id))
         }
+    }
+
+    private func audioFileName(id: UUID) -> String? {
+        guard case .string(let name)? = syncRecord(id: id)?.fields[NoteSyncField.audioFileName.rawValue] else { return nil }
+        return name
     }
 }
 
@@ -91,6 +89,8 @@ protocol NoteSyncEngineClient: AnyObject {
     func enqueueAudioDeletes(_ parts: [NoteAudioPartID])
     /// Audio parts still waiting to go up, for every note.
     func pendingAudioSaves() -> [NoteAudioPartID]
+    /// Audio parts waiting to be deleted.
+    func pendingAudioDeletes() -> [NoteAudioPartID]
     /// Changes of any kind still waiting to go up.
     func pendingChangeCount() -> Int
     func cancelAudioSaves(noteID: UUID)
@@ -119,6 +119,11 @@ enum NoteAudioInICloud: Equatable {
     /// From the record's payload, as fetched.
     static func read(payload: Data?) -> NoteAudioInICloud {
         guard let payload, let record = try? NoteSyncPayload.decode(payload), !record.hasUnreadableKnownFields else {
+            return .unreadable
+        }
+        // A newer build may name the note's audio in a way this one doesn't
+        // know: its record decides nothing here.
+        if case .int(let version)? = record.fields[NoteSyncRecord.schemaVersionKey], version > NoteSyncRecord.schemaVersion {
             return .unreadable
         }
         switch record.fields[NoteSyncField.audioManifest.rawValue] {
@@ -1196,7 +1201,8 @@ final class NoteSyncCoordinator {
             if case .marker(let marker) = note, marker.parts > 0 { markers[id] = marker }
         }
         // A marker whose parts aren't all there may be uploaded again, under
-        // another file's name: that note keeps everything.
+        // another file's name, and one with parts this Mac is deleting may
+        // soon have none: that note keeps everything.
         let marked = markers.flatMap { $0.value.partIDs(noteID: $0.key) }
         let present: Set<NoteAudioPartID>
         do {
@@ -1206,7 +1212,10 @@ final class NoteSyncCoordinator {
             return false
         }
         guard !isStopped else { return false }
-        let backed = Set(markers.filter { $0.value.partIDs(noteID: $0.key).allSatisfy(present.contains) }.keys)
+        let deleting = Set(engine.pendingAudioDeletes()).union(audioDeleteRetries.waiting)
+        let backed = Set(markers.filter { note in
+            note.value.partIDs(noteID: note.key).allSatisfy { present.contains($0) && !deleting.contains($0) }
+        }.keys)
         // This Mac's state is read again: it may have changed meanwhile.
         here = notesHere()
         let leftover = candidates.filter { part in

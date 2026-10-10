@@ -122,7 +122,8 @@ final class NoteSyncController: ObservableObject {
     /// guard against starting over in a loop.
     private var heldBackStartOver = false
     private var isLearningAccount = false
-    private var isSearchingLeftoverAudio = false
+    /// The coordinator whose leftover search is running.
+    private weak var searchingCoordinator: NoteSyncCoordinator?
     /// A Turn Off in progress, and whether it deletes from iCloud; another
     /// press waits for it.
     private var turnOffInProgress: (task: Task<Bool, Never>, deletes: Bool)?
@@ -560,13 +561,16 @@ final class NoteSyncController: ObservableObject {
     /// copy still decides each removal. A search that couldn't reach iCloud
     /// is tried again at the next up-to-date sync.
     private func removeLeftoverAudioIfDue() {
+        // A date ahead of the clock (it was set back) doesn't hold it off.
         if let last = defaults.object(forKey: Self.lastLeftoverScanKey) as? Date,
-           now().timeIntervalSince(last) < Self.leftoverScanInterval { return }
-        guard let coordinator, !isSearchingLeftoverAudio else { return }
-        isSearchingLeftoverAudio = true
-        coordinator.removeLeftoverAudioSoon { [weak self] searched in
+           last <= now(), now().timeIntervalSince(last) < Self.leftoverScanInterval { return }
+        guard let coordinator, searchingCoordinator !== coordinator else { return }
+        searchingCoordinator = coordinator
+        coordinator.removeLeftoverAudioSoon { [weak self, weak coordinator] searched in
             guard let self else { return }
-            self.isSearchingLeftoverAudio = false
+            // A search of a coordinator since replaced records nothing.
+            guard let coordinator, self.coordinator === coordinator else { return }
+            self.searchingCoordinator = nil
             // A search that couldn't reach iCloud is tried again in an hour.
             guard self.isEnabled else { return }
             let retry = self.now().addingTimeInterval(60 * 60 - Self.leftoverScanInterval)

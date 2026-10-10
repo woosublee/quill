@@ -56,6 +56,7 @@ struct NoteSyncControllerTests {
         testLeftoverAudioIsLookedForOnceADay()
         testFailedLeftoverSearchIsTriedAtTheNextSync()
         testNoLeftoverSearchWhileNotesFailToSync()
+        testLeftoverSearchDateAheadOfTheClockDoesNotHoldItOff()
         print("NoteSyncControllerTests passed")
     }
 
@@ -135,6 +136,7 @@ struct NoteSyncControllerTests {
         func enqueueAudioSaves(_ parts: [NoteAudioPartID]) {}
         func enqueueAudioDeletes(_ parts: [NoteAudioPartID]) {}
         func pendingAudioSaves() -> [NoteAudioPartID] { [] }
+        func pendingAudioDeletes() -> [NoteAudioPartID] { [] }
         var pendingCount = 0
         func pendingChangeCount() -> Int { pendingCount }
         func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> { [] }
@@ -1111,5 +1113,16 @@ struct NoteSyncControllerTests {
         precondition(controller.status == .paused(.notesFailed(count: 1, willRetry: false)))
         precondition(expectation { await coordinator?.lastAudioCheck?.value })
         precondition(engine()?.partListings == 0)
+    }
+
+    @MainActor
+    static func testLeftoverSearchDateAheadOfTheClockDoesNotHoldItOff() {
+        let (controller, store, engine, defaults) = make(enabled: true)
+        defaults.set(clock.addingTimeInterval(90 * 24 * 3600), forKey: NoteSyncController.lastLeftoverScanKey)
+        controller.attach(store: store)
+        let coordinator = engine()?.coordinator
+        coordinator?.handleFetchFinished(pending: 0)
+        precondition(expectation { await coordinator?.lastAudioCheck?.value })
+        precondition(engine()?.partListings == 1, "the clock was set back")
     }
 }

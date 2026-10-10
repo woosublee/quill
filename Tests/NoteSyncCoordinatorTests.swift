@@ -117,6 +117,7 @@ struct NoteSyncCoordinatorTests {
         await testLeftoverScanRemovesOnlyPartsNothingUses()
         await testLeftoverScanLeavesNotesItCantRead()
         testStoppedSearchReportsBack()
+        await testLeftoverScanKeepsNotesWhoseMarkedPartsAreBeingDeleted()
         try testAudioInICloudIsReadFromThePayload()
         print("NoteSyncCoordinatorTests passed")
     }
@@ -201,6 +202,7 @@ struct NoteSyncCoordinatorTests {
         var pendingAudio: [NoteAudioPartID] = []
         func enqueueAudioSaves(_ parts: [NoteAudioPartID]) { audioSaves += parts; pendingAudio += parts }
         func enqueueAudioDeletes(_ parts: [NoteAudioPartID]) { audioDeletes += parts }
+        func pendingAudioDeletes() -> [NoteAudioPartID] { audioDeletes }
         var pendingAudioReads = 0
         var pendingCount = 0
         func pendingChangeCount() -> Int { pendingCount }
@@ -2026,6 +2028,11 @@ struct NoteSyncCoordinatorTests {
         note.fields[NoteSyncField.audioManifest.rawValue] = .data(Data([1, 2]))
         let broken = try NoteSyncPayload.encode(note)
         precondition(NoteAudioInICloud.read(payload: broken) == .unreadable)
+        // A newer build's record decides nothing here.
+        note.fields[NoteSyncField.audioManifest.rawValue] = .data(manifest().encoded())
+        note.fields[NoteSyncRecord.schemaVersionKey] = .int(NoteSyncRecord.schemaVersion + 1)
+        let newer = try NoteSyncPayload.encode(note)
+        precondition(NoteAudioInICloud.read(payload: newer) == .unreadable)
         precondition(NoteAudioInICloud.read(payload: nil) == .unreadable && NoteAudioInICloud.read(payload: Data([0])) == .unreadable)
     }
 
@@ -2047,5 +2054,23 @@ struct NoteSyncCoordinatorTests {
         store.readFails = true
         await coordinator.removeLeftoverAudio()
         precondition(engine.audioDeletes.isEmpty)
+    }
+
+    /// One of the marked parts is waiting to be deleted here: the note may
+    /// soon have none of its marked parts, so its other parts stay.
+    @MainActor
+    static func testLeftoverScanKeepsNotesWhoseMarkedPartsAreBeingDeleted() async {
+        let (coordinator, store, engine) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        store.syncable.insert(note.noteID)
+        store.manifests[note.noteID] = manifest("a.wav")
+        let marked = parts(note.noteID, 1, "a.wav")[0]
+        let earlier = parts(note.noteID, 1, "old.wav")[0]
+        engine.iCloud = [marked, earlier]
+        engine.notesInCloud = [note.noteID: .marker(manifest("a.wav"))]
+        engine.audioDeletes = [marked]
+        await coordinator.removeLeftoverAudio()
+        precondition(engine.audioDeletes == [marked], "\(engine.audioDeletes)")
     }
 }

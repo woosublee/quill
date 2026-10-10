@@ -27,6 +27,7 @@ struct AppStateNoteSyncTests {
         func enqueueAudioSaves(_ parts: [NoteAudioPartID]) {}
         func enqueueAudioDeletes(_ parts: [NoteAudioPartID]) {}
         func pendingAudioSaves() -> [NoteAudioPartID] { [] }
+        func pendingAudioDeletes() -> [NoteAudioPartID] { [] }
         func pendingChangeCount() -> Int { 0 }
         func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> { [] }
         func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] { [] }

@@ -139,6 +139,14 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         activeEngine()?.state.pendingRecordZoneChanges.count ?? 0
     }
 
+    func pendingAudioDeletes() -> [NoteAudioPartID] {
+        guard let engine = activeEngine() else { return [] }
+        return engine.state.pendingRecordZoneChanges.compactMap { change in
+            guard case .deleteRecord(let id) = change else { return nil }
+            return NoteAudioCloudRecord.part(from: id)
+        }
+    }
+
     func pendingAudioSaves() -> [NoteAudioPartID] {
         guard let engine = activeEngine() else { return [] }
         return engine.state.pendingRecordZoneChanges.compactMap { change in
@@ -299,8 +307,9 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
     }
 
     /// Lists the audio zone's records, names only, and keeps the parts of
-    /// these notes. Used to find parts no marker names, which is rare, so
-    /// listing the zone is fine.
+    /// these notes. Used to find parts no marker names, which is rare.
+    /// (The daily leftover search lists the whole zone too, so its cost
+    /// grows with every part in iCloud.)
     func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] {
         try await listAudioParts().map(\.part).filter { ids.contains($0.noteID) }
     }
