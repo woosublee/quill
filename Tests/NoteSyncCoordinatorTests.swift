@@ -111,6 +111,7 @@ struct NoteSyncCoordinatorTests {
         try testFetchedCopyClearsAFailedSave()
         testNoteGivenUpThenWaitingForSpaceIsNotBoth()
         testRetriesWaitWhileThisMacDeletes()
+        testSkippedSyncCountsUploadsPutBack()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -1855,5 +1856,20 @@ struct NoteSyncCoordinatorTests {
         coordinator.stopHoldingRetries()
         precondition(engine.saves == [id], "the skipped sync runs once the delete is undone")
         if case .upToDate = coordinator.status { preconditionFailure("uploads put back are still waiting") }
+    }
+
+    /// The undone delete put its uploads back: the replayed sync counts
+    /// them, so sync doesn't read as up to date.
+    @MainActor
+    static func testSkippedSyncCountsUploadsPutBack() {
+        let (coordinator, _, engine) = make()
+        coordinator.isHoldingRetries = true
+        coordinator.handleFetchFinished(pending: 0)
+        engine.pendingCount = 2
+        coordinator.stopHoldingRetries()
+        if case .upToDate = coordinator.status { preconditionFailure("uploads put back are still waiting") }
+        engine.pendingCount = 0
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(coordinator.status == .upToDate(clock))
     }
 }
