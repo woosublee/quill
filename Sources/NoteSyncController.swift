@@ -77,6 +77,8 @@ final class NoteSyncController: ObservableObject {
     private let defaults: UserDefaults
     private let createZone: () async throws -> Void
     private let deleteLeftoverAudioZone: () async -> NoteSyncLeftoverAudio
+    /// Turn Off and Delete from iCloud while sync is paused with no engine.
+    private let deleteAllWithoutEngine: () async throws -> Bool
     /// A hash telling iCloud accounts apart, or nil when it can't be read.
     private let accountID: () async -> String?
     /// A delete of leftover audio in progress; turning on waits for it, so
@@ -99,6 +101,7 @@ final class NoteSyncController: ObservableObject {
         unavailableReason: NoteSyncUnavailableReason? = NoteSyncAvailability.current(),
         createZone: @escaping () async throws -> Void,
         deleteLeftoverAudio: @escaping () async -> NoteSyncLeftoverAudio = { .deleted },
+        deleteAllWithoutEngine: @escaping () async throws -> Bool = { throw NoteSyncEngineError.notRunning },
         accountID: @escaping () async -> String? = { nil },
         localAudioURL: @escaping (String) -> URL? = { _ in nil },
         now: @escaping () -> Date = Date.init,
@@ -109,6 +112,7 @@ final class NoteSyncController: ObservableObject {
         self.unavailableReason = unavailableReason
         self.createZone = createZone
         self.deleteLeftoverAudioZone = deleteLeftoverAudio
+        self.deleteAllWithoutEngine = deleteAllWithoutEngine
         self.accountID = accountID
         audioLeftInICloud = !(defaults.stringArray(forKey: Self.audioLeftInICloudKey) ?? []).isEmpty
         self.localAudioURL = localAudioURL
@@ -194,14 +198,23 @@ final class NoteSyncController: ObservableObject {
             let signedIn = Task { await accountID() }
             let audioDeleted: Bool
             do {
-                guard let engine else { throw NoteSyncEngineError.notRunning }
-                audioDeleted = try await engine.deleteAllFromICloud()
+                if let engine {
+                    audioDeleted = try await engine.deleteAllFromICloud()
+                } else {
+                    // Paused with no engine (notes couldn't be saved here,
+                    // or history can't be opened): the zones go directly.
+                    audioDeleted = try await deleteAllWithoutEngine()
+                }
             } catch {
                 print("[NoteSync] Deleting from iCloud failed")
                 return false
             }
-            // iCloud no longer holds these notes.
-            store?.clearChangeTags(forgettingAudio: true)
+            // iCloud no longer holds these notes. History that can't be
+            // opened can't be written; a later turn-on checks its markers
+            // against iCloud, and a stale change tag is dropped on save.
+            if store?.isReadyForSync == true {
+                store?.clearChangeTags(forgettingAudio: true)
+            }
             if !audioDeleted {
                 let account = await signedIn.value ?? ""
                 accountsWithAudioLeft = Array(Set(accountsWithAudioLeft + [account])).sorted()
