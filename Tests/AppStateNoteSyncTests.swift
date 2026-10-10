@@ -30,6 +30,8 @@ struct AppStateNoteSyncTests {
         func pendingChangeCount() -> Int { 0 }
         func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> { [] }
         func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] { [] }
+        func allAudioParts() async throws -> [NoteAudioPartInICloud] { [] }
+        func notesInICloud(_ ids: Set<UUID>) async throws -> Set<UUID> { [] }
         func cancelAudioSaves(noteID: UUID) {}
         func cancelAudioDeletes(noteID: UUID) {}
         func cancelAudioDeletes(_ parts: [NoteAudioPartID]) {}

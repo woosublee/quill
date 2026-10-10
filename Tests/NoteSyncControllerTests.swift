@@ -53,6 +53,7 @@ struct NoteSyncControllerTests {
         testRelaunchAfterAPauseUploadsEverything()
         testHistoryLostMidSessionPausesUntilReplaced()
         testSyncNowTriesFailedChangesAgain()
+        testLeftoverAudioIsLookedForOnceADay()
         print("NoteSyncControllerTests passed")
     }
 
@@ -136,6 +137,12 @@ struct NoteSyncControllerTests {
         func pendingChangeCount() -> Int { pendingCount }
         func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> { [] }
         func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] { [] }
+        var partListings = 0
+        func allAudioParts() async throws -> [NoteAudioPartInICloud] {
+            partListings += 1
+            return []
+        }
+        func notesInICloud(_ ids: Set<UUID>) async throws -> Set<UUID> { [] }
         func cancelAudioSaves(noteID: UUID) {}
         func cancelAudioDeletes(noteID: UUID) {}
         func cancelAudioDeletes(_ parts: [NoteAudioPartID]) {}
@@ -1036,4 +1043,27 @@ struct NoteSyncControllerTests {
         }
     }
 
+
+    /// Once sync is up to date, iCloud is searched for audio nothing uses,
+    /// at most once a day.
+    @MainActor
+    static func testLeftoverAudioIsLookedForOnceADay() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        let coordinator = engine()?.coordinator
+        coordinator?.handleFetchFinished(pending: 0)
+        precondition(expectation { await coordinator?.lastAudioCheck?.value })
+        precondition(engine()?.partListings == 1)
+        coordinator?.handleSendFailures([.network(noteID: UUID())])
+        coordinator?.handleNetworkChange(isOnline: true)
+        coordinator?.handleFetchFinished(pending: 0)
+        precondition(expectation { await coordinator?.lastAudioCheck?.value })
+        precondition(engine()?.partListings == 1, "not again the same day")
+        clock = clock.addingTimeInterval(NoteSyncController.leftoverScanInterval)
+        coordinator?.handleSendFailures([.network(noteID: UUID())])
+        coordinator?.handleNetworkChange(isOnline: true)
+        coordinator?.handleFetchFinished(pending: 0)
+        precondition(expectation { await coordinator?.lastAudioCheck?.value })
+        precondition(engine()?.partListings == 2, "the next day")
+    }
 }

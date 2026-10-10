@@ -83,6 +83,10 @@ final class NoteSyncController: ObservableObject {
     /// Set when Turn Off and Delete couldn't write note history (it can't be
     /// opened): its change tags and audio markers go once it is attached.
     static let clearTagsOnAttachKey = "iCloudNoteSyncClearTagsOnAttach"
+    /// When iCloud was last searched for audio parts nothing uses; it is
+    /// done about once a day, once sync is up to date.
+    static let lastLeftoverScanKey = "iCloudNoteSyncLastLeftoverScan"
+    static let leftoverScanInterval: TimeInterval = 24 * 60 * 60
 
     @Published private(set) var status: NoteSyncStatus = .off
     @Published private(set) var isEnabled: Bool
@@ -539,6 +543,7 @@ final class NoteSyncController: ObservableObject {
             // A sync got all the way through, so its engine holds what a
             // full start queued.
             defaults.removeObject(forKey: Self.needsFullStartKey)
+            removeLeftoverAudioIfDue()
             if defaults.string(forKey: Self.syncAccountKey) == nil { learnSyncAccount() }
         case .paused(.accountChanged), .paused(.signedOut), .paused(.deletedElsewhere):
             // Sync starts again only when the user turns it on, so notes
@@ -548,6 +553,16 @@ final class NoteSyncController: ObservableObject {
         default:
             break
         }
+    }
+
+    /// This Mac has all iCloud holds now, so a part whose note isn't here
+    /// is one nothing uses.
+    private func removeLeftoverAudioIfDue() {
+        if let last = defaults.object(forKey: Self.lastLeftoverScanKey) as? Date,
+           now().timeIntervalSince(last) < Self.leftoverScanInterval { return }
+        guard let coordinator else { return }
+        defaults.set(now(), forKey: Self.lastLeftoverScanKey)
+        coordinator.removeLeftoverAudioSoon()
     }
 
     /// For sync turned on before Quill kept its account, or when it

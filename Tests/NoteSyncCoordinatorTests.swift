@@ -114,6 +114,8 @@ struct NoteSyncCoordinatorTests {
         testSkippedSyncCountsUploadsPutBack()
         testUndoneDeletePutsBackOnlyDeletesStillWanted()
         try await testTurnOnReadsEveryNoteInOneGo()
+        await testLeftoverScanRemovesOnlyPartsNothingUses()
+        await testLeftoverScanLeavesNotesItCantRead()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -231,6 +233,20 @@ struct NoteSyncCoordinatorTests {
             onListParts?()
             if let lookupError { throw lookupError }
             return iCloud.filter { ids.contains($0.noteID) }.sorted { $0.recordName < $1.recordName }
+        }
+        /// When each part was saved to iCloud; unlisted ones are old.
+        var savedAt: [NoteAudioPartID: Date] = [:]
+        func allAudioParts() async throws -> [NoteAudioPartInICloud] {
+            lookups += 1
+            if let lookupError { throw lookupError }
+            return iCloud.sorted { $0.recordName < $1.recordName }
+                .map { NoteAudioPartInICloud(part: $0, saved: savedAt[$0] ?? .distantPast) }
+        }
+        /// Notes iCloud holds.
+        var notesInCloud: Set<UUID> = []
+        func notesInICloud(_ ids: Set<UUID>) async throws -> Set<UUID> {
+            if let lookupError { throw lookupError }
+            return notesInCloud.intersection(ids)
         }
         /// What CKSyncEngine does when a part is saved.
         func finish(_ part: NoteAudioPartID) {
@@ -1936,5 +1952,40 @@ struct NoteSyncCoordinatorTests {
         coordinator.resumeAudioUploads()
         await coordinator.lastAudioCheck?.value
         precondition(store.snapshotReads == 2 && store.manifestReads < 10, "\(store.manifestReads)")
+    }
+
+    /// The daily scan removes week-old parts nothing uses: an earlier file's
+    /// parts, and parts of notes gone here and from iCloud. It keeps parts
+    /// a marker or this Mac's upload names, recent ones (an upload may still
+    /// be running), ones being sent, and ones of notes iCloud still holds.
+    @MainActor
+    static func testLeftoverScanRemovesOnlyPartsNothingUses() async {
+        let (coordinator, store, engine) = make()
+        let marked = record(), sending = record(), gone = UUID(), elsewhere = UUID()
+        for note in [marked, sending] { store.records[note.noteID] = note }
+        store.manifests[marked.noteID] = manifest("a.wav")
+        store.uploadKeys[sending.noteID] = sha("u.wav")
+        let used = parts(marked.noteID, 1, "a.wav")[0]
+        let earlier = parts(marked.noteID, 2, "old.wav")
+        let recent = parts(marked.noteID, 1, "new.wav")[0]
+        let uploading = parts(sending.noteID, 1, "u.wav")[0]
+        let goneParts = parts(gone, 2)
+        let elsewherePart = parts(elsewhere, 1)[0]
+        let inFlight = parts(gone, 1, "x.wav")[0]
+        engine.iCloud = Set([used, recent, uploading, elsewherePart, inFlight] + earlier + goneParts)
+        engine.savedAt[recent] = clock.addingTimeInterval(-6 * 24 * 3600)
+        engine.notesInCloud = [elsewhere]
+        engine.pendingAudio = [inFlight]
+        await coordinator.removeLeftoverAudio()
+        precondition(Set(engine.audioDeletes) == Set(earlier + goneParts), "\(engine.audioDeletes)")
+    }
+
+    @MainActor
+    static func testLeftoverScanLeavesNotesItCantRead() async {
+        let (coordinator, store, engine) = make()
+        engine.iCloud = Set(parts(UUID(), 1))
+        store.readFails = true
+        await coordinator.removeLeftoverAudio()
+        precondition(engine.audioDeletes.isEmpty)
     }
 }

@@ -302,8 +302,18 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
     /// these notes. Used to find parts no marker names, which is rare, so
     /// listing the zone is fine.
     func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] {
+        try await listAudioParts().map(\.part).filter { ids.contains($0.noteID) }
+    }
+
+    func allAudioParts() async throws -> [NoteAudioPartInICloud] {
+        try await listAudioParts()
+    }
+
+    /// Every part in the audio zone, read from the start of its changes;
+    /// only part names and save dates, never the audio.
+    private func listAudioParts() async throws -> [NoteAudioPartInICloud] {
         guard activeEngine() != nil else { throw NoteSyncEngineError.notRunning }
-        var parts: [NoteAudioPartID] = []
+        var parts: [NoteAudioPartInICloud] = []
         var token: CKServerChangeToken?
         var moreComing = true
         while moreComing {
@@ -322,15 +332,42 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             } catch let error as CKError where Self.isZoneGone(error.code) {
                 return []
             }
-            for recordID in changes.modificationResultsByID.keys {
-                if let part = NoteAudioCloudRecord.part(from: recordID), ids.contains(part.noteID) {
-                    parts.append(part)
-                }
+            for (recordID, result) in changes.modificationResultsByID {
+                guard let part = NoteAudioCloudRecord.part(from: recordID) else { continue }
+                // Without a date, a part counts as just saved, so it stays.
+                let saved = (try? result.get())?.record.creationDate ?? Date()
+                parts.append(NoteAudioPartInICloud(part: part, saved: saved))
             }
             token = changes.changeToken
             moreComing = changes.moreComing
         }
         return parts
+    }
+
+    func notesInICloud(_ ids: Set<UUID>) async throws -> Set<UUID> {
+        guard activeEngine() != nil else { throw NoteSyncEngineError.notRunning }
+        var found: Set<UUID> = []
+        let all = Array(ids)
+        for start in stride(from: 0, to: all.count, by: 200) {
+            let batch = all[start..<min(start + 200, all.count)].map(NoteSyncCloudRecord.recordID(for:))
+            let results: [CKRecord.ID: Result<CKRecord, Error>]
+            do {
+                results = try await database.records(for: batch, desiredKeys: [])
+            } catch let error as CKError where Self.isZoneGone(error.code) {
+                return found
+            }
+            for (recordID, result) in results {
+                switch result {
+                case .success:
+                    if let id = NoteSyncCloudRecord.noteID(from: recordID) { found.insert(id) }
+                case .failure(let error as CKError) where error.code == .unknownItem || Self.isZoneGone(error.code):
+                    continue
+                case .failure(let error):
+                    throw error
+                }
+            }
+        }
+        return found
     }
 
     /// Sync Now: fetches, then sends what is waiting. Failures are left to

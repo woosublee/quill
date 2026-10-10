@@ -103,6 +103,15 @@ protocol NoteSyncEngineClient: AnyObject {
     func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID>
     /// Every part in iCloud for these notes, whatever file it came from.
     func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID]
+    /// Every part in iCloud, with when it was saved there.
+    func allAudioParts() async throws -> [NoteAudioPartInICloud]
+    /// Which of these notes iCloud holds.
+    func notesInICloud(_ ids: Set<UUID>) async throws -> Set<UUID>
+}
+
+struct NoteAudioPartInICloud: Equatable {
+    let part: NoteAudioPartID
+    let saved: Date
 }
 
 /// One audio part to send: which bytes of which file.
@@ -1079,16 +1088,76 @@ final class NoteSyncCoordinator {
     }
 
     func isDeleteStillWanted(_ part: NoteAudioPartID) -> Bool {
-        switch store.noteExists(id: part.noteID) {
-        case false?: return true
-        case nil:
+        guard let unused = isUnused(part) else {
             audioDeleteRetries.failed(part, at: now(), keepTrying: true)
             return false
+        }
+        return unused
+    }
+
+    /// Whether nothing here uses the part: its note is gone, or neither its
+    /// marker nor this Mac's upload names it. Nil when the note can't be
+    /// read.
+    private func isUnused(_ part: NoteAudioPartID) -> Bool? {
+        switch store.noteExists(id: part.noteID) {
+        case false?: return true
+        case nil: return nil
         case true?:
             let used = [store.audioManifest(id: part.noteID)?.sha256, store.audioUploadKey(id: part.noteID)]
                 .compactMap { $0.map(NoteAudioPartID.key(sha256:)) }
             return !used.contains(part.key)
         }
+    }
+
+    /// A part this old that nothing uses is left over: no upload still
+    /// running on another Mac is that old.
+    static let leftoverAge: TimeInterval = 7 * 24 * 60 * 60
+
+    func removeLeftoverAudioSoon() {
+        guard !isStopped else { return }
+        startAudioWork { await self.removeLeftoverAudio() }
+    }
+
+    /// Removes parts left in iCloud that nothing uses, which the clean-ups
+    /// when notes change don't reach: another Mac's upload that stopped for
+    /// good, an earlier file's parts whose marker was cleared before they
+    /// were looked for, a note that came back mid-clean-up. Only parts a
+    /// week old, not being sent here, and whose note isn't being checked
+    /// go; a note this Mac doesn't have keeps its parts while iCloud holds
+    /// it (one this version can't read, say).
+    func removeLeftoverAudio() async {
+        guard !isStopped else { return }
+        let inICloud: [NoteAudioPartInICloud]
+        do {
+            inICloud = try await engine.allAudioParts()
+        } catch {
+            print("[NoteSync] Couldn't look for leftover audio")
+            return
+        }
+        guard !isStopped else { return }
+        let cutoff = now().addingTimeInterval(-Self.leftoverAge)
+        let sending = Set(engine.pendingAudioSaves()).union(audioSaveRetries.waiting).union(audioSaveRetries.givenUp)
+        let candidates = inICloud.filter { item in
+            item.saved < cutoff && !sending.contains(item.part)
+                && !audioChecking.contains(item.part.noteID) && isUnused(item.part) == true
+        }.map(\.part)
+        guard !candidates.isEmpty else { return }
+        let notHere = Set(candidates.map(\.noteID).filter { store.noteExists(id: $0) == false })
+        let stillInICloud: Set<UUID>
+        do {
+            stillInICloud = notHere.isEmpty ? [] : try await engine.notesInICloud(notHere)
+        } catch {
+            print("[NoteSync] Couldn't look for leftover audio")
+            return
+        }
+        guard !isStopped else { return }
+        // Read again: notes may have changed while iCloud answered.
+        let leftover = candidates.filter { part in
+            !stillInICloud.contains(part.noteID) && !audioChecking.contains(part.noteID) && isUnused(part) == true
+        }
+        guard !leftover.isEmpty else { return }
+        engine.enqueueAudioDeletes(leftover)
+        print("[NoteSync] Removing \(leftover.count) leftover audio parts")
     }
 
     /// A fetch or send finished. With nothing left to send, sync is up to date.
