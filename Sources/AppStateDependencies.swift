@@ -149,12 +149,23 @@ struct AppStateDependencies {
             },
             makeRetryCloudTranscriptionDependencies: { .live },
             makeNoteSyncController: { layout in
-                NoteSyncController(createZone: {
+                let stateURL = layout.noteSyncDirectory.appendingPathComponent("engine-state")
+                let outbox = layout.noteSyncDirectory.appendingPathComponent("outbox", isDirectory: true)
+                return NoteSyncController(createZone: {
                     guard #available(macOS 14.0, *) else { return }
                     try await NoteSyncCloudKitEngine.createZone()
                 }, deleteLeftoverAudio: {
                     guard #available(macOS 14.0, *) else { return .inUse }
                     return await NoteSyncCloudKitEngine.deleteLeftoverAudio()
+                }, deleteAllWithoutEngine: {
+                    guard #available(macOS 14.0, *) else { throw NoteSyncEngineError.notRunning }
+                    return try await NoteSyncCloudKitEngine.deleteAllWithoutEngine()
+                }, removeEngineFiles: {
+                    try? FileManager.default.removeItem(at: stateURL)
+                    NoteSyncCloudRecord.removeAllOutboxFiles(in: outbox)
+                    NoteAudioDownloader.removeDownloadFiles(
+                        in: layout.noteSyncDirectory.appendingPathComponent("downloads", isDirectory: true)
+                    )
                 }, accountID: {
                     guard #available(macOS 14.0, *) else { return nil }
                     return await NoteSyncCloudKitEngine.accountID()
@@ -165,8 +176,8 @@ struct AppStateDependencies {
                 }, makeEngine: { events in
                     guard #available(macOS 14.0, *) else { return nil }
                     return NoteSyncCloudKitEngine(
-                        stateURL: layout.noteSyncDirectory.appendingPathComponent("engine-state"),
-                        outbox: layout.noteSyncDirectory.appendingPathComponent("outbox", isDirectory: true),
+                        stateURL: stateURL,
+                        outbox: outbox,
                         events: events
                     )
                 })

@@ -21124,6 +21124,38 @@
           }
         }
       }
+    },
+    "Note history can't be opened, so Quill can't check which audio is only in iCloud. Turn Off and Delete from iCloud may delete audio that isn't on this Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Note history can't be opened, so Quill can't check which audio is only in iCloud. Turn Off and Delete from iCloud may delete audio that isn't on this Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 기록을 열 수 없어서 iCloud에만 있는 오디오를 확인할 수 없어요. iCloud에서 삭제하면 이 Mac에 없는 오디오도 지워질 수 있어요."
+          }
+        }
+      }
+    },
+    "Quill couldn't confirm which iCloud account sync used, so nothing was deleted. Try again after sync runs again. Sync is still on.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quill couldn't confirm which iCloud account sync used, so nothing was deleted. Try again after sync runs again. Sync is still on."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동기화에 쓰던 iCloud 계정을 확인하지 못해서 아무것도 지우지 않았어요. 동기화가 다시 돌아간 뒤에 다시 시도해 주세요. 동기화는 계속 켜져 있어요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"
