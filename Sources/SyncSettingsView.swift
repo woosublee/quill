@@ -34,7 +34,7 @@ private struct NoteSyncSettingsCard: View {
     @State private var turnOnFailure: NoteSyncTurnOnFailure?
     @State private var noteCount = 0
     @State private var audioBytes: Int64 = 0
-    @State private var audioOnlyInICloud = 0
+    @State private var audioOnlyInICloud: Int? = 0
 
     private var switchBinding: Binding<Bool> {
         Binding(
@@ -176,12 +176,14 @@ private struct NoteSyncSettingsCard: View {
 
     private var audioOnlyInICloudText: Text {
         switch audioOnlyInICloud {
-        case 0:
+        case nil:
+            return Text("\n\n") + Text("Note history can't be opened, so Quill can't check which audio is only in iCloud. Turn Off and Delete from iCloud may delete audio that isn't on this Mac.")
+        case 0?:
             return Text("")
-        case 1:
+        case 1?:
             return Text("\n\n") + Text("1 note has audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it.")
-        default:
-            return Text("\n\n") + Text("\(audioOnlyInICloud) notes have audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it.")
+        case let count?:
+            return Text("\n\n") + Text("\(count) notes have audio in iCloud that isn't on this Mac. After Turn Off and Delete from iCloud, this Mac can't get it.")
         }
     }
 

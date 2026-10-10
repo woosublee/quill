@@ -21124,6 +21124,22 @@
           }
         }
       }
+    },
+    "Note history can't be opened, so Quill can't check which audio is only in iCloud. Turn Off and Delete from iCloud may delete audio that isn't on this Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Note history can't be opened, so Quill can't check which audio is only in iCloud. Turn Off and Delete from iCloud may delete audio that isn't on this Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 기록을 열 수 없어서 iCloud에만 있는 오디오를 확인할 수 없어요. iCloud에서 삭제하면 이 Mac에 없는 오디오도 지워질 수 있어요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

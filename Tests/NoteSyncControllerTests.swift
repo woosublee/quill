@@ -29,6 +29,8 @@ struct NoteSyncControllerTests {
         testDeleteFromICloudWhilePausedForSaving()
         testFailedDeleteWhilePausedKeepsSyncOn()
         testDeleteWhilePausedOnlyInTheAccountSyncRunsIn()
+        testFailedDeleteLetsAHeldBackStartGoAhead()
+        testAudioOnlyInICloudCantBeCountedWithoutHistory()
         testTurnOnCreatesTheZoneBeforeSyncing()
         testTurnOnStaysOffWhenICloudIsUnreachable()
         testTurnOnWaitsForAReadyStore()
@@ -537,7 +539,7 @@ struct NoteSyncControllerTests {
                 if let error = log.zoneError { throw error }
                 return log.directAudioDeleted
             },
-            removeEngineState: { log.calls.append("removeEngineState") },
+            removeEngineFiles: { log.calls.append("removeEngineFiles") },
             accountID: { @MainActor in log.account },
             makeEngine: { _ in
                 log.enginesMade += 1
@@ -717,7 +719,7 @@ struct NoteSyncControllerTests {
         var succeeded = false
         precondition(expectation { succeeded = await controller.turnOff(deleteFromICloud: true) })
         precondition(succeeded && !controller.isEnabled && controller.status == .off)
-        precondition(log.calls == ["deleteAllWithoutEngine", "removeEngineState"], "the saved engine state goes too: \(log.calls)")
+        precondition(log.calls == ["deleteAllWithoutEngine", "removeEngineFiles"], "the saved engine state goes too: \(log.calls)")
         precondition(!store.cleared && defaults.bool(forKey: NoteSyncController.clearTagsOnAttachKey))
         precondition(defaults.string(forKey: NoteSyncController.syncAccountKey) == nil, "forgotten once sync is off")
         precondition(defaults.stringArray(forKey: leftKey) == ["account-a"], "audio left is remembered as usual")
@@ -739,7 +741,10 @@ struct NoteSyncControllerTests {
         let store = FakeStore()
         controller.attach(store: store)
         drainMainQueue()
-        precondition(defaults.string(forKey: NoteSyncController.syncAccountKey) == "account-a", "learned once the engine started")
+        precondition(defaults.string(forKey: NoteSyncController.syncAccountKey) == nil, "not while the engine may still report an account change")
+        engine.coordinator?.handleFetchFinished(pending: 0)
+        drainMainQueue()
+        precondition(defaults.string(forKey: NoteSyncController.syncAccountKey) == "account-a", "learned once a sync got through")
         engine.coordinator?.onNeedsFullRefetch?()
         drainMainQueue()
         engine.coordinator?.onNeedsFullRefetch?()
@@ -755,7 +760,7 @@ struct NoteSyncControllerTests {
         precondition(log.enginesMade == made, "no engine starts during the delete")
         log.holdAudioDelete = false
         precondition(expectation { while !turnedOff { await Task.yield() } })
-        precondition(log.calls == ["deleteAllWithoutEngine", "removeEngineState"] && !engine.deletedFromICloud && store.cleared)
+        precondition(log.calls == ["deleteAllWithoutEngine", "removeEngineFiles"] && !engine.deletedFromICloud && store.cleared)
         precondition(!controller.isEnabled)
     }
 
@@ -793,12 +798,48 @@ struct NoteSyncControllerTests {
             controller.attach(store: store)
             var succeeded = false
             precondition(expectation { succeeded = await controller.turnOff(deleteFromICloud: true) })
-            precondition(log.calls.isEmpty, "nothing is deleted: \(String(describing: synced)) \(String(describing: signedIn))")
+            precondition(!log.calls.contains("deleteAllWithoutEngine"), "nothing is deleted: \(String(describing: synced)) \(String(describing: signedIn))")
             if synced != nil, signedIn != nil {
                 precondition(succeeded && !controller.isEnabled && controller.status == .paused(.accountChanged))
+                precondition(log.calls == ["removeEngineFiles"], "the old account's engine state goes")
+                precondition(defaults.bool(forKey: NoteSyncController.clearTagsOnAttachKey), "tags go once history opens")
             } else {
                 precondition(!succeeded && controller.isEnabled)
             }
         }
+    }
+
+    /// Recovered history attached during a delete without an engine doesn't
+    /// start sync then; if the delete fails, sync stays on and starts.
+    @MainActor
+    static func testFailedDeleteLetsAHeldBackStartGoAhead() {
+        let defaults = freshDefaults()
+        defaults.set(true, forKey: NoteSyncController.enabledKey)
+        defaults.set("account-a", forKey: NoteSyncController.syncAccountKey)
+        let log = CallLog()
+        log.zoneError = URLError(.notConnectedToInternet)
+        log.holdAudioDelete = true
+        let controller = launch(defaults, log: log)
+        let unreadable = FakeStore()
+        unreadable.isReadyForSync = false
+        controller.attach(store: unreadable)
+        var result: Bool?
+        Task { @MainActor in result = await controller.turnOff(deleteFromICloud: true) }
+        drainMainQueue()
+        let recovered = FakeStore()
+        controller.attach(store: recovered)
+        precondition(log.enginesMade == 0, "held back while the delete runs")
+        log.holdAudioDelete = false
+        precondition(expectation { while result == nil { await Task.yield() } })
+        precondition(result == false && controller.isEnabled && log.enginesMade == 1, "the delete failed, so sync goes on")
+        precondition(controller.status != .paused(.historyUnavailable))
+    }
+
+    @MainActor
+    static func testAudioOnlyInICloudCantBeCountedWithoutHistory() {
+        let (controller, store, _, _) = make()
+        store.isReadyForSync = false
+        controller.attach(store: store)
+        precondition(controller.notesWithAudioOnlyInICloud == nil, "the turn-off dialog says it can't check")
     }
 }

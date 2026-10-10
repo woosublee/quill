@@ -86,10 +86,14 @@ final class NoteSyncController: ObservableObject {
     private let deleteLeftoverAudioZone: () async -> NoteSyncLeftoverAudio
     /// Turn Off and Delete from iCloud while sync is paused with no engine.
     private let deleteAllWithoutEngine: () async throws -> Bool
-    /// Removes the engine's saved state, which a running engine does itself.
-    private let removeEngineState: () -> Void
-    /// While Turn Off and Delete runs without an engine, none may start.
+    /// Removes the engine's saved state and outbox, which stopping a running
+    /// engine does itself.
+    private let removeEngineFiles: () -> Void
+    /// While Turn Off and Delete runs without an engine, none may start; a
+    /// start held back meanwhile (with its initial upload) goes ahead if the
+    /// delete fails.
     private var isDeletingFromICloud = false
+    private var heldBackStart: Bool?
     /// A hash telling iCloud accounts apart, or nil when it can't be read.
     private let accountID: () async -> String?
     /// A delete of leftover audio in progress; turning on waits for it, so
@@ -113,7 +117,7 @@ final class NoteSyncController: ObservableObject {
         createZone: @escaping () async throws -> Void,
         deleteLeftoverAudio: @escaping () async -> NoteSyncLeftoverAudio = { .deleted },
         deleteAllWithoutEngine: @escaping () async throws -> Bool = { throw NoteSyncEngineError.notRunning },
-        removeEngineState: @escaping () -> Void = {},
+        removeEngineFiles: @escaping () -> Void = {},
         accountID: @escaping () async -> String? = { nil },
         localAudioURL: @escaping (String) -> URL? = { _ in nil },
         now: @escaping () -> Date = Date.init,
@@ -125,7 +129,7 @@ final class NoteSyncController: ObservableObject {
         self.createZone = createZone
         self.deleteLeftoverAudioZone = deleteLeftoverAudio
         self.deleteAllWithoutEngine = deleteAllWithoutEngine
-        self.removeEngineState = removeEngineState
+        self.removeEngineFiles = removeEngineFiles
         self.accountID = accountID
         audioLeftInICloud = !(defaults.stringArray(forKey: Self.audioLeftInICloudKey) ?? []).isEmpty
         self.localAudioURL = localAudioURL
@@ -166,9 +170,11 @@ final class NoteSyncController: ObservableObject {
     }
 
     /// Notes whose audio is in iCloud but not on this Mac, for the turn-off
-    /// confirmation: deleting from iCloud loses that audio.
-    var notesWithAudioOnlyInICloud: Int {
+    /// confirmation: deleting from iCloud loses that audio. Nil when note
+    /// history can't be opened, so they can't be counted.
+    var notesWithAudioOnlyInICloud: Int? {
         guard let store else { return 0 }
+        guard store.isReadyForSync else { return nil }
         return store.syncableNoteIDs().filter { id in
             store.audioManifest(id: id) != nil && store.localAudioFile(id: id, resolve: localAudioURL) == nil
         }.count
@@ -212,7 +218,12 @@ final class NoteSyncController: ObservableObject {
     /// Returns false, leaving sync on, when deleting from iCloud failed.
     @discardableResult
     func turnOff(deleteFromICloud: Bool) async -> Bool {
+        guard !isDeletingFromICloud else { return false }
         if deleteFromICloud {
+            // No engine runs while paused (notes couldn't be saved here, or
+            // history can't be opened): none may start until this is done.
+            let withoutEngine = engine == nil
+            isDeletingFromICloud = withoutEngine
             // Asked alongside the delete, which just reached iCloud for the
             // notes, so the account can almost always be read.
             let signedIn = Task { await accountID() }
@@ -225,30 +236,29 @@ final class NoteSyncController: ObservableObject {
                 } else {
                     // Another account is signed in: nothing of it is
                     // deleted, and sync stops as for an account change.
-                    stopForAccountChange()
+                    print("[NoteSync] Paused: iCloud account changed")
+                    clearChangeTags(forgettingAudio: false)
+                    finishTurningOff(status: .paused(.accountChanged))
                     return true
                 }
             } catch {
                 print("[NoteSync] Deleting from iCloud failed")
+                isDeletingFromICloud = false
+                // Sync stays on: a start held back meanwhile goes ahead.
+                if let initialUpload = heldBackStart {
+                    heldBackStart = nil
+                    startEngine(initialUpload: initialUpload)
+                }
                 return false
             }
-            // iCloud no longer holds these notes. History that can't be
-            // opened can't be written now; it forgets them once attached.
-            if store?.isReadyForSync == true {
-                store?.clearChangeTags(forgettingAudio: true)
-            } else {
-                defaults.set(true, forKey: Self.clearTagsOnAttachKey)
-            }
+            // iCloud no longer holds these notes.
+            clearChangeTags(forgettingAudio: true)
             if !audioDeleted {
                 let account = await signedIn.value ?? ""
                 accountsWithAudioLeft = Array(Set(accountsWithAudioLeft + [account])).sorted()
             }
         }
-        stopEngine(forgetState: true)
-        setEnabled(false)
-        defaults.removeObject(forKey: Self.needsFullStartKey)
-        lastStartOver = nil
-        status = .off
+        finishTurningOff(status: .off)
         return true
     }
 
@@ -262,21 +272,30 @@ final class NoteSyncController: ObservableObject {
             throw NoteSyncEngineError.notRunning
         }
         guard signedIn == synced else { return nil }
-        isDeletingFromICloud = true
-        defer { isDeletingFromICloud = false }
-        let audioDeleted = try await deleteAllWithoutEngine()
-        removeEngineState()
-        return audioDeleted
+        return try await deleteAllWithoutEngine()
     }
 
-    private func stopForAccountChange() {
+    /// iCloud no longer holds what the change tags point at. History that
+    /// can't be opened can't be written now; it forgets them once attached.
+    private func clearChangeTags(forgettingAudio: Bool) {
+        if let store, store.isReadyForSync {
+            store.clearChangeTags(forgettingAudio: forgettingAudio)
+        } else {
+            defaults.set(true, forKey: Self.clearTagsOnAttachKey)
+        }
+    }
+
+    /// The end of Turn Off, or of a Turn Off that found another account.
+    private func finishTurningOff(status newStatus: NoteSyncStatus) {
+        isDeletingFromICloud = false
+        heldBackStart = nil
+        // Without an engine, nothing else removes its saved state.
+        if engine == nil { removeEngineFiles() }
         stopEngine(forgetState: true)
         setEnabled(false)
-        if store?.isReadyForSync == true { store?.clearChangeTags(forgettingAudio: false) }
         defaults.removeObject(forKey: Self.needsFullStartKey)
         lastStartOver = nil
-        status = .paused(.accountChanged)
-        print("[NoteSync] Paused: iCloud account changed")
+        status = newStatus
     }
 
     func handleLocalChanges(_ changes: [PipelineHistoryChange]) {
@@ -357,7 +376,11 @@ final class NoteSyncController: ObservableObject {
     }
 
     private func startEngine(initialUpload: Bool) {
-        guard let store, !isDeletingFromICloud else { return }
+        guard let store else { return }
+        guard !isDeletingFromICloud else {
+            heldBackStart = initialUpload || (heldBackStart ?? false)
+            return
+        }
         guard store.isReadyForSync else {
             // Recovered history is attached as a new store, which starts
             // sync again.
@@ -381,14 +404,6 @@ final class NoteSyncController: ObservableObject {
         self.coordinator = coordinator
         status = coordinator.status
         engine.start()
-        if defaults.string(forKey: Self.syncAccountKey) == nil {
-            // Sync turned on before Quill kept its account, or the account
-            // couldn't be read then.
-            Task { @MainActor [weak self] in
-                guard let self, let account = await self.accountID(), self.isEnabled else { return }
-                self.defaults.set(account, forKey: Self.syncAccountKey)
-            }
-        }
         if initialUpload {
             coordinator.startInitialUpload()
         } else {
@@ -429,6 +444,7 @@ final class NoteSyncController: ObservableObject {
             // A sync got all the way through, so its engine holds what a
             // full start queued.
             defaults.removeObject(forKey: Self.needsFullStartKey)
+            if defaults.string(forKey: Self.syncAccountKey) == nil { learnSyncAccount() }
         case .paused(.accountChanged), .paused(.signedOut), .paused(.deletedElsewhere):
             // Sync starts again only when the user turns it on, so notes
             // never cross into another account.
@@ -436,6 +452,18 @@ final class NoteSyncController: ObservableObject {
             setEnabled(false)
         default:
             break
+        }
+    }
+
+    /// For sync turned on before Quill kept its account, or when it
+    /// couldn't be read then. Only after a sync got through: an account
+    /// changed while Quill was quit has been reported (and sync turned off)
+    /// by then.
+    private func learnSyncAccount() {
+        Task { @MainActor [weak self] in
+            guard let self, let account = await self.accountID(),
+                  self.isEnabled, self.defaults.string(forKey: Self.syncAccountKey) == nil else { return }
+            self.defaults.set(account, forKey: Self.syncAccountKey)
         }
     }
 
