@@ -67,9 +67,10 @@ struct NoteSyncControllerTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         try Data(count: 300).write(to: dir.appendingPathComponent("here.wav"))
         try Data(count: 200).write(to: dir.appendingPathComponent("uploaded.wav"))
+        try Data().write(to: dir.appendingPathComponent("empty.wav"))
         let store = FakeStore()
-        let here = UUID(), uploaded = UUID(), elsewhere = UUID()
-        for (id, name) in [(here, "here.wav"), (uploaded, "uploaded.wav"), (elsewhere, "elsewhere.wav")] {
+        let here = UUID(), uploaded = UUID(), elsewhere = UUID(), empty = UUID()
+        for (id, name) in [(here, "here.wav"), (uploaded, "uploaded.wav"), (elsewhere, "elsewhere.wav"), (empty, "empty.wav")] {
             store.ids.append(id)
             store.records[id] = NoteSyncRecord(
                 noteID: id,
@@ -81,6 +82,7 @@ struct NoteSyncControllerTests {
         let manifest = NoteAudioManifest(sha256: String(repeating: "ab", count: 32), bytes: 1, partSize: 50_000_000, parts: 1)
         store.manifests[uploaded] = manifest
         store.manifests[elsewhere] = manifest
+        store.manifests[empty] = manifest
         let controller = NoteSyncController(
             defaults: UserDefaults(suiteName: "quill-controller-audio-\(UUID().uuidString)")!,
             unavailableReason: nil,
@@ -93,7 +95,7 @@ struct NoteSyncControllerTests {
         )
         controller.attach(store: store)
         precondition(controller.uploadAudioByteCount == 300, "only audio that will upload")
-        precondition(controller.notesWithAudioOnlyInICloud == 1)
+        precondition(controller.notesWithAudioOnlyInICloud == 2, "an empty file here is no copy")
     }
 
     final class FakeStore: NoteSyncLocalStore {

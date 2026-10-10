@@ -202,6 +202,7 @@ enum NoteAudioParts {
 
     private static func copy(_ file: URL, to partial: URL, hashing hasher: SHA256, stop: StopFlag) async throws -> (SHA256, Int64) {
         try await Task.detached(priority: .utility) {
+            if stop.isStopped { throw CancellationError() }
             var hasher = hasher
             let output = try FileHandle(forWritingTo: partial)
             defer { try? output.close() }
@@ -231,6 +232,6 @@ enum NoteAudioParts {
         while let chunk = try input.read(upToCount: chunkSize), !chunk.isEmpty {
             hasher.update(data: chunk)
         }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        return hex(hasher)
     }
 }

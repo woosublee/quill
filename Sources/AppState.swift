@@ -8525,8 +8525,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// The note's audio file here, looked up once.
     @MainActor
     func storedAudioFile(for item: PipelineHistoryItem) -> StoredAudioFile {
-        guard let url = storedAudioURL(for: item), FileManager.default.fileExists(atPath: url.path) else { return .missing }
-        return Self.fileSizeBytes(for: url) == 0 ? .empty : .usable(url)
+        guard let url = storedAudioURL(for: item),
+              let attributes = try? FileManager.default.attributesOfItem(atPath: url.path) else { return .missing }
+        return (attributes[.size] as? NSNumber)?.int64Value == 0 ? .empty : .usable(url)
     }
 
     /// The note's audio here, in iCloud, downloading, or out of reach.

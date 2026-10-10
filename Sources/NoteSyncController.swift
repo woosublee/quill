@@ -206,7 +206,8 @@ final class NoteSyncController: ObservableObject {
         guard let store else { return 0 }
         guard store.isReadyForSync else { return nil }
         return store.audioSyncSnapshots().filter { note in
-            note.manifest != nil && NoteSyncLocalAudio.find(named: note.audioFileName, resolve: localAudioURL) == nil
+            // An empty file here is no copy of the audio.
+            note.manifest != nil && (NoteSyncLocalAudio.find(named: note.audioFileName, resolve: localAudioURL)?.bytes ?? 0) == 0
         }.count
     }
 
