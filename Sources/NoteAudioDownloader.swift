@@ -105,7 +105,7 @@ final class NoteAudioDownloader: ObservableObject {
     private let isSyncOn: @MainActor () -> Bool
     private let hashFile: (URL) async throws -> String
     /// A part is gone from iCloud: the marker here is likely out of date.
-    private let onMissingPart: @MainActor () -> Void
+    private let onMissingPart: @MainActor (UUID) -> Void
     /// Each download has its own token, so one that was cancelled can't
     /// clear what a new download for the same note set up.
     private var running: [UUID: (token: UUID, manifest: NoteAudioManifest, task: Task<URL?, Never>)] = [:]
@@ -114,7 +114,7 @@ final class NoteAudioDownloader: ObservableObject {
         downloadsDirectory: URL,
         fetcher: @escaping @MainActor () -> NoteAudioPartFetching?,
         isSyncOn: @escaping @MainActor () -> Bool,
-        onMissingPart: @escaping @MainActor () -> Void = {},
+        onMissingPart: @escaping @MainActor (UUID) -> Void = { _ in },
         hashFile: @escaping (URL) async throws -> String = NoteAudioDownloader.hashOffMain
     ) {
         self.downloadsDirectory = downloadsDirectory
@@ -258,9 +258,10 @@ final class NoteAudioDownloader: ObservableObject {
                 } else {
                     print("[NoteSync] Couldn't download audio")
                     failures[noteID] = Failure(reason: .failed, sha256: manifest.sha256)
-                    // Usually another Mac replaced the file: a sync brings
-                    // the new marker (or that the zone is gone).
-                    if case NoteAudioFetchError.missing = error { onMissingPart() }
+                    // A delete took the parts (the note was deleted, maybe
+                    // came back): a sync brings what changed, and the
+                    // note's marker is checked.
+                    if case NoteAudioFetchError.missing = error { onMissingPart(noteID) }
                 }
                 return nil
             }

@@ -710,6 +710,15 @@ final class NoteSyncCoordinator {
         await checkAudio([id], verifyMarked: false)
     }
 
+    /// A download found a part of this note's audio missing. A note's audio
+    /// never changes, so the parts were deleted: a delete sent before the
+    /// note came back (edited on another Mac) can't be recalled. The marker
+    /// is checked, and one iCloud can't back is cleared so the Mac with the
+    /// file sends it again.
+    func handleAudioMissing(noteID: UUID) {
+        checkAudioSoon([noteID], verifyMarked: true)
+    }
+
     func handleAudioSendFailures(_ failures: [NoteAudioSendFailure]) {
         guard !isStopped else { return }
         var quotaCount = 0

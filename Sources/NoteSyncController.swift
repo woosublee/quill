@@ -165,6 +165,13 @@ final class NoteSyncController: ObservableObject {
         engine?.fetchNow()
     }
 
+    /// A download found a part missing: a sync may bring a newer marker,
+    /// and the note's marker is checked against iCloud.
+    func audioMissing(noteID: UUID) {
+        fetchSoon()
+        coordinator?.handleAudioMissing(noteID: noteID)
+    }
+
     /// What downloads note audio, while sync runs.
     var audioPartFetcher: NoteAudioPartFetching? {
         engine as? NoteAudioPartFetching

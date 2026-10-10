@@ -2890,7 +2890,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         isSyncOn: { [weak self] in self?.noteSyncController?.isEnabled == true },
         // A fetch brings the new marker when another Mac replaced the file,
         // or finds the iCloud data deleted elsewhere.
-        onMissingPart: { [weak self] in self?.noteSyncController?.fetchSoon() }
+        onMissingPart: { [weak self] id in self?.noteSyncController?.audioMissing(noteID: id) }
     )
     private var recordingJournalStore: RecordingJournalStore
     private var cloudTranscriptionJobStore: CloudTranscriptionJobStore

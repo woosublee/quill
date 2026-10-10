@@ -76,6 +76,7 @@ struct NoteSyncCoordinatorTests {
         try await testReplacedWithTheSameBytesKeepsTheParts()
         try await testFileChangedOnAnotherMacCleansUpThisMacsParts()
         try testReturnedNoteKeepsItsAudio()
+        try await testMissingPartChecksTheMarker()
         try await testReturnedNoteDropsItsWaitingCleanUp()
         try await testUnbackedMarkerForAnotherFileUploadsTheFileHere()
         try await testLocalReplaceCleansUpPartsNoMarkerNamed()
@@ -659,6 +660,30 @@ struct NoteSyncCoordinatorTests {
         precondition(engine.cancelledAudioDeletes == [note.noteID] && engine.audioDeletes.isEmpty)
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.audioDeletes.isEmpty, "the failed delete isn't retried either")
+    }
+
+    /// A marked note whose parts are gone from iCloud: a delete this Mac
+    /// or another sent before the note came back can't be recalled.
+    @MainActor
+    static func lostMarkedNote() throws -> (NoteSyncCoordinator, FakeStore, FakeEngine, URL, UUID) {
+        let (coordinator, store, engine, dir) = try makeWithAudio([:])
+        let note = record(audio: "b.wav")
+        store.records[note.noteID] = note
+        store.syncable.insert(note.noteID)
+        store.manifests[note.noteID] = manifest("b.wav")
+        return (coordinator, store, engine, dir, note.noteID)
+    }
+
+    /// A download found a part missing: the marker is checked, and cleared
+    /// so the Mac with the file sends it again.
+    @MainActor
+    static func testMissingPartChecksTheMarker() async throws {
+        let (coordinator, store, engine, dir, id) = try lostMarkedNote()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        coordinator.handleAudioMissing(noteID: id)
+        await coordinator.lastAudioCheck?.value
+        precondition(store.manifests[id] == nil, "a marker iCloud can't back is cleared")
+        precondition(engine.saves.contains(id), "the cleared marker goes up")
     }
 
     /// Deleted here while offline, with a clean-up still waiting; another

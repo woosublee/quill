@@ -15,7 +15,7 @@ struct NoteAudioDownloaderTests {
         try await testCancelAllStopsEveryDownload()
         try await testRequestAfterStopStartsAFreshDownload()
         try await testVerifiedCopyReplacesAFileInTheWay()
-        try await testMissingPartAsksForASync()
+        try await testMissingPartNamesItsNote()
         try await testFailureForAnEarlierMarkerIsForgotten()
         try await testChangedMarkerStopsTheDownload()
         try await testRequestForAnotherMarkerStartsItsOwnDownload()
@@ -66,7 +66,7 @@ struct NoteAudioDownloaderTests {
     @MainActor
     static func setup(
         syncOn: Bool = true,
-        onMissingPart: @escaping @MainActor () -> Void = {}
+        onMissingPart: @escaping @MainActor (UUID) -> Void = { _ in }
     ) throws -> Setup {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quill-audio-download-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -294,20 +294,20 @@ struct NoteAudioDownloaderTests {
         precondition(s.downloader.state(noteID: s.noteID, hasAudio: true, isLocal: true, manifest: s.manifest) == .local)
     }
 
-    /// A part gone from iCloud usually means another Mac replaced the file
-    /// and this Mac's marker is out of date: a sync brings the new one.
+    /// A part gone from iCloud means a delete removed it: the note is named
+    /// so its marker can be checked.
     @MainActor
-    static func testMissingPartAsksForASync() async throws {
-        final class Count { var syncs = 0 }
+    static func testMissingPartNamesItsNote() async throws {
+        final class Count { var notes: [UUID] = [] }
         let count = Count()
-        let s = try setup(onMissingPart: { count.syncs += 1 })
+        let s = try setup(onMissingPart: { count.notes.append($0) })
         defer { try? FileManager.default.removeItem(at: s.dir) }
         s.fetcher.parts = [:]
         _ = await s.downloader.download(noteID: s.noteID, manifest: s.manifest, to: s.destination)
-        precondition(count.syncs == 1)
+        precondition(count.notes == [s.noteID], "the note whose part is missing is named")
         s.fetcher.error = .offline
         _ = await s.downloader.download(noteID: s.noteID, manifest: s.manifest, to: s.destination)
-        precondition(count.syncs == 1, "offline isn't a missing part")
+        precondition(count.notes.count == 1, "offline isn't a missing part")
     }
 
     /// A failure belongs to the marker it was for; new audio from another
