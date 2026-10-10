@@ -26,7 +26,11 @@ protocol NoteSyncLocalStore: AnyObject {
     /// Upload keys that applying other Macs' records cleared (their audio
     /// file replaced the one this Mac was sending), taken once.
     func takeClearedAudioUploadKeys() -> [UUID: String]
+    /// What audio sync needs of every syncable note, in the order of
+    /// `syncableNoteIDs`; the real store reads it in one fetch.
+    func audioSyncSnapshots() -> [NoteAudioSyncSnapshot]
 }
+
 
 /// A note's audio file on this Mac.
 struct NoteSyncLocalAudio: Equatable {
@@ -35,6 +39,14 @@ struct NoteSyncLocalAudio: Equatable {
     let bytes: Int64
 
     var partCount: Int { NoteAudioParts.count(bytes: bytes) }
+
+    /// The file named so on this Mac and its size, when it is here.
+    static func find(named name: String?, resolve: (String) -> URL?) -> NoteSyncLocalAudio? {
+        guard let name, let url = resolve(name),
+              let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber
+        else { return nil }
+        return NoteSyncLocalAudio(url: url, name: name, bytes: size.int64Value)
+    }
 }
 
 extension PipelineHistoryStore: NoteSyncLocalStore {}
@@ -52,11 +64,21 @@ extension NoteSyncLocalStore {
 
     /// The note's audio file on this Mac and its size, when it is here.
     func localAudioFile(id: UUID, resolve: (String) -> URL?) -> NoteSyncLocalAudio? {
-        guard case .string(let name)? = syncRecord(id: id)?.fields[NoteSyncField.audioFileName.rawValue],
-              let url = resolve(name),
-              let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber
-        else { return nil }
-        return NoteSyncLocalAudio(url: url, name: name, bytes: size.int64Value)
+        guard case .string(let name)? = syncRecord(id: id)?.fields[NoteSyncField.audioFileName.rawValue] else { return nil }
+        return NoteSyncLocalAudio.find(named: name, resolve: resolve)
+    }
+
+    /// Note by note, for stores without a single fetch.
+    func audioSyncSnapshots() -> [NoteAudioSyncSnapshot] {
+        syncableNoteIDs().map { id in
+            let name: String?
+            if case .string(let value)? = syncRecord(id: id)?.fields[NoteSyncField.audioFileName.rawValue] {
+                name = value
+            } else {
+                name = nil
+            }
+            return NoteAudioSyncSnapshot(id: id, audioFileName: name, manifest: audioManifest(id: id), uploadKey: audioUploadKey(id: id))
+        }
     }
 }
 
@@ -245,22 +267,23 @@ final class NoteSyncCoordinator {
     /// is checked against iCloud first: parts already there aren't sent
     /// again, and a marker left from audio iCloud no longer has is cleared.
     func startInitialUpload() {
-        let ids = store.syncableNoteIDs()
+        let notes = store.audioSyncSnapshots()
+        let ids = notes.map(\.id)
         uploadTotal = ids.count
         uploadWaitingText = Set(ids)
-        savesAfterCheck = Set(ids.filter { store.audioManifest(id: $0) != nil })
+        savesAfterCheck = Set(notes.filter { $0.manifest != nil }.map(\.id))
         engine.enqueueSaves(ids.filter { !savesAfterCheck.contains($0) })
-        uploadWaitingAudio = Set(ids.filter { store.audioManifest(id: $0) == nil && usableAudio($0) != nil })
+        uploadWaitingAudio = Set(notes.filter { $0.manifest == nil && usableAudio($0) != nil }.map(\.id))
         status = ids.isEmpty ? .starting : .uploading(done: 0, total: ids.count)
         print("[NoteSync] Queued \(ids.count) notes for the first upload")
-        checkAudioSoon(ids, verifyMarked: true)
+        checkAudioSoon(ids, verifyMarked: true, readAllAtOnce: true)
     }
 
     /// After a relaunch: audio that isn't marked as in iCloud and isn't
     /// waiting to go up, such as audio whose last part went up just before
     /// the app quit.
     func resumeAudioUploads() {
-        checkAudioSoon(store.syncableNoteIDs(), verifyMarked: false)
+        checkAudioSoon(store.audioSyncSnapshots().map(\.id), verifyMarked: false, readAllAtOnce: true)
     }
 
     /// A note that changed: its audio, when it isn't in iCloud yet, is
@@ -305,6 +328,10 @@ final class NoteSyncCoordinator {
         localAudio(id).flatMap { $0.partCount > 0 ? $0 : nil }
     }
 
+    private func usableAudio(_ note: NoteAudioSyncSnapshot) -> NoteSyncLocalAudio? {
+        NoteSyncLocalAudio.find(named: note.audioFileName, resolve: localAudioURL).flatMap { $0.partCount > 0 ? $0 : nil }
+    }
+
     /// Runs audio work in the background. `lastAudioCheck` then finishes
     /// once this and all earlier work did: one change can start a check and
     /// a clean-up, and a test waits on both.
@@ -316,9 +343,9 @@ final class NoteSyncCoordinator {
         }
     }
 
-    private func checkAudioSoon(_ ids: [UUID], verifyMarked: Bool) {
+    private func checkAudioSoon(_ ids: [UUID], verifyMarked: Bool, readAllAtOnce: Bool = false) {
         guard !ids.isEmpty, !isStopped else { return }
-        startAudioWork { await self.checkAudio(ids, verifyMarked: verifyMarked) }
+        startAudioWork { await self.checkAudio(ids, verifyMarked: verifyMarked, readAllAtOnce: readAllAtOnce) }
     }
 
     /// One note's audio as a check sees it: the file here, or only the
@@ -340,8 +367,13 @@ final class NoteSyncCoordinator {
     /// that isn't on this Mac, and a marker iCloud can't back is cleared.
     /// Notes whose part names are known are checked first, together; then
     /// each other file is read and its parts sent before the next is read.
-    func checkAudio(_ ids: [UUID], verifyMarked: Bool) async {
+    /// `readAllAtOnce` (turn-on, launch): every note's state is read in one
+    /// fetch rather than note by note.
+    func checkAudio(_ ids: [UUID], verifyMarked: Bool, readAllAtOnce: Bool = false) async {
         guard !isStopped else { return }
+        let snapshots = readAllAtOnce
+            ? Dictionary(store.audioSyncSnapshots().map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            : nil
         let busy = notesWithAudioInFlight()
         var named: [AudioToCheck] = []
         var unread: [(id: UUID, file: NoteSyncLocalAudio)] = []
@@ -352,12 +384,13 @@ final class NoteSyncCoordinator {
                 if audioChecking.contains(id) || savesAfterCheck.contains(id) { audioToCheck.insert(id) }
                 continue
             }
-            let manifest = store.audioManifest(id: id)
-            let file = usableAudio(id)
+            let note = snapshots.map { $0[id] }
+            let manifest = note.map { $0?.manifest } ?? store.audioManifest(id: id)
+            let file = note.map { $0.flatMap(usableAudio) } ?? usableAudio(id)
             if let manifest, verifyMarked, manifest.parts > 0 {
                 named.append(AudioToCheck(id: id, file: file, manifest: manifest, sha256: manifest.sha256, count: manifest.parts))
             } else if manifest == nil, let file {
-                if let key = store.audioUploadKey(id: id) {
+                if let key = note.map({ $0?.uploadKey }) ?? store.audioUploadKey(id: id) {
                     named.append(AudioToCheck(id: id, file: file, manifest: nil, sha256: key, count: file.partCount))
                 } else {
                     unread.append((id, file))

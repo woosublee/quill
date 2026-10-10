@@ -113,6 +113,7 @@ struct NoteSyncCoordinatorTests {
         testRetriesWaitWhileThisMacDeletes()
         testSkippedSyncCountsUploadsPutBack()
         testUndoneDeletePutsBackOnlyDeletesStillWanted()
+        try await testTurnOnReadsEveryNoteInOneGo()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -152,7 +153,20 @@ struct NoteSyncCoordinatorTests {
             return applyResult
         }
         var manifests: [UUID: NoteAudioManifest] = [:]
-        func audioManifest(id: UUID) -> NoteAudioManifest? { manifests[id] }
+        var manifestReads = 0
+        func audioManifest(id: UUID) -> NoteAudioManifest? {
+            manifestReads += 1
+            return manifests[id]
+        }
+        var snapshotReads = 0
+        func audioSyncSnapshots() -> [NoteAudioSyncSnapshot] {
+            snapshotReads += 1
+            return syncableNoteIDs().map { id in
+                var name: String?
+                if case .string(let value)? = records[id]?.fields[NoteSyncField.audioFileName.rawValue] { name = value }
+                return NoteAudioSyncSnapshot(id: id, audioFileName: name, manifest: manifests[id], uploadKey: uploadKeys[id])
+            }
+        }
         func setAudioManifest(_ manifest: NoteAudioManifest?, id: UUID) throws { manifests[id] = manifest }
         var uploadKeys: [UUID: String] = [:]
         func audioUploadKey(id: UUID) -> String? { uploadKeys[id] }
@@ -1896,5 +1910,31 @@ struct NoteSyncCoordinatorTests {
         passTime(3600)
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.deletes == [gone] && engine.audioDeletes == [parts(gone, 1)[0]])
+    }
+
+    /// Turning on and launching read every note's audio state in one go,
+    /// not note by note (thousands of notes would stall the app).
+    @MainActor
+    static func testTurnOnReadsEveryNoteInOneGo() async throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio(["a.wav": 10, "b.wav": 10])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = noteWithAudio(store, "a.wav"), b = noteWithAudio(store, "b.wav")
+        store.manifests[b] = manifest("b.wav")
+        engine.iCloud = Set(parts(b, 1, "b.wav"))
+        // Notes without audio: nothing about them is read one by one.
+        for _ in 0..<50 {
+            let note = record()
+            store.records[note.noteID] = note
+            store.syncable.insert(note.noteID)
+        }
+        coordinator.startInitialUpload()
+        await coordinator.lastAudioCheck?.value
+        precondition(store.snapshotReads == 2 && store.manifestReads < 10, "\(store.snapshotReads) \(store.manifestReads)")
+        precondition(Set(engine.saves).isSuperset(of: [a, b]) && engine.audioSaves == parts(a, 1, "a.wav"), "the check works as before")
+        store.snapshotReads = 0
+        store.manifestReads = 0
+        coordinator.resumeAudioUploads()
+        await coordinator.lastAudioCheck?.value
+        precondition(store.snapshotReads == 2 && store.manifestReads < 10, "\(store.manifestReads)")
     }
 }

@@ -187,9 +187,9 @@ final class NoteSyncController: ObservableObject {
     /// this Mac that isn't in iCloud yet.
     var uploadAudioByteCount: Int64 {
         guard let store else { return 0 }
-        return store.syncableNoteIDs().reduce(Int64(0)) { total, id in
-            guard store.audioManifest(id: id) == nil else { return total }
-            return total + (store.localAudioFile(id: id, resolve: localAudioURL)?.bytes ?? 0)
+        return store.audioSyncSnapshots().reduce(Int64(0)) { total, note in
+            guard note.manifest == nil else { return total }
+            return total + (NoteSyncLocalAudio.find(named: note.audioFileName, resolve: localAudioURL)?.bytes ?? 0)
         }
     }
 
@@ -199,8 +199,8 @@ final class NoteSyncController: ObservableObject {
     var notesWithAudioOnlyInICloud: Int? {
         guard let store else { return 0 }
         guard store.isReadyForSync else { return nil }
-        return store.syncableNoteIDs().filter { id in
-            store.audioManifest(id: id) != nil && store.localAudioFile(id: id, resolve: localAudioURL) == nil
+        return store.audioSyncSnapshots().filter { note in
+            note.manifest != nil && NoteSyncLocalAudio.find(named: note.audioFileName, resolve: localAudioURL) == nil
         }.count
     }
 

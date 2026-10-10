@@ -834,6 +834,27 @@ final class PipelineHistoryStore {
         return ids
     }
 
+    /// One fetch for every syncable note, instead of several per note.
+    func audioSyncSnapshots() -> [NoteAudioSyncSnapshot] {
+        var snapshots: [NoteAudioSyncSnapshot] = []
+        container.viewContext.performAndWait {
+            let request = pipelineHistoryRequest()
+            request.sortDescriptors = [NSSortDescriptor(key: "timestamp", ascending: false)]
+            let entities = (try? historyFetcher(container.viewContext, request)) ?? []
+            snapshots = entities
+                .filter { NoteSyncEligibility.isSyncable(Self.makeHistoryItem(from: $0)) }
+                .map { entity in
+                    NoteAudioSyncSnapshot(
+                        id: entity.id,
+                        audioFileName: entity.audioFileName,
+                        manifest: entity.audioSyncManifestJSON.flatMap(NoteAudioManifest.decode),
+                        uploadKey: entity.audioSyncUploadKey
+                    )
+                }
+        }
+        return snapshots
+    }
+
     func isSyncable(id: UUID) -> Bool {
         var syncable = false
         container.viewContext.performAndWait {
