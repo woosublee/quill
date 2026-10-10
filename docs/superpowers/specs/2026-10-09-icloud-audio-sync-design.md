@@ -39,54 +39,65 @@ or exports it.
 ## CloudKit layout
 
 - Zone `NoteAudio`, record type `NoteAudio`, record name
-  `<note UUID>-<part index>` (index from 0).
+  `<note UUID>-<key>-<part index>` (index from 0), where `key` is the first
+  16 lowercase hex digits of the file's SHA-256. A part is named after the
+  bytes it holds, so parts never change: a new audio file gets new names,
+  and a part saved twice is the same part. This holds only while the part
+  size stays 50 MB; changing it needs a new name shape (for example the
+  part size in the name), or old and new parts would share names.
+- A manifest whose `sha256` isn't 64 lowercase hex digits, or whose
+  `parts` isn't what `bytes` and `partSize` make (1 to 10,000), can't name
+  parts and is read as no manifest. A record name is a part only when it
+  is exactly the name the part would write.
 - Fields: `data` (`CKAsset`, one part), `index` (Int), `noteID` (String).
 - The engine's fetch scope excludes the `NoteAudio` zone, so other Macs
   never download audio during a normal fetch.
 - `audioManifest` on the `Note` record: JSON
   `{"v":1,"sha256":"<hex>","bytes":<Int>,"partSize":<Int>,"parts":<Int>}`.
-  It belongs to the `.audio` field group, with `audioFileName`. Keys never
+  It belongs to the `.audio` field group, with `audioFileName`. Its
+  `sha256` names the parts, so a reader finds every part from it. Keys never
   change once shipped; the iPhone app reads the same shape.
 
 ## Local storage
 
-- `PipelineHistoryItem.audioSyncManifest: Data?` and the Core Data
-  attribute `audioSyncManifestJSON` (optional, lightweight migration).
-- Nothing else is stored. Upload progress lives in the engine's pending
-  changes, which the engine already persists.
+- The Core Data attribute `audioSyncManifestJSON` (optional, lightweight
+  migration) holds the manifest.
+- `audioSyncUploadKey` (optional, this Mac only, never synced) holds the
+  SHA-256 of the file this Mac is uploading. It is read once, before the
+  first part goes up, and cleared when the note's audio file changes.
+- Upload progress lives in the engine's pending changes, which the engine
+  already persists.
 
 ## Upload (item 5a)
 
 1. A settled note with a local audio file and no manifest needs audio. When
-   a note changes, the coordinator queues `.saveRecord(<id>-<k>)` for every
-   part `k`, unless parts are already waiting. A note that may already have
-   parts in iCloud (sent earlier this session) is checked first instead
-   (step 3).
+   a note changes, the coordinator reads the file's SHA-256 off the main
+   thread (once; it is kept as the upload key), then checks iCloud (step 3).
 2. `nextRecordZoneChangeBatch` puts `Notes` changes first, then audio
    deletes, and sends at most one audio part per batch. For a part it builds
    a `CKRecord` whose asset is the file itself (one part) or a part file cut
-   into `Sync/outbox/<id>-<k>.part` (several parts). Each part record also
-   carries `fileName` and `fileBytes`, the file it was cut from. Part files
-   are removed after the batch is sent or fails. A stale part (the audio is
-   gone, already marked, or shorter) is dropped and the next one tried.
+   into `Sync/outbox/<record name>.part` (several parts). Part files are
+   removed after the batch is sent or fails. A stale part (the audio is
+   gone, already marked, shorter, or named for another file) is dropped and
+   the next one tried.
 3. **Check before marking.** When no part of a note is waiting or waiting for
-   a retry, the coordinator looks up every part `0..<parts` in iCloud,
-   asking only for `fileName` and `fileBytes` (never the audio). Parts that
-   are missing, or were cut from a different file, are queued. When every
-   part is there, the coordinator hashes the file off the main thread,
-   checks that the note didn't change meanwhile, writes the manifest through
-   the store (stamping the `.audio` clock), and queues the note save. Other
-   Macs see the manifest only after a lookup confirmed every part of the
-   current file. A note that changes during a check is checked again after
-   the next sync.
+   a retry, the coordinator looks up every part `0..<parts` of its key in
+   iCloud, asking for one small field (never the audio). Missing parts are
+   queued. When every part is there, the coordinator writes the manifest
+   with the upload key as its `sha256` (stamping the `.audio` clock) and
+   queues the note save. Other Macs see the manifest only after a lookup
+   confirmed every part. A note that changes during a check is checked
+   again after the next sync.
 4. The same check runs:
    - at turn-on, for every note, including marked audio this Mac doesn't
-     have (its parts are looked up by the synced file name and the
-     manifest's size). A marker iCloud can't back is cleared (stamped) and
-     the note sent again. Marked notes go up only after their check, so a
-     marker from another account never reaches this one.
+     have (its parts are named by the manifest). A marker iCloud can't back
+     is cleared (stamped) and the note sent again; when the marked file is
+     here, its missing parts go up under the marker's name. Marked notes go
+     up only after their check, so a marker from another account never
+     reaches this one.
    - at launch, for unmarked audio with nothing waiting. Audio whose last
-     part went up just before quitting is marked without sending it again.
+     part went up just before quitting is marked without reading or sending
+     it again.
    - when a fetched note arrives without a marker for audio this Mac has
      (another Mac cleared it).
    A lookup that fails is retried after the next sync.
@@ -94,12 +105,11 @@ or exports it.
    pauses with the same status. A part that fails (any reason, quota
    included, or a part file that can't be cut) is retried after the next
    sync, at most twice, then waits for the next launch or an edit to the
-   note. On `serverRecordChanged`, a server copy with the same `fileName` and
-   `fileBytes` counts as saved; a different one is overwritten on the retry,
-   using the server's change tag. A part saved into a missing `NoteAudio`
-   zone makes the zone and retries, but only when the `Notes` zone still
-   exists; otherwise sync stops as deleted elsewhere. A zone the user
-   deleted in System Settings counts as missing.
+   note. `serverRecordChanged` on a part means iCloud already has it, so it
+   counts as saved. A part saved into a missing `NoteAudio` zone makes the
+   zone and retries, but only when the `Notes` zone still exists; otherwise
+   sync stops as deleted elsewhere. A zone the user deleted in System
+   Settings counts as missing.
 6. A part saved after its note was deleted is deleted.
 
 Upload status: `Uploading · 12 of 80 notes` counts notes, as today. The
@@ -109,13 +119,18 @@ total only when the note's marker is written.
 ## Delete and turn off (item 5a)
 
 - Purge (Delete Now, the 30-day purge, or a server delete applied as a
-  purge) cancels waiting parts and queues deletes for `<id>-0 … <id>-(n-1)`.
-  `n` is the largest of: the manifest's part count, the parts this Mac
-  queued or counted from its local file this session, and the highest
-  waiting index + 1. When nothing gives a count but the note had audio
-  (another Mac stopped mid-upload and left no marker), part names are looked
-  up 20 at a time and every part found is deleted, continuing while a window
-  finds any. `unknownItem` or a missing zone on these deletes counts as done.
+  purge) cancels waiting parts and deletes the parts the manifest names.
+  When no manifest names them all (no manifest, an upload in progress, or
+  another Mac stopped mid-upload), the coordinator lists the `NoteAudio`
+  zone's record names and deletes that note's parts, unless the note has
+  come back by then (another Mac edited it). `unknownItem` or a missing
+  zone on these deletes counts as done.
+- A note whose audio file changes: the store reports the earlier audio
+  before the note's save. Its marked parts are deleted, and when no marker
+  names them, the zone listing deletes the parts this Mac sent (its upload
+  key and parts it had waiting) that neither the current marker nor the
+  current upload key names. The note is still in use, so another Mac's
+  upload for it is left alone; nothing sent from here means no listing.
 - Turn Off and Delete from iCloud deletes the `Notes` zone first. Only when
   it is gone is the `NoteAudio` zone deleted (two tries), so notes never
   point at audio that is gone. If the audio zone stays, sync still turns off
@@ -148,7 +163,17 @@ total only when the note's marker is written.
   `Sync/downloads/<id>.partial`, checks the size and SHA-256, and moves the
   file to `audio/<audioFileName>`. A hash or size mismatch discards the file
   and tries once more, then reports `.failed`.
+- Each download has its own token and partial file
+  (`Sync/downloads/<id>-<token>.partial`), so a request right after Stop
+  starts a fresh download. Progress only moves forward.
 - `cancel(noteID)` stops the operation and removes the partial file.
+  Turning sync off, or sync stopping by itself, cancels every download, and
+  the engine removes download files when it starts and stops. Deleting a
+  note (here or from another Mac) cancels its download; a download that
+  finishes after the delete removes the file.
+- With sync off, a note without a marker shows no audio bar (a file lost
+  on a Mac that never synced it looks as before); audio this Mac was
+  uploading but has lost shows no bar either.
 - Downloads keep going when the note view closes, and a second request for
   the same note joins the running one.
 - It reaches CloudKit through a small protocol, so tests use a fake.

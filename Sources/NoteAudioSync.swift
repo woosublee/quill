@@ -1,32 +1,61 @@
 import CryptoKit
 import Foundation
 
-/// One part of a note's audio in iCloud: record `<note UUID>-<index>`.
+/// One part of a note's audio in iCloud: record
+/// `<note UUID>-<key>-<index>`, where `key` is the first 16 hex digits of
+/// the file's SHA-256. A part is named after the bytes it holds, so a
+/// changed file never writes over the parts of the earlier one.
 struct NoteAudioPartID: Hashable, Sendable {
+    static let keyLength = 16
+
     let noteID: UUID
+    let key: String
     let index: Int
 
-    init(noteID: UUID, index: Int) {
+    init(noteID: UUID, key: String, index: Int) {
         self.noteID = noteID
+        self.key = key
         self.index = index
     }
 
     init?(recordName: String) {
-        guard let dash = recordName.lastIndex(of: "-"),
-              let noteID = UUID(uuidString: String(recordName[..<dash])),
-              let index = Int(recordName[recordName.index(after: dash)...]),
+        guard let lastDash = recordName.lastIndex(of: "-"),
+              let index = Int(recordName[recordName.index(after: lastDash)...]),
               index >= 0 else { return nil }
-        self.init(noteID: noteID, index: index)
+        let rest = recordName[..<lastDash]
+        guard let keyDash = rest.lastIndex(of: "-"),
+              let noteID = UUID(uuidString: String(rest[..<keyDash])) else { return nil }
+        let key = String(rest[rest.index(after: keyDash)...])
+        guard Self.isKey(key) else { return nil }
+        self.init(noteID: noteID, key: key, index: index)
+        // Only the name this would write, so a delete hits the record listed.
+        guard self.recordName == recordName else { return nil }
     }
 
-    var recordName: String { "\(noteID.uuidString)-\(index)" }
+    var recordName: String { "\(noteID.uuidString)-\(key)-\(index)" }
+
+    /// The part key for a file's SHA-256 (lowercase hex).
+    static func key(sha256: String) -> String {
+        String(sha256.prefix(keyLength))
+    }
+
+    static func isKey(_ text: String) -> Bool {
+        text.count == keyLength && text.allSatisfy { "0123456789abcdef".contains($0) }
+    }
+
+    /// Every part of a file with this SHA-256 and part count.
+    static func parts(of noteID: UUID, sha256: String, count: Int) -> [NoteAudioPartID] {
+        let key = key(sha256: sha256)
+        return (0..<max(count, 0)).map { NoteAudioPartID(noteID: noteID, key: key, index: $0) }
+    }
 }
 
-/// What an audio part in iCloud was cut from: the note's audio file name
-/// and size. A part cut from an earlier file of the note doesn't match.
-struct NoteAudioPartStamp: Hashable, Sendable {
-    let fileName: String
-    let fileBytes: Int64
+/// What iCloud may hold of a deleted or replaced note's audio: the parts
+/// its marker names, and the parts of an upload this Mac had started.
+struct NoteAudioSyncState: Equatable, Sendable {
+    var manifest: NoteAudioManifest?
+    /// The SHA-256 of the file this Mac was uploading.
+    var uploadKey: String?
 }
 
 /// Says a note's audio is entirely in iCloud. It is set only after every
@@ -54,9 +83,27 @@ struct NoteAudioManifest: Codable, Equatable, Sendable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         sha256 = try container.decode(String.self, forKey: .sha256)
+        // The hash names the parts, so one that can't is no marker at all.
+        guard sha256.count == 64, sha256.allSatisfy({ "0123456789abcdef".contains($0) }) else {
+            throw DecodingError.dataCorruptedError(forKey: .sha256, in: container, debugDescription: "Not a SHA-256")
+        }
         bytes = try container.decode(Int64.self, forKey: .bytes)
         partSize = try container.decode(Int64.self, forKey: .partSize)
         parts = try container.decode(Int.self, forKey: .parts)
+        // Counts that don't fit together would name parts that can't exist.
+        guard Self.fits(bytes: bytes, partSize: partSize, parts: parts) else {
+            throw DecodingError.dataCorruptedError(forKey: .parts, in: container, debugDescription: "Counts don't fit")
+        }
+    }
+
+    /// The most parts a marker may name; far past any real recording.
+    static let maxParts = 10_000
+
+    private static func fits(bytes: Int64, partSize: Int64, parts: Int) -> Bool {
+        guard bytes > 0, partSize > 0, (1...maxParts).contains(parts) else { return false }
+        // As NoteAudioParts.count, without overflowing for huge values.
+        let (whole, rest) = bytes.quotientAndRemainder(dividingBy: partSize)
+        return whole + (rest > 0 ? 1 : 0) == Int64(parts)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -66,6 +113,11 @@ struct NoteAudioManifest: Codable, Equatable, Sendable {
         try container.encode(bytes, forKey: .bytes)
         try container.encode(partSize, forKey: .partSize)
         try container.encode(parts, forKey: .parts)
+    }
+
+    /// The parts this marker says are in iCloud.
+    func partIDs(noteID: UUID) -> [NoteAudioPartID] {
+        NoteAudioPartID.parts(of: noteID, sha256: sha256, count: parts)
     }
 
     func encoded() -> Data {

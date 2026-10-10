@@ -8,7 +8,7 @@ import Network
 /// push notifications it fetches every minute while sync is on, and right
 /// away when the Mac wakes or the network comes back.
 @available(macOS 14.0, *)
-final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngineDelegate, @unchecked Sendable {
+final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPartFetching, CKSyncEngineDelegate, @unchecked Sendable {
     static let fetchInterval: TimeInterval = 60
 
     private let stateURL: URL
@@ -18,7 +18,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
     private var syncEngine: CKSyncEngine?
     private weak var coordinator: NoteSyncCoordinator?
     /// Guards `syncEngine`, `isStopped`, `isFetching`, `isDeletingZone`,
-    /// `zoneDeleteFailed`, `deletedZones`, and `audioServerFields`, which
+    /// `zoneDeleteFailed`, and `deletedZones`, which
     /// CloudKit's queues and the main thread share.
     /// Timers and observers are touched on the main thread only.
     private let lock = NSLock()
@@ -28,8 +28,6 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
     private var zoneDeleteFailed = false
     /// Zones this Mac's delete removed, or found already gone.
     private var deletedZones: Set<CKRecordZone.ID> = []
-    /// Change tags of audio parts iCloud already had, to send over them.
-    private var audioServerFields: [CKRecord.ID: Data] = [:]
     private var timer: Timer?
     private var wakeObserver: NSObjectProtocol?
     private var pathMonitor: NWPathMonitor?
@@ -81,6 +79,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
     /// Call on the main thread.
     func start() {
         NoteSyncCloudRecord.removeAllOutboxFiles(in: outbox)
+        NoteAudioDownloader.removeDownloadFiles(in: downloadsDirectory)
         let timer = Timer(timeInterval: Self.fetchInterval, repeats: true) { [weak self] _ in
             self?.fetchNow()
         }
@@ -143,18 +142,32 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         }
     }
 
+    func cancelAudioDeletes(noteID: UUID) {
+        guard let engine = activeEngine() else { return }
+        let deletes = engine.state.pendingRecordZoneChanges.filter { change in
+            guard case .deleteRecord(let id) = change else { return false }
+            return NoteAudioCloudRecord.part(from: id)?.noteID == noteID
+        }
+        if !deletes.isEmpty { engine.state.remove(pendingRecordZoneChanges: deletes) }
+    }
+
+    func cancelAudioDeletes(_ parts: [NoteAudioPartID]) {
+        guard let engine = activeEngine(), !parts.isEmpty else { return }
+        engine.state.remove(pendingRecordZoneChanges: parts.map { .deleteRecord(NoteAudioCloudRecord.recordID(for: $0)) })
+    }
+
     func cancelAudioSaves(noteID: UUID) {
         guard let engine = activeEngine() else { return }
         let parts = pendingAudioSaves().filter { $0.noteID == noteID }
         engine.state.remove(pendingRecordZoneChanges: parts.map { .saveRecord(NoteAudioCloudRecord.recordID(for: $0)) })
     }
 
-    /// Looks parts up a few hundred at a time, asking only for their stamp
-    /// fields. A part iCloud doesn't have, or a missing zone, reads as
-    /// absent; any other error throws.
-    func audioPartStamps(_ parts: [NoteAudioPartID]) async throws -> [NoteAudioPartID: NoteAudioPartStamp] {
+    /// Looks parts up a few hundred at a time, asking for one small field
+    /// only. A part iCloud doesn't have, or a missing zone, reads as absent;
+    /// any other error throws.
+    func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> {
         guard activeEngine() != nil else { throw NoteSyncEngineError.notRunning }
-        var stamps: [NoteAudioPartID: NoteAudioPartStamp] = [:]
+        var found: Set<NoteAudioPartID> = []
         var start = 0
         while start < parts.count {
             let chunk = parts[start..<min(start + 200, parts.count)]
@@ -163,28 +176,155 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
             do {
                 results = try await database.records(
                     for: chunk.map(NoteAudioCloudRecord.recordID(for:)),
-                    desiredKeys: NoteAudioCloudRecord.stampKeys
+                    desiredKeys: NoteAudioCloudRecord.lookupKeys
                 )
             } catch let error as CKError where Self.isZoneGone(error.code) {
                 continue
             }
             for (recordID, result) in results {
                 switch result {
-                case .success(let record):
-                    guard let part = NoteAudioCloudRecord.part(from: recordID) else { continue }
-                    // A part sent again goes over this copy with its change
-                    // tag, rather than failing once after uploading.
-                    lock.withLock { audioServerFields[recordID] = NoteSyncCloudRecord.systemFields(of: record) }
-                    if let stamp = NoteAudioCloudRecord.stamp(of: record) {
-                        stamps[part] = stamp
-                    }
+                case .success:
+                    if let part = NoteAudioCloudRecord.part(from: recordID) { found.insert(part) }
                 case .failure(let error):
                     if let code = (error as? CKError)?.code, code == .unknownItem || Self.isZoneGone(code) { continue }
                     throw error
                 }
             }
         }
-        return stamps
+        return found
+    }
+
+    /// Where downloaded parts and partial audio wait, beside the outbox.
+    private var downloadsDirectory: URL {
+        outbox.deletingLastPathComponent().appendingPathComponent("downloads", isDirectory: true)
+    }
+
+    /// Downloads one part, reporting progress, and copies its bytes to a new
+    /// file under `Sync/downloads` before CloudKit removes its cached copy.
+    func fetchAudioPart(_ part: NoteAudioPartID, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
+        guard activeEngine() != nil else { throw NoteAudioFetchError.failed }
+        let destination = downloadsDirectory
+            .appendingPathComponent("\(part.recordName)-\(UUID().uuidString).fetched")
+        let operation = CKFetchRecordsOperation(recordIDs: [NoteAudioCloudRecord.recordID(for: part)])
+        operation.desiredKeys = [NoteAudioCloudRecord.dataKey]
+        operation.qualityOfService = .userInitiated
+        operation.perRecordProgressBlock = { _, fraction in progress(fraction) }
+        let outcome = FetchOutcome()
+        operation.perRecordResultBlock = { _, result in
+            switch result {
+            case .success(let record):
+                guard let asset = record[NoteAudioCloudRecord.dataKey] as? CKAsset, let file = asset.fileURL else {
+                    outcome.result = .failure(NoteAudioFetchError.failed)
+                    return
+                }
+                do {
+                    try FileManager.default.createDirectory(
+                        at: destination.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
+                    try FileManager.default.copyItem(at: file, to: destination)
+                    outcome.result = .success(destination)
+                } catch {
+                    outcome.result = .failure(NoteAudioFetchError.failed)
+                }
+            case .failure(let error):
+                outcome.result = .failure(Self.fetchError(error))
+            }
+        }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+                operation.fetchRecordsResultBlock = { result in
+                    switch result {
+                    case .success:
+                        continuation.resume(with: Self.audioFetchResult(part: outcome.result, operationError: nil))
+                    case .failure(let error):
+                        // A part copied before the operation failed has no
+                        // owner now.
+                        if case .success(let copied)? = outcome.result { try? FileManager.default.removeItem(at: copied) }
+                        if (error as? CKError)?.code == .operationCancelled {
+                            continuation.resume(throwing: CancellationError())
+                        } else if case .failure(let partError)? = outcome.result {
+                            continuation.resume(throwing: partError)
+                        } else {
+                            continuation.resume(with: Self.audioFetchResult(part: nil, operationError: error))
+                        }
+                    }
+                }
+                database.add(operation)
+            }
+        } onCancel: {
+            operation.cancel()
+        }
+    }
+
+    /// The part a fetch delivers, set from CloudKit's callback queue.
+    private final class FetchOutcome: @unchecked Sendable {
+        /// Nil until CloudKit reports the part; offline it never does.
+        var result: Result<URL, Error>?
+    }
+
+    /// The part's own result when CloudKit gave one, otherwise what the
+    /// operation's error says (offline fails the whole fetch).
+    static func audioFetchResult(part: Result<URL, Error>?, operationError: Error?) -> Result<URL, Error> {
+        if let part { return part }
+        guard let operationError else { return .failure(NoteAudioFetchError.failed) }
+        return .failure(fetchError(operationError))
+    }
+
+    private static func fetchError(_ error: Error) -> NoteAudioFetchError {
+        if let error = error as? URLError {
+            return [.notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotFindHost, .cannotConnectToHost]
+                .contains(error.code) ? .offline : .failed
+        }
+        guard let error = error as? CKError else { return .failed }
+        // One part per fetch: its error is the one that counts.
+        if error.code == .partialFailure, let partError = error.partialErrorsByItemID?.values.first {
+            return fetchError(partError)
+        }
+        switch error.code {
+        case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .zoneBusy:
+            return .offline
+        // Gone: another Mac replaced the file, or deleted the iCloud data.
+        case let code where code == .unknownItem || isZoneGone(code):
+            return .missing
+        default:
+            return .failed
+        }
+    }
+
+    /// Lists the audio zone's records, names only, and keeps the parts of
+    /// these notes. Used to find parts no marker names, which is rare, so
+    /// listing the zone is fine.
+    func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] {
+        guard activeEngine() != nil else { throw NoteSyncEngineError.notRunning }
+        var parts: [NoteAudioPartID] = []
+        var token: CKServerChangeToken?
+        var moreComing = true
+        while moreComing {
+            let changes: (
+                modificationResultsByID: [CKRecord.ID: Result<CKDatabase.RecordZoneChange.Modification, Error>],
+                deletions: [CKDatabase.RecordZoneChange.Deletion],
+                changeToken: CKServerChangeToken,
+                moreComing: Bool
+            )
+            do {
+                changes = try await database.recordZoneChanges(
+                    inZoneWith: NoteAudioCloudRecord.zoneID(),
+                    since: token,
+                    desiredKeys: NoteAudioCloudRecord.lookupKeys
+                )
+            } catch let error as CKError where Self.isZoneGone(error.code) {
+                return []
+            }
+            for recordID in changes.modificationResultsByID.keys {
+                if let part = NoteAudioCloudRecord.part(from: recordID), ids.contains(part.noteID) {
+                    parts.append(part)
+                }
+            }
+            token = changes.changeToken
+            moreComing = changes.moreComing
+        }
+        return parts
     }
 
     /// Sync Now: fetches, then sends what is waiting. Failures are left to
@@ -302,6 +442,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         pathMonitor?.cancel()
         pathMonitor = nil
         NoteSyncCloudRecord.removeAllOutboxFiles(in: outbox)
+        NoteAudioDownloader.removeDownloadFiles(in: downloadsDirectory)
         if let engine {
             Task { await engine.cancelOperations() }
         }
@@ -417,14 +558,13 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
 
     private func record(for recordID: CKRecord.ID, engine: CKSyncEngine) async -> CKRecord? {
         if let part = NoteAudioCloudRecord.part(from: recordID) {
-            let systemFields = lock.withLock { audioServerFields[recordID] }
             guard let outgoing = await MainActor.run(body: { coordinator?.outgoingAudio(for: part) }) else {
                 // Stale: the audio is gone, already in iCloud, or shorter.
                 engine.state.remove(pendingRecordZoneChanges: [.saveRecord(recordID)])
                 return nil
             }
             do {
-                return try NoteAudioCloudRecord.makeRecord(outgoing, systemFields: systemFields, outbox: outbox)
+                return try NoteAudioCloudRecord.makeRecord(outgoing, outbox: outbox)
             } catch {
                 // The part file couldn't be cut (disk full, say): retried
                 // like a failed send, so the note's audio isn't left short.
@@ -456,7 +596,6 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
         for record in sent.savedRecords {
             if let part = NoteAudioCloudRecord.part(from: record.recordID) {
                 NoteAudioCloudRecord.removePartFile(for: part, in: outbox)
-                lock.withLock { audioServerFields[record.recordID] = nil }
                 savedParts.append(part)
                 continue
             }
@@ -470,24 +609,11 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, CKSyncEngine
                 NoteAudioCloudRecord.removePartFile(for: part, in: outbox)
                 switch NoteSyncCloudRecord.sendErrorKind(failure.error.code) {
                 case .serverChanged:
-                    // iCloud already holds this very part (it went up just
-                    // before a quit): count it as saved.
-                    if let server = failure.error.serverRecord,
-                       let sent = NoteAudioCloudRecord.stamp(of: failure.record),
-                       NoteAudioCloudRecord.stamp(of: server) == sent {
-                        lock.withLock { audioServerFields[recordID] = nil }
-                        savedParts.append(part)
-                        continue
-                    }
-                    // A part of an earlier file: sent again over it after
-                    // the next sync, within the retry limit, so a conflict
-                    // that keeps coming back can't resend 50 MB forever.
-                    if let server = failure.error.serverRecord {
-                        lock.withLock { audioServerFields[recordID] = NoteSyncCloudRecord.systemFields(of: server) }
-                    }
-                    audioFailures.append(.failed(part))
+                    // A part's name says which bytes it holds, so iCloud
+                    // already has this very part (it went up before a quit,
+                    // or from another Mac): it counts as saved.
+                    savedParts.append(part)
                 case .unknownItem:
-                    lock.withLock { audioServerFields[recordID] = nil }
                     engine.state.add(pendingRecordZoneChanges: [.saveRecord(recordID)])
                 case .zoneGone:
                     if zoneGoneMeansDeletedElsewhere() { partsWithoutZone.append(part) }

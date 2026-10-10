@@ -11,12 +11,12 @@ enum NoteAudioCloudRecord {
         static let data = "data"
         static let index = "index"
         static let noteID = "noteID"
-        static let fileName = "fileName"
-        static let fileBytes = "fileBytes"
     }
 
-    /// The fields `stamp(of:)` reads, so a lookup never downloads audio.
-    static let stampKeys = [Key.fileName, Key.fileBytes]
+    /// The one small field a lookup asks for, so it never downloads audio.
+    static let lookupKeys = [Key.index]
+    /// The field holding the part's bytes, for a download.
+    static let dataKey = Key.data
 
     static func zoneID() -> CKRecordZone.ID {
         CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
@@ -36,18 +36,14 @@ enum NoteAudioCloudRecord {
     }
 
     /// Audio that fits one part sends the file itself; a part of a longer
-    /// file is cut into `outbox` first.
+    /// file is cut into `outbox` first. A part's name says which bytes it
+    /// holds, so it is always saved as a new record, never over another.
     static func makeRecord(
         _ outgoing: NoteSyncOutgoingAudio,
-        systemFields: Data?,
         outbox: URL,
         partSize: Int64 = NoteAudioParts.partSize
     ) throws -> CKRecord {
-        let id = recordID(for: outgoing.part)
-        let record = systemFields
-            .flatMap(NoteSyncCloudRecord.record(fromSystemFields:))
-            .flatMap { $0.recordID == id && $0.recordType == recordType ? $0 : nil }
-            ?? CKRecord(recordType: recordType, recordID: id)
+        let record = CKRecord(recordType: recordType, recordID: recordID(for: outgoing.part))
         let file: URL
         if NoteAudioParts.count(bytes: outgoing.byteCount, partSize: partSize) == 1 {
             file = outgoing.fileURL
@@ -59,16 +55,7 @@ enum NoteAudioCloudRecord {
         record[Key.data] = CKAsset(fileURL: file)
         record[Key.index] = outgoing.part.index
         record[Key.noteID] = outgoing.part.noteID.uuidString
-        record[Key.fileName] = outgoing.fileName
-        record[Key.fileBytes] = outgoing.byteCount
         return record
-    }
-
-    /// What the part was cut from, or nil for a record without it.
-    static func stamp(of record: CKRecord) -> NoteAudioPartStamp? {
-        guard let name = record[Key.fileName] as? String,
-              let bytes = (record[Key.fileBytes] as? NSNumber)?.int64Value else { return nil }
-        return NoteAudioPartStamp(fileName: name, fileBytes: bytes)
     }
 
     static func removePartFile(for part: NoteAudioPartID, in outbox: URL) {

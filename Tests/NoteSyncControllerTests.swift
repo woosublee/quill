@@ -21,6 +21,7 @@ struct NoteSyncControllerTests {
         testTurnOnFailureKeepsWhySyncStopped()
         try testConfirmationsCountAudio()
         testSyncNowRunsOnceAtATime()
+        testTurningOffStopsAudioDownloads()
         print("NoteSyncControllerTests passed")
     }
 
@@ -42,7 +43,7 @@ struct NoteSyncControllerTests {
                 deletedAt: nil
             )
         }
-        let manifest = NoteAudioManifest(sha256: "x", bytes: 1, partSize: 50_000_000, parts: 1)
+        let manifest = NoteAudioManifest(sha256: String(repeating: "ab", count: 32), bytes: 1, partSize: 50_000_000, parts: 1)
         store.manifests[uploaded] = manifest
         store.manifests[elsewhere] = manifest
         let controller = NoteSyncController(
@@ -79,6 +80,9 @@ struct NoteSyncControllerTests {
         var manifests: [UUID: NoteAudioManifest] = [:]
         func audioManifest(id: UUID) -> NoteAudioManifest? { manifests[id] }
         func setAudioManifest(_ manifest: NoteAudioManifest?, id: UUID) throws { manifests[id] = manifest }
+        func audioUploadKey(id: UUID) -> String? { nil }
+        func setAudioUploadKey(_ key: String?, id: UUID) throws {}
+        func takeClearedAudioUploadKeys() -> [UUID: String] { [:] }
     }
 
     final class FakeEngine: NoteSyncEngineHandle {
@@ -96,8 +100,11 @@ struct NoteSyncControllerTests {
         func enqueueAudioSaves(_ parts: [NoteAudioPartID]) {}
         func enqueueAudioDeletes(_ parts: [NoteAudioPartID]) {}
         func pendingAudioSaves() -> [NoteAudioPartID] { [] }
-        func audioPartStamps(_ parts: [NoteAudioPartID]) async throws -> [NoteAudioPartID: NoteAudioPartStamp] { [:] }
+        func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> { [] }
+        func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] { [] }
         func cancelAudioSaves(noteID: UUID) {}
+        func cancelAudioDeletes(noteID: UUID) {}
+        func cancelAudioDeletes(_ parts: [NoteAudioPartID]) {}
         func attach(_ coordinator: NoteSyncCoordinator) { self.coordinator = coordinator }
         func start() { started += 1; log?.calls.append("start") }
         func fetchNow() { fetches += 1 }
@@ -244,6 +251,17 @@ struct NoteSyncControllerTests {
         precondition(expectation { await controller.syncNow() })
         precondition(busyWhileSyncing && !controller.isSyncingNow)
         precondition(engine()?.syncsNow == 1, "a press while syncing is ignored")
+    }
+
+    /// Sync off means no talking to iCloud: audio downloads stop too.
+    @MainActor
+    static func testTurningOffStopsAudioDownloads() {
+        let (controller, store, _, _) = make(enabled: true)
+        var stops = 0
+        controller.onEngineStop = { stops += 1 }
+        controller.attach(store: store)
+        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: false) })
+        precondition(stops == 1)
     }
 
     /// Runs an async call to completion on the main run loop.

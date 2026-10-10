@@ -1,3 +1,4 @@
+import CloudKit
 import Foundation
 
 #if !QUILL_GROUPED_TEST_RUNNER
@@ -12,6 +13,7 @@ struct AppStateNoteSyncTests {
         try await testRemoteDeletionRemovesTheNote()
         try testWriteTranscriptRejectsUnsafeNames()
         try testSourceContracts()
+        if #available(macOS 14.0, *) { testAudioFetchErrorsSayOffline() }
         print("AppStateNoteSyncTests passed")
     }
 
@@ -25,8 +27,11 @@ struct AppStateNoteSyncTests {
         func enqueueAudioSaves(_ parts: [NoteAudioPartID]) {}
         func enqueueAudioDeletes(_ parts: [NoteAudioPartID]) {}
         func pendingAudioSaves() -> [NoteAudioPartID] { [] }
-        func audioPartStamps(_ parts: [NoteAudioPartID]) async throws -> [NoteAudioPartID: NoteAudioPartStamp] { [:] }
+        func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> { [] }
+        func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] { [] }
         func cancelAudioSaves(noteID: UUID) {}
+        func cancelAudioDeletes(noteID: UUID) {}
+        func cancelAudioDeletes(_ parts: [NoteAudioPartID]) {}
         func attach(_ coordinator: NoteSyncCoordinator) { self.coordinator = coordinator }
         func start() {}
         func fetchNow() {}
@@ -86,6 +91,25 @@ struct AppStateNoteSyncTests {
         appState.startNoteSync()
         engine.saves = []
         return Fixture(root: root, layout: layout, store: store, engine: engine, appState: appState)
+    }
+
+    /// Offline, CloudKit fails the whole fetch without a per-part result;
+    /// the download must say offline, not a plain failure.
+    @available(macOS 14.0, *)
+    static func testAudioFetchErrorsSayOffline() {
+        func reason(_ part: Result<URL, Error>?, _ operationError: Error?) -> NoteAudioFetchError? {
+            guard case .failure(let error) = NoteSyncCloudKitEngine.audioFetchResult(part: part, operationError: operationError) else { return nil }
+            return error as? NoteAudioFetchError
+        }
+        let offline = CKError(.networkUnavailable)
+        precondition(reason(nil, offline) == .offline, "no part result: the operation's error decides")
+        precondition(reason(nil, URLError(.notConnectedToInternet)) == .offline)
+        let id = CKRecord.ID(recordName: "synthetic")
+        let partial = CKError(.partialFailure, userInfo: [CKPartialErrorsByItemIDKey: [id: CKError(.networkFailure)]])
+        precondition(reason(nil, partial) == .offline, "a partial failure is read through to the part's error")
+        precondition(reason(.failure(NoteAudioFetchError.missing), partial) == .missing, "the part's own result wins")
+        precondition(reason(nil, nil) == .failed, "no result at all is a plain failure")
+        precondition(reason(nil, CKError(.unknownItem)) == .missing)
     }
 
     static func testLocalEditReachesTheEngine() async throws {

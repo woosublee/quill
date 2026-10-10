@@ -2882,6 +2882,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
     /// iCloud note sync; created at launch, off until the user turns it on.
     private(set) var noteSyncController: NoteSyncController?
+    /// Downloads note audio from iCloud when it is played, retranscribed, or
+    /// exported on a Mac that doesn't have it.
+    @MainActor lazy var noteAudioDownloader = NoteAudioDownloader(
+        downloadsDirectory: storageLayout.noteSyncDirectory.appendingPathComponent("downloads", isDirectory: true),
+        fetcher: { [weak self] in self?.noteSyncController?.audioPartFetcher },
+        isSyncOn: { [weak self] in self?.noteSyncController?.isEnabled == true },
+        // A fetch brings the new marker when another Mac replaced the file,
+        // or finds the iCloud data deleted elsewhere.
+        onMissingPart: { [weak self] in self?.noteSyncController?.fetchSoon() }
+    )
     private var recordingJournalStore: RecordingJournalStore
     private var cloudTranscriptionJobStore: CloudTranscriptionJobStore
     @MainActor private let cloudTranscriptionHistoryCoordinator =
@@ -8504,12 +8514,54 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return audioURL
     }
 
+    /// The note's audio here, in iCloud, downloading, or out of reach.
+    @MainActor
+    func noteAudioState(for item: PipelineHistoryItem) -> NoteAudioState {
+        let isLocal = noteBrowserStoredAudioURL(for: item) != nil
+        let manifest = isLocal ? nil : pipelineHistoryStore.audioManifest(id: item.id)
+        // This Mac was sending audio it no longer has: the file was lost
+        // here, so it isn't on its way from another Mac.
+        let lostHere = !isLocal && manifest == nil && pipelineHistoryStore.audioUploadKey(id: item.id) != nil
+        return noteAudioDownloader.state(
+            noteID: item.id,
+            hasAudio: item.audioFileName != nil && !lostHere,
+            isLocal: isLocal,
+            manifest: manifest
+        )
+    }
+
+    /// Downloads the note's audio from iCloud into its usual place; nil when
+    /// it couldn't (the reason is in `noteAudioState`) or was cancelled.
+    @MainActor
+    func downloadNoteAudio(for item: PipelineHistoryItem) async -> URL? {
+        // The note as it is now: the view's copy may predate a sync. A note
+        // in Recently Deleted isn't listed, and keeps the copy it has.
+        let item = pipelineHistory.first { $0.id == item.id } ?? item
+        if let local = noteBrowserStoredAudioURL(for: item) { return local }
+        guard let destination = storedAudioURL(for: item),
+              let manifest = pipelineHistoryStore.audioManifest(id: item.id) else { return nil }
+        guard let url = await noteAudioDownloader.download(noteID: item.id, manifest: manifest, to: destination) else {
+            return nil
+        }
+        // Deleted for good while it downloaded: the recording doesn't come back.
+        guard pipelineHistoryStore.syncRecord(id: item.id) != nil else {
+            try? FileManager.default.removeItem(at: url)
+            return nil
+        }
+        return url
+    }
+
+    @MainActor
+    func cancelNoteAudioDownload(for item: PipelineHistoryItem) {
+        noteAudioDownloader.cancel(noteID: item.id)
+    }
+
     @MainActor
     func noteBrowserRetryAvailability(
         for item: PipelineHistoryItem
     ) -> NoteBrowserRetryAvailability {
         guard let audioURL = noteBrowserStoredAudioURL(for: item) else {
-            return .noAudio
+            return noteAudioState(for: item).isInICloud ? .needsDownload : .noAudio
         }
         let options = retryOptions(for: audioURL)
         // Transcription Off means record-only: a transcription the user starts
@@ -13104,8 +13156,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func startNoteSync() {
         guard noteSyncController == nil else { return }
         let controller = dependencies.makeNoteSyncController(storageLayout)
+        controller.onEngineStop = { [weak self] in
+            self?.noteAudioDownloader.cancelAll()
+        }
         controller.onRemoteChange = { [weak self] change in
-            self?.applyRemoteNoteChange(change)
+            guard let self else { return }
+            for assets in change.purged { noteAudioDownloader.cancel(noteID: assets.historyID) }
+            // Another Mac replaced or removed the file: the earlier one's
+            // download stops.
+            for id in noteAudioDownloader.downloadingNotes.intersection(change.changed) {
+                noteAudioDownloader.cancel(noteID: id, unlessDownloading: pipelineHistoryStore.audioManifest(id: id))
+            }
+            applyRemoteNoteChange(change)
         }
         noteSyncController = controller
         // Attaching starts the engine when sync is on, and it fetches then.
@@ -13114,7 +13176,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private func connectNoteSync(to store: PipelineHistoryStore) {
         store.onChange = { [weak self] changes in
-            Self.onMain { self?.noteSyncController?.handleLocalChanges(changes) }
+            Self.onMain {
+                // A deleted note's audio stops downloading.
+                for case .deleted(let id, _, _) in changes { self?.noteAudioDownloader.cancel(noteID: id) }
+                self?.noteSyncController?.handleLocalChanges(changes)
+            }
         }
         Self.onMain { [weak self] in
             self?.noteSyncController?.attach(store: store)
