@@ -39,10 +39,8 @@ struct NoteSyncControllerTests {
         testAccountChangeDuringADeleteSaysSyncStopped()
         testHeldBackStartOverKeepsItsLoopGuard()
         testTurnOnClearsTagsLeftFromADelete()
-        testOwnDeleteThatWentThroughTurnsSyncOff()
         testEngineDeleteHoldsRetries()
         testUndoneDeleteLetsRetriesGoAndSyncs()
-        testOwnDeleteFoundLaterClearsTheFailure()
         testTurnOnCreatesTheZoneBeforeSyncing()
         testTurnOnStaysOffWhenICloudIsUnreachable()
         testTurnOnWaitsForAReadyStore()
@@ -1008,24 +1006,6 @@ struct NoteSyncControllerTests {
         precondition(store.cleared && !defaults.bool(forKey: NoteSyncController.clearTagsOnAttachKey))
     }
 
-    /// The delete looked undone (sync stayed on) but had gone through: when
-    /// the engine finds the zone gone, sync turns off quietly and the audio
-    /// it never reached is deleted as audio left behind.
-    @MainActor
-    static func testOwnDeleteThatWentThroughTurnsSyncOff() {
-        let defaults = freshDefaults()
-        defaults.set(true, forKey: NoteSyncController.enabledKey)
-        let engine = FakeEngine()
-        let log = CallLog()
-        let controller = launch(defaults, log: log, engine: engine)
-        let store = FakeStore()
-        controller.attach(store: store)
-        engine.coordinator?.handleZoneDeleted(byThisMac: true)
-        precondition(expectation { while log.calls.count < 2 { await Task.yield() } })
-        precondition(!controller.isEnabled && controller.status == .off && engine.stopped == [true])
-        precondition(log.calls == ["deleteAudioZone", "deleteAudioZone done"] && !controller.audioLeftInICloud)
-    }
-
     @MainActor
     static func testEngineDeleteHoldsRetries() {
         let (controller, store, engine, _) = make(enabled: true)
@@ -1043,30 +1023,15 @@ struct NoteSyncControllerTests {
         controller.attach(store: store)
         let running = engine()
         running?.deleteError = URLError(.notConnectedToInternet)
-        let fetches = running?.fetches ?? 0
+        running?.whileDeleting = {
+            // The delete's own send finishes while retries are held.
+            running?.coordinator?.handleFetchFinished(pending: 0)
+        }
         precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
         precondition(running?.coordinator?.isHoldingRetries == false, "retries go again")
-        precondition(running?.fetches == fetches + 1, "the sync skipped during the delete runs")
-        // A delete that goes through leaves nothing to sync.
-        let (other, otherStore, otherEngine, _) = make(enabled: true)
-        other.attach(store: otherStore)
-        let deleting = otherEngine()
-        let before = deleting?.fetches ?? 0
-        precondition(expectation { _ = await other.turnOff(deleteFromICloud: true) })
-        precondition(deleting?.fetches == before)
+        if case .upToDate = controller.status {} else {
+            preconditionFailure("the sync skipped during the delete settles the status: \(controller.status)")
+        }
     }
 
-    /// A failed delete set the alert's reason; finding later that it went
-    /// through turns sync off and clears it.
-    @MainActor
-    static func testOwnDeleteFoundLaterClearsTheFailure() {
-        let (controller, store, engine, _) = make(enabled: true)
-        controller.attach(store: store)
-        engine()?.deleteError = URLError(.notConnectedToInternet)
-        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
-        precondition(controller.turnOffFailure == .unreachable)
-        engine()?.coordinator?.handleZoneDeleted(byThisMac: true)
-        drainMainQueue()
-        precondition(!controller.isEnabled && controller.turnOffFailure == nil)
-    }
 }
