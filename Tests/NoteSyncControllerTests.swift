@@ -18,10 +18,9 @@ struct NoteSyncControllerTests {
         testTurnOnWaitsForTheLeftoverAudioDelete()
         testLeftoverAudioInUseAgainIsForgotten()
         testLeftoverAudioIsKeptPerAccount()
-        testOfflineTurnOffRecordsTheAccountSyncRanIn()
         testTurnOnInAnotherAccountKeepsLeftoverAudio()
-        testSyncOnBeforeThisChangeLearnsItsAccount()
         testTurnOffInAnotherAccountKeepsTheFirstOnesAudio()
+        testUnreadableAccountAtTurnOffIsRecordedAsUnknown()
         testAccountChangeTurnsSyncOff()
         testLocalChangesReachTheEngineOnlyWhileOn()
         testReplacedStoreStartsOverWithFullUpload()
@@ -643,24 +642,6 @@ struct NoteSyncControllerTests {
         precondition(defaults.stringArray(forKey: leftKey) == ["account-a"], "the unknown entry goes by the notes zone check")
     }
 
-    /// Offline at Turn Off, the account read while sync ran is recorded.
-    @MainActor
-    static func testOfflineTurnOffRecordsTheAccountSyncRanIn() {
-        let defaults = freshDefaults()
-        let engine = FakeEngine()
-        engine.audioDeleteWorks = false
-        let log = CallLog()
-        let controller = launch(defaults, log: log, engine: engine)
-        let store = FakeStore()
-        controller.attach(store: store)
-        precondition(expectation { _ = await controller.turnOn() })
-        precondition(defaults.string(forKey: NoteSyncController.syncAccountKey) == "account-a")
-        log.account = nil
-        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
-        precondition(defaults.stringArray(forKey: leftKey) == ["account-a"])
-        precondition(defaults.string(forKey: NoteSyncController.syncAccountKey) == nil, "forgotten once sync is off")
-    }
-
     /// Turning on in another account doesn't forget audio left in the
     /// first; turning on in that account reuses it. With the account
     /// unreadable, nothing is forgotten.
@@ -679,19 +660,6 @@ struct NoteSyncControllerTests {
         }
     }
 
-    /// Sync turned on before Quill kept its account learns it while it runs.
-    @MainActor
-    static func testSyncOnBeforeThisChangeLearnsItsAccount() {
-        let defaults = freshDefaults()
-        defaults.set(true, forKey: NoteSyncController.enabledKey)
-        let log = CallLog()
-        let controller = launch(defaults, log: log)
-        let store = FakeStore()
-        controller.attach(store: store)
-        drainMainQueue()
-        precondition(defaults.string(forKey: NoteSyncController.syncAccountKey) == "account-a")
-    }
-
     /// Audio left in account A, then Turn Off and Delete in account B also
     /// leaves audio: both are remembered, each for its own account.
     @MainActor
@@ -708,5 +676,20 @@ struct NoteSyncControllerTests {
         precondition(expectation { _ = await controller.turnOn() })
         precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
         precondition(defaults.stringArray(forKey: leftKey) == ["account-a", "account-b"])
+    }
+
+    @MainActor
+    static func testUnreadableAccountAtTurnOffIsRecordedAsUnknown() {
+        let defaults = freshDefaults()
+        defaults.set(true, forKey: NoteSyncController.enabledKey)
+        let engine = FakeEngine()
+        engine.audioDeleteWorks = false
+        let log = CallLog()
+        log.account = nil
+        let controller = launch(defaults, log: log, engine: engine)
+        let store = FakeStore()
+        controller.attach(store: store)
+        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
+        precondition(defaults.stringArray(forKey: leftKey) == [""] && controller.audioLeftInICloud)
     }
 }
