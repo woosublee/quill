@@ -23,7 +23,7 @@ enum NoteSyncSendErrorKind: Equatable {
 /// whether this Mac is deleting its iCloud data.
 enum NoteSyncSendRoute: Equatable {
     /// The engine retries it itself, or nothing is left to do.
-    case none
+    case nothing
     /// A part iCloud already has (its name says which bytes it holds).
     case savedAlready
     /// Queued again at once.
@@ -48,20 +48,20 @@ enum NoteSyncSendRoute: Equatable {
     static func route(_ sent: Sent, isSave: Bool, code: CKError.Code, deletingZone: Bool) -> NoteSyncSendRoute {
         let kind = NoteSyncCloudRecord.sendErrorKind(code)
         switch kind {
-        case .throttled: return .none
+        case .throttled: return .nothing
         case .network: return .network
         case .accountNeedsAttention: return .accountNeedsAttention
         case .zoneGone:
-            if deletingZone { return sent == .part && !isSave ? .none : .holdForOwnDelete }
+            if deletingZone { return sent == .part && !isSave ? .nothing : .holdForOwnDelete }
             switch (sent, isSave) {
             case (.part, true): return .partWithoutZone
-            case (.part, false): return .none
+            case (.part, false): return .nothing
             case (.note, _): return .zoneDeletedElsewhere
             }
         case .unknownItem:
             switch (sent, isSave) {
             case (.part, true): return .resendNow
-            case (.part, false): return .none
+            case (.part, false): return .nothing
             case (.note, true): return .unknownItemOnSave
             case (.note, false): return .unknownItemOnDelete
             }
@@ -72,6 +72,40 @@ enum NoteSyncSendRoute: Equatable {
         case .serverChanged, .quotaExceeded, .other:
             return .failed
         }
+    }
+}
+
+/// This Mac's delete from iCloud, and the changes that met the missing zone
+/// meanwhile: put back if the delete is undone, dropped once it's done.
+/// The engine keeps it under its lock.
+struct NoteSyncDeleteHold<Change> {
+    private(set) var isDeleting = false
+    private var held: [Change] = []
+
+    mutating func begin() {
+        isDeleting = true
+        held = []
+    }
+
+    /// Returns the changes to put back now: all of them once the delete was
+    /// undone (their send finished after it).
+    mutating func hold(_ changes: [Change]) -> [Change] {
+        guard isDeleting else { return changes }
+        held += changes
+        return []
+    }
+
+    /// The delete was undone: the changes to put back.
+    mutating func undo() -> [Change] {
+        isDeleting = false
+        defer { held = [] }
+        return held
+    }
+
+    /// The delete went through: nothing held goes back. Sync turns off, so
+    /// it still counts as deleting.
+    mutating func finish() {
+        held = []
     }
 }
 

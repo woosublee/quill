@@ -70,6 +70,8 @@ protocol NoteSyncEngineClient: AnyObject {
     func enqueueAudioDeletes(_ parts: [NoteAudioPartID])
     /// Audio parts still waiting to go up, for every note.
     func pendingAudioSaves() -> [NoteAudioPartID]
+    /// Changes of any kind still waiting to go up.
+    func pendingChangeCount() -> Int
     func cancelAudioSaves(noteID: UUID)
     /// Drops audio deletes still waiting to go up, for a note that came back.
     func cancelAudioDeletes(noteID: UUID)
@@ -1021,15 +1023,16 @@ final class NoteSyncCoordinator {
     /// off after, or, if the delete is undone, `stopHoldingRetries` does
     /// both. (New sends meet the missing zone and are held by the engine.)
     var isHoldingRetries = false
-    /// The last finished sync skipped while holding, with what it left.
-    private var skippedFinish: Int?
+    /// A finished sync was skipped while holding.
+    private var skippedFinish = false
 
     func stopHoldingRetries() {
         guard isHoldingRetries else { return }
         isHoldingRetries = false
-        if let pending = skippedFinish {
-            skippedFinish = nil
-            handleFetchFinished(pending: pending)
+        if skippedFinish {
+            skippedFinish = false
+            // What waits now, with the uploads the undone delete put back.
+            handleFetchFinished(pending: engine.pendingChangeCount())
         }
     }
 
@@ -1037,7 +1040,7 @@ final class NoteSyncCoordinator {
     func handleFetchFinished(pending: Int) {
         guard !isStopped else { return }
         guard !isHoldingRetries else {
-            skippedFinish = pending
+            skippedFinish = true
             return
         }
         let retriedForQuota = quotaRetryPending
