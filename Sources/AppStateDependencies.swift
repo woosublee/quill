@@ -168,14 +168,25 @@ struct AppStateDependencies {
                         in: layout.noteSyncDirectory.appendingPathComponent("downloads", isDirectory: true)
                     )
                 }, loadFailedChanges: {
-                    (try? Data(contentsOf: failedChangesURL)).flatMap { try? JSONDecoder().decode(NoteSyncFailedChanges.self, from: $0) }
-                }, saveFailedChanges: { changes in
-                    guard let changes, let data = try? JSONEncoder().encode(changes) else {
-                        try? FileManager.default.removeItem(at: failedChangesURL)
-                        return
+                    guard let data = try? Data(contentsOf: failedChangesURL) else { return nil }
+                    guard let changes = try? JSONDecoder().decode(NoteSyncFailedChanges.self, from: data) else {
+                        print("[NoteSync] Couldn't read the failed changes kept from the last run")
+                        return nil
                     }
-                    try? FileManager.default.createDirectory(at: layout.noteSyncDirectory, withIntermediateDirectories: true)
-                    try? data.write(to: failedChangesURL, options: .atomic)
+                    return changes
+                }, saveFailedChanges: { changes in
+                    do {
+                        guard let changes else {
+                            if FileManager.default.fileExists(atPath: failedChangesURL.path) {
+                                try FileManager.default.removeItem(at: failedChangesURL)
+                            }
+                            return
+                        }
+                        try FileManager.default.createDirectory(at: layout.noteSyncDirectory, withIntermediateDirectories: true)
+                        try JSONEncoder().encode(changes).write(to: failedChangesURL, options: .atomic)
+                    } catch {
+                        print("[NoteSync] Couldn't keep the failed changes for the next run")
+                    }
                 }, accountID: {
                     guard #available(macOS 14.0, *) else { return nil }
                     return await NoteSyncCloudKitEngine.accountID()

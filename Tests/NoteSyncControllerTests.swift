@@ -1153,9 +1153,11 @@ struct NoteSyncControllerTests {
         )
         controller.attach(store: store)
         precondition(engines.last?.saves == store.ids, "sent again at launch")
-        precondition(saved == nil, "queued, so nothing is left to remember")
+        precondition(saved == NoteSyncFailedChanges(saves: Set(store.ids)), "kept until iCloud confirms it")
+        engines.last?.coordinator?.handleSaved(id: store.ids[0], systemFields: Data([1]))
+        precondition(saved == nil, "confirmed")
         engines.last?.coordinator?.handleSendFailures([.other(noteID: store.ids[0])])
-        precondition(saved == NoteSyncFailedChanges(saves: store.ids), "a new failure is remembered")
+        precondition(saved == NoteSyncFailedChanges(saves: Set(store.ids)), "a new failure is remembered")
         precondition(expectation { _ = await controller.turnOff(deleteFromICloud: false) })
         precondition(saved == nil, "forgotten when sync turns off")
     }

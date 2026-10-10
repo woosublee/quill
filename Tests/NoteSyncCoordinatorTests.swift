@@ -2101,43 +2101,60 @@ struct NoteSyncCoordinatorTests {
         precondition(!searched && engine.audioDeletes.isEmpty)
     }
 
-    /// Failed note saves and deletes are reported as they change, so they
-    /// can be kept across a relaunch; ones that went through drop out.
+    /// Failed note saves and deletes are kept until iCloud confirms them,
+    /// so they outlive a relaunch, and reported once per event.
     @MainActor
     static func testFailedNoteChangesAreReported() {
         let (coordinator, store, _) = make()
         var reported: [NoteSyncFailedChanges] = []
         coordinator.onFailedChangesChange = { reported.append($0) }
-        let note = record(), gone = UUID()
+        let note = record(), gone = UUID(), other = record()
         store.records[note.noteID] = note
-        for _ in 0..<4 { coordinator.handleSendFailures([.other(noteID: note.noteID)]) }
-        coordinator.handleSendFailures([.deleteFailed(noteID: gone)])
-        precondition(reported.last == NoteSyncFailedChanges(saves: [note.noteID], deletes: [gone]), "\(reported)")
+        store.records[other.noteID] = other
+        coordinator.handleSendFailures([.other(noteID: note.noteID), .other(noteID: other.noteID), .deleteFailed(noteID: gone)])
+        precondition(reported == [NoteSyncFailedChanges(saves: [note.noteID, other.noteID], deletes: [gone])], "once per event: \(reported)")
+        // Sent again from a retry: still kept until confirmed.
+        passTime()
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(reported.count == 1)
         coordinator.handleSaved(id: note.noteID, systemFields: Data([1]))
         coordinator.handleDeleted(id: gone)
-        precondition(reported.last == NoteSyncFailedChanges(), "went through")
+        precondition(reported.last == NoteSyncFailedChanges(saves: [other.noteID]), "confirmed ones drop out")
+        coordinator.handleLocalChanges([.deleted(other.noteID, wasSynced: true)])
+        precondition(reported.last == NoteSyncFailedChanges(), "a note deleted here needs no save")
+        coordinator.stop()
+        coordinator.handleSendFailures([.other(noteID: note.noteID)])
+        precondition(reported.last == NoteSyncFailedChanges(), "a retired coordinator reports nothing")
     }
 
-    /// After a relaunch, remembered changes are sent again: saves of notes
-    /// still here, deletes of notes gone; a delete of a note that came back
-    /// is dropped, and one whose note can't be read waits.
+    /// After a relaunch, remembered changes are sent again and kept until
+    /// iCloud confirms them: saves of notes still here, deletes of notes
+    /// gone. A save of a note gone or a delete of a note back is forgotten;
+    /// ones whose note can't be read wait.
     @MainActor
     static func testFailedNoteChangesAreSentAgainAfterARelaunch() {
         let (coordinator, store, engine) = make()
         var reported: [NoteSyncFailedChanges] = []
         coordinator.onFailedChangesChange = { reported.append($0) }
-        let kept = record(), back = record(), gone = UUID(), notSyncable = record()
-        for note in [kept, back, notSyncable] { store.records[note.noteID] = note }
+        let kept = record(), back = record(), gone = UUID(), goneSave = UUID()
+        for note in [kept, back] { store.records[note.noteID] = note }
         store.syncable = [kept.noteID]
-        coordinator.restoreFailedChanges(NoteSyncFailedChanges(
-            saves: [kept.noteID, notSyncable.noteID, UUID()],
-            deletes: [gone, back.noteID]
-        ))
+        let before = NoteSyncFailedChanges(saves: [kept.noteID, goneSave], deletes: [gone, back.noteID])
+        coordinator.restoreFailedChanges(before)
         precondition(engine.saves == [kept.noteID] && engine.deletes == [gone], "\(engine.saves) \(engine.deletes)")
-        precondition(reported.last == NoteSyncFailedChanges(), "queued now, so nothing is left to remember")
+        precondition(reported.last == NoteSyncFailedChanges(saves: [kept.noteID], deletes: [gone]), "kept until confirmed: \(reported)")
+        coordinator.handleSaved(id: kept.noteID, systemFields: Data([1]))
+        coordinator.handleDeleted(id: gone)
+        precondition(reported.last == NoteSyncFailedChanges())
         let unreadable = UUID()
         store.readFails = true
-        coordinator.restoreFailedChanges(NoteSyncFailedChanges(deletes: [unreadable]))
-        precondition(reported.last == NoteSyncFailedChanges(deletes: [unreadable]), "kept for later")
+        let reports = reported.count
+        coordinator.restoreFailedChanges(NoteSyncFailedChanges(saves: [unreadable], deletes: [unreadable]))
+        precondition(engine.saves == [kept.noteID], "nothing sent for a note that can't be read")
+        precondition(reported.count == reports, "kept as it is: the file already holds them")
+        store.readFails = false
+        store.records[unreadable] = record(unreadable)
+        coordinator.handleSaved(id: unreadable, systemFields: Data([1]))
+        precondition(reported.last == NoteSyncFailedChanges(deletes: [unreadable]), "the save was kept until it went through")
     }
 }

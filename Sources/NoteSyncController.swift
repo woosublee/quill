@@ -493,6 +493,8 @@ final class NoteSyncController: ObservableObject {
         guard let engine = makeEngine(NoteSyncEngineEvents(remoteChange: { [weak self] change in
             self?.onRemoteChange?(change)
         })) else { return }
+        // Read before anything can fail and overwrite it.
+        let failedBefore = initialUpload ? nil : loadFailedChanges()
         let coordinator = NoteSyncCoordinator(store: store, engine: engine, localAudioURL: localAudioURL)
         coordinator.onStatusChange = { [weak self] status in
             self?.coordinatorStatusChanged(status)
@@ -514,7 +516,7 @@ final class NoteSyncController: ObservableObject {
             saveFailedChanges(nil)
             coordinator.startInitialUpload()
         } else {
-            if let failed = loadFailedChanges(), !failed.isEmpty { coordinator.restoreFailedChanges(failed) }
+            if let failedBefore, !failedBefore.isEmpty { coordinator.restoreFailedChanges(failedBefore) }
             coordinator.resumeAudioUploads()
         }
     }
@@ -547,6 +549,9 @@ final class NoteSyncController: ObservableObject {
 
     private func stopEngine(forgetState: Bool) {
         if engine != nil { onEngineStop?() }
+        // A retired coordinator's late events don't touch what the next one
+        // keeps.
+        coordinator?.onFailedChangesChange = nil
         coordinator?.stop()
         engine?.stop(forgetState: forgetState)
         engine = nil
