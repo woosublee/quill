@@ -813,8 +813,6 @@ struct CalendarSettingsView: View {
                     .help(localizedCatalogString("Sync Now"))
                     .accessibilityLabel(localizedCatalogString("Sync Now"))
                     Button("Choose Calendars…") {
-                        // Calendars added in Google since the last read show up.
-                        appState.refreshGoogleCalendars()
                         appState.calendarSelectionSheetProvider = .google
                     }
                     .disabled(!connectionControls.allowsRefresh)

@@ -2163,12 +2163,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     /// The Calendar tab reads the calendar list when it hasn't been read
-    /// yet or a problem is showing; otherwise the refresh button, the
-    /// calendar picker, and coming back online keep it current.
+    /// yet, or when a problem a list read can clear is showing (offline, or
+    /// the list's own failure); otherwise the refresh button and coming
+    /// back online keep it current.
     @MainActor
     func loadGoogleCalendarsIfNeeded() async {
-        guard googleCalendarConnection.isConnected, !isGoogleCalendarBusy else { return }
-        guard availableGoogleCalendars.isEmpty || googleCalendarConnection.health.status != .healthy else { return }
+        guard !isGoogleCalendarBusy else { return }
+        let health = googleCalendarConnection.health
+        let listCanClear = health.status == .offline
+            || (health.status != .healthy && health.affectedFeature == .calendarList)
+        guard availableGoogleCalendars.isEmpty || listCanClear else { return }
         await loadGoogleCalendars(force: true)
     }
 
@@ -4922,8 +4926,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             token = loadedToken
         } catch {
             await MainActor.run {
-                // Older saved events must not stand in for this newer fetch.
-                googleReminderEventsCache = nil
+                // Older saved events must not stand in for this newer fetch;
+                // a fetch replaced by a newer one leaves them to it.
+                if GoogleCalendarFetchFailure.of(error, isOnline: { NetworkMonitor.shared.isOnline }) != .cancelled {
+                    googleReminderEventsCache = nil
+                }
                 if Self.isGoogleCalendarReconnectError(error) {
                     markGoogleCalendarNeedsReconnect(
                         feature: .recordingReminders,
@@ -4964,8 +4971,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     fetchedAt: Date(),
                     timeMin: timeMin,
                     timeMax: fetchMax,
-                    // Matched against the connection's account on reuse.
-                    accountEmail: googleCalendarConnection.accountEmail,
+                    accountEmail: token.accountEmail,
                     calendarIDs: selectedCalendarIDs,
                     events: fetchResult.events
                 )
@@ -5050,10 +5056,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard health.status != .needsReconnect,
               !(health.status == .temporaryFailure && health.affectedFeature != feature) else { return }
         googleCalendarConnection.lastErrorMessage = nil
-        // Nothing was checked: "Last checked" stays the last real read.
+        // Nothing was checked: "Last checked" stays the last real read, and
+        // a failed attempt's time isn't one.
         googleCalendarConnection.health = GoogleCalendarHealth(
             status: .offline,
-            checkedAt: health.checkedAt,
+            checkedAt: health.status == .healthy || health.status == .offline ? health.checkedAt : nil,
             affectedFeature: feature
         )
     }

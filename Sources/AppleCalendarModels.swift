@@ -143,10 +143,18 @@ enum CalendarSelectionSummary {
         status(
             account: account,
             hasSelection: hasSelection,
-            checkedTime: checkedAt?.formatted(date: .omitted, time: .shortened),
+            checkedTime: checkedAt.map { checkedTimeText($0) },
             language: preferredLocalizedStringLanguage(),
             bundle: .main
         )
+    }
+
+    /// The time alone for a check today; a check from another day shows
+    /// its date too, so an old check doesn't read as today's.
+    static func checkedTimeText(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+        calendar.isDate(date, inSameDayAs: now)
+            ? date.formatted(date: .omitted, time: .shortened)
+            : date.formatted(date: .abbreviated, time: .shortened)
     }
 
     /// "Last checked 2:30 PM · account", or the selection hint when nothing

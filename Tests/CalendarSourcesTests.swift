@@ -170,6 +170,12 @@ struct CalendarSourcesTests {
         precondition(CalendarSelectionSummary.status(account: nil, hasSelection: true, checkedTime: "2:30 PM", language: "en", bundle: bundle) == "Last checked 2:30 PM")
         precondition(CalendarSelectionSummary.status(account: nil, hasSelection: false, checkedTime: nil, language: "en", bundle: bundle) == "Choose calendars to use")
         precondition(CalendarSelectionSummary.status(account: nil, hasSelection: true, checkedTime: nil, language: "en", bundle: bundle) == nil)
+        // A check from another day shows its date too.
+        let now = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: Date())!
+        let earlierToday = now.addingTimeInterval(-60)
+        let yesterday = now.addingTimeInterval(-86_400)
+        precondition(CalendarSelectionSummary.checkedTimeText(earlierToday, now: now) == earlierToday.formatted(date: .omitted, time: .shortened))
+        precondition(CalendarSelectionSummary.checkedTimeText(yesterday, now: now) == yesterday.formatted(date: .abbreviated, time: .shortened))
     }
 
     struct FetchFailure: Error {}
