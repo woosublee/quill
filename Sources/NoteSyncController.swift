@@ -34,9 +34,11 @@ enum NoteSyncTurnOnFailure: Error, Equatable {
 /// What became of audio a Turn Off and Delete from iCloud left behind.
 enum NoteSyncLeftoverAudio: Equatable {
     case deleted
-    /// Not this Mac's to delete any more: another account is signed in, or
-    /// iCloud holds notes again (another Mac turned sync on and uses it).
+    /// Not this Mac's to delete any more: iCloud holds notes again (another
+    /// Mac turned sync on and uses the audio zone).
     case inUse
+    /// Not deleted this time: iCloud couldn't be reached, or another account
+    /// is signed in (the audio waits for the account it was left in).
     case failed
 
     /// Why leftover audio must not be deleted now, or nil to delete it.
@@ -44,8 +46,7 @@ enum NoteSyncLeftoverAudio: Equatable {
     /// and `notesZoneExists` are nil when iCloud couldn't say.
     static func reasonToKeep(leftIn account: String?, current: String?, notesZoneExists: Bool?) -> NoteSyncLeftoverAudio? {
         if let account {
-            guard let current else { return .failed }
-            if current != account { return .inUse }
+            guard let current, current == account else { return .failed }
         }
         switch notesZoneExists {
         case true?: return .inUse
@@ -197,6 +198,9 @@ final class NoteSyncController: ObservableObject {
     @discardableResult
     func turnOff(deleteFromICloud: Bool) async -> Bool {
         if deleteFromICloud {
+            // Asked up front, while still online: the audio delete fails
+            // mostly when the Mac is offline.
+            let account = Task { await accountID() }
             let audioDeleted: Bool
             do {
                 guard let engine else { throw NoteSyncEngineError.notRunning }
@@ -207,7 +211,7 @@ final class NoteSyncController: ObservableObject {
             }
             // iCloud no longer holds these notes.
             store?.clearChangeTags(forgettingAudio: true)
-            setAudioLeftInICloud(in: audioDeleted ? nil : (await accountID() ?? ""))
+            setAudioLeftInICloud(in: audioDeleted ? nil : (await account.value ?? ""))
         }
         stopEngine(forgetState: true)
         setEnabled(false)

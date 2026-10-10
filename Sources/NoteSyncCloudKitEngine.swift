@@ -1,5 +1,6 @@
 import AppKit
 import CloudKit
+import CryptoKit
 import Foundation
 import Network
 
@@ -410,13 +411,17 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         return false
     }
 
-    static var privateDatabase: CKDatabase {
-        CKContainer(identifier: NoteSyncAvailability.containerIdentifier).privateCloudDatabase
+    static var container: CKContainer {
+        CKContainer(identifier: NoteSyncAvailability.containerIdentifier)
     }
 
-    /// The signed-in iCloud account, to tell whose audio was left behind.
+    static var privateDatabase: CKDatabase { container.privateCloudDatabase }
+
+    /// Tells iCloud accounts apart, to know whose audio was left behind: a
+    /// hash of the account's record name, so the name itself isn't kept.
     static func accountID() async -> String? {
-        try? await CKContainer(identifier: NoteSyncAvailability.containerIdentifier).userRecordID().recordName
+        guard let name = try? await container.userRecordID().recordName else { return nil }
+        return SHA256.hash(data: Data(name.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Finishes deleting audio a Turn Off and Delete from iCloud left,
@@ -424,8 +429,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
     /// signed in, or iCloud holds notes again (another Mac turned sync on
     /// and uses the zone). `account` is the one it was left in, if known.
     static func deleteLeftoverAudio(account: String?) async -> NoteSyncLeftoverAudio {
-        let current = account == nil ? nil : await accountID()
-        let notesZone = await notesZoneExists(in: privateDatabase)
+        async let currentAccount = accountID()
+        async let notesZoneFound = notesZoneExists(in: privateDatabase)
+        let current = account == nil ? nil : await currentAccount
+        let notesZone = await notesZoneFound
         if let keep = NoteSyncLeftoverAudio.reasonToKeep(leftIn: account, current: current, notesZoneExists: notesZone) {
             return keep
         }
