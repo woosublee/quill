@@ -20980,6 +20980,134 @@
           }
         }
       }
+    },
+    "1 note couldn't sync": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 note couldn't sync"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 1개를 동기화하지 못했어요"
+          }
+        }
+      }
+    },
+    "%lld notes couldn't sync": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld notes couldn't sync"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 %lld개를 동기화하지 못했어요"
+          }
+        }
+      }
+    },
+    "Notes couldn't be saved on this Mac, so sync paused": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notes couldn't be saved on this Mac, so sync paused"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에 노트를 저장하지 못해 동기화를 멈췄어요"
+          }
+        }
+      }
+    },
+    "Note history couldn't be opened, so sync paused": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Note history couldn't be opened, so sync paused"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 기록을 열 수 없어 동기화를 멈췄어요"
+          }
+        }
+      }
+    },
+    "It will try again automatically. These notes are still on this Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It will try again automatically. These notes are still on this Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "자동으로 다시 시도해요. 이 노트들은 이 Mac에 그대로 있어요."
+          }
+        }
+      }
+    },
+    "These notes are still on this Mac. Edit a note or click ↻ to try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These notes are still on this Mac. Edit a note or click ↻ to try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 노트들은 이 Mac에 그대로 있어요. 노트를 고치거나 ↻를 누르면 다시 시도해요."
+          }
+        }
+      }
+    },
+    "Check this Mac's free space, then click ↻ to try again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check this Mac's free space, then click ↻ to try again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 남은 공간을 확인한 뒤 ↻를 누르면 다시 시도해요."
+          }
+        }
+      }
+    },
+    "Syncing continues once note history opens again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Syncing continues once note history opens again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트 기록이 다시 열리면 이어서 동기화해요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

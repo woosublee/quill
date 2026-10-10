@@ -93,8 +93,8 @@ enum NoteAudioSendFailure {
     case quotaExceeded(NoteAudioPartID)
     /// Offline; the engine retries these itself.
     case network
-    /// The iCloud account needs attention. Says so only: how the part is
-    /// retried comes with its own failure, or from the engine.
+    /// The iCloud account needs attention. Says so only: the engine keeps
+    /// the part and sends it again itself.
     case accountNeedsAttention
     case failed(NoteAudioPartID)
     case deleteFailed(NoteAudioPartID)
@@ -116,8 +116,8 @@ enum NoteSyncSendFailure {
     case serverChanged(noteID: UUID, serverPayload: Data?, serverSystemFields: Data)
     case quotaExceeded(noteID: UUID)
     case network(noteID: UUID)
-    /// The iCloud account needs attention. Says so only: how the change is
-    /// retried comes with its own failure, or from the engine.
+    /// The iCloud account needs attention. Says so only: the engine keeps
+    /// the change and sends it again itself.
     case accountNeedsAttention
     case unknownItemOnDelete(noteID: UUID)
     /// iCloud has no record for the saved change tag (another Mac removed
@@ -137,6 +137,15 @@ enum NoteSyncPauseReason: Equatable {
     case accountChanged
     case signedOut
     case deletedElsewhere
+    /// Some notes kept failing to go up; the rest of sync goes on.
+    /// `willRetry`: some of them are still waiting for another try.
+    case notesFailed(count: Int, willRetry: Bool)
+    /// Notes from iCloud couldn't be saved on this Mac, even after starting
+    /// over: sync waits for Sync Now or a relaunch.
+    case couldNotSaveHere
+    /// Note history can't be read (it is being recovered): sync goes on
+    /// once the recovered history is in place.
+    case historyUnavailable
 }
 
 enum NoteSyncStatus: Equatable {
@@ -178,17 +187,13 @@ final class NoteSyncCoordinator {
     /// A fetched record couldn't be saved locally while the engine moved
     /// past it, so sync must start over from the beginning.
     var onNeedsFullRefetch: (() -> Void)?
-    /// Saves that failed for lack of space or another lasting reason; tried
-    /// again after the next sync finishes.
-    private var savesToRetry: Set<UUID> = []
-    private var deletesToRetry: Set<UUID> = []
-    private var audioSavesToRetry: Set<NoteAudioPartID> = []
-    private var audioDeletesToRetry: Set<NoteAudioPartID> = []
+    /// Changes that failed to send, tried again after a wait; ones that
+    /// keep failing are given up until their note changes or Sync Now.
+    private var saveRetries = NoteSyncRetries<UUID>()
+    private var deleteRetries = NoteSyncRetries<UUID>()
+    private var audioSaveRetries = NoteSyncRetries<NoteAudioPartID>()
+    private var audioDeleteRetries = NoteSyncRetries<NoteAudioPartID>()
     private var quotaRetryPending = false
-    /// A part that failed this many times waits for the next launch.
-    static let maxAudioAttempts = 3
-    private var audioFailures: [NoteAudioPartID: Int] = [:]
-    private var audioPartsGivenUp: Set<NoteAudioPartID> = []
     /// Notes whose parts in iCloud are being checked, and notes to check
     /// again after the next sync because a check couldn't finish.
     private var audioChecking: Set<UUID> = []
@@ -203,7 +208,7 @@ final class NoteSyncCoordinator {
     /// Set once the controller replaces or drops this coordinator: work
     /// still running (an audio check, a hash) must not touch the store.
     private var isRetired = false
-    /// The most recent audio check, for tests to wait on.
+    /// Audio work started so far (checks and clean-ups), for tests to wait on.
     private(set) var lastAudioCheck: Task<Void, Never>?
 
     /// After an account change or a deletion elsewhere nothing more is sent;
@@ -284,7 +289,7 @@ final class NoteSyncCoordinator {
 
     /// Notes with parts waiting in the engine or waiting for a retry.
     private func notesWithAudioInFlight() -> Set<UUID> {
-        Set(engine.pendingAudioSaves().map(\.noteID)).union(audioSavesToRetry.map(\.noteID))
+        Set(engine.pendingAudioSaves().map(\.noteID)).union(audioSaveRetries.waiting.map(\.noteID))
     }
 
     private func localAudio(_ id: UUID) -> NoteSyncLocalAudio? {
@@ -298,9 +303,20 @@ final class NoteSyncCoordinator {
         localAudio(id).flatMap { $0.partCount > 0 ? $0 : nil }
     }
 
+    /// Runs audio work in the background. `lastAudioCheck` then finishes
+    /// once this and all earlier work did: one change can start a check and
+    /// a clean-up, and a test waits on both.
+    private func startAudioWork(_ work: @escaping @MainActor () async -> Void) {
+        let earlier = lastAudioCheck
+        lastAudioCheck = Task {
+            await work()
+            await earlier?.value
+        }
+    }
+
     private func checkAudioSoon(_ ids: [UUID], verifyMarked: Bool) {
         guard !ids.isEmpty, !isStopped else { return }
-        lastAudioCheck = Task { await self.checkAudio(ids, verifyMarked: verifyMarked) }
+        startAudioWork { await self.checkAudio(ids, verifyMarked: verifyMarked) }
     }
 
     /// One note's audio as a check sees it: the file here, or only the
@@ -404,7 +420,7 @@ final class NoteSyncCoordinator {
         let needed = notes.filter { $0.manifest == nil }.flatMap(\.parts)
         if !needed.isEmpty {
             engine.cancelAudioDeletes(needed)
-            audioDeletesToRetry.subtract(needed)
+            for part in needed { audioDeleteRetries.forget(part) }
         }
         let found: Set<NoteAudioPartID>
         do {
@@ -463,7 +479,7 @@ final class NoteSyncCoordinator {
                 }
                 continue
             }
-            send += missing.filter { !audioPartsGivenUp.contains($0) }
+            send += missing.filter { !audioSaveRetries.givenUp.contains($0) }
         }
         audioToCheck.formUnion(recheck)
         if !send.isEmpty {
@@ -512,7 +528,7 @@ final class NoteSyncCoordinator {
 
     private func cleanUpAudioSoon(_ targets: [UUID: Set<String>?]) {
         guard !targets.isEmpty, !isStopped else { return }
-        lastAudioCheck = Task { await self.cleanUpAudio(targets) }
+        startAudioWork { await self.cleanUpAudio(targets) }
     }
 
     /// Deletes parts of these notes that nothing uses any more: every part
@@ -592,12 +608,9 @@ final class NoteSyncCoordinator {
     private func stopAudioWork(on id: UUID, pending: [NoteAudioPartID]) -> Set<String> {
         let waiting = pending.filter { $0.noteID == id }
         if !waiting.isEmpty { engine.cancelAudioSaves(noteID: id) }
-        let retrying = audioSavesToRetry.filter { $0.noteID == id }
-        let givenUp = audioPartsGivenUp.filter { $0.noteID == id }
-        audioSavesToRetry.subtract(retrying)
-        audioPartsGivenUp.subtract(givenUp)
-        audioFailures = audioFailures.filter { $0.key.noteID != id }
-        return Set((waiting + retrying + givenUp).map(\.key))
+        let retrying = audioSaveRetries.waiting.union(audioSaveRetries.givenUp).filter { $0.noteID == id }
+        audioSaveRetries.forget { $0.noteID == id }
+        return Set((waiting + retrying).map(\.key))
     }
 
     /// What to delete for audio a note no longer uses: the parts its marker
@@ -637,8 +650,16 @@ final class NoteSyncCoordinator {
         for change in changes {
             switch change {
             case .saved(let id):
+                // An edit sends its note again and tries its given-up
+                // audio again; parts still waiting keep their wait.
+                saveRetries.forget(id)
+                for part in audioSaveRetries.givenUp where part.noteID == id {
+                    audioSaveRetries.forget(part)
+                }
                 if store.isSyncable(id: id) { saves.append(id) }
             case .deleted(let id, let wasSynced, let audio):
+                saveRetries.forget(id)
+                deleteRetries.forget(id)
                 if wasSynced { deletes.append(id) }
                 // Parts still waiting never go up; parts already sent are
                 // deleted.
@@ -689,6 +710,7 @@ final class NoteSyncCoordinator {
         case nil:
             // Can't tell: it went up all the same, and the next save
             // records its change tag.
+            saveRetries.forget(id)
             uploadWaitingText.remove(id)
             reportUploadProgress()
             return
@@ -703,6 +725,7 @@ final class NoteSyncCoordinator {
             print("[NoteSync] Couldn't record an uploaded note")
             return
         }
+        saveRetries.forget(id)
         uploadWaitingText.remove(id)
         reportUploadProgress()
     }
@@ -723,7 +746,7 @@ final class NoteSyncCoordinator {
     /// part and writes the marker.
     func handleAudioPartSaved(_ part: NoteAudioPartID) async {
         let id = part.noteID
-        audioFailures[part] = nil
+        audioSaveRetries.forget(part)
         guard !isStopped else { return }
         switch store.noteExists(id: id) {
         case false?:
@@ -752,6 +775,7 @@ final class NoteSyncCoordinator {
 
     func handleAudioSendFailures(_ failures: [NoteAudioSendFailure]) {
         guard !isStopped else { return }
+        let time = now()
         var quotaCount = 0
         var offline = false
         var account = false
@@ -760,15 +784,18 @@ final class NoteSyncCoordinator {
             case .quotaExceeded(let part):
                 quotaCount += 1
                 quotaRetryPending = true
-                retryAudio(part)
+                audioSaveRetries.failed(part, at: time, keepTrying: true)
             case .network:
                 offline = true
             case .accountNeedsAttention:
                 account = true
             case .failed(let part):
-                retryAudio(part)
+                audioSaveRetries.failed(part, at: time)
+                if audioSaveRetries.givenUp.contains(part) {
+                    print("[NoteSync] Stopped retrying an audio part")
+                }
             case .deleteFailed(let part):
-                audioDeletesToRetry.insert(part)
+                audioDeleteRetries.failed(part, at: time, keepTrying: true)
             }
         }
         setFailureStatus(quotaCount: quotaCount, account: account, offline: offline)
@@ -808,19 +835,6 @@ final class NoteSyncCoordinator {
         }
     }
 
-    /// Retries a failed part after the next sync, up to a limit: a 50 MB
-    /// part that keeps failing (iCloud full, say) waits for a relaunch.
-    private func retryAudio(_ part: NoteAudioPartID) {
-        let attempts = (audioFailures[part] ?? 0) + 1
-        audioFailures[part] = attempts
-        if attempts < Self.maxAudioAttempts {
-            audioSavesToRetry.insert(part)
-        } else {
-            audioPartsGivenUp.insert(part)
-            print("[NoteSync] Stopped retrying an audio part after \(attempts) tries")
-        }
-    }
-
     /// Some of a send went through, so the account works: called before
     /// that send's failures, which may show the notice again.
     func handleChangesWentThrough() {
@@ -836,6 +850,7 @@ final class NoteSyncCoordinator {
         // A send that fails after sync stopped must not swap the stop for
         // a quota or offline pause, which would let sync resume.
         guard !isStopped else { return }
+        let time = now()
         var quotaCount = 0
         var offline = false
         var account = false
@@ -851,8 +866,8 @@ final class NoteSyncCoordinator {
                     deletes.append(id)
                     continue
                 case nil:
-                    // Can't tell: the save is tried again after a sync.
-                    savesToRetry.insert(id)
+                    // Can't tell: the save is tried again later.
+                    saveRetries.failed(id, at: time, keepTrying: true)
                     continue
                 case true?:
                     break
@@ -869,7 +884,7 @@ final class NoteSyncCoordinator {
             case .quotaExceeded(let id):
                 quotaCount += 1
                 quotaRetryPending = true
-                savesToRetry.insert(id)
+                saveRetries.failed(id, at: time, keepTrying: true)
             case .network:
                 offline = true
             case .accountNeedsAttention:
@@ -880,11 +895,13 @@ final class NoteSyncCoordinator {
                 // If the note was deleted elsewhere, the fetch removes it
                 // here first and the retry is dropped.
                 try? store.setSyncSystemFields(nil, id: id)
-                savesToRetry.insert(id)
+                saveRetries.failed(id, at: time)
             case .deleteFailed(let id):
-                deletesToRetry.insert(id)
+                // A delete is never given up: the note would stay in iCloud
+                // and on other Macs.
+                deleteRetries.failed(id, at: time, keepTrying: true)
             case .other(let id):
-                savesToRetry.insert(id)
+                saveRetries.failed(id, at: time)
             }
         }
         if !resend.isEmpty { enqueueNoteSaves(resend) }
@@ -916,7 +933,11 @@ final class NoteSyncCoordinator {
                 continue
             }
             do {
-                switch try store.applySynced(record, systemFields: fetched.systemFields) {
+                let result = try store.applySynced(record, systemFields: fetched.systemFields)
+                // The note now holds iCloud's copy: a failed save of it is
+                // moot, and one with newer changes here goes up below.
+                saveRetries.forget(record.noteID)
+                switch result {
                 case .inserted:
                     change.changed.append(record.noteID)
                     returned.append(record.noteID)
@@ -952,6 +973,8 @@ final class NoteSyncCoordinator {
                 if let assets = try? store.removeSynced(id: id) {
                     change.purged.append(assets)
                 }
+                saveRetries.forget(id)
+                deleteRetries.forget(id)
                 let drop = dropAudio(of: id, audio, pending: pending)
                 audioDeletes += drop.parts
                 if drop.lookUp { lookUp.append(id) }
@@ -967,10 +990,10 @@ final class NoteSyncCoordinator {
             // A note deleted here while offline and edited on another Mac
             // is back: its delete must not remove it, or its audio, from
             // iCloud.
-            deletesToRetry.subtract(returned)
+            for id in returned { deleteRetries.forget(id) }
             engine.cancelDeletes(returned)
             let back = Set(returned)
-            audioDeletesToRetry = audioDeletesToRetry.filter { !back.contains($0.noteID) }
+            audioDeleteRetries.forget { back.contains($0.noteID) }
             for id in returned {
                 engine.cancelAudioDeletes(noteID: id)
                 // A waiting clean-up would delete parts another Mac is
@@ -981,10 +1004,10 @@ final class NoteSyncCoordinator {
         if !needsUpload.isEmpty, !isStopped { enqueueNoteSaves(needsUpload) }
         // Another Mac may have cleared a marker for audio this Mac holds:
         // it is checked against iCloud and marked again when it's all there.
-        // Notes with parts given up are left for the next launch.
+        // Notes with parts given up wait for an edit, Sync Now or a relaunch.
         let unmarked = change.changed.filter { id in
             store.audioManifest(id: id) == nil && usableAudio(id) != nil
-                && !audioPartsGivenUp.contains(where: { $0.noteID == id })
+                && !audioSaveRetries.givenUp.contains(where: { $0.noteID == id })
         }
         checkAudioSoon(unmarked, verifyMarked: false)
         if change.skipped > 0 {
@@ -1000,43 +1023,37 @@ final class NoteSyncCoordinator {
         quotaRetryPending = false
         // Anything queued again here isn't sent yet, so it keeps sync busy.
         var queuedAgain = false
-        if !savesToRetry.isEmpty {
-            let retry = Array(savesToRetry)
-            savesToRetry = []
-            enqueueNoteSaves(retry)
+        let time = now()
+        let saves = saveRetries.takeDue(at: time)
+        if !saves.isEmpty {
+            enqueueNoteSaves(saves)
             queuedAgain = true
         }
-        if !deletesToRetry.isEmpty {
+        let deletes = deleteRetries.takeDue(at: time)
+        if !deletes.isEmpty {
             // A note that came back (another Mac's edit) stays in iCloud,
             // and one that can't be read waits for a later sync.
             var retry: [UUID] = []
-            var unreadable: Set<UUID> = []
-            for id in deletesToRetry {
+            for id in deletes {
                 switch store.noteExists(id: id) {
                 case false?: retry.append(id)
-                case nil: unreadable.insert(id)
-                case true?: break
+                case nil: deleteRetries.failed(id, at: time, keepTrying: true)
+                case true?: deleteRetries.forget(id)
                 }
             }
-            deletesToRetry = unreadable
-            if !unreadable.isEmpty { queuedAgain = true }
             if !retry.isEmpty {
-                engine.enqueueDeletes(Array(retry))
+                engine.enqueueDeletes(retry)
                 queuedAgain = true
             }
         }
-        if !audioSavesToRetry.isEmpty {
-            let retry = audioSavesToRetry.filter { outgoingAudio(for: $0) != nil }
-            audioSavesToRetry = []
-            if !retry.isEmpty {
-                engine.enqueueAudioSaves(Array(retry))
-                queuedAgain = true
-            }
+        let partSaves = audioSaveRetries.takeDue(at: time).filter { outgoingAudio(for: $0) != nil }
+        if !partSaves.isEmpty {
+            engine.enqueueAudioSaves(partSaves)
+            queuedAgain = true
         }
-        if !audioDeletesToRetry.isEmpty {
-            let retry = Array(audioDeletesToRetry)
-            audioDeletesToRetry = []
-            engine.enqueueAudioDeletes(retry)
+        let partDeletes = audioDeleteRetries.takeDue(at: time)
+        if !partDeletes.isEmpty {
+            engine.enqueueAudioDeletes(partDeletes)
             queuedAgain = true
         }
         if !audioToCheck.isEmpty {
@@ -1056,18 +1073,46 @@ final class NoteSyncCoordinator {
         // Notes just queued again for lack of space aren't up to date yet;
         // the pause clears after a sync where they went up.
         if case .paused(.quotaExceeded) = status, retriedForQuota { return }
-        let busy = pending > 0 || queuedAgain || !audioChecking.isEmpty
+        // Saves that keep trying (for space, or until the note can be read)
+        // or failed once aren't up to date; ones that failed again are
+        // shown. A waiting delete isn't: its note is already gone here.
+        let busy = pending > 0 || queuedAgain || !audioChecking.isEmpty || isWaitingQuietly
         // Shown until a change goes through, or nothing is left to send.
         if case .paused(.accountNeedsAttention) = status, busy { return }
         // Offline stays shown until the network comes back.
         if isOffline, case .paused(.offline) = status { return }
         if case .uploading = status, uploadDone < uploadTotal, busy { return }
         if !busy {
-            status = .upToDate(now())
+            let failing = failingNotes
+            status = failing.count == 0
+                ? .upToDate(time)
+                : .paused(.notesFailed(count: failing.count, willRetry: failing.willRetry))
         } else if case .paused(.offline) = status {
             // Back online with changes still to send.
             status = .starting
         }
+    }
+
+    private var isWaitingQuietly: Bool {
+        !saveRetries.waitingQuietly.isEmpty || !audioSaveRetries.waitingQuietly.isEmpty
+    }
+
+    /// Notes whose text or audio keeps failing to go up, and whether any of
+    /// them waits for another try. Deletes aren't counted: they keep trying.
+    private var failingNotes: (count: Int, willRetry: Bool) {
+        let notes = saveRetries.failing.union(audioSaveRetries.failing.map(\.noteID))
+        let willRetry = !saveRetries.failingToRetry.isEmpty || !audioSaveRetries.failingToRetry.isEmpty
+        return (notes.count, willRetry)
+    }
+
+    /// Sync Now: every change that failed, given up or still waiting, is
+    /// tried again when this sync's fetch finishes.
+    func retryFailedNow() {
+        let time = now()
+        saveRetries.retryAll(at: time)
+        deleteRetries.retryAll(at: time)
+        audioSaveRetries.retryAll(at: time)
+        audioDeleteRetries.retryAll(at: time)
     }
 
     /// The Mac lost or regained its network. CKSyncEngine waits quietly
