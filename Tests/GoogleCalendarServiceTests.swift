@@ -31,6 +31,11 @@ struct GoogleCalendarServiceTests {
         try await testEventsDecodeFractionalSecondDateTimes()
         try await testFetchEventsSkipsFailedCalendars()
         try await testFetchEventsReportsFailedCalendars()
+        testFetchFailureKinds()
+        try await testFetchEventsReportsOffline()
+        try await testCancelledFetchIsNotAFailure()
+        try await testPartialNetworkFailureIsNotOffline()
+        testReminderCacheCoversOnlyItsWindow()
         print("GoogleCalendarServiceTests passed")
     }
 
@@ -420,6 +425,77 @@ struct GoogleCalendarServiceTests {
         assert(result.events.count == 2)
         assert(result.events.allSatisfy { $0.calendarID == "good-calendar" })
         assert(result.failedCalendarIDs == ["bad-calendar"])
+    }
+
+    private static func testFetchFailureKinds() {
+        assert(GoogleCalendarFetchFailure.of(URLError(.notConnectedToInternet), isOnline: { true }) == .offline)
+        assert(GoogleCalendarFetchFailure.of(URLError(.networkConnectionLost), isOnline: { true }) == .offline)
+        assert(GoogleCalendarFetchFailure.of(URLError(.timedOut), isOnline: { true }) == .failed, "a slow server isn't offline")
+        assert(GoogleCalendarFetchFailure.of(URLError(.timedOut), isOnline: { false }) == .offline)
+        assert(GoogleCalendarFetchFailure.of(URLError(.cannotFindHost), isOnline: { false }) == .offline)
+        assert(GoogleCalendarFetchFailure.of(URLError(.cancelled), isOnline: { true }) == .cancelled)
+        assert(GoogleCalendarFetchFailure.of(CancellationError(), isOnline: { true }) == .cancelled)
+        assert(GoogleCalendarFetchFailure.of(GoogleCalendarService.CalendarAPIError.requestFailed, isOnline: { true }) == .failed)
+        assert(GoogleCalendarFetchFailure.of(GoogleCalendarService.CalendarAPIError.requestFailed, isOnline: { false }) == .failed,
+               "Google answered, so the network works")
+    }
+
+    private static func testFetchEventsReportsOffline() async throws {
+        let service = GoogleCalendarService { _ in throw URLError(.notConnectedToInternet) }
+        let result = await service.fetchEventsWithDiagnostics(
+            accessToken: "token",
+            calendarIDs: ["a", "b"],
+            timeMin: Date(timeIntervalSince1970: 1_000),
+            timeMax: Date(timeIntervalSince1970: 2_000)
+        )
+        assert(result.failedCalendarIDs == ["a", "b"])
+        assert(result.failure == .offline)
+    }
+
+    /// One calendar loaded, so the network works: the rest failing is a
+    /// refresh issue, not offline.
+    private static func testPartialNetworkFailureIsNotOffline() async throws {
+        let service = GoogleCalendarService { request in
+            if request.url!.absoluteString.contains("/calendars/b/") { throw URLError(.networkConnectionLost) }
+            return (Data(#"{"items":[]}"#.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        let result = await service.fetchEventsWithDiagnostics(
+            accessToken: "token",
+            calendarIDs: ["a", "b"],
+            timeMin: Date(timeIntervalSince1970: 1_000),
+            timeMax: Date(timeIntervalSince1970: 2_000)
+        )
+        assert(result.failedCalendarIDs == ["b"] && result.failure == .failed)
+    }
+
+    private static func testReminderCacheCoversOnlyItsWindow() {
+        let fetched = Date(timeIntervalSince1970: 10_000)
+        let cache = GoogleReminderEventsCache(
+            fetchedAt: fetched,
+            timeMin: fetched,
+            timeMax: fetched.addingTimeInterval(1_000),
+            accountEmail: "a@example.com",
+            calendarIDs: ["c"],
+            events: []
+        )
+        let now = fetched.addingTimeInterval(60)
+        assert(cache.events(from: now, to: now.addingTimeInterval(500), now: now, maxAge: 900, accountEmail: "a@example.com", calendarIDs: ["c"]) != nil)
+        assert(cache.events(from: now, to: now.addingTimeInterval(1_000), now: now, maxAge: 900, accountEmail: "a@example.com", calendarIDs: ["c"]) == nil,
+               "a window past what was fetched asks Google")
+        assert(cache.events(from: now, to: now.addingTimeInterval(500), now: now, maxAge: 900, accountEmail: "b@example.com", calendarIDs: ["c"]) == nil)
+    }
+
+    /// A refresh replaced by a newer one is cancelled; that isn't a failure.
+    private static func testCancelledFetchIsNotAFailure() async throws {
+        let service = GoogleCalendarService { _ in throw URLError(.cancelled) }
+        let result = await service.fetchEventsWithDiagnostics(
+            accessToken: "token",
+            calendarIDs: ["a", "b"],
+            timeMin: Date(timeIntervalSince1970: 1_000),
+            timeMax: Date(timeIntervalSince1970: 2_000)
+        )
+        assert(result.failure == .cancelled)
+        assert(result.failedCalendarIDs.isEmpty)
     }
 
     private static func expectedChallenge(for verifier: String) -> String {

@@ -118,9 +118,10 @@ struct CalendarSourcesTests {
         let clear = block(appState, from: "private func clearGoogleCalendarConnectionState()", to: "\n    }\n")
         precondition(clear.contains("scheduleCalendarRecordingReminderRefresh()"), "Google disconnect keeps Apple reminders running")
         precondition(!clear.contains("stopCalendarRecordingReminderSchedulerIfNeeded()"), "Google disconnect must not stop all reminders")
+        precondition(clear.contains("googleReminderEventsCache = nil"), "Google disconnect forgets saved Google events")
         let reload = block(appState, from: "func reloadAppleCalendars()", to: "\n    }\n")
         precondition(!reload.contains("pruned"), "reload must not drop selected calendars")
-        precondition(reload.contains("scheduleCalendarRecordingReminderRefresh()"), "reload reschedules reminders")
+        precondition(reload.contains("scheduleCalendarRecordingReminderRefresh(reusingGoogleEvents: true)"), "reload reschedules reminders without asking Google again")
         precondition(appState.contains("appleCalendarService.resetStore()"), "store is recreated after access changes")
         precondition(appState.contains("appleCalendarChangeDebounce"), "store-changed bursts are debounced")
         precondition(appState.contains("toleratesGoogleFailure: false"), "reminders keep existing reminders on Google failure")
@@ -169,6 +170,12 @@ struct CalendarSourcesTests {
         precondition(CalendarSelectionSummary.status(account: nil, hasSelection: true, checkedTime: "2:30 PM", language: "en", bundle: bundle) == "Last checked 2:30 PM")
         precondition(CalendarSelectionSummary.status(account: nil, hasSelection: false, checkedTime: nil, language: "en", bundle: bundle) == "Choose calendars to use")
         precondition(CalendarSelectionSummary.status(account: nil, hasSelection: true, checkedTime: nil, language: "en", bundle: bundle) == nil)
+        // A check from another day shows its date too.
+        let now = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: Date())!
+        let earlierToday = now.addingTimeInterval(-60)
+        let yesterday = now.addingTimeInterval(-86_400)
+        precondition(CalendarSelectionSummary.checkedTimeText(earlierToday, now: now) == earlierToday.formatted(date: .omitted, time: .shortened))
+        precondition(CalendarSelectionSummary.checkedTimeText(yesterday, now: now) == yesterday.formatted(date: .abbreviated, time: .shortened))
     }
 
     struct FetchFailure: Error {}

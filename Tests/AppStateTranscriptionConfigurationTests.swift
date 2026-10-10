@@ -226,6 +226,22 @@ struct AppStateTranscriptionConfigurationTests {
         await testGoogleCalendarHealthyDoesNotClearDifferentFeatureFailure()
         await testGoogleCalendarHealthCheckRunsForConnectedMetadataWithoutSelectedCalendars()
         await testGoogleCalendarRefreshMarksTemporaryFailureWhenCalendarListFails()
+        await testGoogleCalendarRefreshMarksOfflineWithoutNetwork()
+        await testGoogleCalendarSuccessClearsOffline()
+        await testGoogleCalendarOfflineKeepsLastCheckedTime()
+        await testCalendarTabLoadsGoogleCalendarsOnlyOnce()
+        await testCalendarTabRechecksGoogleAfterAProblem()
+        await testFailedTokenDropsSavedGoogleEvents()
+        await testCalendarTabSkipsProblemsAListReadCantClear()
+        await testOfflineAfterAFailureShowsNoCheckTime()
+        await testCancelledReminderFetchLeavesHealthAlone()
+        await testAppleOnlyRefreshReusesGoogleEvents()
+        await testReusedGoogleEventsMustMatchTheSelection()
+        await testFailedGoogleFetchIsNotReused()
+        await testCancelledDayFetchIsNotComplete()
+        await testOfflineDoesNotHideAnotherFeaturesFailure()
+        await testOfflineReminderFetchKeepsExistingReminders()
+        await testIncompleteFetchDropsTheCache()
         await testGoogleCalendarRefreshMarksHealthyWhenCalendarListLoads()
         await testRetryAvailabilityRequiresStoredAudio()
         await testRetryAvailabilityOffersSelectableCloudAlternative()
@@ -3161,6 +3177,285 @@ struct AppStateTranscriptionConfigurationTests {
     }
 
     private struct CalendarListFailure: Error {}
+
+    private static func connectGoogleForTest(
+        transport: @escaping GoogleCalendarService.Transport
+    ) -> () -> Void {
+        resetDefaults()
+        UserDefaults.standard.set("client-id.apps.googleusercontent.com", forKey: "google_calendar_client_id")
+        UserDefaults.standard.set(
+            try! JSONEncoder().encode(GoogleCalendarConnectionMetadata(accountEmail: "user@example.com")),
+            forKey: GoogleCalendarConnectionMetadata.storageKey
+        )
+        let originalTokenLoader = AppState.googleCalendarTokenLoader
+        let originalServiceFactory = AppState.googleCalendarServiceFactory
+        AppState.googleCalendarTokenLoader = { _ in
+            GoogleCalendarOAuthToken(accessToken: "access-token", refreshToken: "refresh-token", expiresAt: Date().addingTimeInterval(3600), accountEmail: "user@example.com")
+        }
+        AppState.googleCalendarServiceFactory = { GoogleCalendarService(transport: transport) }
+        return {
+            AppState.googleCalendarTokenLoader = originalTokenLoader
+            AppState.googleCalendarServiceFactory = originalServiceFactory
+        }
+    }
+
+    private static func testGoogleCalendarRefreshMarksOfflineWithoutNetwork() async {
+        let restore = connectGoogleForTest { _ in throw URLError(.notConnectedToInternet) }
+        defer { restore() }
+        let appState = makeAppState()
+        await appState.loadGoogleCalendars(force: true)
+        assert(appState.googleCalendarConnection.health.status == .offline)
+        assert(appState.googleCalendarConnection.lastErrorMessage == nil, "offline is not an error to show")
+    }
+
+    private static func testGoogleCalendarSuccessClearsOffline() async {
+        resetDefaults()
+        let appState = makeAppState()
+        await MainActor.run {
+            appState.markGoogleCalendarOffline(feature: .recordingReminders)
+            appState.markGoogleCalendarHealthy(feature: .calendarList)
+        }
+        assert(appState.googleCalendarConnection.health.status == .healthy, "any success means the network is back")
+    }
+
+    /// Offline didn't check anything: "Last checked" stays the last time
+    /// Google was actually read.
+    private static func testGoogleCalendarOfflineKeepsLastCheckedTime() async {
+        resetDefaults()
+        let appState = makeAppState()
+        await MainActor.run { appState.markGoogleCalendarHealthy(feature: .calendarList) }
+        let checkedAt = appState.googleCalendarConnection.health.checkedAt
+        assert(checkedAt != nil)
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        await MainActor.run { appState.markGoogleCalendarOffline(feature: .recordingReminders) }
+        assert(appState.googleCalendarConnection.health.status == .offline)
+        assert(appState.googleCalendarConnection.health.checkedAt == checkedAt)
+    }
+
+    /// Opening the Calendar tab reads the calendar list only when it
+    /// hasn't been read yet; after that the scheduled refresh and the
+    /// refresh button keep it current.
+    private static func testCalendarTabLoadsGoogleCalendarsOnlyOnce() async {
+        final class Counter: @unchecked Sendable { var requests = 0 }
+        let counter = Counter()
+        let restore = connectGoogleForTest { request in
+            // Only list reads: events fetched by the reminder refresh it
+            // schedules aren't what this counts.
+            if request.url?.path.contains("calendarList") == true { counter.requests += 1 }
+            let body = Data(#"{"items":[{"id":"primary","summary":"Work"}]}"#.utf8)
+            return (body, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        defer { restore() }
+        let appState = makeAppState()
+        await appState.loadGoogleCalendarsIfNeeded()
+        let afterFirst = counter.requests
+        assert(afterFirst > 0, "the first visit reads the list")
+        assert(!appState.availableGoogleCalendars.isEmpty)
+        await appState.loadGoogleCalendarsIfNeeded()
+        assert(counter.requests == afterFirst, "a later visit doesn't ask Google again")
+    }
+
+    /// A problem shown for Google is checked again when the tab opens.
+    private static func testCalendarTabRechecksGoogleAfterAProblem() async {
+        final class Counter: @unchecked Sendable { var requests = 0 }
+        let counter = Counter()
+        let restore = connectGoogleForTest { request in
+            if request.url?.path.contains("calendarList") == true { counter.requests += 1 }
+            let body = Data(#"{"items":[{"id":"primary","summary":"Work"}]}"#.utf8)
+            return (body, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        defer { restore() }
+        let appState = makeAppState()
+        await appState.loadGoogleCalendarsIfNeeded()
+        let afterFirst = counter.requests
+        await MainActor.run { appState.markGoogleCalendarOffline(feature: .calendarList) }
+        await appState.loadGoogleCalendarsIfNeeded()
+        assert(counter.requests == afterFirst + 1, "a problem is checked again")
+        assert(appState.googleCalendarConnection.health.status == .healthy)
+    }
+
+    /// When the sign-in can't be renewed, the saved Google events aren't
+    /// reused: they were never confirmed after that.
+    private static func testFailedTokenDropsSavedGoogleEvents() async {
+        final class Counter: @unchecked Sendable { var requests = 0 }
+        let counter = Counter()
+        let restore = connectGoogleForTest { request in
+            counter.requests += 1
+            let body = Data(#"{"items":[]}"#.utf8)
+            return (body, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        defer { restore() }
+        let appState = makeAppState()
+        await MainActor.run { appState.setGoogleCalendarSelection(["primary"]) }
+        let start = Date(), end = Date().addingTimeInterval(3600)
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end)
+        assert(counter.requests == 1)
+        let loader = AppState.googleCalendarTokenLoader
+        AppState.googleCalendarTokenLoader = { _ in nil }
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end)
+        AppState.googleCalendarTokenLoader = loader
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end, reusingGoogleEvents: true)
+        assert(counter.requests == 2, "the Apple-only refresh asks Google rather than reusing unconfirmed events")
+    }
+
+    /// A problem another feature hit isn't cleared by reading the list,
+    /// so opening the tab doesn't ask Google for it every time.
+    private static func testCalendarTabSkipsProblemsAListReadCantClear() async {
+        final class Counter: @unchecked Sendable { var requests = 0 }
+        let counter = Counter()
+        let restore = connectGoogleForTest { request in
+            if request.url?.path.contains("calendarList") == true { counter.requests += 1 }
+            let body = Data(#"{"items":[{"id":"primary","summary":"Work"}]}"#.utf8)
+            return (body, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        defer { restore() }
+        let appState = makeAppState()
+        await appState.loadGoogleCalendarsIfNeeded()
+        let afterFirst = counter.requests
+        await MainActor.run {
+            appState.markGoogleCalendarTemporarilyUnavailable(feature: .recordingMatch, message: "Synthetic failure")
+        }
+        await appState.loadGoogleCalendarsIfNeeded()
+        assert(counter.requests == afterFirst, "a list read can't clear a recording-match problem")
+    }
+
+    /// After a failed attempt, offline has no real check time to show.
+    private static func testOfflineAfterAFailureShowsNoCheckTime() async {
+        resetDefaults()
+        let appState = makeAppState()
+        await MainActor.run {
+            appState.markGoogleCalendarTemporarilyUnavailable(feature: .recordingReminders, message: "Synthetic failure")
+            appState.markGoogleCalendarOffline(feature: .recordingReminders)
+        }
+        assert(appState.googleCalendarConnection.health.status == .offline)
+        assert(appState.googleCalendarConnection.health.checkedAt == nil, "a failed attempt isn't a check")
+    }
+
+    /// A reminder refresh replaced by a newer one is cancelled mid-fetch;
+    /// it must not flash a refresh issue (#474).
+    private static func testCancelledReminderFetchLeavesHealthAlone() async {
+        let restore = connectGoogleForTest { _ in throw URLError(.cancelled) }
+        defer { restore() }
+        let appState = makeAppState()
+        await MainActor.run { appState.setGoogleCalendarSelection(["primary"]) }
+        let before = appState.googleCalendarConnection.health
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: Date(), timeMax: Date().addingTimeInterval(3600))
+        assert(appState.googleCalendarConnection.health == before)
+    }
+
+    /// Refreshing after an Apple Calendar change reuses the Google events
+    /// just fetched instead of asking Google again.
+    private static func testAppleOnlyRefreshReusesGoogleEvents() async {
+        final class Counter: @unchecked Sendable { var requests = 0 }
+        let counter = Counter()
+        let restore = connectGoogleForTest { request in
+            counter.requests += 1
+            let body = Data(#"{"items":[]}"#.utf8)
+            return (body, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        defer { restore() }
+        let appState = makeAppState()
+        await MainActor.run { appState.setGoogleCalendarSelection(["primary"]) }
+        let start = Date(), end = Date().addingTimeInterval(3600)
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end)
+        assert(counter.requests == 1)
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end, reusingGoogleEvents: true)
+        assert(counter.requests == 1, "an Apple-only refresh doesn't ask Google")
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end)
+        assert(counter.requests == 2, "the next regular refresh does")
+    }
+
+    final class GoogleTransportStub: @unchecked Sendable {
+        var requests = 0
+        var fails = false
+        var transport: GoogleCalendarService.Transport {
+            { [self] request in
+                requests += 1
+                let status = fails ? 500 : 200
+                return (Data(#"{"items":[]}"#.utf8), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
+            }
+        }
+    }
+
+    /// Google events saved for another selection aren't reused: a newly
+    /// ticked calendar must get its reminders.
+    private static func testReusedGoogleEventsMustMatchTheSelection() async {
+        let stub = GoogleTransportStub()
+        let restore = connectGoogleForTest(transport: stub.transport)
+        defer { restore() }
+        let appState = makeAppState()
+        await MainActor.run { appState.setGoogleCalendarSelection(["primary"]) }
+        let start = Date(), end = Date().addingTimeInterval(3600)
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end)
+        await MainActor.run { appState.setGoogleCalendarSelection(["primary", "work"]) }
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end, reusingGoogleEvents: true)
+        assert(stub.requests == 3, "both calendars are fetched")
+    }
+
+    /// Events from a fetch that failed aren't complete, so they aren't reused.
+    private static func testFailedGoogleFetchIsNotReused() async {
+        let stub = GoogleTransportStub()
+        stub.fails = true
+        let restore = connectGoogleForTest(transport: stub.transport)
+        defer { restore() }
+        let appState = makeAppState()
+        await MainActor.run { appState.setGoogleCalendarSelection(["primary"]) }
+        let start = Date(), end = Date().addingTimeInterval(3600)
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end)
+        stub.fails = false
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end, reusingGoogleEvents: true)
+        assert(stub.requests == 2, "Google is asked again")
+    }
+
+    /// Offline, the reminder refresh fails instead of returning no Google
+    /// events, so the reminders already scheduled are kept.
+    private static func testOfflineReminderFetchKeepsExistingReminders() async {
+        let restore = connectGoogleForTest { _ in throw URLError(.notConnectedToInternet) }
+        defer { restore() }
+        let appState = makeAppState()
+        await MainActor.run { appState.setGoogleCalendarSelection(["primary"]) }
+        do {
+            _ = try await appState.fetchCalendarRecordingReminderEvents(timeMin: Date(), timeMax: Date().addingTimeInterval(3600))
+            assertionFailure("an offline refresh must not replace reminders with Apple events alone")
+        } catch {}
+    }
+
+    /// A fresh fetch that didn't complete drops the saved events, so an
+    /// Apple-only refresh can't bring back older Google data.
+    private static func testIncompleteFetchDropsTheCache() async {
+        let stub = GoogleTransportStub()
+        let restore = connectGoogleForTest(transport: stub.transport)
+        defer { restore() }
+        let appState = makeAppState()
+        await MainActor.run { appState.setGoogleCalendarSelection(["primary"]) }
+        let start = Date(), end = Date().addingTimeInterval(3600)
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end)
+        stub.fails = true
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end)
+        stub.fails = false
+        _ = try? await appState.fetchCalendarRecordingReminderEvents(timeMin: start, timeMax: end, reusingGoogleEvents: true)
+        assert(stub.requests == 3, "the older snapshot isn't reused")
+    }
+
+    private static func testOfflineDoesNotHideAnotherFeaturesFailure() async {
+        resetDefaults()
+        let appState = makeAppState()
+        await MainActor.run {
+            appState.markGoogleCalendarTemporarilyUnavailable(feature: .recordingMatch, message: "Server error")
+            appState.markGoogleCalendarOffline(feature: .recordingReminders)
+        }
+        assert(appState.googleCalendarConnection.health.status == .temporaryFailure, "a real failure stays visible")
+    }
+
+    /// A day's events cut short by a cancelled fetch don't read as complete.
+    private static func testCancelledDayFetchIsNotComplete() async {
+        let restore = connectGoogleForTest { _ in throw URLError(.cancelled) }
+        defer { restore() }
+        let appState = makeAppState()
+        await MainActor.run { appState.setGoogleCalendarSelection(["primary"]) }
+        let result = await appState.calendarDayEvents(on: Date())
+        assert(result.googleFailed)
+    }
 
     private static func testStoppedTranscriptionSettingsSnapshotCapturesHistoryMetadata() {
         let snapshot = StoppedTranscriptionSettingsSnapshot(

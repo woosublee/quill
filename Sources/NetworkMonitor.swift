@@ -7,6 +7,8 @@ import Network
 /// request timeout, which otherwise looks identical to "the server is slow."
 final class NetworkMonitor {
     static let shared = NetworkMonitor()
+    /// Posted on the main queue when the Mac goes from offline to online.
+    static let didComeOnline = Notification.Name("NetworkMonitorDidComeOnline")
 
     private let monitor = NWPathMonitor()
     private let queue = DispatchQueue(label: "com.woosublee.quill.network-monitor")
@@ -40,8 +42,14 @@ final class NetworkMonitor {
             guard let self else { return }
             let online = path.status == .satisfied
             self.lock.lock()
+            let cameOnline = online && !self._isOnline
             self._isOnline = online
             self.lock.unlock()
+            if cameOnline {
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: Self.didComeOnline, object: self)
+                }
+            }
         }
         monitor.start(queue: queue)
     }

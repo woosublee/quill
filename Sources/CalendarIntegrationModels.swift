@@ -231,6 +231,65 @@ enum GoogleCalendarHealthStatus: String, Codable, Equatable {
     case healthy
     case needsReconnect
     case temporaryFailure
+    /// The Mac has no network; checked again when it comes back.
+    case offline
+}
+
+/// Why a Google Calendar request failed, so being offline, or a refresh
+/// replaced by a newer one, doesn't read as a Google problem.
+enum GoogleCalendarFetchFailure: Equatable {
+    case cancelled
+    case offline
+    case failed
+
+    /// `isOnline` is the network monitor's view: a timeout or a missing
+    /// host while it says offline is the network, otherwise the server.
+    /// Reads `isOnline` when the request failed, not when it started. An
+    /// error other than a `URLError` means Google answered, so the network
+    /// works.
+    static func of(_ error: Error, isOnline: () -> Bool) -> GoogleCalendarFetchFailure {
+        if error is CancellationError { return .cancelled }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .cancelled:
+                return .cancelled
+            case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed, .internationalRoamingOff:
+                return .offline
+            default:
+                return isOnline() ? .failed : .offline
+            }
+        }
+        return .failed
+    }
+}
+
+/// Google events from the last reminder refresh. A refresh caused only by
+/// an Apple Calendar change reuses them instead of asking Google again.
+/// Only a complete fetch is saved, with the account and calendars it read.
+struct GoogleReminderEventsCache: Equatable {
+    let fetchedAt: Date
+    /// The window the events were fetched for.
+    let timeMin: Date
+    let timeMax: Date
+    let accountEmail: String?
+    let calendarIDs: Set<String>
+    let events: [CalendarEvent]
+
+    /// The cached events in the window, or nil when they are too old, don't
+    /// cover the window, or were read for another account or calendars.
+    func events(
+        from start: Date,
+        to end: Date,
+        now: Date,
+        maxAge: TimeInterval,
+        accountEmail: String?,
+        calendarIDs: Set<String>
+    ) -> [CalendarEvent]? {
+        let age = now.timeIntervalSince(fetchedAt)
+        guard age >= 0, age <= maxAge, start >= timeMin, end <= timeMax,
+              accountEmail == self.accountEmail, calendarIDs == self.calendarIDs else { return nil }
+        return events.filter { $0.end > start && $0.start < end }
+    }
 }
 
 enum GoogleCalendarHealthFeature: String, Codable, Equatable {

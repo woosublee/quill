@@ -927,6 +927,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var calendarSelectionSheetProvider: CalendarProvider?
     @MainActor private lazy var appleCalendarService = AppleCalendarService()
     private var appleCalendarChangeObserver: NSObjectProtocol?
+    private var networkReturnObserver: NSObjectProtocol?
+    private var networkReturnCheck: Task<Void, Never>?
     private var appleCalendarChangeDebounce: DispatchWorkItem?
     private var appleCalendarLastRequestDeclined = false
 
@@ -1942,7 +1944,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         if appleCalendarEnabled, appleCalendarAuthorization == .granted {
             reloadAppleCalendars()
         } else {
-            scheduleCalendarRecordingReminderRefresh()
+            scheduleCalendarRecordingReminderRefresh(reusingGoogleEvents: true)
         }
     }
 
@@ -1998,7 +2000,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         appleCalendarSelectedIDs = []
         Self.saveStringSet([], forKey: Self.appleCalendarSelectedIDsStorageKey)
         availableAppleCalendars = []
-        scheduleCalendarRecordingReminderRefresh()
+        scheduleCalendarRecordingReminderRefresh(reusingGoogleEvents: true)
     }
 
     /// Selected calendars that are missing right now stay selected; event
@@ -2009,7 +2011,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         if AppleCalendarService.authorization() == .granted {
             markAppleCalendarChecked()
         }
-        scheduleCalendarRecordingReminderRefresh()
+        scheduleCalendarRecordingReminderRefresh(reusingGoogleEvents: true)
     }
 
     /// Records a successful read of the Mac Calendar app.
@@ -2030,6 +2032,33 @@ final class AppState: ObservableObject, @unchecked Sendable {
             selected.remove(calendarID)
         }
         setAppleCalendarSelection(selected)
+    }
+
+    /// Google Calendar left offline is checked again when the network returns.
+    @MainActor
+    private func observeNetworkReturn() {
+        guard networkReturnObserver == nil else { return }
+        networkReturnObserver = NotificationCenter.default.addObserver(
+            forName: NetworkMonitor.didComeOnline,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            // The path can read online before DNS and routes work, so the
+            // check waits a moment and tries once more if still offline. A
+            // newer return replaces a check still waiting.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.networkReturnCheck?.cancel()
+                self.networkReturnCheck = Task { @MainActor [weak self] in
+                    for delay in [2, 30] {
+                        try? await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000_000)
+                        guard !Task.isCancelled, let self,
+                              self.googleCalendarConnection.health.status == .offline else { return }
+                        self.startGoogleCalendarHealthCheck()
+                    }
+                }
+            }
+        }
     }
 
     @MainActor
@@ -2065,7 +2094,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func setAppleCalendarSelection(_ calendarIDs: Set<String>) {
         appleCalendarSelectedIDs = calendarIDs
         Self.saveStringSet(calendarIDs, forKey: Self.appleCalendarSelectedIDsStorageKey)
-        scheduleCalendarRecordingReminderRefresh()
+        scheduleCalendarRecordingReminderRefresh(reusingGoogleEvents: true)
     }
 
     @MainActor
@@ -2119,6 +2148,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         Self.clearGoogleCalendarConnectionMetadata()
         availableGoogleCalendars = []
         googleCalendarConnection = .disconnected
+        googleReminderEventsCache = nil
         UserDefaults.standard.removeObject(forKey: googleCalendarSelectedIDsStorageKey)
         // Apple Calendar may still be connected; this stops reminders only
         // when no source has a selected calendar.
@@ -2132,12 +2162,18 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// The Calendar tab reads the calendar list when it hasn't been read
+    /// yet, or when a problem a list read can clear is showing (offline, or
+    /// the list's own failure); otherwise the refresh button and coming
+    /// back online keep it current.
     @MainActor
-    func loadStoredGoogleCalendarConnection() {
+    func loadGoogleCalendarsIfNeeded() async {
         guard !isGoogleCalendarBusy else { return }
-        Task { [weak self] in
-            await self?.loadGoogleCalendars(force: true)
-        }
+        let health = googleCalendarConnection.health
+        let listCanClear = health.status == .offline
+            || (health.status != .healthy && health.affectedFeature == .calendarList)
+        guard availableGoogleCalendars.isEmpty || listCanClear else { return }
+        await loadGoogleCalendars(force: true)
     }
 
     @MainActor
@@ -2812,6 +2848,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var contextCaptureTask: Task<AppContext?, Never>?
     private var capturedContext: AppContext?
     private var googleCalendarConnectionTask: Task<Void, Never>?
+    /// Google events from the last complete reminder refresh, reused when
+    /// only Apple Calendar changed.
+    private var googleReminderEventsCache: GoogleReminderEventsCache?
     @MainActor
     private lazy var calendarRecordingReminderScheduler = CalendarRecordingReminderScheduler(
         notificationManager: AppNotificationManager.shared,
@@ -4821,7 +4860,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return token
     }
 
-    private func fetchCalendarRecordingReminderEvents(timeMin: Date, timeMax: Date) async throws -> [CalendarEvent] {
+    /// `reusingGoogleEvents`: only Apple Calendar changed, so Google events
+    /// from the last complete refresh are reused when they still fit.
+    func fetchCalendarRecordingReminderEvents(
+        timeMin: Date,
+        timeMax: Date,
+        reusingGoogleEvents: Bool = CalendarRecordingReminderScheduler.reusesCachedEvents
+    ) async throws -> [CalendarEvent] {
         let (googleInUse, appleIDs) = await MainActor.run {
             (
                 googleCalendarConnection.isConnected && !googleCalendarConnection.selectedCalendarIDs.isEmpty,
@@ -4830,10 +4875,24 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
         var google: Result<[CalendarEvent], Error>?
         if googleInUse {
-            do {
-                google = .success(try await fetchGoogleCalendarReminderEvents(timeMin: timeMin, timeMax: timeMax))
-            } catch {
-                google = .failure(error)
+            let reused = !reusingGoogleEvents ? nil : await MainActor.run { () -> [CalendarEvent]? in
+                googleReminderEventsCache?.events(
+                    from: timeMin,
+                    to: timeMax,
+                    now: Date(),
+                    maxAge: googleReminderReuseSpan,
+                    accountEmail: googleCalendarConnection.accountEmail,
+                    calendarIDs: googleCalendarConnection.selectedCalendarIDs
+                )
+            }
+            if let reused {
+                google = .success(reused)
+            } else {
+                do {
+                    google = .success(try await fetchGoogleCalendarReminderEvents(timeMin: timeMin, timeMax: timeMax))
+                } catch {
+                    google = .failure(error)
+                }
             }
         }
         let apple: [CalendarEvent]? = appleIDs.isEmpty
@@ -4848,13 +4907,25 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return try CalendarEventCollection.combine(google: google, apple: apple, toleratesGoogleFailure: false)
     }
 
+    /// How long Google events stay reusable: one refresh interval.
+    @MainActor
+    private var googleReminderReuseSpan: TimeInterval {
+        TimeInterval(CalendarRecordingReminderScheduler.normalizedRefreshIntervalMinutes(calendarRecordingReminderRefreshIntervalMinutes) * 60)
+    }
+
     private func fetchGoogleCalendarReminderEvents(timeMin: Date, timeMax: Date) async throws -> [CalendarEvent] {
-        let selectedCalendarIDs = await MainActor.run { googleCalendarConnection.selectedCalendarIDs }
+        let (selectedCalendarIDs, reuseSpan) = await MainActor.run {
+            (googleCalendarConnection.selectedCalendarIDs, googleReminderReuseSpan)
+        }
+        // A little past the window, so a reuse during the next interval
+        // still covers its later window.
+        let fetchMax = timeMax.addingTimeInterval(reuseSpan)
         guard !selectedCalendarIDs.isEmpty else { return [] }
         let token: GoogleCalendarOAuthToken
         do {
             guard let loadedToken = try await validGoogleCalendarToken() else {
                 await MainActor.run {
+                    googleReminderEventsCache = nil
                     markGoogleCalendarNeedsReconnect(
                         feature: .recordingReminders,
                         message: localizedCatalogString("Google Calendar needs reconnecting. Reconnect to restore meeting reminders.")
@@ -4865,13 +4936,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
             token = loadedToken
         } catch {
             await MainActor.run {
+                // Older saved events must not stand in for this newer fetch;
+                // a fetch replaced by a newer one leaves them to it.
+                if GoogleCalendarFetchFailure.of(error, isOnline: { NetworkMonitor.shared.isOnline }) != .cancelled {
+                    googleReminderEventsCache = nil
+                }
                 if Self.isGoogleCalendarReconnectError(error) {
                     markGoogleCalendarNeedsReconnect(
                         feature: .recordingReminders,
                         message: localizedCatalogString("Google Calendar needs reconnecting. Reconnect to restore meeting reminders.")
                     )
                 } else {
-                    markGoogleCalendarTemporarilyUnavailable(
+                    recordGoogleCalendarFailure(
+                        error,
                         feature: .recordingReminders,
                         message: localizedCatalogFormat("Unable to refresh Google Calendar reminders: %@", error.localizedDescription)
                     )
@@ -4883,24 +4960,43 @@ final class AppState: ObservableObject, @unchecked Sendable {
             accessToken: token.accessToken,
             calendarIDs: Array(selectedCalendarIDs),
             timeMin: timeMin,
-            timeMax: timeMax
+            timeMax: fetchMax,
+            isOnline: { NetworkMonitor.shared.isOnline }
         )
+        // A newer refresh replaced this one: nothing to report (#474).
+        if fetchResult.failure == .cancelled { throw CancellationError() }
         await MainActor.run {
-            if fetchResult.failedCalendarIDs.isEmpty {
-                markGoogleCalendarHealthy(feature: .recordingReminders)
-            } else {
-                markGoogleCalendarTemporarilyUnavailable(
+            if let failure = fetchResult.failure {
+                // Older saved events must not stand in for this newer fetch.
+                googleReminderEventsCache = nil
+                recordGoogleCalendarFailure(
+                    failure,
                     feature: .recordingReminders,
                     message: localizedCatalogString("Some Google calendars could not be refreshed. Reminders may be incomplete.")
                 )
+            } else {
+                markGoogleCalendarHealthy(feature: .recordingReminders)
+                // Complete, so an Apple-only refresh may reuse it.
+                googleReminderEventsCache = GoogleReminderEventsCache(
+                    fetchedAt: Date(),
+                    timeMin: timeMin,
+                    timeMax: fetchMax,
+                    accountEmail: token.accountEmail,
+                    calendarIDs: selectedCalendarIDs,
+                    events: fetchResult.events
+                )
             }
         }
-        return fetchResult.events
+        // Offline, no Google calendar was read: failing keeps the reminders
+        // already scheduled instead of replacing them with Apple's alone.
+        if fetchResult.failure == .offline { throw URLError(.notConnectedToInternet) }
+        return fetchResult.events.filter { $0.end > timeMin && $0.start < timeMax }
     }
 
     @MainActor
     func startCalendarRecordingReminderScheduling() {
         observeAppleCalendarChanges()
+        observeNetworkReturn()
         refreshAppleCalendarAuthorization()
     }
 
@@ -4922,22 +5018,68 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// `reusingGoogleEvents`: only Apple Calendar changed, so the refresh
+    /// reuses the Google events it already has instead of asking Google.
     @MainActor
-    private func scheduleCalendarRecordingReminderRefresh() {
+    private func scheduleCalendarRecordingReminderRefresh(reusingGoogleEvents: Bool = false) {
         guard calendarRecordingRemindersEnabled, hasSelectedCalendarSource else {
             stopCalendarRecordingReminderSchedulerIfNeeded()
             return
         }
         calendarRecordingReminderScheduler.start(
             leadMinutes: calendarRecordingReminderLeadMinutes,
-            refreshIntervalMinutes: calendarRecordingReminderRefreshIntervalMinutes
+            refreshIntervalMinutes: calendarRecordingReminderRefreshIntervalMinutes,
+            reusesCachedEvents: reusingGoogleEvents
         )
         isCalendarRecordingReminderSchedulerActive = true
     }
 
+    /// Records a failed Google request: offline is calm and checked again
+    /// when the network returns; a cancelled one (replaced by a newer
+    /// refresh) means nothing.
+    @MainActor
+    private func recordGoogleCalendarFailure(_ error: Error, feature: GoogleCalendarHealthFeature, message: @autoclosure () -> String) {
+        recordGoogleCalendarFailure(
+            GoogleCalendarFetchFailure.of(error, isOnline: { NetworkMonitor.shared.isOnline }),
+            feature: feature,
+            message: message()
+        )
+    }
+
+    @MainActor
+    private func recordGoogleCalendarFailure(_ failure: GoogleCalendarFetchFailure, feature: GoogleCalendarHealthFeature, message: @autoclosure () -> String) {
+        switch failure {
+        case .cancelled:
+            break
+        case .offline:
+            markGoogleCalendarOffline(feature: feature)
+        case .failed:
+            markGoogleCalendarTemporarilyUnavailable(feature: feature, message: message())
+        }
+    }
+
+    /// No network. A reconnect request, or another feature's failure,
+    /// already shown stays: it says more than offline.
+    @MainActor
+    func markGoogleCalendarOffline(feature: GoogleCalendarHealthFeature) {
+        let health = googleCalendarConnection.health
+        guard health.status != .needsReconnect,
+              !(health.status == .temporaryFailure && health.affectedFeature != feature) else { return }
+        googleCalendarConnection.lastErrorMessage = nil
+        // Nothing was checked: "Last checked" stays the last real read, and
+        // a failed attempt's time isn't one.
+        googleCalendarConnection.health = GoogleCalendarHealth(
+            status: .offline,
+            checkedAt: health.status == .healthy || health.status == .offline ? health.checkedAt : nil,
+            affectedFeature: feature
+        )
+    }
+
     @MainActor
     func markGoogleCalendarHealthy(feature: GoogleCalendarHealthFeature) {
+        // Any success clears offline: the network is back.
         if googleCalendarConnection.health.status != .healthy,
+           googleCalendarConnection.health.status != .offline,
            let affectedFeature = googleCalendarConnection.health.affectedFeature,
            affectedFeature != feature {
             return
@@ -4999,7 +5141,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     message: Self.googleCalendarReconnectMessage()
                 )
             } else {
-                markGoogleCalendarTemporarilyUnavailable(
+                recordGoogleCalendarFailure(
+                    error,
                     feature: .calendarList,
                     message: localizedCatalogFormat("Unable to refresh Google Calendar: %@", error.localizedDescription)
                 )
@@ -13415,17 +13558,23 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     accessToken: token.accessToken,
                     calendarIDs: Array(selectedCalendarIDs),
                     timeMin: start,
-                    timeMax: end
+                    timeMax: end,
+                    isOnline: { NetworkMonitor.shared.isOnline }
                 )
+            // Cut short by a newer request: not a complete list.
+            if fetchResult.failure == .cancelled {
+                return (.failure(CancellationError()), false)
+            }
             await MainActor.run {
                 guard reportsHealth else { return }
-                if fetchResult.failedCalendarIDs.isEmpty {
-                    markGoogleCalendarHealthy(feature: .recordingMatch)
-                } else {
-                    markGoogleCalendarTemporarilyUnavailable(
+                if let failure = fetchResult.failure {
+                    recordGoogleCalendarFailure(
+                        failure,
                         feature: .recordingMatch,
                         message: localizedCatalogString("Some Google calendars could not be refreshed. Calendar-based note titles may be incomplete.")
                     )
+                } else {
+                    markGoogleCalendarHealthy(feature: .recordingMatch)
                 }
             }
             return (.success(fetchResult.events), !fetchResult.failedCalendarIDs.isEmpty)
@@ -13438,7 +13587,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         message: localizedCatalogString("Google Calendar needs reconnecting. Calendar-based note titles may be unavailable.")
                     )
                 } else {
-                    markGoogleCalendarTemporarilyUnavailable(
+                    recordGoogleCalendarFailure(
+                        error,
                         feature: .recordingMatch,
                         message: localizedCatalogFormat("Unable to refresh Google Calendar for note titles: %@", error.localizedDescription)
                     )
