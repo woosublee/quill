@@ -19,6 +19,62 @@ enum NoteSyncSendErrorKind: Equatable {
     case other
 }
 
+/// Where a failed save or delete goes, from what was sent, the error, and
+/// whether this Mac is deleting its iCloud data.
+enum NoteSyncSendRoute: Equatable {
+    /// The engine retries it itself, or nothing is left to do.
+    case none
+    /// A part iCloud already has (its name says which bytes it holds).
+    case savedAlready
+    /// Queued again at once.
+    case resendNow
+    /// The zone is gone while this Mac deletes it: put back if the delete
+    /// is undone, dropped once it's done.
+    case holdForOwnDelete
+    case zoneDeletedElsewhere
+    /// A part whose audio zone is missing (made again if notes are there).
+    case partWithoutZone
+    case serverChanged
+    case quotaExceeded
+    case network
+    case accountNeedsAttention
+    case unknownItemOnSave
+    case unknownItemOnDelete
+    /// Tried again later: a save with waits, a delete as a delete.
+    case failed
+
+    enum Sent { case note, part }
+
+    static func route(_ sent: Sent, isSave: Bool, code: CKError.Code, deletingZone: Bool) -> NoteSyncSendRoute {
+        let kind = NoteSyncCloudRecord.sendErrorKind(code)
+        switch kind {
+        case .throttled: return .none
+        case .network: return .network
+        case .accountNeedsAttention: return .accountNeedsAttention
+        case .zoneGone:
+            if deletingZone { return sent == .part && !isSave ? .none : .holdForOwnDelete }
+            switch (sent, isSave) {
+            case (.part, true): return .partWithoutZone
+            case (.part, false): return .none
+            case (.note, _): return .zoneDeletedElsewhere
+            }
+        case .unknownItem:
+            switch (sent, isSave) {
+            case (.part, true): return .resendNow
+            case (.part, false): return .none
+            case (.note, true): return .unknownItemOnSave
+            case (.note, false): return .unknownItemOnDelete
+            }
+        case .serverChanged where isSave:
+            return sent == .part ? .savedAlready : .serverChanged
+        case .quotaExceeded where isSave:
+            return .quotaExceeded
+        case .serverChanged, .quotaExceeded, .other:
+            return .failed
+        }
+    }
+}
+
 /// Maps sync records to CloudKit `Note` records. The note travels as one
 /// JSON asset (`payload`), so long transcripts never hit the record size
 /// limit; `schemaVersion` and `deletedAt` are copied out for the console.

@@ -12,6 +12,7 @@ struct NoteSyncCloudRecordTests {
         try testMismatchedSystemFieldsAreIgnored()
         try testOutboxFilesAreRemoved()
         testSendErrorsAreClassified()
+        testFailedSendsAreRouted()
         testAudioPartRecordIDs()
         if #available(macOS 14.0, *) { testBatchesSendNotesFirstThenOneAudioPart() }
         try testAudioPartRecords()
@@ -161,6 +162,49 @@ struct NoteSyncCloudRecordTests {
         ]
         for (code, kind) in expected {
             precondition(NoteSyncCloudRecord.sendErrorKind(code) == kind, "\(code.rawValue)")
+        }
+    }
+
+    /// Where each failed save or delete goes, for notes and audio parts,
+    /// and while this Mac deletes its iCloud data.
+    static func testFailedSendsAreRouted() {
+        typealias R = NoteSyncSendRoute
+        let rows: [(R.Sent, Bool, CKError.Code, Bool, R)] = [
+            // Notes, saved.
+            (.note, true, .serverRecordChanged, false, .serverChanged),
+            (.note, true, .zoneNotFound, false, .zoneDeletedElsewhere),
+            (.note, true, .zoneNotFound, true, .holdForOwnDelete),
+            (.note, true, .quotaExceeded, false, .quotaExceeded),
+            (.note, true, .networkFailure, false, .network),
+            (.note, true, .requestRateLimited, false, .none),
+            (.note, true, .notAuthenticated, false, .accountNeedsAttention),
+            (.note, true, .unknownItem, false, .unknownItemOnSave),
+            (.note, true, .invalidArguments, false, .failed),
+            // Notes, deleted.
+            (.note, false, .userDeletedZone, false, .zoneDeletedElsewhere),
+            (.note, false, .userDeletedZone, true, .holdForOwnDelete),
+            (.note, false, .unknownItem, false, .unknownItemOnDelete),
+            (.note, false, .serverRecordChanged, false, .failed),
+            (.note, false, .quotaExceeded, false, .failed),
+            (.note, false, .zoneBusy, false, .none),
+            // Audio parts, saved.
+            (.part, true, .serverRecordChanged, false, .savedAlready),
+            (.part, true, .unknownItem, false, .resendNow),
+            (.part, true, .zoneNotFound, false, .partWithoutZone),
+            (.part, true, .zoneNotFound, true, .holdForOwnDelete),
+            (.part, true, .quotaExceeded, false, .quotaExceeded),
+            (.part, true, .limitExceeded, false, .failed),
+            // Audio parts, deleted.
+            (.part, false, .zoneNotFound, false, .none),
+            (.part, false, .zoneNotFound, true, .none),
+            (.part, false, .unknownItem, false, .none),
+            (.part, false, .networkUnavailable, false, .network),
+            (.part, false, .accountTemporarilyUnavailable, false, .accountNeedsAttention),
+            (.part, false, .internalError, false, .failed),
+        ]
+        for (sent, isSave, code, deleting, expected) in rows {
+            let route = R.route(sent, isSave: isSave, code: code, deletingZone: deleting)
+            precondition(route == expected, "\(sent) save=\(isSave) \(code.rawValue) deleting=\(deleting): \(route)")
         }
     }
 }
