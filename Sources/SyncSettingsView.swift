@@ -294,6 +294,13 @@ private struct NoteSyncSettingsCard: View {
                 Text("Check the Apple Account notice in System Settings to continue syncing.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                Button("Open System Settings") {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.systempreferences.AppleIDSettings") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                .buttonStyle(.link)
+                .font(.caption)
             case .paused(.accountChanged):
                 Text("Your notes weren't deleted. Turn sync on again to continue with the new account.")
                     .font(.caption)

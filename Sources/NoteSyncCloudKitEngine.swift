@@ -662,8 +662,12 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             }
         }
         var deleted: [UUID] = []
+        var deletedParts = 0
         for recordID in sent.deletedRecordIDs {
-            if NoteAudioCloudRecord.part(from: recordID) != nil { continue }
+            if NoteAudioCloudRecord.part(from: recordID) != nil {
+                deletedParts += 1
+                continue
+            }
             if let id = NoteSyncCloudRecord.noteID(from: recordID) { deleted.append(id) }
         }
         for (recordID, error) in sent.failedRecordDeletes {
@@ -722,12 +726,14 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         let sendFailures = failures
         let stopForDeletion = zoneDeletedElsewhere
         let audioFailureList = audioFailures
+        let wentThrough = !saved.isEmpty || !deleted.isEmpty || !savedParts.isEmpty || deletedParts > 0
         await MainActor.run {
             guard let coordinator else { return }
             if stopForDeletion {
                 coordinator.handleZoneDeleted()
                 return
             }
+            if wentThrough { coordinator.handleChangesWentThrough() }
             for (id, fields) in savedRecords { coordinator.handleSaved(id: id, systemFields: fields) }
             for id in deletedIDs { coordinator.handleDeleted(id: id) }
             if !sendFailures.isEmpty { coordinator.handleSendFailures(sendFailures) }

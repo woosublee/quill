@@ -545,18 +545,20 @@ final class NoteSyncCoordinator {
             used[id] = keys
             return keys
         }
-        var exists: [UUID: Bool] = [:]
+        var exists: [UUID: Bool?] = [:]
         let leftover = found.filter { part in
             guard !checkingNow.contains(part.noteID), !pending.contains(part) else { return false }
             guard case .some(.some(let keys)) = targets[part.noteID] else {
                 // A deleted note: every part, unless it came back (another
                 // Mac edited it), when the other Mac may be uploading.
-                // A note that can't be read counts as here.
-                if exists[part.noteID] == nil { exists[part.noteID] = store.noteExists(id: part.noteID) ?? true }
-                return exists[part.noteID] == false
+                // A note that can't be read counts as here, and is looked
+                // at again after a later sync.
+                if exists[part.noteID] == nil { exists[part.noteID] = store.noteExists(id: part.noteID) }
+                return exists[part.noteID] == .some(false)
             }
             return keys.contains(part.key) && !usedKeys(part.noteID).contains(part.key)
         }
+        mergeCleanUp(targets.filter { exists[$0.key] == .some(nil) })
         if !leftover.isEmpty {
             engine.enqueueAudioDeletes(leftover)
             print("[NoteSync] Deleting \(leftover.count) leftover audio parts")
@@ -693,7 +695,6 @@ final class NoteSyncCoordinator {
         case true?:
             break
         }
-        accountWorks()
         do {
             try store.setSyncSystemFields(systemFields, id: id)
         } catch {
@@ -736,7 +737,6 @@ final class NoteSyncCoordinator {
         case true?:
             break
         }
-        accountWorks()
         guard !notesWithAudioInFlight().contains(id) else { return }
         await checkAudio([id], verifyMarked: false)
     }
@@ -821,8 +821,13 @@ final class NoteSyncCoordinator {
         }
     }
 
-    func handleDeleted(id: UUID) {
+    /// Some of a send went through, so the account works: called before
+    /// that send's failures, which may show the notice again.
+    func handleChangesWentThrough() {
         accountWorks()
+    }
+
+    func handleDeleted(id: UUID) {
         // The note is usually gone already; nothing is left to update then.
         try? store.setSyncSystemFields(nil, id: id)
     }

@@ -833,6 +833,10 @@ struct NoteSyncCoordinatorTests {
         coordinator.handleLocalChanges([.deleted(id, wasSynced: true, audio: NoteAudioSyncState())])
         await coordinator.lastAudioCheck?.value
         precondition(engine.audioDeletes.isEmpty, "a note that can't be read isn't taken for gone")
+        store.readFails = false
+        coordinator.handleFetchFinished(pending: 0)
+        await coordinator.lastAudioCheck?.value
+        precondition(Set(engine.audioDeletes) == Set(parts(id, 2, "x.wav")), "looked at again once it reads as gone")
     }
 
     /// A failed delete is sent again only once the store says the note is
@@ -865,11 +869,13 @@ struct NoteSyncCoordinatorTests {
         coordinator.handleFetchFinished(pending: 1)
         precondition(coordinator.status == .paused(.accountNeedsAttention), "a sync with changes still waiting doesn't clear it")
         precondition(engine.saves.isEmpty && engine.deletes.isEmpty, "nothing is queued again by the coordinator")
-        coordinator.handleSaved(id: note.noteID, systemFields: Data([1]))
-        precondition(coordinator.status == .starting, "a save that went through clears it")
+        coordinator.handleChangesWentThrough()
+        precondition(coordinator.status == .starting, "a change that went through clears it")
+        // A send with successes and an account failure: the successes come
+        // first, so the failure's notice stays.
+        coordinator.handleChangesWentThrough()
         coordinator.handleSendFailures([.accountNeedsAttention])
-        coordinator.handleDeleted(id: UUID())
-        precondition(coordinator.status == .starting, "so does a delete")
+        precondition(coordinator.status == .paused(.accountNeedsAttention))
     }
 
     /// The change that failed on the account was dropped (its note was
@@ -888,7 +894,7 @@ struct NoteSyncCoordinatorTests {
         let (coordinator, _, _) = make()
         coordinator.handleSendFailures([.accountNeedsAttention])
         coordinator.stop()
-        coordinator.handleDeleted(id: UUID())
+        coordinator.handleChangesWentThrough()
         precondition(coordinator.status == .paused(.accountNeedsAttention))
     }
 
