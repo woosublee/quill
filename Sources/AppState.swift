@@ -2851,7 +2851,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         isSyncOn: { [weak self] in self?.noteSyncController?.isEnabled == true },
         onMissingPart: { [weak self] in
             Task { await self?.noteSyncController?.syncNow() }
-        }
+        },
+        currentManifest: { [weak self] in self?.pipelineHistoryStore.audioManifest(id: $0) }
     )
     private var recordingJournalStore: RecordingJournalStore
     private var cloudTranscriptionJobStore: CloudTranscriptionJobStore
@@ -8371,17 +8372,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return audioURL
     }
 
-    /// The note's audio file here, when it has bytes in it.
-    @MainActor
-    private func usableLocalAudioURL(for item: PipelineHistoryItem) -> URL? {
-        guard let url = storedAudioURL(for: item), NoteAudioDownloader.isUsableLocalAudio(at: url) else { return nil }
-        return url
-    }
-
     /// The note's audio here, in iCloud, downloading, or out of reach.
     @MainActor
     func noteAudioState(for item: PipelineHistoryItem) -> NoteAudioState {
-        let isLocal = usableLocalAudioURL(for: item) != nil
+        let isLocal = noteBrowserStoredAudioURL(for: item) != nil
         let manifest = isLocal ? nil : pipelineHistoryStore.audioManifest(id: item.id)
         // This Mac was sending audio it no longer has: the file was lost
         // here, so it isn't on its way from another Mac.
@@ -8398,20 +8392,28 @@ final class AppState: ObservableObject, @unchecked Sendable {
     /// it couldn't (the reason is in `noteAudioState`) or was cancelled.
     @MainActor
     func downloadNoteAudio(for item: PipelineHistoryItem) async -> URL? {
-        // The note as it is now: the view's copy may predate a sync.
+        await downloadNoteAudio(for: item, triesNewerAudio: true)
+    }
+
+    /// The downloader keeps a copy only while the note's marker is the one
+    /// it downloaded; when another Mac's new audio replaced it, that one is
+    /// downloaded instead, once.
+    @MainActor
+    private func downloadNoteAudio(for item: PipelineHistoryItem, triesNewerAudio: Bool) async -> URL? {
+        // The note as it is now: the view's copy may predate a sync. A note
+        // in Recently Deleted isn't listed, and keeps the copy it has.
         let item = pipelineHistory.first { $0.id == item.id } ?? item
-        if let local = usableLocalAudioURL(for: item) { return local }
+        if let local = noteBrowserStoredAudioURL(for: item) { return local }
         guard let destination = storedAudioURL(for: item),
               let manifest = pipelineHistoryStore.audioManifest(id: item.id) else { return nil }
         guard let url = await noteAudioDownloader.download(noteID: item.id, manifest: manifest, to: destination) else {
+            if triesNewerAudio, let newer = pipelineHistoryStore.audioManifest(id: item.id), newer != manifest {
+                return await downloadNoteAudio(for: item, triesNewerAudio: false)
+            }
             return nil
         }
-        // Deleted, or its audio replaced elsewhere, while it downloaded: the
-        // earlier recording isn't kept or used.
-        let current = pipelineHistory.first { $0.id == item.id }
-        guard pipelineHistoryStore.syncRecord(id: item.id) != nil,
-              let current, storedAudioURL(for: current) == destination,
-              pipelineHistoryStore.audioManifest(id: item.id) == manifest else {
+        // Deleted for good while it downloaded: the recording doesn't come back.
+        guard pipelineHistoryStore.syncRecord(id: item.id) != nil else {
             try? FileManager.default.removeItem(at: url)
             return nil
         }

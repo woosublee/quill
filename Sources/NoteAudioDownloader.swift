@@ -87,6 +87,12 @@ final class NoteAudioDownloader: ObservableObject {
     private let hashFile: (URL) async throws -> String
     /// A part is gone from iCloud: the marker here is likely out of date.
     private let onMissingPart: @MainActor () -> Void
+    /// The note's marker now; a download for another one isn't kept. Nil
+    /// skips the check.
+    private let currentManifest: (@MainActor (UUID) -> NoteAudioManifest?)?
+    /// The marker each note last asked for a sync about, so one that
+    /// brought nothing new isn't asked again.
+    private var syncAskedFor: [UUID: String] = [:]
     /// Each download has its own token, so one that was cancelled can't
     /// clear what a new download for the same note set up.
     private var running: [UUID: (token: UUID, manifest: NoteAudioManifest, task: Task<URL?, Never>)] = [:]
@@ -96,20 +102,15 @@ final class NoteAudioDownloader: ObservableObject {
         fetcher: @escaping @MainActor () -> NoteAudioPartFetching?,
         isSyncOn: @escaping @MainActor () -> Bool,
         onMissingPart: @escaping @MainActor () -> Void = {},
+        currentManifest: (@MainActor (UUID) -> NoteAudioManifest?)? = nil,
         hashFile: @escaping (URL) async throws -> String = NoteAudioDownloader.hashOffMain
     ) {
         self.downloadsDirectory = downloadsDirectory
         self.fetcher = fetcher
         self.isSyncOn = isSyncOn
         self.onMissingPart = onMissingPart
+        self.currentManifest = currentManifest
         self.hashFile = hashFile
-    }
-
-    /// Audio here is a file with bytes in it; an empty one (an interrupted
-    /// copy) isn't, so the copy in iCloud is offered.
-    nonisolated static func isUsableLocalAudio(at url: URL) -> Bool {
-        let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber
-        return (size?.int64Value ?? 0) > 0
     }
 
     nonisolated static func hashOffMain(_ url: URL) async throws -> String {
@@ -134,7 +135,12 @@ final class NoteAudioDownloader: ObservableObject {
     /// Returns `destination` once the audio is there, or nil when it
     /// couldn't be downloaded (the reason is in `state`) or was cancelled.
     func download(noteID: UUID, manifest: NoteAudioManifest, to destination: URL) async -> URL? {
-        if let current = running[noteID] { return await current.task.value }
+        if let current = running[noteID] {
+            // The same audio joins the running download; other audio (a
+            // new file from another Mac) replaces it.
+            if current.manifest == manifest { return await current.task.value }
+            cancel(noteID: noteID)
+        }
         failures[noteID] = nil
         progress[noteID] = 0
         let token = UUID()
@@ -206,6 +212,7 @@ final class NoteAudioDownloader: ObservableObject {
                 let size = (try? FileManager.default.attributesOfItem(atPath: partial.path))?[.size] as? NSNumber
                 let sha256 = try await hashFile(partial)
                 try Task.checkCancellation()
+                guard isCurrent(noteID, token) else { return nil }
                 guard size?.int64Value == manifest.bytes, sha256 == manifest.sha256 else {
                     // A bad copy: thrown away, and fetched once more.
                     print("[NoteSync] Downloaded audio didn't match its marker")
@@ -214,6 +221,9 @@ final class NoteAudioDownloader: ObservableObject {
                     if isCurrent(noteID, token) { failures[noteID] = Failure(reason: .failed, sha256: manifest.sha256) }
                     return nil
                 }
+                // Another Mac replaced or removed the file meanwhile: this
+                // copy isn't moved in, and what's there is left alone.
+                if let currentManifest, currentManifest(noteID) != manifest { return nil }
                 try FileManager.default.createDirectory(
                     at: destination.deletingLastPathComponent(),
                     withIntermediateDirectories: true
@@ -239,7 +249,10 @@ final class NoteAudioDownloader: ObservableObject {
                     failures[noteID] = Failure(reason: .failed, sha256: manifest.sha256)
                     // Usually another Mac replaced the file: a sync brings
                     // the new marker (or that the zone is gone).
-                    if case NoteAudioFetchError.missing = error { onMissingPart() }
+                    if case NoteAudioFetchError.missing = error, syncAskedFor[noteID] != manifest.sha256 {
+                        syncAskedFor[noteID] = manifest.sha256
+                        onMissingPart()
+                    }
                 }
                 return nil
             }

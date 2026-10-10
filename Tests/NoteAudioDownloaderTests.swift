@@ -18,7 +18,8 @@ struct NoteAudioDownloaderTests {
         try await testMissingPartAsksForASync()
         try await testFailureForAnEarlierMarkerIsForgotten()
         try await testChangedMarkerStopsTheDownload()
-        try testEmptyFileIsNoAudioHere()
+        try await testDownloadForAnEarlierMarkerIsNotKept()
+        try await testRequestForAnotherMarkerStartsItsOwnDownload()
         print("NoteAudioDownloaderTests passed")
     }
 
@@ -64,7 +65,11 @@ struct NoteAudioDownloaderTests {
 
     /// Ten synthetic bytes in parts of four, so three parts.
     @MainActor
-    static func setup(syncOn: Bool = true, onMissingPart: @escaping @MainActor () -> Void = {}) throws -> Setup {
+    static func setup(
+        syncOn: Bool = true,
+        onMissingPart: @escaping @MainActor () -> Void = {},
+        currentManifest: (@MainActor (UUID) -> NoteAudioManifest?)? = nil
+    ) throws -> Setup {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quill-audio-download-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let bytes = Data((0..<10).map { UInt8($0) })
@@ -83,7 +88,8 @@ struct NoteAudioDownloaderTests {
             downloadsDirectory: dir.appendingPathComponent("downloads", isDirectory: true),
             fetcher: { fetcher },
             isSyncOn: { syncOn },
-            onMissingPart: onMissingPart
+            onMissingPart: onMissingPart,
+            currentManifest: currentManifest
         )
         return Setup(
             downloader: downloader,
@@ -294,6 +300,8 @@ struct NoteAudioDownloaderTests {
         s.fetcher.parts = [:]
         _ = await s.downloader.download(noteID: s.noteID, manifest: s.manifest, to: s.destination)
         precondition(count.syncs == 1)
+        _ = await s.downloader.download(noteID: s.noteID, manifest: s.manifest, to: s.destination)
+        precondition(count.syncs == 1, "once per marker: a sync that brought nothing new isn't asked for again")
         s.fetcher.error = .offline
         _ = await s.downloader.download(noteID: s.noteID, manifest: s.manifest, to: s.destination)
         precondition(count.syncs == 1, "offline isn't a missing part")
@@ -333,17 +341,42 @@ struct NoteAudioDownloaderTests {
         precondition(cleared == nil, "a marker cleared elsewhere stops it too")
     }
 
-    /// An empty file (an interrupted copy) isn't audio here, so the copy
-    /// in iCloud is offered.
-    static func testEmptyFileIsNoAudioHere() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quill-audio-local-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let empty = dir.appendingPathComponent("empty.wav"), full = dir.appendingPathComponent("full.wav")
-        try Data().write(to: empty)
-        try Data([1, 2, 3]).write(to: full)
-        precondition(!NoteAudioDownloader.isUsableLocalAudio(at: empty))
-        precondition(NoteAudioDownloader.isUsableLocalAudio(at: full))
-        precondition(!NoteAudioDownloader.isUsableLocalAudio(at: dir.appendingPathComponent("gone.wav")))
+    /// The note's marker changed while it downloaded: the copy isn't moved
+    /// into place, and whatever is there now is left alone.
+    @MainActor
+    static func testDownloadForAnEarlierMarkerIsNotKept() async throws {
+        let newer = NoteAudioManifest(sha256: String(repeating: "cd", count: 32), bytes: 10, partSize: 4, parts: 3)
+        let s = try setup(currentManifest: { _ in newer })
+        defer { try? FileManager.default.removeItem(at: s.dir) }
+        try FileManager.default.createDirectory(at: s.destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("newer".utf8).write(to: s.destination)
+        let result = await s.downloader.download(noteID: s.noteID, manifest: s.manifest, to: s.destination)
+        precondition(result == nil)
+        precondition((try? Data(contentsOf: s.destination)) == Data("newer".utf8), "the file there is untouched")
+
+        let kept = try setup(currentManifest: { _ in nil })
+        defer { try? FileManager.default.removeItem(at: kept.dir) }
+        let cleared = await kept.downloader.download(noteID: kept.noteID, manifest: kept.manifest, to: kept.destination)
+        precondition(cleared == nil && !FileManager.default.fileExists(atPath: kept.destination.path), "a cleared marker isn't kept either")
+    }
+
+    /// A request for another marker doesn't join the running download: it
+    /// stops it and downloads its own.
+    @MainActor
+    static func testRequestForAnotherMarkerStartsItsOwnDownload() async throws {
+        let s = try setup()
+        defer { try? FileManager.default.removeItem(at: s.dir) }
+        let newer = NoteAudioManifest(sha256: String(repeating: "cd", count: 32), bytes: 10, partSize: 4, parts: 3)
+        final class Box { var second: Task<URL?, Never>? }
+        let box = Box()
+        s.fetcher.beforeEachPart = {
+            guard box.second == nil else { return }
+            box.second = Task { await s.downloader.download(noteID: s.noteID, manifest: newer, to: s.destination) }
+            await Task.yield()
+        }
+        let first = await s.downloader.download(noteID: s.noteID, manifest: s.manifest, to: s.destination)
+        _ = await box.second?.value
+        precondition(first == nil, "the earlier marker's download stopped")
+        precondition(s.fetcher.fetched.contains { $0.key == NoteAudioPartID.key(sha256: newer.sha256) }, "the new marker was asked for")
     }
 }

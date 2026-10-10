@@ -269,10 +269,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             return .offline
         case .unknownItem:
             return .missing
-        // The zone is gone (deleted from another Mac): the sync this asks
-        // for finds that and stops as deleted elsewhere.
+        // The zone is gone (deleted from another Mac): no part will come
+        // back, and a sync wouldn't find it, so it's a plain failure.
         case let code where isZoneGone(code):
-            return .missing
+            return .failed
         default:
             return .failed
         }
