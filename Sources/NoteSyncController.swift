@@ -252,6 +252,7 @@ final class NoteSyncController: ObservableObject {
             let audioDeleted: Bool
             do {
                 if let engine {
+                    coordinator?.isHoldingRetries = true
                     audioDeleted = try await engine.deleteAllFromICloud()
                 } else if let deleted = try await deleteWithoutEngine(signedIn: await signedIn.value) {
                     audioDeleted = deleted
@@ -267,7 +268,13 @@ final class NoteSyncController: ObservableObject {
                 print("[NoteSync] Deleting from iCloud failed")
                 turnOffFailure = error as? NoteSyncTurnOffFailure ?? .unreachable
                 isDeletingFromICloud = false
-                // Sync stays on: a start held back meanwhile goes ahead.
+                // Sync stays on: a start held back meanwhile goes ahead, or
+                // else what a finished sync skipped meanwhile runs now.
+                if heldBackStart == nil {
+                    coordinator?.stopHoldingRetries()
+                } else {
+                    coordinator?.isHoldingRetries = false
+                }
                 if let initialUpload = heldBackStart {
                     heldBackStart = nil
                     stopEngine(forgetState: initialUpload)
@@ -322,6 +329,7 @@ final class NoteSyncController: ObservableObject {
     /// The end of Turn Off, or of a Turn Off that found another account.
     private func finishTurningOff(status newStatus: NoteSyncStatus) {
         isDeletingFromICloud = false
+        turnOffFailure = nil
         heldBackStart = nil
         // Without an engine, nothing else removes its saved state.
         if engine == nil { removeEngineFiles() }

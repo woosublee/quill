@@ -36,6 +36,8 @@ struct NoteSyncControllerTests {
         testStartOverAskedDuringAFailedDeleteHappensAfter()
         testOfflineDeleteWithoutEngineSaysSo()
         testTurnOnClearsTagsLeftFromADelete()
+        testEngineDeleteHoldsRetries()
+        testUndoneDeleteLetsRetriesGoAndSyncs()
         testTurnOnCreatesTheZoneBeforeSyncing()
         testTurnOnStaysOffWhenICloudIsUnreachable()
         testTurnOnWaitsForAReadyStore()
@@ -127,6 +129,8 @@ struct NoteSyncControllerTests {
         func enqueueAudioSaves(_ parts: [NoteAudioPartID]) {}
         func enqueueAudioDeletes(_ parts: [NoteAudioPartID]) {}
         func pendingAudioSaves() -> [NoteAudioPartID] { [] }
+        var pendingCount = 0
+        func pendingChangeCount() -> Int { pendingCount }
         func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> { [] }
         func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] { [] }
         func cancelAudioSaves(noteID: UUID) {}
@@ -934,4 +938,33 @@ struct NoteSyncControllerTests {
         precondition(expectation { _ = await controller.turnOn() })
         precondition(store.cleared && !defaults.bool(forKey: NoteSyncController.clearTagsOnAttachKey))
     }
+
+    @MainActor
+    static func testEngineDeleteHoldsRetries() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        let running = engine()
+        var held = false
+        running?.whileDeleting = { held = running?.coordinator?.isHoldingRetries == true }
+        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
+        precondition(held, "the coordinator held its retries during the delete")
+    }
+
+    @MainActor
+    static func testUndoneDeleteLetsRetriesGoAndSyncs() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        let running = engine()
+        running?.deleteError = URLError(.notConnectedToInternet)
+        running?.whileDeleting = {
+            // The delete's own send finishes while retries are held.
+            running?.coordinator?.handleFetchFinished(pending: 0)
+        }
+        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
+        precondition(running?.coordinator?.isHoldingRetries == false, "retries go again")
+        if case .upToDate = controller.status {} else {
+            preconditionFailure("the sync skipped during the delete settles the status: \(controller.status)")
+        }
+    }
+
 }

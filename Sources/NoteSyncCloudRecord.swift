@@ -19,6 +19,106 @@ enum NoteSyncSendErrorKind: Equatable {
     case other
 }
 
+/// Where a failed save or delete goes, from what was sent, the error, and
+/// whether this Mac is deleting its iCloud data.
+enum NoteSyncSendRoute: Equatable {
+    /// The engine retries it itself, or nothing is left to do.
+    case nothing
+    /// A part iCloud already has (its name says which bytes it holds).
+    case savedAlready
+    /// Queued again at once.
+    case resendNow
+    /// The zone is gone while this Mac deletes it: put back if the delete
+    /// is undone, dropped once it's done.
+    case holdForOwnDelete
+    case zoneDeletedElsewhere
+    /// A part whose audio zone is missing (made again if notes are there).
+    case partWithoutZone
+    case serverChanged
+    case quotaExceeded
+    case network
+    case accountNeedsAttention
+    case unknownItemOnSave
+    case unknownItemOnDelete
+    /// Tried again later: a save with waits, a delete as a delete.
+    case failed
+
+    enum Sent { case note, part }
+
+    static func route(_ sent: Sent, isSave: Bool, code: CKError.Code, deletingZone: Bool) -> NoteSyncSendRoute {
+        let kind = NoteSyncCloudRecord.sendErrorKind(code)
+        switch kind {
+        case .throttled: return .nothing
+        case .network: return .network
+        case .accountNeedsAttention: return .accountNeedsAttention
+        case .zoneGone:
+            if deletingZone { return sent == .part && !isSave ? .nothing : .holdForOwnDelete }
+            switch (sent, isSave) {
+            case (.part, true): return .partWithoutZone
+            case (.part, false): return .nothing
+            case (.note, _): return .zoneDeletedElsewhere
+            }
+        case .unknownItem:
+            switch (sent, isSave) {
+            case (.part, true): return .resendNow
+            case (.part, false): return .nothing
+            case (.note, true): return .unknownItemOnSave
+            case (.note, false): return .unknownItemOnDelete
+            }
+        case .serverChanged where isSave:
+            return sent == .part ? .savedAlready : .serverChanged
+        case .quotaExceeded where isSave:
+            return .quotaExceeded
+        case .serverChanged, .quotaExceeded, .other:
+            return .failed
+        }
+    }
+}
+
+/// This Mac's delete from iCloud, and the changes that met the missing zone
+/// meanwhile: put back if the delete is undone, dropped once it's done.
+/// The engine keeps it under its lock.
+struct NoteSyncDeleteHold<Change> {
+    private(set) var isDeleting = false
+    private var isFinished = false
+    private var held: [Change] = []
+
+    mutating func begin() {
+        isDeleting = true
+        isFinished = false
+        held = []
+    }
+
+    /// Returns the changes to put back now: all of them once the delete was
+    /// undone (their send finished after it), none once it went through.
+    mutating func hold(_ changes: [Change]) -> [Change] {
+        guard isDeleting else { return changes }
+        if !isFinished { held += changes }
+        return []
+    }
+
+    /// What is held so far, while the delete still counts as running (the
+    /// undo puts these back before it ends).
+    mutating func takeHeld() -> [Change] {
+        defer { held = [] }
+        return held
+    }
+
+    /// The delete was undone: the changes held since `takeHeld`.
+    mutating func undo() -> [Change] {
+        isDeleting = false
+        defer { held = [] }
+        return held
+    }
+
+    /// The delete went through: nothing held goes back, and nothing more is
+    /// held. Sync turns off, so it still counts as deleting.
+    mutating func finish() {
+        isFinished = true
+        held = []
+    }
+}
+
 /// Maps sync records to CloudKit `Note` records. The note travels as one
 /// JSON asset (`payload`), so long transcripts never hit the record size
 /// limit; `schemaVersion` and `deletedAt` are copied out for the console.

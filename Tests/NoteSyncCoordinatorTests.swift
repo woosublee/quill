@@ -110,6 +110,9 @@ struct NoteSyncCoordinatorTests {
         try await testEditKeepsAWaitingPartsWait()
         try testFetchedCopyClearsAFailedSave()
         testNoteGivenUpThenWaitingForSpaceIsNotBoth()
+        testRetriesWaitWhileThisMacDeletes()
+        testSkippedSyncCountsUploadsPutBack()
+        testUndoneDeletePutsBackOnlyDeletesStillWanted()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -181,6 +184,8 @@ struct NoteSyncCoordinatorTests {
         func enqueueAudioSaves(_ parts: [NoteAudioPartID]) { audioSaves += parts; pendingAudio += parts }
         func enqueueAudioDeletes(_ parts: [NoteAudioPartID]) { audioDeletes += parts }
         var pendingAudioReads = 0
+        var pendingCount = 0
+        func pendingChangeCount() -> Int { pendingCount }
         func pendingAudioSaves() -> [NoteAudioPartID] {
             pendingAudioReads += 1
             return pendingAudio
@@ -1835,5 +1840,61 @@ struct NoteSyncCoordinatorTests {
         for _ in 0..<4 { retries.failed(note.noteID, at: t0) }
         retries.failed(note.noteID, at: t0, keepTrying: true)
         precondition(retries.givenUp.isEmpty && retries.failing.isEmpty, "waiting for space, not given up")
+    }
+
+    /// While this Mac deletes its iCloud data, failed changes wait: sending
+    /// them would go into the zone being deleted.
+    @MainActor
+    static func testRetriesWaitWhileThisMacDeletes() {
+        let (coordinator, _, engine) = make()
+        let id = UUID()
+        coordinator.handleSendFailures([.other(noteID: id)])
+        coordinator.isHoldingRetries = true
+        passTime()
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves.isEmpty, "held during the delete")
+        engine.pendingCount = 2  // the uploads the undone delete put back
+        coordinator.stopHoldingRetries()
+        precondition(engine.saves == [id], "the skipped sync runs once the delete is undone")
+        if case .upToDate = coordinator.status { preconditionFailure("uploads put back are still waiting") }
+    }
+
+    /// The undone delete put its uploads back: the replayed sync counts
+    /// them, so sync doesn't read as up to date.
+    @MainActor
+    static func testSkippedSyncCountsUploadsPutBack() {
+        let (coordinator, _, engine) = make()
+        coordinator.isHoldingRetries = true
+        coordinator.handleFetchFinished(pending: 0)
+        engine.pendingCount = 2
+        coordinator.stopHoldingRetries()
+        if case .upToDate = coordinator.status { preconditionFailure("uploads put back are still waiting") }
+        engine.pendingCount = 0
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(coordinator.status == .upToDate(clock))
+    }
+
+    /// An undone delete puts back the deletes it dropped or held, except for
+    /// a note that came back meanwhile, or a part its note uses; a note that
+    /// can't be read keeps nothing.
+    @MainActor
+    static func testUndoneDeletePutsBackOnlyDeletesStillWanted() {
+        let (coordinator, store, engine) = make()
+        let back = record(), gone = UUID()
+        store.records[back.noteID] = back
+        precondition(coordinator.isDeleteStillWanted(noteID: gone))
+        precondition(!coordinator.isDeleteStillWanted(noteID: back.noteID), "the note came back")
+        store.manifests[back.noteID] = manifest("a.wav")
+        precondition(!coordinator.isDeleteStillWanted(parts(back.noteID, 1, "a.wav")[0]), "its note uses it")
+        precondition(coordinator.isDeleteStillWanted(parts(back.noteID, 1, "old.wav")[0]), "an earlier file's part")
+        precondition(coordinator.isDeleteStillWanted(parts(gone, 1)[0]), "its note is gone")
+        store.readFails = true
+        precondition(!coordinator.isDeleteStillWanted(noteID: gone) && !coordinator.isDeleteStillWanted(parts(gone, 1)[0]))
+        // Those are left to the retries, which delete once the note reads
+        // as gone.
+        store.readFails = false
+        passTime(3600)
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.deletes == [gone] && engine.audioDeletes == [parts(gone, 1)[0]])
     }
 }
