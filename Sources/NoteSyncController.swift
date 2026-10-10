@@ -268,9 +268,9 @@ final class NoteSyncController: ObservableObject {
                 print("[NoteSync] Deleting from iCloud failed")
                 turnOffFailure = error as? NoteSyncTurnOffFailure ?? .unreachable
                 isDeletingFromICloud = false
-                // Undone: what a finished sync skipped meanwhile runs now.
-                coordinator?.stopHoldingRetries()
-                // Sync stays on: a start held back meanwhile goes ahead.
+                // Sync stays on: a start held back meanwhile goes ahead, or
+                // else what a finished sync skipped meanwhile runs now.
+                if heldBackStart == nil { coordinator?.stopHoldingRetries() }
                 if let initialUpload = heldBackStart {
                     heldBackStart = nil
                     stopEngine(forgetState: initialUpload)

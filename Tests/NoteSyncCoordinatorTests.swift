@@ -182,6 +182,8 @@ struct NoteSyncCoordinatorTests {
         func enqueueAudioSaves(_ parts: [NoteAudioPartID]) { audioSaves += parts; pendingAudio += parts }
         func enqueueAudioDeletes(_ parts: [NoteAudioPartID]) { audioDeletes += parts }
         var pendingAudioReads = 0
+        var pendingCount = 0
+        func pendingChangeCount() -> Int { pendingCount }
         func pendingAudioSaves() -> [NoteAudioPartID] {
             pendingAudioReads += 1
             return pendingAudio
@@ -1849,7 +1851,9 @@ struct NoteSyncCoordinatorTests {
         passTime()
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.saves.isEmpty, "held during the delete")
+        engine.pendingCount = 2  // the uploads the undone delete put back
         coordinator.stopHoldingRetries()
         precondition(engine.saves == [id], "the skipped sync runs once the delete is undone")
+        if case .upToDate = coordinator.status { preconditionFailure("uploads put back are still waiting") }
     }
 }

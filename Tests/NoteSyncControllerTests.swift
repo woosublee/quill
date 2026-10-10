@@ -129,6 +129,8 @@ struct NoteSyncControllerTests {
         func enqueueAudioSaves(_ parts: [NoteAudioPartID]) {}
         func enqueueAudioDeletes(_ parts: [NoteAudioPartID]) {}
         func pendingAudioSaves() -> [NoteAudioPartID] { [] }
+        var pendingCount = 0
+        func pendingChangeCount() -> Int { pendingCount }
         func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> { [] }
         func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] { [] }
         func cancelAudioSaves(noteID: UUID) {}
