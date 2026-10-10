@@ -183,7 +183,7 @@ private struct NoteSyncSettingsCard: View {
     private var showsSyncNow: Bool {
         guard controller.isEnabled, controller.unavailableReason == nil else { return false }
         switch controller.status {
-        case .paused(.accountChanged), .paused(.signedOut), .paused(.deletedElsewhere), .off:
+        case .paused(.accountChanged), .paused(.signedOut), .paused(.deletedElsewhere), .paused(.historyUnavailable), .off:
             return false
         default:
             return true
@@ -263,6 +263,18 @@ private struct NoteSyncSettingsCard: View {
             Text("iCloud data was deleted from another Mac, so sync stopped")
                 .font(.caption)
                 .foregroundStyle(.orange)
+        case .paused(.notesFailed(let count, _)):
+            Text(count == 1 ? "1 note couldn't sync" : "\(count) notes couldn't sync")
+                .font(.caption)
+                .foregroundStyle(.orange)
+        case .paused(.couldNotSaveHere):
+            Text("Notes couldn't be saved on this Mac, so sync paused")
+                .font(.caption)
+                .foregroundStyle(.orange)
+        case .paused(.historyUnavailable):
+            Text("Note history couldn't be opened, so sync paused")
+                .font(.caption)
+                .foregroundStyle(.orange)
         }
     }
 
@@ -311,6 +323,20 @@ private struct NoteSyncSettingsCard: View {
                     .foregroundStyle(.secondary)
             case .paused(.deletedElsewhere):
                 Text("Notes on this Mac weren't deleted.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            case .paused(.notesFailed(_, let willRetry)):
+                Text(willRetry
+                     ? "It will try again shortly. These notes are still on this Mac."
+                     : "These notes are still on this Mac. Edit a note or click ↻ to try again.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            case .paused(.couldNotSaveHere):
+                Text("Check this Mac's free space, then click ↻ to try again.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            case .paused(.historyUnavailable):
+                Text("Syncing continues once note history opens again.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             case .off, .starting, .upToDate:

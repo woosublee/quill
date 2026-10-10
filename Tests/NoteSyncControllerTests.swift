@@ -22,6 +22,11 @@ struct NoteSyncControllerTests {
         try testConfirmationsCountAudio()
         testSyncNowRunsOnceAtATime()
         testTurningOffStopsAudioDownloads()
+        testStoreFailingAgainAfterStartingOverPauses()
+        testStartingOverIsAllowedAgainOnceUpToDate()
+        testRelaunchAfterAPauseUploadsEverything()
+        testHistoryLostMidSessionPausesUntilReplaced()
+        testSyncNowTriesFailedChangesAgain()
         print("NoteSyncControllerTests passed")
     }
 
@@ -299,6 +304,7 @@ struct NoteSyncControllerTests {
         controller.attach(store: store)
         precondition(engine() == nil, "nothing is fetched into a store that can't save it")
         precondition(controller.isEnabled)
+        precondition(controller.status == .paused(.historyUnavailable), "Settings says why sync isn't running")
     }
 
     @MainActor
@@ -379,5 +385,90 @@ struct NoteSyncControllerTests {
         log.zoneError = NoteSyncTurnOnFailure.unreachable
         precondition(expectation { _ = await controller.turnOn() })
         precondition(controller.status == .paused(.deletedElsewhere))
+    }
+
+    /// Lets work the controller put on the main queue run.
+    @MainActor
+    static func drainMainQueue() {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+    }
+
+    /// A fetched note the store couldn't save starts sync over once; if it
+    /// fails again before sync was up to date, sync pauses instead of
+    /// fetching everything over and over. Sync Now starts it again.
+    @MainActor
+    static func testStoreFailingAgainAfterStartingOverPauses() {
+        let (controller, store, engine, defaults) = make(enabled: true)
+        controller.attach(store: store)
+        let first = engine()
+        first?.coordinator?.onNeedsFullRefetch?()
+        drainMainQueue()
+        let second = engine()
+        precondition(second !== first && first?.stopped == [true], "started over once")
+        precondition(second?.saves == store.ids, "everything goes up again")
+        second?.coordinator?.onNeedsFullRefetch?()
+        drainMainQueue()
+        precondition(engine() === second && second?.stopped == [true], "no third start")
+        precondition(controller.status == .paused(.couldNotSaveHere) && controller.isEnabled)
+        precondition(defaults.bool(forKey: NoteSyncController.needsFullStartKey), "a relaunch sends everything")
+        precondition(expectation { await controller.syncNow() })
+        let third = engine()
+        precondition(third !== second && third?.saves == store.ids, "Sync Now starts over")
+        precondition(!defaults.bool(forKey: NoteSyncController.needsFullStartKey))
+    }
+
+    @MainActor
+    static func testStartingOverIsAllowedAgainOnceUpToDate() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        engine()?.coordinator?.onNeedsFullRefetch?()
+        drainMainQueue()
+        let second = engine()
+        second?.coordinator?.handleFetchFinished(pending: 0)
+        second?.coordinator?.onNeedsFullRefetch?()
+        drainMainQueue()
+        precondition(engine() !== second, "a sync that got up to date may start over again")
+    }
+
+    /// Sync paused with its engine state dropped: changes made meanwhile
+    /// weren't queued, so the next launch sends every note.
+    @MainActor
+    static func testRelaunchAfterAPauseUploadsEverything() {
+        let (controller, store, engine, defaults) = make(enabled: true)
+        defaults.set(true, forKey: NoteSyncController.needsFullStartKey)
+        controller.attach(store: store)
+        precondition(engine()?.saves == store.ids)
+        precondition(!defaults.bool(forKey: NoteSyncController.needsFullStartKey))
+    }
+
+    /// History that can't be read mid-session pauses sync with a reason
+    /// rather than leaving it stopped and saying "Up to date"; recovered
+    /// history, attached as a new store, starts it again.
+    @MainActor
+    static func testHistoryLostMidSessionPausesUntilReplaced() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        engine()?.coordinator?.handleFetchFinished(pending: 0)
+        let first = engine()
+        store.isReadyForSync = false
+        _ = first?.coordinator?.handleFetched([], deletions: [])
+        drainMainQueue()
+        precondition(first?.stopped == [true] && engine() === first, "no engine runs on it")
+        precondition(controller.status == .paused(.historyUnavailable) && controller.isEnabled)
+        let recovered = FakeStore()
+        recovered.ids = [UUID()]
+        controller.attach(store: recovered)
+        precondition(engine() !== first && engine()?.saves == recovered.ids, "sync goes on with the recovered history")
+    }
+
+    @MainActor
+    static func testSyncNowTriesFailedChangesAgain() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        let id = store.ids[0]
+        for _ in 0..<4 { engine()?.coordinator?.handleSendFailures([.other(noteID: id)]) }
+        precondition(expectation { await controller.syncNow() })
+        engine()?.coordinator?.handleFetchFinished(pending: 0)
+        precondition(engine()?.saves == [id], "the given-up note goes up with Sync Now")
     }
 }

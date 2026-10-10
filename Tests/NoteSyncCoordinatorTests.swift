@@ -3,6 +3,14 @@ import Foundation
 @main
 struct NoteSyncCoordinatorTests {
     static let t0 = Date(timeIntervalSince1970: 1_800_000_000)
+    /// What the coordinator reads as now; each `make` sets it back to t0.
+    @MainActor static var clock = t0
+
+    /// Moves the clock on, past a retry's wait (one minute by default).
+    @MainActor
+    static func passTime(_ seconds: TimeInterval = 60) {
+        clock = clock.addingTimeInterval(seconds)
+    }
 
     @MainActor
     static func main() async throws {
@@ -63,8 +71,8 @@ struct NoteSyncCoordinatorTests {
         try await testRemoteDeletionUsesThisMacsMarker()
         try await testPurgeFindsPartsAnotherMacLeft()
         await testPartSavedAfterItsNoteIsGoneIsDeleted()
-        try testFailingPartIsGivenUpAfterThreeTries()
-        try testFullICloudCountsTowardTheRetryLimit()
+        try testFailingPartIsGivenUpAfterFourTries()
+        try testFullICloudKeepsTryingWithLongerWaits()
         try await testTurnOnReadsWaitingPartsOnce()
         try testDeletedNoteNoLongerHoldsUpProgress()
         try testEmptyAudioDoesNotHoldUpProgress()
@@ -76,7 +84,7 @@ struct NoteSyncCoordinatorTests {
         try await testMarkedNotesGoUpOnlyAfterTheCheck()
         try await testHeldNoteEditedDuringItsCheckStillWaits()
         try await testHeldNoteDeletedDuringItsCheckIsNotSent()
-        try await testEditAfterAGivenUpPartChecksICloudFirst()
+        try await testEditRetriesAGivenUpPartAfterCheckingICloud()
         try testStatusStaysBusyWhileAudioIsRetried()
         try await testAudioChangedDuringCheckIsCheckedAgain()
         try await testEmptyLocalFileStillChecksTheMarker()
@@ -92,6 +100,10 @@ struct NoteSyncCoordinatorTests {
         try await testLocalReplaceLeavesAnotherMacsUpload()
         try await testLocalReplaceLooksUpPartsWaitingToRetry()
         try await testNoteBackDuringItsCleanUpKeepsItsParts()
+        testFailingNoteWaitsLongerEachTimeThenGivesUp()
+        testEditTriesAGivenUpNoteAgain()
+        try await testSyncNowTriesEverythingThatFailedAgain()
+        testFailedDeletesAreNotShownAsFailingNotes()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -215,7 +227,8 @@ struct NoteSyncCoordinatorTests {
     static func make() -> (NoteSyncCoordinator, FakeStore, FakeEngine) {
         let store = FakeStore()
         let engine = FakeEngine()
-        let coordinator = NoteSyncCoordinator(store: store, engine: engine, now: { t0 })
+        clock = t0
+        let coordinator = NoteSyncCoordinator(store: store, engine: engine, now: { clock })
         return (coordinator, store, engine)
     }
 
@@ -257,10 +270,11 @@ struct NoteSyncCoordinatorTests {
         hashReads = 0
         hashFails = false
         onHash = nil
+        clock = t0
         let coordinator = NoteSyncCoordinator(
             store: store,
             engine: engine,
-            now: { t0 },
+            now: { clock },
             localAudioURL: { name in
                 let url = dir.appendingPathComponent(name)
                 return FileManager.default.fileExists(atPath: url.path) ? url : nil
@@ -401,8 +415,9 @@ struct NoteSyncCoordinatorTests {
         let gone = parts(UUID(), 1)[0]
         coordinator.handleAudioSendFailures([.quotaExceeded(part), .deleteFailed(gone)])
         precondition(coordinator.status == .paused(.quotaExceeded(pending: 1)))
+        passTime()
         coordinator.handleFetchFinished(pending: 1)
-        precondition(engine.audioSaves == [part], "the part is tried again after the next sync")
+        precondition(engine.audioSaves == [part], "the part is tried again after a minute")
         precondition(engine.audioDeletes == [gone])
     }
 
@@ -847,10 +862,12 @@ struct NoteSyncCoordinatorTests {
         let id = UUID()
         store.readFails = true
         coordinator.handleSendFailures([.deleteFailed(noteID: id)])
+        passTime()
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.deletes.isEmpty, "a note that can't be read isn't deleted")
         if case .upToDate = coordinator.status { preconditionFailure("a waiting delete isn't up to date") }
         store.readFails = false
+        passTime(3600)
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.deletes == [id], "the delete goes once the note reads as gone")
     }
@@ -984,32 +1001,40 @@ struct NoteSyncCoordinatorTests {
     }
 
     @MainActor
-    static func testFailingPartIsGivenUpAfterThreeTries() throws {
+    static func testFailingPartIsGivenUpAfterFourTries() throws {
         let (coordinator, store, engine, dir) = try makeWithAudio(["a.wav": 10])
         defer { try? FileManager.default.removeItem(at: dir) }
         let id = noteWithAudio(store)
         store.uploadKeys[id] = sha("a.wav")
         let part = parts(id, 1)[0]
-        for _ in 0..<3 {
+        for _ in 0..<4 {
             coordinator.handleAudioSendFailures([.failed(part)])
-            coordinator.handleFetchFinished(pending: 1)
+            passTime(3600)
+            coordinator.handleFetchFinished(pending: 0)
         }
-        precondition(engine.audioSaves == [part, part], "two retries, then it waits for the next launch")
+        precondition(engine.audioSaves == [part, part, part], "three retries, then it waits")
+        precondition(coordinator.status == .paused(.notesFailed(count: 1, willRetry: false)))
     }
 
-    /// With iCloud full, a 50 MB part isn't sent again after every sync.
+    /// With iCloud full, a 50 MB part isn't sent again after every sync,
+    /// but it keeps being tried, at most every 30 minutes.
     @MainActor
-    static func testFullICloudCountsTowardTheRetryLimit() throws {
+    static func testFullICloudKeepsTryingWithLongerWaits() throws {
         let (coordinator, store, engine, dir) = try makeWithAudio(["a.wav": 10])
         defer { try? FileManager.default.removeItem(at: dir) }
         let id = noteWithAudio(store)
         store.uploadKeys[id] = sha("a.wav")
         let part = parts(id, 1)[0]
-        for _ in 0..<3 {
+        for _ in 0..<6 {
             coordinator.handleAudioSendFailures([.quotaExceeded(part)])
-            coordinator.handleFetchFinished(pending: 1)
+            passTime(29 * 60)
+            coordinator.handleFetchFinished(pending: 0)
         }
-        precondition(engine.audioSaves == [part, part])
+        // Waits of 1, 5, then 30 minutes: tried after the first two.
+        precondition(engine.audioSaves == [part, part], "\(engine.audioSaves.count)")
+        passTime(60)
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.audioSaves.count == 3, "never given up")
         precondition(coordinator.status == .paused(.quotaExceeded(pending: 1)), "still shown as out of space")
     }
 
@@ -1181,18 +1206,18 @@ struct NoteSyncCoordinatorTests {
     }
 
     @MainActor
-    static func testEditAfterAGivenUpPartChecksICloudFirst() async throws {
+    static func testEditRetriesAGivenUpPartAfterCheckingICloud() async throws {
         let (coordinator, store, engine, dir) = try makeWithAudio(["a.wav": 60_000_000])
         defer { try? FileManager.default.removeItem(at: dir) }
         let id = noteWithAudio(store)
         store.uploadKeys[id] = sha("a.wav")
         let both = parts(id, 2)
         engine.iCloud = [both[0]]
-        for _ in 0..<3 { coordinator.handleAudioSendFailures([.failed(both[1])]) }
+        for _ in 0..<4 { coordinator.handleAudioSendFailures([.failed(both[1])]) }
         engine.audioSaves = []
         coordinator.handleLocalChanges([.saved(id)])
         await coordinator.lastAudioCheck?.value
-        precondition(engine.audioSaves.isEmpty, "the part in iCloud isn't sent again, and the given-up one waits")
+        precondition(engine.audioSaves == [both[1]], "the part in iCloud isn't sent again, and the given-up one is tried again")
     }
 
     @MainActor
@@ -1243,7 +1268,7 @@ struct NoteSyncCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let id = noteWithAudio(store)
         store.uploadKeys[id] = sha("a.wav")
-        for _ in 0..<3 { coordinator.handleAudioSendFailures([.failed(parts(id, 1)[0])]) }
+        for _ in 0..<4 { coordinator.handleAudioSendFailures([.failed(parts(id, 1)[0])]) }
         store.applyResult = .updated(needsUpload: false)
         _ = coordinator.handleFetched([try fetched(store.records[id]!)], deletions: [])
         precondition(coordinator.lastAudioCheck == nil && engine.lookups == 0)
@@ -1378,15 +1403,24 @@ struct NoteSyncCoordinatorTests {
 
     @MainActor
     static func testQuotaAndNetworkPause() {
-        let (coordinator, _, _) = make()
+        let (coordinator, store, engine) = make()
         coordinator.handleSendFailures([.network(noteID: UUID())])
         precondition(coordinator.status == .paused(.offline))
-        coordinator.handleSendFailures([.quotaExceeded(noteID: UUID()), .quotaExceeded(noteID: UUID())])
+        let a = record(), b = record()
+        store.records[a.noteID] = a
+        store.records[b.noteID] = b
+        coordinator.handleSendFailures([.quotaExceeded(noteID: a.noteID), .quotaExceeded(noteID: b.noteID)])
         precondition(coordinator.status == .paused(.quotaExceeded(pending: 2)))
         coordinator.handleFetchFinished(pending: 0)
         precondition(coordinator.status == .paused(.quotaExceeded(pending: 2)), "notes still waiting for space aren't up to date")
+        passTime()
         coordinator.handleFetchFinished(pending: 0)
-        precondition(coordinator.status == .upToDate(t0), "once the retried notes went up, the pause clears")
+        precondition(Set(engine.saves) == [a.noteID, b.noteID], "tried again after a minute")
+        precondition(coordinator.status == .paused(.quotaExceeded(pending: 2)))
+        coordinator.handleSaved(id: a.noteID, systemFields: Data([1]))
+        coordinator.handleSaved(id: b.noteID, systemFields: Data([1]))
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(coordinator.status == .upToDate(clock), "once the retried notes went up, the pause clears")
     }
 
     @MainActor
@@ -1542,9 +1576,12 @@ struct NoteSyncCoordinatorTests {
         let (coordinator, _, engine) = make()
         let full = UUID(), other = UUID()
         coordinator.handleSendFailures([.quotaExceeded(noteID: full), .other(noteID: other)])
-        precondition(engine.saves.isEmpty)
         coordinator.handleFetchFinished(pending: 0)
-        precondition(Set(engine.saves) == [full, other], "notes that couldn't upload are tried again")
+        precondition(engine.saves.isEmpty, "a sync right after the failure doesn't send them again")
+        passTime()
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(Set(engine.saves) == [full, other], "notes that couldn't upload are tried again after a minute")
+        passTime(3600)
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.saves.count == 2, "each failure is retried once per failure")
     }
@@ -1556,8 +1593,10 @@ struct NoteSyncCoordinatorTests {
         let (coordinator, store, engine) = make()
         let gone = UUID()
         coordinator.handleSendFailures([.deleteFailed(noteID: gone)])
+        passTime()
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.deletes == [gone] && engine.saves.isEmpty)
+        passTime(3600)
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.deletes == [gone], "retried once per failure")
 
@@ -1565,6 +1604,7 @@ struct NoteSyncCoordinatorTests {
         let back = record()
         coordinator.handleSendFailures([.deleteFailed(noteID: back.noteID)])
         store.records[back.noteID] = back
+        passTime()
         coordinator.handleFetchFinished(pending: 0)
         precondition(!engine.deletes.contains(back.noteID))
     }
@@ -1610,7 +1650,82 @@ struct NoteSyncCoordinatorTests {
         store.systemFields[note.noteID] = Data([7])
         coordinator.handleSendFailures([.unknownItemOnSave(noteID: note.noteID)])
         precondition(store.systemFields[note.noteID] == nil)
+        passTime()
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.saves == [note.noteID])
+    }
+
+    /// A note iCloud keeps rejecting is tried again after 1, 5 and 30
+    /// minutes, never in between, then given up; Settings says so all along.
+    @MainActor
+    static func testFailingNoteWaitsLongerEachTimeThenGivesUp() {
+        let (coordinator, store, engine) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        store.syncable = [note.noteID]
+        for wait: TimeInterval in [60, 5 * 60, 30 * 60] {
+            coordinator.handleSendFailures([.other(noteID: note.noteID)])
+            coordinator.handleFetchFinished(pending: 0)
+            precondition(coordinator.status == .paused(.notesFailed(count: 1, willRetry: true)), "\(coordinator.status)")
+            let sent = engine.saves.count
+            passTime(wait - 1)
+            coordinator.handleFetchFinished(pending: 0)
+            precondition(engine.saves.count == sent, "not before its wait is over")
+            passTime(1)
+            coordinator.handleFetchFinished(pending: 0)
+            precondition(engine.saves.count == sent + 1, "tried again once the wait is over")
+        }
+        coordinator.handleSendFailures([.other(noteID: note.noteID)])
+        passTime(24 * 3600)
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves.count == 3, "given up after the fourth failure")
+        precondition(coordinator.status == .paused(.notesFailed(count: 1, willRetry: false)))
+    }
+
+    @MainActor
+    static func testEditTriesAGivenUpNoteAgain() {
+        let (coordinator, store, engine) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        store.syncable = [note.noteID]
+        for _ in 0..<4 { coordinator.handleSendFailures([.other(noteID: note.noteID)]) }
+        coordinator.handleLocalChanges([.saved(note.noteID)])
+        precondition(engine.saves == [note.noteID], "the edit goes up")
+        coordinator.handleSendFailures([.other(noteID: note.noteID)])
+        passTime()
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves == [note.noteID, note.noteID], "and its tries start over")
+    }
+
+    /// Sync Now tries every failed change again, given up or still waiting,
+    /// with its tries started over.
+    @MainActor
+    static func testSyncNowTriesEverythingThatFailedAgain() async throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio(["a.wav": 10])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let id = noteWithAudio(store)
+        store.uploadKeys[id] = sha("a.wav")
+        let part = parts(id, 1)[0]
+        let gone = UUID()
+        for _ in 0..<4 { coordinator.handleSendFailures([.other(noteID: id)]) }
+        coordinator.handleAudioSendFailures([.failed(part)])
+        coordinator.handleSendFailures([.deleteFailed(noteID: gone)])
+        coordinator.retryFailedNow()
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves == [id] && engine.audioSaves == [part] && engine.deletes == [gone])
+        coordinator.handleSendFailures([.other(noteID: id)])
+        passTime()
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves == [id, id], "tries started over: the next wait is a minute")
+    }
+
+    /// A failed delete waits like any other change, but isn't shown as a
+    /// note that couldn't sync: the note is already gone here.
+    @MainActor
+    static func testFailedDeletesAreNotShownAsFailingNotes() {
+        let (coordinator, _, _) = make()
+        coordinator.handleSendFailures([.deleteFailed(noteID: UUID())])
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(coordinator.status == .upToDate(clock), "\(coordinator.status)")
     }
 }

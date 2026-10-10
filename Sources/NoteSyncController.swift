@@ -41,6 +41,9 @@ struct NoteSyncEngineEvents {
 @MainActor
 final class NoteSyncController: ObservableObject {
     static let enabledKey = "iCloudNoteSyncEnabled"
+    /// Set while sync is on but its engine state was dropped: the next start
+    /// sends every note, since changes made meanwhile weren't queued.
+    static let needsFullStartKey = "iCloudNoteSyncNeedsFullStart"
 
     @Published private(set) var status: NoteSyncStatus = .off
     @Published private(set) var isEnabled: Bool
@@ -59,6 +62,9 @@ final class NoteSyncController: ObservableObject {
     private weak var store: NoteSyncLocalStore?
     private var engine: NoteSyncEngineHandle?
     private var coordinator: NoteSyncCoordinator?
+    /// Sync started over because a fetched note couldn't be saved here, and
+    /// hasn't been up to date since: another failure pauses it instead.
+    private var startedOver = false
 
     init(
         defaults: UserDefaults = .standard,
@@ -84,7 +90,8 @@ final class NoteSyncController: ObservableObject {
         // synced, so its sync starts over: everything up, everything down.
         stopEngine(forgetState: isReplacement)
         self.store = store
-        if isEnabled { startEngine(initialUpload: isReplacement) }
+        if isReplacement { startedOver = false }
+        if isEnabled { startEngine(initialUpload: isReplacement || defaults.bool(forKey: Self.needsFullStartKey)) }
     }
 
     var syncableNoteCount: Int {
@@ -152,6 +159,8 @@ final class NoteSyncController: ObservableObject {
         }
         stopEngine(forgetState: true)
         setEnabled(false)
+        defaults.removeObject(forKey: Self.needsFullStartKey)
+        startedOver = false
         status = .off
         return true
     }
@@ -177,19 +186,34 @@ final class NoteSyncController: ObservableObject {
         engine as? NoteAudioPartFetching
     }
 
-    /// Sync Now in Settings. A press while it runs does nothing.
+    /// Sync Now in Settings: changes that failed are tried again, and sync
+    /// paused for notes it couldn't save here starts over. A press while it
+    /// runs does nothing.
     func syncNow() async {
-        guard let engine, !isSyncingNow else { return }
+        guard isEnabled, !isSyncingNow else { return }
+        if engine == nil, status == .paused(.couldNotSaveHere) {
+            startEngine(initialUpload: true)
+            return
+        }
+        guard let engine else { return }
         isSyncingNow = true
         defer { isSyncingNow = false }
+        coordinator?.retryFailedNow()
         await engine.syncNow()
     }
 
     private func startEngine(initialUpload: Bool) {
-        guard let store, store.isReadyForSync,
-              let engine = makeEngine(NoteSyncEngineEvents(remoteChange: { [weak self] change in
-                  self?.onRemoteChange?(change)
-              })) else { return }
+        guard let store else { return }
+        guard store.isReadyForSync else {
+            // Recovered history is attached as a new store, which starts
+            // sync again.
+            print("[NoteSync] Waiting for note history before syncing")
+            status = .paused(.historyUnavailable)
+            return
+        }
+        guard let engine = makeEngine(NoteSyncEngineEvents(remoteChange: { [weak self] change in
+            self?.onRemoteChange?(change)
+        })) else { return }
         let coordinator = NoteSyncCoordinator(store: store, engine: engine, localAudioURL: localAudioURL)
         coordinator.onStatusChange = { [weak self] status in
             self?.coordinatorStatusChanged(status)
@@ -204,6 +228,7 @@ final class NoteSyncController: ObservableObject {
         status = coordinator.status
         engine.start()
         if initialUpload {
+            defaults.removeObject(forKey: Self.needsFullStartKey)
             coordinator.startInitialUpload()
         } else {
             coordinator.resumeAudioUploads()
@@ -212,8 +237,19 @@ final class NoteSyncController: ObservableObject {
 
     private func startOver() {
         guard isEnabled, coordinator != nil else { return }
-        print("[NoteSync] Starting over after a record couldn't be saved")
+        defaults.set(true, forKey: Self.needsFullStartKey)
         stopEngine(forgetState: true)
+        // History that can't be read pauses sync (in startEngine) until it's
+        // recovered; a store that fails again pauses it rather than looping.
+        if store?.isReadyForSync == true {
+            if startedOver {
+                print("[NoteSync] Paused: notes from iCloud couldn't be saved again")
+                status = .paused(.couldNotSaveHere)
+                return
+            }
+            print("[NoteSync] Starting over after a record couldn't be saved")
+            startedOver = true
+        }
         startEngine(initialUpload: true)
     }
 
@@ -228,6 +264,8 @@ final class NoteSyncController: ObservableObject {
     private func coordinatorStatusChanged(_ newStatus: NoteSyncStatus) {
         status = newStatus
         switch newStatus {
+        case .upToDate:
+            startedOver = false
         case .paused(.accountChanged), .paused(.signedOut), .paused(.deletedElsewhere):
             // Sync starts again only when the user turns it on, so notes
             // never cross into another account.
