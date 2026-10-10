@@ -685,7 +685,11 @@ final class NoteSyncCoordinator {
             engine.enqueueDeletes([id])
             return
         case nil:
-            return // can't tell; the next save records its change tag
+            // Can't tell: it went up all the same, and the next save
+            // records its change tag.
+            uploadWaitingText.remove(id)
+            reportUploadProgress()
+            return
         case true?:
             break
         }
@@ -782,16 +786,23 @@ final class NoteSyncCoordinator {
             if case .paused(.quotaExceeded) = status { return }
             status = .paused(.accountNeedsAttention)
         } else if offline {
-            switch status {
-            case .paused(.quotaExceeded), .paused(.accountNeedsAttention): return
-            default: status = .paused(.offline)
-            }
+            showOffline()
+        }
+    }
+
+    /// Offline never replaces a full iCloud or an account to look at: coming
+    /// back online would clear a notice that still applies.
+    private func showOffline() {
+        switch status {
+        case .paused(.quotaExceeded), .paused(.accountNeedsAttention): return
+        default: status = .paused(.offline)
         }
     }
 
     /// A change went through, so the account works again: the notice gives
     /// way to the upload it interrupted, if any.
     private func accountWorks() {
+        guard !isStopped else { return }
         if case .paused(.accountNeedsAttention) = status {
             status = uploadDone < uploadTotal ? .uploading(done: uploadDone, total: uploadTotal) : .starting
         }
@@ -1040,11 +1051,11 @@ final class NoteSyncCoordinator {
         // Notes just queued again for lack of space aren't up to date yet;
         // the pause clears after a sync where they went up.
         if case .paused(.quotaExceeded) = status, retriedForQuota { return }
-        // Shown until a change goes through.
-        if case .paused(.accountNeedsAttention) = status { return }
+        let busy = pending > 0 || queuedAgain || !audioChecking.isEmpty
+        // Shown until a change goes through, or nothing is left to send.
+        if case .paused(.accountNeedsAttention) = status, busy { return }
         // Offline stays shown until the network comes back.
         if isOffline, case .paused(.offline) = status { return }
-        let busy = pending > 0 || queuedAgain || !audioChecking.isEmpty
         if case .uploading = status, uploadDone < uploadTotal, busy { return }
         if !busy {
             status = .upToDate(now())
@@ -1060,10 +1071,7 @@ final class NoteSyncCoordinator {
         isOffline = !isOnline
         guard !isStopped else { return }
         if !isOnline {
-            switch status {
-            case .paused(.quotaExceeded), .paused(.accountNeedsAttention): return
-            default: status = .paused(.offline)
-            }
+            showOffline()
         } else if case .paused(.offline) = status {
             // The fetch that follows settles the status.
             status = .starting

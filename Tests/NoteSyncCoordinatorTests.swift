@@ -32,6 +32,9 @@ struct NoteSyncCoordinatorTests {
         testDeleteRetryWaitsWhileTheStoreCantBeRead()
         testAccountNeedingAttentionPausesUntilAChangeGoesThrough()
         testAudioAccountFailureOnlyPauses()
+        testAccountNoticeClearsWhenNothingIsLeftToSend()
+        testLateDeleteDoesNotRestartAStoppedSync()
+        testUnreadableSaveStillCountsAsUploaded()
         testOfflineDoesNotReplaceTheAccountNotice()
         await testUnreadableNoteIsNeverDeletedAfterASend()
         try await testUnreadableNoteKeepsItsParts()
@@ -859,14 +862,49 @@ struct NoteSyncCoordinatorTests {
         store.records[note.noteID] = note
         coordinator.handleSendFailures([.accountNeedsAttention])
         precondition(coordinator.status == .paused(.accountNeedsAttention))
-        coordinator.handleFetchFinished(pending: 0)
-        precondition(coordinator.status == .paused(.accountNeedsAttention), "a sync that sent nothing doesn't clear it")
+        coordinator.handleFetchFinished(pending: 1)
+        precondition(coordinator.status == .paused(.accountNeedsAttention), "a sync with changes still waiting doesn't clear it")
         precondition(engine.saves.isEmpty && engine.deletes.isEmpty, "nothing is queued again by the coordinator")
         coordinator.handleSaved(id: note.noteID, systemFields: Data([1]))
         precondition(coordinator.status == .starting, "a save that went through clears it")
         coordinator.handleSendFailures([.accountNeedsAttention])
         coordinator.handleDeleted(id: UUID())
         precondition(coordinator.status == .starting, "so does a delete")
+    }
+
+    /// The change that failed on the account was dropped (its note was
+    /// deleted): with nothing left to send, nothing waits on the account.
+    @MainActor
+    static func testAccountNoticeClearsWhenNothingIsLeftToSend() {
+        let (coordinator, _, _) = make()
+        coordinator.handleSendFailures([.accountNeedsAttention])
+        coordinator.handleFetchFinished(pending: 0)
+        if case .upToDate = coordinator.status {} else { preconditionFailure("\(coordinator.status)") }
+    }
+
+    /// A stopped sync isn't changed by a late delete confirmation.
+    @MainActor
+    static func testLateDeleteDoesNotRestartAStoppedSync() {
+        let (coordinator, _, _) = make()
+        coordinator.handleSendFailures([.accountNeedsAttention])
+        coordinator.stop()
+        coordinator.handleDeleted(id: UUID())
+        precondition(coordinator.status == .paused(.accountNeedsAttention))
+    }
+
+    /// A save that went through counts toward the first upload even when
+    /// its note can't be read at that moment.
+    @MainActor
+    static func testUnreadableSaveStillCountsAsUploaded() {
+        let (coordinator, store, _) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        store.syncable.insert(note.noteID)
+        coordinator.startInitialUpload()
+        precondition(coordinator.status == .uploading(done: 0, total: 1))
+        store.readFails = true
+        coordinator.handleSaved(id: note.noteID, systemFields: Data([1]))
+        precondition(coordinator.status == .uploading(done: 1, total: 1))
     }
 
     /// An audio part that fails on the account says so; it isn't queued
