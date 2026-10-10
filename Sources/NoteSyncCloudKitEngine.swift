@@ -624,8 +624,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                     audioFailures.append(.network)
                 case .throttled:
                     break // the engine waits and retries it
-                case .account:
-                    audioFailures.append(.account(part, isDelete: false))
+                case .signInNeeded:
+                    audioFailures.append(.accountNeedsAttention)
+                case .accountUnavailable:
+                    audioFailures += [.accountNeedsAttention, .failed(part)]
                 case .other:
                     audioFailures.append(.failed(part))
                 }
@@ -649,8 +651,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                 failures.append(.network(noteID: id))
             case .throttled:
                 break // the engine waits and retries it
-            case .account:
-                failures.append(.account(noteID: id, isDelete: false))
+            case .signInNeeded:
+                failures.append(.accountNeedsAttention)
+            case .accountUnavailable:
+                failures += [.accountNeedsAttention, .other(noteID: id)]
             case .unknownItem:
                 failures.append(.unknownItemOnSave(noteID: id))
             case .other:
@@ -671,8 +675,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                     audioFailures.append(.network)
                 case .throttled:
                     break // the engine waits and retries it
-                case .account:
-                    audioFailures.append(.account(part, isDelete: true))
+                case .signInNeeded:
+                    audioFailures.append(.accountNeedsAttention)
+                case .accountUnavailable:
+                    audioFailures += [.accountNeedsAttention, .deleteFailed(part)]
                 case .serverChanged, .quotaExceeded, .other:
                     audioFailures.append(.deleteFailed(part))
                 }
@@ -686,8 +692,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                 failures.append(.network(noteID: id))
             case .throttled:
                 break // the engine waits and retries it
-            case .account:
-                failures.append(.account(noteID: id, isDelete: true))
+            case .signInNeeded:
+                failures.append(.accountNeedsAttention)
+            case .accountUnavailable:
+                failures += [.accountNeedsAttention, .deleteFailed(noteID: id)]
             case .unknownItem:
                 failures.append(.unknownItemOnDelete(noteID: id))
             case .serverChanged, .quotaExceeded, .other:

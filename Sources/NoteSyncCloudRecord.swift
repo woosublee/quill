@@ -12,8 +12,11 @@ enum NoteSyncSendErrorKind: Equatable {
     /// The server is busy or rate limits this Mac; the engine waits and
     /// retries these itself, and the Mac isn't offline.
     case throttled
-    /// The iCloud account needs attention (a password, new terms).
-    case account
+    /// iCloud needs the password again; the engine retries these itself.
+    case signInNeeded
+    /// The account is temporarily unavailable (new terms, say); retried
+    /// like any other failure.
+    case accountUnavailable
     case unknownItem
     case other
 }
@@ -38,7 +41,8 @@ enum NoteSyncCloudRecord {
         case .quotaExceeded: return .quotaExceeded
         case .networkUnavailable, .networkFailure: return .network
         case .serviceUnavailable, .requestRateLimited, .zoneBusy: return .throttled
-        case .notAuthenticated, .accountTemporarilyUnavailable: return .account
+        case .notAuthenticated: return .signInNeeded
+        case .accountTemporarilyUnavailable: return .accountUnavailable
         case .unknownItem: return .unknownItem
         default: return .other
         }

@@ -30,10 +30,10 @@ struct NoteSyncCoordinatorTests {
         testFailedSavesAreRetriedAfterTheNextSync()
         testFailedDeleteIsRetriedAsADelete()
         testDeleteRetryWaitsWhileTheStoreCantBeRead()
-        testAccountNeedingAttentionPausesAndResumes()
+        testAccountNeedingAttentionPausesUntilAChangeGoesThrough()
+        testAudioAccountFailureOnlyPauses()
         testOfflineDoesNotReplaceTheAccountNotice()
         await testUnreadableNoteIsNeverDeletedAfterASend()
-        try testAudioAccountFailureIsRetriedWithoutALimit()
         try await testUnreadableNoteKeepsItsParts()
         testLateFailuresDoNotRestartStoppedSync()
         try testNoteBackFromAnotherMacCancelsItsDelete()
@@ -842,28 +842,42 @@ struct NoteSyncCoordinatorTests {
         coordinator.handleSendFailures([.deleteFailed(noteID: id)])
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.deletes.isEmpty, "a note that can't be read isn't deleted")
+        if case .upToDate = coordinator.status { preconditionFailure("a waiting delete isn't up to date") }
         store.readFails = false
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.deletes == [id], "the delete goes once the note reads as gone")
     }
 
     /// iCloud needs the account looked at (a password, new terms): sync
-    /// pauses and says so, keeps the change, and goes on after a sync
-    /// where nothing failed that way.
+    /// says so, and sending again is left to the engine (or the failure's
+    /// own retry). The notice stays until a change goes through, then gives
+    /// way to the sync it interrupted.
     @MainActor
-    static func testAccountNeedingAttentionPausesAndResumes() {
+    static func testAccountNeedingAttentionPausesUntilAChangeGoesThrough() {
+        let (coordinator, store, engine) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        coordinator.handleSendFailures([.accountNeedsAttention])
+        precondition(coordinator.status == .paused(.accountNeedsAttention))
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(coordinator.status == .paused(.accountNeedsAttention), "a sync that sent nothing doesn't clear it")
+        precondition(engine.saves.isEmpty && engine.deletes.isEmpty, "nothing is queued again by the coordinator")
+        coordinator.handleSaved(id: note.noteID, systemFields: Data([1]))
+        precondition(coordinator.status == .starting, "a save that went through clears it")
+        coordinator.handleSendFailures([.accountNeedsAttention])
+        coordinator.handleDeleted(id: UUID())
+        precondition(coordinator.status == .starting, "so does a delete")
+    }
+
+    /// An audio part that fails on the account says so; it isn't queued
+    /// again by the coordinator.
+    @MainActor
+    static func testAudioAccountFailureOnlyPauses() {
         let (coordinator, _, engine) = make()
-        let id = UUID(), gone = UUID()
-        coordinator.handleSendFailures([.account(noteID: id, isDelete: false), .account(noteID: gone, isDelete: true)])
+        coordinator.handleAudioSendFailures([.accountNeedsAttention])
         precondition(coordinator.status == .paused(.accountNeedsAttention))
         coordinator.handleFetchFinished(pending: 0)
-        precondition(engine.saves.isEmpty && engine.deletes.isEmpty, "not sent again straight after failing")
-        precondition(coordinator.status == .paused(.accountNeedsAttention))
-        coordinator.handleFetchFinished(pending: 0)
-        precondition(engine.saves == [id] && engine.deletes == [gone], "sent again after a sync without account failures")
-        precondition(coordinator.status == .starting, "no longer paused while they go up")
-        coordinator.handleFetchFinished(pending: 0)
-        if case .upToDate = coordinator.status {} else { preconditionFailure("\(coordinator.status)") }
+        precondition(engine.audioSaves.isEmpty && engine.audioDeletes.isEmpty)
     }
 
     /// Being offline doesn't hide an account to look at: coming back online
@@ -871,7 +885,7 @@ struct NoteSyncCoordinatorTests {
     @MainActor
     static func testOfflineDoesNotReplaceTheAccountNotice() {
         let (coordinator, _, _) = make()
-        coordinator.handleSendFailures([.account(noteID: UUID(), isDelete: false)])
+        coordinator.handleSendFailures([.accountNeedsAttention])
         coordinator.handleSendFailures([.network(noteID: UUID())])
         coordinator.handleNetworkChange(isOnline: false)
         precondition(coordinator.status == .paused(.accountNeedsAttention))
@@ -889,26 +903,14 @@ struct NoteSyncCoordinatorTests {
         await coordinator.handleAudioPartSaved(parts(id, 1)[0])
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.deletes.isEmpty && engine.audioDeletes.isEmpty, "nothing is deleted for a note that can't be read")
-    }
-
-    /// An audio part that failed on the account is sent again without
-    /// counting toward the retry limit.
-    @MainActor
-    static func testAudioAccountFailureIsRetriedWithoutALimit() throws {
-        let (coordinator, store, engine, dir) = try makeWithAudio(["a.wav": 10])
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let id = noteWithAudio(store)
-        store.uploadKeys[id] = sha("a.wav")
-        let part = parts(id, 1)[0]
-        for _ in 0..<(NoteSyncCoordinator.maxAudioAttempts + 1) {
-            coordinator.handleAudioSendFailures([.account(part, isDelete: false)])
-            precondition(coordinator.status == .paused(.accountNeedsAttention))
-            engine.audioSaves = []
-            coordinator.handleFetchFinished(pending: 0)
-            precondition(engine.audioSaves.isEmpty, "a 50 MB part isn't sent again straight after failing")
-            coordinator.handleFetchFinished(pending: 0)
-            precondition(engine.audioSaves == [part], "never given up for an account problem")
-        }
+        // The saved part's note is checked once it can be read.
+        store.readFails = false
+        store.records[id] = record(id)
+        store.manifests[id] = manifest()
+        engine.lookups = 0
+        coordinator.handleFetchFinished(pending: 0)
+        await coordinator.lastAudioCheck?.value
+        precondition(engine.lookups > 0, "the note whose part went up is checked later")
     }
 
     /// A Mac erased mid-upload left parts and no marker; deleting the note

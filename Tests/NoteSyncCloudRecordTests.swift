@@ -153,8 +153,8 @@ struct NoteSyncCloudRecordTests {
             (.serviceUnavailable, .throttled),
             (.requestRateLimited, .throttled),
             (.zoneBusy, .throttled),
-            (.notAuthenticated, .account),
-            (.accountTemporarilyUnavailable, .account),
+            (.notAuthenticated, .signInNeeded),
+            (.accountTemporarilyUnavailable, .accountUnavailable),
             (.unknownItem, .unknownItem),
             (.permissionFailure, .other),
             (.limitExceeded, .other)
