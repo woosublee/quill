@@ -208,7 +208,7 @@ final class NoteSyncCoordinator {
     /// Set once the controller replaces or drops this coordinator: work
     /// still running (an audio check, a hash) must not touch the store.
     private var isRetired = false
-    /// The most recent audio check, for tests to wait on.
+    /// Audio work started so far (checks and clean-ups), for tests to wait on.
     private(set) var lastAudioCheck: Task<Void, Never>?
 
     /// After an account change or a deletion elsewhere nothing more is sent;
@@ -303,9 +303,20 @@ final class NoteSyncCoordinator {
         localAudio(id).flatMap { $0.partCount > 0 ? $0 : nil }
     }
 
+    /// Runs audio work in the background. `lastAudioCheck` then finishes
+    /// once this and all earlier work did: one change can start a check and
+    /// a clean-up, and a test waits on both.
+    private func startAudioWork(_ work: @escaping @MainActor () async -> Void) {
+        let earlier = lastAudioCheck
+        lastAudioCheck = Task {
+            await work()
+            await earlier?.value
+        }
+    }
+
     private func checkAudioSoon(_ ids: [UUID], verifyMarked: Bool) {
         guard !ids.isEmpty, !isStopped else { return }
-        lastAudioCheck = Task { await self.checkAudio(ids, verifyMarked: verifyMarked) }
+        startAudioWork { await self.checkAudio(ids, verifyMarked: verifyMarked) }
     }
 
     /// One note's audio as a check sees it: the file here, or only the
@@ -517,7 +528,7 @@ final class NoteSyncCoordinator {
 
     private func cleanUpAudioSoon(_ targets: [UUID: Set<String>?]) {
         guard !targets.isEmpty, !isStopped else { return }
-        lastAudioCheck = Task { await self.cleanUpAudio(targets) }
+        startAudioWork { await self.cleanUpAudio(targets) }
     }
 
     /// Deletes parts of these notes that nothing uses any more: every part
