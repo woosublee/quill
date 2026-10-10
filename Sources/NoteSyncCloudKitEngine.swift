@@ -36,7 +36,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         self.stateURL = stateURL
         self.outbox = outbox
         self.events = events
-        database = CKContainer(identifier: NoteSyncAvailability.containerIdentifier).privateCloudDatabase
+        database = Self.privateDatabase
         super.init()
         let configuration = CKSyncEngine.Configuration(
             database: database,
@@ -54,7 +54,7 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
     /// there. Turning sync on calls this before the engine starts, so the
     /// engine never meets a zone this Mac deleted earlier.
     static func createZone() async throws {
-        let database = CKContainer(identifier: NoteSyncAvailability.containerIdentifier).privateCloudDatabase
+        let database = privateDatabase
         let zones = [
             CKRecordZone(zoneID: NoteSyncCloudRecord.zoneID()),
             CKRecordZone(zoneID: NoteAudioCloudRecord.zoneID())
@@ -410,10 +410,31 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         return false
     }
 
-    /// Deletes the `NoteAudio` zone; true once it's gone. Needs no running
-    /// engine, so a delete left from Turn Off can be finished at launch.
-    static func deleteAudioZone() async -> Bool {
-        let database = CKContainer(identifier: NoteSyncAvailability.containerIdentifier).privateCloudDatabase
+    static var privateDatabase: CKDatabase {
+        CKContainer(identifier: NoteSyncAvailability.containerIdentifier).privateCloudDatabase
+    }
+
+    /// The signed-in iCloud account, to tell whose audio was left behind.
+    static func accountID() async -> String? {
+        try? await CKContainer(identifier: NoteSyncAvailability.containerIdentifier).userRecordID().recordName
+    }
+
+    /// Finishes deleting audio a Turn Off and Delete from iCloud left,
+    /// unless it isn't this Mac's to delete any more: another account is
+    /// signed in, or iCloud holds notes again (another Mac turned sync on
+    /// and uses the zone). `account` is the one it was left in, if known.
+    static func deleteLeftoverAudio(account: String?) async -> NoteSyncLeftoverAudio {
+        let current = account == nil ? nil : await accountID()
+        let notesZone = await notesZoneExists(in: privateDatabase)
+        if let keep = NoteSyncLeftoverAudio.reasonToKeep(leftIn: account, current: current, notesZoneExists: notesZone) {
+            return keep
+        }
+        return await deleteAudioZone() ? .deleted : .failed
+    }
+
+    /// Deletes the `NoteAudio` zone; true once it's gone.
+    private static func deleteAudioZone() async -> Bool {
+        let database = privateDatabase
         let zoneID = NoteAudioCloudRecord.zoneID()
         guard let result = try? await database.modifyRecordZones(saving: [], deleting: [zoneID]) else { return false }
         switch result.deleteResults[zoneID] {
@@ -747,10 +768,14 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
 
     /// Whether iCloud has the notes zone; nil when it couldn't be asked.
     private func notesZoneExists() async -> Bool? {
+        await Self.notesZoneExists(in: database)
+    }
+
+    private static func notesZoneExists(in database: CKDatabase) async -> Bool? {
         do {
             _ = try await database.recordZone(for: NoteSyncCloudRecord.zoneID())
             return true
-        } catch let error as CKError where Self.isZoneGone(error.code) {
+        } catch let error as CKError where isZoneGone(error.code) {
             return false
         } catch {
             return nil

@@ -15,6 +15,8 @@ struct NoteSyncControllerTests {
         testTurnOffAndDeleteFromICloud()
         testAudioLeftInICloudIsDeletedAtLaunch()
         testLeftoverAudioWaitsWhileSyncIsOn()
+        testLeftoverAudioInUseAgainIsKept()
+        testWhenLeftoverAudioIsDeleted()
         testTurnOnWaitsForTheLeftoverAudioDelete()
         testAccountChangeTurnsSyncOff()
         testLocalChangesReachTheEngineOnlyWhileOn()
@@ -139,7 +141,8 @@ struct NoteSyncControllerTests {
     final class CallLog {
         var calls: [String] = []
         var zoneError: Error?
-        var audioDeleteWorks = true
+        var leftoverResult = NoteSyncLeftoverAudio.deleted
+        var accounts: [String?] = []
         /// Holds an audio zone delete until set back to false.
         var holdAudioDelete = false
     }
@@ -515,12 +518,14 @@ struct NoteSyncControllerTests {
             defaults: defaults,
             unavailableReason: nil,
             createZone: { log.calls.append("createZone") },
-            deleteAudioZone: {
+            deleteLeftoverAudio: { @MainActor account in
                 log.calls.append("deleteAudioZone")
+                log.accounts.append(account)
                 while log.holdAudioDelete { await Task.yield() }
                 log.calls.append("deleteAudioZone done")
-                return log.audioDeleteWorks
+                return log.leftoverResult
             },
+            accountID: { "account-a" },
             makeEngine: { _ in FakeEngine() }
         )
     }
@@ -539,12 +544,13 @@ struct NoteSyncControllerTests {
         precondition(controller.audioLeftInICloud)
 
         let log = CallLog()
-        log.audioDeleteWorks = false
+        log.leftoverResult = .failed
         let relaunched = launch(defaults, log: log)
         precondition(relaunched.audioLeftInICloud, "remembered across launches")
         precondition(expectation { await relaunched.deleteLeftoverAudio() })
         precondition(log.calls == ["deleteAudioZone", "deleteAudioZone done"] && relaunched.audioLeftInICloud)
-        log.audioDeleteWorks = true
+        precondition(log.accounts == [nil], "the account wasn't known, so only iCloud's notes are checked")
+        log.leftoverResult = .deleted
         let again = launch(defaults, log: log)
         precondition(expectation { await again.deleteLeftoverAudio() })
         precondition(!again.audioLeftInICloud && !defaults.bool(forKey: NoteSyncController.audioLeftInICloudKey))
@@ -569,7 +575,7 @@ struct NoteSyncControllerTests {
         let defaults = UserDefaults(suiteName: "quill-sync-controller-tests-\(UUID().uuidString)")!
         defaults.set(true, forKey: NoteSyncController.audioLeftInICloudKey)
         let log = CallLog()
-        log.audioDeleteWorks = false
+        log.leftoverResult = .failed
         log.holdAudioDelete = true
         let controller = launch(defaults, log: log)
         let store = FakeStore()
@@ -584,5 +590,30 @@ struct NoteSyncControllerTests {
         precondition(expectation { while !turnedOn { await Task.yield() } })
         precondition(log.calls == ["deleteAudioZone", "deleteAudioZone done", "createZone"])
         precondition(controller.isEnabled && !controller.audioLeftInICloud, "the audio left is used again")
+    }
+
+    /// The audio left behind is used again (another Mac turned sync on), or
+    /// another account is signed in: it isn't deleted, and nothing is left
+    /// to do. The account it was left in is what gets checked.
+    @MainActor
+    static func testLeftoverAudioInUseAgainIsKept() {
+        let defaults = UserDefaults(suiteName: "quill-sync-controller-tests-\(UUID().uuidString)")!
+        defaults.set("account-a", forKey: NoteSyncController.audioLeftInICloudKey)
+        let log = CallLog()
+        log.leftoverResult = .inUse
+        let controller = launch(defaults, log: log)
+        precondition(expectation { await controller.deleteLeftoverAudio() })
+        precondition(log.accounts == ["account-a"])
+        precondition(!controller.audioLeftInICloud && defaults.string(forKey: NoteSyncController.audioLeftInICloudKey) == nil)
+    }
+
+    static func testWhenLeftoverAudioIsDeleted() {
+        typealias L = NoteSyncLeftoverAudio
+        precondition(L.reasonToKeep(leftIn: "a", current: "a", notesZoneExists: false) == nil, "same account, no notes in iCloud")
+        precondition(L.reasonToKeep(leftIn: nil, current: nil, notesZoneExists: false) == nil, "account unknown: iCloud's notes decide")
+        precondition(L.reasonToKeep(leftIn: "a", current: "b", notesZoneExists: false) == .inUse, "another account's audio")
+        precondition(L.reasonToKeep(leftIn: "a", current: nil, notesZoneExists: false) == .failed, "can't tell the account")
+        precondition(L.reasonToKeep(leftIn: "a", current: "a", notesZoneExists: true) == .inUse, "another Mac turned sync on")
+        precondition(L.reasonToKeep(leftIn: nil, current: nil, notesZoneExists: nil) == .failed, "can't tell")
     }
 }
