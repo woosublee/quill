@@ -1077,16 +1077,24 @@ struct NoteSyncControllerTests {
         controller.attach(store: store)
         let running = engine()
         let coordinator = running?.coordinator
+        func syncUpToDate() {
+            coordinator?.handleSendFailures([.network(noteID: UUID())])
+            coordinator?.handleNetworkChange(isOnline: true)
+            coordinator?.handleFetchFinished(pending: 0)
+            precondition(expectation { await coordinator?.lastAudioCheck?.value })
+        }
         running?.partListingError = URLError(.notConnectedToInternet)
         coordinator?.handleFetchFinished(pending: 0)
         precondition(expectation { await coordinator?.lastAudioCheck?.value })
-        precondition(defaults.object(forKey: NoteSyncController.lastLeftoverScanKey) == nil, "not counted as done")
         running?.partListingError = nil
-        coordinator?.handleSendFailures([.network(noteID: UUID())])
-        coordinator?.handleNetworkChange(isOnline: true)
-        coordinator?.handleFetchFinished(pending: 0)
-        precondition(expectation { await coordinator?.lastAudioCheck?.value })
-        precondition(running?.partListings == 2 && defaults.object(forKey: NoteSyncController.lastLeftoverScanKey) != nil)
+        syncUpToDate()
+        precondition(running?.partListings == 1, "not at every sync after a failure")
+        clock = clock.addingTimeInterval(60 * 60)
+        syncUpToDate()
+        precondition(running?.partListings == 2, "an hour later")
+        clock = clock.addingTimeInterval(60 * 60)
+        syncUpToDate()
+        precondition(running?.partListings == 2, "then a day after it got through")
         precondition(expectation { _ = await controller.turnOff(deleteFromICloud: false) })
         precondition(defaults.object(forKey: NoteSyncController.lastLeftoverScanKey) == nil, "forgotten when sync turns off")
     }

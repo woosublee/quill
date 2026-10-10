@@ -567,7 +567,10 @@ final class NoteSyncController: ObservableObject {
         coordinator.removeLeftoverAudioSoon { [weak self] searched in
             guard let self else { return }
             self.isSearchingLeftoverAudio = false
-            if searched, self.isEnabled { self.defaults.set(self.now(), forKey: Self.lastLeftoverScanKey) }
+            // A search that couldn't reach iCloud is tried again in an hour.
+            guard self.isEnabled else { return }
+            let retry = self.now().addingTimeInterval(60 * 60 - Self.leftoverScanInterval)
+            self.defaults.set(searched ? self.now() : retry, forKey: Self.lastLeftoverScanKey)
         }
     }
 

@@ -334,8 +334,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             }
             for (recordID, result) in changes.modificationResultsByID {
                 guard let part = NoteAudioCloudRecord.part(from: recordID) else { continue }
-                // Without a date, a part counts as just saved, so it stays.
-                let saved = (try? result.get())?.record.creationDate ?? Date()
+                // The last save counts; without a date, a part counts as just
+                // saved, so it stays.
+                let record = try? result.get().record
+                let saved = record?.modificationDate ?? record?.creationDate ?? Date()
                 parts.append(NoteAudioPartInICloud(part: part, saved: saved))
             }
             token = changes.changeToken

@@ -31,7 +31,6 @@ protocol NoteSyncLocalStore: AnyObject {
     func audioSyncSnapshots() -> [NoteAudioSyncSnapshot]
 }
 
-
 /// A note's audio file on this Mac.
 struct NoteSyncLocalAudio: Equatable {
     let url: URL
@@ -1126,10 +1125,14 @@ final class NoteSyncCoordinator {
         case false?: return true
         case nil: return nil
         case true?:
-            let used = [store.audioManifest(id: part.noteID)?.sha256, store.audioUploadKey(id: part.noteID)]
-                .compactMap { $0.map(NoteAudioPartID.key(sha256:)) }
+            let used = Self.usedAudioKeys(manifest: store.audioManifest(id: part.noteID), uploadKey: store.audioUploadKey(id: part.noteID))
             return !used.contains(part.key)
         }
+    }
+
+    /// The part keys a note uses here: its marker's, and this Mac's upload's.
+    private static func usedAudioKeys(manifest: NoteAudioManifest?, uploadKey: String?) -> Set<String> {
+        Set([manifest?.sha256, uploadKey].compactMap { $0.map(NoteAudioPartID.key(sha256:)) })
     }
 
     /// A part this old that nothing uses is left over: no upload still
@@ -1174,11 +1177,9 @@ final class NoteSyncCoordinator {
         }
         guard !isStopped else { return false }
         let cutoff = now().addingTimeInterval(-Self.leftoverAge)
-        let sending = Set(engine.pendingAudioSaves()).union(audioSaveRetries.waiting).union(audioSaveRetries.givenUp)
-        var usedKeys: [UUID: Set<String>?] = [:]
+        var here = notesHere()
         let candidates = inICloud.filter { item in
-            item.saved < cutoff && !sending.contains(item.part)
-                && isOtherFileHere(item.part, cache: &usedKeys)
+            item.saved < cutoff && isOtherFile(item.part, here)
         }.map(\.part)
         guard !candidates.isEmpty else { return true }
         let notes: [UUID: NoteAudioInICloud]
@@ -1191,7 +1192,8 @@ final class NoteSyncCoordinator {
         guard !isStopped else { return false }
         var markers: [UUID: NoteAudioManifest] = [:]
         for (id, note) in notes {
-            if case .marker(let marker) = note { markers[id] = marker }
+            // A marker naming no parts backs nothing.
+            if case .marker(let marker) = note, marker.parts > 0 { markers[id] = marker }
         }
         // A marker whose parts aren't all there may be uploaded again, under
         // another file's name: that note keeps everything.
@@ -1206,11 +1208,11 @@ final class NoteSyncCoordinator {
         guard !isStopped else { return false }
         let backed = Set(markers.filter { $0.value.partIDs(noteID: $0.key).allSatisfy(present.contains) }.keys)
         // This Mac's state is read again: it may have changed meanwhile.
-        usedKeys = [:]
+        here = notesHere()
         let leftover = candidates.filter { part in
             guard backed.contains(part.noteID), let marker = markers[part.noteID],
                   NoteAudioPartID.key(sha256: marker.sha256) != part.key else { return false }
-            return isOtherFileHere(part, cache: &usedKeys)
+            return isOtherFile(part, here)
         }
         guard !leftover.isEmpty else { return true }
         engine.enqueueAudioDeletes(leftover)
@@ -1218,22 +1220,28 @@ final class NoteSyncCoordinator {
         return true
     }
 
-    /// Whether the part belongs to a note here that uses another file: the
-    /// note exists, isn't being checked or held for one, and neither its
-    /// marker nor this Mac's upload names the part. The keys are read once
-    /// per note.
-    private func isOtherFileHere(_ part: NoteAudioPartID, cache: inout [UUID: Set<String>?]) -> Bool {
-        let id = part.noteID
-        if cache[id] == nil {
-            let unsettled = audioChecking.contains(id) || audioToCheck.contains(id) || savesAfterCheck.contains(id)
-            if unsettled || store.noteExists(id: id) != true {
-                cache[id] = .some(nil)
-            } else {
-                cache[id] = Set([store.audioManifest(id: id)?.sha256, store.audioUploadKey(id: id)]
-                    .compactMap { $0.map(NoteAudioPartID.key(sha256:)) })
-            }
+    /// What the search needs of this Mac's notes, read at once: the keys
+    /// each settled note uses, and the parts being sent.
+    private struct NotesHere {
+        let usedKeys: [UUID: Set<String>]
+        let sending: Set<NoteAudioPartID>
+    }
+
+    private func notesHere() -> NotesHere {
+        let unsettled = audioChecking.union(audioToCheck).union(savesAfterCheck)
+        var used: [UUID: Set<String>] = [:]
+        for note in store.audioSyncSnapshots() where !unsettled.contains(note.id) {
+            used[note.id] = Self.usedAudioKeys(manifest: note.manifest, uploadKey: note.uploadKey)
         }
-        guard let used = cache[id] ?? nil else { return false }
+        let sending = Set(engine.pendingAudioSaves()).union(audioSaveRetries.waiting).union(audioSaveRetries.givenUp)
+        return NotesHere(usedKeys: used, sending: sending)
+    }
+
+    /// Whether the part belongs to a settled, syncable note here that uses
+    /// another file, and isn't being sent. Notes not settled or not here keep
+    /// their parts.
+    private func isOtherFile(_ part: NoteAudioPartID, _ here: NotesHere) -> Bool {
+        guard !here.sending.contains(part), let used = here.usedKeys[part.noteID] else { return false }
         return !used.contains(part.key)
     }
 

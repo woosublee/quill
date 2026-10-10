@@ -1969,7 +1969,10 @@ struct NoteSyncCoordinatorTests {
         let (coordinator, store, engine) = make()
         let marked = record(), unmarked = record(), broken = record(), behind = record(), checking = record()
         let notInICloud = record(), unreadable = record()
-        for note in [marked, unmarked, broken, behind, checking, notInICloud, unreadable] { store.records[note.noteID] = note }
+        for note in [marked, unmarked, broken, behind, checking, notInICloud, unreadable] {
+            store.records[note.noteID] = note
+            store.syncable.insert(note.noteID)
+        }
         store.manifests[marked.noteID] = manifest("a.wav")
         store.manifests[broken.noteID] = manifest("y.wav")
         let used = parts(marked.noteID, 1, "a.wav")[0]
@@ -2000,6 +2003,13 @@ struct NoteSyncCoordinatorTests {
         coordinator.handleAudioMissing(noteID: checking.noteID)
         await coordinator.lastAudioCheck?.value
         engine.lookupError = nil
+        // A marker naming no parts backs nothing.
+        let empty = record()
+        store.records[empty.noteID] = empty
+        store.syncable.insert(empty.noteID)
+        engine.notesInCloud[empty.noteID] = .marker(NoteAudioManifest(sha256: sha("e.wav"), bytes: 0, partSize: 50_000_000, parts: 0))
+        let emptyNotesPart = parts(empty.noteID, 1, "f.wav")[0]
+        engine.iCloud.insert(emptyNotesPart)
         let searched = await coordinator.removeLeftoverAudio()
         precondition(searched && Set(engine.audioDeletes) == Set(earlier), "\(engine.audioDeletes)")
     }
