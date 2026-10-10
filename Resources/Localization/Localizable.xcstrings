@@ -21109,6 +21109,22 @@
         }
       }
     },
+    "Some audio is still in another iCloud account. Quill deletes it when you sign in to that account again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some audio is still in another iCloud account. Quill deletes it when you sign in to that account again."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "일부 오디오가 다른 iCloud 계정에 남아 있어요. 그 계정으로 다시 로그인하면 지워요."
+          }
+        }
+      }
+    },
     "Some audio couldn't be deleted from iCloud yet. Quill tries again when it opens and when you open this page.": {
       "localizations": {
         "en": {

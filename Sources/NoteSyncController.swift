@@ -68,6 +68,9 @@ final class NoteSyncController: ObservableObject {
     @Published private(set) var isSyncingNow = false
     /// Audio from a Turn Off and Delete from iCloud is still in iCloud.
     @Published private(set) var audioLeftInICloud: Bool
+    /// What's left is only in other iCloud accounts: it waits until one of
+    /// them is signed in again.
+    @Published private(set) var audioLeftOnlyInOtherAccounts = false
     let unavailableReason: NoteSyncUnavailableReason?
     var onRemoteChange: ((NoteSyncRemoteChange) -> Void)?
     /// The engine stopped (sync turned off, or stopped by itself): audio
@@ -163,7 +166,8 @@ final class NoteSyncController: ObservableObject {
         status = .starting
         defer { isTurningOn = false }
         _ = await audioZoneDelete?.value
-        let account = Task { await accountID() }
+        // The account matters only to audio left in iCloud.
+        let account: Task<String?, Never>? = accountsWithAudioLeft.isEmpty ? nil : Task { await accountID() }
         do {
             try await createZone()
         } catch {
@@ -177,7 +181,7 @@ final class NoteSyncController: ObservableObject {
         }
         // Audio left in this account is used again: its parts aren't sent
         // twice. Audio left in another account still waits for it.
-        if let current = await account.value {
+        if let current = await account?.value {
             accountsWithAudioLeft = accountsWithAudioLeft.filter { $0 != current && !$0.isEmpty }
         }
         setEnabled(true)
@@ -234,6 +238,10 @@ final class NoteSyncController: ObservableObject {
 
     private func deleteLeftoverAudioInSignedInAccount() async {
         let current = await accountID()
+        defer {
+            let left = accountsWithAudioLeft
+            audioLeftOnlyInOtherAccounts = current != nil && !left.isEmpty && !left.contains { $0 == current || $0.isEmpty }
+        }
         guard let entry = [current, ""].compactMap({ $0 }).first(where: accountsWithAudioLeft.contains) else {
             print("[NoteSync] Audio left in iCloud waits for the account it was left in")
             return
@@ -250,6 +258,7 @@ final class NoteSyncController: ObservableObject {
         get { defaults.stringArray(forKey: Self.audioLeftInICloudKey) ?? [] }
         set {
             audioLeftInICloud = !newValue.isEmpty
+            if newValue.isEmpty { audioLeftOnlyInOtherAccounts = false }
             if newValue.isEmpty {
                 defaults.removeObject(forKey: Self.audioLeftInICloudKey)
             } else {

@@ -19,6 +19,7 @@ struct NoteSyncControllerTests {
         testLeftoverAudioInUseAgainIsForgotten()
         testLeftoverAudioIsKeptPerAccount()
         testTurnOnInAnotherAccountKeepsLeftoverAudio()
+        testTurnOnWithNothingLeftDoesNotReadTheAccount()
         testTurnOffInAnotherAccountKeepsTheFirstOnesAudio()
         testUnreadableAccountAtTurnOffIsRecordedAsUnknown()
         testAccountChangeTurnsSyncOff()
@@ -147,6 +148,7 @@ struct NoteSyncControllerTests {
         var leftoverResult = NoteSyncLeftoverAudio.deleted
         /// The signed-in account, nil when it can't be read.
         var account: String? = "account-a"
+        var accountReads = 0
         /// Holds an audio zone delete until set back to false.
         var holdAudioDelete = false
     }
@@ -535,7 +537,10 @@ struct NoteSyncControllerTests {
                 log.calls.append("deleteAudioZone done")
                 return log.leftoverResult
             },
-            accountID: { @MainActor in log.account },
+            accountID: { @MainActor in
+                log.accountReads += 1
+                return log.account
+            },
             makeEngine: { _ in engine }
         )
     }
@@ -632,10 +637,15 @@ struct NoteSyncControllerTests {
         log.calls = []
         log.account = "account-c"
         precondition(expectation { await launch(defaults, log: log).deleteLeftoverAudio() })
+        let elsewhere = launch(defaults, log: log)
+        precondition(expectation { await elsewhere.deleteLeftoverAudio() })
         precondition(log.calls.isEmpty && defaults.stringArray(forKey: leftKey) == ["account-a"], "account-a's audio waits for it")
+        precondition(elsewhere.audioLeftInICloud && elsewhere.audioLeftOnlyInOtherAccounts, "Settings says it waits for that account")
         log.account = nil
-        precondition(expectation { await launch(defaults, log: log).deleteLeftoverAudio() })
+        let offline = launch(defaults, log: log)
+        precondition(expectation { await offline.deleteLeftoverAudio() })
         precondition(log.calls.isEmpty, "nothing is deleted while the account can't be read")
+        precondition(!offline.audioLeftOnlyInOtherAccounts, "an unreadable account isn't taken for another one")
         defaults.set(["", "account-a"], forKey: leftKey)
         log.account = "account-c"
         precondition(expectation { await launch(defaults, log: log).deleteLeftoverAudio() })
@@ -658,6 +668,18 @@ struct NoteSyncControllerTests {
             precondition(expectation { _ = await controller.turnOn() })
             precondition(controller.isEnabled && (defaults.stringArray(forKey: leftKey) ?? []) == left, "\(String(describing: current))")
         }
+    }
+
+    /// The account is read at turn-on only for audio left in iCloud, so a
+    /// slow account lookup doesn't hold up every turn-on.
+    @MainActor
+    static func testTurnOnWithNothingLeftDoesNotReadTheAccount() {
+        let log = CallLog()
+        let controller = launch(freshDefaults(), log: log)
+        let store = FakeStore()
+        controller.attach(store: store)
+        precondition(expectation { _ = await controller.turnOn() })
+        precondition(controller.isEnabled && log.accountReads == 0)
     }
 
     /// Audio left in account A, then Turn Off and Delete in account B also
