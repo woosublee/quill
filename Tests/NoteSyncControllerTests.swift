@@ -695,9 +695,12 @@ struct NoteSyncControllerTests {
         let controller = launch(defaults, log: log, engine: engine)
         let store = FakeStore()
         controller.attach(store: store)
+        precondition(expectation { await controller.deleteLeftoverAudio() })
+        precondition(controller.audioLeftOnlyInOtherAccounts)
         precondition(expectation { _ = await controller.turnOn() })
         precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
         precondition(defaults.stringArray(forKey: leftKey) == ["account-a", "account-b"])
+        precondition(!controller.audioLeftOnlyInOtherAccounts, "Settings says this account's audio couldn't be deleted")
     }
 
     @MainActor

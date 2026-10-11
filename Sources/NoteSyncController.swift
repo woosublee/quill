@@ -209,6 +209,8 @@ final class NoteSyncController: ObservableObject {
             if !audioDeleted {
                 let account = await signedIn.value ?? ""
                 accountsWithAudioLeft = Array(Set(accountsWithAudioLeft + [account])).sorted()
+                // Some is left in the signed-in account now.
+                audioLeftOnlyInOtherAccounts = false
             }
         }
         stopEngine(forgetState: true)
