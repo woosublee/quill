@@ -404,8 +404,13 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         // audio: staying on would send into a missing zone. If the audio
         // zone stays, it is deleted again at launch, or a turn-on finds its
         // parts and doesn't send them again.
+        return await Self.deleteAudioZoneAfterNotes()
+    }
+
+    /// The notes are gone: their audio zone gets two tries.
+    private static func deleteAudioZoneAfterNotes() async -> Bool {
         for _ in 0..<2 {
-            if await Self.deleteAudioZone() { return true }
+            if await deleteAudioZone() { return true }
         }
         print("[NoteSync] Notes were deleted from iCloud, but their audio couldn't be")
         return false
@@ -433,6 +438,26 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         case nil: return .failed
         case false?: return await deleteAudioZone() ? .deleted : .failed
         }
+    }
+
+    /// Turn Off and Delete from iCloud while no engine runs (sync paused
+    /// because notes couldn't be saved here, or history can't be opened):
+    /// deletes the zones directly. Returns false when the notes are gone but
+    /// their audio couldn't be deleted.
+    static func deleteAllWithoutEngine() async throws -> Bool {
+        let zoneID = NoteSyncCloudRecord.zoneID()
+        let result = try await privateDatabase.modifyRecordZones(saving: [], deleting: [zoneID])
+        switch result.deleteResults[zoneID] {
+        case .success?:
+            break
+        case .failure(let error)? where (error as? CKError).map({ isZoneGone($0.code) }) ?? false:
+            break
+        case .failure(let error)?:
+            throw error
+        case nil:
+            throw NoteSyncEngineError.zoneDeleteFailed
+        }
+        return await deleteAudioZoneAfterNotes()
     }
 
     /// Deletes the `NoteAudio` zone; true once it's gone.
