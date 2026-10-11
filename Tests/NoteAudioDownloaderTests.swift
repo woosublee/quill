@@ -1,3 +1,5 @@
+import Combine
+import CryptoKit
 import Foundation
 
 @main
@@ -19,6 +21,9 @@ struct NoteAudioDownloaderTests {
         try await testFailureForAnEarlierMarkerIsForgotten()
         try await testChangedMarkerStopsTheDownload()
         try await testRequestForAnotherMarkerStartsItsOwnDownload()
+        try await testAppendHashesWhatItWrites()
+        try await testStoppedAppendStopsCopying()
+        try await testProgressStepsDontRepublishTheDownloader()
         print("NoteAudioDownloaderTests passed")
     }
 
@@ -362,5 +367,71 @@ struct NoteAudioDownloaderTests {
         _ = await box.second?.value
         precondition(first == nil, "the earlier marker's download stopped")
         precondition(s.fetcher.fetched.contains { $0.key == NoteAudioPartID.key(sha256: newer.sha256) }, "the new marker was asked for")
+    }
+
+    /// Parts are hashed as they're appended, so the file isn't read again.
+    static func testAppendHashesWhatItWrites() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quill-append-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let partial = dir.appendingPathComponent("joined")
+        FileManager.default.createFile(atPath: partial.path, contents: nil)
+        var hasher = SHA256()
+        var total: Int64 = 0
+        for chunk in [Data([1, 2, 3]), Data([4, 5])] {
+            let file = dir.appendingPathComponent(UUID().uuidString)
+            try chunk.write(to: file)
+            let (next, written) = try await NoteAudioParts.append(file, to: partial, hashing: hasher)
+            hasher = next
+            total += written
+        }
+        let joined = try Data(contentsOf: partial)
+        let whole = try NoteAudioParts.sha256(of: partial)
+        precondition(joined == Data([1, 2, 3, 4, 5]) && total == 5)
+        precondition(NoteAudioParts.hex(hasher) == whole)
+    }
+
+    /// Each progress step publishes only the progress feed; the downloader
+    /// itself publishes when a download starts and ends, so the audio bar
+    /// doesn't work out the note's state again at every step.
+    @MainActor
+    static func testProgressStepsDontRepublishTheDownloader() async throws {
+        let s = try setup()
+        defer { try? FileManager.default.removeItem(at: s.dir) }
+        var downloaderChanges = 0, feedChanges = 0
+        let a = s.downloader.objectWillChange.sink { downloaderChanges += 1 }
+        let b = s.downloader.progressFeed.objectWillChange.sink { feedChanges += 1 }
+        defer { a.cancel(); b.cancel() }
+        _ = await s.downloader.download(noteID: s.noteID, manifest: s.manifest, to: s.destination)
+        precondition(feedChanges > 3, "\(feedChanges)")
+        precondition(downloaderChanges <= 3, "start (clearing an old failure) and end only: \(downloaderChanges)")
+    }
+
+    /// A download stopped while a part is being copied stops at the next
+    /// chunk, not after the whole part.
+    static func testStoppedAppendStopsCopying() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quill-append-stop-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let full: Int64 = 256 << 20
+        let big = dir.appendingPathComponent("part")
+        FileManager.default.createFile(atPath: big.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: big)
+        try handle.truncate(atOffset: UInt64(full))
+        try handle.close()
+        let partial = dir.appendingPathComponent("joined")
+        FileManager.default.createFile(atPath: partial.path, contents: nil)
+        func copied() -> Int64 {
+            (try? FileManager.default.attributesOfItem(atPath: partial.path)[.size] as? NSNumber)?.int64Value ?? 0
+        }
+        let copying = Task { try await NoteAudioParts.append(big, to: partial, hashing: SHA256()) }
+        // Stopped once the copy is under way.
+        while copied() == 0 { try await Task.sleep(nanoseconds: 100_000) }
+        copying.cancel()
+        do {
+            _ = try await copying.value
+            preconditionFailure("a stopped copy doesn't finish")
+        } catch is CancellationError {}
+        precondition(copied() > 0 && copied() < full, "stopped partway: \(copied())")
     }
 }

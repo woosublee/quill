@@ -179,6 +179,51 @@ enum NoteAudioParts {
         }
     }
 
+    /// Appends `file` to the end of `partial` in chunks, feeding each chunk
+    /// to `hasher`, off the main thread. Returns the hasher and the bytes
+    /// appended, so the whole file is never read again to check it.
+    static func append(_ file: URL, to partial: URL, hashing hasher: SHA256) async throws -> (SHA256, Int64) {
+        // The copy runs detached, so a stopped download tells it to stop
+        // rather than finishing a 50 MB part first.
+        let stop = StopFlag()
+        return try await withTaskCancellationHandler {
+            try await copy(file, to: partial, hashing: hasher, stop: stop)
+        } onCancel: {
+            stop.set()
+        }
+    }
+
+    private final class StopFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var isSet = false
+        func set() { lock.withLock { isSet = true } }
+        var isStopped: Bool { lock.withLock { isSet } }
+    }
+
+    private static func copy(_ file: URL, to partial: URL, hashing hasher: SHA256, stop: StopFlag) async throws -> (SHA256, Int64) {
+        try await Task.detached(priority: .utility) {
+            if stop.isStopped { throw CancellationError() }
+            var hasher = hasher
+            let output = try FileHandle(forWritingTo: partial)
+            defer { try? output.close() }
+            try output.seekToEnd()
+            let input = try FileHandle(forReadingFrom: file)
+            defer { try? input.close() }
+            var written: Int64 = 0
+            while let chunk = try input.read(upToCount: chunkSize), !chunk.isEmpty {
+                if stop.isStopped { throw CancellationError() }
+                hasher.update(data: chunk)
+                try output.write(contentsOf: chunk)
+                written += Int64(chunk.count)
+            }
+            return (hasher, written)
+        }.value
+    }
+
+    static func hex(_ hasher: SHA256) -> String {
+        hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
     /// The file's SHA-256 as lowercase hex, read in chunks.
     static func sha256(of url: URL) throws -> String {
         let input = try FileHandle(forReadingFrom: url)
@@ -187,6 +232,6 @@ enum NoteAudioParts {
         while let chunk = try input.read(upToCount: chunkSize), !chunk.isEmpty {
             hasher.update(data: chunk)
         }
-        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        return hex(hasher)
     }
 }

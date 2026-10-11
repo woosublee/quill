@@ -8505,26 +8505,55 @@ final class AppState: ObservableObject, @unchecked Sendable {
         noteAssetStore.storedAudioURL(for: item)
     }
 
+    /// The note's audio file here, when it has any bytes: an empty file
+    /// (a copy cut short) counts as no file, for playing, retranscribing,
+    /// exporting and downloading alike.
     @MainActor
     func noteBrowserStoredAudioURL(for item: PipelineHistoryItem) -> URL? {
-        guard let audioURL = storedAudioURL(for: item),
-              FileManager.default.fileExists(atPath: audioURL.path) else {
+        storedAudioFile(for: item).usableURL
+    }
+
+    enum StoredAudioFile: Equatable {
+        case missing
+        /// The file is here with no bytes.
+        case empty
+        /// The file is here; a size that can't be read counts as bytes.
+        case usable(URL)
+
+        var usableURL: URL? {
+            if case .usable(let url) = self { return url }
             return nil
         }
-        return audioURL
+    }
+
+    /// The note's audio file here, looked up once.
+    @MainActor
+    func storedAudioFile(for item: PipelineHistoryItem) -> StoredAudioFile {
+        // A link is followed: its target is the file played (fileExists
+        // follows it, so a link to nothing is missing).
+        guard let url = storedAudioURL(for: item), FileManager.default.fileExists(atPath: url.path) else { return .missing }
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.resolvingSymlinksInPath().path) else {
+            return .usable(url)
+        }
+        return (attributes[.size] as? NSNumber)?.int64Value == 0 ? .empty : .usable(url)
     }
 
     /// The note's audio here, in iCloud, downloading, or out of reach.
     @MainActor
     func noteAudioState(for item: PipelineHistoryItem) -> NoteAudioState {
-        let isLocal = noteBrowserStoredAudioURL(for: item) != nil
+        let file = storedAudioFile(for: item)
+        let isLocal = file.usableURL != nil
         let manifest = isLocal ? nil : pipelineHistoryStore.audioManifest(id: item.id)
         // This Mac was sending audio it no longer has: the file was lost
         // here, so it isn't on its way from another Mac.
         let lostHere = !isLocal && manifest == nil && pipelineHistoryStore.audioUploadKey(id: item.id) != nil
+        // Only an empty file here, and nothing in iCloud: the note shows no
+        // audio, rather than waiting for an upload that never comes (an
+        // empty file isn't sent).
+        let emptyHere = file == .empty && manifest == nil
         return noteAudioDownloader.state(
             noteID: item.id,
-            hasAudio: item.audioFileName != nil && !lostHere,
+            hasAudio: item.audioFileName != nil && !lostHere && !emptyHere,
             isLocal: isLocal,
             manifest: manifest
         )

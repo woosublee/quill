@@ -21,8 +21,12 @@ struct NoteAudioBar: View {
                 NoteAudioPlayerView(audioURL: url, playsOnAppear: playsWhenDownloaded)
             }
         case let state:
-            NoteRemoteAudioBarView(
+            // One view whether or not it downloads, so starting or stopping
+            // keeps the button (and its focus).
+            NoteDownloadingAudioBar(
+                noteID: item.id,
                 state: state,
+                feed: downloader.progressFeed,
                 duration: recordedDuration,
                 onDownload: download,
                 onCancel: { appState.cancelNoteAudioDownload(for: item) }
@@ -43,6 +47,27 @@ struct NoteAudioBar: View {
             playsWhenDownloaded = false
             if let message = appState.noteAudioState(for: item).failureToast { onMessage(message) }
         }
+    }
+}
+
+/// The remote bar, with how far a running download got. It follows each
+/// progress step; the note's own state is worked out once, above, when a
+/// download starts or ends.
+private struct NoteDownloadingAudioBar: View {
+    let noteID: UUID
+    let state: NoteAudioState
+    @ObservedObject var feed: NoteAudioDownloadProgress
+    let duration: TimeInterval?
+    let onDownload: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        NoteRemoteAudioBarView(
+            state: state.isDownloading ? .downloading(feed.values[noteID] ?? 0) : state,
+            duration: duration,
+            onDownload: onDownload,
+            onCancel: onCancel
+        )
     }
 }
 

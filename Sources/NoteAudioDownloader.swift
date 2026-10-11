@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Why a note's audio can't be downloaded right now.
@@ -52,6 +53,11 @@ enum NoteAudioState: Equatable {
         }
     }
 
+    var isDownloading: Bool {
+        if case .downloading = self { return true }
+        return false
+    }
+
     /// The audio is in iCloud and can be had: ready to download, already
     /// downloading (a request joins it), or worth trying again.
     var isInICloud: Bool {
@@ -85,13 +91,31 @@ protocol NoteAudioPartFetching: AnyObject {
 }
 
 /// Downloads note audio from iCloud when the user plays, retranscribes, or
-/// exports it. Parts are fetched in order into `<id>.partial`, checked
-/// against the marker's size and SHA-256, and moved into place; a bad copy
+/// exports it. Parts are fetched in order into `<id>.partial`, hashed as
+/// they're written, checked against the marker's size and SHA-256, and
+/// moved into place; a bad copy
 /// is fetched once more. A download keeps going when the note closes, and
 /// a second request for the same note joins it.
+///
+/// The downloader publishes when a download starts, ends or fails; how far
+/// each one got is published by `progressFeed` on its own, since it changes
+/// up to a hundred times a download and only the download button shows it.
 @MainActor
 final class NoteAudioDownloader: ObservableObject {
-    @Published private(set) var progress: [UUID: Double] = [:]
+    let progressFeed = NoteAudioDownloadProgress()
+
+    private(set) var progress: [UUID: Double] {
+        get { progressFeed.values }
+        set {
+            let old = progressFeed.values
+            guard newValue != old else { return }
+            // A download starting or ending changes what the bar shows.
+            if newValue.count != old.count || newValue.keys.contains(where: { old[$0] == nil }) {
+                objectWillChange.send()
+            }
+            progressFeed.values = newValue
+        }
+    }
     /// Why a download failed, for the marker it was for.
     struct Failure: Equatable {
         let reason: NoteAudioUnavailableReason
@@ -103,7 +127,6 @@ final class NoteAudioDownloader: ObservableObject {
     private let downloadsDirectory: URL
     private let fetcher: @MainActor () -> NoteAudioPartFetching?
     private let isSyncOn: @MainActor () -> Bool
-    private let hashFile: (URL) async throws -> String
     /// A part is gone from iCloud: the marker here is likely out of date.
     private let onMissingPart: @MainActor (UUID) -> Void
     /// Each download has its own token, so one that was cancelled can't
@@ -114,18 +137,12 @@ final class NoteAudioDownloader: ObservableObject {
         downloadsDirectory: URL,
         fetcher: @escaping @MainActor () -> NoteAudioPartFetching?,
         isSyncOn: @escaping @MainActor () -> Bool,
-        onMissingPart: @escaping @MainActor (UUID) -> Void = { _ in },
-        hashFile: @escaping (URL) async throws -> String = NoteAudioDownloader.hashOffMain
+        onMissingPart: @escaping @MainActor (UUID) -> Void = { _ in }
     ) {
         self.downloadsDirectory = downloadsDirectory
         self.fetcher = fetcher
         self.isSyncOn = isSyncOn
         self.onMissingPart = onMissingPart
-        self.hashFile = hashFile
-    }
-
-    nonisolated static func hashOffMain(_ url: URL) async throws -> String {
-        try await Task.detached(priority: .utility) { try NoteAudioParts.sha256(of: url) }.value
     }
 
     func state(noteID: UUID, hasAudio: Bool, isLocal: Bool, manifest: NoteAudioManifest?) -> NoteAudioState {
@@ -222,12 +239,12 @@ final class NoteAudioDownloader: ObservableObject {
         for attempt in 0..<2 {
             do {
                 if isCurrent(noteID, token) { progress[noteID] = 0 }
-                try await fetchParts(noteID: noteID, token: token, manifest: manifest, from: fetcher, into: partial)
-                let size = (try? FileManager.default.attributesOfItem(atPath: partial.path))?[.size] as? NSNumber
-                let sha256 = try await hashFile(partial)
+                let (sha256, size) = try await fetchParts(noteID: noteID, token: token, manifest: manifest, from: fetcher, into: partial)
                 try Task.checkCancellation()
                 guard isCurrent(noteID, token) else { return nil }
-                guard size?.int64Value == manifest.bytes, sha256 == manifest.sha256 else {
+                // What was hashed is what's on disk.
+                let onDisk = (try? FileManager.default.attributesOfItem(atPath: partial.path))?[.size] as? NSNumber
+                guard size == manifest.bytes, onDisk?.int64Value == size, sha256 == manifest.sha256 else {
                     // A bad copy: thrown away, and fetched once more.
                     print("[NoteSync] Downloaded audio didn't match its marker")
                     try? FileManager.default.removeItem(at: partial)
@@ -269,18 +286,19 @@ final class NoteAudioDownloader: ObservableObject {
         return nil
     }
 
-    /// Fetches every part in order and appends it to `partial`.
+    /// Fetches every part in order and appends it to `partial`, hashing as
+    /// it writes. Returns the SHA-256 and the size of what was written.
     private func fetchParts(
         noteID: UUID,
         token: UUID,
         manifest: NoteAudioManifest,
         from fetcher: NoteAudioPartFetching,
         into partial: URL
-    ) async throws {
+    ) async throws -> (sha256: String, bytes: Int64) {
         try FileManager.default.createDirectory(at: downloadsDirectory, withIntermediateDirectories: true)
         FileManager.default.createFile(atPath: partial.path, contents: nil)
-        let output = try FileHandle(forWritingTo: partial)
-        defer { try? output.close() }
+        var hasher = SHA256()
+        var bytes: Int64 = 0
         let parts = manifest.partIDs(noteID: noteID)
         for (index, part) in parts.enumerated() {
             try Task.checkCancellation()
@@ -292,12 +310,17 @@ final class NoteAudioDownloader: ObservableObject {
             }
             defer { try? FileManager.default.removeItem(at: file) }
             try Task.checkCancellation()
-            let input = try FileHandle(forReadingFrom: file)
-            defer { try? input.close() }
-            while let chunk = try input.read(upToCount: 1 << 20), !chunk.isEmpty {
-                try output.write(contentsOf: chunk)
-            }
+            let (next, written) = try await NoteAudioParts.append(file, to: partial, hashing: hasher)
+            hasher = next
+            bytes += written
             report(Double(index + 1) / count, for: noteID, token: token)
         }
+        return (NoteAudioParts.hex(hasher), bytes)
     }
+}
+
+/// How far each note's download got.
+@MainActor
+final class NoteAudioDownloadProgress: ObservableObject {
+    @Published fileprivate(set) var values: [UUID: Double] = [:]
 }

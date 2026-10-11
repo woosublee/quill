@@ -14,6 +14,7 @@ struct AppStateNoteSyncTests {
         try testWriteTranscriptRejectsUnsafeNames()
         try testSourceContracts()
         if #available(macOS 14.0, *) { testAudioFetchErrorsSayOffline() }
+        try await testEmptyAudioFileCountsAsNoFile()
         print("AppStateNoteSyncTests passed")
     }
 
@@ -52,7 +53,7 @@ struct AppStateNoteSyncTests {
         let appState: AppState
     }
 
-    static func makeItem(id: UUID = UUID(), title: String = "Synthetic", transcriptFile: String? = nil) -> PipelineHistoryItem {
+    static func makeItem(id: UUID = UUID(), title: String = "Synthetic", transcriptFile: String? = nil, audioFile: String? = nil) -> PipelineHistoryItem {
         PipelineHistoryItem(
             id: id,
             timestamp: t0,
@@ -65,6 +66,7 @@ struct AppStateNoteSyncTests {
             postProcessingStatus: "succeeded",
             debugStatus: "",
             customVocabulary: "",
+            audioFileName: audioFile,
             transcriptFileName: transcriptFile,
             customTitle: title
         )
@@ -116,6 +118,39 @@ struct AppStateNoteSyncTests {
         precondition(reason(nil, CKError(.unknownItem)) == .missing)
         for busy in [CKError.Code.requestRateLimited, .zoneBusy, .serviceUnavailable] {
             precondition(reason(nil, CKError(busy)) == .failed, "a busy server isn't offline")
+        }
+    }
+
+    /// An empty audio file here (a copy cut short) is no audio: nothing to
+    /// play or retranscribe. With audio in iCloud it can be downloaded; on
+    /// the recording Mac, with nothing in iCloud, the note shows no audio
+    /// rather than waiting for an upload (an empty file isn't sent).
+    static func testEmptyAudioFileCountsAsNoFile() async throws {
+        try await MainActor.run {
+            let note = makeItem(audioFile: "\(UUID().uuidString).wav")
+            let fixture = try makeFixture(items: [note])
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let appState = fixture.appState
+            guard let url = appState.storedAudioURL(for: note) else { preconditionFailure("no audio path") }
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: url.path, contents: Data())
+            precondition(appState.noteBrowserStoredAudioURL(for: note) == nil)
+            precondition(appState.noteAudioState(for: note) == .none, "\(appState.noteAudioState(for: note))")
+            precondition(appState.noteBrowserRetryAvailability(for: note) == .noAudio)
+            let marker = NoteAudioManifest(sha256: String(repeating: "ab", count: 32), bytes: 10, partSize: 50_000_000, parts: 1)
+            try fixture.store.setAudioManifest(marker, id: note.id)
+            precondition(appState.noteAudioState(for: note) == .downloadable, "\(appState.noteAudioState(for: note))")
+            try Data([1, 2, 3]).write(to: url)
+            precondition(appState.noteBrowserStoredAudioURL(for: note) == url && appState.noteAudioState(for: note) == .local)
+            // A link is judged by its target: an empty or missing target is
+            // no file here.
+            let target = fixture.root.appendingPathComponent("target.wav")
+            try Data().write(to: target)
+            try FileManager.default.removeItem(at: url)
+            try FileManager.default.createSymbolicLink(at: url, withDestinationURL: target)
+            precondition(appState.noteBrowserStoredAudioURL(for: note) == nil, "a link to an empty file")
+            try FileManager.default.removeItem(at: target)
+            precondition(appState.noteBrowserStoredAudioURL(for: note) == nil, "a link to nothing")
         }
     }
 
