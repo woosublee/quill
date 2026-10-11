@@ -21172,6 +21172,54 @@
           }
         }
       }
+    },
+    "Another iCloud account is signed in, so nothing was deleted from the account sync used. Sync is off.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another iCloud account is signed in, so nothing was deleted from the account sync used. Sync is off."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 iCloud 계정으로 로그인되어 있어서, 동기화에 쓰던 계정에서는 아무것도 지우지 않았어요. 동기화는 꺼졌어요."
+          }
+        }
+      }
+    },
+    "Sync stopped before the delete finished, so some notes may still be in iCloud. Sync is off.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync stopped before the delete finished, so some notes may still be in iCloud. Sync is off."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삭제가 끝나기 전에 동기화가 멈춰서, 일부 노트가 아직 iCloud에 남아 있을 수 있어요. 동기화는 꺼졌어요."
+          }
+        }
+      }
+    },
+    "Sync was already turning off, so nothing was deleted from iCloud. Sync is off.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync was already turning off, so nothing was deleted from iCloud. Sync is off."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미 동기화를 끄는 중이어서 iCloud에서는 아무것도 지우지 않았어요. 동기화는 꺼졌어요."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

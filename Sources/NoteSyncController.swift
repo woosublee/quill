@@ -47,6 +47,13 @@ enum NoteSyncTurnOffFailure: Error, Equatable {
     /// Paused with no engine, and the account sync runs in isn't known, so
     /// it can't be told apart from another signed-in account.
     case accountUnknown
+    /// Paused with no engine, and another iCloud account is signed in:
+    /// nothing was deleted, and sync stopped as for an account change.
+    case anotherAccount
+    /// Sync stopped while the delete ran (the account changed, for example).
+    case syncStopped
+    /// A plain Turn Off was already running: sync is off, nothing deleted.
+    case alreadyTurnedOff
 }
 
 struct NoteSyncEngineEvents {
@@ -107,6 +114,9 @@ final class NoteSyncController: ObservableObject {
     /// delete fails.
     private var isDeletingFromICloud = false
     private var heldBackStart: Bool?
+    /// The held-back start is a start over, which goes through its own
+    /// guard against starting over in a loop.
+    private var heldBackStartOver = false
     private var isLearningAccount = false
     /// A Turn Off in progress, and whether it deletes from iCloud; another
     /// press waits for it.
@@ -235,12 +245,22 @@ final class NoteSyncController: ObservableObject {
     func turnOff(deleteFromICloud: Bool) async -> Bool {
         if let running = turnOffInProgress {
             let result = await running.task.value
-            // A delete asked for during a plain Turn Off deleted nothing.
-            return deleteFromICloud && !running.deletes ? false : result
+            if deleteFromICloud, !running.deletes {
+                // A delete asked for during a plain Turn Off deleted nothing.
+                turnOffFailure = .alreadyTurnedOff
+                return false
+            }
+            // A plain Turn Off that waited on a failed delete still turns off.
+            if !deleteFromICloud, !result, isEnabled { return await turnOff(deleteFromICloud: false) }
+            return result
         }
-        let turningOff = Task { await performTurnOff(deleteFromICloud: deleteFromICloud) }
+        let turningOff = Task {
+            // Cleared before anyone waiting resumes, so a press after it
+            // starts a Turn Off of its own.
+            defer { turnOffInProgress = nil }
+            return await performTurnOff(deleteFromICloud: deleteFromICloud)
+        }
         turnOffInProgress = (turningOff, deleteFromICloud)
-        defer { turnOffInProgress = nil }
         return await turningOff.value
     }
 
@@ -264,17 +284,31 @@ final class NoteSyncController: ObservableObject {
                     print("[NoteSync] Paused: iCloud account changed")
                     clearChangeTags(forgettingAudio: false)
                     finishTurningOff(status: .paused(.accountChanged))
-                    return true
+                    turnOffFailure = .anotherAccount
+                    return false
                 }
             } catch {
                 print("[NoteSync] Deleting from iCloud failed")
-                turnOffFailure = error as? NoteSyncTurnOffFailure ?? .unreachable
                 isDeletingFromICloud = false
+                guard isEnabled else {
+                    // Stopped meanwhile (an account change): it stays off.
+                    turnOffFailure = .syncStopped
+                    heldBackStart = nil
+                    heldBackStartOver = false
+                    return false
+                }
+                turnOffFailure = error as? NoteSyncTurnOffFailure ?? .unreachable
                 // Sync stays on: a start held back meanwhile goes ahead.
                 if let initialUpload = heldBackStart {
+                    let isStartOver = heldBackStartOver
                     heldBackStart = nil
-                    stopEngine(forgetState: initialUpload)
-                    startEngine(initialUpload: initialUpload)
+                    heldBackStartOver = false
+                    if isStartOver {
+                        startOver()
+                    } else {
+                        stopEngine(forgetState: initialUpload)
+                        startEngine(initialUpload: initialUpload)
+                    }
                 }
                 return false
             }
@@ -328,6 +362,7 @@ final class NoteSyncController: ObservableObject {
     private func finishTurningOff(status newStatus: NoteSyncStatus) {
         isDeletingFromICloud = false
         heldBackStart = nil
+        heldBackStartOver = false
         // Without an engine, nothing else removes its saved state.
         if engine == nil { removeEngineFiles() }
         stopEngine(forgetState: true)
@@ -462,6 +497,7 @@ final class NoteSyncController: ObservableObject {
             // or, if the delete fails, starts over then.
             defaults.set(true, forKey: Self.needsFullStartKey)
             heldBackStart = true
+            heldBackStartOver = true
             return
         }
         defaults.set(true, forKey: Self.needsFullStartKey)

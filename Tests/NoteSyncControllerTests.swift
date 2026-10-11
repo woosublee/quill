@@ -35,6 +35,9 @@ struct NoteSyncControllerTests {
         testEngineDeletingIsNotStartedOver()
         testStartOverAskedDuringAFailedDeleteHappensAfter()
         testOfflineDeleteWithoutEngineSaysSo()
+        testPlainTurnOffAfterAFailedDeleteStillTurnsOff()
+        testAccountChangeDuringADeleteSaysSyncStopped()
+        testHeldBackStartOverKeepsItsLoopGuard()
         testTurnOnClearsTagsLeftFromADelete()
         testTurnOnCreatesTheZoneBeforeSyncing()
         testTurnOnStaysOffWhenICloudIsUnreachable()
@@ -818,7 +821,8 @@ struct NoteSyncControllerTests {
             precondition(expectation { succeeded = await controller.turnOff(deleteFromICloud: true) })
             precondition(!log.calls.contains("deleteAllWithoutEngine"), "nothing is deleted: \(String(describing: synced)) \(String(describing: signedIn))")
             if synced != nil, signedIn != nil {
-                precondition(succeeded && !controller.isEnabled && controller.status == .paused(.accountChanged))
+                precondition(!succeeded && !controller.isEnabled && controller.status == .paused(.accountChanged))
+                precondition(controller.turnOffFailure == .anotherAccount, "the alert says nothing was deleted")
                 precondition(log.calls == ["removeEngineFiles"], "the old account's engine state goes")
                 precondition(defaults.bool(forKey: NoteSyncController.clearTagsOnAttachKey), "tags go once history opens")
             } else {
@@ -916,6 +920,63 @@ struct NoteSyncControllerTests {
         precondition(expectation { succeeded = await controller.turnOff(deleteFromICloud: true) })
         precondition(!succeeded && controller.isEnabled)
         precondition(engine() !== running && engine()?.saves == store.ids, "started over after the failed delete")
+    }
+
+    /// A plain Turn Off pressed during a Turn Off and Delete that then
+    /// fails still turns sync off, as asked.
+    @MainActor
+    static func testPlainTurnOffAfterAFailedDeleteStillTurnsOff() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        let running = engine()
+        running?.deleteError = URLError(.notConnectedToInternet)
+        var second: Bool?
+        running?.whileDeleting = {
+            Task { @MainActor in second = await controller.turnOff(deleteFromICloud: false) }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        var first: Bool?
+        Task { @MainActor in first = await controller.turnOff(deleteFromICloud: true) }
+        precondition(expectation { while first == nil || second == nil { await Task.yield() } })
+        precondition(first == false && second == true && !controller.isEnabled && controller.status == .off)
+    }
+
+    /// The account changes while the engine deletes: sync is off, and the
+    /// alert says sync stopped rather than pointing at the network.
+    @MainActor
+    static func testAccountChangeDuringADeleteSaysSyncStopped() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        let running = engine()
+        running?.deleteError = CancellationError()
+        running?.whileDeleting = {
+            running?.coordinator?.onStatusChange?(.paused(.accountChanged))
+            running?.coordinator?.onNeedsFullRefetch?()
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        var succeeded = true
+        precondition(expectation { succeeded = await controller.turnOff(deleteFromICloud: true) })
+        precondition(!succeeded && controller.turnOffFailure == .syncStopped)
+        drainMainQueue()
+        precondition(!controller.isEnabled && engine() === running, "no held-back start runs once sync is off")
+    }
+
+    /// A start over held back during a failed delete goes through the same
+    /// guard as any start over: a second one within half an hour pauses.
+    @MainActor
+    static func testHeldBackStartOverKeepsItsLoopGuard() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        engine()?.coordinator?.onNeedsFullRefetch?()
+        drainMainQueue()
+        let running = engine()
+        running?.deleteError = URLError(.notConnectedToInternet)
+        running?.whileDeleting = {
+            running?.coordinator?.onNeedsFullRefetch?()
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: true) })
+        precondition(controller.isEnabled && controller.status == .paused(.couldNotSaveHere))
     }
 
     @MainActor
