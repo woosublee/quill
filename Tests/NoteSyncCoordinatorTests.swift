@@ -113,6 +113,13 @@ struct NoteSyncCoordinatorTests {
         testRetriesWaitWhileThisMacDeletes()
         testSkippedSyncCountsUploadsPutBack()
         testUndoneDeletePutsBackOnlyDeletesStillWanted()
+        try await testTurnOnReadsEveryNoteInOneGo()
+        await testLeftoverScanRemovesOnlyPartsNothingUses()
+        await testLeftoverScanLeavesNotesItCantRead()
+        testStoppedSearchReportsBack()
+        await testPausedSearchRemovesNothing()
+        await testLeftoverScanKeepsNotesWhoseMarkedPartsAreBeingDeleted()
+        try testAudioInICloudIsReadFromThePayload()
         print("NoteSyncCoordinatorTests passed")
     }
 
@@ -152,7 +159,20 @@ struct NoteSyncCoordinatorTests {
             return applyResult
         }
         var manifests: [UUID: NoteAudioManifest] = [:]
-        func audioManifest(id: UUID) -> NoteAudioManifest? { manifests[id] }
+        var manifestReads = 0
+        func audioManifest(id: UUID) -> NoteAudioManifest? {
+            manifestReads += 1
+            return manifests[id]
+        }
+        var snapshotReads = 0
+        func audioSyncSnapshots() -> [NoteAudioSyncSnapshot] {
+            snapshotReads += 1
+            return syncableNoteIDs().map { id in
+                var name: String?
+                if case .string(let value)? = records[id]?.fields[NoteSyncField.audioFileName.rawValue] { name = value }
+                return NoteAudioSyncSnapshot(id: id, audioFileName: name, manifest: manifests[id], uploadKey: uploadKeys[id])
+            }
+        }
         func setAudioManifest(_ manifest: NoteAudioManifest?, id: UUID) throws { manifests[id] = manifest }
         var uploadKeys: [UUID: String] = [:]
         func audioUploadKey(id: UUID) -> String? { uploadKeys[id] }
@@ -183,6 +203,7 @@ struct NoteSyncCoordinatorTests {
         var pendingAudio: [NoteAudioPartID] = []
         func enqueueAudioSaves(_ parts: [NoteAudioPartID]) { audioSaves += parts; pendingAudio += parts }
         func enqueueAudioDeletes(_ parts: [NoteAudioPartID]) { audioDeletes += parts }
+        func pendingAudioDeletes() -> [NoteAudioPartID] { audioDeletes }
         var pendingAudioReads = 0
         var pendingCount = 0
         func pendingChangeCount() -> Int { pendingCount }
@@ -217,6 +238,24 @@ struct NoteSyncCoordinatorTests {
             onListParts?()
             if let lookupError { throw lookupError }
             return iCloud.filter { ids.contains($0.noteID) }.sorted { $0.recordName < $1.recordName }
+        }
+        /// When each part was saved to iCloud; unlisted ones are old.
+        var savedAt: [NoteAudioPartID: Date] = [:]
+        /// Runs while the search lists every part.
+        var onListAllParts: (() -> Void)?
+        func allAudioParts() async throws -> [NoteAudioPartInICloud] {
+            lookups += 1
+            onListAllParts?()
+            if let lookupError { throw lookupError }
+            return iCloud.sorted { $0.recordName < $1.recordName }
+                .map { NoteAudioPartInICloud(part: $0, saved: savedAt[$0] ?? .distantPast) }
+        }
+        /// What iCloud's copy of each note says of its audio; unlisted
+        /// notes aren't in iCloud.
+        var notesInCloud: [UUID: NoteAudioInICloud] = [:]
+        func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud] {
+            if let lookupError { throw lookupError }
+            return Dictionary(uniqueKeysWithValues: ids.map { ($0, notesInCloud[$0] ?? .noNote) })
         }
         /// What CKSyncEngine does when a part is saved.
         func finish(_ part: NoteAudioPartID) {
@@ -1896,5 +1935,167 @@ struct NoteSyncCoordinatorTests {
         passTime(3600)
         coordinator.handleFetchFinished(pending: 0)
         precondition(engine.deletes == [gone] && engine.audioDeletes == [parts(gone, 1)[0]])
+    }
+
+    /// Turning on and launching read every note's audio state in one go,
+    /// not note by note (thousands of notes would stall the app).
+    @MainActor
+    static func testTurnOnReadsEveryNoteInOneGo() async throws {
+        let (coordinator, store, engine, dir) = try makeWithAudio(["a.wav": 10, "b.wav": 10])
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = noteWithAudio(store, "a.wav"), b = noteWithAudio(store, "b.wav")
+        store.manifests[b] = manifest("b.wav")
+        engine.iCloud = Set(parts(b, 1, "b.wav"))
+        // Notes without audio: nothing about them is read one by one.
+        for _ in 0..<50 {
+            let note = record()
+            store.records[note.noteID] = note
+            store.syncable.insert(note.noteID)
+        }
+        coordinator.startInitialUpload()
+        await coordinator.lastAudioCheck?.value
+        precondition(store.snapshotReads == 1 && store.manifestReads < 10, "\(store.snapshotReads) \(store.manifestReads)")
+        precondition(Set(engine.saves).isSuperset(of: [a, b]) && engine.audioSaves == parts(a, 1, "a.wav"), "the check works as before")
+        store.snapshotReads = 0
+        store.manifestReads = 0
+        coordinator.resumeAudioUploads()
+        await coordinator.lastAudioCheck?.value
+        precondition(store.snapshotReads == 1 && store.manifestReads < 10, "\(store.manifestReads)")
+    }
+
+    /// The daily scan removes only week-old parts of an earlier file of a
+    /// note whose marker in iCloud is backed by every part. It keeps parts
+    /// of notes without a marker (an upload may still be running, however
+    /// long), with a marker whose parts are missing (one may be uploading
+    /// again), that iCloud doesn't hold (a Mac may not have sent the note
+    /// yet), that iCloud can't give, that are behind iCloud's marker here,
+    /// recent parts, parts being sent, and notes being checked.
+    @MainActor
+    static func testLeftoverScanRemovesOnlyPartsNothingUses() async {
+        let (coordinator, store, engine) = make()
+        let marked = record(), unmarked = record(), broken = record(), behind = record(), checking = record()
+        let notInICloud = record(), unreadable = record(), busy = record()
+        for note in [marked, unmarked, broken, behind, checking, notInICloud, unreadable, busy] {
+            store.records[note.noteID] = note
+            store.syncable.insert(note.noteID)
+        }
+        store.manifests[marked.noteID] = manifest("a.wav")
+        store.manifests[broken.noteID] = manifest("y.wav")
+        store.manifests[busy.noteID] = manifest("q.wav")
+        let used = parts(marked.noteID, 1, "a.wav")[0]
+        let earlier = parts(marked.noteID, 2, "old.wav")
+        let recent = parts(marked.noteID, 1, "new.wav")[0]
+        // Sending a part (another file's, say) holds back the whole note.
+        let inFlight = parts(busy.noteID, 1, "x.wav")[0]
+        let busyEarlier = parts(busy.noteID, 1, "old.wav")[0]
+        let stalled = parts(unmarked.noteID, 1, "s.wav")[0]
+        let reuploading = parts(broken.noteID, 1, "x.wav")[0]
+        let newer = parts(behind.noteID, 1, "b.wav")[0]
+        let beingChecked = parts(checking.noteID, 1, "c.wav")[0]
+        let unsent = parts(notInICloud.noteID, 1, "n.wav")[0]
+        let unknown = parts(unreadable.noteID, 1, "u.wav")[0]
+        let other = [used, recent, inFlight, busyEarlier, stalled, reuploading, newer, beingChecked, unsent, unknown]
+        engine.iCloud = Set(other + earlier + parts(behind.noteID, 1, "b.wav") + parts(checking.noteID, 1, "z.wav")
+            + parts(busy.noteID, 1, "q.wav"))
+        engine.savedAt[recent] = clock.addingTimeInterval(-6 * 24 * 3600)
+        engine.pendingAudio = [inFlight]
+        engine.notesInCloud = [
+            marked.noteID: .marker(manifest("a.wav")),
+            unmarked.noteID: .noMarker,
+            broken.noteID: .marker(manifest("y.wav")),  // its y.wav parts are gone
+            behind.noteID: .marker(manifest("b.wav")),
+            checking.noteID: .marker(manifest("z.wav")),
+            unreadable.noteID: .unreadable,
+            busy.noteID: .marker(manifest("q.wav")),
+        ]
+        // A check of this note failed, so it waits to be checked again.
+        store.manifests[checking.noteID] = manifest("z.wav")
+        engine.lookupError = URLError(.notConnectedToInternet)
+        coordinator.handleAudioMissing(noteID: checking.noteID)
+        await coordinator.lastAudioCheck?.value
+        engine.lookupError = nil
+        // A marker naming no parts backs nothing.
+        let empty = record()
+        store.records[empty.noteID] = empty
+        store.syncable.insert(empty.noteID)
+        engine.notesInCloud[empty.noteID] = .marker(NoteAudioManifest(sha256: sha("e.wav"), bytes: 0, partSize: 50_000_000, parts: 0))
+        let emptyNotesPart = parts(empty.noteID, 1, "f.wav")[0]
+        engine.iCloud.insert(emptyNotesPart)
+        let searched = await coordinator.removeLeftoverAudio()
+        precondition(searched && Set(engine.audioDeletes) == Set(earlier), "\(engine.audioDeletes)")
+    }
+
+    /// iCloud's copy of a note, as read from a fetched payload.
+    @MainActor
+    static func testAudioInICloudIsReadFromThePayload() throws {
+        var note = record()
+        let plain = try NoteSyncPayload.encode(note)
+        precondition(NoteAudioInICloud.read(payload: plain) == .noMarker)
+        note.fields[NoteSyncField.audioManifest.rawValue] = .data(manifest().encoded())
+        let marked = try NoteSyncPayload.encode(note)
+        precondition(NoteAudioInICloud.read(payload: marked) == .marker(manifest()))
+        note.fields[NoteSyncField.audioManifest.rawValue] = .data(Data([1, 2]))
+        let broken = try NoteSyncPayload.encode(note)
+        precondition(NoteAudioInICloud.read(payload: broken) == .unreadable)
+        // A newer build's record decides nothing here.
+        note.fields[NoteSyncField.audioManifest.rawValue] = .data(manifest().encoded())
+        note.fields[NoteSyncRecord.schemaVersionKey] = .int(NoteSyncRecord.schemaVersion + 1)
+        let newer = try NoteSyncPayload.encode(note)
+        precondition(NoteAudioInICloud.read(payload: newer) == .unreadable)
+        precondition(NoteAudioInICloud.read(payload: nil) == .unreadable && NoteAudioInICloud.read(payload: Data([0])) == .unreadable)
+    }
+
+    /// A stopped coordinator says so at once, so the controller doesn't
+    /// wait on a search that never runs.
+    @MainActor
+    static func testStoppedSearchReportsBack() {
+        let (coordinator, _, _) = make()
+        coordinator.stop()
+        var result: Bool?
+        coordinator.removeLeftoverAudioSoon { result = $0 }
+        precondition(result == false)
+    }
+
+    @MainActor
+    static func testLeftoverScanLeavesNotesItCantRead() async {
+        let (coordinator, store, engine) = make()
+        engine.iCloud = Set(parts(UUID(), 1))
+        store.readFails = true
+        await coordinator.removeLeftoverAudio()
+        precondition(engine.audioDeletes.isEmpty)
+    }
+
+    /// One of the marked parts is waiting to be deleted here: the note may
+    /// soon have none of its marked parts, so its other parts stay.
+    @MainActor
+    static func testLeftoverScanKeepsNotesWhoseMarkedPartsAreBeingDeleted() async {
+        let (coordinator, store, engine) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        store.syncable.insert(note.noteID)
+        store.manifests[note.noteID] = manifest("a.wav")
+        let marked = parts(note.noteID, 1, "a.wav")[0]
+        let earlier = parts(note.noteID, 1, "old.wav")[0]
+        engine.iCloud = [marked, earlier]
+        engine.notesInCloud = [note.noteID: .marker(manifest("a.wav"))]
+        engine.audioDeletes = [marked]
+        await coordinator.removeLeftoverAudio()
+        precondition(engine.audioDeletes == [marked], "\(engine.audioDeletes)")
+    }
+
+    /// Sync paused while iCloud answered (the account to look at, say): the
+    /// parts wait for the next search.
+    @MainActor
+    static func testPausedSearchRemovesNothing() async {
+        let (coordinator, store, engine) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        store.syncable.insert(note.noteID)
+        store.manifests[note.noteID] = manifest("a.wav")
+        engine.iCloud = [parts(note.noteID, 1, "a.wav")[0], parts(note.noteID, 1, "old.wav")[0]]
+        engine.notesInCloud = [note.noteID: .marker(manifest("a.wav"))]
+        engine.onListAllParts = { coordinator.handleSendFailures([.accountNeedsAttention]) }
+        let searched = await coordinator.removeLeftoverAudio()
+        precondition(!searched && engine.audioDeletes.isEmpty)
     }
 }

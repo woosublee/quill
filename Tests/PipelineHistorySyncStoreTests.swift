@@ -27,6 +27,7 @@ struct PipelineHistorySyncStoreTests {
         try testReplacedAudioIsReported()
         try testClearingChangeTagsClearsAudioManifests()
         try testAudioManifestCanBeCleared()
+        try testAudioSyncSnapshotsReadEverySyncableNote()
         print("PipelineHistorySyncStoreTests passed")
     }
 
@@ -395,5 +396,23 @@ struct PipelineHistorySyncStoreTests {
             try s.setSyncSystemFields(Data([1]), id: UUID())
             preconditionFailure("recording a change tag for a missing note must fail")
         } catch {}
+    }
+
+    /// One fetch gives what audio sync needs of every syncable note, in the
+    /// order of `syncableNoteIDs`.
+    private static func testAudioSyncSnapshotsReadEverySyncableNote() throws {
+        let s = store()
+        let marked = makeItem(audio: "marked.wav"), sending = makeItem(audio: "sending.wav"), text = makeItem()
+        let busy = makeItem(status: "live-recording")
+        for item in [marked, sending, text, busy] { _ = try s.append(item, maxCount: Int.max) }
+        let manifest = NoteAudioManifest(sha256: String(repeating: "ab", count: 32), bytes: 10, partSize: 50_000_000, parts: 1)
+        try s.setAudioManifest(manifest, id: marked.id)
+        try s.setAudioUploadKey(String(repeating: "cd", count: 32), id: sending.id)
+        let snapshots = s.audioSyncSnapshots()
+        precondition(snapshots.map(\.id) == s.syncableNoteIDs() && !snapshots.contains { $0.id == busy.id })
+        let byID = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.id, $0) })
+        precondition(byID[marked.id] == NoteAudioSyncSnapshot(id: marked.id, audioFileName: "marked.wav", manifest: manifest, uploadKey: nil))
+        precondition(byID[sending.id]?.uploadKey == String(repeating: "cd", count: 32) && byID[sending.id]?.manifest == nil)
+        precondition(byID[text.id]?.audioFileName == nil)
     }
 }

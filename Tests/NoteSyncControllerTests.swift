@@ -53,6 +53,10 @@ struct NoteSyncControllerTests {
         testRelaunchAfterAPauseUploadsEverything()
         testHistoryLostMidSessionPausesUntilReplaced()
         testSyncNowTriesFailedChangesAgain()
+        testLeftoverAudioIsLookedForOnceADay()
+        testFailedLeftoverSearchIsTriedAtTheNextSync()
+        testNoLeftoverSearchWhileNotesFailToSync()
+        testLeftoverSearchDateAheadOfTheClockDoesNotHoldItOff()
         print("NoteSyncControllerTests passed")
     }
 
@@ -132,10 +136,19 @@ struct NoteSyncControllerTests {
         func enqueueAudioSaves(_ parts: [NoteAudioPartID]) {}
         func enqueueAudioDeletes(_ parts: [NoteAudioPartID]) {}
         func pendingAudioSaves() -> [NoteAudioPartID] { [] }
+        func pendingAudioDeletes() -> [NoteAudioPartID] { [] }
         var pendingCount = 0
         func pendingChangeCount() -> Int { pendingCount }
         func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> { [] }
         func audioParts(ofNotes ids: Set<UUID>) async throws -> [NoteAudioPartID] { [] }
+        var partListings = 0
+        var partListingError: Error?
+        func allAudioParts() async throws -> [NoteAudioPartInICloud] {
+            partListings += 1
+            if let partListingError { throw partListingError }
+            return []
+        }
+        func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud] { [:] }
         func cancelAudioSaves(noteID: UUID) {}
         func cancelAudioDeletes(noteID: UUID) {}
         func cancelAudioDeletes(_ parts: [NoteAudioPartID]) {}
@@ -1036,4 +1049,80 @@ struct NoteSyncControllerTests {
         }
     }
 
+
+    /// Once sync is up to date, iCloud is searched for audio nothing uses,
+    /// at most once a day.
+    @MainActor
+    static func testLeftoverAudioIsLookedForOnceADay() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        let coordinator = engine()?.coordinator
+        coordinator?.handleFetchFinished(pending: 0)
+        precondition(expectation { await coordinator?.lastAudioCheck?.value })
+        precondition(engine()?.partListings == 1)
+        coordinator?.handleSendFailures([.network(noteID: UUID())])
+        coordinator?.handleNetworkChange(isOnline: true)
+        coordinator?.handleFetchFinished(pending: 0)
+        precondition(expectation { await coordinator?.lastAudioCheck?.value })
+        precondition(engine()?.partListings == 1, "not again the same day")
+        clock = clock.addingTimeInterval(NoteSyncController.leftoverScanInterval)
+        coordinator?.handleSendFailures([.network(noteID: UUID())])
+        coordinator?.handleNetworkChange(isOnline: true)
+        coordinator?.handleFetchFinished(pending: 0)
+        precondition(expectation { await coordinator?.lastAudioCheck?.value })
+        precondition(engine()?.partListings == 2, "the next day")
+    }
+
+    @MainActor
+    static func testFailedLeftoverSearchIsTriedAtTheNextSync() {
+        let (controller, store, engine, defaults) = make(enabled: true)
+        controller.attach(store: store)
+        let running = engine()
+        let coordinator = running?.coordinator
+        func syncUpToDate() {
+            coordinator?.handleSendFailures([.network(noteID: UUID())])
+            coordinator?.handleNetworkChange(isOnline: true)
+            coordinator?.handleFetchFinished(pending: 0)
+            precondition(expectation { await coordinator?.lastAudioCheck?.value })
+        }
+        running?.partListingError = URLError(.notConnectedToInternet)
+        coordinator?.handleFetchFinished(pending: 0)
+        precondition(expectation { await coordinator?.lastAudioCheck?.value })
+        running?.partListingError = nil
+        syncUpToDate()
+        precondition(running?.partListings == 1, "not at every sync after a failure")
+        clock = clock.addingTimeInterval(60 * 60)
+        syncUpToDate()
+        precondition(running?.partListings == 2, "an hour later")
+        clock = clock.addingTimeInterval(60 * 60)
+        syncUpToDate()
+        precondition(running?.partListings == 2, "then a day after it got through")
+        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: false) })
+        precondition(defaults.object(forKey: NoteSyncController.lastLeftoverScanKey) == nil, "forgotten when sync turns off")
+    }
+
+    /// Notes that couldn't sync may include one whose iCloud copy didn't
+    /// merge here: only a sync that is fully up to date searches.
+    @MainActor
+    static func testNoLeftoverSearchWhileNotesFailToSync() {
+        let (controller, store, engine, _) = make(enabled: true)
+        controller.attach(store: store)
+        let coordinator = engine()?.coordinator
+        for _ in 0..<4 { coordinator?.handleSendFailures([.other(noteID: store.ids[0])]) }
+        coordinator?.handleFetchFinished(pending: 0)
+        precondition(controller.status == .paused(.notesFailed(count: 1, willRetry: false)))
+        precondition(expectation { await coordinator?.lastAudioCheck?.value })
+        precondition(engine()?.partListings == 0)
+    }
+
+    @MainActor
+    static func testLeftoverSearchDateAheadOfTheClockDoesNotHoldItOff() {
+        let (controller, store, engine, defaults) = make(enabled: true)
+        defaults.set(clock.addingTimeInterval(90 * 24 * 3600), forKey: NoteSyncController.lastLeftoverScanKey)
+        controller.attach(store: store)
+        let coordinator = engine()?.coordinator
+        coordinator?.handleFetchFinished(pending: 0)
+        precondition(expectation { await coordinator?.lastAudioCheck?.value })
+        precondition(engine()?.partListings == 1, "the clock was set back")
+    }
 }

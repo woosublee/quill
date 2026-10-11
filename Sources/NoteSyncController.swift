@@ -83,6 +83,10 @@ final class NoteSyncController: ObservableObject {
     /// Set when Turn Off and Delete couldn't write note history (it can't be
     /// opened): its change tags and audio markers go once it is attached.
     static let clearTagsOnAttachKey = "iCloudNoteSyncClearTagsOnAttach"
+    /// When iCloud was last searched for audio parts nothing uses; it is
+    /// done about once a day, once sync is up to date.
+    static let lastLeftoverScanKey = "iCloudNoteSyncLastLeftoverScan"
+    static let leftoverScanInterval: TimeInterval = 24 * 60 * 60
 
     @Published private(set) var status: NoteSyncStatus = .off
     @Published private(set) var isEnabled: Bool
@@ -118,6 +122,8 @@ final class NoteSyncController: ObservableObject {
     /// guard against starting over in a loop.
     private var heldBackStartOver = false
     private var isLearningAccount = false
+    /// The coordinator whose leftover search is running.
+    private weak var searchingCoordinator: NoteSyncCoordinator?
     /// A Turn Off in progress, and whether it deletes from iCloud; another
     /// press waits for it.
     private var turnOffInProgress: (task: Task<Bool, Never>, deletes: Bool)?
@@ -187,9 +193,9 @@ final class NoteSyncController: ObservableObject {
     /// this Mac that isn't in iCloud yet.
     var uploadAudioByteCount: Int64 {
         guard let store else { return 0 }
-        return store.syncableNoteIDs().reduce(Int64(0)) { total, id in
-            guard store.audioManifest(id: id) == nil else { return total }
-            return total + (store.localAudioFile(id: id, resolve: localAudioURL)?.bytes ?? 0)
+        return store.audioSyncSnapshots().reduce(Int64(0)) { total, note in
+            guard note.manifest == nil else { return total }
+            return total + (NoteSyncLocalAudio.find(named: note.audioFileName, resolve: localAudioURL)?.bytes ?? 0)
         }
     }
 
@@ -199,8 +205,8 @@ final class NoteSyncController: ObservableObject {
     var notesWithAudioOnlyInICloud: Int? {
         guard let store else { return 0 }
         guard store.isReadyForSync else { return nil }
-        return store.syncableNoteIDs().filter { id in
-            store.audioManifest(id: id) != nil && store.localAudioFile(id: id, resolve: localAudioURL) == nil
+        return store.audioSyncSnapshots().filter { note in
+            note.manifest != nil && NoteSyncLocalAudio.find(named: note.audioFileName, resolve: localAudioURL) == nil
         }.count
     }
 
@@ -539,6 +545,7 @@ final class NoteSyncController: ObservableObject {
             // A sync got all the way through, so its engine holds what a
             // full start queued.
             defaults.removeObject(forKey: Self.needsFullStartKey)
+            if case .upToDate = newStatus { removeLeftoverAudioIfDue() }
             if defaults.string(forKey: Self.syncAccountKey) == nil { learnSyncAccount() }
         case .paused(.accountChanged), .paused(.signedOut), .paused(.deletedElsewhere):
             // Sync starts again only when the user turns it on, so notes
@@ -547,6 +554,27 @@ final class NoteSyncController: ObservableObject {
             setEnabled(false)
         default:
             break
+        }
+    }
+
+    /// Up to date, so this Mac's view of its notes is current; iCloud's
+    /// copy still decides each removal. A search that couldn't reach iCloud
+    /// is tried again at the next up-to-date sync.
+    private func removeLeftoverAudioIfDue() {
+        // A date ahead of the clock (it was set back) doesn't hold it off.
+        if let last = defaults.object(forKey: Self.lastLeftoverScanKey) as? Date,
+           last <= now(), now().timeIntervalSince(last) < Self.leftoverScanInterval { return }
+        guard let coordinator, searchingCoordinator !== coordinator else { return }
+        searchingCoordinator = coordinator
+        coordinator.removeLeftoverAudioSoon { [weak self, weak coordinator] searched in
+            guard let self else { return }
+            // A search of a coordinator since replaced records nothing.
+            guard let coordinator, self.coordinator === coordinator else { return }
+            self.searchingCoordinator = nil
+            // A search that couldn't reach iCloud is tried again in an hour.
+            guard self.isEnabled else { return }
+            let retry = self.now().addingTimeInterval(60 * 60 - Self.leftoverScanInterval)
+            self.defaults.set(searched ? self.now() : retry, forKey: Self.lastLeftoverScanKey)
         }
     }
 
@@ -569,6 +597,9 @@ final class NoteSyncController: ObservableObject {
     private func setEnabled(_ enabled: Bool) {
         isEnabled = enabled
         defaults.set(enabled, forKey: Self.enabledKey)
-        if !enabled { defaults.removeObject(forKey: Self.syncAccountKey) }
+        if !enabled {
+            defaults.removeObject(forKey: Self.syncAccountKey)
+            defaults.removeObject(forKey: Self.lastLeftoverScanKey)
+        }
     }
 }

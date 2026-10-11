@@ -50,6 +50,14 @@ struct NoteAudioPartID: Hashable, Sendable {
     }
 }
 
+/// A syncable note's audio as sync sees it, read for every note at once.
+struct NoteAudioSyncSnapshot: Equatable, Sendable {
+    let id: UUID
+    let audioFileName: String?
+    let manifest: NoteAudioManifest?
+    let uploadKey: String?
+}
+
 /// What iCloud may hold of a deleted or replaced note's audio: the parts
 /// its marker names, and the parts of an upload this Mac had started.
 struct NoteAudioSyncState: Equatable, Sendable {
