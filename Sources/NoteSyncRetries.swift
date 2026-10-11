@@ -78,12 +78,14 @@ struct NoteSyncRetries<Key: Hashable> {
         }
     }
 
-    /// Sync Now: everything waiting or given up is due now, with its tries
-    /// started over.
+    /// Sync Now: every key not confirmed yet (waiting, given up, or kept
+    /// from the last run) is due now, with its tries started over. Every
+    /// key stays until it goes through.
     mutating func retryAll(at now: Date) {
-        for key in waiting.union(givenUp) { due[key] = now }
-        // Tries start over; every key stays until it goes through.
-        for key in failures.keys { failures[key] = 0 }
+        for key in failures.keys {
+            due[key] = now
+            failures[key] = 0
+        }
         givenUp = []
     }
 }

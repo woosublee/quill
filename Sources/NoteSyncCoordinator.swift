@@ -741,13 +741,17 @@ final class NoteSyncCoordinator {
                 // An edit sends its note again and tries its given-up
                 // audio again; parts still waiting keep their wait. Its new
                 // save is queued in the engine, which keeps it; a note not
-                // settled yet keeps its failed save until it is.
+                // settled yet (retranscribing, say) isn't shown as failing,
+                // but keeps its save owed until it settles.
                 for part in audioSaveRetries.givenUp where part.noteID == id {
                     audioSaveRetries.forget(part)
                 }
+                let owed = saveRetries.unconfirmed.contains(id)
+                saveRetries.forget(id)
                 if store.isSyncable(id: id) {
-                    saveRetries.forget(id)
                     saves.append(id)
+                } else if owed {
+                    saveRetries.remember(id)
                 }
             case .deleted(let id, let wasSynced, let audio):
                 saveRetries.forget(id)
@@ -943,6 +947,11 @@ final class NoteSyncCoordinator {
     /// that send's failures, which may show the notice again.
     func handleChangesWentThrough() {
         accountWorks()
+    }
+
+    /// An audio part delete went through: a retry of it goes.
+    func handleAudioPartDeleted(_ part: NoteAudioPartID) {
+        audioDeleteRetries.forget(part)
     }
 
     func handleDeleted(id: UUID) {

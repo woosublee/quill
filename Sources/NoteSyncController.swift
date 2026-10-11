@@ -252,7 +252,7 @@ final class NoteSyncController: ObservableObject {
         }
         setEnabled(true)
         defaults.set(current, forKey: Self.syncAccountKey)
-        startEngine(initialUpload: true)
+        startEngine(initialUpload: true, turningOn: true)
         return nil
     }
 
@@ -478,7 +478,9 @@ final class NoteSyncController: ObservableObject {
         await engine.syncNow()
     }
 
-    private func startEngine(initialUpload: Bool) {
+    /// `turningOn`: nothing failed in this sync yet; what an earlier one
+    /// left (in another account, perhaps) is dropped, not sent.
+    private func startEngine(initialUpload: Bool, turningOn: Bool = false) {
         guard let store else { return }
         guard !isDeletingFromICloud else {
             heldBackStart = initialUpload || (heldBackStart ?? false)
@@ -496,7 +498,8 @@ final class NoteSyncController: ObservableObject {
         })) else { return }
         // Read before anything can fail and overwrite it. A full upload sends
         // every note again, so only the deletes are still owed then.
-        let onDisk = loadFailedChanges()
+        let onDisk = turningOn ? nil : loadFailedChanges()
+        if turningOn { _ = saveFailedChanges(nil) }
         var failedBefore = onDisk
         if initialUpload { failedBefore?.saves = [] }
         let coordinator = NoteSyncCoordinator(store: store, engine: engine, localAudioURL: localAudioURL)

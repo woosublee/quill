@@ -122,6 +122,9 @@ struct NoteSyncCoordinatorTests {
         testFailedNoteChangesAreSentAgainAfterARelaunch()
         testRetryOfANoteNotSettledIsDropped()
         testSyncNowKeepsFailedChanges()
+        testSyncNowSendsChangesKeptFromTheLastRun()
+        testNoteNotSettledIsNotShownAsFailing()
+        testAudioPartDeleteThatWentThroughIsNotSentAgain()
         testConfirmationsEndKeptChanges()
         testDeletesWaitingInADroppedStateAreKept()
         testFailedWriteIsTriedAgain()
@@ -2227,6 +2230,67 @@ struct NoteSyncCoordinatorTests {
         coordinator.retryFailedNow()
         coordinator.handleLocalChanges([.saved(other.noteID)])
         precondition(reported.last == NoteSyncFailedChanges(deletes: [gone]), "\(reported)")
+    }
+
+    /// A save kept without a wait (from the last run, for a note not
+    /// settled then) goes with Sync Now once the note can go up, not only
+    /// at the next launch.
+    @MainActor
+    static func testSyncNowSendsChangesKeptFromTheLastRun() {
+        let (coordinator, store, engine) = make()
+        let note = record()
+        store.records[note.noteID] = note
+        coordinator.restoreFailedChanges(NoteSyncFailedChanges(saves: [note.noteID]))
+        store.syncable.insert(note.noteID)
+        passTime(60 * 60)
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves.isEmpty)
+        coordinator.retryFailedNow()
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.saves == [note.noteID], "\(engine.saves)")
+    }
+
+    /// A note whose save was given up that starts retranscribing isn't shown
+    /// as failing meanwhile, but its save stays owed until it settles.
+    @MainActor
+    static func testNoteNotSettledIsNotShownAsFailing() {
+        let (coordinator, store, engine) = make()
+        var reported: [NoteSyncFailedChanges] = []
+        coordinator.onFailedChangesChange = { reported.append($0); return true }
+        let note = record()
+        store.records[note.noteID] = note
+        store.syncable.insert(note.noteID)
+        for _ in 0..<4 {
+            coordinator.handleSendFailures([.other(noteID: note.noteID)])
+            passTime(60 * 60)
+            coordinator.handleFetchFinished(pending: 0)
+        }
+        precondition(coordinator.status == .paused(.notesFailed(count: 1, willRetry: false)), "\(coordinator.status)")
+        store.syncable.remove(note.noteID)
+        coordinator.handleLocalChanges([.saved(note.noteID)])
+        coordinator.handleFetchFinished(pending: 0)
+        guard case .upToDate = coordinator.status else { preconditionFailure("\(coordinator.status)") }
+        precondition(reported.last == NoteSyncFailedChanges(saves: [note.noteID]), "still owed")
+        store.syncable.insert(note.noteID)
+        let sent = engine.saves.count
+        coordinator.handleLocalChanges([.saved(note.noteID)])
+        precondition(engine.saves.count == sent + 1, "settled: it goes up")
+    }
+
+    /// An audio part delete that went through isn't kept: Sync Now doesn't
+    /// send it again.
+    @MainActor
+    static func testAudioPartDeleteThatWentThroughIsNotSentAgain() {
+        let (coordinator, _, engine) = make()
+        let part = NoteAudioPartID(noteID: UUID(), key: "abc", index: 0)
+        coordinator.handleAudioSendFailures([.deleteFailed(part)])
+        passTime(60 * 60)
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.audioDeletes == [part])
+        coordinator.handleAudioPartDeleted(part)
+        coordinator.retryFailedNow()
+        coordinator.handleFetchFinished(pending: 0)
+        precondition(engine.audioDeletes == [part], "\(engine.audioDeletes)")
     }
 
     /// Kept changes at the edges: a save that went through but whose change

@@ -58,6 +58,7 @@ struct NoteSyncControllerTests {
         testNoLeftoverSearchWhileNotesFailToSync()
         testLeftoverSearchDateAheadOfTheClockDoesNotHoldItOff()
         testFailedChangesOutliveARelaunch()
+        testTurningOnDropsChangesLeftFromAnEarlierSync()
         testFullUploadStillSendsKeptDeletes()
         testStartingOverKeepsDeletesWaitingInTheEngine()
         print("NoteSyncControllerTests passed")
@@ -1164,6 +1165,32 @@ struct NoteSyncControllerTests {
         precondition(saved == NoteSyncFailedChanges(saves: Set(store.ids)), "a new failure is remembered")
         precondition(expectation { _ = await controller.turnOff(deleteFromICloud: false) })
         precondition(saved == nil, "forgotten when sync turns off")
+    }
+
+    /// Turning on starts a new sync, maybe in another account: changes an
+    /// earlier one left on disk (a removal that failed) aren't sent.
+    @MainActor
+    static func testTurningOnDropsChangesLeftFromAnEarlierSync() {
+        let store = FakeStore()
+        store.ids = [UUID()]
+        let gone = UUID()
+        var saved: NoteSyncFailedChanges? = NoteSyncFailedChanges(deletes: [gone])
+        var engines: [FakeEngine] = []
+        let controller = NoteSyncController(
+            defaults: freshDefaults(),
+            unavailableReason: nil,
+            createZone: {},
+            loadFailedChanges: { saved },
+            saveFailedChanges: { saved = $0; return true },
+            makeEngine: { _ in
+                let engine = FakeEngine()
+                engines.append(engine)
+                return engine
+            }
+        )
+        controller.attach(store: store)
+        precondition(expectation { _ = await controller.turnOn() })
+        precondition(engines.last?.deletes.isEmpty == true && saved == nil, "\(String(describing: engines.last?.deletes))")
     }
 
     /// A full upload sends every note again, but a kept delete is still owed.
