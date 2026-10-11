@@ -113,6 +113,11 @@ final class NoteSyncController: ObservableObject {
     /// Removes the engine's saved state and outbox, which stopping a running
     /// engine does itself.
     private let removeEngineFiles: () -> Void
+    /// Note changes that failed and haven't gone through, kept across
+    /// launches; nil removes them.
+    private let loadFailedChanges: () -> NoteSyncFailedChanges?
+    /// Returns false when the changes couldn't be written.
+    private let saveFailedChanges: (NoteSyncFailedChanges?) -> Bool
     /// While Turn Off and Delete runs without an engine, none may start; a
     /// start held back meanwhile (with its initial upload) goes ahead if the
     /// delete fails.
@@ -151,6 +156,8 @@ final class NoteSyncController: ObservableObject {
         deleteLeftoverAudio: @escaping () async -> NoteSyncLeftoverAudio = { .deleted },
         deleteAllWithoutEngine: @escaping () async throws -> Bool = { throw NoteSyncEngineError.notRunning },
         removeEngineFiles: @escaping () -> Void = {},
+        loadFailedChanges: @escaping () -> NoteSyncFailedChanges? = { nil },
+        saveFailedChanges: @escaping (NoteSyncFailedChanges?) -> Bool = { _ in true },
         accountID: @escaping () async -> String? = { nil },
         localAudioURL: @escaping (String) -> URL? = { _ in nil },
         now: @escaping () -> Date = Date.init,
@@ -163,6 +170,8 @@ final class NoteSyncController: ObservableObject {
         self.deleteLeftoverAudioZone = deleteLeftoverAudio
         self.deleteAllWithoutEngine = deleteAllWithoutEngine
         self.removeEngineFiles = removeEngineFiles
+        self.loadFailedChanges = loadFailedChanges
+        self.saveFailedChanges = saveFailedChanges
         self.accountID = accountID
         audioLeftInICloud = !(defaults.stringArray(forKey: Self.audioLeftInICloudKey) ?? []).isEmpty
         self.localAudioURL = localAudioURL
@@ -243,7 +252,7 @@ final class NoteSyncController: ObservableObject {
         }
         setEnabled(true)
         defaults.set(current, forKey: Self.syncAccountKey)
-        startEngine(initialUpload: true)
+        startEngine(initialUpload: true, turningOn: true)
         return nil
     }
 
@@ -469,7 +478,9 @@ final class NoteSyncController: ObservableObject {
         await engine.syncNow()
     }
 
-    private func startEngine(initialUpload: Bool) {
+    /// `turningOn`: nothing failed in this sync yet; what an earlier one
+    /// left (in another account, perhaps) is dropped, not sent.
+    private func startEngine(initialUpload: Bool, turningOn: Bool = false) {
         guard let store else { return }
         guard !isDeletingFromICloud else {
             heldBackStart = initialUpload || (heldBackStart ?? false)
@@ -485,6 +496,12 @@ final class NoteSyncController: ObservableObject {
         guard let engine = makeEngine(NoteSyncEngineEvents(remoteChange: { [weak self] change in
             self?.onRemoteChange?(change)
         })) else { return }
+        // Read before anything can fail and overwrite it. A full upload sends
+        // every note again, so only the deletes are still owed then.
+        let onDisk = turningOn ? nil : loadFailedChanges()
+        if turningOn { _ = saveFailedChanges(nil) }
+        var failedBefore = onDisk
+        if initialUpload { failedBefore?.saves = [] }
         let coordinator = NoteSyncCoordinator(store: store, engine: engine, localAudioURL: localAudioURL)
         coordinator.onStatusChange = { [weak self] status in
             self?.coordinatorStatusChanged(status)
@@ -493,11 +510,19 @@ final class NoteSyncController: ObservableObject {
             // Restart after the engine's current event returns.
             DispatchQueue.main.async { self?.startOver() }
         }
+        coordinator.onFailedChangesChange = { [weak self] changes in
+            self?.saveFailedChanges(changes.isEmpty ? nil : changes) ?? false
+        }
         engine.attach(coordinator)
         self.engine = engine
         self.coordinator = coordinator
         status = coordinator.status
         engine.start()
+        if let failedBefore, !failedBefore.isEmpty {
+            coordinator.restoreFailedChanges(failedBefore, onDisk: onDisk)
+        } else if onDisk != nil {
+            _ = saveFailedChanges(nil)
+        }
         if initialUpload {
             coordinator.startInitialUpload()
         } else {
@@ -533,6 +558,8 @@ final class NoteSyncController: ObservableObject {
 
     private func stopEngine(forgetState: Bool) {
         if engine != nil { onEngineStop?() }
+        // Deletes waiting in a state about to be dropped are kept instead.
+        if forgetState { coordinator?.keepPendingDeletes() }
         coordinator?.stop()
         engine?.stop(forgetState: forgetState)
         engine = nil
@@ -599,6 +626,7 @@ final class NoteSyncController: ObservableObject {
         isEnabled = enabled
         defaults.set(enabled, forKey: Self.enabledKey)
         if !enabled {
+            _ = saveFailedChanges(nil)
             defaults.removeObject(forKey: Self.syncAccountKey)
             defaults.removeObject(forKey: Self.lastLeftoverScanKey)
         }

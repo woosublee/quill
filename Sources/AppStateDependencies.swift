@@ -151,6 +151,7 @@ struct AppStateDependencies {
             makeNoteSyncController: { layout in
                 let stateURL = layout.noteSyncDirectory.appendingPathComponent("engine-state")
                 let outbox = layout.noteSyncDirectory.appendingPathComponent("outbox", isDirectory: true)
+                let failedChangesURL = layout.noteSyncDirectory.appendingPathComponent("failed-changes.json")
                 return NoteSyncController(createZone: {
                     guard #available(macOS 14.0, *) else { return }
                     try await NoteSyncCloudKitEngine.createZone()
@@ -166,6 +167,29 @@ struct AppStateDependencies {
                     NoteAudioDownloader.removeDownloadFiles(
                         in: layout.noteSyncDirectory.appendingPathComponent("downloads", isDirectory: true)
                     )
+                }, loadFailedChanges: {
+                    guard let data = try? Data(contentsOf: failedChangesURL) else { return nil }
+                    guard let changes = try? JSONDecoder().decode(NoteSyncFailedChanges.self, from: data) else {
+                        print("[NoteSync] Couldn't read the failed changes kept from the last run")
+                        try? FileManager.default.removeItem(at: failedChangesURL)
+                        return nil
+                    }
+                    return changes
+                }, saveFailedChanges: { changes in
+                    do {
+                        guard let changes else {
+                            if FileManager.default.fileExists(atPath: failedChangesURL.path) {
+                                try FileManager.default.removeItem(at: failedChangesURL)
+                            }
+                            return true
+                        }
+                        try FileManager.default.createDirectory(at: layout.noteSyncDirectory, withIntermediateDirectories: true)
+                        try JSONEncoder().encode(changes).write(to: failedChangesURL, options: .atomic)
+                        return true
+                    } catch {
+                        print("[NoteSync] Couldn't keep the failed changes for the next run")
+                        return false
+                    }
                 }, accountID: {
                     guard #available(macOS 14.0, *) else { return nil }
                     return await NoteSyncCloudKitEngine.accountID()

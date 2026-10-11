@@ -25,6 +25,9 @@ struct NoteSyncRetries<Key: Hashable> {
     var failingToRetry: Set<Key> { waiting.subtracting(waitingQuietly) }
     /// Keys shown as failing: tried again or given up already.
     var failing: Set<Key> { failingToRetry.union(givenUp) }
+    /// Every key that failed and hasn't been forgotten: waiting, given up,
+    /// or sent again and not confirmed yet.
+    var unconfirmed: Set<Key> { Set(failures.keys) }
 
     mutating func failed(_ key: Key, at now: Date, keepTrying: Bool = false) {
         // Tries of the other kind don't count: a note that waited for space
@@ -55,6 +58,12 @@ struct NoteSyncRetries<Key: Hashable> {
         return ready
     }
 
+    /// Sent and not confirmed yet (a change kept from the last run), without
+    /// a failure to count or wait for.
+    mutating func remember(_ key: Key) {
+        if failures[key] == nil { failures[key] = 0 }
+    }
+
     /// Went through, or isn't needed any more: tries start over.
     mutating func forget(_ key: Key) {
         failures[key] = nil
@@ -69,11 +78,14 @@ struct NoteSyncRetries<Key: Hashable> {
         }
     }
 
-    /// Sync Now: everything waiting or given up is due now, with its tries
-    /// started over.
+    /// Sync Now: every key not confirmed yet (waiting, given up, or kept
+    /// from the last run) is due now, with its tries started over. Every
+    /// key stays until it goes through.
     mutating func retryAll(at now: Date) {
-        for key in waiting.union(givenUp) { due[key] = now }
-        failures = [:]
+        for key in failures.keys {
+            due[key] = now
+            failures[key] = 0
+        }
         givenUp = []
     }
 }

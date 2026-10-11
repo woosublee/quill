@@ -1,5 +1,13 @@
 import Foundation
 
+/// Note changes that failed and haven't gone through: only note IDs.
+struct NoteSyncFailedChanges: Codable, Equatable {
+    var saves: Set<UUID> = []
+    var deletes: Set<UUID> = []
+
+    var isEmpty: Bool { saves.isEmpty && deletes.isEmpty }
+}
+
 /// What the coordinator needs from the note store. `PipelineHistoryStore`
 /// provides it; tests use a fake.
 protocol NoteSyncLocalStore: AnyObject {
@@ -93,6 +101,8 @@ protocol NoteSyncEngineClient: AnyObject {
     func pendingAudioDeletes() -> [NoteAudioPartID]
     /// Changes of any kind still waiting to go up.
     func pendingChangeCount() -> Int
+    /// Note deletes waiting in the engine.
+    func pendingNoteDeletes() -> [UUID]
     func cancelAudioSaves(noteID: UUID)
     /// Drops audio deletes still waiting to go up, for a note that came back.
     func cancelAudioDeletes(noteID: UUID)
@@ -252,6 +262,14 @@ final class NoteSyncCoordinator {
     /// keep failing are given up until their note changes or Sync Now.
     private var saveRetries = NoteSyncRetries<UUID>()
     private var deleteRetries = NoteSyncRetries<UUID>()
+    /// Note saves and deletes that failed and aren't confirmed yet (the
+    /// retries keep them until they go through or aren't wanted), so they
+    /// outlive a relaunch: CKSyncEngine drops a change that failed for good.
+    /// Reported when a send, fetch or local change has changed them.
+    /// Returns false when they couldn't be kept, so the next change tries
+    /// again.
+    var onFailedChangesChange: ((NoteSyncFailedChanges) -> Bool)?
+    private var reportedFailedChanges = NoteSyncFailedChanges()
     private var audioSaveRetries = NoteSyncRetries<NoteAudioPartID>()
     private var audioDeleteRetries = NoteSyncRetries<NoteAudioPartID>()
     private var quotaRetryPending = false
@@ -721,12 +739,20 @@ final class NoteSyncCoordinator {
             switch change {
             case .saved(let id):
                 // An edit sends its note again and tries its given-up
-                // audio again; parts still waiting keep their wait.
-                saveRetries.forget(id)
+                // audio again; parts still waiting keep their wait. Its new
+                // save is queued in the engine, which keeps it; a note not
+                // settled yet (retranscribing, say) isn't shown as failing,
+                // but keeps its save owed until it settles.
                 for part in audioSaveRetries.givenUp where part.noteID == id {
                     audioSaveRetries.forget(part)
                 }
-                if store.isSyncable(id: id) { saves.append(id) }
+                let owed = saveRetries.unconfirmed.contains(id)
+                saveRetries.forget(id)
+                if store.isSyncable(id: id) {
+                    saves.append(id)
+                } else if owed {
+                    saveRetries.remember(id)
+                }
             case .deleted(let id, let wasSynced, let audio):
                 saveRetries.forget(id)
                 deleteRetries.forget(id)
@@ -758,6 +784,7 @@ final class NoteSyncCoordinator {
         }
         if !deletes.isEmpty { engine.enqueueDeletes(deletes) }
         if !audioDeletes.isEmpty { engine.enqueueAudioDeletes(audioDeletes) }
+        reportFailedChanges()
         var cleanUps = keyedLookUp
         for id in lookUp { cleanUps[id] = .some(nil) }
         cleanUpAudioSoon(cleanUps)
@@ -766,7 +793,14 @@ final class NoteSyncCoordinator {
     /// The record to send for `id`, or nil when the note is gone or still
     /// in progress (its pending change is then dropped).
     func outgoing(for id: UUID) -> NoteSyncOutgoing? {
-        guard !isStopped, store.isSyncable(id: id), let record = store.syncRecord(id: id) else { return nil }
+        guard !isStopped else { return nil }
+        guard store.isSyncable(id: id), let record = store.syncRecord(id: id) else {
+            // The engine drops the save without a word. A failed one of a
+            // note gone ends; one of a note not settled (or not readable
+            // right now) stays kept, and goes once the note saves again.
+            if store.noteExists(id: id) == false { saveRetries.forget(id) }
+            return nil
+        }
         return NoteSyncOutgoing(record: record, systemFields: store.syncSystemFields(id: id))
     }
 
@@ -774,7 +808,10 @@ final class NoteSyncCoordinator {
         guard !isStopped else { return }
         switch store.noteExists(id: id) {
         case false?:
-            // Deleted here while its upload was in flight.
+            // Deleted here while its upload was in flight: the delete is
+            // kept until it goes through.
+            saveRetries.forget(id)
+            deleteRetries.remember(id)
             engine.enqueueDeletes([id])
             return
         case nil:
@@ -791,7 +828,8 @@ final class NoteSyncCoordinator {
             try store.setSyncSystemFields(systemFields, id: id)
         } catch {
             // Without its change tag the next save conflicts and merges, so
-            // the note isn't lost; it just isn't counted as uploaded.
+            // the note isn't lost; it just isn't counted as uploaded. A kept
+            // save stays kept, so the next launch sends it and records it.
             print("[NoteSync] Couldn't record an uploaded note")
             return
         }
@@ -911,7 +949,14 @@ final class NoteSyncCoordinator {
         accountWorks()
     }
 
+    /// An audio part delete went through: a retry of it goes.
+    func handleAudioPartDeleted(_ part: NoteAudioPartID) {
+        audioDeleteRetries.forget(part)
+    }
+
     func handleDeleted(id: UUID) {
+        // Went through: a retry of it waiting from an earlier failure goes.
+        deleteRetries.forget(id)
         // The note is usually gone already; nothing is left to update then.
         try? store.setSyncSystemFields(nil, id: id)
     }
@@ -932,7 +977,10 @@ final class NoteSyncCoordinator {
                 switch store.noteExists(id: id) {
                 case false?:
                     // Deleted here while the save was in flight: delete the
-                    // server copy rather than bring the note back.
+                    // server copy rather than bring the note back, and keep
+                    // that delete until it goes through.
+                    saveRetries.forget(id)
+                    deleteRetries.remember(id)
                     deletes.append(id)
                     continue
                 case nil:
@@ -950,7 +998,12 @@ final class NoteSyncCoordinator {
                       let result = try? store.applySynced(server, systemFields: serverFields) else {
                     continue
                 }
-                if result != .updated(needsUpload: false) { resend.append(id) }
+                if result == .updated(needsUpload: false) {
+                    // iCloud's copy matches: nothing of this save is left.
+                    saveRetries.forget(id)
+                } else {
+                    resend.append(id)
+                }
             case .quotaExceeded(let id):
                 quotaCount += 1
                 quotaRetryPending = true
@@ -960,6 +1013,8 @@ final class NoteSyncCoordinator {
             case .accountNeedsAttention:
                 account = true
             case .unknownItemOnDelete(let id):
+                // Already gone from iCloud: the delete is done.
+                deleteRetries.forget(id)
                 try? store.setSyncSystemFields(nil, id: id)
             case .unknownItemOnSave(let id):
                 // If the note was deleted elsewhere, the fetch removes it
@@ -976,6 +1031,7 @@ final class NoteSyncCoordinator {
         }
         if !resend.isEmpty { enqueueNoteSaves(resend) }
         if !deletes.isEmpty { engine.enqueueDeletes(deletes) }
+        reportFailedChanges()
         cleanUpAudioSoon(cleanUpsForClearedUploads())
         setFailureStatus(quotaCount: quotaCount, account: account, offline: offline)
         if !failures.isEmpty {
@@ -1071,6 +1127,7 @@ final class NoteSyncCoordinator {
                 audioToClean[id] = nil
             }
         }
+        reportFailedChanges()
         if !needsUpload.isEmpty, !isStopped { enqueueNoteSaves(needsUpload) }
         // Another Mac may have cleared a marker for audio this Mac holds:
         // it is checked against iCloud and marked again when it's all there.
@@ -1262,6 +1319,8 @@ final class NoteSyncCoordinator {
 
     /// A fetch or send finished. With nothing left to send, sync is up to date.
     func handleFetchFinished(pending: Int) {
+        // What saves and deletes went through since is now known.
+        defer { reportFailedChanges() }
         guard !isStopped else { return }
         guard !isHoldingRetries else { return }
         let retriedForQuota = quotaRetryPending
@@ -1269,7 +1328,18 @@ final class NoteSyncCoordinator {
         // Anything queued again here isn't sent yet, so it keeps sync busy.
         var queuedAgain = false
         let time = now()
-        let saves = saveRetries.takeDue(at: time)
+        // A save is sent again only for a note that can go up; the engine
+        // would drop one for a note gone or not settled without a word.
+        var saves: [UUID] = []
+        for id in saveRetries.takeDue(at: time) {
+            switch store.noteExists(id: id) {
+            case true? where store.isSyncable(id: id): saves.append(id)
+            case nil: saveRetries.failed(id, at: time, keepTrying: true)
+            case false?: saveRetries.forget(id)
+            // Not settled: kept, and sent once the note saves again.
+            case true?: continue
+            }
+        }
         if !saves.isEmpty {
             enqueueNoteSaves(saves)
             queuedAgain = true
@@ -1348,6 +1418,66 @@ final class NoteSyncCoordinator {
         let notes = saveRetries.failing.union(audioSaveRetries.failing.map(\.noteID))
         let willRetry = !saveRetries.failingToRetry.isEmpty || !audioSaveRetries.failingToRetry.isEmpty
         return (notes.count, willRetry)
+    }
+
+    /// The engine's saved state is about to be dropped (starting over, or a
+    /// replaced store): deletes waiting in it are kept here instead.
+    func keepPendingDeletes() {
+        for id in engine.pendingNoteDeletes() { deleteRetries.remember(id) }
+        reportFailedChanges()
+    }
+
+    /// A sent batch was applied: what went through is known now.
+    func handleSendApplied() {
+        reportFailedChanges()
+    }
+
+    private func reportFailedChanges() {
+        let current = NoteSyncFailedChanges(saves: saveRetries.unconfirmed, deletes: deleteRetries.unconfirmed)
+        guard !isRetired, current != reportedFailedChanges else { return }
+        if onFailedChangesChange?(current) != false { reportedFailedChanges = current }
+    }
+
+    /// After a relaunch: note changes that had failed are sent again (a save
+    /// of a note still here, a delete of one that's gone) and kept until
+    /// iCloud confirms them. One no longer wanted is forgotten (a note not
+    /// settled sends itself once it is); one whose note can't be read waits
+    /// in the retries.
+    /// `onDisk` is what the kept file holds, when more than `changes`.
+    func restoreFailedChanges(_ changes: NoteSyncFailedChanges, onDisk: NoteSyncFailedChanges? = nil) {
+        guard !isStopped else { return }
+        reportedFailedChanges = onDisk ?? changes
+        let time = now()
+        var saves: [UUID] = []
+        for id in changes.saves {
+            switch store.noteExists(id: id) {
+            case true? where store.isSyncable(id: id):
+                saveRetries.remember(id)
+                saves.append(id)
+            case nil:
+                saveRetries.failed(id, at: time, keepTrying: true)
+            case true?:
+                // Not settled: kept, and sent once the note saves again.
+                saveRetries.remember(id)
+            case false?:
+                continue
+            }
+        }
+        var deletes: [UUID] = []
+        for id in changes.deletes {
+            switch store.noteExists(id: id) {
+            case false?:
+                deleteRetries.remember(id)
+                deletes.append(id)
+            case nil:
+                deleteRetries.failed(id, at: time, keepTrying: true)
+            case true?:
+                continue
+            }
+        }
+        if !saves.isEmpty { enqueueNoteSaves(saves) }
+        if !deletes.isEmpty { engine.enqueueDeletes(deletes) }
+        reportFailedChanges()
     }
 
     /// Sync Now: every change that failed, given up or still waiting, is

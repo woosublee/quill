@@ -57,6 +57,10 @@ struct NoteSyncControllerTests {
         testFailedLeftoverSearchIsTriedAtTheNextSync()
         testNoLeftoverSearchWhileNotesFailToSync()
         testLeftoverSearchDateAheadOfTheClockDoesNotHoldItOff()
+        testFailedChangesOutliveARelaunch()
+        testTurningOnDropsChangesLeftFromAnEarlierSync()
+        testFullUploadStillSendsKeptDeletes()
+        testStartingOverKeepsDeletesWaitingInTheEngine()
         print("NoteSyncControllerTests passed")
     }
 
@@ -139,6 +143,7 @@ struct NoteSyncControllerTests {
         func enqueueAudioDeletes(_ parts: [NoteAudioPartID]) {}
         func pendingAudioSaves() -> [NoteAudioPartID] { [] }
         func pendingAudioDeletes() -> [NoteAudioPartID] { [] }
+        func pendingNoteDeletes() -> [UUID] { deletes }
         var pendingCount = 0
         func pendingChangeCount() -> Int { pendingCount }
         func existingAudioParts(_ parts: [NoteAudioPartID]) async throws -> Set<NoteAudioPartID> { [] }
@@ -1126,5 +1131,124 @@ struct NoteSyncControllerTests {
         coordinator?.handleFetchFinished(pending: 0)
         precondition(expectation { await coordinator?.lastAudioCheck?.value })
         precondition(engine()?.partListings == 1, "the clock was set back")
+    }
+
+    /// Note changes that failed are kept across a relaunch and sent again;
+    /// a full upload or turning sync off forgets them.
+    @MainActor
+    static func testFailedChangesOutliveARelaunch() {
+        let defaults = freshDefaults()
+        defaults.set(true, forKey: NoteSyncController.enabledKey)
+        let store = FakeStore()
+        store.ids = [UUID()]
+        var saved: NoteSyncFailedChanges? = NoteSyncFailedChanges(saves: [store.ids[0]])
+        var engines: [FakeEngine] = []
+        let controller = NoteSyncController(
+            defaults: defaults,
+            unavailableReason: nil,
+            createZone: {},
+            loadFailedChanges: { saved },
+            saveFailedChanges: { saved = $0; return true },
+            makeEngine: { _ in
+                let engine = FakeEngine()
+                engines.append(engine)
+                return engine
+            }
+        )
+        controller.attach(store: store)
+        precondition(engines.last?.saves == store.ids, "sent again at launch")
+        precondition(saved == NoteSyncFailedChanges(saves: Set(store.ids)), "kept until iCloud confirms it")
+        engines.last?.coordinator?.handleSaved(id: store.ids[0], systemFields: Data([1]))
+        engines.last?.coordinator?.handleFetchFinished(pending: 0)
+        precondition(saved == nil, "confirmed")
+        engines.last?.coordinator?.handleSendFailures([.other(noteID: store.ids[0])])
+        precondition(saved == NoteSyncFailedChanges(saves: Set(store.ids)), "a new failure is remembered")
+        precondition(expectation { _ = await controller.turnOff(deleteFromICloud: false) })
+        precondition(saved == nil, "forgotten when sync turns off")
+    }
+
+    /// Turning on starts a new sync, maybe in another account: changes an
+    /// earlier one left on disk (a removal that failed) aren't sent.
+    @MainActor
+    static func testTurningOnDropsChangesLeftFromAnEarlierSync() {
+        let store = FakeStore()
+        store.ids = [UUID()]
+        let gone = UUID()
+        var saved: NoteSyncFailedChanges? = NoteSyncFailedChanges(deletes: [gone])
+        var engines: [FakeEngine] = []
+        let controller = NoteSyncController(
+            defaults: freshDefaults(),
+            unavailableReason: nil,
+            createZone: {},
+            loadFailedChanges: { saved },
+            saveFailedChanges: { saved = $0; return true },
+            makeEngine: { _ in
+                let engine = FakeEngine()
+                engines.append(engine)
+                return engine
+            }
+        )
+        controller.attach(store: store)
+        precondition(expectation { _ = await controller.turnOn() })
+        precondition(engines.last?.deletes.isEmpty == true && saved == nil, "\(String(describing: engines.last?.deletes))")
+    }
+
+    /// A full upload sends every note again, but a kept delete is still owed.
+    @MainActor
+    static func testFullUploadStillSendsKeptDeletes() {
+        let defaults = freshDefaults()
+        defaults.set(true, forKey: NoteSyncController.enabledKey)
+        defaults.set(true, forKey: NoteSyncController.needsFullStartKey)
+        let store = FakeStore()
+        store.ids = [UUID()]
+        let gone = UUID()
+        var saved: NoteSyncFailedChanges? = NoteSyncFailedChanges(saves: [store.ids[0]], deletes: [gone])
+        var engines: [FakeEngine] = []
+        let controller = NoteSyncController(
+            defaults: defaults,
+            unavailableReason: nil,
+            createZone: {},
+            loadFailedChanges: { saved },
+            saveFailedChanges: { saved = $0; return true },
+            makeEngine: { _ in
+                let engine = FakeEngine()
+                engines.append(engine)
+                return engine
+            }
+        )
+        controller.attach(store: store)
+        precondition(engines.last?.deletes == [gone], "the delete is still owed")
+        precondition(saved == NoteSyncFailedChanges(deletes: [gone]), "the saves go with the full upload: \(String(describing: saved))")
+    }
+
+    /// Starting over drops the engine's saved state; deletes waiting in it
+    /// (failed offline, say) are kept and sent by the new engine.
+    @MainActor
+    static func testStartingOverKeepsDeletesWaitingInTheEngine() {
+        let defaults = freshDefaults()
+        defaults.set(true, forKey: NoteSyncController.enabledKey)
+        let store = FakeStore()
+        store.ids = [UUID()]
+        var saved: NoteSyncFailedChanges?
+        var engines: [FakeEngine] = []
+        let controller = NoteSyncController(
+            defaults: defaults,
+            unavailableReason: nil,
+            createZone: {},
+            loadFailedChanges: { saved },
+            saveFailedChanges: { saved = $0; return true },
+            makeEngine: { _ in
+                let engine = FakeEngine()
+                engines.append(engine)
+                return engine
+            }
+        )
+        controller.attach(store: store)
+        let gone = UUID()
+        engines.last?.deletes = [gone]
+        engines.last?.coordinator?.onNeedsFullRefetch?()
+        drainMainQueue()
+        precondition(engines.count == 2 && engines.last?.deletes == [gone], "sent by the new engine")
+        precondition(saved == NoteSyncFailedChanges(deletes: [gone]), "kept until confirmed: \(String(describing: saved))")
     }
 }

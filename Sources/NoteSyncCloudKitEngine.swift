@@ -139,6 +139,14 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         activeEngine()?.state.pendingRecordZoneChanges.count ?? 0
     }
 
+    func pendingNoteDeletes() -> [UUID] {
+        guard let engine = activeEngine() else { return [] }
+        return engine.state.pendingRecordZoneChanges.compactMap { change in
+            guard case .deleteRecord(let id) = change, NoteAudioCloudRecord.part(from: id) == nil else { return nil }
+            return NoteSyncCloudRecord.noteID(from: id)
+        }
+    }
+
     func pendingAudioDeletes() -> [NoteAudioPartID] {
         guard let engine = activeEngine() else { return [] }
         return engine.state.pendingRecordZoneChanges.compactMap { change in
@@ -807,10 +815,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             }
         }
         var deleted: [UUID] = []
-        var deletedParts = 0
+        var deletedParts: [NoteAudioPartID] = []
         for recordID in sent.deletedRecordIDs {
-            if NoteAudioCloudRecord.part(from: recordID) != nil {
-                deletedParts += 1
+            if let part = NoteAudioCloudRecord.part(from: recordID) {
+                deletedParts.append(part)
                 continue
             }
             if let id = NoteSyncCloudRecord.noteID(from: recordID) { deleted.append(id) }
@@ -864,10 +872,11 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         }
         let savedRecords = saved
         let deletedIDs = deleted
+        let partsDeleted = deletedParts
         let sendFailures = failures
         let stopForDeletion = zoneDeletedElsewhere
         let audioFailureList = audioFailures
-        let wentThrough = !saved.isEmpty || !deleted.isEmpty || !savedParts.isEmpty || deletedParts > 0
+        let wentThrough = !saved.isEmpty || !deleted.isEmpty || !savedParts.isEmpty || !deletedParts.isEmpty
         await MainActor.run {
             guard let coordinator else { return }
             if stopForDeletion {
@@ -877,8 +886,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
             if wentThrough { coordinator.handleChangesWentThrough() }
             for (id, fields) in savedRecords { coordinator.handleSaved(id: id, systemFields: fields) }
             for id in deletedIDs { coordinator.handleDeleted(id: id) }
+            for part in partsDeleted { coordinator.handleAudioPartDeleted(part) }
             if !sendFailures.isEmpty { coordinator.handleSendFailures(sendFailures) }
             if !audioFailureList.isEmpty { coordinator.handleAudioSendFailures(audioFailureList) }
+            coordinator.handleSendApplied()
         }
         guard !stopForDeletion, let coordinator, !savedParts.isEmpty else { return }
         // Checking iCloud and hashing the file take a while; the engine
