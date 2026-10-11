@@ -13172,6 +13172,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         noteSyncController = controller
         // Attaching starts the engine when sync is on, and it fetches then.
         connectNoteSync(to: pipelineHistoryStore)
+        Task { @MainActor in await controller.deleteLeftoverAudio() }
     }
 
     private func connectNoteSync(to store: PipelineHistoryStore) {

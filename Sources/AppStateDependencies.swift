@@ -152,6 +152,12 @@ struct AppStateDependencies {
                 NoteSyncController(createZone: {
                     guard #available(macOS 14.0, *) else { return }
                     try await NoteSyncCloudKitEngine.createZone()
+                }, deleteLeftoverAudio: {
+                    guard #available(macOS 14.0, *) else { return .inUse }
+                    return await NoteSyncCloudKitEngine.deleteLeftoverAudio()
+                }, accountID: {
+                    guard #available(macOS 14.0, *) else { return nil }
+                    return await NoteSyncCloudKitEngine.accountID()
                 }, localAudioURL: { fileName in
                     guard let url = NoteAssetStore(storageLayout: layout).storedAudioURL(fileName: fileName),
                           FileManager.default.fileExists(atPath: url.path) else { return nil }

@@ -36,7 +36,7 @@ struct AppStateNoteSyncTests {
         func start() {}
         func fetchNow() {}
         func syncNow() async {}
-        func deleteAllFromICloud() async throws {}
+        func deleteAllFromICloud() async throws -> Bool { true }
         func stop(forgetState: Bool) {}
     }
 
