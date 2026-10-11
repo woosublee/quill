@@ -355,6 +355,15 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         return parts
     }
 
+    /// A failure that goes away by itself: no network, a busy server, or
+    /// an account that needs a moment.
+    private static func isPassing(_ code: CKError.Code) -> Bool {
+        switch NoteSyncCloudRecord.sendErrorKind(code) {
+        case .network, .throttled, .accountNeedsAttention: return true
+        default: return false
+        }
+    }
+
     func audioOfNotesInICloud(_ ids: Set<UUID>) async throws -> [UUID: NoteAudioInICloud] {
         guard activeEngine() != nil else { throw NoteSyncEngineError.notRunning }
         var notes: [UUID: NoteAudioInICloud] = [:]
@@ -375,6 +384,10 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
                     notes[id] = NoteAudioInICloud.read(payload: NoteSyncCloudRecord.payload(of: record))
                 case .failure(let error as CKError) where error.code == .unknownItem || Self.isZoneGone(error.code):
                     notes[id] = .noNote
+                case .failure(let error as CKError) where Self.isPassing(error.code):
+                    // Offline or busy for a moment: the search is tried
+                    // again soon, rather than a day later without this note.
+                    throw error
                 case .failure:
                     // This one note stays as it is; the rest go on.
                     notes[id] = .unreadable
