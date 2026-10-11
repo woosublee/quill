@@ -70,6 +70,8 @@ protocol NoteSyncEngineClient: AnyObject {
     func enqueueAudioDeletes(_ parts: [NoteAudioPartID])
     /// Audio parts still waiting to go up, for every note.
     func pendingAudioSaves() -> [NoteAudioPartID]
+    /// Changes of any kind still waiting to go up.
+    func pendingChangeCount() -> Int
     func cancelAudioSaves(noteID: UUID)
     /// Drops audio deletes still waiting to go up, for a note that came back.
     func cancelAudioDeletes(noteID: UUID)
@@ -1016,9 +1018,50 @@ final class NoteSyncCoordinator {
         return change
     }
 
+    /// While this Mac deletes its iCloud data, a finished fetch or send
+    /// neither sends failed changes again nor settles the status: sync turns
+    /// off after, or, if the delete is undone, `stopHoldingRetries` does
+    /// both. (New sends meet the missing zone and are held by the engine.)
+    var isHoldingRetries = false
+    /// The delete was undone: the sync skipped meanwhile runs, counting
+    /// what waits now, with what the undone delete put back.
+    func stopHoldingRetries() {
+        guard isHoldingRetries else { return }
+        isHoldingRetries = false
+        handleFetchFinished(pending: engine.pendingChangeCount())
+    }
+
+    /// An undone delete puts back deletes it had dropped or held; one for a
+    /// note that came back meanwhile, or a part its note uses again, must
+    /// not go. When the note can't be read, the delete is left to the
+    /// retries, which check again later.
+    func isDeleteStillWanted(noteID id: UUID) -> Bool {
+        switch store.noteExists(id: id) {
+        case false?: return true
+        case true?: return false
+        case nil:
+            deleteRetries.failed(id, at: now(), keepTrying: true)
+            return false
+        }
+    }
+
+    func isDeleteStillWanted(_ part: NoteAudioPartID) -> Bool {
+        switch store.noteExists(id: part.noteID) {
+        case false?: return true
+        case nil:
+            audioDeleteRetries.failed(part, at: now(), keepTrying: true)
+            return false
+        case true?:
+            let used = [store.audioManifest(id: part.noteID)?.sha256, store.audioUploadKey(id: part.noteID)]
+                .compactMap { $0.map(NoteAudioPartID.key(sha256:)) }
+            return !used.contains(part.key)
+        }
+    }
+
     /// A fetch or send finished. With nothing left to send, sync is up to date.
     func handleFetchFinished(pending: Int) {
         guard !isStopped else { return }
+        guard !isHoldingRetries else { return }
         let retriedForQuota = quotaRetryPending
         quotaRetryPending = false
         // Anything queued again here isn't sent yet, so it keeps sync busy.

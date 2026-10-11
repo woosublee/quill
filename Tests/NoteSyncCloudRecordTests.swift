@@ -12,6 +12,8 @@ struct NoteSyncCloudRecordTests {
         try testMismatchedSystemFieldsAreIgnored()
         try testOutboxFilesAreRemoved()
         testSendErrorsAreClassified()
+        testFailedSendsAreRouted()
+        testChangesHeldDuringThisMacsDelete()
         testAudioPartRecordIDs()
         if #available(macOS 14.0, *) { testBatchesSendNotesFirstThenOneAudioPart() }
         try testAudioPartRecords()
@@ -162,5 +164,70 @@ struct NoteSyncCloudRecordTests {
         for (code, kind) in expected {
             precondition(NoteSyncCloudRecord.sendErrorKind(code) == kind, "\(code.rawValue)")
         }
+    }
+
+    /// Where each failed save or delete goes, for notes and audio parts,
+    /// and while this Mac deletes its iCloud data.
+    static func testFailedSendsAreRouted() {
+        typealias R = NoteSyncSendRoute
+        let rows: [(R.Sent, Bool, CKError.Code, Bool, R)] = [
+            // Notes, saved.
+            (.note, true, .serverRecordChanged, false, .serverChanged),
+            (.note, true, .zoneNotFound, false, .zoneDeletedElsewhere),
+            (.note, true, .zoneNotFound, true, .holdForOwnDelete),
+            (.note, true, .quotaExceeded, false, .quotaExceeded),
+            (.note, true, .networkFailure, false, .network),
+            (.note, true, .requestRateLimited, false, .nothing),
+            (.note, true, .notAuthenticated, false, .accountNeedsAttention),
+            (.note, true, .unknownItem, false, .unknownItemOnSave),
+            (.note, true, .invalidArguments, false, .failed),
+            // Notes, deleted.
+            (.note, false, .userDeletedZone, false, .zoneDeletedElsewhere),
+            (.note, false, .userDeletedZone, true, .holdForOwnDelete),
+            (.note, false, .unknownItem, false, .unknownItemOnDelete),
+            (.note, false, .serverRecordChanged, false, .failed),
+            (.note, false, .quotaExceeded, false, .failed),
+            (.note, false, .zoneBusy, false, .nothing),
+            // Audio parts, saved.
+            (.part, true, .serverRecordChanged, false, .savedAlready),
+            (.part, true, .unknownItem, false, .resendNow),
+            (.part, true, .zoneNotFound, false, .partWithoutZone),
+            (.part, true, .zoneNotFound, true, .holdForOwnDelete),
+            (.part, true, .quotaExceeded, false, .quotaExceeded),
+            (.part, true, .limitExceeded, false, .failed),
+            // Audio parts, deleted.
+            (.part, false, .zoneNotFound, false, .nothing),
+            (.part, false, .zoneNotFound, true, .nothing),
+            (.part, false, .unknownItem, false, .nothing),
+            (.part, false, .networkUnavailable, false, .network),
+            (.part, false, .accountTemporarilyUnavailable, false, .accountNeedsAttention),
+            (.part, false, .internalError, false, .failed),
+        ]
+        for (sent, isSave, code, deleting, expected) in rows {
+            let route = R.route(sent, isSave: isSave, code: code, deletingZone: deleting)
+            precondition(route == expected, "\(sent) save=\(isSave) \(code.rawValue) deleting=\(deleting): \(route)")
+        }
+    }
+
+    /// Changes that meet the missing zone during this Mac's delete are put
+    /// back if it's undone (including ones whose send finished after the
+    /// undo) and dropped once it's done.
+    static func testChangesHeldDuringThisMacsDelete() {
+        var hold = NoteSyncDeleteHold<String>()
+        precondition(hold.hold(["before"]) == ["before"], "no delete: put back at once")
+        hold.begin()
+        precondition(hold.isDeleting && hold.hold(["a"]).isEmpty)
+        precondition(hold.takeHeld() == ["a"] && hold.isDeleting, "taken while still deleting")
+        precondition(hold.hold(["b"]).isEmpty)
+        precondition(hold.undo() == ["b"] && !hold.isDeleting)
+        precondition(hold.hold(["late"]) == ["late"], "after the undo, put back at once")
+        hold.begin()
+        _ = hold.hold(["c"])
+        hold.finish()
+        precondition(hold.isDeleting, "sync turns off after a delete that went through")
+        precondition(hold.hold(["after"]).isEmpty, "nothing more is held, or put back")
+        precondition(hold.undo().isEmpty, "nothing held goes back after it went through")
+        hold.begin()
+        precondition(hold.undo().isEmpty, "a new delete starts with nothing held")
     }
 }
