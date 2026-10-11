@@ -407,25 +407,31 @@ struct NoteAudioDownloaderTests {
         precondition(downloaderChanges <= 3, "start (clearing an old failure) and end only: \(downloaderChanges)")
     }
 
-    /// A stopped download stops copying at once, not after the whole part.
+    /// A download stopped while a part is being copied stops at the next
+    /// chunk, not after the whole part.
     static func testStoppedAppendStopsCopying() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("quill-append-stop-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
+        let full: Int64 = 256 << 20
         let big = dir.appendingPathComponent("part")
         FileManager.default.createFile(atPath: big.path, contents: nil)
         let handle = try FileHandle(forWritingTo: big)
-        try handle.truncate(atOffset: 64 << 20)
+        try handle.truncate(atOffset: UInt64(full))
         try handle.close()
         let partial = dir.appendingPathComponent("joined")
         FileManager.default.createFile(atPath: partial.path, contents: nil)
+        func copied() -> Int64 {
+            (try? FileManager.default.attributesOfItem(atPath: partial.path)[.size] as? NSNumber)?.int64Value ?? 0
+        }
         let copying = Task { try await NoteAudioParts.append(big, to: partial, hashing: SHA256()) }
+        // Stopped once the copy is under way.
+        while copied() == 0 { try await Task.sleep(nanoseconds: 100_000) }
         copying.cancel()
         do {
             _ = try await copying.value
             preconditionFailure("a stopped copy doesn't finish")
         } catch is CancellationError {}
-        let size = (try FileManager.default.attributesOfItem(atPath: partial.path)[.size] as? NSNumber)?.int64Value ?? 0
-        precondition(size < 64 << 20, "stopped partway: \(size)")
+        precondition(copied() > 0 && copied() < full, "stopped partway: \(copied())")
     }
 }
