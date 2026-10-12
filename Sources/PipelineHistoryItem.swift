@@ -148,6 +148,12 @@ struct PipelineHistoryItem: Identifiable, Codable {
         machineStatus == .completed && !isIncompleteTranscription
     }
 
+    /// The transcript a person sees: the edited one, or the original while
+    /// there is no edited one. Clearing a transcript empties both.
+    var displayedTranscript: String {
+        postProcessedTranscript.isEmpty ? rawTranscript : postProcessedTranscript
+    }
+
     var isIncompleteTranscription: Bool {
         RecoveredRecordingContext.placeholderContext(for: postProcessingStatus) != nil
             || postProcessingStatus == "importing"
@@ -430,7 +436,8 @@ struct PipelineHistoryItem: Identifiable, Codable {
         spokenLanguageResolution: SpokenLanguageResolutionSource?,
         meetingSummaryAttempt: MeetingSummaryAttempt?,
         customTitle: String?,
-        postProcessedTranscript: String
+        postProcessedTranscript: String,
+        rawTranscript replacementRawTranscript: String? = nil
     ) -> PipelineHistoryItem {
         PipelineHistoryItem(
             intent: intent,
@@ -441,7 +448,7 @@ struct PipelineHistoryItem: Identifiable, Codable {
             recordingStartedAt: recordingStartedAt,
             recordingEndedAt: recordingEndedAt,
             calendarMatch: calendarMatch,
-            rawTranscript: rawTranscript,
+            rawTranscript: replacementRawTranscript ?? rawTranscript,
             postProcessedTranscript: postProcessedTranscript,
             postProcessingPrompt: postProcessingPrompt,
             systemPrompt: systemPrompt,

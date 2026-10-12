@@ -8171,13 +8171,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func updateTranscript(id: UUID, text: String) {
         guard requireAvailableHistoryForMutation(),
               let item = pipelineHistory.first(where: { $0.id == id }) else { return }
-        // 파일에도 동기화해서 앱 재시작 후 폴백 로딩 시에도 일관성 유지
-        if let fileName = item.transcriptFileName {
-            let fileURL = storageLayout.transcriptDirectory.appendingPathComponent(fileName)
-            try? text.write(to: fileURL, atomically: true, encoding: .utf8)
-        }
+        // An empty edited transcript means "show the original" across the
+        // app and on other Macs, so clearing the text (only spaces or line
+        // breaks left) clears the original too; otherwise it comes back.
+        let isCleared = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let text = isCleared ? "" : text
         let replacementSpokenLanguage: SpokenLanguageResolution?
         switch item.spokenLanguage?.source {
+        case _ where isCleared:
+            // Nothing to infer from; the recording's language stays.
+            replacementSpokenLanguage = item.spokenLanguage
         case .transcriptInferred, .unavailable:
             replacementSpokenLanguage = SpokenLanguageResolver.resolve(
                 requestedLanguageCode: item.transcriptionLanguageCode,
@@ -8195,10 +8198,24 @@ final class AppState: ObservableObject, @unchecked Sendable {
             spokenLanguageResolution: replacementSpokenLanguage?.source,
             meetingSummaryAttempt: item.meetingSummaryAttempt,
             customTitle: item.customTitle,
-            postProcessedTranscript: text
+            postProcessedTranscript: text,
+            rawTranscript: isCleared ? "" : nil
         )
         do {
-            try pipelineHistoryStore.update(updated)
+            // Clearing removes the original, so it needs the durable store.
+            try pipelineHistoryStore.update(updated, requiresDurableStore: isCleared)
+            // 파일에도 동기화해서 앱 재시작 후 폴백 로딩 시에도 일관성 유지.
+            // Only after the store saved. A cleared note whose file can't be
+            // emptied loses the file instead, or its old text would come
+            // back when the note is opened.
+            if let fileName = item.transcriptFileName {
+                let fileURL = storageLayout.transcriptDirectory.appendingPathComponent(fileName)
+                do {
+                    try text.write(to: fileURL, atomically: true, encoding: .utf8)
+                } catch where isCleared {
+                    try? FileManager.default.removeItem(at: fileURL)
+                } catch {}
+            }
             if let index = pipelineHistory.firstIndex(where: { $0.id == id }) {
                 pipelineHistory[index] = updated
             }
@@ -8807,7 +8824,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard requireAvailableHistoryForMutation(),
               postProcessingRetryBlocker(for: item) == nil,
               !retryingItemIDs.contains(item.id) else { return }
-        let rawTranscript = item.rawTranscript
+        let storedRawTranscript = item.rawTranscript
+        let storedEditedTranscript = item.postProcessedTranscript
+        let rawTranscript = storedRawTranscript
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         let restored = restoredRetryInputs(for: item)
@@ -8844,7 +8863,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 self.retryingItemIDs.remove(noteID)
                 self.postProcessingNoteIDs.remove(noteID)
             }
-            guard let current = self.pipelineHistory.first(where: { $0.id == noteID }) else { return }
+            // The transcript changed meanwhile (edited, cleared, or
+            // transcribed again): this result would replace newer text.
+            guard let current = self.pipelineHistory.first(where: { $0.id == noteID }),
+                  current.rawTranscript == storedRawTranscript,
+                  current.postProcessedTranscript == storedEditedTranscript else { return }
             // Keep the note's raw transcript and audio; replace only the
             // cleaned text and its outcome.
             let replacement = PipelineHistoryTranscriptionReplacement(

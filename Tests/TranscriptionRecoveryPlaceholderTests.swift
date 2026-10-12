@@ -12,6 +12,7 @@ struct TranscriptionRecoveryPlaceholderTests {
         testCloudTranscribingStatusIsTypedAndIncomplete()
         testCloudTranscribingPlaceholderIsNotNormalizedBeforeReconciliation()
         testCompletedItemIsNotIncomplete()
+        testDisplayedTranscriptFallsBackToTheOriginalUntilCleared()
         testOnlyFinishedNotesKeepTheTranscriptEditorWhenEmpty()
         print("TranscriptionRecoveryPlaceholderTests passed")
     }
@@ -259,6 +260,27 @@ struct TranscriptionRecoveryPlaceholderTests {
             assert(!makeHistoryItem(postProcessingStatus: status, audioFileName: "recording.wav")
                 .keepsTranscriptEditorWhenEmpty, status)
         }
+    }
+
+    private static func testDisplayedTranscriptFallsBackToTheOriginalUntilCleared() {
+        func item(raw: String, edited: String) -> PipelineHistoryItem {
+            PipelineHistoryItem(
+                timestamp: Date(timeIntervalSince1970: 1_800_000_000),
+                rawTranscript: raw,
+                postProcessedTranscript: edited,
+                postProcessingPrompt: nil,
+                contextSummary: "",
+                contextPrompt: nil,
+                contextScreenshotDataURL: nil,
+                contextScreenshotStatus: "No screenshot",
+                postProcessingStatus: "Post-processing succeeded",
+                debugStatus: "",
+                customVocabulary: ""
+            )
+        }
+        assert(item(raw: "raw words", edited: "edited words").displayedTranscript == "edited words")
+        assert(item(raw: "raw words", edited: "").displayedTranscript == "raw words")
+        assert(item(raw: "", edited: "").displayedTranscript.isEmpty)
     }
 
     private static func makeHistoryItem(postProcessingStatus: String, audioFileName: String?) -> PipelineHistoryItem {

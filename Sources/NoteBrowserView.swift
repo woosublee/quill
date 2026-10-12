@@ -2727,10 +2727,11 @@ private struct NoteDetailView: View {
                 userChoseContentModeDuringSearch = false
             }
         }
-        .onChange(of: item.postProcessedTranscript) { newValue in
-            if !newValue.isEmpty {
-                loadedContent = newValue
-            }
+        // Follows the transcript as it changes outside the view, including
+        // one cleared on another Mac, which arrives with both transcripts
+        // empty.
+        .onChange(of: item.displayedTranscript) { newValue in
+            loadedContent = newValue
         }
         // A Summary tab that goes away (a first summary that didn't finish)
         // hands the view back to the transcript.
@@ -5048,7 +5049,10 @@ private struct NoteTextView: NSViewRepresentable {
         // shows even while the editor has focus. It waits only while typed
         // text is waiting to be saved or a character is being composed, so
         // typing is never replaced.
-        if currentContent != newContent,
+        // Blank on both sides counts as the same: a space typed into an
+        // empty transcript is saved as empty and must stay on screen.
+        let bothBlank = currentContent.allSatisfy(\.isWhitespace) && newContent.allSatisfy(\.isWhitespace)
+        if currentContent != newContent, !bothBlank,
            !context.coordinator.hasPendingEdit,
            !textView.hasMarkedText() {
             let selection = textView.selectedRange()
