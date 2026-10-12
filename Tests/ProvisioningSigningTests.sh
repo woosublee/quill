@@ -44,7 +44,11 @@ export FAKE_UDID="$this_mac"
 # A synthetic, unsigned profile: the script reads plain plists as well as
 # signed ones, so no real profile or certificate is needed here.
 write_profile() {
-  local path="$1" app_id="$2" environments="$3" expires="$4" devices="$5" services="${6:-*}" aps="${7-development}"
+  local path="$1" app_id="$2" environments="$3" expires="$4" devices="$5" services="${6:-*}"
+  # Development profiles carry development push; Developer ID ones production.
+  local default_aps=production
+  case " $environments " in *" Development "*) default_aps=development ;; esac
+  local aps="${7-$default_aps}"
   local environment_items="" device_block="" aps_block=""
   for environment in $environments; do
     environment_items+="<string>$environment</string>"
@@ -148,10 +152,17 @@ no_push="$temporary_dir/no-push.provisionprofile"
 write_profile "$no_push" "TEAMID1234.com.example.notes.dev" "Development" "2099-01-01T00:00:00Z" "$this_mac" "*" ""
 expect_failure "profile without push notifications" \
   entitlements "$no_push" com.example.notes.dev Development iCloud.com.example.notes "$cert_b_hash" "$base" "$out"
-production_push="$temporary_dir/production-push.provisionprofile"
-write_profile "$production_push" "TEAMID1234.com.example.notes.dev" "Production Development" "2099-01-01T00:00:00Z" "$this_mac" "*" "production"
-expect_failure "production push with Development CloudKit" \
-  entitlements "$production_push" com.example.notes.dev Development iCloud.com.example.notes "$cert_b_hash" "$base" "$out"
+unknown_push="$temporary_dir/unknown-push.provisionprofile"
+write_profile "$unknown_push" "TEAMID1234.com.example.notes.dev" "Development" "2099-01-01T00:00:00Z" "$this_mac" "*" "staging"
+expect_failure "unknown push environment" \
+  entitlements "$unknown_push" com.example.notes.dev Development iCloud.com.example.notes "$cert_b_hash" "$base" "$out"
+
+# A development profile can still sign against Production CloudKit; it
+# warns, because its sandbox pushes never arrive there.
+warnings="$(entitlements "$profile" com.example.notes.dev Production iCloud.com.example.notes "$cert_b_hash" "$base" "$out" 2>&1 >/dev/null)"
+[ "$(read_key com.apple.developer.icloud-container-environment)" = "Production" ] || fail "development profile with Production"
+[ "$(read_key com.apple.developer.aps-environment)" = "development" ] || fail "push environment kept from the profile"
+printf '%s' "$warnings" | grep -q "pushes won't arrive" || fail "mismatch warning"
 
 # A Developer ID profile lists no devices and allows only Production.
 production_only="$temporary_dir/production.provisionprofile"

@@ -122,6 +122,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appState.waitForPendingRecordingPieceRemovals(timeout: 2)
     }
 
+    /// iCloud sync registers for CloudKit pushes; without them another Mac's
+    /// changes show only when Quill comes to the front.
+    func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        print("[NoteSync] Push registration failed")
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         guard appState.hasCompletedSetup else { return true }
         if appState.noteBrowserEnabled {

@@ -8,9 +8,9 @@ import Network
 /// records it asks for, and hands back what it fetched and sent. The engine
 /// asks the server by itself after a CloudKit push, at start, and when the
 /// app comes to the front. The fetches asked for here (every minute while
-/// sync is on, and when the Mac wakes or the network comes back) reach the
-/// server only once the engine knows something changed; on macOS they are
-/// otherwise a quick no-op.
+/// sync is on, and when the Mac wakes or the network comes back) reached the
+/// server in testing on macOS 27 only once the engine knew something
+/// changed, and otherwise returned at once; they stay as a fallback.
 @available(macOS 14.0, *)
 final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPartFetching, CKSyncEngineDelegate, @unchecked Sendable {
     static let fetchInterval: TimeInterval = 60

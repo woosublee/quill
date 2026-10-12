@@ -3,12 +3,13 @@
 #
 #   provisioning.sh entitlements <profile> <bundle-id> <environment> <container> <identity> <base> <output>
 #     Writes <base> plus the iCloud and push entitlements the profile allows to
-#     <output>. Fails, writing nothing, when the profile is for another app, does
-#     not allow the container, CloudKit, the environment, or push notifications
-#     in the same environment (CKSyncEngine learns of remote changes from
-#     CloudKit pushes), does not list the
-#     signing identity or this Mac, or has expired. <identity> is the
-#     codesign identity: a SHA-1 hash or a name from the keychain.
+#     <output>. Fails, writing nothing, when the profile is for another app,
+#     does not allow the container, CloudKit, the environment, or push
+#     notifications (CKSyncEngine learns of remote changes from CloudKit
+#     pushes), does not list the signing identity or this Mac, or has
+#     expired. Warns when the push environment differs from the CloudKit one,
+#     since pushes then never arrive. <identity> is the codesign identity: a
+#     SHA-1 hash or a name from the keychain.
 #   provisioning.sh identity <profile>
 #     Prints the SHA-1 of the first keychain signing identity whose
 #     certificate the profile lists.
@@ -100,9 +101,15 @@ write_entitlements() {
     fail "profile does not allow the $environment environment"
   aps="$(value "$decoded" "Entitlements:com.apple.developer.aps-environment")" ||
     fail "profile does not allow push notifications; enable Push Notifications for the App ID and download the profile again"
-  # Development CloudKit pushes go through the sandbox push service.
+  case "$aps" in
+    development|production) ;;
+    *) fail "profile has an unknown push environment: ${aps:-empty}" ;;
+  esac
+  # Development CloudKit pushes go through the sandbox push service, so a
+  # mismatch signs but never receives pushes; sync then waits for the app
+  # to come to the front.
   [ "$aps" = "$(printf '%s' "$environment" | tr '[:upper:]' '[:lower:]')" ] ||
-    fail "profile allows ${aps:-no} push notifications, not $environment"
+    echo "provisioning.sh: warning: profile allows $aps push notifications, not $environment; pushes won't arrive" >&2
 
   profile_certificate_hashes "$decoded" > "$workdir/profile-certs"
   identity_hashes "$identity" | grep -Fxq -f "$workdir/profile-certs" ||
