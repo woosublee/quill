@@ -252,6 +252,7 @@ struct AppStateTranscriptionConfigurationTests {
         testResolvedRetryChoiceFollowsTranscriptionOffPolicy()
         try await testPickedRetryModelLeavesTranscriptionSettingsUnchanged()
         try await testRetryPostProcessingCleansStoredTranscriptWithoutTranscribing()
+        try await testRetryPostProcessingDropsAResultAfterTheTranscriptChanged()
         testTitleBarDoubleClickFollowsSystemSetting()
         try testSettingsWindowUsesUnifiedTitleBar()
         try await testRetryPreservesMeetingSummaryMetadata()
@@ -4079,6 +4080,72 @@ struct AppStateTranscriptionConfigurationTests {
         precondition(!dragArea.contains("if event.clickCount == 2 {\n                window?.performZoom(nil)"))
     }
 
+    /// Clearing the transcript while a cleanup retry runs: the result,
+    /// cleaned from the old text, must not bring it back.
+    private static func testRetryPostProcessingDropsAResultAfterTheTranscriptChanged() async throws {
+        try await AppStateTestStorage.withIsolatedStorage { environment in
+            resetDefaults()
+            let store = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
+            var dependencies = environment.dependencies
+            dependencies.makePipelineHistoryStore = { _ in store }
+            let originalItem = PipelineHistoryItem(
+                timestamp: Date(timeIntervalSince1970: 1),
+                rawTranscript: "Original words",
+                postProcessedTranscript: "Original words",
+                postProcessingPrompt: nil,
+                contextSummary: "",
+                contextScreenshotDataURL: nil,
+                contextScreenshotStatus: "No screenshot",
+                postProcessingStatus: QuillUserIssueRecord(
+                    code: .postProcessingFailed,
+                    context: QuillUserIssueContext(
+                        operation: .postProcessing,
+                        postProcessingFailureReason: .serviceRequestFailed
+                    )
+                ).persistedStatus,
+                debugStatus: "Done",
+                customVocabulary: "",
+                usedLocalTranscription: true
+            )
+            _ = try store.append(originalItem, maxCount: 10)
+
+            let gate = CleanupRetryGate()
+            let originalTransport = AppState.postProcessingTransport
+            defer { AppState.postProcessingTransport = originalTransport }
+            AppState.postProcessingTransport = { request in
+                while !(await gate.isOpen) {
+                    try await Task.sleep(nanoseconds: 10_000_000)
+                }
+                let data = try JSONSerialization.data(withJSONObject: [
+                    "choices": [["message": ["content": "Cleaned original words."]]]
+                ])
+                return (
+                    data,
+                    HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                )
+            }
+
+            let configuredDependencies = dependencies
+            let appState = await MainActor.run { AppState(dependencies: configuredDependencies) }
+            await MainActor.run {
+                appState.apiKey = "post-processing-key"
+                appState.postProcessingBackendChoice = .cloud(modelID: "provider/model")
+                appState.retryPostProcessing(item: originalItem)
+                precondition(appState.retryingItemIDs.contains(originalItem.id))
+                appState.updateTranscript(id: originalItem.id, text: "")
+            }
+            await gate.open()
+            await waitUntil(timeoutNanoseconds: 5_000_000_000) {
+                !appState.retryingItemIDs.contains(originalItem.id)
+            }
+            let item = try requireHistoryItem(withID: originalItem.id, in: store.loadAllHistory())
+            precondition(
+                item.postProcessedTranscript.isEmpty && item.rawTranscript.isEmpty,
+                "A cleanup retry that finishes after a clear must not bring the text back"
+            )
+        }
+    }
+
     private static func testRetryPostProcessingCleansStoredTranscriptWithoutTranscribing() async throws {
         try await AppStateTestStorage.withIsolatedStorage { environment in
             resetDefaults()
@@ -5334,4 +5401,10 @@ private final class LocalAICompletionBox: @unchecked Sendable {
         lock.lock(); let completion = completion; lock.unlock()
         completion?(.success(()))
     }
+}
+
+/// Holds a fake cleanup request until the test opens it.
+private actor CleanupRetryGate {
+    private(set) var isOpen = false
+    func open() { isOpen = true }
 }
