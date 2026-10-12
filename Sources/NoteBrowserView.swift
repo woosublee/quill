@@ -2382,6 +2382,10 @@ private struct NoteDetailView: View {
     @State private var isApplyingOutsideTitle = false
     /// A typed title is waiting to be saved; an outside change waits too.
     @State private var hasPendingTitleSave = false
+    /// The person opened the editor of an empty finished note, or emptied
+    /// it while typing; leaving it empty shows the empty state again.
+    @State private var isTypingInEmptyTranscript = false
+    @State private var isHoveringEmptyTranscript = false
     @State private var showDeleteConfirmation = false
     @State private var showDeleteChoice = false
     @State private var showRegenerateEditedConfirmation = false
@@ -3182,7 +3186,8 @@ private struct NoteDetailView: View {
                 onUseNew: { useNewTranscript() }
             )
             .id(item.id)
-        } else if displayContent.isEmpty && !item.keepsTranscriptEditorWhenEmpty {
+        } else if displayContent.isEmpty
+                    && !(item.keepsTranscriptEditorWhenEmpty && isTypingInEmptyTranscript) {
             emptyContentState
         } else {
             VStack(spacing: 0) {
@@ -3230,8 +3235,18 @@ private struct NoteDetailView: View {
                 NoteTextView(
                     text: displayContent,
                     bottomPadding: 36,
-                    highlightedSourceQuote: highlightedSourceQuote
+                    highlightedSourceQuote: highlightedSourceQuote,
+                    focusOnAppear: isTypingInEmptyTranscript && displayContent.isEmpty,
+                    onEndEditing: { text in
+                        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            isTypingInEmptyTranscript = false
+                        }
+                    }
                 ) { edited in
+                    // Emptied while typing: the editor stays until focus leaves.
+                    if edited.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        isTypingInEmptyTranscript = true
+                    }
                     loadedContent = edited
                     appState.updateTranscript(id: item.id, text: edited)
                 }
@@ -3640,23 +3655,48 @@ private struct NoteDetailView: View {
                     )
                     .padding(.horizontal, 60)
                 }
-            } else {
-                ZStack {
-                    Circle()
-                        .fill(Color.primary.opacity(0.04))
-                        .frame(width: 80, height: 80)
-                    Image(systemName: "doc.text")
-                        .font(.system(size: 30, weight: .ultraLight))
-                        .foregroundStyle(.tertiary)
+            } else if item.keepsTranscriptEditorWhenEmpty {
+                // A finished note with no transcript: clicking opens the
+                // editor. The toolbar below still offers transcribing again.
+                Button {
+                    isTypingInEmptyTranscript = true
+                } label: {
+                    VStack(spacing: 14) {
+                        noContentLabel
+                        Text("Click to type")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.tertiary)
+                            .opacity(isHoveringEmptyTranscript ? 1 : 0)
+                    }
+                    .contentShape(Rectangle())
                 }
-                Text("No content")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.tertiary)
+                .buttonStyle(.plain)
+                .onHover { isHoveringEmptyTranscript = $0 }
+                .overrideCursor(.iBeam)
+                .accessibilityHint(Text("Click to type"))
+            } else {
+                noContentLabel
             }
             Spacer()
         }
         .padding(.bottom, Self.floatingToolbarClearance)
         .frame(maxWidth: .infinity)
+    }
+
+    private var noContentLabel: some View {
+        VStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Color.primary.opacity(0.04))
+                    .frame(width: 80, height: 80)
+                Image(systemName: "doc.text")
+                    .font(.system(size: 30, weight: .ultraLight))
+                    .foregroundStyle(.tertiary)
+            }
+            Text("No content")
+                .font(.system(size: 14))
+                .foregroundStyle(.tertiary)
+        }
     }
 
     /// A recording startup recovery could not restore. With no audio left,
@@ -4858,17 +4898,25 @@ private struct NoteTextView: NSViewRepresentable {
     let text: String
     let bottomPadding: CGFloat
     let highlightedSourceQuote: String?
+    /// Puts the cursor in the text once it appears.
+    let focusOnAppear: Bool
+    /// Called with the text when the editor loses focus.
+    let onEndEditing: ((String) -> Void)?
     let onCommit: ((String) -> Void)?
 
     init(
         text: String,
         bottomPadding: CGFloat = 0,
         highlightedSourceQuote: String? = nil,
+        focusOnAppear: Bool = false,
+        onEndEditing: ((String) -> Void)? = nil,
         onCommit: ((String) -> Void)? = nil
     ) {
         self.text = text
         self.bottomPadding = bottomPadding
         self.highlightedSourceQuote = highlightedSourceQuote
+        self.focusOnAppear = focusOnAppear
+        self.onEndEditing = onEndEditing
         self.onCommit = onCommit
     }
 
@@ -4921,12 +4969,22 @@ private struct NoteTextView: NSViewRepresentable {
             highlightedSourceQuote,
             to: textView
         )
+        context.coordinator.onEndEditing = onEndEditing
+        if focusOnAppear {
+            // The view isn't in a window until after this returns.
+            DispatchQueue.main.async { [weak textView] in
+                guard let textView else { return }
+                textView.window?.makeFirstResponder(textView)
+                textView.setSelectedRange(NSRange(location: 0, length: 0))
+            }
+        }
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
         context.coordinator.onCommit = onCommit
+        context.coordinator.onEndEditing = onEndEditing
         let currentContent = textView.string.trimmingCharacters(in: .newlines)
         let newContent = text.trimmingCharacters(in: .newlines)
         if textView.window?.firstResponder !== textView, currentContent != newContent {
@@ -4958,6 +5016,7 @@ private struct NoteTextView: NSViewRepresentable {
 
     class Coordinator: NSObject, NSTextViewDelegate {
         var onCommit: ((String) -> Void)?
+        var onEndEditing: ((String) -> Void)?
         private var debounceTimer: Timer?
         private var lastHighlightedQuote: String?
         private var highlightedRange: NSRange?
@@ -5038,6 +5097,11 @@ private struct NoteTextView: NSViewRepresentable {
             }
             RunLoop.current.add(timer, forMode: .common)
             debounceTimer = timer
+        }
+
+        func textDidEndEditing(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            onEndEditing?(textView.string.trimmingCharacters(in: .newlines))
         }
     }
 }
