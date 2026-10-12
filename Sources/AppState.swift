@@ -8171,11 +8171,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
     func updateTranscript(id: UUID, text: String) {
         guard requireAvailableHistoryForMutation(),
               let item = pipelineHistory.first(where: { $0.id == id }) else { return }
-        // 파일에도 동기화해서 앱 재시작 후 폴백 로딩 시에도 일관성 유지
-        if let fileName = item.transcriptFileName {
-            let fileURL = storageLayout.transcriptDirectory.appendingPathComponent(fileName)
-            try? text.write(to: fileURL, atomically: true, encoding: .utf8)
-        }
+        // An empty edited transcript means "show the original" across the
+        // app and on other Macs, so clearing the text (only spaces or line
+        // breaks left) clears the original too; otherwise it comes back.
+        let isCleared = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let text = isCleared ? "" : text
         let replacementSpokenLanguage: SpokenLanguageResolution?
         switch item.spokenLanguage?.source {
         case .transcriptInferred, .unavailable:
@@ -8196,13 +8196,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
             meetingSummaryAttempt: item.meetingSummaryAttempt,
             customTitle: item.customTitle,
             postProcessedTranscript: text,
-            // An empty edited transcript means "show the original" across
-            // the app and on other Macs, so clearing the text clears the
-            // original too; otherwise it comes back.
-            rawTranscript: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : nil
+            rawTranscript: isCleared ? "" : nil
         )
         do {
             try pipelineHistoryStore.update(updated)
+            // 파일에도 동기화해서 앱 재시작 후 폴백 로딩 시에도 일관성 유지.
+            // Only after the store saved, so the two never disagree.
+            if let fileName = item.transcriptFileName {
+                let fileURL = storageLayout.transcriptDirectory.appendingPathComponent(fileName)
+                try? text.write(to: fileURL, atomically: true, encoding: .utf8)
+            }
             if let index = pipelineHistory.firstIndex(where: { $0.id == id }) {
                 pipelineHistory[index] = updated
             }

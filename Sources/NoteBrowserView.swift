@@ -2727,15 +2727,11 @@ private struct NoteDetailView: View {
                 userChoseContentModeDuringSearch = false
             }
         }
-        .onChange(of: item.postProcessedTranscript) { newValue in
-            if !newValue.isEmpty {
-                loadedContent = newValue
-            }
-        }
-        // A note cleared on another Mac arrives with both transcripts
-        // empty; show it cleared rather than the old text.
-        .onChange(of: item.postProcessedTranscript.isEmpty && item.rawTranscript.isEmpty) { isCleared in
-            if isCleared { loadedContent = "" }
+        // Follows the transcript as it changes outside the view, including
+        // one cleared on another Mac, which arrives with both transcripts
+        // empty.
+        .onChange(of: item.displayedTranscript) { newValue in
+            loadedContent = newValue
         }
         // A Summary tab that goes away (a first summary that didn't finish)
         // hands the view back to the transcript.

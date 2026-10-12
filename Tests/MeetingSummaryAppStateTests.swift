@@ -782,6 +782,7 @@ struct MeetingSummaryAppStateTests {
             return appState.pipelineHistory.first { $0.id == other.id }
         }
         precondition(blank?.rawTranscript.isEmpty == true, "A blank transcript must clear the original")
+        precondition(blank?.postProcessedTranscript.isEmpty == true, "A blank transcript is saved empty")
     }
 
     private static func testTranscriptEditingPreservesNonEditedMetadata() async throws {
