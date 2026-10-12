@@ -4113,6 +4113,7 @@ struct AppStateTranscriptionConfigurationTests {
             let originalTransport = AppState.postProcessingTransport
             defer { AppState.postProcessingTransport = originalTransport }
             AppState.postProcessingTransport = { request in
+                await gate.markEntered()
                 while !(await gate.isOpen) {
                     try await Task.sleep(nanoseconds: 10_000_000)
                 }
@@ -4132,6 +4133,15 @@ struct AppStateTranscriptionConfigurationTests {
                 appState.postProcessingBackendChoice = .cloud(modelID: "provider/model")
                 appState.retryPostProcessing(item: originalItem)
                 precondition(appState.retryingItemIDs.contains(originalItem.id))
+            }
+            // Clear only once the cleanup request is in flight.
+            var waited = 0
+            while !(await gate.hasEntered) {
+                waited += 1
+                precondition(waited < 500, "The cleanup request never started")
+                try await Task.sleep(nanoseconds: 10_000_000)
+            }
+            await MainActor.run {
                 appState.updateTranscript(id: originalItem.id, text: "")
             }
             await gate.open()
@@ -5405,6 +5415,8 @@ private final class LocalAICompletionBox: @unchecked Sendable {
 
 /// Holds a fake cleanup request until the test opens it.
 private actor CleanupRetryGate {
+    private(set) var hasEntered = false
     private(set) var isOpen = false
+    func markEntered() { hasEntered = true }
     func open() { isOpen = true }
 }

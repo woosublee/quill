@@ -8205,10 +8205,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
             // Clearing removes the original, so it needs the durable store.
             try pipelineHistoryStore.update(updated, requiresDurableStore: isCleared)
             // 파일에도 동기화해서 앱 재시작 후 폴백 로딩 시에도 일관성 유지.
-            // Only after the store saved, so the two never disagree.
+            // Only after the store saved. A cleared note whose file can't be
+            // emptied loses the file instead, or its old text would come
+            // back when the note is opened.
             if let fileName = item.transcriptFileName {
                 let fileURL = storageLayout.transcriptDirectory.appendingPathComponent(fileName)
-                try? text.write(to: fileURL, atomically: true, encoding: .utf8)
+                do {
+                    try text.write(to: fileURL, atomically: true, encoding: .utf8)
+                } catch where isCleared {
+                    try? FileManager.default.removeItem(at: fileURL)
+                } catch {}
             }
             if let index = pipelineHistory.firstIndex(where: { $0.id == id }) {
                 pipelineHistory[index] = updated
