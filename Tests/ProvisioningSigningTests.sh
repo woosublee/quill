@@ -45,7 +45,11 @@ export FAKE_UDID="$this_mac"
 # signed ones, so no real profile or certificate is needed here.
 write_profile() {
   local path="$1" app_id="$2" environments="$3" expires="$4" devices="$5" services="${6:-*}"
-  local environment_items="" device_block=""
+  # Development profiles carry development push; Developer ID ones production.
+  local default_aps=production
+  case " $environments " in *" Development "*) default_aps=development ;; esac
+  local aps="${7-$default_aps}"
+  local environment_items="" device_block="" aps_block=""
   for environment in $environments; do
     environment_items+="<string>$environment</string>"
   done
@@ -55,6 +59,9 @@ write_profile() {
       device_block+="<string>$device</string>"
     done
     device_block+="</array>"
+  fi
+  if [ -n "$aps" ]; then
+    aps_block="<key>com.apple.developer.aps-environment</key><string>$aps</string>"
   fi
   cat > "$path" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -78,6 +85,7 @@ write_profile() {
     <key>com.apple.developer.icloud-services</key><string>$services</string>
     <key>com.apple.developer.icloud-container-environment</key>
     <array>$environment_items</array>
+    $aps_block
   </dict>
 </dict>
 </plist>
@@ -105,6 +113,7 @@ read_key() {
 [ "$(read_key com.apple.developer.icloud-container-identifiers:0)" = "iCloud.com.example.notes" ] || fail "container"
 [ "$(read_key com.apple.developer.icloud-services:0)" = "CloudKit" ] || fail "CloudKit service"
 [ "$(read_key com.apple.developer.icloud-container-environment)" = "Development" ] || fail "environment"
+[ "$(read_key com.apple.developer.aps-environment)" = "development" ] || fail "push environment"
 # The base entitlements are kept unchanged.
 for key in com.apple.security.device.audio-input com.apple.security.cs.disable-library-validation com.apple.security.personal-information.calendars; do
   [ "$(read_key "$key")" = "true" ] || fail "base entitlement $key"
@@ -139,14 +148,31 @@ write_profile "$documents_only" "TEAMID1234.com.example.notes.dev" "Development"
 expect_failure "profile without CloudKit" \
   entitlements "$documents_only" com.example.notes.dev Development iCloud.com.example.notes "$cert_b_hash" "$base" "$out"
 
+no_push="$temporary_dir/no-push.provisionprofile"
+write_profile "$no_push" "TEAMID1234.com.example.notes.dev" "Development" "2099-01-01T00:00:00Z" "$this_mac" "*" ""
+expect_failure "profile without push notifications" \
+  entitlements "$no_push" com.example.notes.dev Development iCloud.com.example.notes "$cert_b_hash" "$base" "$out"
+unknown_push="$temporary_dir/unknown-push.provisionprofile"
+write_profile "$unknown_push" "TEAMID1234.com.example.notes.dev" "Development" "2099-01-01T00:00:00Z" "$this_mac" "*" "staging"
+expect_failure "unknown push environment" \
+  entitlements "$unknown_push" com.example.notes.dev Development iCloud.com.example.notes "$cert_b_hash" "$base" "$out"
+
+# A development profile can still sign against Production CloudKit; it
+# warns, because its sandbox pushes never arrive there.
+warnings="$(entitlements "$profile" com.example.notes.dev Production iCloud.com.example.notes "$cert_b_hash" "$base" "$out" 2>&1 >/dev/null)"
+[ "$(read_key com.apple.developer.icloud-container-environment)" = "Production" ] || fail "development profile with Production"
+[ "$(read_key com.apple.developer.aps-environment)" = "development" ] || fail "push environment kept from the profile"
+printf '%s' "$warnings" | grep -q "pushes won't arrive" || fail "mismatch warning"
+
 # A Developer ID profile lists no devices and allows only Production.
 production_only="$temporary_dir/production.provisionprofile"
-write_profile "$production_only" "TEAMID1234.com.example.notes" "Production" "2099-01-01T00:00:00Z" ""
+write_profile "$production_only" "TEAMID1234.com.example.notes" "Production" "2099-01-01T00:00:00Z" "" "*" "production"
 expect_failure "Development on a Production-only profile" \
   entitlements "$production_only" com.example.notes Development iCloud.com.example.notes "$cert_a_hash" "$base" "$out"
 FAKE_UDID="00000000-SYNTHETIC-UNREGISTERED" \
   entitlements "$production_only" com.example.notes Production iCloud.com.example.notes "$cert_a_hash" "$base" "$out"
 [ "$(read_key com.apple.developer.icloud-container-environment)" = "Production" ] || fail "production environment"
+[ "$(read_key com.apple.developer.aps-environment)" = "production" ] || fail "production push environment"
 
 expired="$temporary_dir/expired.provisionprofile"
 write_profile "$expired" "TEAMID1234.com.example.notes" "Production" "2001-01-01T00:00:00Z" ""

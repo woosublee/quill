@@ -122,6 +122,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         appState.waitForPendingRecordingPieceRemovals(timeout: 2)
     }
 
+    /// iCloud sync registers for CloudKit pushes; without them another Mac's
+    /// changes mostly wait until Quill comes to the front. Only the error's
+    /// domain and code are printed.
+    func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        let nsError = error as NSError
+        print("[NoteSync] Push registration failed: \(nsError.domain) \(nsError.code)")
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         guard appState.hasCompletedSetup else { return true }
         if appState.noteBrowserEnabled {
