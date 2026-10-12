@@ -422,6 +422,7 @@ private struct RecoveryScrollRestoreRequest: Identifiable {
 struct NoteBrowserView: View {
     @EnvironmentObject var appState: AppState
     @State private var selection = NoteSelection()
+    @State private var titleBarExtraHeight: CGFloat = 0
     @State private var pendingDeletionIDs: [UUID] = []
     /// A short notice when a deletion has to wait, such as for Recover Again.
     @State private var deletionNotice: String?
@@ -793,6 +794,22 @@ struct NoteBrowserView: View {
     }
 
     var body: some View {
+        // Reads the window's title bar height before the panels run under it.
+        GeometryReader { proxy in
+            browserBody
+                .onAppear {
+                    titleBarExtraHeight = TitleBarLayout.extraHeight(titleBarHeight: proxy.safeAreaInsets.top)
+                }
+                .onChange(of: proxy.safeAreaInsets.top) { height in
+                    titleBarExtraHeight = TitleBarLayout.extraHeight(titleBarHeight: height)
+                }
+        }
+        // A GeometryReader has no minimum of its own, so the window's minimum
+        // size is set here; inside it would not reach the window.
+        .frame(minWidth: 800, minHeight: 520)
+    }
+
+    private var browserBody: some View {
         Group {
             if appState.isHistoryUnavailable {
                 historyUnavailableView
@@ -800,8 +817,8 @@ struct NoteBrowserView: View {
                 HStack(spacing: 0) {
             sidebarPanel
             detailPanel
-                // The note runs under the title bar too; its date line lines
-                // up with the traffic lights, and the space around it drags.
+                // The note runs under the title bar too, its header just below
+                // the traffic lights' row, and the space around it drags.
                 .ignoresSafeArea(.container, edges: .top)
                 .overlay(alignment: .top) {
                     WindowDragArea()
@@ -830,7 +847,6 @@ struct NoteBrowserView: View {
                     )
                 }
         }
-        .frame(minWidth: 800, minHeight: 520)
         .onAppear {
             let ids = Set(appState.pipelineHistory.map(\.id))
             knownHistoryIDs = ids
@@ -1227,9 +1243,9 @@ struct NoteBrowserView: View {
         }
         .padding(.leading, 90)
         .padding(.trailing, 10)
-        // Matches the unified toolbar's title bar height, where the traffic
-        // lights are vertically centered.
-        .frame(height: 52)
+        // The designed title bar height; the traffic lights are centered on
+        // this row even where the bar is taller.
+        .frame(height: TitleBarLayout.designedHeight)
         .background(WindowDragArea())
     }
 
@@ -1238,6 +1254,10 @@ struct NoteBrowserView: View {
     private var sidebarHeader: some View {
         VStack(spacing: 0) {
             sidebarTitleRow
+            // Keeps the row below out of a title bar taller than designed.
+            Color.clear
+                .frame(height: titleBarExtraHeight)
+                .background(WindowDragArea())
             // Selection mode and search swap the source and model row for the
             // selected count and Select All, or the search field, so the
             // header keeps its height.
@@ -1612,7 +1632,8 @@ struct NoteBrowserView: View {
             NoteDetailView(
                 item: item,
                 isSearchActive: isSearchActive,
-                prefersSummaryTab: searchMatcher.matchesOnlyInSummary(item, query: searchText)
+                prefersSummaryTab: searchMatcher.matchesOnlyInSummary(item, query: searchText),
+                titleBarExtraHeight: titleBarExtraHeight
             ) {
                 deleteConfirmedNote(id)
             }
@@ -2386,6 +2407,9 @@ private struct NoteDetailView: View {
     /// True while the Note Browser search matches this note only in its
     /// saved summary, so the note opens on the Summary tab.
     let prefersSummaryTab: Bool
+    /// How far the window's title bar reaches below its designed height;
+    /// the header moves down by it (see `TitleBarLayout`).
+    let titleBarExtraHeight: CGFloat
     let onDelete: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme
@@ -2949,8 +2973,9 @@ private struct NoteDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 40)
-        // Under the transparent title bar, just below the traffic lights' row.
-        .padding(.top, 32)
+        // Under the transparent title bar, just below the traffic lights' row,
+        // and below the title bar's band where it is taller than designed.
+        .padding(.top, 32 + titleBarExtraHeight)
         .padding(.bottom, 14)
         .overlay(alignment: .bottom) {
             Divider().opacity(QuillContrast.opacity(0.4, increased: increasesContrast))
