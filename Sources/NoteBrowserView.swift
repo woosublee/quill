@@ -2377,11 +2377,9 @@ private struct NoteDetailView: View {
     @State private var titleDraft = ""
     @State private var isRetrying = false
     @State private var titleDebounceTimer: Timer?
-    /// Set while the field takes a title that changed outside it, so that
-    /// change isn't saved back as an edit.
-    @State private var isApplyingOutsideTitle = false
-    /// A typed title is waiting to be saved; an outside change waits too.
-    @State private var hasPendingTitleSave = false
+    /// The title the field took from outside it, such as from another Mac;
+    /// the field's change to it isn't saved back as an edit.
+    @State private var appliedOutsideTitle: String?
     /// The person opened the editor of an empty finished note, or emptied
     /// it while typing; leaving it empty shows the empty state again.
     @State private var isTypingInEmptyTranscript = false
@@ -2825,7 +2823,7 @@ private struct NoteDetailView: View {
     /// Shows a title that didn't come from typing, without saving it back.
     private func applyOutsideTitle(_ title: String) {
         guard title != titleDraft else { return }
-        isApplyingOutsideTitle = true
+        appliedOutsideTitle = title
         titleDraft = title
     }
 
@@ -2840,16 +2838,17 @@ private struct NoteDetailView: View {
             )
             .frame(minHeight: 38, maxHeight: 38, alignment: .leading)
             .onChange(of: titleDraft) { newValue in
-                if isApplyingOutsideTitle {
-                    isApplyingOutsideTitle = false
+                if newValue == appliedOutsideTitle {
+                    appliedOutsideTitle = nil
                     return
                 }
+                appliedOutsideTitle = nil
                 titleDebounceTimer?.invalidate()
-                hasPendingTitleSave = true
+                // Saves on the main run loop when it fires, so while the
+                // timer is valid an edit is waiting and nothing comes between.
                 let timer = Timer(timeInterval: 0.5, repeats: false) { _ in
-                    Task { @MainActor in
+                    MainActor.assumeIsolated {
                         appState.updateHistoryItemTitle(id: item.id, title: newValue)
-                        hasPendingTitleSave = false
                     }
                 }
                 RunLoop.main.add(timer, forMode: .common)
@@ -2863,7 +2862,7 @@ private struct NoteDetailView: View {
                 guard let draft = NoteTitleResolver.titleDraftAfterOutsideChange(
                     draft: titleDraft,
                     newTitle: newValue,
-                    hasUnsavedEdit: hasPendingTitleSave
+                    hasUnsavedEdit: titleDebounceTimer?.isValid == true
                 ) else { return }
                 applyOutsideTitle(draft)
             }
@@ -3193,7 +3192,10 @@ private struct NoteDetailView: View {
                 emptyContentState
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
-                    .onTapGesture { isTypingInEmptyTranscript = true }
+                    .onTapGesture {
+                        isHoveringEmptyTranscript = false
+                        isTypingInEmptyTranscript = true
+                    }
                     .onHover { isHoveringEmptyTranscript = $0 }
                     .overrideCursor(.iBeam)
                     .accessibilityElement(children: .combine)
@@ -4975,11 +4977,17 @@ private struct NoteTextView: NSViewRepresentable {
         )
         context.coordinator.onEndEditing = onEndEditing
         if focusOnAppear {
-            // The view isn't in a window until after this returns.
+            // The view isn't in a window until after this returns. If focus
+            // can't move here, editing ends at once so the caller can undo
+            // whatever opened the editor.
+            let coordinator = context.coordinator
             DispatchQueue.main.async { [weak textView] in
                 guard let textView else { return }
-                textView.window?.makeFirstResponder(textView)
-                textView.setSelectedRange(NSRange(location: 0, length: 0))
+                if textView.window?.makeFirstResponder(textView) == true {
+                    textView.setSelectedRange(NSRange(location: 0, length: 0))
+                } else {
+                    coordinator.onEndEditing?(textView.string.trimmingCharacters(in: .newlines))
+                }
             }
         }
         return scrollView
@@ -5000,6 +5008,10 @@ private struct NoteTextView: NSViewRepresentable {
            !textView.hasMarkedText() {
             let selection = textView.selectedRange()
             applyText(text, to: textView, bottomPadding: bottomPadding)
+            // Earlier typing's undo steps point into the old text, and undoing
+            // them in the new text could garble it. The window shares one
+            // undo manager, so this also clears the title's undo history.
+            textView.undoManager?.removeAllActions()
             let length = (textView.string as NSString).length
             textView.setSelectedRange(NSRange(
                 location: min(selection.location, length),
@@ -5119,7 +5131,14 @@ private struct NoteTextView: NSViewRepresentable {
 
         func textDidEndEditing(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            onEndEditing?(textView.string.trimmingCharacters(in: .newlines))
+            let text = textView.string.trimmingCharacters(in: .newlines)
+            // Save typing still waiting first, so the caller sees the same
+            // text as the note.
+            if debounceTimer?.isValid == true {
+                debounceTimer?.invalidate()
+                onCommit?(text)
+            }
+            onEndEditing?(text)
         }
     }
 }
