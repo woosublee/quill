@@ -848,7 +848,6 @@ struct NoteBrowserView: View {
                     )
                 }
         }
-        .frame(minWidth: 800, minHeight: 520)
         .onAppear {
             let ids = Set(appState.pipelineHistory.map(\.id))
             knownHistoryIDs = ids
@@ -1245,9 +1244,9 @@ struct NoteBrowserView: View {
         }
         .padding(.leading, 90)
         .padding(.trailing, 10)
-        // Matches the unified toolbar's title bar height, where the traffic
-        // lights are vertically centered.
-        .frame(height: 52)
+        // The designed title bar height; the traffic lights are centered on
+        // this row even where the bar is taller.
+        .frame(height: TitleBarLayout.designedHeight)
         .background(WindowDragArea())
     }
 
