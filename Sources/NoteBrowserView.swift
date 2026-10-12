@@ -794,6 +794,19 @@ struct NoteBrowserView: View {
     }
 
     var body: some View {
+        // Reads the window's title bar height before the panels run under it.
+        GeometryReader { proxy in
+            browserBody
+                .onAppear {
+                    titleBarExtraHeight = TitleBarLayout.extraHeight(titleBarHeight: proxy.safeAreaInsets.top)
+                }
+                .onChange(of: proxy.safeAreaInsets.top) { height in
+                    titleBarExtraHeight = TitleBarLayout.extraHeight(titleBarHeight: height)
+                }
+        }
+    }
+
+    private var browserBody: some View {
         Group {
             if appState.isHistoryUnavailable {
                 historyUnavailableView
@@ -809,7 +822,6 @@ struct NoteBrowserView: View {
                         .frame(height: 16)
                 }
                 .environment(\.titleBarExtraHeight, titleBarExtraHeight)
-                .background(TitleBarExtraHeightReader(extraHeight: $titleBarExtraHeight))
                 .onChange(of: appState.pendingSummaryDeletion?.id) { _ in
                     guard appState.pendingSummaryDeletion != nil else { return }
                     NSAccessibility.post(
@@ -1241,6 +1253,8 @@ struct NoteBrowserView: View {
     private var sidebarHeader: some View {
         VStack(spacing: 0) {
             sidebarTitleRow
+            // Keeps the row below out of a title bar taller than designed.
+            Color.clear.frame(height: titleBarExtraHeight)
             // Selection mode and search swap the source and model row for the
             // selected count and Select All, or the search field, so the
             // header keeps its height.
