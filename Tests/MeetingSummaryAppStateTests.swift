@@ -23,6 +23,7 @@ struct MeetingSummaryAppStateTests {
         try await testTranscriptReplacementReinfersDerivedSpokenLanguage()
         try await testTranscriptReplacementPreservesEngineDetectedLanguage()
         try await testTranscriptEditingPreservesNonEditedMetadata()
+        try await testClearingTheTranscriptClearsTheOriginalToo()
         try await testActionCompletionPersists()
         try await testSummaryEditPersistsAndReverts()
         try await testCandidateComparisonKeepsOrReplacesEditedSummary()
@@ -714,6 +715,52 @@ struct MeetingSummaryAppStateTests {
         precondition(persisted.meetingSummary == existing)
         precondition(persisted.meetingSummaryAttempt?.outcome == .failed)
         precondition(persisted.meetingSummaryAttempt?.language?.appliedLanguageCode == "en")
+    }
+
+    /// An empty edited transcript reads as "show the original" everywhere,
+    /// so clearing the text must clear the original too, or it comes back.
+    private static func testClearingTheTranscriptClearsTheOriginalToo() async throws {
+        let item = PipelineHistoryItem(
+            timestamp: Date(timeIntervalSince1970: 1_754_010_203),
+            rawTranscript: "Original words.",
+            postProcessedTranscript: "Edited words.",
+            postProcessingPrompt: nil,
+            contextSummary: "",
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: "succeeded",
+            debugStatus: "",
+            customVocabulary: "",
+            transcriptFileName: "cleared.txt"
+        )
+        let directoryURL = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let layout = AppStateStorageLayout(rootDirectory: directoryURL)
+        try FileManager.default.createDirectory(at: layout.transcriptDirectory, withIntermediateDirectories: true)
+        let fileURL = layout.transcriptDirectory.appendingPathComponent("cleared.txt")
+        try "Edited words.".write(to: fileURL, atomically: true, encoding: .utf8)
+        let store = PipelineHistoryStore(storeURL: layout.historyStoreURL)
+        _ = try store.upsert(item, maxCount: 10, requiresDurableStore: true)
+        let appState = await configuredPersistedAppState(store: store, storageLayout: layout)
+
+        let cleared = await MainActor.run {
+            appState.updateTranscript(id: item.id, text: "")
+            return appState.pipelineHistory[0]
+        }
+        precondition(cleared.postProcessedTranscript.isEmpty)
+        precondition(cleared.rawTranscript.isEmpty, "Clearing the transcript must clear the original")
+        let fileContent = try String(contentsOf: fileURL, encoding: .utf8)
+        precondition(fileContent.isEmpty)
+        let persisted = PipelineHistoryStore(storeURL: layout.historyStoreURL).loadAllHistory().first
+        precondition(persisted?.rawTranscript.isEmpty == true, "The cleared original must be saved")
+
+        // Typing text again keeps the original as it is.
+        let edited = await MainActor.run {
+            appState.updateTranscript(id: item.id, text: "New words.")
+            return appState.pipelineHistory[0]
+        }
+        precondition(edited.postProcessedTranscript == "New words.")
+        precondition(edited.rawTranscript.isEmpty)
     }
 
     private static func testTranscriptEditingPreservesNonEditedMetadata() async throws {

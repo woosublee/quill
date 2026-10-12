@@ -430,7 +430,8 @@ struct PipelineHistoryItem: Identifiable, Codable {
         spokenLanguageResolution: SpokenLanguageResolutionSource?,
         meetingSummaryAttempt: MeetingSummaryAttempt?,
         customTitle: String?,
-        postProcessedTranscript: String
+        postProcessedTranscript: String,
+        rawTranscript replacementRawTranscript: String? = nil
     ) -> PipelineHistoryItem {
         PipelineHistoryItem(
             intent: intent,
@@ -441,7 +442,7 @@ struct PipelineHistoryItem: Identifiable, Codable {
             recordingStartedAt: recordingStartedAt,
             recordingEndedAt: recordingEndedAt,
             calendarMatch: calendarMatch,
-            rawTranscript: rawTranscript,
+            rawTranscript: replacementRawTranscript ?? rawTranscript,
             postProcessedTranscript: postProcessedTranscript,
             postProcessingPrompt: postProcessingPrompt,
             systemPrompt: systemPrompt,

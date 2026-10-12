@@ -2732,6 +2732,12 @@ private struct NoteDetailView: View {
                 loadedContent = newValue
             }
         }
+        // A finished note cleared on another Mac arrives with both
+        // transcripts empty; show it cleared rather than the old text.
+        .onChange(of: item.postProcessedTranscript.isEmpty && item.rawTranscript.isEmpty) { isCleared in
+            guard isCleared, case .completed = item.machineStatus else { return }
+            loadedContent = ""
+        }
         // A Summary tab that goes away (a first summary that didn't finish)
         // hands the view back to the transcript.
         .onChange(of: showsSummaryTab) { shows in

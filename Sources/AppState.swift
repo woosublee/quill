@@ -8195,7 +8195,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             spokenLanguageResolution: replacementSpokenLanguage?.source,
             meetingSummaryAttempt: item.meetingSummaryAttempt,
             customTitle: item.customTitle,
-            postProcessedTranscript: text
+            postProcessedTranscript: text,
+            // An empty edited transcript means "show the original" across
+            // the app and on other Macs, so clearing the text clears the
+            // original too; otherwise it comes back.
+            rawTranscript: text.isEmpty ? "" : nil
         )
         do {
             try pipelineHistoryStore.update(updated)
