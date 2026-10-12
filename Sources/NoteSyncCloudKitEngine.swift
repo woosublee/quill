@@ -86,6 +86,9 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         NoteAudioDownloader.removeDownloadFiles(in: downloadsDirectory)
         // CKSyncEngine fetches by itself when a CloudKit push arrives; it
         // needs the app registered. Silent pushes need no permission prompt.
+        // stop() doesn't unregister: sync restarts by stopping and starting,
+        // and a new registration can take minutes to reach CloudKit, while
+        // a push for a stopped engine does nothing.
         NSApplication.shared.registerForRemoteNotifications()
         let timer = Timer(timeInterval: Self.fetchInterval, repeats: true) { [weak self] _ in
             self?.fetchNow()
@@ -615,8 +618,6 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         wakeObserver = nil
         pathMonitor?.cancel()
         pathMonitor = nil
-        // The mirror of start(); a restart registers again.
-        NSApplication.shared.unregisterForRemoteNotifications()
         NoteSyncCloudRecord.removeAllOutboxFiles(in: outbox)
         NoteAudioDownloader.removeDownloadFiles(in: downloadsDirectory)
         if let engine {
