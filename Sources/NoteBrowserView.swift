@@ -422,6 +422,7 @@ private struct RecoveryScrollRestoreRequest: Identifiable {
 struct NoteBrowserView: View {
     @EnvironmentObject var appState: AppState
     @State private var selection = NoteSelection()
+    @State private var titleBarExtraHeight: CGFloat = 0
     @State private var pendingDeletionIDs: [UUID] = []
     /// A short notice when a deletion has to wait, such as for Recover Again.
     @State private var deletionNotice: String?
@@ -807,6 +808,8 @@ struct NoteBrowserView: View {
                     WindowDragArea()
                         .frame(height: 16)
                 }
+                .environment(\.titleBarExtraHeight, titleBarExtraHeight)
+                .background(TitleBarExtraHeightReader(extraHeight: $titleBarExtraHeight))
                 .onChange(of: appState.pendingSummaryDeletion?.id) { _ in
                     guard appState.pendingSummaryDeletion != nil else { return }
                     NSAccessibility.post(
@@ -2381,6 +2384,7 @@ enum NoteContentMode: Hashable {
 }
 
 private struct NoteDetailView: View {
+    @Environment(\.titleBarExtraHeight) private var titleBarExtraHeight
     let item: PipelineHistoryItem
     let isSearchActive: Bool
     /// True while the Note Browser search matches this note only in its
@@ -2949,8 +2953,9 @@ private struct NoteDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 40)
-        // Under the transparent title bar, just below the traffic lights' row.
-        .padding(.top, 32)
+        // Under the transparent title bar, just below the traffic lights' row,
+        // and below the title bar's band where it is taller than designed.
+        .padding(.top, 32 + titleBarExtraHeight)
         .padding(.bottom, 14)
         .overlay(alignment: .bottom) {
             Divider().opacity(QuillContrast.opacity(0.4, increased: increasesContrast))
