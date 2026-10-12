@@ -8818,7 +8818,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard requireAvailableHistoryForMutation(),
               postProcessingRetryBlocker(for: item) == nil,
               !retryingItemIDs.contains(item.id) else { return }
-        let rawTranscript = item.rawTranscript
+        let storedRawTranscript = item.rawTranscript
+        let rawTranscript = storedRawTranscript
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
         let restored = restoredRetryInputs(for: item)
@@ -8858,7 +8859,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             // The original changed meanwhile (cleared, or transcribed
             // again): this result was cleaned from text that is gone.
             guard let current = self.pipelineHistory.first(where: { $0.id == noteID }),
-                  current.rawTranscript == rawTranscript else { return }
+                  current.rawTranscript == storedRawTranscript else { return }
             // Keep the note's raw transcript and audio; replace only the
             // cleaned text and its outcome.
             let replacement = PipelineHistoryTranscriptionReplacement(

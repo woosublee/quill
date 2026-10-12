@@ -5049,7 +5049,10 @@ private struct NoteTextView: NSViewRepresentable {
         // shows even while the editor has focus. It waits only while typed
         // text is waiting to be saved or a character is being composed, so
         // typing is never replaced.
-        if currentContent != newContent,
+        // Blank on both sides counts as the same: a space typed into an
+        // empty transcript is saved as empty and must stay on screen.
+        let bothBlank = currentContent.allSatisfy(\.isWhitespace) && newContent.allSatisfy(\.isWhitespace)
+        if currentContent != newContent, !bothBlank,
            !context.coordinator.hasPendingEdit,
            !textView.hasMarkedText() {
             let selection = textView.selectedRange()

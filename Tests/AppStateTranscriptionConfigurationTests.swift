@@ -4082,7 +4082,9 @@ struct AppStateTranscriptionConfigurationTests {
     private static func testRetryPostProcessingCleansStoredTranscriptWithoutTranscribing() async throws {
         try await AppStateTestStorage.withIsolatedStorage { environment in
             resetDefaults()
-            let rawTranscript = "그럼 다음 주 목요일에 다시 확인해요"
+            // Engines often end the original with a line break; the retry
+            // still saves its result for it.
+            let rawTranscript = "그럼 다음 주 목요일에 다시 확인해요\n"
             let cleanedTranscript = "그럼 다음 주 목요일에 다시 확인해요."
             let store = PipelineHistoryStore(storeURL: environment.storageLayout.historyStoreURL)
             var dependencies = environment.dependencies
