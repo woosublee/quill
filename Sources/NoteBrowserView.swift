@@ -804,6 +804,9 @@ struct NoteBrowserView: View {
                     titleBarExtraHeight = TitleBarLayout.extraHeight(titleBarHeight: height)
                 }
         }
+        // A GeometryReader has no minimum of its own, so the window's minimum
+        // size is set here; inside it would not reach the window.
+        .frame(minWidth: 800, minHeight: 520)
     }
 
     private var browserBody: some View {
