@@ -2854,6 +2854,8 @@ private struct NoteDetailView: View {
     /// Shows a title that didn't come from typing, without saving it back.
     private func applyOutsideTitle(_ title: String) {
         guard title != titleDraft else { return }
+        // A typed title still waiting would save over this one.
+        titleDebounceTimer?.invalidate()
         appliedOutsideTitle = title
         titleDraft = title
     }
@@ -4965,9 +4967,10 @@ private struct NoteTextView: NSViewRepresentable {
     /// save what is waiting and report the focus gone.
     static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
         // Not during the SwiftUI update that removes the view.
+        let wasFocused = coordinator.isFocused
         DispatchQueue.main.async {
             coordinator.commitPendingEdit()
-            coordinator.onFocusChange?(false)
+            if wasFocused { coordinator.onFocusChange?(false) }
         }
     }
 
@@ -5088,6 +5091,7 @@ private struct NoteTextView: NSViewRepresentable {
         var onCommit: ((String) -> Void)?
         var onFocusChange: ((Bool) -> Void)?
         var lastFocusRequest = 0
+        private(set) var isFocused = false
         private var debounceTimer: Timer?
         private var pendingText: String?
         /// Typed text that hasn't been saved yet.
@@ -5193,6 +5197,7 @@ private struct NoteTextView: NSViewRepresentable {
         func focusChanged(_ focused: Bool, in textView: NSTextView) {
             // Save typing still waiting first, so the caller sees the same
             // text as the note.
+            isFocused = focused
             if !focused { commitPendingEdit() }
             // Not during the responder change itself.
             DispatchQueue.main.async { [weak self] in self?.onFocusChange?(focused) }
