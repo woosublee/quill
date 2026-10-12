@@ -761,6 +761,27 @@ struct MeetingSummaryAppStateTests {
         }
         precondition(edited.postProcessedTranscript == "New words.")
         precondition(edited.rawTranscript.isEmpty)
+
+        // Only spaces left counts as cleared too, since readers trim.
+        let other = PipelineHistoryItem(
+            timestamp: Date(timeIntervalSince1970: 1_754_010_204),
+            rawTranscript: "Other original.",
+            postProcessedTranscript: "Other edited.",
+            postProcessingPrompt: nil,
+            contextSummary: "",
+            contextScreenshotDataURL: nil,
+            contextScreenshotStatus: "No screenshot",
+            postProcessingStatus: "succeeded",
+            debugStatus: "",
+            customVocabulary: ""
+        )
+        _ = try store.upsert(other, maxCount: 10, requiresDurableStore: true)
+        let blank = await MainActor.run { () -> PipelineHistoryItem? in
+            appState.pipelineHistory = store.loadAllHistory()
+            appState.updateTranscript(id: other.id, text: "   ")
+            return appState.pipelineHistory.first { $0.id == other.id }
+        }
+        precondition(blank?.rawTranscript.isEmpty == true, "A blank transcript must clear the original")
     }
 
     private static func testTranscriptEditingPreservesNonEditedMetadata() async throws {

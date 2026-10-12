@@ -8199,7 +8199,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
             // An empty edited transcript means "show the original" across
             // the app and on other Macs, so clearing the text clears the
             // original too; otherwise it comes back.
-            rawTranscript: text.isEmpty ? "" : nil
+            rawTranscript: text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "" : nil
         )
         do {
             try pipelineHistoryStore.update(updated)
