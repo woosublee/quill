@@ -309,6 +309,7 @@ private func showNoteBrowserWindow() {
         window.titlebarSeparatorStyle = .none
         window.toolbar = NSToolbar(identifier: "Settings")
         window.toolbarStyle = .unified
+        window.minSize = SettingsView.minimumSize
         window.contentView = hostingView
         window.isReleasedWhenClosed = false
         window.center()

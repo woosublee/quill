@@ -42,6 +42,11 @@ private let iso8601DayFormatter: DateFormatter = {
 // MARK: - Settings
 
 struct SettingsView: View {
+    static let sidebarWidth: CGFloat = 180
+    /// The sidebar plus room for a page's 280-320 point controls; tall
+    /// enough for every sidebar tab, which doesn't scroll.
+    static let minimumSize = NSSize(width: sidebarWidth + 500, height: 520)
+
     @EnvironmentObject var appState: AppState
 
     var body: some View {
@@ -54,7 +59,7 @@ struct SettingsView: View {
         }
         // A GeometryReader has no minimum of its own, so without this the
         // window shrinks until the sidebar and pages are unusable.
-        .frame(minWidth: 680, minHeight: 460)
+        .frame(minWidth: Self.minimumSize.width, minHeight: Self.minimumSize.height)
     }
 
     private func settingsContent(titleBarHeight: CGFloat) -> some View {
@@ -86,7 +91,7 @@ struct SettingsView: View {
             .padding(10)
             // The first row sits just under the traffic lights.
             .padding(.top, max(0, titleBarHeight - 24))
-            .frame(width: 180)
+            .frame(width: Self.sidebarWidth)
             // The empty strip above the first row drags the window.
             .overlay(alignment: .top) {
                 WindowDragArea()
