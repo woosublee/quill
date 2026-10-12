@@ -12,6 +12,7 @@ struct TranscriptionRecoveryPlaceholderTests {
         testCloudTranscribingStatusIsTypedAndIncomplete()
         testCloudTranscribingPlaceholderIsNotNormalizedBeforeReconciliation()
         testCompletedItemIsNotIncomplete()
+        testOnlyFinishedNotesKeepTheTranscriptEditorWhenEmpty()
         print("TranscriptionRecoveryPlaceholderTests passed")
     }
 
@@ -243,6 +244,21 @@ struct TranscriptionRecoveryPlaceholderTests {
 
         assert(!item.isIncompleteTranscription)
         assert(item.machineStatus == .completed)
+    }
+
+    private static func testOnlyFinishedNotesKeepTheTranscriptEditorWhenEmpty() {
+        assert(makeHistoryItem(postProcessingStatus: "Post-processing succeeded", audioFileName: "recording.wav")
+            .keepsTranscriptEditorWhenEmpty)
+        for status in [
+            "live-recording",
+            "importing",
+            PipelineHistoryItem.cloudTranscribingStatus,
+            PipelineHistoryItem.audioOnlyStatus,
+            PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus
+        ] {
+            assert(!makeHistoryItem(postProcessingStatus: status, audioFileName: "recording.wav")
+                .keepsTranscriptEditorWhenEmpty, status)
+        }
     }
 
     private static func makeHistoryItem(postProcessingStatus: String, audioFileName: String?) -> PipelineHistoryItem {

@@ -254,6 +254,13 @@ struct NoteTitleResolutionTests {
         assert(NoteTitleResolver.titleDraftAfterOutsideChange(
             draft: "", newTitle: nil, hasUnsavedEdit: false
         ) == nil)
+        // The save trims, so a space typed between words survives it.
+        assert(NoteTitleResolver.titleDraftAfterOutsideChange(
+            draft: "Team ", newTitle: "Team", hasUnsavedEdit: false
+        ) == nil)
+        assert(NoteTitleResolver.titleDraftAfterOutsideChange(
+            draft: "   ", newTitle: nil, hasUnsavedEdit: false
+        ) == nil)
     }
 
     private static func item(
