@@ -444,7 +444,8 @@ final class NoteSyncController: ObservableObject {
         }
     }
 
-    /// Fetches now when sync is on: at launch, and when notes or Settings open.
+    /// Fetches now when sync is on: at launch, when notes or Settings open,
+    /// and when a CloudKit push arrives.
     func fetchSoon() {
         engine?.fetchNow()
     }

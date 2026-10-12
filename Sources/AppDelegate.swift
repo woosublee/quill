@@ -127,7 +127,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
         guard CKNotification(fromRemoteNotificationDictionary: userInfo)?.containerIdentifier
                 == NoteSyncAvailability.containerIdentifier else { return }
-        appState.noteSyncController?.fetchSoon()
+        MainActor.assumeIsolated { appState.noteSyncController?.fetchSoon() }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

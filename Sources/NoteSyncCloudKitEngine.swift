@@ -5,10 +5,11 @@ import Foundation
 import Network
 
 /// Drives `CKSyncEngine` for the coordinator: queues changes, builds the
-/// records it asks for, and hands back what it fetched and sent. The engine
-/// learns of another Mac's changes from CloudKit pushes; without them its
-/// fetches find nothing. As a fallback it also fetches every minute while
-/// sync is on, and right away when the Mac wakes or the network comes back.
+/// records it asks for, and hands back what it fetched and sent. On macOS the
+/// engine asks the server only when it knows something changed: after a
+/// CloudKit push, at start, and when the app comes to the front. It is also
+/// asked to fetch every minute while sync is on, and when the Mac wakes or
+/// the network comes back.
 @available(macOS 14.0, *)
 final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPartFetching, CKSyncEngineDelegate, @unchecked Sendable {
     static let fetchInterval: TimeInterval = 60

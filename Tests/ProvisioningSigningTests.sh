@@ -148,6 +148,10 @@ no_push="$temporary_dir/no-push.provisionprofile"
 write_profile "$no_push" "TEAMID1234.com.example.notes.dev" "Development" "2099-01-01T00:00:00Z" "$this_mac" "*" ""
 expect_failure "profile without push notifications" \
   entitlements "$no_push" com.example.notes.dev Development iCloud.com.example.notes "$cert_b_hash" "$base" "$out"
+production_push="$temporary_dir/production-push.provisionprofile"
+write_profile "$production_push" "TEAMID1234.com.example.notes.dev" "Production Development" "2099-01-01T00:00:00Z" "$this_mac" "*" "production"
+expect_failure "production push with Development CloudKit" \
+  entitlements "$production_push" com.example.notes.dev Development iCloud.com.example.notes "$cert_b_hash" "$base" "$out"
 
 # A Developer ID profile lists no devices and allows only Production.
 production_only="$temporary_dir/production.provisionprofile"

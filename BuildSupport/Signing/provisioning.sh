@@ -5,7 +5,8 @@
 #     Writes <base> plus the iCloud and push entitlements the profile allows to
 #     <output>. Fails, writing nothing, when the profile is for another app, does
 #     not allow the container, CloudKit, the environment, or push notifications
-#     (CKSyncEngine fetches only after a CloudKit push), does not list the
+#     in the same environment (CKSyncEngine learns of remote changes from
+#     CloudKit pushes), does not list the
 #     signing identity or this Mac, or has expired. <identity> is the
 #     codesign identity: a SHA-1 hash or a name from the keychain.
 #   provisioning.sh identity <profile>
@@ -99,6 +100,9 @@ write_entitlements() {
     fail "profile does not allow the $environment environment"
   aps="$(value "$decoded" "Entitlements:com.apple.developer.aps-environment")" ||
     fail "profile does not allow push notifications; enable Push Notifications for the App ID and download the profile again"
+  # Development CloudKit pushes go through the sandbox push service.
+  [ "$aps" = "$(printf '%s' "$environment" | tr '[:upper:]' '[:lower:]')" ] ||
+    fail "profile allows ${aps:-no} push notifications, not $environment"
 
   profile_certificate_hashes "$decoded" > "$workdir/profile-certs"
   identity_hashes "$identity" | grep -Fxq -f "$workdir/profile-certs" ||
