@@ -35,6 +35,26 @@ enum NoteTitleResolver {
         return (suggested: suggestedTitle, applied: appliedTitle)
     }
 
+    /// The title field's text after the note's title changed outside the
+    /// field, such as from another Mac: the new title, or nil to leave the
+    /// field alone because it already shows that title or holds an edit
+    /// not saved yet.
+    static func titleDraftAfterOutsideChange(
+        draft: String,
+        newTitle: String?,
+        hasUnsavedEdit: Bool
+    ) -> String? {
+        // A draft with a trailing space already matches its own saved title.
+        guard !hasUnsavedEdit, normalizedCustomTitle(draft) != newTitle else { return nil }
+        return newTitle ?? ""
+    }
+
+    /// A typed title as it is saved: trimmed, and nil when empty.
+    static func normalizedCustomTitle(_ title: String) -> String? {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     static func displayTitle(
         for item: PipelineHistoryItem,
         isTranscribing: Bool = false,

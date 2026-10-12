@@ -141,6 +141,13 @@ struct PipelineHistoryItem: Identifiable, Codable {
             && transcriptFileName == nil
     }
 
+    /// A finished note keeps its transcript editor when the text is empty,
+    /// so a cleared transcript can be typed again. Notes still recording,
+    /// transcribing, or waiting on a recovery keep their empty state.
+    var keepsTranscriptEditorWhenEmpty: Bool {
+        machineStatus == .completed && !isIncompleteTranscription
+    }
+
     var isIncompleteTranscription: Bool {
         RecoveredRecordingContext.placeholderContext(for: postProcessingStatus) != nil
             || postProcessingStatus == "importing"

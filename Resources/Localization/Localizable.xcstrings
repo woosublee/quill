@@ -929,6 +929,22 @@
         }
       }
     },
+    "Click to type": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click to type"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클릭해서 입력"
+          }
+        }
+      }
+    },
     "No notes selected": {
       "localizations": {
         "en": {
