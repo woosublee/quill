@@ -8178,6 +8178,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let text = isCleared ? "" : text
         let replacementSpokenLanguage: SpokenLanguageResolution?
         switch item.spokenLanguage?.source {
+        case _ where isCleared:
+            // Nothing to infer from; the recording's language stays.
+            replacementSpokenLanguage = item.spokenLanguage
         case .transcriptInferred, .unavailable:
             replacementSpokenLanguage = SpokenLanguageResolver.resolve(
                 requestedLanguageCode: item.transcriptionLanguageCode,
@@ -8199,7 +8202,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
             rawTranscript: isCleared ? "" : nil
         )
         do {
-            try pipelineHistoryStore.update(updated)
+            // Clearing removes the original, so it needs the durable store.
+            try pipelineHistoryStore.update(updated, requiresDurableStore: isCleared)
             // 파일에도 동기화해서 앱 재시작 후 폴백 로딩 시에도 일관성 유지.
             // Only after the store saved, so the two never disagree.
             if let fileName = item.transcriptFileName {
@@ -8851,7 +8855,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 self.retryingItemIDs.remove(noteID)
                 self.postProcessingNoteIDs.remove(noteID)
             }
-            guard let current = self.pipelineHistory.first(where: { $0.id == noteID }) else { return }
+            // The original changed meanwhile (cleared, or transcribed
+            // again): this result was cleaned from text that is gone.
+            guard let current = self.pipelineHistory.first(where: { $0.id == noteID }),
+                  current.rawTranscript == rawTranscript else { return }
             // Keep the note's raw transcript and audio; replace only the
             // cleaned text and its outcome.
             let replacement = PipelineHistoryTranscriptionReplacement(

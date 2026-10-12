@@ -4431,7 +4431,7 @@ struct AppStateTranscriptionConfigurationTests {
         )
 
         guard let updateSave = update.range(
-            of: "try pipelineHistoryStore.update(updated)"
+            of: "try pipelineHistoryStore.update(updated, requiresDurableStore: isCleared)"
         ), let updateInvalidation = update.range(
             of: "transcriptionRetryWorkflow.invalidate(noteID: id)"
         ) else {
