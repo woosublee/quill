@@ -1775,6 +1775,8 @@ private struct HorizontallyScrollableTitleField: NSViewRepresentable {
                 return NSValue(range: NSRange(location: location, length: length))
             }
             textView.selectedRanges = clampedRanges
+            // Undo steps from typing point into the old title.
+            textView.undoManager?.removeAllActions()
         }
         textView.updateDocumentWidth(minimumWidth: scrollView.contentView.bounds.width)
         textView.needsDisplay = true
@@ -1785,6 +1787,13 @@ private struct HorizontallyScrollableTitleField: NSViewRepresentable {
 
         init(_ parent: HorizontallyScrollableTitleField) {
             self.parent = parent
+        }
+
+        /// The title keeps its own undo history, apart from the transcript's.
+        private let titleUndoManager = UndoManager()
+
+        func undoManager(for view: NSTextView) -> UndoManager? {
+            titleUndoManager
         }
 
         func textDidChange(_ notification: Notification) {
@@ -1854,6 +1863,20 @@ private final class TitleHorizontalScrollView: NSScrollView {
 /// A text view that keeps its I-beam cursor except where a view on top of it
 /// (the floating note toolbar) asks for its own cursor.
 private final class CursorDeferringTextView: NSTextView {
+    var onFocusChange: ((Bool) -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let became = super.becomeFirstResponder()
+        if became { onFocusChange?(true) }
+        return became
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned { onFocusChange?(false) }
+        return resigned
+    }
+
     override func mouseMoved(with event: NSEvent) {
         if let cursor = CursorNSView.cursor(atWindowPoint: event.locationInWindow, in: window) {
             cursor.set()
@@ -2382,7 +2405,11 @@ private struct NoteDetailView: View {
     @State private var appliedOutsideTitle: String?
     /// The person opened the editor of an empty finished note, or emptied
     /// it while typing; leaving it empty shows the empty state again.
-    @State private var isTypingInEmptyTranscript = false
+    /// The transcript editor has the cursor; a blank one then shows no
+    /// "No content" over it.
+    @State private var isTranscriptEditorFocused = false
+    /// Bumped to put the cursor in the transcript editor.
+    @State private var transcriptFocusRequest = 0
     @State private var isHoveringEmptyTranscript = false
     @State private var showDeleteConfirmation = false
     @State private var showDeleteChoice = false
@@ -3189,26 +3216,8 @@ private struct NoteDetailView: View {
                 onUseNew: { useNewTranscript() }
             )
             .id(item.id)
-        } else if isDisplayedTranscriptBlank
-                    && !(item.keepsTranscriptEditorWhenEmpty && isTypingInEmptyTranscript) {
-            if item.keepsTranscriptEditorWhenEmpty {
-                // The whole transcript area opens the editor, not just the label.
-                emptyContentState
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        isHoveringEmptyTranscript = false
-                        isTypingInEmptyTranscript = true
-                    }
-                    .onHover { isHoveringEmptyTranscript = $0 }
-                    .overrideCursor(.iBeam)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityHint(Text("Click to type"))
-                    .accessibilityAction { isTypingInEmptyTranscript = true }
-            } else {
-                emptyContentState
-            }
+        } else if displayContent.isEmpty && !item.keepsTranscriptEditorWhenEmpty {
+            emptyContentState
         } else {
             VStack(spacing: 0) {
                 // Notices stay while retranscribing, under the progress layer.
@@ -3256,21 +3265,23 @@ private struct NoteDetailView: View {
                     text: displayContent,
                     bottomPadding: 36,
                     highlightedSourceQuote: highlightedSourceQuote,
-                    focusOnAppear: isTypingInEmptyTranscript && isDisplayedTranscriptBlank,
-                    onEndEditing: { text in
-                        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            isTypingInEmptyTranscript = false
-                        }
-                    }
+                    focusRequest: transcriptFocusRequest,
+                    onFocusChange: { isTranscriptEditorFocused = $0 }
                 ) { edited in
-                    // Emptied while typing: the editor stays until focus leaves.
-                    isTypingInEmptyTranscript = edited
-                        .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     loadedContent = edited
                     appState.updateTranscript(id: item.id, text: edited)
                 }
                 // Scrolled text dissolves under the header, like Settings.
                 .topScrollFade(height: Self.contentTopFadeHeight)
+                .overlay {
+                    // A finished note with no transcript shows "No content"
+                    // until its editor has the cursor; clicking anywhere in
+                    // the area puts it there. The toolbar below still offers
+                    // transcribing again.
+                    if isDisplayedTranscriptBlank && !isTranscriptEditorFocused {
+                        emptyTranscriptPlaceholder
+                    }
+                }
             }
         }
     }
@@ -3674,15 +3685,6 @@ private struct NoteDetailView: View {
                     )
                     .padding(.horizontal, 60)
                 }
-            } else if item.keepsTranscriptEditorWhenEmpty {
-                // A finished note with no transcript: clicking anywhere in
-                // the area opens the editor (see transcriptContentArea). The
-                // toolbar below still offers transcribing again.
-                noContentLabel
-                Text("Click to type")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.tertiary)
-                    .opacity(isHoveringEmptyTranscript ? 1 : 0)
             } else {
                 noContentLabel
             }
@@ -3690,6 +3692,32 @@ private struct NoteDetailView: View {
         }
         .padding(.bottom, Self.floatingToolbarClearance)
         .frame(maxWidth: .infinity)
+    }
+
+    private var emptyTranscriptPlaceholder: some View {
+        VStack(spacing: 14) {
+            Spacer()
+            noContentLabel
+            Text("Click to type")
+                .font(.system(size: 12))
+                .foregroundStyle(.tertiary)
+                .opacity(isHoveringEmptyTranscript ? 1 : 0)
+            Spacer()
+        }
+        .padding(.bottom, Self.floatingToolbarClearance)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .textBackgroundColor))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            isHoveringEmptyTranscript = false
+            transcriptFocusRequest += 1
+        }
+        .onHover { isHoveringEmptyTranscript = $0 }
+        .overrideCursor(.iBeam)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint(Text("Click to type"))
+        .accessibilityAction { transcriptFocusRequest += 1 }
     }
 
     private var noContentLabel: some View {
@@ -4907,25 +4935,25 @@ private struct NoteTextView: NSViewRepresentable {
     let text: String
     let bottomPadding: CGFloat
     let highlightedSourceQuote: String?
-    /// Puts the cursor in the text once it appears.
-    let focusOnAppear: Bool
-    /// Called with the text when the editor loses focus.
-    let onEndEditing: ((String) -> Void)?
+    /// A new value puts the cursor in the text.
+    let focusRequest: Int
+    /// Called when the editor gains or loses the cursor.
+    let onFocusChange: ((Bool) -> Void)?
     let onCommit: ((String) -> Void)?
 
     init(
         text: String,
         bottomPadding: CGFloat = 0,
         highlightedSourceQuote: String? = nil,
-        focusOnAppear: Bool = false,
-        onEndEditing: ((String) -> Void)? = nil,
+        focusRequest: Int = 0,
+        onFocusChange: ((Bool) -> Void)? = nil,
         onCommit: ((String) -> Void)? = nil
     ) {
         self.text = text
         self.bottomPadding = bottomPadding
         self.highlightedSourceQuote = highlightedSourceQuote
-        self.focusOnAppear = focusOnAppear
-        self.onEndEditing = onEndEditing
+        self.focusRequest = focusRequest
+        self.onFocusChange = onFocusChange
         self.onCommit = onCommit
     }
 
@@ -4978,28 +5006,27 @@ private struct NoteTextView: NSViewRepresentable {
             highlightedSourceQuote,
             to: textView
         )
-        context.coordinator.onEndEditing = onEndEditing
-        if focusOnAppear {
-            // The view isn't in a window until after this returns. If focus
-            // can't move here, editing ends at once so the caller can undo
-            // whatever opened the editor.
-            let coordinator = context.coordinator
-            DispatchQueue.main.async { [weak textView] in
-                guard let textView else { return }
-                if textView.window?.makeFirstResponder(textView) == true {
-                    textView.setSelectedRange(NSRange(location: 0, length: 0))
-                } else {
-                    coordinator.onEndEditing?(textView.string.trimmingCharacters(in: .newlines))
-                }
-            }
+        context.coordinator.lastFocusRequest = focusRequest
+        textView.onFocusChange = { [weak coordinator = context.coordinator, weak textView] focused in
+            guard let textView else { return }
+            coordinator?.focusChanged(focused, in: textView)
         }
+        context.coordinator.onFocusChange = onFocusChange
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
         context.coordinator.onCommit = onCommit
-        context.coordinator.onEndEditing = onEndEditing
+        context.coordinator.onFocusChange = onFocusChange
+        if focusRequest != context.coordinator.lastFocusRequest {
+            context.coordinator.lastFocusRequest = focusRequest
+            // Not during a SwiftUI update.
+            DispatchQueue.main.async { [weak textView] in
+                guard let textView else { return }
+                textView.window?.makeFirstResponder(textView)
+            }
+        }
         let currentContent = textView.string.trimmingCharacters(in: .newlines)
         let newContent = text.trimmingCharacters(in: .newlines)
         // Text that changed outside the editor, such as from another Mac,
@@ -5047,7 +5074,8 @@ private struct NoteTextView: NSViewRepresentable {
 
     class Coordinator: NSObject, NSTextViewDelegate {
         var onCommit: ((String) -> Void)?
-        var onEndEditing: ((String) -> Void)?
+        var onFocusChange: ((Bool) -> Void)?
+        var lastFocusRequest = 0
         private var debounceTimer: Timer?
         /// Typed text that hasn't been saved yet.
         var hasPendingEdit: Bool { debounceTimer?.isValid == true }
@@ -5139,16 +5167,17 @@ private struct NoteTextView: NSViewRepresentable {
             transcriptUndoManager
         }
 
-        func textDidEndEditing(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else { return }
-            let text = textView.string.trimmingCharacters(in: .newlines)
+        /// Called by the text view as it gains or loses first responder,
+        /// which happens even when nothing was typed.
+        func focusChanged(_ focused: Bool, in textView: NSTextView) {
             // Save typing still waiting first, so the caller sees the same
             // text as the note.
-            if debounceTimer?.isValid == true {
+            if !focused, debounceTimer?.isValid == true {
                 debounceTimer?.invalidate()
-                onCommit?(text)
+                onCommit?(textView.string.trimmingCharacters(in: .newlines))
             }
-            onEndEditing?(text)
+            // Not during the responder change itself.
+            DispatchQueue.main.async { [weak self] in self?.onFocusChange?(focused) }
         }
     }
 }
