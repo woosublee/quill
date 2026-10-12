@@ -35,6 +35,20 @@ enum NoteTitleResolver {
         return (suggested: suggestedTitle, applied: appliedTitle)
     }
 
+    /// The title field's text after the note's title changed outside the
+    /// field, such as from another Mac: the new title, or nil to leave the
+    /// field alone because it already shows that title or holds an edit
+    /// not saved yet.
+    static func titleDraftAfterOutsideChange(
+        draft: String,
+        newTitle: String?,
+        hasUnsavedEdit: Bool
+    ) -> String? {
+        let incoming = newTitle ?? ""
+        guard !hasUnsavedEdit, incoming != draft else { return nil }
+        return incoming
+    }
+
     static func displayTitle(
         for item: PipelineHistoryItem,
         isTranscribing: Bool = false,

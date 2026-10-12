@@ -18,6 +18,9 @@ struct NoteTitleResolutionTests {
         testSuggestedCalendarTitleHiddenWhenAlreadyEffectivelyApplied()
         testSuggestedCalendarTitleHiddenWhenOnlyWhitespaceDiffers()
         testSuggestedCalendarTitleShownWhenItWouldChangeTheTitle()
+        testOutsideTitleChangeReplacesTheDraft()
+        testOutsideTitleChangeKeepsAnUnsavedEdit()
+        testOutsideTitleChangeMatchingTheDraftChangesNothing()
         print("NoteTitleResolutionTests passed")
     }
 
@@ -225,6 +228,32 @@ struct NoteTitleResolutionTests {
             calendarMatch: match(title: "Team Standup", titleState: .suggested)
         )
         assert(NoteTitleResolver.suggestedCalendarTitle(for: note)?.suggested == "Team Standup")
+    }
+
+    private static func testOutsideTitleChangeReplacesTheDraft() {
+        assert(NoteTitleResolver.titleDraftAfterOutsideChange(
+            draft: "Old title", newTitle: "Title from another Mac", hasUnsavedEdit: false
+        ) == "Title from another Mac")
+        // A title cleared on another Mac clears the field.
+        assert(NoteTitleResolver.titleDraftAfterOutsideChange(
+            draft: "Old title", newTitle: nil, hasUnsavedEdit: false
+        ) == "")
+    }
+
+    private static func testOutsideTitleChangeKeepsAnUnsavedEdit() {
+        assert(NoteTitleResolver.titleDraftAfterOutsideChange(
+            draft: "Typing here", newTitle: "Title from another Mac", hasUnsavedEdit: true
+        ) == nil)
+    }
+
+    private static func testOutsideTitleChangeMatchingTheDraftChangesNothing() {
+        // This Mac's own save comes back as the same title.
+        assert(NoteTitleResolver.titleDraftAfterOutsideChange(
+            draft: "Same", newTitle: "Same", hasUnsavedEdit: false
+        ) == nil)
+        assert(NoteTitleResolver.titleDraftAfterOutsideChange(
+            draft: "", newTitle: nil, hasUnsavedEdit: false
+        ) == nil)
     }
 
     private static func item(

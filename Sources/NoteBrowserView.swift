@@ -2377,6 +2377,9 @@ private struct NoteDetailView: View {
     @State private var titleDraft = ""
     @State private var isRetrying = false
     @State private var titleDebounceTimer: Timer?
+    /// Set while the field takes a title that changed outside it, so that
+    /// change isn't saved back as an edit.
+    @State private var isApplyingOutsideTitle = false
     @State private var showDeleteConfirmation = false
     @State private var showDeleteChoice = false
     @State private var showRegenerateEditedConfirmation = false
@@ -2824,6 +2827,10 @@ private struct NoteDetailView: View {
             )
             .frame(minHeight: 38, maxHeight: 38, alignment: .leading)
             .onChange(of: titleDraft) { newValue in
+                if isApplyingOutsideTitle {
+                    isApplyingOutsideTitle = false
+                    return
+                }
                 titleDebounceTimer?.invalidate()
                 let timer = Timer(timeInterval: 0.5, repeats: false) { _ in
                     Task { @MainActor in
@@ -2835,6 +2842,16 @@ private struct NoteDetailView: View {
             }
             .onAppear {
                 titleDraft = item.customTitle ?? ""
+            }
+            // Another Mac renamed the open note.
+            .onChange(of: item.customTitle) { newValue in
+                guard let draft = NoteTitleResolver.titleDraftAfterOutsideChange(
+                    draft: titleDraft,
+                    newTitle: newValue,
+                    hasUnsavedEdit: titleDebounceTimer?.isValid == true
+                ) else { return }
+                isApplyingOutsideTitle = true
+                titleDraft = draft
             }
             .overrideCursor(.iBeam)
 
@@ -3155,7 +3172,7 @@ private struct NoteDetailView: View {
                 onUseNew: { useNewTranscript() }
             )
             .id(item.id)
-        } else if displayContent.isEmpty {
+        } else if displayContent.isEmpty && !keepsEditorWhenEmpty {
             emptyContentState
         } else {
             VStack(spacing: 0) {
@@ -3212,6 +3229,16 @@ private struct NoteDetailView: View {
                 .topScrollFade(height: Self.contentTopFadeHeight)
             }
         }
+    }
+
+    /// A finished note whose transcript was cleared keeps its editor, so
+    /// text can be typed again. Notes still recording, transcribing, or
+    /// waiting on a recovery keep their empty state.
+    private var keepsEditorWhenEmpty: Bool {
+        guard case .completed = item.machineStatus else { return false }
+        return !isCloudTranscriptionStopped
+            && !isCloudTranscribing
+            && item.postProcessingStatus != PipelineHistoryItem.transcriptionRecoveryPlaceholderStatus
     }
 
     /// A retranscribed transcript waiting to be chosen (#457).
