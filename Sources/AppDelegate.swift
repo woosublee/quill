@@ -123,9 +123,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// iCloud sync registers for CloudKit pushes; without them another Mac's
-    /// changes show only when Quill comes to the front.
+    /// changes mostly wait until Quill comes to the front. Only the error's
+    /// domain and code are printed.
     func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        print("[NoteSync] Push registration failed")
+        let nsError = error as NSError
+        print("[NoteSync] Push registration failed: \(nsError.domain) \(nsError.code)")
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

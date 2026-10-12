@@ -615,6 +615,8 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
         wakeObserver = nil
         pathMonitor?.cancel()
         pathMonitor = nil
+        // The mirror of start(); a restart registers again.
+        NSApplication.shared.unregisterForRemoteNotifications()
         NoteSyncCloudRecord.removeAllOutboxFiles(in: outbox)
         NoteAudioDownloader.removeDownloadFiles(in: downloadsDirectory)
         if let engine {
