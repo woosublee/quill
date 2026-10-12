@@ -52,6 +52,9 @@ struct SettingsView: View {
             settingsContent(titleBarHeight: proxy.safeAreaInsets.top)
                 .ignoresSafeArea(.container, edges: .top)
         }
+        // A GeometryReader has no minimum of its own, so without this the
+        // window shrinks until the sidebar and pages are unusable.
+        .frame(minWidth: 680, minHeight: 460)
     }
 
     private func settingsContent(titleBarHeight: CGFloat) -> some View {
