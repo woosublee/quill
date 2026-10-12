@@ -44,11 +44,15 @@ enum NoteTitleResolver {
         newTitle: String?,
         hasUnsavedEdit: Bool
     ) -> String? {
-        // Saving trims the title and stores an empty one as nil, so a draft
-        // with a trailing space already matches its own saved title.
-        let trimmedDraft = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !hasUnsavedEdit, (trimmedDraft.isEmpty ? nil : trimmedDraft) != newTitle else { return nil }
+        // A draft with a trailing space already matches its own saved title.
+        guard !hasUnsavedEdit, normalizedCustomTitle(draft) != newTitle else { return nil }
         return newTitle ?? ""
+    }
+
+    /// A typed title as it is saved: trimmed, and nil when empty.
+    static func normalizedCustomTitle(_ title: String) -> String? {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     static func displayTitle(

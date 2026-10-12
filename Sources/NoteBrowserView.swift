@@ -2504,6 +2504,10 @@ private struct NoteDetailView: View {
     private var displayContent: String {
         loadedContent ?? item.postProcessedTranscript
     }
+    /// Only spaces or line breaks count as no transcript.
+    private var isDisplayedTranscriptBlank: Bool {
+        displayContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
     private var summaryEnvelope: MeetingSummaryEnvelope? {
         item.meetingSummary
     }
@@ -3185,7 +3189,7 @@ private struct NoteDetailView: View {
                 onUseNew: { useNewTranscript() }
             )
             .id(item.id)
-        } else if displayContent.isEmpty
+        } else if isDisplayedTranscriptBlank
                     && !(item.keepsTranscriptEditorWhenEmpty && isTypingInEmptyTranscript) {
             if item.keepsTranscriptEditorWhenEmpty {
                 // The whole transcript area opens the editor, not just the label.
@@ -3252,7 +3256,7 @@ private struct NoteDetailView: View {
                     text: displayContent,
                     bottomPadding: 36,
                     highlightedSourceQuote: highlightedSourceQuote,
-                    focusOnAppear: isTypingInEmptyTranscript && displayContent.isEmpty,
+                    focusOnAppear: isTypingInEmptyTranscript && isDisplayedTranscriptBlank,
                     onEndEditing: { text in
                         if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             isTypingInEmptyTranscript = false
@@ -3260,9 +3264,8 @@ private struct NoteDetailView: View {
                     }
                 ) { edited in
                     // Emptied while typing: the editor stays until focus leaves.
-                    if edited.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        isTypingInEmptyTranscript = true
-                    }
+                    isTypingInEmptyTranscript = edited
+                        .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     loadedContent = edited
                     appState.updateTranscript(id: item.id, text: edited)
                 }
@@ -5009,8 +5012,8 @@ private struct NoteTextView: NSViewRepresentable {
             let selection = textView.selectedRange()
             applyText(text, to: textView, bottomPadding: bottomPadding)
             // Earlier typing's undo steps point into the old text, and undoing
-            // them in the new text could garble it. The window shares one
-            // undo manager, so this also clears the title's undo history.
+            // them in the new text could garble it. The editor has its own
+            // undo manager, so the title's undo history stays.
             textView.undoManager?.removeAllActions()
             let length = (textView.string as NSString).length
             textView.setSelectedRange(NSRange(
@@ -5127,6 +5130,13 @@ private struct NoteTextView: NSViewRepresentable {
             }
             RunLoop.current.add(timer, forMode: .common)
             debounceTimer = timer
+        }
+
+        /// The transcript keeps its own undo history, apart from the title's.
+        private let transcriptUndoManager = UndoManager()
+
+        func undoManager(for view: NSTextView) -> UndoManager? {
+            transcriptUndoManager
         }
 
         func textDidEndEditing(_ notification: Notification) {

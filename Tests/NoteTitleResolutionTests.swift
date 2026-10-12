@@ -21,6 +21,7 @@ struct NoteTitleResolutionTests {
         testOutsideTitleChangeReplacesTheDraft()
         testOutsideTitleChangeKeepsAnUnsavedEdit()
         testOutsideTitleChangeMatchingTheDraftChangesNothing()
+        testTypedTitleIsSavedTrimmedAndNilWhenEmpty()
         print("NoteTitleResolutionTests passed")
     }
 
@@ -261,6 +262,12 @@ struct NoteTitleResolutionTests {
         assert(NoteTitleResolver.titleDraftAfterOutsideChange(
             draft: "   ", newTitle: nil, hasUnsavedEdit: false
         ) == nil)
+    }
+
+    private static func testTypedTitleIsSavedTrimmedAndNilWhenEmpty() {
+        assert(NoteTitleResolver.normalizedCustomTitle("  Team sync \n") == "Team sync")
+        assert(NoteTitleResolver.normalizedCustomTitle("   ") == nil)
+        assert(NoteTitleResolver.normalizedCustomTitle("") == nil)
     }
 
     private static func item(

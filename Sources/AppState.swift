@@ -7853,8 +7853,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         guard requireAvailableHistoryForMutation(),
               let index = pipelineHistory.firstIndex(where: { $0.id == id }) else { return }
         let item = pipelineHistory[index]
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedTitle = trimmed.isEmpty ? nil : trimmed
+        let normalizedTitle = NoteTitleResolver.normalizedCustomTitle(title)
         guard item.customTitle != normalizedTitle else { return }
         let updated = item.withCustomTitle(normalizedTitle)
         do {
