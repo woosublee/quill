@@ -3188,7 +3188,21 @@ private struct NoteDetailView: View {
             .id(item.id)
         } else if displayContent.isEmpty
                     && !(item.keepsTranscriptEditorWhenEmpty && isTypingInEmptyTranscript) {
-            emptyContentState
+            if item.keepsTranscriptEditorWhenEmpty {
+                // The whole transcript area opens the editor, not just the label.
+                emptyContentState
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onTapGesture { isTypingInEmptyTranscript = true }
+                    .onHover { isHoveringEmptyTranscript = $0 }
+                    .overrideCursor(.iBeam)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint(Text("Click to type"))
+                    .accessibilityAction { isTypingInEmptyTranscript = true }
+            } else {
+                emptyContentState
+            }
         } else {
             VStack(spacing: 0) {
                 // Notices stay while retranscribing, under the progress layer.
@@ -3656,24 +3670,14 @@ private struct NoteDetailView: View {
                     .padding(.horizontal, 60)
                 }
             } else if item.keepsTranscriptEditorWhenEmpty {
-                // A finished note with no transcript: clicking opens the
-                // editor. The toolbar below still offers transcribing again.
-                Button {
-                    isTypingInEmptyTranscript = true
-                } label: {
-                    VStack(spacing: 14) {
-                        noContentLabel
-                        Text("Click to type")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.tertiary)
-                            .opacity(isHoveringEmptyTranscript ? 1 : 0)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .onHover { isHoveringEmptyTranscript = $0 }
-                .overrideCursor(.iBeam)
-                .accessibilityHint(Text("Click to type"))
+                // A finished note with no transcript: clicking anywhere in
+                // the area opens the editor (see transcriptContentArea). The
+                // toolbar below still offers transcribing again.
+                noContentLabel
+                Text("Click to type")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+                    .opacity(isHoveringEmptyTranscript ? 1 : 0)
             } else {
                 noContentLabel
             }
