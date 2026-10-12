@@ -817,14 +817,13 @@ struct NoteBrowserView: View {
                 HStack(spacing: 0) {
             sidebarPanel
             detailPanel
-                // The note runs under the title bar too; its date line lines
-                // up with the traffic lights, and the space around it drags.
+                // The note runs under the title bar too, its header just below
+                // the traffic lights' row, and the space around it drags.
                 .ignoresSafeArea(.container, edges: .top)
                 .overlay(alignment: .top) {
                     WindowDragArea()
                         .frame(height: 16)
                 }
-                .environment(\.titleBarExtraHeight, titleBarExtraHeight)
                 .onChange(of: appState.pendingSummaryDeletion?.id) { _ in
                     guard appState.pendingSummaryDeletion != nil else { return }
                     NSAccessibility.post(
@@ -1256,7 +1255,9 @@ struct NoteBrowserView: View {
         VStack(spacing: 0) {
             sidebarTitleRow
             // Keeps the row below out of a title bar taller than designed.
-            Color.clear.frame(height: titleBarExtraHeight)
+            Color.clear
+                .frame(height: titleBarExtraHeight)
+                .background(WindowDragArea())
             // Selection mode and search swap the source and model row for the
             // selected count and Select All, or the search field, so the
             // header keeps its height.
@@ -1631,7 +1632,8 @@ struct NoteBrowserView: View {
             NoteDetailView(
                 item: item,
                 isSearchActive: isSearchActive,
-                prefersSummaryTab: searchMatcher.matchesOnlyInSummary(item, query: searchText)
+                prefersSummaryTab: searchMatcher.matchesOnlyInSummary(item, query: searchText),
+                titleBarExtraHeight: titleBarExtraHeight
             ) {
                 deleteConfirmedNote(id)
             }
@@ -2400,12 +2402,14 @@ enum NoteContentMode: Hashable {
 }
 
 private struct NoteDetailView: View {
-    @Environment(\.titleBarExtraHeight) private var titleBarExtraHeight
     let item: PipelineHistoryItem
     let isSearchActive: Bool
     /// True while the Note Browser search matches this note only in its
     /// saved summary, so the note opens on the Summary tab.
     let prefersSummaryTab: Bool
+    /// How far the window's title bar reaches below its designed height;
+    /// the header moves down by it (see `TitleBarLayout`).
+    let titleBarExtraHeight: CGFloat
     let onDelete: () -> Void
 
     @Environment(\.colorScheme) private var colorScheme

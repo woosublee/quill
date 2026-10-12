@@ -65,15 +65,3 @@ struct WindowDragArea: NSViewRepresentable {
         }
     }
 }
-
-private struct TitleBarExtraHeightKey: EnvironmentKey {
-    static let defaultValue: CGFloat = 0
-}
-
-extension EnvironmentValues {
-    /// See `TitleBarLayout`.
-    var titleBarExtraHeight: CGFloat {
-        get { self[TitleBarExtraHeightKey.self] }
-        set { self[TitleBarExtraHeightKey.self] = newValue }
-    }
-}
