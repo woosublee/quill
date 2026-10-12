@@ -4991,8 +4991,20 @@ private struct NoteTextView: NSViewRepresentable {
         context.coordinator.onEndEditing = onEndEditing
         let currentContent = textView.string.trimmingCharacters(in: .newlines)
         let newContent = text.trimmingCharacters(in: .newlines)
-        if textView.window?.firstResponder !== textView, currentContent != newContent {
+        // Text that changed outside the editor, such as from another Mac,
+        // shows even while the editor has focus. It waits only while typed
+        // text is waiting to be saved or a character is being composed, so
+        // typing is never replaced.
+        if currentContent != newContent,
+           !context.coordinator.hasPendingEdit,
+           !textView.hasMarkedText() {
+            let selection = textView.selectedRange()
             applyText(text, to: textView, bottomPadding: bottomPadding)
+            let length = (textView.string as NSString).length
+            textView.setSelectedRange(NSRange(
+                location: min(selection.location, length),
+                length: 0
+            ))
             context.coordinator.resetHighlight()
         }
         context.coordinator.applyHighlight(
@@ -5022,6 +5034,8 @@ private struct NoteTextView: NSViewRepresentable {
         var onCommit: ((String) -> Void)?
         var onEndEditing: ((String) -> Void)?
         private var debounceTimer: Timer?
+        /// Typed text that hasn't been saved yet.
+        var hasPendingEdit: Bool { debounceTimer?.isValid == true }
         private var lastHighlightedQuote: String?
         private var highlightedRange: NSRange?
 
