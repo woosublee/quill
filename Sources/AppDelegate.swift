@@ -1,4 +1,3 @@
-import CloudKit
 import SwiftUI
 import UserNotifications
 
@@ -121,13 +120,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Pieces of a deleted unrecovered recording are removed in the
         // background; let that finish so the note does not come back.
         appState.waitForPendingRecordingPieceRemovals(timeout: 2)
-    }
-
-    /// A CloudKit push says another Mac changed a note: fetch now.
-    func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
-        guard CKNotification(fromRemoteNotificationDictionary: userInfo)?.containerIdentifier
-                == NoteSyncAvailability.containerIdentifier else { return }
-        MainActor.assumeIsolated { appState.noteSyncController?.fetchSoon() }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

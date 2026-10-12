@@ -5,11 +5,12 @@ import Foundation
 import Network
 
 /// Drives `CKSyncEngine` for the coordinator: queues changes, builds the
-/// records it asks for, and hands back what it fetched and sent. On macOS the
-/// engine asks the server only when it knows something changed: after a
-/// CloudKit push, at start, and when the app comes to the front. It is also
-/// asked to fetch every minute while sync is on, and when the Mac wakes or
-/// the network comes back.
+/// records it asks for, and hands back what it fetched and sent. The engine
+/// asks the server by itself after a CloudKit push, at start, and when the
+/// app comes to the front. The fetches asked for here (every minute while
+/// sync is on, and when the Mac wakes or the network comes back) reach the
+/// server only once the engine knows something changed; on macOS they are
+/// otherwise a quick no-op.
 @available(macOS 14.0, *)
 final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPartFetching, CKSyncEngineDelegate, @unchecked Sendable {
     static let fetchInterval: TimeInterval = 60
@@ -83,7 +84,8 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
     func start() {
         NoteSyncCloudRecord.removeAllOutboxFiles(in: outbox)
         NoteAudioDownloader.removeDownloadFiles(in: downloadsDirectory)
-        // Silent CloudKit pushes need no permission prompt.
+        // CKSyncEngine fetches by itself when a CloudKit push arrives; it
+        // needs the app registered. Silent pushes need no permission prompt.
         NSApplication.shared.registerForRemoteNotifications()
         let timer = Timer(timeInterval: Self.fetchInterval, repeats: true) { [weak self] _ in
             self?.fetchNow()
