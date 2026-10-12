@@ -5,9 +5,10 @@ import Foundation
 import Network
 
 /// Drives `CKSyncEngine` for the coordinator: queues changes, builds the
-/// records it asks for, and hands back what it fetched and sent. Without
-/// push notifications it fetches every minute while sync is on, and right
-/// away when the Mac wakes or the network comes back.
+/// records it asks for, and hands back what it fetched and sent. The engine
+/// learns of another Mac's changes from CloudKit pushes; without them its
+/// fetches find nothing. As a fallback it also fetches every minute while
+/// sync is on, and right away when the Mac wakes or the network comes back.
 @available(macOS 14.0, *)
 final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPartFetching, CKSyncEngineDelegate, @unchecked Sendable {
     static let fetchInterval: TimeInterval = 60
@@ -81,6 +82,8 @@ final class NoteSyncCloudKitEngine: NSObject, NoteSyncEngineHandle, NoteAudioPar
     func start() {
         NoteSyncCloudRecord.removeAllOutboxFiles(in: outbox)
         NoteAudioDownloader.removeDownloadFiles(in: downloadsDirectory)
+        // Silent CloudKit pushes need no permission prompt.
+        NSApplication.shared.registerForRemoteNotifications()
         let timer = Timer(timeInterval: Self.fetchInterval, repeats: true) { [weak self] _ in
             self?.fetchNow()
         }

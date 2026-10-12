@@ -2,9 +2,10 @@
 # Reads a provisioning profile for signing.
 #
 #   provisioning.sh entitlements <profile> <bundle-id> <environment> <container> <identity> <base> <output>
-#     Writes <base> plus the iCloud entitlements the profile allows to <output>.
-#     Fails, writing nothing, when the profile is for another app, does not
-#     allow the container, CloudKit, or the environment, does not list the
+#     Writes <base> plus the iCloud and push entitlements the profile allows to
+#     <output>. Fails, writing nothing, when the profile is for another app, does
+#     not allow the container, CloudKit, the environment, or push notifications
+#     (CKSyncEngine fetches only after a CloudKit push), does not list the
 #     signing identity or this Mac, or has expired. <identity> is the
 #     codesign identity: a SHA-1 hash or a name from the keychain.
 #   provisioning.sh identity <profile>
@@ -80,7 +81,7 @@ this_mac_udid() {
 
 write_entitlements() {
   local profile="$1" bundle_id="$2" environment="$3" container="$4" identity="$5" base="$6" output="$7"
-  local decoded="$workdir/profile.plist" team app_id expires devices udid
+  local decoded="$workdir/profile.plist" team app_id expires devices udid aps
   decode_profile "$profile" "$decoded"
 
   team="$(value "$decoded" "TeamIdentifier:0")" || fail "profile has no team"
@@ -96,6 +97,8 @@ write_entitlements() {
     fail "profile does not allow CloudKit"
   items "$decoded" "Entitlements:com.apple.developer.icloud-container-environment" | contains_line "$environment" ||
     fail "profile does not allow the $environment environment"
+  aps="$(value "$decoded" "Entitlements:com.apple.developer.aps-environment")" ||
+    fail "profile does not allow push notifications; enable Push Notifications for the App ID and download the profile again"
 
   profile_certificate_hashes "$decoded" > "$workdir/profile-certs"
   identity_hashes "$identity" | grep -Fxq -f "$workdir/profile-certs" ||
@@ -119,6 +122,7 @@ write_entitlements() {
     -c "Add :com.apple.developer.icloud-services array" \
     -c "Add :com.apple.developer.icloud-services:0 string CloudKit" \
     -c "Add :com.apple.developer.icloud-container-environment string $environment" \
+    -c "Add :com.apple.developer.aps-environment string $aps" \
     "$entitlements" >/dev/null
   plutil -lint "$entitlements" >/dev/null
   mkdir -p "$(dirname "$output")"
