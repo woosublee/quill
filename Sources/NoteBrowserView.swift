@@ -1764,7 +1764,8 @@ private struct HorizontallyScrollableTitleField: NSViewRepresentable {
         textView.placeholder = placeholder
         textView.font = .systemFont(ofSize: 28, weight: .bold)
         textView.textColor = .labelColor
-        if textView.string != text {
+        // Never during composition, such as a Korean syllable in progress.
+        if textView.string != text, !textView.hasMarkedText() {
             let selectedRanges = textView.selectedRanges
             textView.string = text
             let stringLength = (textView.string as NSString).length
@@ -2403,8 +2404,6 @@ private struct NoteDetailView: View {
     /// The title the field took from outside it, such as from another Mac;
     /// the field's change to it isn't saved back as an edit.
     @State private var appliedOutsideTitle: String?
-    /// The person opened the editor of an empty finished note, or emptied
-    /// it while typing; leaving it empty shows the empty state again.
     /// The transcript editor has the cursor; a blank one then shows no
     /// "No content" over it.
     @State private var isTranscriptEditorFocused = false
@@ -2533,7 +2532,8 @@ private struct NoteDetailView: View {
     }
     /// Only spaces or line breaks count as no transcript.
     private var isDisplayedTranscriptBlank: Bool {
-        displayContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // Stops at the first visible character; transcripts can be long.
+        displayContent.allSatisfy(\.isWhitespace)
     }
     private var summaryEnvelope: MeetingSummaryEnvelope? {
         item.meetingSummary
@@ -2920,7 +2920,7 @@ private struct NoteDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button("Apply") {
-                        titleDraft = suggestedCalendarTitleInfo.applied
+                        applyOutsideTitle(suggestedCalendarTitleInfo.applied)
                         appState.updateHistoryItemTitle(id: item.id, title: suggestedCalendarTitleInfo.applied)
                     }
                     .font(.caption.weight(.semibold))
@@ -3278,7 +3278,9 @@ private struct NoteDetailView: View {
                     // until its editor has the cursor; clicking anywhere in
                     // the area puts it there. The toolbar below still offers
                     // transcribing again.
-                    if isDisplayedTranscriptBlank && !isTranscriptEditorFocused {
+                    if item.keepsTranscriptEditorWhenEmpty,
+                       isDisplayedTranscriptBlank,
+                       !isTranscriptEditorFocused {
                         emptyTranscriptPlaceholder
                     }
                 }
@@ -4959,6 +4961,16 @@ private struct NoteTextView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(onCommit: onCommit) }
 
+    /// Switching tabs can remove the editor without it losing focus first:
+    /// save what is waiting and report the focus gone.
+    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+        // Not during the SwiftUI update that removes the view.
+        DispatchQueue.main.async {
+            coordinator.commitPendingEdit()
+            coordinator.onFocusChange?(false)
+        }
+    }
+
     private func configureForTranscriptDisplay(_ textView: NSTextView) {
         textView.isRichText = false
         textView.importsGraphics = false
@@ -5077,6 +5089,7 @@ private struct NoteTextView: NSViewRepresentable {
         var onFocusChange: ((Bool) -> Void)?
         var lastFocusRequest = 0
         private var debounceTimer: Timer?
+        private var pendingText: String?
         /// Typed text that hasn't been saved yet.
         var hasPendingEdit: Bool { debounceTimer?.isValid == true }
         private var lastHighlightedQuote: String?
@@ -5152,12 +5165,20 @@ private struct NoteTextView: NSViewRepresentable {
             removeHighlight(from: textView)
             lastHighlightedQuote = nil
             debounceTimer?.invalidate()
-            let timer = Timer(timeInterval: 0.5, repeats: false) { [weak self, weak textView] _ in
-                guard let text = textView?.string else { return }
-                self?.onCommit?(text.trimmingCharacters(in: .newlines))
+            pendingText = textView.string
+            let timer = Timer(timeInterval: 0.5, repeats: false) { [weak self] _ in
+                self?.commitPendingEdit()
             }
             RunLoop.current.add(timer, forMode: .common)
             debounceTimer = timer
+        }
+
+        /// Saves typing still waiting, now.
+        func commitPendingEdit() {
+            debounceTimer?.invalidate()
+            guard let text = pendingText else { return }
+            pendingText = nil
+            onCommit?(text.trimmingCharacters(in: .newlines))
         }
 
         /// The transcript keeps its own undo history, apart from the title's.
@@ -5172,10 +5193,7 @@ private struct NoteTextView: NSViewRepresentable {
         func focusChanged(_ focused: Bool, in textView: NSTextView) {
             // Save typing still waiting first, so the caller sees the same
             // text as the note.
-            if !focused, debounceTimer?.isValid == true {
-                debounceTimer?.invalidate()
-                onCommit?(textView.string.trimmingCharacters(in: .newlines))
-            }
+            if !focused { commitPendingEdit() }
             // Not during the responder change itself.
             DispatchQueue.main.async { [weak self] in self?.onFocusChange?(focused) }
         }
