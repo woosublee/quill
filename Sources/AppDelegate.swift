@@ -294,15 +294,8 @@ private func showNoteBrowserWindow() {
             .environmentObject(appState)
         let hostingView = NSHostingView(rootView: settingsView)
 
-        // Opens a little larger than its minimum, never smaller.
-        let minimumSize = SettingsView.minimumSize
         let window = NSWindow(
-            contentRect: NSRect(
-                x: 0,
-                y: 0,
-                width: max(780, minimumSize.width),
-                height: max(540, minimumSize.height)
-            ),
+            contentRect: NSRect(x: 0, y: 0, width: 780, height: 540),
             styleMask: [.titled, .closable, .resizable, .miniaturizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -316,7 +309,6 @@ private func showNoteBrowserWindow() {
         window.titlebarSeparatorStyle = .none
         window.toolbar = NSToolbar(identifier: "Settings")
         window.toolbarStyle = .unified
-        window.minSize = minimumSize
         window.contentView = hostingView
         window.isReleasedWhenClosed = false
         window.center()
