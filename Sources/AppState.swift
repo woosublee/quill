@@ -440,6 +440,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let onStarted: (@MainActor () -> Void)?
     }
 
+    private static let retiredNoteBrowserEnabledStorageKey = "note_browser_enabled"
     private let apiKeyStorageKey = "groq_api_key"
     private let apiBaseURLStorageKey = "api_base_url"
     private let transcriptionEnabledStorageKey = "transcription_enabled"
@@ -3235,6 +3236,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let disableMeetingSummary = meetingSummarySettingsInitialized
             ? UserDefaults.standard.bool(forKey: disableMeetingSummaryStorageKey)
             : true
+        // The note browser is always on now (#518). An old opt-out is turned
+        // on once, so an older build after a downgrade keeps it on too.
+        if UserDefaults.standard.object(forKey: Self.retiredNoteBrowserEnabledStorageKey) as? Bool == false {
+            UserDefaults.standard.set(true, forKey: Self.retiredNoteBrowserEnabledStorageKey)
+        }
         let transcriptionLanguage = TranscriptionLanguage.find(
             code: UserDefaults.standard.string(forKey: transcriptionLanguageStorageKey) ?? "ko"
         )
