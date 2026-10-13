@@ -507,8 +507,7 @@ struct SetupFlowTests {
             step: 2,
             processingLocation: .recordOnly,
             localModel: .localAIModel(id: "synthetic-model"),
-            recordOnlyAudioSourceID: AudioRecordingSource.systemAudio.id,
-            isAPIKeyValidated: false
+            recordOnlyAudioSourceID: AudioRecordingSource.systemAudio.id
         )
         SetupFlow.saveProgress(progress, to: defaults)
         let loaded = SetupFlow.loadSavedProgress(from: defaults)
@@ -525,8 +524,7 @@ struct SetupFlowTests {
             step: 1,
             processingLocation: .onThisMac,
             localModel: .appleSpeech,
-            recordOnlyAudioSourceID: "unknown",
-            isAPIKeyValidated: true
+            recordOnlyAudioSourceID: "unknown"
         )
         assert(unknownSource.recordOnlyAudioSource == nil)
     }
@@ -546,11 +544,18 @@ struct SetupFlowTests {
         assert(stepChange.contains("saveProgress()"))
         let finish = sourceBlock(in: view, from: "private func performPrimaryAction()", to: "if currentStep == .processing, let selectedPreset")
         assert(finish.contains("SetupFlow.clearSavedProgress(in: .standard)"))
+        let restore = sourceBlock(in: view, from: "private func restoreSavedProgress()", to: "private func previousStep(")
+        assert(restore.contains("guard currentStep == .welcome else { return }"))
+        assert(restore.contains("return canResume(past: step)"))
+        let delegate = try String(contentsOfFile: "Sources/AppDelegate.swift", encoding: .utf8)
+        let setupClose = sourceBlock(in: delegate, from: "private func handleSetupWindowDidClose(", to: "@objc private func handleShowSettings()")
+        assert(setupClose.contains("SetupFlow.clearSavedProgress(in: .standard)"))
 
         // Only choices are kept; the API key stays in Settings.
         let flow = try String(contentsOfFile: "Sources/SetupFlow.swift", encoding: .utf8)
         let saved = sourceBlock(in: flow, from: "struct SavedProgress", to: "static let savedProgressKey")
-        assert(!saved.contains("var apiKey"))
+        assert(!saved.contains("apiKey"))
+        assert(!saved.contains("APIKey"))
     }
 
     private static func sourceBlock(

@@ -169,6 +169,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         let shouldRestore = shouldRestoreAfterSetupWindowClose
         shouldRestoreAfterSetupWindowClose = false
+        // A re-run closed early ends here; its choices aren't resumed later.
+        SetupFlow.clearSavedProgress(in: .standard)
         if shouldRestore, !appState.hasCompletedSetup {
             appState.hasCompletedSetup = true
             appState.startHotkeyMonitoring()

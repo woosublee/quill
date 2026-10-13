@@ -97,13 +97,13 @@ enum SetupFlow {
     /// Choices made in setup, kept until it finishes. Granting Screen
     /// Recording makes macOS quit and reopen Quill, and setup then picks up
     /// where it stopped (#516). Holds only choices, never the API key:
-    /// that is already in Settings.
+    /// that is already in Settings, and a key is validated again if the
+    /// user goes back to it.
     struct SavedProgress: Codable, Equatable {
         var step: Int
         var processingLocation: ProcessingLocation?
         var localModel: LocalModel
         var recordOnlyAudioSourceID: String?
-        var isAPIKeyValidated: Bool
 
         var recordOnlyAudioSource: AudioRecordingSource? {
             AudioRecordingSource.allCases.first { $0.id == recordOnlyAudioSourceID }

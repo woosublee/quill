@@ -133,6 +133,9 @@ struct SetupView: View {
             permissionTimer?.invalidate()
             appState.resumeHotkeyMonitoringAfterShortcutCapture()
         }
+        .onChange(of: processingLocation) { _ in saveProgress() }
+        .onChange(of: localModel) { _ in saveProgress() }
+        .onChange(of: recordOnlyAudioSource) { _ in saveProgress() }
         .onChange(of: currentStep) { step in
             saveProgress()
             if step == .permissions {
@@ -414,11 +417,7 @@ struct SetupView: View {
                     .font(.system(.body, design: .monospaced))
                     .disabled(isValidatingKey)
                     .onChange(of: apiKeyInput) { _ in
-                        // Restoring setup fills in the key it validated
-                        // before the relaunch; only another key loses it.
-                        if validatedAPIKey != trimmedAPIKey {
-                            validatedAPIKey = nil
-                        }
+                        validatedAPIKey = nil
                         keyValidationError = nil
                     }
 
@@ -989,32 +988,41 @@ struct SetupView: View {
                 step: currentStep.rawValue,
                 processingLocation: processingLocation,
                 localModel: localModel,
-                recordOnlyAudioSourceID: recordOnlyAudioSource?.id,
-                isAPIKeyValidated: isAPIKeyValidated
+                recordOnlyAudioSourceID: recordOnlyAudioSource?.id
             ),
             to: .standard
         )
     }
 
     /// Fills in the saved choices, then reopens at the saved step, or at
-    /// the first step that can't be passed any more. The step is chosen on
-    /// the next turn, once the restored choices are in place.
+    /// the first step that can't be passed any more, such as a permission
+    /// taken back. The step is chosen on the next turn, once the restored
+    /// choices are in place, and only if the user hasn't moved on.
     private func restoreSavedProgress() {
         guard let saved = SetupFlow.loadSavedProgress(from: .standard) else { return }
         processingLocation = saved.processingLocation
         localModel = saved.localModel
         recordOnlyAudioSource = saved.recordOnlyAudioSource
-        let savedKey = appState.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if saved.isAPIKeyValidated, !savedKey.isEmpty {
-            validatedAPIKey = savedKey
-        }
         DispatchQueue.main.async {
+            guard currentStep == .welcome else { return }
             let step = SetupFlow.resumeStep(savedStep: saved.step) { rawValue in
                 guard let step = SetupStep(rawValue: rawValue) else { return false }
-                return canContinue(from: step)
+                return canResume(past: step)
             }
             currentStep = SetupStep(rawValue: step) ?? .welcome
         }
+    }
+
+    /// Processing was passed and applied before the relaunch, so only a
+    /// choice is needed; model readiness and the API key check may still
+    /// be loading. Later steps check live permissions and shortcuts.
+    private func canResume(past step: SetupStep) -> Bool {
+        guard step == .processing else { return canContinue(from: step) }
+        guard let selectedPreset else { return false }
+        return SetupFlow.hasRequiredAudioSource(
+            for: selectedPreset,
+            recordOnlySource: recordOnlyAudioSource
+        )
     }
 
     private func previousStep(_ step: SetupStep) -> SetupStep {
