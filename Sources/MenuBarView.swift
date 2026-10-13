@@ -263,7 +263,7 @@ struct MenuBarView: View {
                             Text("  \(binding.selectionTitle)")
                         }
                     }
-                    .disabled(binding == appState.toggleShortcut)
+                    .disabled(binding.conflicts(with: appState.toggleShortcut))
                 }
 
                 if let savedCustomShortcut = appState.savedCustomShortcut(for: .hold) {
@@ -307,7 +307,7 @@ struct MenuBarView: View {
                             Text("  \(binding.selectionTitle)")
                         }
                     }
-                    .disabled(binding == appState.holdShortcut)
+                    .disabled(binding.conflicts(with: appState.holdShortcut))
                 }
 
                 if let savedCustomShortcut = appState.savedCustomShortcut(for: .toggle) {
@@ -351,7 +351,10 @@ struct MenuBarView: View {
                             Text("  \(binding.selectionTitle)")
                         }
                     }
-                    .disabled(binding == appState.holdShortcut || binding == appState.toggleShortcut)
+                    .disabled(
+                        binding.conflicts(with: appState.holdShortcut)
+                            || binding.conflicts(with: appState.toggleShortcut)
+                    )
                 }
 
                 if let savedCustomShortcut = appState.savedCustomShortcut(for: .copyAgain) {

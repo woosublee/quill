@@ -373,6 +373,8 @@ struct SetupFlowTests {
         assert(components.contains("isSelected: selection.id == binding.id"))
         let menuBar = try String(contentsOfFile: "Sources/MenuBarView.swift", encoding: .utf8)
         assert(!menuBar.contains("ForEach(ShortcutPreset.allCases)"))
+        assert(menuBar.contains(".disabled(binding.conflicts(with: appState.toggleShortcut))"))
+        assert(menuBar.contains(".disabled(binding.conflicts(with: appState.holdShortcut))"))
 
         assert(source.contains("Hold %@ to record"))
         assert(source.contains("Tap %@ to start and stop"))

@@ -57,6 +57,12 @@ struct ShortcutCoreTests {
         expectEqual(olderFnRows.count, ShortcutPreset.allCases.count)
         expectEqual(olderFnRows.filter { $0.id == olderFn.id }.count, 1)
 
+        // The menu disables rows by conflict, as setShortcut checks; the
+        // default pair must stay pickable together.
+        expectEqual(ShortcutBinding.defaultToggle.conflicts(with: .defaultHold), false)
+        expectEqual(ShortcutBinding.defaultHold.conflicts(with: .defaultToggle), false)
+        expectEqual(olderFn.conflicts(with: fn), true)
+
         // Fn + Command no longer reads as plain Fn.
         expectEqual(ShortcutBinding.defaultHold.selectionTitle, ShortcutPreset.fnKey.title)
         expectEqual(ShortcutBinding.defaultToggle.selectionTitle, ShortcutBinding.defaultToggle.displayName)
