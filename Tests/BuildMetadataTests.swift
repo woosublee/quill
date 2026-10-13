@@ -502,6 +502,49 @@ struct BuildMetadataTests {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
 
         assertContains(releaseWorkflow, "CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}")
+        // iCloud note sync: both the app build and the DMG build get the
+        // profile, or make dmg rebuilds the notarized app without it.
+        assertContains(releaseWorkflow, "PROVISIONING_PROFILE_BASE64: ${{ secrets.DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 }}")
+        assertContains(releaseWorkflow, #"echo "QUILL_RELEASE_PROFILE=$PROFILE_PATH" >> "$GITHUB_ENV""#)
+        // PROVISIONING_PROFILE is only ever passed on a make command line:
+        // set as an env var or in GITHUB_ENV, make would read it in every call.
+        for line in releaseWorkflow.split(separator: "\n") {
+            let text = String(line)
+            if text.trimmingCharacters(in: .whitespaces).hasPrefix("#") { continue }
+            let setsProfile = text.range(of: #"(^|[^_A-Z])PROVISIONING_PROFILE\s*[:=]"#, options: .regularExpression) != nil
+            precondition(
+                !setsProfile || text.contains("make "),
+                "PROVISIONING_PROFILE set outside a make call: \(text)"
+            )
+        }
+        assertContains(releaseWorkflow, #"BuildSupport/Signing/provisioning.sh identity "$PROFILE_PATH""#)
+        assertContains(releaseWorkflow, "The provisioning profile expired on $EXPIRES")
+        assertContains(releaseWorkflow, "::warning::The provisioning profile expires on $EXPIRES")
+        assertContains(releaseWorkflow, "isn't a signed provisioning profile")
+        assertContains(releaseWorkflow, "DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 is not set")
+        for check in [
+            "expect com.apple.developer.icloud-container-environment Production",
+            "expect com.apple.developer.aps-environment production",
+            "expect com.apple.developer.icloud-container-identifiers iCloud.com.woosublee.quill",
+            "expect com.apple.developer.icloud-services CloudKit",
+            #"cmp -s "$QUILL_RELEASE_PROFILE" build/Quill.app/Contents/embedded.provisionprofile"#,
+            #"expect com.apple.application-identifier "$TEAM.com.woosublee.quill""#,
+            "Unexpected iCloud entitlements",
+        ] {
+            assertContains(releaseWorkflow, check)
+        }
+        assertAppearsInOrder(releaseWorkflow, ["Create universal DMG", "xcrun stapler validate build/Quill.app", "Sign universal DMG"])
+        let cleanup = releaseWorkflow.components(separatedBy: "- name: Cleanup signing artifacts").last ?? ""
+        for file in [#""$RUNNER_TEMP/developer_id.provisionprofile""#, #""$RUNNER_TEMP/quill-entitlements.plist""#] {
+            assertContains(cleanup, file)
+        }
+        let profileMakeLines = releaseWorkflow.split(separator: "\n").filter {
+            $0.contains("make ARCH=universal APP_NAME=Quill") || $0.contains("make dmg ARCH=universal APP_NAME=Quill")
+        }
+        precondition(profileMakeLines.count == 2, "Expected the app and DMG make calls")
+        for line in profileMakeLines {
+            assertContains(String(line), #"PROVISIONING_PROFILE="$QUILL_RELEASE_PROFILE""#)
+        }
         assertContains(releaseWorkflow, "ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}")
         assertContains(releaseWorkflow, "ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}")
         assertContains(releaseWorkflow, "ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}")
@@ -514,7 +557,9 @@ struct BuildMetadataTests {
         assertAppearsInOrder(
             releaseWorkflow,
             [
+                "Install provisioning profile",
                 "Build universal",
+                "Verify iCloud entitlements",
                 "Notarize universal app",
                 "xcrun stapler staple build/Quill.app",
                 "Create universal DMG",
