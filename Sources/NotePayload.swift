@@ -1,8 +1,8 @@
 import Foundation
 
 /// Builds the JSON the MCP `list_notes` and `get_note` tools return.
-/// Pure functions: the note's display title, its summary text and filesystem
-/// access are passed in so this stays unit-testable.
+/// Pure functions: the note's display title, summary and audio state are
+/// passed in so this stays unit-testable.
 enum NotePayload {
     private static let resourceDomain = "resource.calendar.google.com"
     static let defaultListLimit = 20
@@ -15,15 +15,6 @@ enum NotePayload {
         item.recordingStartedAt ?? item.timestamp
     }
 
-    /// Where the display title comes from, in the order
-    /// NoteTitleResolver.displayTitle picks it: a title the person typed,
-    /// the applied calendar event title, or one made from the transcript.
-    static func titleSource(_ item: PipelineHistoryItem) -> String {
-        if nonEmpty(item.customTitle) != nil { return "custom" }
-        if item.calendarMatch?.appliedTitle != nil { return "calendar" }
-        return "automatic"
-    }
-
     // MARK: - get_note
 
     /// The note's meeting summary as Markdown, and whether the transcript
@@ -33,21 +24,33 @@ enum NotePayload {
         let isStale: Bool
     }
 
+    /// The note's audio file: where it is kept on this Mac, whether it is
+    /// usable here (present and not empty, as the app plays it), and
+    /// whether it is in iCloud to download instead.
+    struct Audio {
+        let filename: String
+        let path: String
+        let existsHere: Bool
+        let inICloud: Bool
+    }
+
     static func make(
         item: PipelineHistoryItem,
         title: String,
+        titleSource: String,
         summary: Summary?,
-        audioDirectory: URL,
-        fileExists: (URL) -> Bool,
+        audio: Audio?,
         formatter: ISO8601DateFormatter
     ) -> [String: Any] {
         [
             "id": item.id.uuidString,
             "title": title,
-            "title_source": titleSource(item),
+            "title_source": titleSource,
             "timestamps": timestampsPayload(item, formatter: formatter),
             "calendar": calendarPayload(item, formatter: formatter),
-            "audio": audioPayload(item, audioDirectory: audioDirectory, fileExists: fileExists),
+            "audio": audio.map {
+                ["filename": $0.filename, "path": $0.path, "exists": $0.existsHere, "in_icloud": $0.inICloud] as [String: Any]
+            } ?? NSNull(),
             "summary": summary.map { ["markdown": $0.markdown, "is_stale": $0.isStale] as [String: Any] } ?? NSNull(),
             "transcript": item.postProcessedTranscript,
             "raw_transcript": item.rawTranscript,
@@ -73,9 +76,22 @@ enum NotePayload {
             self.query = query?.isEmpty == false ? query : nil
             self.since = try Self.date(arguments["since"], name: "since", endOfDay: false, timeZone: timeZone)
             self.until = try Self.date(arguments["until"], name: "until", endOfDay: true, timeZone: timeZone)
-            let limit = arguments["limit"] as? Int ?? NotePayload.defaultListLimit
+            let limit = try Self.integer(arguments["limit"], name: "limit") ?? NotePayload.defaultListLimit
             self.limit = max(1, min(limit, NotePayload.maxListLimit))
-            self.offset = max(0, arguments["offset"] as? Int ?? 0)
+            self.offset = max(0, try Self.integer(arguments["offset"], name: "offset") ?? 0)
+        }
+
+        /// A whole number, or nil when the argument is left out; anything
+        /// else is an error so a client doesn't silently get the first page.
+        private static func integer(_ value: Any?, name: String) throws -> Int? {
+            guard let value, !(value is NSNull) else { return nil }
+            // `is Bool` is true for any NSNumber 0 or 1, so check for a real
+            // JSON true/false by its Core Foundation type.
+            let isBoolean = CFGetTypeID(value as CFTypeRef) == CFBooleanGetTypeID()
+            guard !(value is String), !isBoolean, let number = value as? Int else {
+                throw ListFilterError.invalidInteger(name)
+            }
+            return number
         }
 
         private static func date(
@@ -85,23 +101,26 @@ enum NotePayload {
             timeZone: TimeZone
         ) throws -> Date? {
             guard let raw = value as? String else {
-                if value == nil { return nil }
+                if value == nil || value is NSNull { return nil }
                 throw ListFilterError.invalidDate(name)
             }
             let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             if text.isEmpty { return nil }
 
-            let dayFormatter = DateFormatter()
-            dayFormatter.calendar = Calendar(identifier: .gregorian)
-            dayFormatter.locale = Locale(identifier: "en_US_POSIX")
-            dayFormatter.timeZone = timeZone
-            dayFormatter.dateFormat = "yyyy-MM-dd"
-            dayFormatter.isLenient = false
-            if let day = dayFormatter.date(from: text) {
-                guard endOfDay else { return day }
-                var calendar = Calendar(identifier: .gregorian)
-                calendar.timeZone = timeZone
-                return calendar.date(byAdding: .day, value: 1, to: day)?.addingTimeInterval(-0.001)
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = timeZone
+            if let day = Self.day(text) {
+                // Through Calendar rather than a midnight parse: where a
+                // clock change skips midnight, the day starts at 01:00.
+                guard let start = calendar.date(from: day),
+                      calendar.dateComponents([.year, .month, .day], from: start) == day else {
+                    throw ListFilterError.invalidDate(name)
+                }
+                guard endOfDay else { return start }
+                guard let next = calendar.date(byAdding: .day, value: 1, to: start) else {
+                    throw ListFilterError.invalidDate(name)
+                }
+                return calendar.startOfDay(for: next).addingTimeInterval(-0.001)
             }
 
             // A date-time without an offset is local time.
@@ -115,20 +134,37 @@ enum NotePayload {
                 if let date = localFormatter.date(from: text) { return date }
             }
 
+            // ISO8601DateFormatter wants seconds; add them when left out.
+            let withSeconds = text.range(
+                of: #"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?=Z$|[+-]\d{2}:?\d{2}$)"#,
+                options: .regularExpression
+            ).map { text.replacingCharacters(in: $0, with: text[$0] + ":00") } ?? text
             let dateTimeFormatter = ISO8601DateFormatter()
             dateTimeFormatter.formatOptions = [.withInternetDateTime]
-            if let date = dateTimeFormatter.date(from: text) { return date }
+            if let date = dateTimeFormatter.date(from: withSeconds) { return date }
             dateTimeFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = dateTimeFormatter.date(from: text) { return date }
+            if let date = dateTimeFormatter.date(from: withSeconds) { return date }
             throw ListFilterError.invalidDate(name)
+        }
+
+        /// The year, month and day of a plain YYYY-MM-DD.
+        private static func day(_ text: String) -> DateComponents? {
+            guard text.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil else {
+                return nil
+            }
+            let parts = text.split(separator: "-").compactMap { Int($0) }
+            return DateComponents(year: parts[0], month: parts[1], day: parts[2])
         }
     }
 
     enum ListFilterError: Error, Equatable {
         case invalidDate(String)
+        case invalidInteger(String)
 
         var message: String {
             switch self {
+            case .invalidInteger(let name):
+                return "Error: '\(name)' must be a whole number."
             case .invalidDate(let name):
                 return "Error: '\(name)' must be a date (YYYY-MM-DD) or an ISO 8601 date-time such as 2026-10-13T09:00:00."
             }
@@ -149,15 +185,19 @@ enum NotePayload {
         var notes: [[String: Any]] = []
         var skipped = 0
         var hasMore = false
+        // Filter before sorting so a narrow filter sorts only its matches.
+        let inRange = items.filter { item in
+            let date = noteDate(item)
+            if let since = filter.since, date < since { return false }
+            if let until = filter.until, date > until { return false }
+            return true
+        }
         // Ties break on id so pages stay in the same order between calls.
-        let sorted = items.sorted {
+        let sorted = inRange.sorted {
             let (left, right) = (noteDate($0), noteDate($1))
             return left != right ? left > right : $0.id.uuidString < $1.id.uuidString
         }
         for item in sorted {
-            let date = noteDate(item)
-            if let since = filter.since, date < since { continue }
-            if let until = filter.until, date > until { continue }
             if let query = filter.query, !matches(item, query) { continue }
             if skipped < filter.offset {
                 skipped += 1
@@ -232,20 +272,6 @@ enum NotePayload {
             "start": formatter.string(from: match.start),
             "end": formatter.string(from: match.end),
             "attendees": attendees,
-        ]
-    }
-
-    private static func audioPayload(
-        _ item: PipelineHistoryItem,
-        audioDirectory: URL,
-        fileExists: (URL) -> Bool
-    ) -> Any {
-        guard let name = item.audioFileName, !name.isEmpty else { return NSNull() }
-        let url = audioDirectory.appendingPathComponent(name)
-        return [
-            "filename": name,
-            "path": url.path,
-            "exists": fileExists(url),
         ]
     }
 }

@@ -30,8 +30,6 @@ final class MCPServer {
     private let openConnectionsLock = NSLock()
 
     private weak var appState: AppState?
-    /// Caches decoded summary text between list_notes calls; main thread only.
-    private let noteSearchMatcher = NoteSearchMatcher()
     private var cancellables = Set<AnyCancellable>()
 
     init(appState: AppState) {
@@ -424,16 +422,16 @@ final class MCPServer {
             } catch {
                 return textContent("Error: invalid arguments.", isError: true)
             }
-            let matcher = noteSearchMatcher
+            // A fresh matcher per call: summary text isn't kept between calls.
+            let matcher = NoteSearchMatcher()
             let payload = NotePayload.list(
                 appState.pipelineHistory,
                 filter: filter,
                 matches: { matcher.matches($0, query: $1) },
                 title: { NoteTitleResolver.displayTitle(for: $0) },
-                hasSummary: { $0.meetingSummary != nil },
+                hasSummary: { $0.meetingSummaryJSON != nil },
                 formatter: Self.localISOFormatter()
             )
-            matcher.retainCache(for: Set(appState.pipelineHistory.map(\.id)))
             return jsonContent(payload)
 
         case "get_note":
@@ -446,14 +444,14 @@ final class MCPServer {
             let payload = NotePayload.make(
                 item: item,
                 title: NoteTitleResolver.displayTitle(for: item),
+                titleSource: NoteTitleResolver.displayTitleSource(for: item).rawValue,
                 summary: item.meetingSummary.map { envelope in
                     NotePayload.Summary(
                         markdown: MeetingSummaryMarkdownRenderer.render(envelope),
                         isStale: envelope.sourceFingerprint != appState.meetingSummarySource(for: item).fingerprint
                     )
                 },
-                audioDirectory: appState.storageLayout.audioDirectory,
-                fileExists: { FileManager.default.fileExists(atPath: $0.path) },
+                audio: Self.audio(of: item, appState: appState),
                 formatter: Self.localISOFormatter()
             )
             return jsonContent(payload)
@@ -468,6 +466,21 @@ final class MCPServer {
         formatter.formatOptions = [.withInternetDateTime]
         formatter.timeZone = TimeZone.current
         return formatter
+    }
+
+    /// The note's audio as the Note Browser sees it: an empty file isn't
+    /// usable, and audio kept only in iCloud can be downloaded.
+    @MainActor
+    private static func audio(of item: PipelineHistoryItem, appState: AppState) -> NotePayload.Audio? {
+        guard let name = item.audioFileName, !name.isEmpty else { return nil }
+        let url = appState.storedAudioURL(for: item)
+            ?? appState.storageLayout.audioDirectory.appendingPathComponent(name)
+        return NotePayload.Audio(
+            filename: name,
+            path: url.path,
+            existsHere: appState.storedAudioFile(for: item).usableURL != nil,
+            inICloud: appState.noteAudioState(for: item).isInICloud
+        )
     }
 
     private func jsonContent(_ payload: [String: Any]) -> [String: Any] {

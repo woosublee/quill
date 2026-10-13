@@ -7,8 +7,8 @@ struct NotePayloadTests {
         testNoteSummaryIsNullWhenMissing()
         testTitleSourceFollowsDisplayTitleOrder()
         testCalendarIsNullWhenNoMatch()
-        testAudioPathAndExistsAreResolved()
-        testAudioIsNullWhenNoFilename()
+        testAudioCarriesWhereItIs()
+        testAudioIsNullWithoutAudio()
         testResourceAttendeeFlagFromEmail()
         testTimestampsUseProvidedFormatter()
         try testListIsNewestFirstWithTitleAndPreview()
@@ -18,7 +18,9 @@ struct NotePayloadTests {
         try testListQueryUsesNoteSearch()
         try testListDateRangeUsesWholeLocalDays()
         try testListAcceptsDateTimes()
-        testListRejectsBadDates()
+        try testListDayWithSkippedMidnight()
+        testListRejectsBadArguments()
+        try testListAcceptsNullAndWholeDoubles()
         print("NotePayloadTests passed")
     }
 
@@ -77,15 +79,14 @@ struct NotePayloadTests {
         _ item: PipelineHistoryItem,
         title: String = "Note title",
         summary: NotePayload.Summary? = nil,
-        audioDirectory: String = "/tmp",
-        fileExists: (URL) -> Bool = { _ in false }
+        audio: NotePayload.Audio? = nil
     ) -> [String: Any] {
         NotePayload.make(
             item: item,
             title: title,
+            titleSource: NoteTitleResolver.displayTitleSource(for: item).rawValue,
             summary: summary,
-            audioDirectory: URL(fileURLWithPath: audioDirectory),
-            fileExists: fileExists,
+            audio: audio,
             formatter: seoulFormatter()
         )
     }
@@ -105,7 +106,12 @@ struct NotePayloadTests {
         precondition(payload["context"] as? String == "ctx")
     }
 
+    /// title_source names where NoteTitleResolver.displayTitle took the title.
     private static func testTitleSourceFollowsDisplayTitleOrder() {
+        let custom = makeItem(calendarMatch: sampleCalendar(), customTitle: " Mine ")
+        precondition(NoteTitleResolver.displayTitle(for: custom) == "Mine")
+        let calendar = makeItem(calendarMatch: sampleCalendar(), customTitle: "  ")
+        precondition(NoteTitleResolver.displayTitle(for: calendar) == calendar.calendarMatch?.appliedTitle)
         let suggested = sampleCalendar(titleState: .suggested)
         precondition(note(makeItem(calendarMatch: sampleCalendar(), customTitle: "Mine"))["title_source"] as? String == "custom")
         precondition(note(makeItem(calendarMatch: sampleCalendar(), customTitle: "  "))["title_source"] as? String == "calendar")
@@ -121,20 +127,20 @@ struct NotePayloadTests {
         precondition(note(makeItem())["calendar"] is NSNull)
     }
 
-    private static func testAudioPathAndExistsAreResolved() {
+    private static func testAudioCarriesWhereItIs() {
         let payload = note(
             makeItem(audioFileName: "abc.wav"),
-            audioDirectory: "/audio",
-            fileExists: { $0.path == "/audio/abc.wav" }
+            audio: NotePayload.Audio(filename: "abc.wav", path: "/audio/abc.wav", existsHere: false, inICloud: true)
         )
         let audio = payload["audio"] as! [String: Any]
         precondition(audio["filename"] as? String == "abc.wav")
         precondition(audio["path"] as? String == "/audio/abc.wav")
-        precondition(audio["exists"] as? Bool == true)
+        precondition(audio["exists"] as? Bool == false)
+        precondition(audio["in_icloud"] as? Bool == true)
     }
 
-    private static func testAudioIsNullWhenNoFilename() {
-        precondition(note(makeItem(), fileExists: { _ in true })["audio"] is NSNull)
+    private static func testAudioIsNullWithoutAudio() {
+        precondition(note(makeItem())["audio"] is NSNull)
     }
 
     private static func testResourceAttendeeFlagFromEmail() {
@@ -285,10 +291,33 @@ struct NotePayloadTests {
         // Without an offset a date-time is local (Seoul here).
         try expectIDs(["since": "2023-11-15T07:00:00"], ["3"])
         try expectIDs(["until": "2023-11-14T08:00"], ["2", "1"])
+        // An offset without seconds.
+        try expectIDs(["since": "2023-11-15T07:00+09:00"], ["3"])
+        try expectIDs(["since": "2023-11-14T22:00Z"], ["3"])
     }
 
-    private static func testListRejectsBadDates() {
-        for arguments: [String: Any] in [["since": "yesterday"], ["until": "2023-13-40"], ["since": 5]] {
+    /// Where a clock change skips midnight, the day still parses and starts
+    /// at the first moment that exists.
+    private static func testListDayWithSkippedMidnight() throws {
+        let saoPaulo = TimeZone(identifier: "America/Sao_Paulo")!
+        let filter = try NotePayload.ListFilter(arguments: ["since": "2018-11-04", "until": "2018-11-04"], timeZone: saoPaulo)
+        let iso = ISO8601DateFormatter()
+        iso.timeZone = saoPaulo
+        precondition(iso.string(from: filter.since!) == "2018-11-04T01:00:00-02:00")
+        precondition(filter.until! > filter.since!)
+    }
+
+    private static func testListAcceptsNullAndWholeDoubles() throws {
+        try expectIDs(["limit": NSNull(), "offset": NSNull(), "since": NSNull()], ["3", "2", "1"])
+        try expectIDs(["limit": NSNumber(value: 1.0)], ["3"])  // JSON numbers arrive as NSNumber
+    }
+
+    private static func testListRejectsBadArguments() {
+        let bad: [[String: Any]] = [
+            ["since": "yesterday"], ["until": "2023-13-40"], ["since": "2023-02-30"], ["since": 5],
+            ["limit": "20"], ["offset": "20"], ["offset": NSNumber(value: 1.5)], ["limit": true],
+        ]
+        for arguments in bad {
             do {
                 _ = try NotePayload.ListFilter(arguments: arguments, timeZone: seoul)
                 preconditionFailure("Expected \(arguments) to be rejected")

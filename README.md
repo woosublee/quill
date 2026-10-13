@@ -96,7 +96,7 @@ Available MCP tools:
 - `stop_recording` — stop the recording and trigger transcription.
 - `get_status` — check whether Quill is idle, recording, or transcribing.
 - `list_notes` — list notes newest first as JSON (id, title as Quill shows it, recording time, matched calendar event title, whether a summary exists, and a short preview). Filter with `query` (searched like Quill's note search: title, transcript, summary, calendar event title) and `since`/`until` (a `YYYY-MM-DD` day or an ISO 8601 date-time, local time without an offset); use `offset` for the next page when `has_more` is true.
-- `get_note` — fetch one note by id as JSON: title and where it comes from (`custom`, `calendar`, or `automatic`), ISO 8601 timestamps, matched calendar event and attendees, audio file path, summary (Markdown, marked stale when the transcript changed after it was made), transcript, original transcript, and app context.
+- `get_note` — fetch one note by id as JSON: title and where it comes from (`custom`, `calendar`, or `automatic`), ISO 8601 timestamps, matched calendar event and attendees, audio file path (and whether it is on this Mac or only in iCloud), summary (Markdown, marked stale when the transcript changed after it was made), transcript, original transcript, and app context.
 
 Notes:
 
