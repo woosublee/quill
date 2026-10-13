@@ -30,6 +30,8 @@ final class MCPServer {
     private let openConnectionsLock = NSLock()
 
     private weak var appState: AppState?
+    /// Caches decoded summary text between list_notes calls; main thread only.
+    private let noteSearchMatcher = NoteSearchMatcher()
     private var cancellables = Set<AnyCancellable>()
 
     init(appState: AppState) {
@@ -306,7 +308,7 @@ final class MCPServer {
             ],
             [
                 "name": "list_notes",
-                "description": "List Quill notes, newest first, as JSON: id, title (as Quill shows it), recording time, matched calendar event title, whether a summary exists, and a short preview. Filter by text or date to find older notes; has_more is true when more notes match.",
+                "description": "List Quill notes, newest first, as JSON: id, title (as Quill shows it), recording time, matched calendar event title, whether a summary exists, and a short preview. Filter by text (searched like Quill's note search) or date to find older notes; has_more is true when more notes match, and offset fetches the next page.",
                 "inputSchema": [
                     "type": "object",
                     "properties": [
@@ -316,22 +318,26 @@ final class MCPServer {
                         ],
                         "since": [
                             "type": "string",
-                            "description": "Only notes recorded on or after this date (YYYY-MM-DD, local time) or ISO 8601 date-time"
+                            "description": "Only notes recorded on or after this date (YYYY-MM-DD) or ISO 8601 date-time; without an offset it is local time"
                         ],
                         "until": [
                             "type": "string",
-                            "description": "Only notes recorded on or before this date (YYYY-MM-DD, local time, whole day) or ISO 8601 date-time"
+                            "description": "Only notes recorded on or before this date (YYYY-MM-DD, the whole day) or ISO 8601 date-time; without an offset it is local time"
                         ],
                         "limit": [
                             "type": "integer",
                             "description": "Maximum number of notes to return (default: \(NotePayload.defaultListLimit), max: \(NotePayload.maxListLimit))"
+                        ],
+                        "offset": [
+                            "type": "integer",
+                            "description": "Number of matching notes to skip, for the next page when has_more is true (default: 0)"
                         ]
                     ]
                 ]
             ],
             [
                 "name": "get_note",
-                "description": "Get one Quill note as JSON: title and title_source (custom, calendar, or automatic), timestamps, matched calendar event and attendees, audio file location, summary (Markdown), transcript, original transcript, and app context.",
+                "description": "Get one Quill note as JSON: title and title_source (custom, calendar, or automatic), timestamps, matched calendar event and attendees, audio file location, summary (Markdown, with is_stale true when the transcript changed after it was made), transcript, original transcript, and app context.",
                 "inputSchema": [
                     "type": "object",
                     "properties": [
@@ -418,13 +424,16 @@ final class MCPServer {
             } catch {
                 return textContent("Error: invalid arguments.", isError: true)
             }
+            let matcher = noteSearchMatcher
             let payload = NotePayload.list(
                 appState.pipelineHistory,
                 filter: filter,
+                matches: { matcher.matches($0, query: $1) },
                 title: { NoteTitleResolver.displayTitle(for: $0) },
-                summary: Self.summaryMarkdown,
+                hasSummary: { $0.meetingSummary != nil },
                 formatter: Self.localISOFormatter()
             )
+            matcher.retainCache(for: Set(appState.pipelineHistory.map(\.id)))
             return jsonContent(payload)
 
         case "get_note":
@@ -437,7 +446,12 @@ final class MCPServer {
             let payload = NotePayload.make(
                 item: item,
                 title: NoteTitleResolver.displayTitle(for: item),
-                summary: Self.summaryMarkdown(item),
+                summary: item.meetingSummary.map { envelope in
+                    NotePayload.Summary(
+                        markdown: MeetingSummaryMarkdownRenderer.render(envelope),
+                        isStale: envelope.sourceFingerprint != appState.meetingSummarySource(for: item).fingerprint
+                    )
+                },
                 audioDirectory: appState.storageLayout.audioDirectory,
                 fileExists: { FileManager.default.fileExists(atPath: $0.path) },
                 formatter: Self.localISOFormatter()
@@ -454,10 +468,6 @@ final class MCPServer {
         formatter.formatOptions = [.withInternetDateTime]
         formatter.timeZone = TimeZone.current
         return formatter
-    }
-
-    private static func summaryMarkdown(_ item: PipelineHistoryItem) -> String? {
-        item.meetingSummary.map { MeetingSummaryMarkdownRenderer.render($0) }
     }
 
     private func jsonContent(_ payload: [String: Any]) -> [String: Any] {

@@ -26,10 +26,17 @@ enum NotePayload {
 
     // MARK: - get_note
 
+    /// The note's meeting summary as Markdown, and whether the transcript
+    /// changed after it was made (the app shows such a summary as stale).
+    struct Summary {
+        let markdown: String
+        let isStale: Bool
+    }
+
     static func make(
         item: PipelineHistoryItem,
         title: String,
-        summary: String?,
+        summary: Summary?,
         audioDirectory: URL,
         fileExists: (URL) -> Bool,
         formatter: ISO8601DateFormatter
@@ -41,7 +48,7 @@ enum NotePayload {
             "timestamps": timestampsPayload(item, formatter: formatter),
             "calendar": calendarPayload(item, formatter: formatter),
             "audio": audioPayload(item, audioDirectory: audioDirectory, fileExists: fileExists),
-            "summary": orNull(nonEmpty(summary)),
+            "summary": summary.map { ["markdown": $0.markdown, "is_stale": $0.isStale] as [String: Any] } ?? NSNull(),
             "transcript": item.postProcessedTranscript,
             "raw_transcript": item.rawTranscript,
             "context": item.contextSummary,
@@ -55,6 +62,7 @@ enum NotePayload {
         var since: Date?
         var until: Date?
         var limit: Int
+        var offset: Int
 
         /// Reads the tool arguments. `since` and `until` take a date
         /// (YYYY-MM-DD, a whole day in `timeZone`) or an ISO 8601 date-time;
@@ -67,6 +75,7 @@ enum NotePayload {
             self.until = try Self.date(arguments["until"], name: "until", endOfDay: true, timeZone: timeZone)
             let limit = arguments["limit"] as? Int ?? NotePayload.defaultListLimit
             self.limit = max(1, min(limit, NotePayload.maxListLimit))
+            self.offset = max(0, arguments["offset"] as? Int ?? 0)
         }
 
         private static func date(
@@ -95,6 +104,17 @@ enum NotePayload {
                 return calendar.date(byAdding: .day, value: 1, to: day)?.addingTimeInterval(-0.001)
             }
 
+            // A date-time without an offset is local time.
+            let localFormatter = DateFormatter()
+            localFormatter.calendar = Calendar(identifier: .gregorian)
+            localFormatter.locale = Locale(identifier: "en_US_POSIX")
+            localFormatter.timeZone = timeZone
+            localFormatter.isLenient = false
+            for format in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm:ss.SSS", "yyyy-MM-dd'T'HH:mm"] {
+                localFormatter.dateFormat = format
+                if let date = localFormatter.date(from: text) { return date }
+            }
+
             let dateTimeFormatter = ISO8601DateFormatter()
             dateTimeFormatter.formatOptions = [.withInternetDateTime]
             if let date = dateTimeFormatter.date(from: text) { return date }
@@ -110,50 +130,46 @@ enum NotePayload {
         var message: String {
             switch self {
             case .invalidDate(let name):
-                return "Error: '\(name)' must be a date (YYYY-MM-DD) or an ISO 8601 date-time."
+                return "Error: '\(name)' must be a date (YYYY-MM-DD) or an ISO 8601 date-time such as 2026-10-13T09:00:00."
             }
         }
     }
 
-    /// The newest notes first that pass the filter. `title` and `summary`
-    /// give each note's display title and summary text; the query matches
-    /// either of them, the transcripts, or the calendar event title,
-    /// ignoring case and accents.
+    /// The notes that pass the filter, newest first, skipping `offset`
+    /// matches. `matches` is the Note Browser's search for a non-empty
+    /// query; `title` and `hasSummary` are only asked for returned notes.
     static func list(
         _ items: [PipelineHistoryItem],
         filter: ListFilter,
+        matches: (PipelineHistoryItem, String) -> Bool,
         title: (PipelineHistoryItem) -> String,
-        summary: (PipelineHistoryItem) -> String?,
+        hasSummary: (PipelineHistoryItem) -> Bool,
         formatter: ISO8601DateFormatter
     ) -> [String: Any] {
-        var matches: [[String: Any]] = []
+        var notes: [[String: Any]] = []
+        var skipped = 0
         var hasMore = false
-        let sorted = items.sorted { noteDate($0) > noteDate($1) }
+        // Ties break on id so pages stay in the same order between calls.
+        let sorted = items.sorted {
+            let (left, right) = (noteDate($0), noteDate($1))
+            return left != right ? left > right : $0.id.uuidString < $1.id.uuidString
+        }
         for item in sorted {
             let date = noteDate(item)
             if let since = filter.since, date < since { continue }
             if let until = filter.until, date > until { continue }
-            let itemTitle = title(item)
-            let itemSummary = summary(item)
-            if let query = filter.query {
-                let fields = [
-                    itemTitle,
-                    item.postProcessedTranscript,
-                    item.rawTranscript,
-                    item.calendarMatch?.title ?? "",
-                    itemSummary ?? "",
-                ]
-                guard fields.contains(where: {
-                    $0.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) != nil
-                }) else { continue }
+            if let query = filter.query, !matches(item, query) { continue }
+            if skipped < filter.offset {
+                skipped += 1
+                continue
             }
-            if matches.count == filter.limit {
+            if notes.count == filter.limit {
                 hasMore = true
                 break
             }
-            matches.append(listEntry(item, title: itemTitle, hasSummary: itemSummary != nil, formatter: formatter))
+            notes.append(listEntry(item, title: title(item), hasSummary: hasSummary(item), formatter: formatter))
         }
-        return ["notes": matches, "has_more": hasMore]
+        return ["notes": notes, "has_more": hasMore]
     }
 
     private static func listEntry(

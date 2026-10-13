@@ -13,7 +13,9 @@ struct NotePayloadTests {
         testTimestampsUseProvidedFormatter()
         try testListIsNewestFirstWithTitleAndPreview()
         try testListLimitReportsMore()
-        try testListQueryMatchesTitleTranscriptAndSummary()
+        try testListOffsetPagesThroughMatches()
+        try testListBreaksDateTiesByID()
+        try testListQueryUsesNoteSearch()
         try testListDateRangeUsesWholeLocalDays()
         try testListAcceptsDateTimes()
         testListRejectsBadDates()
@@ -74,7 +76,7 @@ struct NotePayloadTests {
     private static func note(
         _ item: PipelineHistoryItem,
         title: String = "Note title",
-        summary: String? = nil,
+        summary: NotePayload.Summary? = nil,
         audioDirectory: String = "/tmp",
         fileExists: (URL) -> Bool = { _ in false }
     ) -> [String: Any] {
@@ -92,10 +94,12 @@ struct NotePayloadTests {
         let payload = note(
             makeItem(calendarMatch: sampleCalendar()),
             title: "2023-11-15 Weekly Sync",
-            summary: "## Overview\n\nPlanned the launch."
+            summary: NotePayload.Summary(markdown: "## Overview\n\nPlanned the launch.", isStale: true)
         )
         precondition(payload["title"] as? String == "2023-11-15 Weekly Sync")
-        precondition(payload["summary"] as? String == "## Overview\n\nPlanned the launch.")
+        let summary = payload["summary"] as! [String: Any]
+        precondition(summary["markdown"] as? String == "## Overview\n\nPlanned the launch.")
+        precondition(summary["is_stale"] as? Bool == true)
         precondition(payload["transcript"] as? String == "clean text")
         precondition(payload["raw_transcript"] as? String == "raw text")
         precondition(payload["context"] as? String == "ctx")
@@ -111,7 +115,6 @@ struct NotePayloadTests {
 
     private static func testNoteSummaryIsNullWhenMissing() {
         precondition(note(makeItem())["summary"] is NSNull)
-        precondition(note(makeItem(), summary: "  ")["summary"] is NSNull)
     }
 
     private static func testCalendarIsNullWhenNoMatch() {
@@ -188,21 +191,27 @@ struct NotePayloadTests {
     private static func list(
         _ arguments: [String: Any],
         items: [PipelineHistoryItem] = threeNotes(),
-        summaries: [String: String] = [:]
+        withSummary: Set<String> = []
     ) throws -> (notes: [[String: Any]], hasMore: Bool) {
         let filter = try NotePayload.ListFilter(arguments: arguments, timeZone: seoul)
+        let matcher = NoteSearchMatcher()
         let payload = NotePayload.list(
             items,
             filter: filter,
+            matches: { matcher.matches($0, query: $1) },
             title: { "Title \($0.id.uuidString.suffix(1))" },
-            summary: { summaries[$0.id.uuidString] },
+            hasSummary: { withSummary.contains($0.id.uuidString) },
             formatter: seoulFormatter()
         )
         return (payload["notes"] as! [[String: Any]], payload["has_more"] as! Bool)
     }
 
-    private static func expectIDs(_ arguments: [String: Any], _ expected: [String]) throws {
-        let found = ids(try list(arguments).notes)
+    private static func expectIDs(
+        _ arguments: [String: Any],
+        _ expected: [String],
+        items: [PipelineHistoryItem] = threeNotes()
+    ) throws {
+        let found = ids(try list(arguments, items: items).notes)
         precondition(found == expected, "\(arguments): expected \(expected), got \(found)")
     }
 
@@ -211,7 +220,7 @@ struct NotePayloadTests {
     }
 
     private static func testListIsNewestFirstWithTitleAndPreview() throws {
-        let result = try list([:], summaries: ["00000000-0000-0000-0000-000000000003": "Summary"])
+        let result = try list([:], withSummary: ["00000000-0000-0000-0000-000000000003"])
         precondition(ids(result.notes) == ["3", "2", "1"])
         precondition(result.hasMore == false)
         let newest = result.notes[0]
@@ -233,16 +242,33 @@ struct NotePayloadTests {
         try expectIDs(["limit": 0], ["3"])
     }
 
-    private static func testListQueryMatchesTitleTranscriptAndSummary() throws {
+    private static func testListOffsetPagesThroughMatches() throws {
+        let second = try list(["limit": 1, "offset": 1])
+        precondition(ids(second.notes) == ["2"] && second.hasMore)
+        let last = try list(["limit": 1, "offset": 2])
+        precondition(ids(last.notes) == ["1"] && !last.hasMore)
+        try expectIDs(["offset": 5], [])
+        try expectIDs(["offset": -3], ["3", "2", "1"])
+        try expectIDs(["query": "budget", "offset": 1], [])
+    }
+
+    private static func testListBreaksDateTiesByID() throws {
+        let same = Date(timeIntervalSince1970: 1_700_000_000)
+        let tied = [
+            makeItem(id: "00000000-0000-0000-0000-000000000009", timestamp: same),
+            makeItem(id: "00000000-0000-0000-0000-000000000004", timestamp: same),
+        ]
+        try expectIDs([:], ["4", "9"], items: tied)
+        try expectIDs([:], ["4", "9"], items: tied.reversed())
+    }
+
+    /// The query uses the Note Browser's search: the shown transcript and
+    /// the calendar event title match, the hidden raw transcript doesn't.
+    private static func testListQueryUsesNoteSearch() throws {
         try expectIDs(["query": "BUDGET"], ["1"])
         try expectIDs(["query": "cafe"], ["2"])
         try expectIDs(["query": "design crit"], ["3"])
-        try expectIDs(["query": "Title 2"], ["2"])
-        let bySummary = try list(
-            ["query": "roadmap"],
-            summaries: ["00000000-0000-0000-0000-000000000001": "Agreed the roadmap"]
-        )
-        precondition(ids(bySummary.notes) == ["1"])
+        try expectIDs(["query": "raw text"], [])
         try expectIDs(["query": "nothing like this"], [])
         try expectIDs(["query": "   "], ["3", "2", "1"])
     }
@@ -256,6 +282,9 @@ struct NotePayloadTests {
     private static func testListAcceptsDateTimes() throws {
         try expectIDs(["since": "2023-11-14T20:00:00Z"], ["3"])
         try expectIDs(["until": "2023-11-14T05:13:20.000Z"], ["2", "1"])
+        // Without an offset a date-time is local (Seoul here).
+        try expectIDs(["since": "2023-11-15T07:00:00"], ["3"])
+        try expectIDs(["until": "2023-11-14T08:00"], ["2", "1"])
     }
 
     private static func testListRejectsBadDates() {
