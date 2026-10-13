@@ -135,6 +135,9 @@ struct SetupView: View {
         }
         .onChange(of: currentStep) { step in
             if step == .permissions {
+                // Screen Recording can be granted here, or straight in
+                // System Settings, and either relaunches Quill (#516).
+                saveProgress()
                 startPermissionPolling()
             } else {
                 permissionTimer?.invalidate()
@@ -981,7 +984,8 @@ struct SetupView: View {
     }
 
     /// Keeps the step and choices so far for the relaunch that granting
-    /// Screen Recording causes (#516).
+    /// Screen Recording causes (#516). Saved on reaching Permissions, after
+    /// the choices were applied, and again on Grant Access.
     private func saveProgress() {
         SetupFlow.saveProgress(
             SetupFlow.SavedProgress(
