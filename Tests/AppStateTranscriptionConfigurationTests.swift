@@ -128,8 +128,7 @@ struct AppStateTranscriptionConfigurationTests {
         testLLMTransportTimeoutNormalization()
         testPostProcessingCooldownDispositionDefaultsToProcessed()
         testPostProcessingCooldownDispositionCanBeMarkedSkipped()
-        testNoteBrowserDefaultsOnWhenPreferenceIsMissing()
-        testNoteBrowserPreservesExplicitOptOut()
+        testOldNoteBrowserOptOutIsTurnedOn()
         await testExistingInstallMigratesMissingTranscriptionPreferenceOn()
         await testStoredTranscriptionPreferenceIsPreserved()
         await testRecordOnlyDoesNotRequireAccessibility()
@@ -935,23 +934,19 @@ struct AppStateTranscriptionConfigurationTests {
         assert(result.skippedDueToCooldown)
     }
 
-    private static func testNoteBrowserDefaultsOnWhenPreferenceIsMissing() {
+    /// #518: the note browser is always on. An old opt-out is turned on
+    /// once, so an older build after a downgrade keeps it on; a missing
+    /// value stays missing.
+    private static func testOldNoteBrowserOptOutIsTurnedOn() {
         resetDefaults()
         let defaults = UserDefaults.standard
+        defaults.set(false, forKey: "note_browser_enabled")
+        _ = makeAppState()
+        precondition(defaults.object(forKey: "note_browser_enabled") as? Bool == true)
 
-        assert(defaults.object(forKey: "note_browser_enabled") == nil)
-        assert(makeAppState().noteBrowserEnabled)
-    }
-
-    private static func testNoteBrowserPreservesExplicitOptOut() {
         resetDefaults()
-        let defaults = UserDefaults.standard
-        let appState = makeAppState()
-
-        appState.noteBrowserEnabled = false
-
-        assert(defaults.object(forKey: "note_browser_enabled") as? Bool == false)
-        assert(!makeAppState().noteBrowserEnabled)
+        _ = makeAppState()
+        precondition(defaults.object(forKey: "note_browser_enabled") == nil)
     }
 
     private static func testExistingInstallMigratesMissingTranscriptionPreferenceOn() async {

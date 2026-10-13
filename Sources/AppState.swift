@@ -440,6 +440,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let onStarted: (@MainActor () -> Void)?
     }
 
+    private static let retiredNoteBrowserEnabledStorageKey = "note_browser_enabled"
     private let apiKeyStorageKey = "groq_api_key"
     private let apiBaseURLStorageKey = "api_base_url"
     private let transcriptionEnabledStorageKey = "transcription_enabled"
@@ -492,7 +493,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let outputLanguageStorageKey = "output_language"
     private let localTranscriptionModelStorageKey = AppState.localTranscriptionModelStorageKeyName
     private let localAITranscriptionModelStorageKey = "local_ai_transcription_model"
-    private let noteBrowserEnabledStorageKey = "note_browser_enabled"
     private let commandModeEnabledStorageKey = "command_mode_enabled"
     private let commandModeStyleStorageKey = "command_mode_style"
     private let commandModeManualModifierStorageKey = "command_mode_manual_modifier"
@@ -1068,12 +1068,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 disableMeetingSummary,
                 forKey: disableMeetingSummaryStorageKey
             )
-        }
-    }
-
-    @Published var noteBrowserEnabled: Bool {
-        didSet {
-            UserDefaults.standard.set(noteBrowserEnabled, forKey: noteBrowserEnabledStorageKey)
         }
     }
 
@@ -3242,9 +3236,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let disableMeetingSummary = meetingSummarySettingsInitialized
             ? UserDefaults.standard.bool(forKey: disableMeetingSummaryStorageKey)
             : true
-        let noteBrowserEnabled = UserDefaults.standard.object(forKey: noteBrowserEnabledStorageKey) == nil
-            ? true
-            : UserDefaults.standard.bool(forKey: noteBrowserEnabledStorageKey)
+        // The note browser is always on now (#518). An old opt-out is turned
+        // on once, so an older build after a downgrade keeps it on too.
+        if UserDefaults.standard.object(forKey: Self.retiredNoteBrowserEnabledStorageKey) as? Bool == false {
+            UserDefaults.standard.set(true, forKey: Self.retiredNoteBrowserEnabledStorageKey)
+        }
         let transcriptionLanguage = TranscriptionLanguage.find(
             code: UserDefaults.standard.string(forKey: transcriptionLanguageStorageKey) ?? "ko"
         )
@@ -3551,7 +3547,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.disableAutoPaste = disableAutoPaste
         self.disablePostProcessing = disablePostProcessing
         self.disableMeetingSummary = disableMeetingSummary
-        self.noteBrowserEnabled = noteBrowserEnabled
         self.transcriptionLanguage = transcriptionLanguage
         self.outputLanguage = outputLanguage
         self.localTranscriptionModel = localTranscriptionModel

@@ -37,13 +37,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return recognizedTitles.contains(title)
     }
 
+    /// Quill always keeps its Dock icon: the Dock icon opens the note
+    /// browser. Info.plist starts the app as an accessory (LSUIElement).
     func updateActivationPolicy() {
-        let hasVisibleWindow = setupWindow != nil || settingsWindow != nil || noteBrowserWindow != nil
-        if hasVisibleWindow || appState.noteBrowserEnabled {
-            NSApp.setActivationPolicy(.regular)
-        } else {
-            NSApp.setActivationPolicy(.accessory)
-        }
+        NSApp.setActivationPolicy(.regular)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -86,15 +83,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
 
-        // noteBrowserEnabled 변경 시 독 아이콘 상태 갱신
-        NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.updateActivationPolicy()
-        }
-
         appState.startLocalAIIdleShutdownMonitoring()
         appState.startRecentlyDeletedPurgeSchedule()
         appState.startNoteSync()
@@ -132,13 +120,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         guard appState.hasCompletedSetup else { return true }
-        if appState.noteBrowserEnabled {
-            // 노트 브라우저 활성화 시 독 클릭 = 항상 노트 브라우저 앞으로
-            showNoteBrowserWindow()
-        } else if !flag {
-            // 일반 모드: 창이 없을 때만 설정 오픈
-            showSettingsWindow()
-        }
+        // 독 클릭 = 항상 노트 브라우저 앞으로
+        showNoteBrowserWindow()
         return true
     }
 
@@ -268,7 +251,6 @@ private func showNoteBrowserWindow() {
             queue: .main
         ) { [weak self] _ in
             self?.noteBrowserWindow = nil
-            self?.updateActivationPolicy()
         }
     }
 
@@ -323,7 +305,6 @@ private func showNoteBrowserWindow() {
             queue: .main
         ) { [weak self] _ in
             self?.settingsWindow = nil
-            self?.updateActivationPolicy()
         }
     }
 
@@ -369,10 +350,8 @@ private func showNoteBrowserWindow() {
     @MainActor
     private func startPostSetupServices() {
         updateActivationPolicy()
-        // 노트 브라우저 활성화 시 앱 시작과 함께 자동 오픈
-        if appState.noteBrowserEnabled {
-            showNoteBrowserWindow()
-        }
+        // 앱 시작과 함께 노트 브라우저 자동 오픈
+        showNoteBrowserWindow()
         appState.startHotkeyMonitoring()
         appState.startAccessibilityPolling()
         Task { @MainActor in
