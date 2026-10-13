@@ -253,17 +253,17 @@ struct MenuBarView: View {
                     }
                 }
 
-                ForEach(ShortcutPreset.allCases) { preset in
+                ForEach(ShortcutRole.hold.pickerBindings(selection: appState.holdShortcut)) { binding in
                     Button {
-                        _ = appState.setShortcut(preset.binding, for: .hold)
+                        _ = appState.setShortcut(binding, for: .hold)
                     } label: {
-                        if appState.holdShortcut == preset.binding {
-                            Text("✓ \(preset.title)")
+                        if appState.holdShortcut.id == binding.id {
+                            Text("✓ \(binding.selectionTitle)")
                         } else {
-                            Text("  \(preset.title)")
+                            Text("  \(binding.selectionTitle)")
                         }
                     }
-                    .disabled(preset.binding == appState.toggleShortcut)
+                    .disabled(binding.conflicts(with: appState.toggleShortcut))
                 }
 
                 if let savedCustomShortcut = appState.savedCustomShortcut(for: .hold) {
@@ -297,17 +297,17 @@ struct MenuBarView: View {
                     }
                 }
 
-                ForEach(ShortcutPreset.allCases) { preset in
+                ForEach(ShortcutRole.toggle.pickerBindings(selection: appState.toggleShortcut)) { binding in
                     Button {
-                        _ = appState.setShortcut(preset.binding, for: .toggle)
+                        _ = appState.setShortcut(binding, for: .toggle)
                     } label: {
-                        if appState.toggleShortcut == preset.binding {
-                            Text("✓ \(preset.title)")
+                        if appState.toggleShortcut.id == binding.id {
+                            Text("✓ \(binding.selectionTitle)")
                         } else {
-                            Text("  \(preset.title)")
+                            Text("  \(binding.selectionTitle)")
                         }
                     }
-                    .disabled(preset.binding == appState.holdShortcut)
+                    .disabled(binding.conflicts(with: appState.holdShortcut))
                 }
 
                 if let savedCustomShortcut = appState.savedCustomShortcut(for: .toggle) {
@@ -341,17 +341,20 @@ struct MenuBarView: View {
                     }
                 }
 
-                ForEach(ShortcutPreset.allCases) { preset in
+                ForEach(ShortcutRole.copyAgain.pickerBindings(selection: appState.copyAgainShortcut)) { binding in
                     Button {
-                        _ = appState.setShortcut(preset.binding, for: .copyAgain)
+                        _ = appState.setShortcut(binding, for: .copyAgain)
                     } label: {
-                        if appState.copyAgainShortcut == preset.binding {
-                            Text("✓ \(preset.title)")
+                        if appState.copyAgainShortcut.id == binding.id {
+                            Text("✓ \(binding.selectionTitle)")
                         } else {
-                            Text("  \(preset.title)")
+                            Text("  \(binding.selectionTitle)")
                         }
                     }
-                    .disabled(preset.binding == appState.holdShortcut || preset.binding == appState.toggleShortcut)
+                    .disabled(
+                        binding.conflicts(with: appState.holdShortcut)
+                            || binding.conflicts(with: appState.toggleShortcut)
+                    )
                 }
 
                 if let savedCustomShortcut = appState.savedCustomShortcut(for: .copyAgain) {

@@ -9507,17 +9507,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
         Int((shortcutStartDelay * 1000).rounded())
     }
 
+    /// Only a real custom binding: a preset kept here by an older build
+    /// already has its own picker row (#517).
     func savedCustomShortcut(for role: ShortcutRole) -> ShortcutBinding? {
+        let binding: ShortcutBinding?
         switch role {
         case .hold:
-            return savedHoldCustomShortcut
+            binding = savedHoldCustomShortcut
         case .toggle:
-            return savedToggleCustomShortcut
+            binding = savedToggleCustomShortcut
         case .recordingCancel:
-            return savedRecordingCancelCustomShortcut
+            binding = savedRecordingCancelCustomShortcut
         case .copyAgain:
-            return savedCopyAgainCustomShortcut
+            binding = savedCopyAgainCustomShortcut
         }
+        return binding?.isCustom == true ? binding : nil
     }
 
     var savedRecordingCancelShortcut: ShortcutBinding? {
