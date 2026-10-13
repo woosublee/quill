@@ -467,10 +467,16 @@ struct MeetingSummaryServiceTests {
             return try successResponse(request: request, content: validJSON)
         }
 
+        let start = Date(timeIntervalSince1970: 1_000)
         let result = try await service.generate(
             source: MeetingSummarySource(
                 transcript: summaryTranscript,
-                calendar: nil,
+                calendar: MeetingSummaryCalendarContext(
+                    title: "Quarterly Planning",
+                    start: start,
+                    end: start.addingTimeInterval(1_800),
+                    attendees: ["Adaeze Okafor", "linnea@example.com"]
+                ),
                 languageContext: summaryLanguage
             )
         )
@@ -480,6 +486,14 @@ struct MeetingSummaryServiceTests {
 
         try expect(models == ["primary/model", "fallback/model"], "fallback request order")
         try expect(result.modelID == "fallback/model", "fallback result model")
+        // #529: the fallback cloud model doesn't get the calendar either.
+        for request in recorder.requests() {
+            let body = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
+            try expect(
+                !body.contains("Quarterly Planning") && !body.contains("Adaeze Okafor") && !body.contains("linnea@example.com"),
+                "no cloud request carries the calendar"
+            )
+        }
     }
 
     private static func testRateLimitRetainsAllowlistedProviderCode() async throws {
