@@ -33,7 +33,7 @@ Google Calendar OAuth tokens are stored locally in macOS Keychain. Disconnecting
 
 ## Claude Code MCP Server
 
-While Quill is running, it exposes a local MCP server at http://localhost:3457 that Claude Code can register with `claude mcp add -s user -t http quill http://localhost:3457`. The server is local to the user's Mac, is only available while Quill is running, and does not require a separate MCP API key.
+Quill can run a local MCP server at http://localhost:3457 that Claude Code can register with `claude mcp add -s user -t http quill http://localhost:3457`. The server is off until the user turns on Settings › AI Tools › Allow AI tools to connect; it is local to the user's Mac, is only available while Quill is running and the switch is on, and does not require a separate MCP API key.
 
 Available MCP tools:
 

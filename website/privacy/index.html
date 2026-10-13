@@ -32,12 +32,12 @@
     <main class="legal-main">
       <article class="wrap legal-card">
         <h1>Privacy Policy</h1>
-        <p><strong>Effective date:</strong> October 3, 2026</p>
+        <p><strong>Effective date:</strong> October 13, 2026</p>
         <p>Quill is a dictation and note-taking app for macOS and iPhone. This policy explains what Quill stores locally, what may leave your Mac when you choose to use provider integrations, and how the optional Google Calendar integration works.</p>
         <p>Quill for iPhone works differently from Quill for Mac: it has no AI provider, context capture, or Google Calendar features. See <a href="#iphone">Quill for iPhone</a> for how the iPhone app handles your data. Unless a section says otherwise, the other sections describe Quill for Mac.</p>
 
         <h2>No Quill-operated storage server</h2>
-        <p>Quill does not operate a server that stores your transcripts, audio recordings, Google Calendar data, OAuth tokens, or app history. Quill is a local app. App data is stored on your Mac or iPhone unless you choose to send data to a configured third-party provider or connect Google Calendar.</p>
+        <p>Quill does not operate a server that stores your transcripts, audio recordings, Google Calendar data, OAuth tokens, or app history. Quill is a local app. App data is stored on your Mac or iPhone unless you choose to send data to a configured third-party provider, connect Google Calendar, turn on iCloud sync, or allow an AI tool to connect to Quill's local MCP server.</p>
 
         <h2>Local app data</h2>
         <p>Quill may store the following data locally on your Mac to provide app functionality:</p>
@@ -49,6 +49,16 @@
         </ul>
         <p>You can delete run history from within Quill. Deleting history entries also removes associated local audio/transcript files when those files are referenced by the entry.</p>
 
+        <h2>Optional iCloud note sync</h2>
+        <p>iCloud sync is off until you turn it on in Quill's setup or Settings. When it is on, Quill stores your finished notes in your own private iCloud database (Apple CloudKit), so they stay the same on your Macs signed in to the same iCloud account. Apple stores this data under your iCloud account; Quill operates no server of its own and cannot read it.</p>
+        <p>A synced note includes its title, transcripts, meeting summary, recording audio, recording times, languages, and the calendar event matched to the note, including events from Google Calendar: the event title, start and end time, and attendee names and email addresses. Screenshots, app and window context, selected text, prompts, AI instructions, and custom vocabulary stay on your Mac. Quill shows what is stored next to the iCloud sync switch, and turning the switch on is your consent to it.</p>
+        <p><strong>Turn Off Sync</strong> keeps your notes in iCloud for your other Macs. <strong>Turn Off and Delete from iCloud</strong> deletes all Quill data from iCloud; each Mac keeps its own notes.</p>
+
+        <h2>Optional local MCP server for AI tools</h2>
+        <p>Quill can run a local MCP server on your Mac (<code>http://localhost:3457</code>, reachable only from that Mac) so an AI tool you connect yourself, such as Claude Code, can work with your notes. The server is off until you turn on <strong>Allow AI tools to connect</strong> in Quill's setup or in Settings › AI Tools; turning it off closes the server and disconnects connected tools.</p>
+        <p>While it is on, a connected tool can start and stop recordings, add notes to a recording, and read your notes. It receives their transcripts (original and edited), summaries, recording times, the app context Quill noted while recording, audio file locations, and the calendar event matched to each note, including events from Google Calendar: the event title, start and end time, and attendee names and email addresses. It also receives each new transcript as soon as it is ready. Quill shows this next to the switch, and turning the switch on is your consent to it.</p>
+        <p>The AI tool and its provider handle that data under their own terms, including whether they keep it or use it for AI training; review your AI tool's data settings. Quill does not use your data, including Google Calendar data, to train AI models.</p>
+
         <h2>Transcription and AI provider calls</h2>
         <p>Quill can use local transcription or provider-based transcription and AI cleanup. Provider calls are made directly from Quill on your Mac to the transcription or AI provider configured in the app. Quill's default OpenAI-compatible provider is Groq, and you can configure another compatible provider in Settings. These provider calls are governed by that provider's own terms and privacy policy.</p>
         <p>When you use local transcription, such as Apple Speech or a local Whisper model, audio is processed on your Mac and is not sent to a transcription provider for that transcription.</p>
@@ -59,7 +69,7 @@
           <li><strong>Context capture:</strong> when context capture is enabled, Quill may send app/window details, visible highlighted text, and screenshot-derived context from the active window so the provider can summarize the writing context for transcript cleanup.</li>
           <li><strong>Edit Mode:</strong> when you explicitly ask Quill to transform text you highlighted in another app, Quill sends that highlighted text and your spoken editing instruction so the provider can return replacement text.</li>
         </ul>
-        <p>Google Calendar data is separate from these transcription and AI provider calls. Quill does not send Google Calendar event data, selected calendar IDs, or Google OAuth tokens to transcription or AI providers.</p>
+        <p>Google Calendar data is separate from these transcription and AI provider calls. Quill does not send Google Calendar event data, selected calendar IDs, or Google OAuth tokens to transcription or AI providers. Meeting summaries use the matched calendar event only when they are generated on your Mac with a local model; a summary generated by a cloud AI provider uses the transcript alone. The local MCP server, which passes data to an AI tool you connect, is described above.</p>
 
         <h2>Optional Google Calendar access</h2>
         <p>Google Calendar integration is optional and read-only. If you connect Google Calendar, Quill requests access only so it can show calendars for you to choose from, suggest note titles from calendar events that overlap a live recording, and show local recording reminders based on those events when you enable reminders.</p>
@@ -69,13 +79,13 @@
           <li><code>https://www.googleapis.com/auth/calendar.events.readonly</code></li>
         </ul>
         <p>Quill uses calendar list access to show your calendars in Settings so you can choose which calendars Quill may use. No calendars are selected by default.</p>
-        <p>For calendars you explicitly select, Quill reads event metadata around live recordings and reminder windows, such as calendar ID, event ID, event title, start and end time, and attendee metadata, including names and email addresses, returned by Google Calendar. Quill uses this data only for calendar-based title suggestions and optional recording reminders.</p>
+        <p>For calendars you explicitly select, Quill reads event metadata around live recordings and reminder windows, such as calendar ID, event ID, event title, start and end time, and attendee metadata, including names and email addresses, returned by Google Calendar. Quill uses this data only for calendar-based title suggestions, optional recording reminders, keeping the matched event with the note, meeting summaries generated on your Mac with a local model, and, when you turn them on, iCloud sync and the local MCP server described above.</p>
         <p>Quill does not create, edit, or delete Google Calendar events. Quill does not use Google Calendar data for advertising and does not sell Google Calendar data.</p>
 
         <h2>Google user data sharing and disclosure</h2>
         <p>Quill does not operate a server that stores or processes Google Calendar data. Google Calendar API requests are made directly between Quill on your Mac and Google using the OAuth access token stored on your Mac.</p>
         <p>The use and transfer of raw or derived user data received from Google Workspace APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
-        <p>Quill does not share, transfer, or disclose Google Calendar data or Google OAuth tokens to transcription providers, AI providers, advertising services, analytics services, data brokers, or other third parties. Google Calendar data is not used to train AI models by Quill.</p>
+        <p>Quill does not share, transfer, or disclose Google Calendar data or Google OAuth tokens to transcription providers, AI providers, advertising services, analytics services, data brokers, or other third parties, except in two cases you turn on yourself: iCloud sync stores matched event details in your own private iCloud database, and the local MCP server passes them to an AI tool you connect. Google OAuth tokens are never synced or shared. Google Calendar data is not used to train AI models by Quill.</p>
 
         <h2>Google token storage and disconnecting</h2>
         <p>Google Calendar OAuth tokens are stored locally in the macOS Keychain. Selected calendar IDs are stored locally in app settings. You can disconnect Google Calendar from Quill Settings. Disconnecting removes Quill's stored Google Calendar OAuth token and clears selected calendars.</p>
