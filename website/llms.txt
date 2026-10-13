@@ -16,7 +16,7 @@ Quill lets users choose a microphone independently, then capture the microphone,
 
 Quill can optionally connect to Google Calendar to suggest note titles from events that overlap a live recording and to show in-app reminders before a meeting starts.
 
-Quill also runs a local MCP server so Claude Code can drive recordings and read meeting data (see the MCP section below).
+Quill can also run a local MCP server, off until the user allows AI tools in Settings, so Claude Code can drive recordings and read notes (see the MCP section below).
 
 ## Google Calendar Access
 
@@ -27,7 +27,7 @@ Google Calendar integration is optional and read-only. Quill requests these OAut
 
 Quill uses calendar list access so users can choose which calendars Quill may use. No calendars are selected by default.
 
-For selected calendars, Quill reads event metadata around the time of a live recording so it can suggest note titles from overlapping events. Quill does not create, edit, or delete Google Calendar events.
+For selected calendars, Quill reads event metadata around the time of a live recording so it can suggest note titles from overlapping events, show reminders, keep the matched event with the note, and use it in meeting summaries generated on the Mac with a local model. Quill does not create, edit, or delete Google Calendar events.
 
 Google Calendar OAuth tokens are stored locally in macOS Keychain. Disconnecting Google Calendar in Quill Settings removes the stored Google Calendar token and clears selected calendars.
 
@@ -46,7 +46,7 @@ Available MCP tools:
 
 ## Privacy
 
-There is no Quill-operated server that stores user transcripts, audio recordings, calendar data, OAuth tokens, or app history. Quill stores app data locally on the user's Mac.
+There is no Quill-operated server that stores user transcripts, audio recordings, calendar data, OAuth tokens, or app history. Quill stores app data locally on the user's Mac. Two features the user turns on move notes elsewhere: iCloud sync stores notes, audio, and matched calendar events in the user's own private iCloud (CloudKit) database, and the local MCP server lets an AI tool the user connects read notes, including matched calendar events.
 
 When configured by the user, Quill may send necessary audio, transcript, selected text, prompt, or context data directly from the app to the user's configured transcription or AI provider. Google Calendar API calls are made directly from the app to Google.
 
@@ -60,7 +60,8 @@ When configured by the user, Quill may send necessary audio, transcript, selecte
 - Custom vocabulary and custom prompts.
 - Independent microphone selection with microphone, system audio, or combined capture that can be switched mid-recording.
 - Recording overlay with a live waveform and optional elapsed-time display.
-- Local MCP server for driving recordings and reading meeting data from Claude Code.
+- Optional iCloud sync of notes between the user's Macs (off by default).
+- Optional local MCP server for driving recordings and reading notes from Claude Code (off by default).
 - Optional read-only Google Calendar note title suggestions and in-app meeting reminders.
 - Local run history for reviewing and retrying dictation results.
 - Open source under the MIT license.
