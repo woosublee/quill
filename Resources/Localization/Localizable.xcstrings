@@ -1,18 +1,18 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "These start off. You can turn them on later in Settings.": {
+    "Turn on only what you want to use. You can change these later in Settings.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "These start off. You can turn them on later in Settings."
+            "value": "Turn on only what you want to use. You can change these later in Settings."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아래 기능은 꺼진 채로 시작해요. 필요할 때 나중에 설정에서 켜도 돼요."
+            "value": "쓰고 싶은 기능만 켜세요. 나중에 설정에서도 바꿀 수 있어요."
           }
         }
       }

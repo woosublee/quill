@@ -11,6 +11,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var mcpServerSettingObserver: AnyCancellable?
     private var newSettingsWindow: NSWindow?
     private var newSettingsCloseObserver: NSObjectProtocol?
+    private var newSettingsModel: ConnectionsChoicesModel?
+    /// Set when setup is re-run over the window: setup offers the same
+    /// switches, so closing it applies nothing.
+    private var closesNewSettingsWithoutApplying = false
     private var shouldRestoreAfterSetupWindowClose = false
 
     private func patchSettingsMenuItem() {
@@ -107,6 +111,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Quitting with New settings open keeps the AI tools choice; iCloud
+        // sync can't start now, so the window comes back if it was chosen.
+        if let selection = newSettingsModel?.selection {
+            if selection.wantsMCP != selection.mcpWasOn {
+                appState.isMCPServerEnabled = selection.wantsMCP
+            }
+            if !selection.wantsICloudSync {
+                UserDefaults.standard.set(true, forKey: ConnectionsChoices.seenStorageKey)
+            }
+        }
         // Quitting ends the Cancel window of a just-deleted note.
         appState.finalizePendingNoteDeletion()
         appState.stopRecentlyDeletedPurgeSchedule()
@@ -132,9 +146,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     @objc func handleShowSetup() {
-        // Setup offers the same switches; the New settings window applies
-        // its choices as it closes.
-        newSettingsWindow?.close()
+        // Setup offers the same switches, so the New settings window just
+        // closes; its choices aren't applied over the wizard.
+        if let newSettingsWindow {
+            closesNewSettingsWithoutApplying = true
+            newSettingsWindow.close()
+        }
         // Single wizard at a time — opening a second leaks the first's
         // willClose observer and breaks the bail-restore.
         if let existing = setupWindow, existing.isVisible {
@@ -364,8 +381,12 @@ private func showNoteBrowserWindow() {
               newSettingsWindow == nil, setupWindow == nil else { return }
         let hadMCPOff = !appState.isMCPServerEnabled
         let model = ConnectionsChoicesModel(
-            selection: ConnectionsChoices.Selection(wantsMCP: appState.isMCPServerEnabled)
+            selection: ConnectionsChoices.Selection(
+                wantsMCP: appState.isMCPServerEnabled,
+                mcpWasOn: appState.isMCPServerEnabled
+            )
         )
+        newSettingsModel = model
         let view = NewSettingsView(model: model, showsMCPChangeNote: hadMCPOff, onDone: { [weak self] in
             self?.newSettingsWindow?.close()
         })
@@ -395,7 +416,12 @@ private func showNoteBrowserWindow() {
                 }
                 self.newSettingsCloseObserver = nil
                 self.newSettingsWindow = nil
-                self.applyConnectionsChoices(model.selection)
+                self.newSettingsModel = nil
+                if self.closesNewSettingsWithoutApplying {
+                    self.closesNewSettingsWithoutApplying = false
+                } else {
+                    self.applyConnectionsChoices(model.selection)
+                }
             }
         }
         window.makeKeyAndOrderFront(nil)
@@ -408,7 +434,9 @@ private func showNoteBrowserWindow() {
     @MainActor
     private func applyConnectionsChoices(_ selection: ConnectionsChoices.Selection) {
         UserDefaults.standard.set(true, forKey: ConnectionsChoices.seenStorageKey)
-        appState.isMCPServerEnabled = selection.wantsMCP
+        if selection.wantsMCP != selection.mcpWasOn {
+            appState.isMCPServerEnabled = selection.wantsMCP
+        }
         guard selection.wantsICloudSync,
               let controller = appState.noteSyncController,
               !controller.isEnabled else { return }

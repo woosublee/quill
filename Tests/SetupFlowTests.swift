@@ -641,7 +641,11 @@ struct SetupFlowTests {
         assert(newSettings.contains("self.applyConnectionsChoices(model.selection)"))
         let apply = sourceBlock(in: delegate, from: "private func applyConnectionsChoices(", to: "private func showICloudSyncTurnOnFailure(")
         assert(apply.contains("UserDefaults.standard.set(true, forKey: ConnectionsChoices.seenStorageKey)"))
-        assert(apply.contains("appState.isMCPServerEnabled = selection.wantsMCP"))
+        // Only a change is applied, so Settings changes made meanwhile stay.
+        assert(apply.contains("if selection.wantsMCP != selection.mcpWasOn {"))
+        assert(delegate.contains("closesNewSettingsWithoutApplying = true"))
+        let terminate = sourceBlock(in: delegate, from: "func applicationWillTerminate(", to: "appState.finalizePendingNoteDeletion()")
+        assert(terminate.contains("newSettingsModel?.selection"))
         // A failed turn-on is said, since the choice isn't offered again.
         assert(apply.contains("self?.showICloudSyncTurnOnFailure(failure)"))
     }

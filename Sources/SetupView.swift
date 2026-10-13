@@ -130,6 +130,7 @@ struct SetupView: View {
             apiKeyInput = appState.apiKey
             // A re-run starts from what's on now.
             connectionsSelection.wantsMCP = appState.isMCPServerEnabled
+            connectionsSelection.mcpWasOn = appState.isMCPServerEnabled
             appState.refreshNativeWhisperInstallStatus()
             refreshPermissionStatuses()
             restoreSavedProgress()
@@ -585,7 +586,7 @@ struct SetupView: View {
             stepHeader(
                 icon: "icloud",
                 title: "Connections and Sync",
-                description: "These start off. You can turn them on later in Settings."
+                description: "Turn on only what you want to use. You can change these later in Settings."
             )
             ConnectionsChoicesView(selection: $connectionsSelection)
         }

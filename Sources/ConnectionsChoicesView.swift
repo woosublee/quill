@@ -9,7 +9,14 @@ enum ConnectionsChoices {
     struct Selection: Equatable {
         var wantsICloudSync = false
         var wantsMCP = false
+        /// The AI tools switch when the choices opened; only a change is
+        /// applied, so a switch flipped in Settings meanwhile stays.
+        var mcpWasOn = false
     }
+
+    /// What a connected AI tool receives: the consent text for every
+    /// AI tools switch (setup, New settings, Settings › AI Tools).
+    static let mcpDisclosure: LocalizedStringKey = "A connected AI tool can start and stop recordings, add notes to a recording, and read your notes. It receives their transcripts (original and edited), summaries, recording times, the app context Quill noted while recording, audio file locations, and matched calendar events (title, times, attendee names and emails), and gets each new transcript as soon as it's ready. The tool's own policy decides whether it keeps the data or uses it for AI training; Quill doesn't train on it."
 }
 
 /// The New settings window's choices, kept outside the view so closing
@@ -45,7 +52,7 @@ struct ConnectionsChoicesView: View {
 
     private var mcpCard: some View {
         ConnectionsCard(icon: "link", title: "AI Tool Connection (MCP)", isOn: $selection.wantsMCP) {
-            Text("A connected AI tool can start and stop recordings, add notes to a recording, and read your notes. It receives their transcripts (original and edited), summaries, recording times, the app context Quill noted while recording, audio file locations, and matched calendar events (title, times, attendee names and emails), and gets each new transcript as soon as it's ready. The tool's own policy decides whether it keeps the data or uses it for AI training; Quill doesn't train on it.")
+            Text(ConnectionsChoices.mcpDisclosure)
             if showsMCPChangeNote {
                 Text("Until now AI tools could always connect; from this version the switch starts off. If you used Claude Code with Quill, turn it back on.")
                     .foregroundStyle(.secondary)
