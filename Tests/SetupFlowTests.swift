@@ -305,7 +305,6 @@ struct SetupFlowTests {
             to: "private func startMCPServer("
         )
         assert(sharedBody.contains("updateActivationPolicy()"))
-        assert(sharedBody.contains("if appState.noteBrowserEnabled"))
         assert(sharedBody.contains("showNoteBrowserWindow()"))
         assert(sharedBody.contains("appState.startHotkeyMonitoring()"))
         assert(sharedBody.contains("appState.startAccessibilityPolling()"))

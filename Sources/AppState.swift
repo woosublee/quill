@@ -1071,12 +1071,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    @Published var noteBrowserEnabled: Bool {
-        didSet {
-            UserDefaults.standard.set(noteBrowserEnabled, forKey: noteBrowserEnabledStorageKey)
-        }
-    }
-
     @Published var transcriptionLanguage: TranscriptionLanguage {
         didSet {
             UserDefaults.standard.set(transcriptionLanguage.code, forKey: transcriptionLanguageStorageKey)
@@ -3242,9 +3236,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let disableMeetingSummary = meetingSummarySettingsInitialized
             ? UserDefaults.standard.bool(forKey: disableMeetingSummaryStorageKey)
             : true
-        let noteBrowserEnabled = UserDefaults.standard.object(forKey: noteBrowserEnabledStorageKey) == nil
-            ? true
-            : UserDefaults.standard.bool(forKey: noteBrowserEnabledStorageKey)
+        // The note browser is always on now; drop the old opt-out (#518).
+        UserDefaults.standard.removeObject(forKey: noteBrowserEnabledStorageKey)
         let transcriptionLanguage = TranscriptionLanguage.find(
             code: UserDefaults.standard.string(forKey: transcriptionLanguageStorageKey) ?? "ko"
         )
@@ -3551,7 +3544,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.disableAutoPaste = disableAutoPaste
         self.disablePostProcessing = disablePostProcessing
         self.disableMeetingSummary = disableMeetingSummary
-        self.noteBrowserEnabled = noteBrowserEnabled
         self.transcriptionLanguage = transcriptionLanguage
         self.outputLanguage = outputLanguage
         self.localTranscriptionModel = localTranscriptionModel

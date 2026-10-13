@@ -4225,22 +4225,6 @@
         }
       }
     },
-    "Click the Dock icon to open Note Browser and browse your dictation history like notes.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Click the Dock icon to open Note Browser and browse your dictation history like notes."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dock 아이콘을 클릭하여 노트 브라우저를 열고 받아쓰기 기록을 노트처럼 살펴보세요."
-          }
-        }
-      }
-    },
     "Connect Google Calendar first.": {
       "localizations": {
         "en": {
@@ -4543,22 +4527,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "다운로드"
-          }
-        }
-      }
-    },
-    "Enable Note Browser": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enable Note Browser"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "노트 브라우저 사용"
           }
         }
       }

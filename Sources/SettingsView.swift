@@ -301,15 +301,6 @@ struct AppearanceSettingsView: View {
                     }
                 }
 
-                SettingsCard("Note Browser", icon: "note.text") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Toggle("Enable Note Browser", isOn: $appState.noteBrowserEnabled)
-                        Text("Click the Dock icon to open Note Browser and browse your dictation history like notes.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
                 SettingsCard("Recording Overlay", icon: "rectangle.topthird.inset.filled") {
                     VStack(spacing: 10) {
                         OverlayLayoutOptionRow(
