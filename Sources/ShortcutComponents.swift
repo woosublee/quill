@@ -167,7 +167,7 @@ struct ShortcutRoleSection: View {
                 ForEach(role.pickerBindings(selection: selection)) { binding in
                     ShortcutPresetRow(
                         title: binding.selectionTitle,
-                        isSelected: selection == binding,
+                        isSelected: selection.id == binding.id,
                         action: { onSelect(binding) }
                     )
                 }

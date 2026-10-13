@@ -257,7 +257,7 @@ struct MenuBarView: View {
                     Button {
                         _ = appState.setShortcut(binding, for: .hold)
                     } label: {
-                        if appState.holdShortcut == binding {
+                        if appState.holdShortcut.id == binding.id {
                             Text("✓ \(binding.selectionTitle)")
                         } else {
                             Text("  \(binding.selectionTitle)")
@@ -301,7 +301,7 @@ struct MenuBarView: View {
                     Button {
                         _ = appState.setShortcut(binding, for: .toggle)
                     } label: {
-                        if appState.toggleShortcut == binding {
+                        if appState.toggleShortcut.id == binding.id {
                             Text("✓ \(binding.selectionTitle)")
                         } else {
                             Text("  \(binding.selectionTitle)")
@@ -345,7 +345,7 @@ struct MenuBarView: View {
                     Button {
                         _ = appState.setShortcut(binding, for: .copyAgain)
                     } label: {
-                        if appState.copyAgainShortcut == binding {
+                        if appState.copyAgainShortcut.id == binding.id {
                             Text("✓ \(binding.selectionTitle)")
                         } else {
                             Text("  \(binding.selectionTitle)")

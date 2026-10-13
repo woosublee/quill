@@ -370,6 +370,7 @@ struct SetupFlowTests {
         // #517: pickers list every non-custom selection, not only presets.
         let components = try String(contentsOfFile: "Sources/ShortcutComponents.swift", encoding: .utf8)
         assert(components.contains("ForEach(role.pickerBindings(selection: selection))"))
+        assert(components.contains("isSelected: selection.id == binding.id"))
         let menuBar = try String(contentsOfFile: "Sources/MenuBarView.swift", encoding: .utf8)
         assert(!menuBar.contains("ForEach(ShortcutPreset.allCases)"))
 

@@ -33,7 +33,7 @@ struct ShortcutCoreTests {
         for role in roles {
             for selection in selections {
                 let rows = role.pickerBindings(selection: selection)
-                expectEqual(rows.filter { $0 == selection }.count, 1)
+                expectEqual(rows.filter { $0.id == selection.id }.count, 1)
             }
             let presetRows = role.pickerBindings(selection: .disabled)
             expectEqual(Array(presetRows.prefix(ShortcutPreset.allCases.count)), ShortcutPreset.allCases.map(\.binding))
@@ -49,6 +49,13 @@ struct ShortcutCoreTests {
         expectEqual(ShortcutRole.toggle.pickerBindings(selection: .disabled).contains(.disabled), false)
 
         expectEqual(ShortcutRole.recordingCancel.pickerBindings(selection: .defaultRecordingCancel), [])
+
+        // A stored preset whose display text differs keeps its preset row.
+        let fn = ShortcutPreset.fnKey.binding
+        let olderFn = ShortcutBinding(keyCode: fn.keyCode, keyDisplay: "Fn 🌐", modifiers: fn.modifiers, kind: fn.kind, preset: .fnKey)
+        let olderFnRows = ShortcutRole.hold.pickerBindings(selection: olderFn)
+        expectEqual(olderFnRows.count, ShortcutPreset.allCases.count)
+        expectEqual(olderFnRows.filter { $0.id == olderFn.id }.count, 1)
 
         // Fn + Command no longer reads as plain Fn.
         expectEqual(ShortcutBinding.defaultHold.selectionTitle, ShortcutPreset.fnKey.title)

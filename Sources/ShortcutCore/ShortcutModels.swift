@@ -79,7 +79,9 @@ enum ShortcutRole {
         if self == .toggle {
             bindings.append(.defaultToggle)
         }
-        if !selection.isDisabled, !selection.isCustom, !bindings.contains(selection) {
+        // Rows are matched by `id`, which leaves out the display text, so
+        // a stored preset with older text stays on its preset's row.
+        if !selection.isDisabled, !selection.isCustom, !bindings.contains(where: { $0.id == selection.id }) {
             bindings.append(selection)
         }
         return bindings
