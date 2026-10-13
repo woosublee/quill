@@ -137,13 +137,16 @@ struct AppStateDependencies {
     /// Where dictation and retry results are copied for pasting.
     var pasteboard: NSPasteboard
 
-    /// Test builds copy to a pasteboard of their own, unique to the run, so
-    /// running the tests never replaces what the user copied.
-    #if QUILL_GROUPED_TEST_RUNNER
-    static let livePasteboard = NSPasteboard.withUniqueName()
-    #else
-    private static var livePasteboard: NSPasteboard { .general }
-    #endif
+    /// Test builds copy to a pasteboard of their own, so running the tests
+    /// never replaces what the user copied. The test runner empties it
+    /// before and after a run.
+    static var livePasteboard: NSPasteboard {
+        #if QUILL_GROUPED_TEST_RUNNER
+        NSPasteboard(name: NSPasteboard.Name("com.woosublee.quill.tests"))
+        #else
+        .general
+        #endif
+    }
 
     static var live: AppStateDependencies {
         AppStateDependencies(

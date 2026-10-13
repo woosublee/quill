@@ -25,7 +25,8 @@ struct AppStateDependenciesTests {
         // AppState writes only through its dependencies.
         let appState = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
         precondition(!appState.contains("NSPasteboard.general"))
-        precondition(appState.contains("let pasteboard = dependencies.pasteboard"))
+        precondition(!appState.contains("NSPasteboard = .general"))
+        precondition(appState.components(separatedBy: "let pasteboard = dependencies.pasteboard").count == 4)
     }
 
     private static func verifiesStorageLayoutPreservesCanonicalPaths() throws {

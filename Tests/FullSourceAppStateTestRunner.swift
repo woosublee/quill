@@ -12,7 +12,9 @@ struct FullSourceAppStateTestRunner {
             return
         }
 
-        // The run's own pasteboard goes away with the run.
+        // The tests' own pasteboard is emptied before and after, including
+        // what a run that crashed left behind.
+        AppStateDependencies.livePasteboard.releaseGlobally()
         defer { AppStateDependencies.livePasteboard.releaseGlobally() }
         try await AppStateTestStorage.withIsolatedStorage { _ in
             try AppStateDependenciesTests.main()
