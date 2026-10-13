@@ -57,7 +57,8 @@ enum NoteTitleResolver {
 
     /// Where a note's display title comes from.
     enum DisplayTitleSource: String {
-        /// A title the person typed.
+        /// A title the person set: typed, or a calendar suggestion they
+        /// applied (Apply saves it as their title).
         case custom
         /// The applied calendar event title.
         case calendar

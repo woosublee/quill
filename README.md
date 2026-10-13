@@ -38,7 +38,7 @@ It is built for everyday writing and work notes: replying to messages, drafting 
 - **Edit by voice:** Highlight existing text and say what to change, such as “make this shorter” or “turn this into bullets.”
 - **Keep context with your notes:** Use local history, optional calendar context, and Note Browser workflows to connect recordings with the work they came from.
 - **Choose your transcription path:** Use provider-based transcription or local transcription options depending on your privacy, speed, and setup needs.
-- **Automate with Claude Code:** Expose a local MCP server so Claude Code can start recordings, add context, stop recordings, and read recent transcripts.
+- **Automate with Claude Code:** Expose a local MCP server so Claude Code can start recordings, add context, stop recordings, and find and read your notes.
 
 ## How it works
 
@@ -65,7 +65,7 @@ It is built for everyday writing and work notes: replying to messages, drafting 
 
 ## Claude Code MCP Setup
 
-Quill can expose a local MCP server while the app is running, so Claude Code can start recordings, add context, stop recordings, and read recent transcripts from your local Quill history.
+Quill can expose a local MCP server while the app is running, so Claude Code can start recordings, add context, stop recordings, and find and read notes (titles, transcripts, summaries, and calendar events) from your local Quill history.
 
 The server is off until you turn on **Settings › AI Tools › Allow AI tools like Claude Code to connect to Quill**. A connected tool can start and stop recordings, add notes to a recording, receive each new transcript as soon as it is ready, and read your notes: titles, transcripts (original and edited), summaries, recording times, the app context Quill noted while recording, audio file locations, and matched calendar events (title, times, attendee names and emails); that tool's own policy decides whether it keeps the data or uses it for training. Turning the switch off closes the port and disconnects connected tools.
 
@@ -95,8 +95,8 @@ Available MCP tools:
 - `add_context` — append more context while a recording is in progress.
 - `stop_recording` — stop the recording and trigger transcription.
 - `get_status` — check whether Quill is idle, recording, or transcribing.
-- `list_notes` — list notes newest first as JSON (id, title as Quill shows it, recording time, matched calendar event title, whether a summary exists, and a short preview). Filter with `query` (searched like Quill's note search: title, transcript, summary, calendar event title) and `since`/`until` (a `YYYY-MM-DD` day or an ISO 8601 date-time, local time without an offset); use `offset` for the next page when `has_more` is true.
-- `get_note` — fetch one note by id as JSON: title and where it comes from (`custom`, `calendar`, or `automatic`), ISO 8601 timestamps, matched calendar event and attendees, audio file path (and whether it is on this Mac or only in iCloud), summary (Markdown, marked stale when the transcript changed after it was made), transcript, original transcript, and app context.
+- `list_notes` — list notes in the Note Browser's order (newest first) as JSON (id, title as Quill shows it, recording time, matched calendar event title, whether a summary exists, and a short preview). Filter with `query` (searched like Quill's note search: title, transcript, summary, calendar event title) and `since`/`until` (a `YYYY-MM-DD` day or an ISO 8601 date-time, local time without an offset); use `offset` for the next page when `has_more` is true.
+- `get_note` — fetch one note by id as JSON: title and where it comes from (`custom` set by you, `calendar` event title, or `automatic`), ISO 8601 timestamps, matched calendar event and attendees, audio file path (and whether it is on this Mac or only in iCloud), summary (Markdown, marked stale when the transcript changed after it was made), transcript, original transcript, and app context.
 
 Notes:
 

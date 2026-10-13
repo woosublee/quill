@@ -151,6 +151,7 @@ struct NotePayloadTests {
             CalendarEventAttendee(displayName: "Room A", email: "c_x@resource.calendar.google.com", responseStatus: "accepted"),
             // The resource domain appears in the local part / a different domain — must NOT be flagged.
             CalendarEventAttendee(displayName: "Spoof", email: "user.resource.calendar.google.com@example.com", responseStatus: "accepted"),
+            CalendarEventAttendee(displayName: "Look-alike", email: "bob@fakeresource.calendar.google.com", responseStatus: "accepted"),
         ]
         let payload = note(makeItem(calendarMatch: sampleCalendar(attendees: attendees)))
         let cal = payload["calendar"] as! [String: Any]
@@ -159,6 +160,7 @@ struct NotePayloadTests {
         precondition(list[0]["email"] as? String == "alex@example.com")
         precondition(list[1]["is_resource"] as? Bool == true)
         precondition(list[2]["is_resource"] as? Bool == false)
+        precondition(list[3]["is_resource"] as? Bool == false)
     }
 
     private static func testTimestampsUseProvidedFormatter() {
@@ -285,6 +287,17 @@ struct NotePayloadTests {
         try expectIDs(["since": "2023-11-14"], ["3", "2"])
         try expectIDs(["until": "2023-11-14"], ["2", "1"])
         try expectIDs(["since": "2023-11-14", "until": "2023-11-14"], ["2"])
+        // The whole day: a note in its last instant is included, the next
+        // day's first instant is not.
+        let lastInstant = makeItem(
+            id: "00000000-0000-0000-0000-000000000005",
+            timestamp: Date(timeIntervalSince1970: 1_699_973_999.9995)  // 2023-11-14 23:59:59.9995 Seoul
+        )
+        let nextDay = makeItem(
+            id: "00000000-0000-0000-0000-000000000006",
+            timestamp: Date(timeIntervalSince1970: 1_699_974_000)  // 2023-11-15 00:00 Seoul
+        )
+        try expectIDs(["until": "2023-11-14"], ["5"], items: [nextDay, lastInstant])
     }
 
     private static func testListAcceptsDateTimes() throws {

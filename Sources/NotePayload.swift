@@ -4,7 +4,7 @@ import Foundation
 /// Pure functions: the note's display title, summary and audio state are
 /// passed in so this stays unit-testable.
 enum NotePayload {
-    private static let resourceDomain = "resource.calendar.google.com"
+    private static let resourceEmailSuffix = "@resource.calendar.google.com"
     static let defaultListLimit = 20
     static let maxListLimit = 50
     private static let previewLength = 120
@@ -64,6 +64,8 @@ enum NotePayload {
         var query: String?
         var since: Date?
         var until: Date?
+        /// A whole day's `until` is the next day's start, not included.
+        var untilIsExclusive = false
         var limit: Int
         var offset: Int
 
@@ -74,8 +76,11 @@ enum NotePayload {
             let query = (arguments["query"] as? String)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             self.query = query?.isEmpty == false ? query : nil
-            self.since = try Self.date(arguments["since"], name: "since", endOfDay: false, timeZone: timeZone)
-            self.until = try Self.date(arguments["until"], name: "until", endOfDay: true, timeZone: timeZone)
+            self.since = try Self.date(arguments["since"], name: "since", endOfDay: false, timeZone: timeZone)?.date
+            if let until = try Self.date(arguments["until"], name: "until", endOfDay: true, timeZone: timeZone) {
+                self.until = until.date
+                self.untilIsExclusive = until.isExclusive
+            }
             let limit = try Self.integer(arguments["limit"], name: "limit") ?? NotePayload.defaultListLimit
             self.limit = max(1, min(limit, NotePayload.maxListLimit))
             self.offset = max(0, try Self.integer(arguments["offset"], name: "offset") ?? 0)
@@ -99,7 +104,7 @@ enum NotePayload {
             name: String,
             endOfDay: Bool,
             timeZone: TimeZone
-        ) throws -> Date? {
+        ) throws -> (date: Date, isExclusive: Bool)? {
             guard let raw = value as? String else {
                 if value == nil || value is NSNull { return nil }
                 throw ListFilterError.invalidDate(name)
@@ -116,16 +121,16 @@ enum NotePayload {
                       calendar.dateComponents([.year, .month, .day], from: start) == day else {
                     throw ListFilterError.invalidDate(name)
                 }
-                guard endOfDay else { return start }
+                guard endOfDay else { return (start, false) }
                 guard let next = calendar.date(byAdding: .day, value: 1, to: start) else {
                     throw ListFilterError.invalidDate(name)
                 }
-                return calendar.startOfDay(for: next).addingTimeInterval(-0.001)
+                return (calendar.startOfDay(for: next), true)
             }
 
             // A date-time without an offset is local time, also built through
             // Calendar so a time a clock change skips moves forward.
-            if let local = Self.groups(in: text, matching: #"^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:\.([0-9]{1,9}))?)?$"#) {
+            if let local = Self.groups(in: text, matching: localDateTimePattern) {
                 let number = { (index: Int) in local[index].flatMap { Int($0) } }
                 let fraction = local[6].flatMap { Double("0." + $0) } ?? 0
                 let components = DateComponents(
@@ -140,7 +145,7 @@ enum NotePayload {
                           == DateComponents(year: components.year, month: components.month, day: components.day) else {
                     throw ListFilterError.invalidDate(name)
                 }
-                return date.addingTimeInterval(fraction)
+                return (date.addingTimeInterval(fraction), false)
             }
 
             // ISO8601DateFormatter wants seconds; add them when left out.
@@ -150,27 +155,33 @@ enum NotePayload {
             ).map { text.replacingCharacters(in: $0, with: text[$0] + ":00") } ?? text
             let dateTimeFormatter = ISO8601DateFormatter()
             dateTimeFormatter.formatOptions = [.withInternetDateTime]
-            if let date = dateTimeFormatter.date(from: withSeconds) { return date }
+            if let date = dateTimeFormatter.date(from: withSeconds) { return (date, false) }
             dateTimeFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = dateTimeFormatter.date(from: withSeconds) { return date }
+            if let date = dateTimeFormatter.date(from: withSeconds) { return (date, false) }
             throw ListFilterError.invalidDate(name)
         }
 
         /// The year, month and day of a plain YYYY-MM-DD.
         private static func day(_ text: String) -> DateComponents? {
-            guard let parts = groups(in: text, matching: #"^([0-9]{4})-([0-9]{2})-([0-9]{2})$"#) else {
+            guard let parts = groups(in: text, matching: dayPattern) else {
                 return nil
             }
             let numbers = parts.map { $0.flatMap { Int($0) } }
             return DateComponents(year: numbers[0], month: numbers[1], day: numbers[2])
         }
 
+        // [0-9], not \d, so only ASCII digits that Int() reads can match.
+        private static let dayPattern = try! NSRegularExpression(
+            pattern: #"^([0-9]{4})-([0-9]{2})-([0-9]{2})$"#
+        )
+        private static let localDateTimePattern = try! NSRegularExpression(
+            pattern: #"^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})(?::([0-9]{2})(?:\.([0-9]{1,9}))?)?$"#
+        )
+
         /// The capture groups of a pattern (nil for a group that didn't take
-        /// part), or nil when the text doesn't match. Patterns use [0-9],
-        /// not \d, so only ASCII digits that Int() reads can match.
-        private static func groups(in text: String, matching pattern: String) -> [String?]? {
-            guard let regex = try? NSRegularExpression(pattern: pattern),
-                  let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else {
+        /// part), or nil when the text doesn't match.
+        private static func groups(in text: String, matching regex: NSRegularExpression) -> [String?]? {
+            guard let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) else {
                 return nil
             }
             return (1..<match.numberOfRanges).map { index in
@@ -210,7 +221,7 @@ enum NotePayload {
         for item in items {
             let date = noteDate(item)
             if let since = filter.since, date < since { continue }
-            if let until = filter.until, date > until { continue }
+            if let until = filter.until, filter.untilIsExclusive ? date >= until : date > until { continue }
             if let query = filter.query, !matches(item, query) { continue }
             if skipped < filter.offset {
                 skipped += 1
@@ -231,8 +242,7 @@ enum NotePayload {
         hasSummary: Bool,
         formatter: ISO8601DateFormatter
     ) -> [String: Any] {
-        let text = item.postProcessedTranscript.isEmpty ? item.rawTranscript : item.postProcessedTranscript
-        let flattened = text.split(whereSeparator: \.isNewline).joined(separator: " ")
+        let flattened = item.displayedTranscript.split(whereSeparator: \.isNewline).joined(separator: " ")
         let preview = flattened.count > previewLength ? String(flattened.prefix(previewLength)) + "…" : flattened
         return [
             "id": item.id.uuidString,
@@ -270,7 +280,7 @@ enum NotePayload {
     private static func calendarPayload(_ item: PipelineHistoryItem, formatter: ISO8601DateFormatter) -> Any {
         guard let match = item.calendarMatch else { return NSNull() }
         let attendees: [[String: Any]] = match.attendees.map { a in
-            let isResource = (a.email?.hasSuffix(resourceDomain)) ?? false
+            let isResource = a.email?.lowercased().hasSuffix(resourceEmailSuffix) ?? false
             return [
                 "display_name": orNull(a.displayName),
                 "email": orNull(a.email),

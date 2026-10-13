@@ -310,7 +310,7 @@ final class MCPServer {
             ],
             [
                 "name": "list_notes",
-                "description": "List Quill notes, newest first, as JSON: id, title (as Quill shows it), recording time, matched calendar event title, whether a summary exists, and a short preview. Filter by text (searched like Quill's note search) or date to find older notes; has_more is true when more notes match, and offset fetches the next page.",
+                "description": "List Quill notes in the Note Browser's order (newest first) as JSON: id, title (as Quill shows it), recording time, matched calendar event title, whether a summary exists, and a short preview. Filter by text (searched like Quill's note search) or date to find older notes; has_more is true when more notes match, and offset fetches the next page.",
                 "inputSchema": [
                     "type": "object",
                     "properties": [
@@ -339,7 +339,7 @@ final class MCPServer {
             ],
             [
                 "name": "get_note",
-                "description": "Get one Quill note as JSON: title and title_source (custom, calendar, or automatic), timestamps, matched calendar event and attendees, audio file location, summary (Markdown, with is_stale true when the transcript changed after it was made), transcript, original transcript, and app context.",
+                "description": "Get one Quill note as JSON: title and title_source (custom: set by the person, calendar: the event title, automatic: made from the note), timestamps, matched calendar event and attendees, audio file location, summary (Markdown, with is_stale true when the transcript changed after it was made), transcript, original transcript, and app context.",
                 "inputSchema": [
                     "type": "object",
                     "properties": [
@@ -432,10 +432,14 @@ final class MCPServer {
                 filter: filter,
                 matches: { matcher.matches($0, query: $1) },
                 title: { NoteTitleResolver.displayTitle(for: $0) },
-                hasSummary: { $0.meetingSummary != nil },
+                hasSummary: { $0.meetingSummaryJSON != nil },
                 formatter: Self.localISOFormatter()
             )
-            matcher.retainCache(for: Set(appState.pipelineHistory.map(\.id)))
+            if filter.query == nil {
+                matcher.clearCache()
+            } else {
+                matcher.retainCache(for: Set(appState.pipelineHistory.map(\.id)))
+            }
             return jsonContent(payload)
 
         case "get_note":
