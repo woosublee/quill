@@ -372,7 +372,8 @@ struct MeetingSummaryServiceTests {
         )
         try expect(user.contains("\"feature\":\"meeting_summary_extraction\""), "summary source envelope")
         // #529: calendar events never go to a cloud model.
-        try expectNoCalendar(in: recorder.requests(), title: "Product Weekly")
+        guard let calendar = source.calendar else { throw MeetingSummaryServiceTestFailure("Missing calendar") }
+        try expectNoCalendar(in: recorder.requests(), calendar: calendar)
         try expect(body["max_tokens"] == nil, "cloud Summary omits the local legacy completion key")
     }
 
@@ -468,15 +469,16 @@ struct MeetingSummaryServiceTests {
         }
 
         let start = Date(timeIntervalSince1970: 1_000)
+        let calendar = MeetingSummaryCalendarContext(
+            title: "Quarterly Planning",
+            start: start,
+            end: start.addingTimeInterval(1_800),
+            attendees: ["Adaeze Okafor", "linnea@example.com"]
+        )
         let result = try await service.generate(
             source: MeetingSummarySource(
                 transcript: summaryTranscript,
-                calendar: MeetingSummaryCalendarContext(
-                    title: "Quarterly Planning",
-                    start: start,
-                    end: start.addingTimeInterval(1_800),
-                    attendees: ["Adaeze Okafor", "linnea@example.com"]
-                ),
+                calendar: calendar,
                 languageContext: summaryLanguage
             )
         )
@@ -487,7 +489,7 @@ struct MeetingSummaryServiceTests {
         try expect(models == ["primary/model", "fallback/model"], "fallback request order")
         try expect(result.modelID == "fallback/model", "fallback result model")
         // #529: the fallback cloud model doesn't get the calendar either.
-        try expectNoCalendar(in: recorder.requests(), title: "Quarterly Planning")
+        try expectNoCalendar(in: recorder.requests(), calendar: calendar)
     }
 
     private static func testRateLimitRetainsAllowlistedProviderCode() async throws {
@@ -900,14 +902,13 @@ struct MeetingSummaryServiceTests {
 
     /// No part of the calendar event: title, attendees, or the object
     /// that carries its times.
-    private static func expectNoCalendar(in requests: [URLRequest], title: String) throws {
+    private static func expectNoCalendar(in requests: [URLRequest], calendar: MeetingSummaryCalendarContext) throws {
         for request in requests {
             let requestText = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
-            try expect(!requestText.contains(title), "a cloud request leaves the calendar title out")
-            try expect(
-                !requestText.contains("Adaeze Okafor") && !requestText.contains("linnea@example.com"),
-                "a cloud request leaves attendees out"
-            )
+            try expect(!requestText.contains(calendar.title), "a cloud request leaves the calendar title out")
+            for attendee in calendar.attendees {
+                try expect(!requestText.contains(attendee), "a cloud request leaves attendees out")
+            }
             try expect(!requestText.contains("\\\"calendar\\\":{"), "a cloud request has no calendar object")
         }
     }
