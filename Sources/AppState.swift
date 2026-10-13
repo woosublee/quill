@@ -3237,7 +3237,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
             ? UserDefaults.standard.bool(forKey: disableMeetingSummaryStorageKey)
             : true
         // The note browser is always on now; drop the old opt-out (#518).
-        UserDefaults.standard.removeObject(forKey: noteBrowserEnabledStorageKey)
+        if UserDefaults.standard.object(forKey: noteBrowserEnabledStorageKey) != nil {
+            UserDefaults.standard.removeObject(forKey: noteBrowserEnabledStorageKey)
+        }
         let transcriptionLanguage = TranscriptionLanguage.find(
             code: UserDefaults.standard.string(forKey: transcriptionLanguageStorageKey) ?? "ko"
         )

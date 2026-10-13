@@ -290,6 +290,16 @@ struct SetupFlowTests {
         assert(!launchBody.contains("appState.startHotkeyMonitoring()"))
         assert(!launchBody.contains("startMCPServer()"))
 
+        // #518: a Dock click opens the note browser, or setup before it is done.
+        let reopenBody = sourceBlock(
+            in: source,
+            from: "func applicationShouldHandleReopen(",
+            to: "\n    @MainActor"
+        )
+        assert(reopenBody.contains("showSetupWindow()"))
+        assert(reopenBody.contains("showNoteBrowserWindow()"))
+        assert(!reopenBody.contains("showSettingsWindow()"))
+
         let completeSetupBody = sourceBlock(
             in: source,
             from: "func completeSetup()",
@@ -305,6 +315,8 @@ struct SetupFlowTests {
             to: "private func startMCPServer("
         )
         assert(sharedBody.contains("updateActivationPolicy()"))
+        // #518: the note browser is always on, so launch opens it.
+        assert(!source.contains("noteBrowserEnabled"))
         assert(sharedBody.contains("showNoteBrowserWindow()"))
         assert(sharedBody.contains("appState.startHotkeyMonitoring()"))
         assert(sharedBody.contains("appState.startAccessibilityPolling()"))
