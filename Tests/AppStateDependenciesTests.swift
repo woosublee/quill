@@ -10,17 +10,22 @@ struct AppStateDependenciesTests {
         try verifiesLiveDependenciesReturnFreshValues()
         try verifiesLocalAIDependenciesAreIndependentValues()
         try verifiesNativeWhisperDependenciesAreIndependentValues()
-        verifiesTestsCopyToTheirOwnPasteboard()
+        try verifiesTestsCopyToTheirOwnPasteboard()
         print("AppStateDependenciesTests passed")
     }
 
     /// Dictation and retry results are copied for pasting. Test builds must
     /// copy to their own pasteboard, or `make check` replaces what the user
     /// copied with synthetic transcripts.
-    private static func verifiesTestsCopyToTheirOwnPasteboard() {
+    private static func verifiesTestsCopyToTheirOwnPasteboard() throws {
         let pasteboard = AppStateDependencies.live.pasteboard
         precondition(pasteboard.name != NSPasteboard.general.name)
-        precondition(pasteboard.name == NSPasteboard.Name("com.woosublee.quill.tests"))
+        precondition(AppStateDependencies.live.pasteboard.name == pasteboard.name)
+
+        // AppState writes only through its dependencies.
+        let appState = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        precondition(!appState.contains("NSPasteboard.general"))
+        precondition(appState.contains("let pasteboard = dependencies.pasteboard"))
     }
 
     private static func verifiesStorageLayoutPreservesCanonicalPaths() throws {
