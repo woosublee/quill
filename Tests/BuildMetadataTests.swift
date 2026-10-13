@@ -502,6 +502,16 @@ struct BuildMetadataTests {
         let makefile = try String(contentsOfFile: "Makefile", encoding: .utf8)
 
         assertContains(releaseWorkflow, "CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}")
+        // iCloud note sync: both the app build and the DMG build get the
+        // profile, or make dmg rebuilds the notarized app without it.
+        assertContains(releaseWorkflow, "PROVISIONING_PROFILE_BASE64: ${{ secrets.DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 }}")
+        let profileMakeLines = releaseWorkflow.split(separator: "\n").filter {
+            $0.contains("run: make ARCH=universal APP_NAME=Quill") || $0.contains("run: make dmg ARCH=universal APP_NAME=Quill")
+        }
+        precondition(profileMakeLines.count == 2, "Expected the app and DMG make calls")
+        for line in profileMakeLines {
+            assertContains(String(line), #"PROVISIONING_PROFILE="$PROVISIONING_PROFILE""#)
+        }
         assertContains(releaseWorkflow, "ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}")
         assertContains(releaseWorkflow, "ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}")
         assertContains(releaseWorkflow, "ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}")
@@ -514,7 +524,9 @@ struct BuildMetadataTests {
         assertAppearsInOrder(
             releaseWorkflow,
             [
+                "Install provisioning profile",
                 "Build universal",
+                "Verify iCloud entitlements",
                 "Notarize universal app",
                 "xcrun stapler staple build/Quill.app",
                 "Create universal DMG",
