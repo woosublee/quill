@@ -367,6 +367,12 @@ struct SetupFlowTests {
         assert(!shortcut.contains("RecordingCancelShortcutSection"))
         assert(gate.contains("appState.hasEnabledHoldShortcut || appState.hasEnabledToggleShortcut"))
 
+        // #517: pickers list every non-custom selection, not only presets.
+        let components = try String(contentsOfFile: "Sources/ShortcutComponents.swift", encoding: .utf8)
+        assert(components.contains("ForEach(role.pickerBindings(selection: selection))"))
+        let menuBar = try String(contentsOfFile: "Sources/MenuBarView.swift", encoding: .utf8)
+        assert(!menuBar.contains("ForEach(ShortcutPreset.allCases)"))
+
         assert(source.contains("Hold %@ to record"))
         assert(source.contains("Tap %@ to start and stop"))
     }

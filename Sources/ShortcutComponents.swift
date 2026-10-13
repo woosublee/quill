@@ -164,11 +164,11 @@ struct ShortcutRoleSection: View {
                     action: { onSelect(.disabled) }
                 )
 
-                ForEach(ShortcutPreset.allCases) { preset in
+                ForEach(role.pickerBindings(selection: selection)) { binding in
                     ShortcutPresetRow(
-                        title: preset.title,
-                        isSelected: selection == preset.binding,
-                        action: { onSelect(preset.binding) }
+                        title: binding.selectionTitle,
+                        isSelected: selection == binding,
+                        action: { onSelect(binding) }
                     )
                 }
 

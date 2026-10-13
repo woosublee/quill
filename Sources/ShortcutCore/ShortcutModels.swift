@@ -66,6 +66,22 @@ enum ShortcutRole {
         case .copyAgain: return "Paste Again"
         }
     }
+
+    /// The rows a shortcut picker lists between Disabled and Custom: the
+    /// presets, the role's default when no preset matches it (Tap to
+    /// Toggle's Fn + Command), and the selection when no row matches it
+    /// either, such as an older Right Option + Command toggle. Without the
+    /// last two a working shortcut looks unset (#517).
+    func pickerBindings(selection: ShortcutBinding) -> [ShortcutBinding] {
+        var bindings = ShortcutPreset.allCases.map(\.binding)
+        if self == .toggle {
+            bindings.append(.defaultToggle)
+        }
+        if !selection.isDisabled, !selection.isCustom, !bindings.contains(selection) {
+            bindings.append(selection)
+        }
+        return bindings
+    }
 }
 
 enum ShortcutEvent: Equatable {
@@ -188,8 +204,13 @@ struct ShortcutBinding: Codable, Hashable, Identifiable, Equatable {
         return parts.joined(separator: " + ")
     }
 
+    /// The preset's title for a preset row; otherwise the keys, so Fn +
+    /// Command doesn't read as plain Fn.
     var selectionTitle: String {
-        preset?.title ?? displayName
+        if let preset, preset.binding == self {
+            return preset.title
+        }
+        return displayName
     }
 
     var isCustom: Bool {

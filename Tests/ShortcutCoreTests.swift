@@ -12,11 +12,45 @@ struct ShortcutCoreTests {
         testPasteAgainFiresOnLeadingEdgeOnly()
         testBackendResetClearsActiveBindings()
         testBindingMigrationAndIdentity()
+        testPickersListEveryNonCustomSelection()
         testConflictDetection()
         testHoldSessionControllerLifecycle()
         testToggleSessionControllerLifecycle()
         testHoldToToggleSessionControllerLifecycle()
         print("ShortcutCoreTests passed")
+    }
+
+    /// #517: a picker must show exactly one row for any non-custom
+    /// selection. Tap to Toggle's Fn + Command default and older preset +
+    /// Command toggles match no preset row.
+    private static func testPickersListEveryNonCustomSelection() {
+        let roles: [ShortcutRole] = [.hold, .toggle, .copyAgain]
+        var selections: [ShortcutBinding] = [.defaultHold, .defaultToggle]
+        for preset in ShortcutPreset.allCases {
+            selections.append(preset.binding)
+            selections.append(preset.binding.withAddedModifiers(.command))
+        }
+        for role in roles {
+            for selection in selections {
+                let rows = role.pickerBindings(selection: selection)
+                expectEqual(rows.filter { $0 == selection }.count, 1)
+            }
+            let presetRows = role.pickerBindings(selection: .disabled)
+            expectEqual(Array(presetRows.prefix(ShortcutPreset.allCases.count)), ShortcutPreset.allCases.map(\.binding))
+        }
+
+        // The toggle default stays offered after picking something else.
+        expectEqual(ShortcutRole.toggle.pickerBindings(selection: .disabled).contains(.defaultToggle), true)
+        expectEqual(ShortcutRole.hold.pickerBindings(selection: .disabled).contains(.defaultToggle), false)
+
+        // Custom and disabled selections belong to their own rows.
+        let custom = ShortcutBinding(keyCode: 49, keyDisplay: "Space", modifiers: [.control], kind: .key, preset: nil)
+        expectEqual(ShortcutRole.toggle.pickerBindings(selection: custom).contains(custom), false)
+        expectEqual(ShortcutRole.toggle.pickerBindings(selection: .disabled).contains(.disabled), false)
+
+        // Fn + Command no longer reads as plain Fn.
+        expectEqual(ShortcutBinding.defaultHold.selectionTitle, ShortcutPreset.fnKey.title)
+        expectEqual(ShortcutBinding.defaultToggle.selectionTitle, ShortcutBinding.defaultToggle.displayName)
     }
 
     private static func testBareFnHoldLifecycle() {
