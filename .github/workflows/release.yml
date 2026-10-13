@@ -190,6 +190,20 @@ jobs:
             echo "DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 isn't a signed provisioning profile." >&2
             exit 1
           fi
+          # Fail here, not deep in the build, when the profile expired or
+          # doesn't list the imported certificate (renewed without it).
+          EXPIRES="$(security cms -D -i "$PROFILE_PATH" | plutil -extract ExpirationDate raw -o - -)"
+          if [ ! "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \< "$EXPIRES" ]; then
+            echo "The provisioning profile expired on $EXPIRES; regenerate it." >&2
+            exit 1
+          fi
+          if [ "$(date -u -v+30d +%Y-%m-%dT%H:%M:%SZ)" \> "$EXPIRES" ]; then
+            echo "::warning::The provisioning profile expires on $EXPIRES; regenerate it soon."
+          fi
+          if ! BuildSupport/Signing/provisioning.sh identity "$PROFILE_PATH" > /dev/null; then
+            echo "The provisioning profile doesn't list the imported Developer ID certificate; regenerate it." >&2
+            exit 1
+          fi
           # Not PROVISIONING_PROFILE: make would read that from the environment
           # in every later call. Each build passes it explicitly instead.
           echo "QUILL_RELEASE_PROFILE=$PROFILE_PATH" >> "$GITHUB_ENV"
@@ -236,6 +250,19 @@ jobs:
           expect com.apple.developer.aps-environment production
           expect com.apple.developer.icloud-container-identifiers iCloud.com.woosublee.quill
           expect com.apple.developer.icloud-services CloudKit
+          TEAM="$(value com.apple.developer.team-identifier)"
+          if [ -z "$TEAM" ]; then
+            echo "The app has no team identifier entitlement." >&2
+            exit 1
+          fi
+          expect com.apple.application-identifier "$TEAM.com.woosublee.quill"
+          # No iCloud entitlement beyond the three checked above.
+          ICLOUD_KEYS="$(/usr/libexec/PlistBuddy -c Print "$ENTITLEMENTS" \
+            | sed -n 's/^    \(com\.apple\.developer\.icloud[^ ]*\) = .*/\1/p' | sort | tr '\n' ' ')"
+          if [ "$ICLOUD_KEYS" != "com.apple.developer.icloud-container-environment com.apple.developer.icloud-container-identifiers com.apple.developer.icloud-services " ]; then
+            echo "Unexpected iCloud entitlements: $ICLOUD_KEYS" >&2
+            exit 1
+          fi
           if ! cmp -s "$QUILL_RELEASE_PROFILE" build/Quill.app/Contents/embedded.provisionprofile; then
             echo "The app doesn't embed the installed provisioning profile." >&2
             exit 1
