@@ -12,9 +12,6 @@ struct FullSourceAppStateTestRunner {
             return
         }
 
-        // The tests' own pasteboard is emptied before and after, including
-        // what a run that crashed left behind.
-        AppStateDependencies.livePasteboard.releaseGlobally()
         defer { AppStateDependencies.livePasteboard.releaseGlobally() }
         try await AppStateTestStorage.withIsolatedStorage { _ in
             try AppStateDependenciesTests.main()
@@ -80,6 +77,12 @@ struct FullSourceAppStateTestRunner {
         process.environment = environment
         try process.run()
         process.waitUntilExit()
+        // The child's pasteboard, also when a failing test crashed it.
+        NSPasteboard(
+            name: NSPasteboard.Name(
+                AppStateDependencies.testPasteboardNamePrefix + String(process.processIdentifier)
+            )
+        ).releaseGlobally()
         guard process.terminationStatus == 0 else {
             throw TestRunnerFailure(status: process.terminationStatus)
         }

@@ -20,13 +20,18 @@ struct AppStateDependenciesTests {
     private static func verifiesTestsCopyToTheirOwnPasteboard() throws {
         let pasteboard = AppStateDependencies.live.pasteboard
         precondition(pasteboard.name != NSPasteboard.general.name)
-        precondition(AppStateDependencies.live.pasteboard.name == pasteboard.name)
+        precondition(pasteboard.name.rawValue.hasPrefix(AppStateDependencies.testPasteboardNamePrefix))
+        precondition(!AppStateDependencies.live.postsKeyEvents)
 
-        // AppState writes only through its dependencies.
+        // AppState uses only its dependencies' pasteboard, and checks them
+        // before sending Paste or Return.
         let appState = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
         precondition(!appState.contains("NSPasteboard.general"))
         precondition(!appState.contains("NSPasteboard = .general"))
-        precondition(appState.components(separatedBy: "let pasteboard = dependencies.pasteboard").count == 4)
+        precondition(
+            appState.components(separatedBy: ".post(tap: .cgSessionEventTap)").count - 1
+                == 2 * (appState.components(separatedBy: "guard dependencies.postsKeyEvents else { return }").count - 1)
+        )
     }
 
     private static func verifiesStorageLayoutPreservesCanonicalPaths() throws {

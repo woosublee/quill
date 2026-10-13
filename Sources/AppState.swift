@@ -14498,6 +14498,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func pasteAtCursor() {
+        guard dependencies.postsKeyEvents else { return }
         let source = CGEventSource(stateID: .hidSystemState)
 
         let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true)
@@ -14510,6 +14511,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func pressEnter() {
+        guard dependencies.postsKeyEvents else { return }
         let source = CGEventSource(stateID: .hidSystemState)
 
         let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: true)
@@ -14519,12 +14521,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         keyUp?.post(tap: .cgSessionEventTap)
     }
 
-    /// Writes the final transcript to the system pasteboard.
+    /// Writes the final transcript to the app's pasteboard (the system one,
+    /// outside tests).
     /// Also handles appending necessary trailing spaces, declaring transient
     /// types for clipboard managers, and saving the clipboard state for later restoration.
     /// - Parameter transcript: The text to be pasted.
     /// - Returns: A `PendingClipboardRestore` object if clipboard preservation is enabled, otherwise nil.
-    /// Writes a dictation string to the general pasteboard, marking it transient
+    /// Writes a dictation string to the app's pasteboard, marking it transient
     /// so well-behaved clipboard managers (Maccy, Raycast, Paste, Clipy, Flycut,
     /// etc.) skip recording it — unless the user opted to keep dictations in
     /// history. Shared by the main dictation write and the retry copy so both
