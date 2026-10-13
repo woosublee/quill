@@ -11,9 +11,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var mcpServerSettingObserver: AnyCancellable?
     private var newSettingsWindow: NSWindow?
     private var newSettingsModel: ConnectionsChoicesModel?
-    /// Set when setup is re-run over the window: setup offers the same
-    /// switches, so closing it applies nothing.
-    private var closesNewSettingsWithoutApplying = false
     private var shouldRestoreAfterSetupWindowClose = false
 
     private func patchSettingsMenuItem() {
@@ -110,15 +107,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // Quitting with New settings open keeps the AI tools choice; iCloud
-        // sync can't start now, so the window comes back if it was chosen.
+        // Quitting with New settings open keeps the AI tools choice; the
+        // window comes back next time, since it may not have been read.
         if let selection = newSettingsModel?.selection {
-            if selection.wantsMCP != selection.mcpWasOn {
-                appState.isMCPServerEnabled = selection.wantsMCP
-            }
-            if !selection.wantsICloudSync {
-                UserDefaults.standard.set(true, forKey: ConnectionsChoices.seenStorageKey)
-            }
+            applyMCPChoice(selection)
         }
         // Quitting ends the Cancel window of a just-deleted note.
         appState.finalizePendingNoteDeletion()
@@ -147,10 +139,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func handleShowSetup() {
         // Setup offers the same switches, so the New settings window just
         // closes; its choices aren't applied over the wizard.
-        if let newSettingsWindow {
-            closesNewSettingsWithoutApplying = true
-            newSettingsWindow.close()
-        }
+        newSettingsModel = nil
+        newSettingsWindow?.close()
         // Single wizard at a time — opening a second leaks the first's
         // willClose observer and breaks the bail-restore.
         if let existing = setupWindow, existing.isVisible {
@@ -413,8 +403,7 @@ private func showNoteBrowserWindow() {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// Done and the close button both end here and apply the choices,
-    /// except when a setup re-run closed the window.
+    /// Done and the close button both end here and apply the choices.
     @MainActor
     @objc private func handleNewSettingsWindowWillClose(_ notification: Notification) {
         NotificationCenter.default.removeObserver(
@@ -425,9 +414,8 @@ private func showNoteBrowserWindow() {
         let selection = newSettingsModel?.selection
         newSettingsWindow = nil
         newSettingsModel = nil
-        if closesNewSettingsWithoutApplying {
-            closesNewSettingsWithoutApplying = false
-        } else if let selection {
+        // No model means setup was re-run over the window: apply nothing.
+        if let selection {
             applyConnectionsChoices(selection)
         }
     }
@@ -438,16 +426,30 @@ private func showNoteBrowserWindow() {
     @MainActor
     private func applyConnectionsChoices(_ selection: ConnectionsChoices.Selection) {
         UserDefaults.standard.set(true, forKey: ConnectionsChoices.seenStorageKey)
-        if selection.wantsMCP != selection.mcpWasOn {
-            appState.isMCPServerEnabled = selection.wantsMCP
-        }
+        applyMCPChoice(selection)
         guard selection.wantsICloudSync,
               let controller = appState.noteSyncController,
               !controller.isEnabled else { return }
         Task { @MainActor [weak self] in
-            if let failure = await controller.turnOn() {
+            // Right after launch the note store may still be loading.
+            var failure = await controller.turnOn()
+            var attempts = 0
+            while failure == .notReady, attempts < 10, !controller.isEnabled {
+                attempts += 1
+                try? await Task.sleep(for: .seconds(1))
+                failure = await controller.turnOn()
+            }
+            if let failure {
                 self?.showICloudSyncTurnOnFailure(failure)
             }
+        }
+    }
+
+    /// Only a change is applied, so a switch flipped in Settings meanwhile stays.
+    @MainActor
+    private func applyMCPChoice(_ selection: ConnectionsChoices.Selection) {
+        if selection.wantsMCP != selection.mcpWasOn {
+            appState.isMCPServerEnabled = selection.wantsMCP
         }
     }
 

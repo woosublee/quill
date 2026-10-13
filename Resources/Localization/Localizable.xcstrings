@@ -1,6 +1,54 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Screenshots, window titles, selected text, and AI instructions aren't uploaded.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshots, window titles, selected text, and AI instructions aren't uploaded."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크린샷, 창 제목, 선택했던 텍스트, AI 지시문은 올리지 않아요."
+          }
+        }
+      }
+    },
+    "Turning it on uploads %lld notes from this Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turning it on uploads %lld notes from this Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 이 Mac의 노트 %lld개를 올려요."
+          }
+        }
+      }
+    },
+    "Turning it on uploads %lld notes from this Mac, including %@ of audio.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turning it on uploads %lld notes from this Mac, including %@ of audio."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켜면 이 Mac의 노트 %lld개를 올려요. 오디오 %@도 함께 올라가요."
+          }
+        }
+      }
+    },
     "Turn on only what you want to use. You can change these later in Settings.": {
       "localizations": {
         "en": {
@@ -61,22 +109,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "같은 iCloud 계정의 다른 Mac과 노트를 맞춰요. 노트와 오디오는 본인의 비공개 iCloud에만 저장돼요."
-          }
-        }
-      }
-    },
-    "Calendar events matched to notes (title, times, attendee names and emails) are stored there too. Screenshots, window titles, selected text, and AI instructions aren't uploaded.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Calendar events matched to notes (title, times, attendee names and emails) are stored there too. Screenshots, window titles, selected text, and AI instructions aren't uploaded."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "노트에 연결된 캘린더 일정(제목, 시간, 참석자 이름·이메일)도 함께 저장돼요. 스크린샷, 창 제목, 선택했던 텍스트, AI 지시문은 올리지 않아요."
           }
         }
       }

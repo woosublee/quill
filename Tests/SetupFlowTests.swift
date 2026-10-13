@@ -644,10 +644,16 @@ struct SetupFlowTests {
         let apply = sourceBlock(in: delegate, from: "private func applyConnectionsChoices(", to: "private func showICloudSyncTurnOnFailure(")
         assert(apply.contains("UserDefaults.standard.set(true, forKey: ConnectionsChoices.seenStorageKey)"))
         // Only a change is applied, so Settings changes made meanwhile stay.
-        assert(apply.contains("if selection.wantsMCP != selection.mcpWasOn {"))
-        assert(delegate.contains("closesNewSettingsWithoutApplying = true"))
+        assert(delegate.contains("if selection.wantsMCP != selection.mcpWasOn {"))
+        assert(apply.contains("applyMCPChoice(selection)"))
+        // Right after launch the note store may still be loading.
+        assert(apply.contains("while failure == .notReady, attempts < 10"))
+        // A setup re-run closes New settings without applying it.
+        let rerun = sourceBlock(in: delegate, from: "@objc func handleShowSetup()", to: "// Single wizard at a time")
+        assert(rerun.contains("newSettingsModel = nil\n        newSettingsWindow?.close()"))
         let terminate = sourceBlock(in: delegate, from: "func applicationWillTerminate(", to: "appState.finalizePendingNoteDeletion()")
         assert(terminate.contains("newSettingsModel?.selection"))
+        assert(!terminate.contains("seenStorageKey"))
         // A failed turn-on is said, since the choice isn't offered again.
         assert(apply.contains("self?.showICloudSyncTurnOnFailure(failure)"))
     }

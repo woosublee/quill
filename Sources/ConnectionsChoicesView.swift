@@ -16,6 +16,8 @@ enum ConnectionsChoices {
 
     /// What a connected AI tool receives: the consent text for every
     /// AI tools switch (setup, New settings, Settings › AI Tools).
+    static let iCloudCalendarDisclosure: LocalizedStringKey = "Calendar events matched to notes (title, times, attendee names and emails) are stored in your private iCloud too."
+
     static let mcpDisclosure: LocalizedStringKey = "A connected AI tool can start and stop recordings, add notes to a recording, and read your notes. It receives their transcripts (original and edited), summaries, recording times, the app context Quill noted while recording, audio file locations, and matched calendar events (title, times, attendee names and emails), and gets each new transcript as soon as it's ready. The tool's own policy decides whether it keeps the data or uses it for AI training; Quill doesn't train on it."
 }
 
@@ -65,6 +67,17 @@ private struct ConnectionsSyncCard: View {
     @ObservedObject var controller: NoteSyncController
     @Binding var wantsICloudSync: Bool
 
+    /// What turning it on uploads, as Settings says before it starts.
+    private var uploadSize: Text {
+        let count = controller.syncableNoteCount
+        let bytes = controller.uploadAudioByteCount
+        guard bytes > 0 else {
+            return Text("Turning it on uploads \(count) notes from this Mac.")
+        }
+        let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        return Text("Turning it on uploads \(count) notes from this Mac, including \(size) of audio.")
+    }
+
     var body: some View {
         ConnectionsCard(
             icon: "icloud",
@@ -73,7 +86,11 @@ private struct ConnectionsSyncCard: View {
             isDisabled: controller.isEnabled
         ) {
             Text("Keeps your notes the same on your Macs with this iCloud account. Notes and audio are stored only in your private iCloud.")
-            Text("Calendar events matched to notes (title, times, attendee names and emails) are stored there too. Screenshots, window titles, selected text, and AI instructions aren't uploaded.")
+            if !controller.isEnabled {
+                uploadSize
+            }
+            Text(ConnectionsChoices.iCloudCalendarDisclosure)
+            Text("Screenshots, window titles, selected text, and AI instructions aren't uploaded.")
         }
     }
 }

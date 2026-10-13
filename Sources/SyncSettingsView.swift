@@ -99,7 +99,7 @@ private struct NoteSyncSettingsCard: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 // Turning the switch on is the consent to this (#530).
-                Text("Calendar events matched to notes (title, times, attendee names and emails) are stored in your private iCloud too.")
+                Text(ConnectionsChoices.iCloudCalendarDisclosure)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
