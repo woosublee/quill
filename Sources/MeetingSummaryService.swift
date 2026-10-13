@@ -363,6 +363,9 @@ final class MeetingSummaryService: MeetingSummaryGenerating, @unchecked Sendable
     func generate(
         source: MeetingSummarySource
     ) async throws -> MeetingSummaryGenerationResult {
+        // The matched calendar event, Google Calendar's included, goes only
+        // to a local model; a cloud summary works from the transcript (#529).
+        let source = backendExecutor.choice.isLocal ? source : source.withoutCalendar
         let normalizedTranscript = source.normalizedTranscript
         let languageCode = source.languageContext.appliedLanguageCode
             .trimmingCharacters(in: .whitespacesAndNewlines)

@@ -347,7 +347,7 @@ struct MeetingSummaryServiceTests {
                 title: "Product Weekly",
                 start: start,
                 end: start.addingTimeInterval(1_800),
-                attendees: ["Ada", "Lin"]
+                attendees: ["Adaeze Okafor", "linnea@example.com"]
             ),
             languageContext: summaryLanguage
         )
@@ -371,7 +371,12 @@ struct MeetingSummaryServiceTests {
             "overview evidence is bounded"
         )
         try expect(user.contains("\"feature\":\"meeting_summary_extraction\""), "summary source envelope")
-        try expect(user.contains("Product Weekly"), "calendar is included in the source envelope")
+        // #529: calendar events never go to a cloud model.
+        for request in recorder.requests() {
+            let body = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
+            try expect(!body.contains("Product Weekly"), "a cloud request leaves the calendar title out")
+            try expect(!body.contains("Adaeze Okafor") && !body.contains("linnea@example.com"), "a cloud request leaves attendees out")
+        }
         try expect(body["max_tokens"] == nil, "cloud Summary omits the local legacy completion key")
     }
 
@@ -403,16 +408,24 @@ struct MeetingSummaryServiceTests {
             }
         )
 
+        let start = Date(timeIntervalSince1970: 1_000)
         _ = try await service.generate(
             source: MeetingSummarySource(
                 transcript: summaryTranscript,
-                calendar: nil,
+                calendar: MeetingSummaryCalendarContext(
+                    title: "Product Weekly",
+                    start: start,
+                    end: start.addingTimeInterval(1_800),
+                    attendees: ["Ada", "Lin"]
+                ),
                 languageContext: summaryLanguage
             )
         )
 
         let request = try recorder.requests().only()
         let body = try requestBody(request)
+        // #529: a local model still gets the calendar event.
+        try expect(try userMessage(request).contains("Product Weekly"), "a local request keeps the calendar")
         try expect(request.url?.host == "127.0.0.1", "local loopback host")
         try expect(
             request.value(forHTTPHeaderField: "Authorization") == nil,
