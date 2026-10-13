@@ -67,7 +67,7 @@ It is built for everyday writing and work notes: replying to messages, drafting 
 
 Quill can expose a local MCP server while the app is running, so Claude Code can start recordings, add context, stop recordings, and read recent transcripts from your local Quill history.
 
-The server is off until you turn on **Settings › AI Tools › Allow AI tools like Claude Code to connect to Quill**. A connected tool can start and stop recordings, add notes to a recording, receive each new transcript as soon as it is ready, and read your notes: transcripts (original and edited), summaries, recording times, the app context Quill noted while recording, audio file locations, and matched calendar events (title, times, attendee names and emails); that tool's own policy decides whether it keeps the data or uses it for training. Turning the switch off closes the port and disconnects connected tools.
+The server is off until you turn on **Settings › AI Tools › Allow AI tools like Claude Code to connect to Quill**. A connected tool can start and stop recordings, add notes to a recording, receive each new transcript as soon as it is ready, and read your notes: titles, transcripts (original and edited), summaries, recording times, the app context Quill noted while recording, audio file locations, and matched calendar events (title, times, attendee names and emails); that tool's own policy decides whether it keeps the data or uses it for training. Turning the switch off closes the port and disconnects connected tools.
 
 The local MCP endpoint is:
 
@@ -95,9 +95,8 @@ Available MCP tools:
 - `add_context` — append more context while a recording is in progress.
 - `stop_recording` — stop the recording and trigger transcription.
 - `get_status` — check whether Quill is idle, recording, or transcribing.
-- `list_transcripts` — list recent transcript history entries.
-- `get_transcript` — fetch a specific transcript by id.
-- `get_meeting_source` — fetch structured meeting data for a transcript id as JSON (resolved title, ISO 8601 timestamps, calendar match, attendees, audio file path, transcript, and context) for meeting-note generation.
+- `list_notes` — list notes newest first as JSON (id, title as Quill shows it, recording time, matched calendar event title, whether a summary exists, and a short preview). Filter with `query` (title, transcript, summary, or calendar event title) and `since`/`until` (a `YYYY-MM-DD` day or an ISO 8601 date-time).
+- `get_note` — fetch one note by id as JSON: title, ISO 8601 timestamps, matched calendar event and attendees, audio file path, summary (Markdown), transcript, original transcript, and app context.
 
 Notes:
 

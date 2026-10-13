@@ -305,41 +305,39 @@ final class MCPServer {
                 ]
             ],
             [
-                "name": "list_transcripts",
-                "description": "List recent transcription history entries with id, timestamp, and a short preview.",
+                "name": "list_notes",
+                "description": "List Quill notes, newest first, as JSON: id, title (as Quill shows it), recording time, matched calendar event title, whether a summary exists, and a short preview. Filter by text or date to find older notes; has_more is true when more notes match.",
                 "inputSchema": [
                     "type": "object",
                     "properties": [
+                        "query": [
+                            "type": "string",
+                            "description": "Text to find in the note title, transcript, summary, or calendar event title"
+                        ],
+                        "since": [
+                            "type": "string",
+                            "description": "Only notes recorded on or after this date (YYYY-MM-DD, local time) or ISO 8601 date-time"
+                        ],
+                        "until": [
+                            "type": "string",
+                            "description": "Only notes recorded on or before this date (YYYY-MM-DD, local time, whole day) or ISO 8601 date-time"
+                        ],
                         "limit": [
                             "type": "integer",
-                            "description": "Maximum number of entries to return (default: 10, max: 50)"
+                            "description": "Maximum number of notes to return (default: \(NotePayload.defaultListLimit), max: \(NotePayload.maxListLimit))"
                         ]
                     ]
                 ]
             ],
             [
-                "name": "get_transcript",
-                "description": "Get the full content of a specific transcription entry by id.",
+                "name": "get_note",
+                "description": "Get one Quill note as JSON: title, timestamps, matched calendar event and attendees, audio file location, summary (Markdown), transcript, original transcript, and app context.",
                 "inputSchema": [
                     "type": "object",
                     "properties": [
                         "id": [
                             "type": "string",
-                            "description": "UUID of the transcript entry from list_transcripts"
-                        ]
-                    ],
-                    "required": ["id"]
-                ]
-            ],
-            [
-                "name": "get_meeting_source",
-                "description": "Get structured meeting source data (title, timestamps, calendar match, attendees, audio path, transcript) for a transcript id as JSON. Use this for meeting-note generation.",
-                "inputSchema": [
-                    "type": "object",
-                    "properties": [
-                        "id": [
-                            "type": "string",
-                            "description": "UUID of the transcript entry from list_transcripts"
+                            "description": "Note id from list_notes"
                         ]
                     ],
                     "required": ["id"]
@@ -411,65 +409,63 @@ final class MCPServer {
                 last_transcript: \(transcriptValue)
                 """)
 
-        case "list_transcripts":
-            let limit = max(0, min(args["limit"] as? Int ?? 10, 50))
-            let entries = Array(appState.pipelineHistory.prefix(limit))
-            if entries.isEmpty {
-                return textContent("No transcripts found.")
+        case "list_notes":
+            let filter: NotePayload.ListFilter
+            do {
+                filter = try NotePayload.ListFilter(arguments: args, timeZone: .current)
+            } catch let error as NotePayload.ListFilterError {
+                return textContent(error.message, isError: true)
+            } catch {
+                return textContent("Error: invalid arguments.", isError: true)
             }
-            let formatter = ISO8601DateFormatter()
-            let lines = entries.map { item -> String in
-                let preview = item.postProcessedTranscript.isEmpty ? item.rawTranscript : item.postProcessedTranscript
-                let truncated = preview.count > 80 ? String(preview.prefix(80)) + "…" : preview
-                return "[\(formatter.string(from: item.timestamp))] \(item.id.uuidString)\n  \(truncated)"
-            }
-            return textContent(lines.joined(separator: "\n\n"))
+            let payload = NotePayload.list(
+                appState.pipelineHistory,
+                filter: filter,
+                title: { NoteTitleResolver.displayTitle(for: $0) },
+                summary: Self.summaryMarkdown,
+                formatter: Self.localISOFormatter()
+            )
+            return jsonContent(payload)
 
-        case "get_transcript":
+        case "get_note":
             guard let idString = args["id"] as? String, let uuid = UUID(uuidString: idString) else {
                 return textContent("Error: valid 'id' is required.", isError: true)
             }
             guard let item = appState.pipelineHistory.first(where: { $0.id == uuid }) else {
-                return textContent("Error: transcript not found.", isError: true)
+                return textContent("Error: note not found.", isError: true)
             }
-            let formatter = ISO8601DateFormatter()
-            var lines = ["id: \(item.id.uuidString)", "timestamp: \(formatter.string(from: item.timestamp))"]
-            if !item.postProcessedTranscript.isEmpty {
-                lines.append("transcript: \(item.postProcessedTranscript)")
-            }
-            if !item.rawTranscript.isEmpty {
-                lines.append("raw_transcript: \(item.rawTranscript)")
-            }
-            if !item.contextSummary.isEmpty {
-                lines.append("context: \(item.contextSummary)")
-            }
-            return textContent(lines.joined(separator: "\n"))
-
-        case "get_meeting_source":
-            guard let idString = args["id"] as? String, let uuid = UUID(uuidString: idString) else {
-                return textContent("Error: valid 'id' is required.", isError: true)
-            }
-            guard let item = appState.pipelineHistory.first(where: { $0.id == uuid }) else {
-                return textContent("Error: transcript not found.", isError: true)
-            }
-            let isoFormatter = ISO8601DateFormatter()
-            isoFormatter.formatOptions = [.withInternetDateTime]
-            isoFormatter.timeZone = TimeZone.current
-            let payload = MeetingSourcePayload.make(
+            let payload = NotePayload.make(
                 item: item,
+                title: NoteTitleResolver.displayTitle(for: item),
+                summary: Self.summaryMarkdown(item),
                 audioDirectory: appState.storageLayout.audioDirectory,
                 fileExists: { FileManager.default.fileExists(atPath: $0.path) },
-                formatter: isoFormatter
+                formatter: Self.localISOFormatter()
             )
-            guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys, .prettyPrinted]),
-                  let json = String(data: data, encoding: .utf8) else {
-                return textContent("Error: failed to encode meeting source.", isError: true)
-            }
-            return textContent(json)
+            return jsonContent(payload)
 
         default:
             return textContent("Unknown tool: \(name)", isError: true)
         }
+    }
+
+    private static func localISOFormatter() -> ISO8601DateFormatter {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        formatter.timeZone = TimeZone.current
+        return formatter
+    }
+
+    private static func summaryMarkdown(_ item: PipelineHistoryItem) -> String? {
+        item.meetingSummary.map { MeetingSummaryMarkdownRenderer.render($0) }
+    }
+
+    private func jsonContent(_ payload: [String: Any]) -> [String: Any] {
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys, .prettyPrinted]),
+              let json = String(data: data, encoding: .utf8) else {
+            return textContent("Error: failed to encode the note.", isError: true)
+        }
+        return textContent(json)
     }
 
     private func textContent(_ text: String, isError: Bool = false) -> [String: Any] {

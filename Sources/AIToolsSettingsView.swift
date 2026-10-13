@@ -19,6 +19,7 @@ struct AIToolsSettingsView: View {
                 SettingsCard("AI Tool Connection (MCP)", icon: "link") {
                     VStack(alignment: .leading, spacing: 10) {
                         Toggle("Allow AI tools like Claude Code to connect to Quill", isOn: $appState.isMCPServerEnabled)
+                            .toggleStyle(.switch)
                         Text(ConnectionsChoices.mcpDisclosure)
                             .font(.caption)
                             .foregroundStyle(.secondary)

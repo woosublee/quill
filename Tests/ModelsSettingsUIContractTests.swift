@@ -12,6 +12,7 @@ struct ModelsSettingsUIContractTests {
         let modelDropdown = try source("Sources/ModelDropdownView.swift")
         let localAIModelRow = (try? source("Sources/LocalAIModelRowView.swift")) ?? ""
         let currentSpec = try source("docs/superpowers/specs/2026-07-17-model-first-settings-redesign.md")
+        let aiTools = try source("Sources/AIToolsSettingsView.swift")
 
         testUIOnlyBoundary(appState: appState)
         testExistingProviderRoutingRemains(postProcessing: postProcessing, context: context)
@@ -29,6 +30,7 @@ struct ModelsSettingsUIContractTests {
         testReviewRegressionGuards(settings)
         testPostProcessingUsesExplicitSwitchAndExistingState(settings)
         testContextUsesExplicitSwitchAndExistingState(settings)
+        testAIToolsUsesSwitch(aiTools)
         testMeetingSummaryUsesIndependentCardAndSharedModelUX(settings)
         testAIProcessingBackendPickersAndLocalRows(
             settings: settings,
@@ -604,6 +606,15 @@ struct ModelsSettingsUIContractTests {
             context.contains("if contextEnabledDraft && contextUsesCloud")
         )
         precondition(!context.contains("Text(contextEnabled.wrappedValue ? \"On\" : \"Off\")"))
+    }
+
+    private static func testAIToolsUsesSwitch(_ aiTools: String) {
+        let toggle = block(
+            in: aiTools,
+            from: "Toggle(\"Allow AI tools like Claude Code to connect to Quill\"",
+            to: "Text(ConnectionsChoices.mcpDisclosure)"
+        )
+        precondition(toggle.contains(".toggleStyle(.switch)"), "AI Tools must use a switch, not a checkbox")
     }
 
     private static func testMeetingSummaryUsesIndependentCardAndSharedModelUX(
