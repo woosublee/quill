@@ -872,8 +872,12 @@ struct SetupView: View {
 
     private func canContinue(from step: SetupStep) -> Bool {
         switch step {
-        case .welcome, .ready:
+        case .welcome:
             return !isValidatingKey
+        case .ready:
+            // A resume passes Processing on the choice alone, so the
+            // model must be ready before setup finishes.
+            return !isValidatingKey && isSelectedModelReady
         case .shortcut:
             return !isCapturingShortcut
                 && (appState.hasEnabledHoldShortcut || appState.hasEnabledToggleShortcut)
@@ -887,16 +891,26 @@ struct SetupView: View {
                 )
             case .localAppleSpeech:
                 return true
-            case .localNativeWhisper:
-                return appState.nativeWhisperInstallStatus == .ready
-                    && !appState.isInstallingNativeWhisper
-            case .localAIModel(let id):
-                return appState.isLocalAITranscriptionModelReady(id)
+            case .localNativeWhisper, .localAIModel:
+                return isSelectedModelReady
             case .apiStandard:
                 return isAPIKeyValidated && !isValidatingKey
             }
         case .permissions:
             return hasGrantedRequiredPermissions
+        }
+    }
+
+    /// A downloaded model's install state; other presets need no model.
+    private var isSelectedModelReady: Bool {
+        switch selectedPreset {
+        case .localNativeWhisper:
+            return appState.nativeWhisperInstallStatus == .ready
+                && !appState.isInstallingNativeWhisper
+        case .localAIModel(let id):
+            return appState.isLocalAITranscriptionModelReady(id)
+        case .recordOnly, .localAppleSpeech, .apiStandard, nil:
+            return true
         }
     }
 

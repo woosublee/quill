@@ -560,6 +560,9 @@ struct SetupFlowTests {
         assert(stepChange.contains("saveProgress()"))
         let finish = sourceBlock(in: view, from: "private func performPrimaryAction()", to: "if currentStep == .processing, let selectedPreset")
         assert(finish.contains("SetupFlow.clearSavedProgress(in: .standard)"))
+        // A resume skips the model check on Processing, so finishing checks it.
+        let gate = sourceBlock(in: view, from: "private func canContinue(from step: SetupStep) -> Bool", to: "private var processingSummary")
+        assert(gate.contains("return !isValidatingKey && isSelectedModelReady"))
         let restore = sourceBlock(in: view, from: "private func restoreSavedProgress()", to: "private func previousStep(")
         assert(restore.contains("guard currentStep == .welcome else { return }"))
         // Restored once, and only soon after the grant: cleared right
