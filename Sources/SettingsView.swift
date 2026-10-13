@@ -703,7 +703,7 @@ struct CalendarSettingsView: View {
 
     private var calendarConnectionsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Events from connected calendars fill meeting reminders and note titles and attendees. Events never leave your Mac.")
+            Text("Events from connected calendars fill meeting reminders and note titles and attendees. An event leaves your Mac only with its note: to your own iCloud when iCloud sync is on, or to an AI tool you allow in Settings › AI Tools.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

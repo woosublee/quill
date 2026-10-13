@@ -1,6 +1,22 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Events from connected calendars fill meeting reminders and note titles and attendees. An event leaves your Mac only with its note: to your own iCloud when iCloud sync is on, or to an AI tool you allow in Settings › AI Tools.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Events from connected calendars fill meeting reminders and note titles and attendees. An event leaves your Mac only with its note: to your own iCloud when iCloud sync is on, or to an AI tool you allow in Settings › AI Tools."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결한 캘린더의 일정으로 회의 알림과 노트 제목·참석자를 채웁니다. 일정은 노트와 함께일 때만 Mac 밖으로 나가요. iCloud 동기화를 켜면 본인 iCloud로, 설정 › AI 도구에서 허용하면 연결한 AI 도구로 전달됩니다."
+          }
+        }
+      }
+    },
     "Starts when setup is finished.": {
       "localizations": {
         "en": {
@@ -19521,22 +19537,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "캘린더 연결"
-          }
-        }
-      }
-    },
-    "Events from connected calendars fill meeting reminders and note titles and attendees. Events never leave your Mac.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Events from connected calendars fill meeting reminders and note titles and attendees. Events never leave your Mac."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "연결한 캘린더의 일정으로 회의 알림과 노트 제목·참석자를 채웁니다. 일정은 Mac 밖으로 전송되지 않습니다."
           }
         }
       }

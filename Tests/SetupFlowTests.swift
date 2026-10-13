@@ -365,7 +365,7 @@ struct SetupFlowTests {
         let sse = sourceBlock(in: server, from: "private func handleSSE(connection: NWConnection) {", to: "let headers = [")
         assert(sse.contains("guard !hasStopped else {"))
         // A just-released port gets a few seconds before it counts as taken.
-        assert(server.contains("self?.failIfStillWaiting()"))
+        assert(server.contains("self?.failIfStillWaiting(listener)"))
     }
 
     private static func testNativeWhisperDownloadDoesNotLockProcessing() throws {

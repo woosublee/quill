@@ -40,12 +40,13 @@ final class MCPServer {
     func start() throws {
         let params = MCPLocalAccessPolicy.listenerParameters()
         let nwPort = NWEndpoint.Port(rawValue: Self.port)!
-        listener = try NWListener(using: params, on: nwPort)
+        let listener = try NWListener(using: params, on: nwPort)
+        self.listener = listener
 
-        listener?.newConnectionHandler = { [weak self] connection in
+        listener.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
         }
-        listener?.stateUpdateHandler = { [weak self] state in
+        listener.stateUpdateHandler = { [weak self, weak listener] state in
             switch state {
             case .ready:
                 print("[MCP] Server ready on port \(Self.port)")
@@ -59,8 +60,8 @@ final class MCPServer {
                 // itself, but Quill's own listener from a moment ago may still
                 // be letting go of it, so give it a few seconds first.
                 self?.onStatusChange?(.starting)
-                if case .posix(let code) = error, code == .EADDRINUSE || code == .EACCES {
-                    self?.failIfStillWaiting()
+                if case .posix(let code) = error, code == .EADDRINUSE || code == .EACCES, let listener {
+                    self?.failIfStillWaiting(listener)
                 }
             case .cancelled:
                 // Quill's own stop() lets go of the server first, so this
@@ -70,7 +71,7 @@ final class MCPServer {
                 break
             }
         }
-        listener?.start(queue: queue)
+        listener.start(queue: queue)
     }
 
     func stop() {
@@ -89,12 +90,12 @@ final class MCPServer {
         connections.forEach { $0.cancel() }
     }
 
-    private func failIfStillWaiting() {
-        queue.asyncAfter(deadline: .now() + 3) { [weak self] in
-            guard let self, let listener = self.listener else { return }
-            if case .waiting = listener.state {
-                self.onStatusChange?(.failed)
-            }
+    /// Takes the listener that reported, so the check never reads the
+    /// property stop() clears on another thread.
+    private func failIfStillWaiting(_ listener: NWListener) {
+        queue.asyncAfter(deadline: .now() + 3) { [weak self, weak listener] in
+            guard let self, let listener, case .waiting = listener.state else { return }
+            self.onStatusChange?(.failed)
         }
     }
 
