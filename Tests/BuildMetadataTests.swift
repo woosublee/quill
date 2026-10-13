@@ -507,7 +507,19 @@ struct BuildMetadataTests {
         assertContains(releaseWorkflow, "PROVISIONING_PROFILE_BASE64: ${{ secrets.DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 }}")
         assertContains(releaseWorkflow, #"echo "PROVISIONING_PROFILE=$PROFILE_PATH" >> "$GITHUB_ENV""#)
         assertContains(releaseWorkflow, "DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 is not set")
-        assertContains(releaseWorkflow, #"!= "$APP_CDHASH""#)
+        for check in [
+            "expect com.apple.developer.icloud-container-environment Production",
+            "expect com.apple.developer.aps-environment production",
+            "expect com.apple.developer.icloud-container-identifiers iCloud.com.woosublee.quill",
+            "expect com.apple.developer.icloud-services CloudKit",
+            "expect com.apple.application-identifier",
+            "expect com.apple.developer.team-identifier",
+            #"cmp -s "$PROVISIONING_PROFILE" build/Quill.app/Contents/embedded.provisionprofile"#,
+            #""$RUNNER_TEMP/developer_id.provisionprofile""#,
+        ] {
+            assertContains(releaseWorkflow, check)
+        }
+        assertAppearsInOrder(releaseWorkflow, ["Create universal DMG", "xcrun stapler validate build/Quill.app", "Sign universal DMG"])
         let profileMakeLines = releaseWorkflow.split(separator: "\n").filter {
             $0.contains("make ARCH=universal APP_NAME=Quill") || $0.contains("make dmg ARCH=universal APP_NAME=Quill")
         }
