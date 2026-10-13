@@ -629,7 +629,6 @@ struct SetupFlowTests {
         assert(choices.contains("isOn: $selection.wantsMCP"))
         assert(!choices.contains("$appState.isMCPServerEnabled"))
         assert(choices.contains("controller.unavailableReason == nil"))
-        assert(choices.contains("attendee names and emails"))
 
         let delegate = try String(contentsOfFile: "Sources/AppDelegate.swift", encoding: .utf8)
         let launch = sourceBlock(in: delegate, from: "func applicationDidFinishLaunching(", to: "func applicationShouldTerminate(")

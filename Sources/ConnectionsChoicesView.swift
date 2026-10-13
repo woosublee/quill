@@ -16,11 +16,11 @@ enum ConnectionsChoices {
 
     /// The iCloud sync consent sentence about calendar events, shared by
     /// setup, New settings, and Settings › iCloud Sync.
-    static let iCloudCalendarDisclosure: LocalizedStringKey = "Calendar events matched to notes (title, times, attendee names and emails) are stored in your private iCloud too."
+    static let iCloudCalendarDisclosure: LocalizedStringKey = "Calendar events matched to notes (title, times, calendar and event IDs (a Google calendar ID can be an email address), your calendar account's email, and each attendee's name, email, response, and whether they're optional or you) are stored in your private iCloud too."
 
     /// What a connected AI tool receives: the consent text for every
     /// AI tools switch (setup, New settings, Settings › AI Tools).
-    static let mcpDisclosure: LocalizedStringKey = "A connected AI tool can start and stop recordings, add notes to a recording, and read your notes. It receives their titles, transcripts (original and edited), summaries, recording times, the app context Quill noted while recording, audio file locations, and matched calendar events (title, times, attendee names and emails), and gets each new transcript as soon as it's ready. The tool's own policy decides whether it keeps the data or uses it for AI training; Quill doesn't train on it."
+    static let mcpDisclosure: LocalizedStringKey = "A connected AI tool can start and stop recordings, add notes to a recording, and read your notes and dictations. It receives their titles, transcripts (original and edited), summaries, recording times, a summary of the app and screen context Quill noted while recording (it can mention window titles or selected text), audio file locations, and matched calendar events (title, times, and each attendee's name, email, response, and whether they're optional or you), and gets each new transcript as soon as it's ready. While this is on, any app on this Mac can connect. Quill doesn't train AI on this data; once a tool has it, its provider's terms decide whether it keeps the data or trains on it, so check your AI tool's data settings."
 }
 
 /// The New settings window's choices, kept outside the view so closing
