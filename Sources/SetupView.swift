@@ -133,11 +133,7 @@ struct SetupView: View {
             permissionTimer?.invalidate()
             appState.resumeHotkeyMonitoringAfterShortcutCapture()
         }
-        .onChange(of: processingLocation) { _ in saveProgress() }
-        .onChange(of: localModel) { _ in saveProgress() }
-        .onChange(of: recordOnlyAudioSource) { _ in saveProgress() }
         .onChange(of: currentStep) { step in
-            saveProgress()
             if step == .permissions {
                 startPermissionPolling()
             } else {
@@ -767,7 +763,11 @@ struct SetupView: View {
             icon: "camera.viewfinder",
             granted: appState.hasScreenRecordingPermission,
             actionTitle: String(localized: "Grant Access"),
-            action: appState.requestScreenCapturePermission
+            action: {
+                // Granting it makes macOS quit and reopen Quill (#516).
+                saveProgress()
+                appState.requestScreenCapturePermission()
+            }
         )
     }
 
@@ -980,8 +980,8 @@ struct SetupView: View {
         }
     }
 
-    /// Keeps the choices so far; granting Screen Recording relaunches Quill
-    /// in the middle of setup (#516).
+    /// Keeps the step and choices so far for the relaunch that granting
+    /// Screen Recording causes (#516).
     private func saveProgress() {
         SetupFlow.saveProgress(
             SetupFlow.SavedProgress(
@@ -994,18 +994,22 @@ struct SetupView: View {
         )
     }
 
-    /// Fills in the saved choices, then reopens at the saved step, or at
-    /// the first step that can't be passed any more, such as a permission
-    /// taken back. The step is chosen on the next turn, once the restored
-    /// choices are in place, and only if the user hasn't moved on.
+    /// Fills in the saved choices once, then reopens at the saved step, or
+    /// at the first step that can't be passed any more, such as a
+    /// permission taken back. The step is chosen on the next turn, once the
+    /// restored choices are in place, and only if the user hasn't moved on.
     private func restoreSavedProgress() {
         guard let saved = SetupFlow.loadSavedProgress(from: .standard) else { return }
+        SetupFlow.clearSavedProgress(in: .standard)
         processingLocation = saved.processingLocation
         localModel = saved.localModel
         recordOnlyAudioSource = saved.recordOnlyAudioSource
         DispatchQueue.main.async {
             guard currentStep == .welcome else { return }
-            let step = SetupFlow.resumeStep(savedStep: saved.step) { rawValue in
+            let step = SetupFlow.resumeStep(
+                savedStep: saved.step,
+                lastStep: SetupStep.ready.rawValue
+            ) { rawValue in
                 guard let step = SetupStep(rawValue: rawValue) else { return false }
                 return canResume(past: step)
             }
@@ -1013,8 +1017,8 @@ struct SetupView: View {
         }
     }
 
-    /// Processing was passed and applied before the relaunch, so only a
-    /// choice is needed; model readiness and the API key check may still
+    /// Processing was passed and applied just before the relaunch, so only
+    /// a choice is needed; model readiness and the API key check may still
     /// be loading. Later steps check live permissions and shortcuts.
     private func canResume(past step: SetupStep) -> Bool {
         guard step == .processing else { return canContinue(from: step) }

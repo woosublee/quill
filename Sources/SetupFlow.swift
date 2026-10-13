@@ -94,9 +94,9 @@ enum SetupFlow {
             .isSubset(of: grantedPermissions)
     }
 
-    /// Choices made in setup, kept until it finishes. Granting Screen
-    /// Recording makes macOS quit and reopen Quill, and setup then picks up
-    /// where it stopped (#516). Holds only choices, never the API key:
+    /// Choices made in setup, saved when the user grants Screen Recording.
+    /// That makes macOS quit and reopen Quill, and setup then picks up
+    /// where it stopped, once (#516). Holds only choices, never the API key:
     /// that is already in Settings, and a key is validated again if the
     /// user goes back to it.
     struct SavedProgress: Codable, Equatable {
@@ -128,9 +128,9 @@ enum SetupFlow {
 
     /// The step to reopen at: the saved one, unless an earlier step can't
     /// be passed any more, such as a permission that was taken back.
-    static func resumeStep(savedStep: Int, canContinue: (Int) -> Bool) -> Int {
+    static func resumeStep(savedStep: Int, lastStep: Int, canContinue: (Int) -> Bool) -> Int {
         var step = 0
-        while step < savedStep, canContinue(step) {
+        while step < min(savedStep, lastStep), canContinue(step) {
             step += 1
         }
         return step

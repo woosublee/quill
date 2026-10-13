@@ -530,22 +530,29 @@ struct SetupFlowTests {
     }
 
     private static func testResumeStopsAtTheFirstBlockedStep() {
-        assert(SetupFlow.resumeStep(savedStep: 3) { _ in true } == 3)
-        assert(SetupFlow.resumeStep(savedStep: 3) { $0 != 1 } == 1)
-        assert(SetupFlow.resumeStep(savedStep: 0) { _ in false } == 0)
-        assert(SetupFlow.resumeStep(savedStep: 4) { _ in false } == 0)
+        assert(SetupFlow.resumeStep(savedStep: 3, lastStep: 4) { _ in true } == 3)
+        assert(SetupFlow.resumeStep(savedStep: 3, lastStep: 4) { $0 != 1 } == 1)
+        assert(SetupFlow.resumeStep(savedStep: 0, lastStep: 4) { _ in false } == 0)
+        assert(SetupFlow.resumeStep(savedStep: 4, lastStep: 4) { _ in false } == 0)
+        // A step past the last one, from another build, stops at the last.
+        assert(SetupFlow.resumeStep(savedStep: 9, lastStep: 4) { _ in true } == 4)
     }
 
     private static func testSetupSavesAndRestoresProgress() throws {
         let view = try String(contentsOfFile: "Sources/SetupView.swift", encoding: .utf8)
         let onAppear = sourceBlock(in: view, from: ".onAppear {", to: ".onDisappear {")
         assert(onAppear.contains("restoreSavedProgress()"))
-        let stepChange = sourceBlock(in: view, from: ".onChange(of: currentStep) { step in", to: "focusStepTitleForVoiceOver()")
-        assert(stepChange.contains("saveProgress()"))
+        // Saved only when granting Screen Recording, which relaunches Quill.
+        let screenRow = sourceBlock(in: view, from: "private var screenRecordingPermissionRow: some View", to: "private func permissionRow(")
+        assert(screenRow.contains("saveProgress()"))
+        assert(screenRow.contains("appState.requestScreenCapturePermission()"))
+        assert(view.components(separatedBy: "saveProgress()").count == 3)
         let finish = sourceBlock(in: view, from: "private func performPrimaryAction()", to: "if currentStep == .processing, let selectedPreset")
         assert(finish.contains("SetupFlow.clearSavedProgress(in: .standard)"))
         let restore = sourceBlock(in: view, from: "private func restoreSavedProgress()", to: "private func previousStep(")
         assert(restore.contains("guard currentStep == .welcome else { return }"))
+        // Restored once: cleared right after it is read.
+        assert(restore.contains("SetupFlow.clearSavedProgress(in: .standard)"))
         assert(restore.contains("return canResume(past: step)"))
         let delegate = try String(contentsOfFile: "Sources/AppDelegate.swift", encoding: .utf8)
         let setupClose = sourceBlock(in: delegate, from: "private func handleSetupWindowDidClose(", to: "@objc private func handleShowSettings()")
