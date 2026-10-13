@@ -151,6 +151,10 @@ struct MeetingSummarySource: Equatable, Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    var withoutCalendar: MeetingSummarySource {
+        MeetingSummarySource(transcript: transcript, calendar: nil, languageContext: languageContext)
+    }
+
     var fingerprint: String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [
