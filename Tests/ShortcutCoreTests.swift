@@ -48,6 +48,8 @@ struct ShortcutCoreTests {
         expectEqual(ShortcutRole.toggle.pickerBindings(selection: custom).contains(custom), false)
         expectEqual(ShortcutRole.toggle.pickerBindings(selection: .disabled).contains(.disabled), false)
 
+        expectEqual(ShortcutRole.recordingCancel.pickerBindings(selection: .defaultRecordingCancel), [])
+
         // Fn + Command no longer reads as plain Fn.
         expectEqual(ShortcutBinding.defaultHold.selectionTitle, ShortcutPreset.fnKey.title)
         expectEqual(ShortcutBinding.defaultToggle.selectionTitle, ShortcutBinding.defaultToggle.displayName)

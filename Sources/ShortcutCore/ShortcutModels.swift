@@ -72,7 +72,9 @@ enum ShortcutRole {
     /// Toggle's Fn + Command), and the selection when no row matches it
     /// either, such as an older Right Option + Command toggle. Without the
     /// last two a working shortcut looks unset (#517).
+    /// Cancel Recording has its own picker without presets.
     func pickerBindings(selection: ShortcutBinding) -> [ShortcutBinding] {
+        guard self != .recordingCancel else { return [] }
         var bindings = ShortcutPreset.allCases.map(\.binding)
         if self == .toggle {
             bindings.append(.defaultToggle)
