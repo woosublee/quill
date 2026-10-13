@@ -20,7 +20,9 @@ struct AppStateDependenciesTests {
     private static func verifiesTestsCopyToTheirOwnPasteboard() throws {
         let pasteboard = AppStateDependencies.live.pasteboard
         precondition(pasteboard.name != NSPasteboard.general.name)
-        precondition(pasteboard.name.rawValue.hasPrefix(AppStateDependencies.testPasteboardNamePrefix))
+        let expectedName = AppStateDependencies.testPasteboardNamePrefix
+            + String(ProcessInfo.processInfo.processIdentifier)
+        precondition(pasteboard.name.rawValue == expectedName)
         precondition(!AppStateDependencies.live.postsKeyEvents)
 
         // AppState uses only its dependencies' pasteboard, and checks them
