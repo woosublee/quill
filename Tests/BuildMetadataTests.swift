@@ -505,8 +505,11 @@ struct BuildMetadataTests {
         // iCloud note sync: both the app build and the DMG build get the
         // profile, or make dmg rebuilds the notarized app without it.
         assertContains(releaseWorkflow, "PROVISIONING_PROFILE_BASE64: ${{ secrets.DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 }}")
+        assertContains(releaseWorkflow, #"echo "PROVISIONING_PROFILE=$PROFILE_PATH" >> "$GITHUB_ENV""#)
+        assertContains(releaseWorkflow, "DEVELOPER_ID_PROVISIONING_PROFILE_BASE64 is not set")
+        assertContains(releaseWorkflow, #"!= "$APP_CDHASH""#)
         let profileMakeLines = releaseWorkflow.split(separator: "\n").filter {
-            $0.contains("run: make ARCH=universal APP_NAME=Quill") || $0.contains("run: make dmg ARCH=universal APP_NAME=Quill")
+            $0.contains("make ARCH=universal APP_NAME=Quill") || $0.contains("make dmg ARCH=universal APP_NAME=Quill")
         }
         precondition(profileMakeLines.count == 2, "Expected the app and DMG make calls")
         for line in profileMakeLines {

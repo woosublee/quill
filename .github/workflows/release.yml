@@ -208,16 +208,29 @@ jobs:
           GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET }}
         run: make ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY="$CODESIGN_IDENTITY" CODESIGN_TIMESTAMP=--timestamp APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.tag }}" GOOGLE_CALENDAR_OAUTH_CLIENT_ID="$GOOGLE_CALENDAR_OAUTH_CLIENT_ID" GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET="$GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET" PROVISIONING_PROFILE="$PROVISIONING_PROFILE"
 
-      # make dmg must get the same PROVISIONING_PROFILE: it is part of the
-      # build settings, and a mismatch rebuilds and re-signs the notarized app.
       - name: Verify iCloud entitlements
         run: |
           ENTITLEMENTS="$RUNNER_TEMP/quill-entitlements.plist"
           codesign -d --entitlements - --xml build/Quill.app > "$ENTITLEMENTS"
-          [ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.icloud-container-environment' "$ENTITLEMENTS")" = "Production" ]
-          [ "$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.aps-environment' "$ENTITLEMENTS")" = "production" ]
-          /usr/libexec/PlistBuddy -c 'Print :com.apple.developer.icloud-container-identifiers' "$ENTITLEMENTS" | grep -Fq "iCloud.com.woosublee.quill"
-          [ -f build/Quill.app/Contents/embedded.provisionprofile ]
+          entitlement() {
+            /usr/libexec/PlistBuddy -c "Print :$1" "$ENTITLEMENTS" 2>/dev/null | sed -e 's/^ *//' -e 's/ *$//'
+          }
+          expect_line() {
+            if ! entitlement "$1" | grep -Fxq "$2"; then
+              echo "Entitlement $1 should include $2; it has: $(entitlement "$1" | tr '\n' ' ')" >&2
+              exit 1
+            fi
+          }
+          expect_line com.apple.developer.icloud-container-environment Production
+          expect_line com.apple.developer.aps-environment production
+          expect_line com.apple.developer.icloud-container-identifiers iCloud.com.woosublee.quill
+          expect_line com.apple.developer.icloud-services CloudKit
+          if ! cmp -s "$PROVISIONING_PROFILE" build/Quill.app/Contents/embedded.provisionprofile; then
+            echo "The app doesn't embed the installed provisioning profile." >&2
+            exit 1
+          fi
+          # Create universal DMG checks the notarized app is left as it is.
+          echo "APP_CDHASH=$(codesign -dvvv build/Quill.app 2>&1 | awk -F= '/^CDHash=/ { print $2 }')" >> "$GITHUB_ENV"
 
       - name: Notarize universal app
         run: |
@@ -227,11 +240,19 @@ jobs:
           xcrun stapler staple build/Quill.app
           xcrun stapler validate build/Quill.app
 
+      # make dmg must get the same PROVISIONING_PROFILE as the app build: it
+      # is part of the build settings, and a mismatch rebuilds and re-signs
+      # the notarized app without iCloud.
       - name: Create universal DMG
         env:
           GOOGLE_CALENDAR_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_CALENDAR_OAUTH_CLIENT_ID }}
           GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET }}
-        run: make dmg ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY="$CODESIGN_IDENTITY" CODESIGN_TIMESTAMP=--timestamp APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.tag }}" GOOGLE_CALENDAR_OAUTH_CLIENT_ID="$GOOGLE_CALENDAR_OAUTH_CLIENT_ID" GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET="$GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET" PROVISIONING_PROFILE="$PROVISIONING_PROFILE"
+        run: |
+          make dmg ARCH=universal APP_NAME=Quill BUNDLE_ID=com.woosublee.quill CODESIGN_IDENTITY="$CODESIGN_IDENTITY" CODESIGN_TIMESTAMP=--timestamp APP_VERSION="${{ steps.version.outputs.version }}" BUILD_NUMBER="${{ steps.version.outputs.build_number }}" BUILD_TAG="${{ steps.version.outputs.tag }}" GOOGLE_CALENDAR_OAUTH_CLIENT_ID="$GOOGLE_CALENDAR_OAUTH_CLIENT_ID" GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET="$GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET" PROVISIONING_PROFILE="$PROVISIONING_PROFILE"
+          if [ "$(codesign -dvvv build/Quill.app 2>&1 | awk -F= '/^CDHash=/ { print $2 }')" != "$APP_CDHASH" ]; then
+            echo "make dmg rebuilt the notarized app; pass it the same settings as Build universal." >&2
+            exit 1
+          fi
 
       - name: Sign universal DMG
         run: codesign --force --timestamp --sign "$CODESIGN_IDENTITY" build/Quill.dmg
@@ -302,7 +323,7 @@ jobs:
       - name: Cleanup signing artifacts
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/developer_id.p12" "$RUNNER_TEMP/notary_api_key.p8" "$RUNNER_TEMP/Quill-notarize.zip"
+          rm -f "$RUNNER_TEMP/developer_id.p12" "$RUNNER_TEMP/notary_api_key.p8" "$RUNNER_TEMP/Quill-notarize.zip" "$RUNNER_TEMP/developer_id.provisionprofile" "$RUNNER_TEMP/quill-entitlements.plist"
           KPATH="${KEYCHAIN_PATH:-$RUNNER_TEMP/signing.keychain-db}"
           if [ -f "$KPATH" ]; then
             security delete-keychain "$KPATH"
