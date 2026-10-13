@@ -353,12 +353,13 @@ struct SetupFlowTests {
         assert(stopBody.contains("mcpServer?.stop()"))
         assert(stopBody.contains("mcpServer = nil"))
         // A failed listener is let go of, so off and on starts a new one.
-        assert(source.contains("if status == .failed {\n                    // Let go of the dead listener"))
+        assert(source.contains("self.stopMCPServer(status: .failed)"))
         let server = try String(contentsOfFile: "Sources/MCPServer.swift", encoding: .utf8)
         let serverStop = sourceBlock(in: server, from: "func stop() {", to: "\n    private func track(")
         assert(serverStop.contains("openConnections.removeAll()"))
         assert(serverStop.contains("connections.forEach { $0.cancel() }"))
-        assert(server.contains("track(connection)"))
+        assert(server.contains("guard track(connection) else {"))
+        assert(server.contains("guard !isStopped else { return false }"))
     }
 
     private static func testNativeWhisperDownloadDoesNotLockProcessing() throws {

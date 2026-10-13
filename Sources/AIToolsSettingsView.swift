@@ -19,7 +19,7 @@ struct AIToolsSettingsView: View {
                 SettingsCard("AI Tool Connection (MCP)", icon: "link") {
                     VStack(alignment: .leading, spacing: 10) {
                         Toggle("Allow AI tools like Claude Code to connect to Quill", isOn: $appState.isMCPServerEnabled)
-                        Text("A connected AI tool can start and stop recordings and read your notes. It receives their transcripts, summaries, recording times, and matched calendar events (title, times, attendee names and emails). The tool's own policy decides whether it keeps the data or uses it for AI training; Quill doesn't train on it.")
+                        Text("A connected AI tool can start and stop recordings and read your notes. It receives their transcripts (original and edited), summaries, recording times, the app context Quill noted while recording, audio file locations, and matched calendar events (title, times, attendee names and emails). The tool's own policy decides whether it keeps the data or uses it for AI training; Quill doesn't train on it.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -27,7 +27,7 @@ struct AIToolsSettingsView: View {
                     }
                 }
 
-                if appState.isMCPServerEnabled {
+                if appState.isMCPServerEnabled, appState.mcpServerStatus != .failed {
                     SettingsCard("Connect Claude Code", icon: "terminal") {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("Run this command once in Terminal. If you already registered Quill, you don't need to again.")

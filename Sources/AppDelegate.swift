@@ -384,9 +384,10 @@ private func showNoteBrowserWindow() {
                 if status == .failed {
                     // Let go of the dead listener, so turning the switch off
                     // and on starts a fresh one.
-                    self.stopMCPServer()
+                    self.stopMCPServer(status: .failed)
+                } else {
+                    self.appState.mcpServerStatus = status
                 }
-                self.appState.mcpServerStatus = status
             }
         }
         appState.mcpServerStatus = .starting
@@ -401,11 +402,11 @@ private func showNoteBrowserWindow() {
     }
 
     /// Closes port 3457 and drops connected AI tools.
-    private func stopMCPServer() {
+    private func stopMCPServer(status: MCPServerStatus = .off) {
         appState.onTranscriptionCompleted = nil
         mcpServer?.stop()
         mcpServer = nil
-        appState.mcpServerStatus = .off
+        appState.mcpServerStatus = status
     }
 
     /// Settings › AI Tools turns the server on and off; it starts off.

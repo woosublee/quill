@@ -26,6 +26,7 @@ final class MCPServer {
     private let sseClientsLock = NSLock()
     /// Every accepted connection until it ends, so stop() can close them all.
     private var openConnections: [ObjectIdentifier: NWConnection] = [:]
+    private var isStopped = false
     private let openConnectionsLock = NSLock()
 
     private weak var appState: AppState?
@@ -52,7 +53,12 @@ final class MCPServer {
                 print("[MCP] Server failed: \(error)")
                 self?.onStatusChange?(.failed)
             case .waiting(let error):
+                // Network retries by itself; keep showing Starting.
                 print("[MCP] Server waiting: \(error)")
+                self?.onStatusChange?(.starting)
+            case .cancelled:
+                // Quill's own stop() lets go of the server first, so this
+                // only reaches the app when the system ended the listener.
                 self?.onStatusChange?(.failed)
             default:
                 break
@@ -65,22 +71,25 @@ final class MCPServer {
         listener?.cancel()
         listener = nil
         sseClientsLock.lock()
-        sseClients.forEach { $0.connection.cancel() }
         sseClients.removeAll()
         sseClientsLock.unlock()
-        // Requests still being read or answered close too, so a connected
-        // tool sees the server go away instead of waiting.
+        // Every connection closes, event streams and requests still being
+        // read or answered alike, so a connected tool sees the server go.
         openConnectionsLock.lock()
+        isStopped = true
         let connections = Array(openConnections.values)
         openConnections.removeAll()
         openConnectionsLock.unlock()
         connections.forEach { $0.cancel() }
     }
 
-    private func track(_ connection: NWConnection) {
+    /// False once stop() ran: a connection accepted meanwhile is refused.
+    private func track(_ connection: NWConnection) -> Bool {
         openConnectionsLock.lock()
+        defer { openConnectionsLock.unlock() }
+        guard !isStopped else { return false }
         openConnections[ObjectIdentifier(connection)] = connection
-        openConnectionsLock.unlock()
+        return true
     }
 
     private func forget(_ connection: NWConnection) {
@@ -107,10 +116,15 @@ final class MCPServer {
             return
         }
 
-        track(connection)
+        guard track(connection) else {
+            connection.cancel()
+            return
+        }
         connection.stateUpdateHandler = { [weak self, weak connection] state in
             switch state {
-            case .cancelled, .failed:
+            case .failed:
+                connection?.cancel()
+            case .cancelled:
                 if let connection { self?.forget(connection) }
             default:
                 break
@@ -458,7 +472,9 @@ final class MCPServer {
 
         connection.stateUpdateHandler = { [weak self, weak connection] state in
             switch state {
-            case .cancelled, .failed:
+            case .failed:
+                connection?.cancel()
+            case .cancelled:
                 self?.sseClientsLock.lock()
                 self?.sseClients.removeAll { $0.id == client.id }
                 self?.sseClientsLock.unlock()
