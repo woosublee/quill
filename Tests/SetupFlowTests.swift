@@ -347,7 +347,7 @@ struct SetupFlowTests {
         assert(observeBody.contains("self?.stopMCPServer()"))
         let stopBody = sourceBlock(
             in: source,
-            from: "private func stopMCPServer() {",
+            from: "private func stopMCPServer(status: MCPServerStatus = .off) {",
             to: "\n    }"
         )
         assert(stopBody.contains("mcpServer?.stop()"))
