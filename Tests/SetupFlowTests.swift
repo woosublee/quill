@@ -290,13 +290,13 @@ struct SetupFlowTests {
         assert(!launchBody.contains("appState.startHotkeyMonitoring()"))
         assert(!launchBody.contains("startMCPServer()"))
 
-        // #518: a Dock click opens the note browser, or setup before it is done.
+        // #518: after setup, a Dock click always opens the note browser.
         let reopenBody = sourceBlock(
             in: source,
             from: "func applicationShouldHandleReopen(",
             to: "\n    @MainActor"
         )
-        assert(reopenBody.contains("showSetupWindow()"))
+        assert(reopenBody.contains("guard appState.hasCompletedSetup else { return true }"))
         assert(reopenBody.contains("showNoteBrowserWindow()"))
         assert(!reopenBody.contains("showSettingsWindow()"))
 

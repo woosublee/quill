@@ -492,7 +492,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let outputLanguageStorageKey = "output_language"
     private let localTranscriptionModelStorageKey = AppState.localTranscriptionModelStorageKeyName
     private let localAITranscriptionModelStorageKey = "local_ai_transcription_model"
-    private let noteBrowserEnabledStorageKey = "note_browser_enabled"
     private let commandModeEnabledStorageKey = "command_mode_enabled"
     private let commandModeStyleStorageKey = "command_mode_style"
     private let commandModeManualModifierStorageKey = "command_mode_manual_modifier"
@@ -3236,10 +3235,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let disableMeetingSummary = meetingSummarySettingsInitialized
             ? UserDefaults.standard.bool(forKey: disableMeetingSummaryStorageKey)
             : true
-        // The note browser is always on now; drop the old opt-out (#518).
-        if UserDefaults.standard.object(forKey: noteBrowserEnabledStorageKey) != nil {
-            UserDefaults.standard.removeObject(forKey: noteBrowserEnabledStorageKey)
-        }
         let transcriptionLanguage = TranscriptionLanguage.find(
             code: UserDefaults.standard.string(forKey: transcriptionLanguageStorageKey) ?? "ko"
         )

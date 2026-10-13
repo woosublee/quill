@@ -119,16 +119,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        guard appState.hasCompletedSetup else {
-            // 설정 전 독 클릭 = 설정 창 앞으로 (독 아이콘은 항상 보임)
-            if let setupWindow {
-                setupWindow.makeKeyAndOrderFront(nil)
-                NSApp.activate(ignoringOtherApps: true)
-            } else {
-                showSetupWindow()
-            }
-            return true
-        }
+        guard appState.hasCompletedSetup else { return true }
         // 독 클릭 = 항상 노트 브라우저 앞으로
         showNoteBrowserWindow()
         return true
