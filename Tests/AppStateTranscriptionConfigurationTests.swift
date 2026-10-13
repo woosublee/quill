@@ -128,6 +128,7 @@ struct AppStateTranscriptionConfigurationTests {
         testLLMTransportTimeoutNormalization()
         testPostProcessingCooldownDispositionDefaultsToProcessed()
         testPostProcessingCooldownDispositionCanBeMarkedSkipped()
+        testOldNoteBrowserOptOutIsLeftInPlace()
         await testExistingInstallMigratesMissingTranscriptionPreferenceOn()
         await testStoredTranscriptionPreferenceIsPreserved()
         await testRecordOnlyDoesNotRequireAccessibility()
@@ -931,6 +932,20 @@ struct AppStateTranscriptionConfigurationTests {
         )
 
         assert(result.skippedDueToCooldown)
+    }
+
+    /// #518: the note browser is always on. The old opt-out is no longer
+    /// read but stays stored, so a downgrade keeps the user's choice.
+    private static func testOldNoteBrowserOptOutIsLeftInPlace() {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.set(false, forKey: "note_browser_enabled")
+
+        _ = makeAppState()
+
+        assert(defaults.object(forKey: "note_browser_enabled") as? Bool == false)
+        let source = try? String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        assert(source?.contains("note_browser_enabled") == false)
     }
 
     private static func testExistingInstallMigratesMissingTranscriptionPreferenceOn() async {
@@ -5266,6 +5281,7 @@ struct AppStateTranscriptionConfigurationTests {
         defaults.removeObject(forKey: "post_processing_backend_choice")
         defaults.removeObject(forKey: "context_backend_choice")
         defaults.removeObject(forKey: "preserve_exact_wording")
+        defaults.removeObject(forKey: "note_browser_enabled")
         defaults.removeObject(forKey: "selected_microphone_id")
         defaults.removeObject(forKey: "selected_microphone_device_id")
         defaults.removeObject(forKey: "realtime_streaming_enabled")
