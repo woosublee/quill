@@ -638,7 +638,9 @@ struct SetupFlowTests {
         let newSettings = sourceBlock(in: delegate, from: "private func showNewSettingsIfNeeded()", to: "private func applyConnectionsChoices(")
         assert(newSettings.contains("guard !UserDefaults.standard.bool(forKey: ConnectionsChoices.seenStorageKey)"))
         // Closing the window applies the choices, as Done does.
-        assert(newSettings.contains("self.applyConnectionsChoices(model.selection)"))
+        assert(newSettings.contains("#selector(handleNewSettingsWindowWillClose)"))
+        let close = sourceBlock(in: delegate, from: "private func handleNewSettingsWindowWillClose(", to: "private func applyConnectionsChoices(")
+        assert(close.contains("applyConnectionsChoices(selection)"))
         let apply = sourceBlock(in: delegate, from: "private func applyConnectionsChoices(", to: "private func showICloudSyncTurnOnFailure(")
         assert(apply.contains("UserDefaults.standard.set(true, forKey: ConnectionsChoices.seenStorageKey)"))
         // Only a change is applied, so Settings changes made meanwhile stay.

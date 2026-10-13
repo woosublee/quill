@@ -10,7 +10,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var mcpServer: MCPServer?
     private var mcpServerSettingObserver: AnyCancellable?
     private var newSettingsWindow: NSWindow?
-    private var newSettingsCloseObserver: NSObjectProtocol?
     private var newSettingsModel: ConnectionsChoicesModel?
     /// Set when setup is re-run over the window: setup offers the same
     /// switches, so closing it applies nothing.
@@ -404,28 +403,33 @@ private func showNoteBrowserWindow() {
         window.isReleasedWhenClosed = false
         window.center()
         newSettingsWindow = window
-        newSettingsCloseObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.willCloseNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                if let observer = self.newSettingsCloseObserver {
-                    NotificationCenter.default.removeObserver(observer)
-                }
-                self.newSettingsCloseObserver = nil
-                self.newSettingsWindow = nil
-                self.newSettingsModel = nil
-                if self.closesNewSettingsWithoutApplying {
-                    self.closesNewSettingsWithoutApplying = false
-                } else {
-                    self.applyConnectionsChoices(model.selection)
-                }
-            }
-        }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleNewSettingsWindowWillClose),
+            name: NSWindow.willCloseNotification,
+            object: window
+        )
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Done and the close button both end here and apply the choices,
+    /// except when a setup re-run closed the window.
+    @MainActor
+    @objc private func handleNewSettingsWindowWillClose(_ notification: Notification) {
+        NotificationCenter.default.removeObserver(
+            self,
+            name: NSWindow.willCloseNotification,
+            object: notification.object
+        )
+        let selection = newSettingsModel?.selection
+        newSettingsWindow = nil
+        newSettingsModel = nil
+        if closesNewSettingsWithoutApplying {
+            closesNewSettingsWithoutApplying = false
+        } else if let selection {
+            applyConnectionsChoices(selection)
+        }
     }
 
     /// Applies the Connections and Sync choices together and marks them
