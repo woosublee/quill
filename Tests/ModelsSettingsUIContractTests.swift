@@ -33,7 +33,7 @@ struct ModelsSettingsUIContractTests {
         testPostProcessingUsesExplicitSwitchAndExistingState(settings)
         testContextUsesExplicitSwitchAndExistingState(settings)
         testAIToolsUsesSwitch(aiTools)
-        testConsentTextStatesPurposeAndCalendarFields(connections, catalog: catalog)
+        try testConsentTextStatesPurposeAndCalendarFields(connections, catalog: catalog)
         testMeetingSummaryUsesIndependentCardAndSharedModelUX(settings)
         testAIProcessingBackendPickersAndLocalRows(
             settings: settings,
@@ -611,24 +611,37 @@ struct ModelsSettingsUIContractTests {
         precondition(!context.contains("Text(contextEnabled.wrappedValue ? \"On\" : \"Off\")"))
     }
 
-    /// The consent texts, English and Korean, say why data goes to an AI
-    /// tool (the person's own use, not training; the tool's terms apply
-    /// after) and name the calendar fields that leave the Mac.
-    private static func testConsentTextStatesPurposeAndCalendarFields(_ connections: String, catalog: String) {
-        let mcp = block(in: connections, from: "static let mcpDisclosure", to: "\n")
-        precondition(mcp.contains("Quill passes this so the tool you connect can work with your notes, not to train AI."))
-        precondition(mcp.contains("its provider's terms apply, including whether it trains on it"))
-        precondition(mcp.contains("whether they're optional, a room, or you"))
-        let sync = block(in: connections, from: "static let iCloudCalendarDisclosure", to: "\n")
-        precondition(sync.contains("calendar and event IDs, your calendar account's email"))
-        for korean in [
-            "AI 학습을 위해 전달하지 않아요. 전달된 뒤에는 학습 여부를 포함해 그 도구 회사의 약관이 적용되니",
-            "선택 참석·회의실·본인 여부)이 전달되고",
-            "캘린더·일정 ID, 캘린더 계정 이메일",
-        ] {
-            precondition(catalog.contains(korean), "Korean consent text is missing: \(korean)")
+    /// The consent texts, English and Korean, say Quill doesn't train on
+    /// the data and the tool's terms decide after, that any app on the Mac
+    /// can connect, and name the calendar fields that leave the Mac.
+    private static func testConsentTextStatesPurposeAndCalendarFields(_ connections: String, catalog: String) throws {
+        func english(_ name: String) -> String {
+            let line = block(in: connections, from: "static let \(name): LocalizedStringKey = \"", to: "\n")
+            return String(line.dropFirst("static let \(name): LocalizedStringKey = \"".count).dropLast())
         }
-        precondition(!catalog.contains("보관과 AI 학습 여부는 그 도구의 정책을 따르고"))
+        let strings = (try JSONSerialization.jsonObject(with: Data(catalog.utf8)) as! [String: Any])["strings"] as! [String: Any]
+        func korean(_ key: String) -> String {
+            let entry = strings[key] as! [String: Any]
+            let ko = (entry["localizations"] as! [String: Any])["ko"] as! [String: Any]
+            return (ko["stringUnit"] as! [String: Any])["value"] as! String
+        }
+        let mcp = english("mcpDisclosure")
+        let mcpKorean = korean(mcp)
+        for (text, expected) in [
+            (mcp, "Quill doesn't train AI on this data; once a tool has it, its provider's terms decide whether it keeps the data or trains on it"),
+            (mcp, "any app on this Mac can connect"),
+            (mcp, "read your notes and dictations"),
+            (mcp, "whether they're optional or you"),
+            (mcpKorean, "Quill은 이 데이터로 AI를 학습시키지 않지만, 도구에 전달된 뒤 보관하거나 학습에 쓰는지는 그 도구 회사의 약관이 정하니"),
+            (mcpKorean, "이 Mac의 어떤 앱이든 연결할 수 있어요"),
+            (mcpKorean, "노트와 받아쓰기를 읽을 수 있어요"),
+            (mcpKorean, "선택 참석·본인 여부"),
+        ] {
+            precondition(text.contains(expected), "MCP consent is missing: \(expected)")
+        }
+        let sync = english("iCloudCalendarDisclosure")
+        precondition(sync.contains("calendar and event IDs, which can be email addresses, your calendar account's email"))
+        precondition(korean(sync).contains("이메일 주소일 수 있는 캘린더·일정 ID, 캘린더 계정 이메일"))
     }
 
     private static func testAIToolsUsesSwitch(_ aiTools: String) {
