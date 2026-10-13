@@ -1,6 +1,70 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "This uploads 1 note from this Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This uploads 1 note from this Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 노트 1개를 올려요."
+          }
+        }
+      }
+    },
+    "This uploads 1 note from this Mac, including %@ of audio.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This uploads 1 note from this Mac, including %@ of audio."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 노트 1개를 올려요. 오디오 %@도 함께 올라가요."
+          }
+        }
+      }
+    },
+    "This uploads %lld notes from this Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This uploads %lld notes from this Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 노트 %lld개를 올려요."
+          }
+        }
+      }
+    },
+    "This uploads %lld notes from this Mac, including %@ of audio.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This uploads %lld notes from this Mac, including %@ of audio."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 노트 %lld개를 올려요. 오디오 %@도 함께 올라가요."
+          }
+        }
+      }
+    },
     "Screenshots, window titles, selected text, and AI instructions aren't uploaded.": {
       "localizations": {
         "en": {
@@ -13,38 +77,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "스크린샷, 창 제목, 선택했던 텍스트, AI 지시문은 올리지 않아요."
-          }
-        }
-      }
-    },
-    "Turning it on uploads %lld notes from this Mac.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turning it on uploads %lld notes from this Mac."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "켜면 이 Mac의 노트 %lld개를 올려요."
-          }
-        }
-      }
-    },
-    "Turning it on uploads %lld notes from this Mac, including %@ of audio.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turning it on uploads %lld notes from this Mac, including %@ of audio."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "켜면 이 Mac의 노트 %lld개를 올려요. 오디오 %@도 함께 올라가요."
           }
         }
       }

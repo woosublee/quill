@@ -653,6 +653,8 @@ struct SetupFlowTests {
         assert(rerun.contains("newSettingsModel = nil\n        newSettingsWindow?.close()"))
         let terminate = sourceBlock(in: delegate, from: "func applicationWillTerminate(", to: "appState.finalizePendingNoteDeletion()")
         assert(terminate.contains("newSettingsModel?.selection"))
+        assert(terminate.contains("UserDefaults.standard.set(selection.wantsMCP, forKey: AppState.mcpServerEnabledStorageKey)"))
+        assert(apply.contains("if let failure, !controller.isEnabled {"))
         assert(!terminate.contains("seenStorageKey"))
         // A failed turn-on is said, since the choice isn't offered again.
         assert(apply.contains("self?.showICloudSyncTurnOnFailure(failure)"))

@@ -109,8 +109,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // Quitting with New settings open keeps the AI tools choice; the
         // window comes back next time, since it may not have been read.
-        if let selection = newSettingsModel?.selection {
-            applyMCPChoice(selection)
+        // Only the setting is saved; no server starts while quitting.
+        if let selection = newSettingsModel?.selection, selection.wantsMCP != selection.mcpWasOn {
+            UserDefaults.standard.set(selection.wantsMCP, forKey: AppState.mcpServerEnabledStorageKey)
         }
         // Quitting ends the Cancel window of a just-deleted note.
         appState.finalizePendingNoteDeletion()
@@ -439,7 +440,8 @@ private func showNoteBrowserWindow() {
                 try? await Task.sleep(for: .seconds(1))
                 failure = await controller.turnOn()
             }
-            if let failure {
+            // Sync may have been turned on in Settings meanwhile.
+            if let failure, !controller.isEnabled {
                 self?.showICloudSyncTurnOnFailure(failure)
             }
         }

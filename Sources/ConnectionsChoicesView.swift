@@ -14,10 +14,12 @@ enum ConnectionsChoices {
         var mcpWasOn = false
     }
 
-    /// What a connected AI tool receives: the consent text for every
-    /// AI tools switch (setup, New settings, Settings › AI Tools).
+    /// The iCloud sync consent sentence about calendar events, shared by
+    /// setup, New settings, and Settings › iCloud Sync.
     static let iCloudCalendarDisclosure: LocalizedStringKey = "Calendar events matched to notes (title, times, attendee names and emails) are stored in your private iCloud too."
 
+    /// What a connected AI tool receives: the consent text for every
+    /// AI tools switch (setup, New settings, Settings › AI Tools).
     static let mcpDisclosure: LocalizedStringKey = "A connected AI tool can start and stop recordings, add notes to a recording, and read your notes. It receives their transcripts (original and edited), summaries, recording times, the app context Quill noted while recording, audio file locations, and matched calendar events (title, times, attendee names and emails), and gets each new transcript as soon as it's ready. The tool's own policy decides whether it keeps the data or uses it for AI training; Quill doesn't train on it."
 }
 
@@ -66,16 +68,28 @@ struct ConnectionsChoicesView: View {
 private struct ConnectionsSyncCard: View {
     @ObservedObject var controller: NoteSyncController
     @Binding var wantsICloudSync: Bool
+    /// Counted once when the switch goes on, as Settings does; reading
+    /// every note on each redraw would be slow.
+    @State private var noteCount = 0
+    @State private var audioBytes: Int64 = 0
 
-    /// What turning it on uploads, as Settings says before it starts.
-    private var uploadSize: Text {
-        let count = controller.syncableNoteCount
-        let bytes = controller.uploadAudioByteCount
-        guard bytes > 0 else {
-            return Text("Turning it on uploads \(count) notes from this Mac.")
+    /// What turning it on uploads. Hidden until there is something to
+    /// count; right after launch the note store may still be loading.
+    @ViewBuilder
+    private var uploadSize: some View {
+        if wantsICloudSync, noteCount > 0 {
+            let size = ByteCountFormatter.string(fromByteCount: audioBytes, countStyle: .file)
+            switch (noteCount == 1, audioBytes > 0) {
+            case (true, false):
+                Text("This uploads 1 note from this Mac.")
+            case (true, true):
+                Text("This uploads 1 note from this Mac, including \(size) of audio.")
+            case (false, false):
+                Text("This uploads \(noteCount) notes from this Mac.")
+            case (false, true):
+                Text("This uploads \(noteCount) notes from this Mac, including \(size) of audio.")
+            }
         }
-        let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-        return Text("Turning it on uploads \(count) notes from this Mac, including \(size) of audio.")
     }
 
     var body: some View {
@@ -91,6 +105,11 @@ private struct ConnectionsSyncCard: View {
             }
             Text(ConnectionsChoices.iCloudCalendarDisclosure)
             Text("Screenshots, window titles, selected text, and AI instructions aren't uploaded.")
+        }
+        .onChange(of: wantsICloudSync) { wants in
+            guard wants else { return }
+            noteCount = controller.syncableNoteCount
+            audioBytes = controller.uploadAudioByteCount
         }
     }
 }
