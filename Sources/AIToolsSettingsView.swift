@@ -27,7 +27,8 @@ struct AIToolsSettingsView: View {
                     }
                 }
 
-                if appState.isMCPServerEnabled, appState.mcpServerStatus != .failed {
+                if appState.isMCPServerEnabled,
+                   appState.mcpServerStatus == .listening || appState.mcpServerStatus == .starting {
                     SettingsCard("Connect Claude Code", icon: "terminal") {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("Run this command once in Terminal. If you already registered Quill, you don't need to again.")
@@ -84,6 +85,9 @@ struct AIToolsSettingsView: View {
 
     private var statusText: Text {
         switch appState.mcpServerStatus {
+        case .off where appState.isMCPServerEnabled:
+            // Only before setup is finished: the server starts after it.
+            return Text("Starts when setup is finished.")
         case .off:
             return Text("Off. When on, Quill waits for connections at \(MCPServer.address), from this Mac only.")
         case .starting:

@@ -36,10 +36,8 @@ final class MCPServer {
         self.appState = appState
     }
 
+    /// Each server is started once; turning the switch on again makes a new one.
     func start() throws {
-        openConnectionsLock.lock()
-        isStopped = false
-        openConnectionsLock.unlock()
         let params = MCPLocalAccessPolicy.listenerParameters()
         let nwPort = NWEndpoint.Port(rawValue: Self.port)!
         listener = try NWListener(using: params, on: nwPort)
@@ -57,12 +55,12 @@ final class MCPServer {
                 self?.onStatusChange?(.failed)
             case .waiting(let error):
                 print("[MCP] Server waiting: \(error)")
-                // A port another app holds won't free itself; anything else
-                // Network retries, so it keeps showing Starting.
+                // Network keeps retrying. A port another app holds won't free
+                // itself, but Quill's own listener from a moment ago may still
+                // be letting go of it, so give it a few seconds first.
+                self?.onStatusChange?(.starting)
                 if case .posix(let code) = error, code == .EADDRINUSE || code == .EACCES {
-                    self?.onStatusChange?(.failed)
-                } else {
-                    self?.onStatusChange?(.starting)
+                    self?.failIfStillWaiting()
                 }
             case .cancelled:
                 // Quill's own stop() lets go of the server first, so this
@@ -89,6 +87,15 @@ final class MCPServer {
         openConnections.removeAll()
         openConnectionsLock.unlock()
         connections.forEach { $0.cancel() }
+    }
+
+    private func failIfStillWaiting() {
+        queue.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self, let listener = self.listener else { return }
+            if case .waiting = listener.state {
+                self.onStatusChange?(.failed)
+            }
+        }
     }
 
     private var hasStopped: Bool {
@@ -473,6 +480,10 @@ final class MCPServer {
     // MARK: - SSE
 
     private func handleSSE(connection: NWConnection) {
+        guard !hasStopped else {
+            connection.cancel()
+            return
+        }
         let headers = [
             "HTTP/1.1 200 OK",
             "Content-Type: text/event-stream",
