@@ -15,6 +15,15 @@ enum NotePayload {
         item.recordingStartedAt ?? item.timestamp
     }
 
+    /// Where the display title comes from, in the order
+    /// NoteTitleResolver.displayTitle picks it: a title the person typed,
+    /// the applied calendar event title, or one made from the transcript.
+    static func titleSource(_ item: PipelineHistoryItem) -> String {
+        if nonEmpty(item.customTitle) != nil { return "custom" }
+        if item.calendarMatch?.appliedTitle != nil { return "calendar" }
+        return "automatic"
+    }
+
     // MARK: - get_note
 
     static func make(
@@ -28,6 +37,7 @@ enum NotePayload {
         [
             "id": item.id.uuidString,
             "title": title,
+            "title_source": titleSource(item),
             "timestamps": timestampsPayload(item, formatter: formatter),
             "calendar": calendarPayload(item, formatter: formatter),
             "audio": audioPayload(item, audioDirectory: audioDirectory, fileExists: fileExists),

@@ -331,7 +331,7 @@ final class MCPServer {
             ],
             [
                 "name": "get_note",
-                "description": "Get one Quill note as JSON: title, timestamps, matched calendar event and attendees, audio file location, summary (Markdown), transcript, original transcript, and app context.",
+                "description": "Get one Quill note as JSON: title and title_source (custom, calendar, or automatic), timestamps, matched calendar event and attendees, audio file location, summary (Markdown), transcript, original transcript, and app context.",
                 "inputSchema": [
                     "type": "object",
                     "properties": [

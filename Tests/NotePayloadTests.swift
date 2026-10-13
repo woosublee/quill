@@ -5,6 +5,7 @@ struct NotePayloadTests {
     static func main() throws {
         testNoteCarriesDisplayTitleAndSummary()
         testNoteSummaryIsNullWhenMissing()
+        testTitleSourceFollowsDisplayTitleOrder()
         testCalendarIsNullWhenNoMatch()
         testAudioPathAndExistsAreResolved()
         testAudioIsNullWhenNoFilename()
@@ -34,7 +35,8 @@ struct NotePayloadTests {
         transcript: String = "clean text",
         calendarMatch: CalendarEventMatch? = nil,
         recordingStartedAt: Date? = nil,
-        audioFileName: String? = nil
+        audioFileName: String? = nil,
+        customTitle: String? = nil
     ) -> PipelineHistoryItem {
         PipelineHistoryItem(
             id: UUID(uuidString: id)!,
@@ -51,20 +53,21 @@ struct NotePayloadTests {
             debugStatus: "",
             customVocabulary: "",
             audioFileName: audioFileName,
-            customTitle: nil
+            customTitle: customTitle
         )
     }
 
     private static func sampleCalendar(
         title: String = "Weekly Sync",
-        attendees: [CalendarEventAttendee] = []
+        attendees: [CalendarEventAttendee] = [],
+        titleState: CalendarTitleState = .applied
     ) -> CalendarEventMatch {
         CalendarEventMatch(
             calendarID: "cal", eventID: "evt", title: title,
             start: Date(timeIntervalSince1970: 1_700_000_000),
             end: Date(timeIntervalSince1970: 1_700_003_600),
             attendees: attendees,
-            matchSource: .overlapSuggestion, titleState: .applied
+            matchSource: .overlapSuggestion, titleState: titleState
         )
     }
 
@@ -96,6 +99,14 @@ struct NotePayloadTests {
         precondition(payload["transcript"] as? String == "clean text")
         precondition(payload["raw_transcript"] as? String == "raw text")
         precondition(payload["context"] as? String == "ctx")
+    }
+
+    private static func testTitleSourceFollowsDisplayTitleOrder() {
+        let suggested = sampleCalendar(titleState: .suggested)
+        precondition(note(makeItem(calendarMatch: sampleCalendar(), customTitle: "Mine"))["title_source"] as? String == "custom")
+        precondition(note(makeItem(calendarMatch: sampleCalendar(), customTitle: "  "))["title_source"] as? String == "calendar")
+        precondition(note(makeItem(calendarMatch: suggested))["title_source"] as? String == "automatic")
+        precondition(note(makeItem())["title_source"] as? String == "automatic")
     }
 
     private static func testNoteSummaryIsNullWhenMissing() {

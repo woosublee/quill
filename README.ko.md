@@ -96,7 +96,7 @@ claude mcp add -s user -t http quill http://localhost:3457
 - `stop_recording` — 녹음을 중지하고 전사를 시작합니다.
 - `get_status` — Quill이 대기, 녹음, 전사 중인지 확인합니다.
 - `list_notes` — 노트를 최신순으로 JSON으로 나열합니다(id, Quill에 보이는 제목, 녹음 시각, 일치한 캘린더 일정 제목, 요약 여부, 짧은 미리보기). `query`(제목, 전사문, 요약, 캘린더 일정 제목)와 `since`/`until`(`YYYY-MM-DD` 날짜 또는 ISO 8601 날짜·시각)로 거를 수 있습니다.
-- `get_note` — id로 노트 하나를 JSON으로 가져옵니다. 제목, ISO 8601 타임스탬프, 일치한 캘린더 일정과 참석자, 오디오 파일 경로, 요약(Markdown), 전사문, 원본 전사문, 앱 문맥이 포함됩니다.
+- `get_note` — id로 노트 하나를 JSON으로 가져옵니다. 제목과 그 출처(`custom`, `calendar`, `automatic`), ISO 8601 타임스탬프, 일치한 캘린더 일정과 참석자, 오디오 파일 경로, 요약(Markdown), 전사문, 원본 전사문, 앱 문맥이 포함됩니다.
 
 참고:
 
