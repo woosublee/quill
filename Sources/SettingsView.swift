@@ -119,6 +119,8 @@ struct SettingsView: View {
                     CalendarSettingsView()
                 case .sync:
                     SyncSettingsView()
+                case .aiTools:
+                    AIToolsSettingsView()
                 case .recovery:
                     HistoryRecoverySettingsView()
                 case .about:

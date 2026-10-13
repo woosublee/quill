@@ -325,7 +325,9 @@ struct SetupFlowTests {
         assert(sharedBody.contains("appState.startAccessibilityPolling()"))
         assert(sharedBody.contains("UpdateManager.shared.startPeriodicChecks()"))
         assert(sharedBody.contains("appState.promptForAccessibilityAccess()"))
-        assert(sharedBody.contains("startMCPServer()"))
+        // #528: the MCP server follows Settings › AI Tools, off by default.
+        assert(sharedBody.contains("observeMCPServerSetting()"))
+        assert(!sharedBody.contains("startMCPServer()"))
         assert(sharedBody.contains("appState.startCalendarRecordingReminderScheduling()"))
         assert(sharedBody.contains("appState.startGoogleCalendarHealthCheck()"))
 
@@ -335,6 +337,21 @@ struct SetupFlowTests {
             to: "\n}"
         )
         assert(mcpBody.contains("guard mcpServer == nil else { return }"))
+        let observeBody = sourceBlock(
+            in: source,
+            from: "private func observeMCPServerSetting() {",
+            to: "\n    }\n}"
+        )
+        assert(observeBody.contains("appState.$isMCPServerEnabled"))
+        assert(observeBody.contains("self?.startMCPServer()"))
+        assert(observeBody.contains("self?.stopMCPServer()"))
+        let stopBody = sourceBlock(
+            in: source,
+            from: "private func stopMCPServer() {",
+            to: "\n    }"
+        )
+        assert(stopBody.contains("mcpServer?.stop()"))
+        assert(stopBody.contains("mcpServer = nil"))
     }
 
     private static func testNativeWhisperDownloadDoesNotLockProcessing() throws {

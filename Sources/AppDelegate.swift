@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 import UserNotifications
 
@@ -7,6 +8,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
     private var noteBrowserWindow: NSWindow?
     private var mcpServer: MCPServer?
+    private var mcpServerSettingObserver: AnyCancellable?
     private var shouldRestoreAfterSetupWindowClose = false
 
     private func patchSettingsMenuItem() {
@@ -364,7 +366,7 @@ private func showNoteBrowserWindow() {
             appState.promptForAccessibilityAccess()
         }
 
-        startMCPServer()
+        observeMCPServerSetting()
         appState.startCalendarRecordingReminderScheduling()
         appState.startGoogleCalendarHealthCheck()
     }
@@ -375,11 +377,43 @@ private func showNoteBrowserWindow() {
         appState.onTranscriptionCompleted = { [weak server] transcript, context in
             server?.notifyRecordingCompleted(transcript: transcript, context: context)
         }
+        server.onStatusChange = { [weak self, weak server] status in
+            DispatchQueue.main.async {
+                // A server already stopped doesn't report any more.
+                guard let self, let server, self.mcpServer === server else { return }
+                self.appState.mcpServerStatus = status
+            }
+        }
+        appState.mcpServerStatus = .starting
         do {
             try server.start()
             mcpServer = server
         } catch {
             print("[MCP] Failed to start server: \(error)")
+            appState.onTranscriptionCompleted = nil
+            appState.mcpServerStatus = .failed
         }
+    }
+
+    /// Closes port 3457 and drops connected AI tools.
+    private func stopMCPServer() {
+        appState.onTranscriptionCompleted = nil
+        mcpServer?.stop()
+        mcpServer = nil
+        appState.mcpServerStatus = .off
+    }
+
+    /// Settings › AI Tools turns the server on and off; it starts off.
+    private func observeMCPServerSetting() {
+        guard mcpServerSettingObserver == nil else { return }
+        mcpServerSettingObserver = appState.$isMCPServerEnabled
+            .removeDuplicates()
+            .sink { [weak self] isEnabled in
+                if isEnabled {
+                    self?.startMCPServer()
+                } else {
+                    self?.stopMCPServer()
+                }
+            }
     }
 }

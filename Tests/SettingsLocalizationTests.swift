@@ -351,6 +351,11 @@ struct SettingsLocalizationTests {
         let calendarIndex = orderedTabs.firstIndex(of: .calendar)!
         assert(orderedTabs[calendarIndex + 1] == .sync, "the iCloud Sync tab comes right after Calendar")
         assert(SettingsTab.sync.title == "iCloud Sync" && SettingsTab.sync.icon == "icloud")
+        // #528: AI Tools comes right after iCloud Sync.
+        assert(orderedTabs[calendarIndex + 2] == .aiTools)
+        assert(SettingsTab.aiTools.title == "AI Tools" && SettingsTab.aiTools.icon == "link")
+        assert(localizedCatalogString("AI Tools", language: "ko", bundle: bundle) == "AI 도구")
+        assert(localizedCatalogString("Allow AI tools like Claude Code to connect to Quill", language: "ko", bundle: bundle) == "Claude Code 같은 AI 도구가 Quill에 연결하도록 허용")
         let view = try String(contentsOfFile: "Sources/SyncSettingsView.swift", encoding: .utf8)
         assert(localizedCatalogString("Just now", language: "ko", bundle: bundle) == "방금 전")
         // A sync that just finished reads "Just now", never "in 0 seconds",

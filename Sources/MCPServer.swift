@@ -6,8 +6,19 @@ import Combine
 // Claude Code MCP config:
 //   { "mcpServers": { "quill": { "url": "http://localhost:3457" } } }
 
+enum MCPServerStatus: Equatable {
+    case off
+    case starting
+    case listening
+    case failed
+}
+
 final class MCPServer {
     static let port: UInt16 = 3457
+    static let address = "http://localhost:\(port)"
+
+    /// Called on the server's queue when the listener is ready or fails.
+    var onStatusChange: ((MCPServerStatus) -> Void)?
 
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "com.quill.mcp", qos: .utility)
@@ -29,12 +40,14 @@ final class MCPServer {
         listener?.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
         }
-        listener?.stateUpdateHandler = { state in
+        listener?.stateUpdateHandler = { [weak self] state in
             switch state {
             case .ready:
                 print("[MCP] Server ready on port \(Self.port)")
+                self?.onStatusChange?(.listening)
             case .failed(let error):
                 print("[MCP] Server failed: \(error)")
+                self?.onStatusChange?(.failed)
             default:
                 break
             }
