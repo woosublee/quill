@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 struct AppStateStorageLayout: Sendable {
@@ -133,6 +134,25 @@ struct AppStateDependencies {
         @Sendable () -> CloudTranscriptionDependencies
     var makeNoteSyncController:
         @MainActor (AppStateStorageLayout) -> NoteSyncController
+    /// Where dictation and retry results are copied for pasting.
+    var pasteboard: NSPasteboard
+    /// Whether Paste and Return are sent as key presses to the front app.
+    var postsKeyEvents: Bool
+
+    /// Test builds copy to a pasteboard of their own and send no key
+    /// presses, so running the tests never replaces what the user copied
+    /// or pastes into the app in front. The pasteboard is per process, so
+    /// runs in other worktrees don't share it; the runner releases it.
+    #if QUILL_GROUPED_TEST_RUNNER
+    static let testPasteboardNamePrefix = "com.woosublee.quill.tests."
+    static let livePasteboard = NSPasteboard(
+        name: NSPasteboard.Name(testPasteboardNamePrefix + String(ProcessInfo.processInfo.processIdentifier))
+    )
+    static let livePostsKeyEvents = false
+    #else
+    static let livePasteboard = NSPasteboard.general
+    static let livePostsKeyEvents = true
+    #endif
 
     static var live: AppStateDependencies {
         AppStateDependencies(
@@ -205,7 +225,9 @@ struct AppStateDependencies {
                         events: events
                     )
                 })
-            }
+            },
+            pasteboard: livePasteboard,
+            postsKeyEvents: livePostsKeyEvents
         )
     }
 }

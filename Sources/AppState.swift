@@ -14498,6 +14498,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func pasteAtCursor() {
+        guard dependencies.postsKeyEvents else { return }
         let source = CGEventSource(stateID: .hidSystemState)
 
         let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true)
@@ -14510,6 +14511,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func pressEnter() {
+        guard dependencies.postsKeyEvents else { return }
         let source = CGEventSource(stateID: .hidSystemState)
 
         let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 36, keyDown: true)
@@ -14519,12 +14521,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         keyUp?.post(tap: .cgSessionEventTap)
     }
 
-    /// Writes the final transcript to the system pasteboard.
+    /// Writes the final transcript to the app's pasteboard (the system one,
+    /// outside tests).
     /// Also handles appending necessary trailing spaces, declaring transient
     /// types for clipboard managers, and saving the clipboard state for later restoration.
     /// - Parameter transcript: The text to be pasted.
     /// - Returns: A `PendingClipboardRestore` object if clipboard preservation is enabled, otherwise nil.
-    /// Writes a dictation string to the general pasteboard, marking it transient
+    /// Writes a dictation string to the app's pasteboard, marking it transient
     /// so well-behaved clipboard managers (Maccy, Raycast, Paste, Clipy, Flycut,
     /// etc.) skip recording it — unless the user opted to keep dictations in
     /// history. Shared by the main dictation write and the retry copy so both
@@ -14532,7 +14535,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     ///
     /// See: https://github.com/nicke5012/TransientPasteboardType
     private func writeDictationStringToPasteboard(_ text: String) {
-        let pasteboard = NSPasteboard.general
+        let pasteboard = dependencies.pasteboard
 
         if keepDictationInClipboardHistory {
             // Plain write so clipboard managers record the dictation in history.
@@ -14566,7 +14569,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func writeTranscriptToPasteboard(_ transcript: String) -> PendingClipboardRestore? {
-        let pasteboard = NSPasteboard.general
+        let pasteboard = dependencies.pasteboard
         let snapshot = preserveClipboard ? PreservedPasteboardSnapshot(pasteboard: pasteboard) : nil
 
         let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -14594,8 +14597,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         // Some apps consume Cmd-V asynchronously, so restoring too quickly can paste
         // the pre-dictation clipboard instead of the transcript.
+        let pasteboard = dependencies.pasteboard
         DispatchQueue.main.asyncAfter(deadline: .now() + clipboardRestoreDelay) {
-            let pasteboard = NSPasteboard.general
             // A bare changeCount check is too strict: browsers, iCloud Universal
             // Clipboard sync, and other background apps bump the change count
             // without the user copying anything, which left the transcript

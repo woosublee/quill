@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 #if !QUILL_GROUPED_TEST_RUNNER
@@ -9,7 +10,32 @@ struct AppStateDependenciesTests {
         try verifiesLiveDependenciesReturnFreshValues()
         try verifiesLocalAIDependenciesAreIndependentValues()
         try verifiesNativeWhisperDependenciesAreIndependentValues()
+        try verifiesTestsCopyToTheirOwnPasteboard()
         print("AppStateDependenciesTests passed")
+    }
+
+    /// Dictation and retry results are copied for pasting. Test builds must
+    /// copy to their own pasteboard, or `make check` replaces what the user
+    /// copied with synthetic transcripts.
+    private static func verifiesTestsCopyToTheirOwnPasteboard() throws {
+        let pasteboard = AppStateDependencies.live.pasteboard
+        precondition(pasteboard.name != NSPasteboard.general.name)
+        let expectedName = AppStateDependencies.testPasteboardNamePrefix
+            + String(ProcessInfo.processInfo.processIdentifier)
+        precondition(pasteboard.name.rawValue == expectedName)
+        precondition(!AppStateDependencies.live.postsKeyEvents)
+
+        // AppState uses only its dependencies' pasteboard, and checks them
+        // before sending Paste or Return.
+        let appState = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
+        precondition(!appState.contains("NSPasteboard.general"))
+        precondition(!appState.contains("NSPasteboard = .general"))
+        for function in ["private func pasteAtCursor() {", "private func pressEnter() {"] {
+            guard let start = appState.range(of: function) else { preconditionFailure(function) }
+            let firstLine = appState[start.upperBound...].drop(while: \.isNewline).prefix(while: { !$0.isNewline })
+            precondition(firstLine.trimmingCharacters(in: .whitespaces) == "guard dependencies.postsKeyEvents else { return }")
+        }
+        precondition(appState.components(separatedBy: ".post(tap: .cgSessionEventTap)").count - 1 == 4)
     }
 
     private static func verifiesStorageLayoutPreservesCanonicalPaths() throws {

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 @main
@@ -75,6 +76,12 @@ struct FullSourceAppStateTestRunner {
         process.environment = environment
         try process.run()
         process.waitUntilExit()
+        // The child's pasteboard, also when a failing test crashed it.
+        NSPasteboard(
+            name: NSPasteboard.Name(
+                AppStateDependencies.testPasteboardNamePrefix + String(process.processIdentifier)
+            )
+        ).releaseGlobally()
         guard process.terminationStatus == 0 else {
             throw TestRunnerFailure(status: process.terminationStatus)
         }
