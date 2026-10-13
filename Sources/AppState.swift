@@ -2440,6 +2440,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var statusText: String = localizedCatalogString("Ready")
 
     // MCP interface
+    /// The local MCP server runs only after the user allows AI tools in
+    /// Settings › AI Tools (#528); everyone starts with it off.
+    @Published var isMCPServerEnabled: Bool = UserDefaults.standard.bool(forKey: AppState.mcpServerEnabledStorageKey) {
+        didSet {
+            UserDefaults.standard.set(isMCPServerEnabled, forKey: Self.mcpServerEnabledStorageKey)
+        }
+    }
+    static let mcpServerEnabledStorageKey = "mcp_server_enabled"
+    @Published var mcpServerStatus: MCPServerStatus = .off
     var mcpAdditionalContext: String = ""
     var mcpLastRecordingFailed: Bool = false
     var onTranscriptionCompleted: ((String, String) -> Void)?

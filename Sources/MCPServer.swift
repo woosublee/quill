@@ -6,13 +6,28 @@ import Combine
 // Claude Code MCP config:
 //   { "mcpServers": { "quill": { "url": "http://localhost:3457" } } }
 
+enum MCPServerStatus: Equatable {
+    case off
+    case starting
+    case listening
+    case failed
+}
+
 final class MCPServer {
     static let port: UInt16 = 3457
+    static let address = "http://localhost:\(port)"
+
+    /// Called on the server's queue when the listener is ready or fails.
+    var onStatusChange: ((MCPServerStatus) -> Void)?
 
     private var listener: NWListener?
     private let queue = DispatchQueue(label: "com.quill.mcp", qos: .utility)
     private var sseClients: [SSEClient] = []
     private let sseClientsLock = NSLock()
+    /// Every accepted connection until it ends, so stop() can close them all.
+    private var openConnections: [ObjectIdentifier: NWConnection] = [:]
+    private var isStopped = false
+    private let openConnectionsLock = NSLock()
 
     private weak var appState: AppState?
     private var cancellables = Set<AnyCancellable>()
@@ -21,33 +36,88 @@ final class MCPServer {
         self.appState = appState
     }
 
+    /// Each server is started once; turning the switch on again makes a new one.
     func start() throws {
         let params = MCPLocalAccessPolicy.listenerParameters()
         let nwPort = NWEndpoint.Port(rawValue: Self.port)!
-        listener = try NWListener(using: params, on: nwPort)
+        let listener = try NWListener(using: params, on: nwPort)
+        self.listener = listener
 
-        listener?.newConnectionHandler = { [weak self] connection in
+        listener.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
         }
-        listener?.stateUpdateHandler = { state in
+        listener.stateUpdateHandler = { [weak self, weak listener] state in
             switch state {
             case .ready:
                 print("[MCP] Server ready on port \(Self.port)")
+                self?.onStatusChange?(.listening)
             case .failed(let error):
                 print("[MCP] Server failed: \(error)")
+                self?.onStatusChange?(.failed)
+            case .waiting(let error):
+                print("[MCP] Server waiting: \(error)")
+                // Network keeps retrying. A port another app holds won't free
+                // itself, but Quill's own listener from a moment ago may still
+                // be letting go of it, so give it a few seconds first.
+                self?.onStatusChange?(.starting)
+                if case .posix(let code) = error, code == .EADDRINUSE || code == .EACCES, let listener {
+                    self?.failIfStillWaiting(listener)
+                }
+            case .cancelled:
+                // Quill's own stop() lets go of the server first, so this
+                // only reaches the app when the system ended the listener.
+                self?.onStatusChange?(.failed)
             default:
                 break
             }
         }
-        listener?.start(queue: queue)
+        listener.start(queue: queue)
     }
 
     func stop() {
         listener?.cancel()
+        listener = nil
         sseClientsLock.lock()
-        sseClients.forEach { $0.connection.cancel() }
         sseClients.removeAll()
         sseClientsLock.unlock()
+        // Every connection closes, event streams and requests still being
+        // read or answered alike, so a connected tool sees the server go.
+        openConnectionsLock.lock()
+        isStopped = true
+        let connections = Array(openConnections.values)
+        openConnections.removeAll()
+        openConnectionsLock.unlock()
+        connections.forEach { $0.cancel() }
+    }
+
+    /// Takes the listener that reported, so the check never reads the
+    /// property stop() clears on another thread.
+    private func failIfStillWaiting(_ listener: NWListener) {
+        queue.asyncAfter(deadline: .now() + 3) { [weak self, weak listener] in
+            guard let self, let listener, case .waiting = listener.state else { return }
+            self.onStatusChange?(.failed)
+        }
+    }
+
+    private var hasStopped: Bool {
+        openConnectionsLock.lock()
+        defer { openConnectionsLock.unlock() }
+        return isStopped
+    }
+
+    /// False once stop() ran: a connection accepted meanwhile is refused.
+    private func track(_ connection: NWConnection) -> Bool {
+        openConnectionsLock.lock()
+        defer { openConnectionsLock.unlock() }
+        guard !isStopped else { return false }
+        openConnections[ObjectIdentifier(connection)] = connection
+        return true
+    }
+
+    private func forget(_ connection: NWConnection) {
+        openConnectionsLock.lock()
+        openConnections.removeValue(forKey: ObjectIdentifier(connection))
+        openConnectionsLock.unlock()
     }
 
     // Called by AppState when transcription completes
@@ -68,6 +138,20 @@ final class MCPServer {
             return
         }
 
+        guard track(connection) else {
+            connection.cancel()
+            return
+        }
+        connection.stateUpdateHandler = { [weak self, weak connection] state in
+            switch state {
+            case .failed:
+                connection?.cancel()
+            case .cancelled:
+                if let connection { self?.forget(connection) }
+            default:
+                break
+            }
+        }
         connection.start(queue: queue)
         receiveRequest(connection: connection, buffer: Data())
     }
@@ -124,7 +208,11 @@ final class MCPServer {
         let params = json["params"] as? [String: Any] ?? [:]
 
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            // A call read just before the switch went off isn't run.
+            guard let self, !self.hasStopped else {
+                connection.cancel()
+                return
+            }
             let result = self.dispatch(method: method, params: params)
 
             let response: [String: Any]
@@ -393,6 +481,10 @@ final class MCPServer {
     // MARK: - SSE
 
     private func handleSSE(connection: NWConnection) {
+        guard !hasStopped else {
+            connection.cancel()
+            return
+        }
         let headers = [
             "HTTP/1.1 200 OK",
             "Content-Type: text/event-stream",
@@ -408,11 +500,17 @@ final class MCPServer {
         sseClients.append(client)
         sseClientsLock.unlock()
 
-        connection.stateUpdateHandler = { [weak self] state in
-            if case .cancelled = state {
+        connection.stateUpdateHandler = { [weak self, weak connection] state in
+            switch state {
+            case .failed:
+                connection?.cancel()
+            case .cancelled:
                 self?.sseClientsLock.lock()
                 self?.sseClients.removeAll { $0.id == client.id }
                 self?.sseClientsLock.unlock()
+                if let connection { self?.forget(connection) }
+            default:
+                break
             }
         }
 

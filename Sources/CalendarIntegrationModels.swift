@@ -9,6 +9,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     case input
     case calendar
     case sync
+    case aiTools
     case recovery
     case about
     case runLog
@@ -17,7 +18,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 
     static var orderedCases: [SettingsTab] {
-        [.general, .appearance, .models, .prompts, .shortcuts, .input, .calendar, .sync, .recovery, .about, .runLog, .debug]
+        [.general, .appearance, .models, .prompts, .shortcuts, .input, .calendar, .sync, .aiTools, .recovery, .about, .runLog, .debug]
     }
 
     var title: String {
@@ -30,6 +31,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .input: return "Input"
         case .calendar: return "Calendar"
         case .sync: return "iCloud Sync"
+        case .aiTools: return "AI Tools"
         case .recovery: return "Recovery"
         case .about: return "About"
         case .runLog: return "Run Log"
@@ -47,6 +49,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .input: return "mic.fill"
         case .calendar: return "calendar"
         case .sync: return "icloud"
+        case .aiTools: return "link"
         case .recovery: return "arrow.counterclockwise"
         case .about: return "info.circle"
         case .runLog: return "clock.arrow.circlepath"

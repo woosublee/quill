@@ -129,6 +129,7 @@ struct AppStateTranscriptionConfigurationTests {
         testPostProcessingCooldownDispositionDefaultsToProcessed()
         testPostProcessingCooldownDispositionCanBeMarkedSkipped()
         testOldNoteBrowserOptOutIsTurnedOn()
+        testMCPServerStartsOffAndRemembersTheSwitch()
         await testExistingInstallMigratesMissingTranscriptionPreferenceOn()
         await testStoredTranscriptionPreferenceIsPreserved()
         await testRecordOnlyDoesNotRequireAccessibility()
@@ -932,6 +933,23 @@ struct AppStateTranscriptionConfigurationTests {
         )
 
         assert(result.skippedDueToCooldown)
+    }
+
+    /// #528: the MCP server is off until the user allows AI tools, for
+    /// existing installs too, and the switch is remembered.
+    private static func testMCPServerStartsOffAndRemembersTheSwitch() {
+        resetDefaults()
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: "mcp_server_enabled")
+        defaults.set(true, forKey: "hasCompletedSetup")
+        precondition(!makeAppState().isMCPServerEnabled)
+
+        let appState = makeAppState()
+        appState.isMCPServerEnabled = true
+        precondition(defaults.bool(forKey: "mcp_server_enabled"))
+        precondition(makeAppState().isMCPServerEnabled)
+        precondition(makeAppState().mcpServerStatus == .off)
+        defaults.removeObject(forKey: "mcp_server_enabled")
     }
 
     /// #518: the note browser is always on. An old opt-out is turned on
@@ -5266,6 +5284,7 @@ struct AppStateTranscriptionConfigurationTests {
             defaults.removeObject(forKey: key)
         }
         defaults.removeObject(forKey: "hasCompletedSetup")
+        defaults.removeObject(forKey: "mcp_server_enabled")
         defaults.removeObject(forKey: "transcription_enabled")
         defaults.removeObject(forKey: "first_install_defaults_version")
         defaults.removeObject(forKey: "disable_auto_paste")

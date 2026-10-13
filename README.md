@@ -67,6 +67,8 @@ It is built for everyday writing and work notes: replying to messages, drafting 
 
 Quill can expose a local MCP server while the app is running, so Claude Code can start recordings, add context, stop recordings, and read recent transcripts from your local Quill history.
 
+The server is off until you turn on **Settings › AI Tools › Allow AI tools like Claude Code to connect to Quill**. A connected tool can start and stop recordings, add notes to a recording, receive each new transcript as soon as it is ready, and read your notes: transcripts (original and edited), summaries, recording times, the app context Quill noted while recording, audio file locations, and matched calendar events (title, times, attendee names and emails); that tool's own policy decides whether it keeps the data or uses it for training. Turning the switch off closes the port and disconnects connected tools.
+
 The local MCP endpoint is:
 
 ```text
@@ -83,8 +85,9 @@ Then:
 
 1. Install and launch Quill.
 2. Complete the app setup if prompted.
-3. Keep Quill running while using the MCP server.
-4. Ask Claude to use the `quill` MCP server.
+3. Turn on **Settings › AI Tools › Allow AI tools like Claude Code to connect to Quill**.
+4. Keep Quill running while using the MCP server.
+5. Ask Claude to use the `quill` MCP server. A Claude Code session that was already open may need `/mcp` to reconnect.
 
 Available MCP tools:
 

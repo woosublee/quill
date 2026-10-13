@@ -228,7 +228,7 @@ struct SettingsLocalizationTests {
         let bundle = try compiledLocalizationBundle()
         let expected: [String: String] = [
             "Calendar Connections": "캘린더 연결",
-            "Events from connected calendars fill meeting reminders and note titles and attendees. Events never leave your Mac.": "연결한 캘린더의 일정으로 회의 알림과 노트 제목·참석자를 채웁니다. 일정은 Mac 밖으로 전송되지 않습니다.",
+            "Events from connected calendars fill meeting reminders and note titles and attendees. An event leaves your Mac only with its note: to your own iCloud when iCloud sync is on, or to an AI tool you allow in Settings › AI Tools.": "연결한 캘린더의 일정으로 회의 알림과 노트 제목·참석자를 채웁니다. 일정은 노트와 함께일 때만 Mac 밖으로 나가요. iCloud 동기화를 켜면 본인 iCloud로, 설정 › AI 도구에서 허용하면 연결한 AI 도구로 전달됩니다.",
             "Apple Calendar": "Apple 캘린더",
             "Use events from the Mac Calendar app": "Mac 캘린더 앱의 일정 사용",
             "Calendar access is off": "캘린더 접근이 꺼져 있어요",
@@ -351,6 +351,11 @@ struct SettingsLocalizationTests {
         let calendarIndex = orderedTabs.firstIndex(of: .calendar)!
         assert(orderedTabs[calendarIndex + 1] == .sync, "the iCloud Sync tab comes right after Calendar")
         assert(SettingsTab.sync.title == "iCloud Sync" && SettingsTab.sync.icon == "icloud")
+        // #528: AI Tools comes right after iCloud Sync.
+        assert(orderedTabs[calendarIndex + 2] == .aiTools)
+        assert(SettingsTab.aiTools.title == "AI Tools" && SettingsTab.aiTools.icon == "link")
+        assert(localizedCatalogString("AI Tools", language: "ko", bundle: bundle) == "AI 도구")
+        assert(localizedCatalogString("Allow AI tools like Claude Code to connect to Quill", language: "ko", bundle: bundle) == "Claude Code 같은 AI 도구가 Quill에 연결하도록 허용")
         let view = try String(contentsOfFile: "Sources/SyncSettingsView.swift", encoding: .utf8)
         assert(localizedCatalogString("Just now", language: "ko", bundle: bundle) == "방금 전")
         // A sync that just finished reads "Just now", never "in 0 seconds",

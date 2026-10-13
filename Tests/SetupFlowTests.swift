@@ -325,7 +325,9 @@ struct SetupFlowTests {
         assert(sharedBody.contains("appState.startAccessibilityPolling()"))
         assert(sharedBody.contains("UpdateManager.shared.startPeriodicChecks()"))
         assert(sharedBody.contains("appState.promptForAccessibilityAccess()"))
-        assert(sharedBody.contains("startMCPServer()"))
+        // #528: the MCP server follows Settings › AI Tools, off by default.
+        assert(sharedBody.contains("observeMCPServerSetting()"))
+        assert(!sharedBody.contains("startMCPServer()"))
         assert(sharedBody.contains("appState.startCalendarRecordingReminderScheduling()"))
         assert(sharedBody.contains("appState.startGoogleCalendarHealthCheck()"))
 
@@ -335,6 +337,35 @@ struct SetupFlowTests {
             to: "\n}"
         )
         assert(mcpBody.contains("guard mcpServer == nil else { return }"))
+        let observeBody = sourceBlock(
+            in: source,
+            from: "private func observeMCPServerSetting() {",
+            to: "\n    }\n}"
+        )
+        assert(observeBody.contains("appState.$isMCPServerEnabled"))
+        assert(observeBody.contains("self?.startMCPServer()"))
+        assert(observeBody.contains("self?.stopMCPServer()"))
+        let stopBody = sourceBlock(
+            in: source,
+            from: "private func stopMCPServer(status: MCPServerStatus = .off) {",
+            to: "\n    }"
+        )
+        assert(stopBody.contains("mcpServer?.stop()"))
+        assert(stopBody.contains("mcpServer = nil"))
+        assert(stopBody.contains("appState.mcpAdditionalContext = \"\""))
+        // A failed listener is let go of, so off and on starts a new one.
+        assert(source.contains("self.stopMCPServer(status: .failed)"))
+        let server = try String(contentsOfFile: "Sources/MCPServer.swift", encoding: .utf8)
+        let serverStop = sourceBlock(in: server, from: "func stop() {", to: "\n    private func track(")
+        assert(serverStop.contains("openConnections.removeAll()"))
+        assert(serverStop.contains("connections.forEach { $0.cancel() }"))
+        assert(server.contains("guard track(connection) else {"))
+        assert(server.contains("guard !isStopped else { return false }"))
+        assert(server.contains("guard let self, !self.hasStopped else {"))
+        let sse = sourceBlock(in: server, from: "private func handleSSE(connection: NWConnection) {", to: "let headers = [")
+        assert(sse.contains("guard !hasStopped else {"))
+        // A just-released port gets a few seconds before it counts as taken.
+        assert(server.contains("self?.failIfStillWaiting(listener)"))
     }
 
     private static func testNativeWhisperDownloadDoesNotLockProcessing() throws {
