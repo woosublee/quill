@@ -1,6 +1,38 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "These start off. You can turn them on later in Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These start off. You can turn them on later in Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아래 기능은 꺼진 채로 시작해요. 필요할 때 나중에 설정에서 켜도 돼요."
+          }
+        }
+      }
+    },
+    "You can turn it on later in Settings › iCloud Sync.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can turn it on later in Settings › iCloud Sync."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나중에 설정 › iCloud 동기화에서 다시 켤 수 있어요."
+          }
+        }
+      }
+    },
     "Connections and Sync": {
       "localizations": {
         "en": {
@@ -13,22 +45,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "연결과 동기화"
-          }
-        }
-      }
-    },
-    "Both start off. You can turn them on later in Settings.": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Both start off. You can turn them on later in Settings."
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "둘 다 꺼진 채로 시작해요. 필요할 때 나중에 설정에서 켜도 돼요."
           }
         }
       }

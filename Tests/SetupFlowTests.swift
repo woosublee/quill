@@ -620,23 +620,30 @@ struct SetupFlowTests {
     /// only when setup finishes; existing users get the two switches once.
     private static func testConnectionsStartOffAndExistingUsersSeeThemOnce() throws {
         let view = try String(contentsOfFile: "Sources/SetupView.swift", encoding: .utf8)
-        assert(view.contains("@State private var wantsICloudSync = false"))
+        assert(view.contains("@State private var connectionsSelection = ConnectionsChoices.Selection()"))
         let finish = sourceBlock(in: view, from: "private func performPrimaryAction()", to: "if currentStep == .processing, let selectedPreset")
-        assert(finish.contains("if wantsICloudSync, let controller = appState.noteSyncController {"))
+        assert(finish.contains("onComplete(connectionsSelection)"))
 
+        // Neither switch applies while choosing; both apply together.
         let choices = try String(contentsOfFile: "Sources/ConnectionsChoicesView.swift", encoding: .utf8)
-        assert(choices.contains("isOn: $appState.isMCPServerEnabled"))
+        assert(choices.contains("isOn: $selection.wantsMCP"))
+        assert(!choices.contains("$appState.isMCPServerEnabled"))
         assert(choices.contains("controller.unavailableReason == nil"))
         assert(choices.contains("attendee names and emails"))
 
         let delegate = try String(contentsOfFile: "Sources/AppDelegate.swift", encoding: .utf8)
         let launch = sourceBlock(in: delegate, from: "func applicationDidFinishLaunching(", to: "func applicationShouldTerminate(")
         assert(launch.contains("startPostSetupServices()\n            showNewSettingsIfNeeded()"))
-        let complete = sourceBlock(in: delegate, from: "func completeSetup()", to: "private func showNewSettingsIfNeeded()")
-        assert(complete.contains("UserDefaults.standard.set(true, forKey: ConnectionsChoices.seenStorageKey)"))
-        let newSettings = sourceBlock(in: delegate, from: "private func showNewSettingsIfNeeded()", to: "/// Every service a normal relaunch starts")
+        assert(delegate.contains("self?.completeSetup()\n            self?.applyConnectionsChoices(selection)"))
+        let newSettings = sourceBlock(in: delegate, from: "private func showNewSettingsIfNeeded()", to: "private func applyConnectionsChoices(")
         assert(newSettings.contains("guard !UserDefaults.standard.bool(forKey: ConnectionsChoices.seenStorageKey)"))
-        assert(newSettings.contains("NSWindow.willCloseNotification"))
+        // Closing the window applies the choices, as Done does.
+        assert(newSettings.contains("self.applyConnectionsChoices(model.selection)"))
+        let apply = sourceBlock(in: delegate, from: "private func applyConnectionsChoices(", to: "private func showICloudSyncTurnOnFailure(")
+        assert(apply.contains("UserDefaults.standard.set(true, forKey: ConnectionsChoices.seenStorageKey)"))
+        assert(apply.contains("appState.isMCPServerEnabled = selection.wantsMCP"))
+        // A failed turn-on is said, since the choice isn't offered again.
+        assert(apply.contains("self?.showICloudSyncTurnOnFailure(failure)"))
     }
 
     private static func sourceBlock(

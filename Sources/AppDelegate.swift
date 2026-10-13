@@ -10,6 +10,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var mcpServer: MCPServer?
     private var mcpServerSettingObserver: AnyCancellable?
     private var newSettingsWindow: NSWindow?
+    private var newSettingsCloseObserver: NSObjectProtocol?
     private var shouldRestoreAfterSetupWindowClose = false
 
     private func patchSettingsMenuItem() {
@@ -131,6 +132,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @MainActor
     @objc func handleShowSetup() {
+        // Setup offers the same switches; the New settings window applies
+        // its choices as it closes.
+        newSettingsWindow?.close()
         // Single wizard at a time — opening a second leaks the first's
         // willClose observer and breaks the bail-restore.
         if let existing = setupWindow, existing.isVisible {
@@ -318,8 +322,9 @@ private func showNoteBrowserWindow() {
     func showSetupWindow() {
         NSApp.setActivationPolicy(.regular)
 
-        let setupView = SetupView(onComplete: { [weak self] in
+        let setupView = SetupView(onComplete: { [weak self] selection in
             self?.completeSetup()
+            self?.applyConnectionsChoices(selection)
         })
         .environmentObject(appState)
 
@@ -344,8 +349,6 @@ private func showNoteBrowserWindow() {
 
     @MainActor
     func completeSetup() {
-        // Setup's own step already offered iCloud sync and AI tools.
-        UserDefaults.standard.set(true, forKey: ConnectionsChoices.seenStorageKey)
         appState.hasCompletedSetup = true
         setupWindow?.close()
         setupWindow = nil
@@ -354,14 +357,16 @@ private func showNoteBrowserWindow() {
 
     /// Existing users get the new iCloud sync and AI tools switches once,
     /// in a small window of their own; nothing else about setup changes.
+    /// Done and the close button both apply what is chosen.
     @MainActor
     private func showNewSettingsIfNeeded() {
         guard !UserDefaults.standard.bool(forKey: ConnectionsChoices.seenStorageKey),
-              newSettingsWindow == nil else { return }
-        let view = NewSettingsView(onDone: { [weak self] wantsICloudSync in
-            if wantsICloudSync, let controller = self?.appState.noteSyncController {
-                Task { await controller.turnOn() }
-            }
+              newSettingsWindow == nil, setupWindow == nil else { return }
+        let hadMCPOff = !appState.isMCPServerEnabled
+        let model = ConnectionsChoicesModel(
+            selection: ConnectionsChoices.Selection(wantsMCP: appState.isMCPServerEnabled)
+        )
+        let view = NewSettingsView(model: model, showsMCPChangeNote: hadMCPOff, onDone: { [weak self] in
             self?.newSettingsWindow?.close()
         })
         .environmentObject(appState)
@@ -378,17 +383,63 @@ private func showNoteBrowserWindow() {
         window.isReleasedWhenClosed = false
         window.center()
         newSettingsWindow = window
-        NotificationCenter.default.addObserver(
+        newSettingsCloseObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: window,
             queue: .main
         ) { [weak self] _ in
-            // Closing it counts as seen too; it never comes back.
-            UserDefaults.standard.set(true, forKey: ConnectionsChoices.seenStorageKey)
-            self?.newSettingsWindow = nil
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let observer = self.newSettingsCloseObserver {
+                    NotificationCenter.default.removeObserver(observer)
+                }
+                self.newSettingsCloseObserver = nil
+                self.newSettingsWindow = nil
+                self.applyConnectionsChoices(model.selection)
+            }
         }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Applies the Connections and Sync choices together and marks them
+    /// seen. Turning on iCloud sync can fail (signed out, offline); that is
+    /// said right away, since the choice isn't offered again.
+    @MainActor
+    private func applyConnectionsChoices(_ selection: ConnectionsChoices.Selection) {
+        UserDefaults.standard.set(true, forKey: ConnectionsChoices.seenStorageKey)
+        appState.isMCPServerEnabled = selection.wantsMCP
+        guard selection.wantsICloudSync,
+              let controller = appState.noteSyncController,
+              !controller.isEnabled else { return }
+        Task { @MainActor [weak self] in
+            if let failure = await controller.turnOn() {
+                self?.showICloudSyncTurnOnFailure(failure)
+            }
+        }
+    }
+
+    @MainActor
+    private func showICloudSyncTurnOnFailure(_ failure: NoteSyncTurnOnFailure) {
+        let reason: String
+        switch failure {
+        case .signedOut:
+            reason = localizedCatalogString("Check your iCloud account in System Settings, then try again.")
+        case .notReady:
+            reason = localizedCatalogString("Notes can't sync right now. If history recovery is running, try again after it finishes.")
+        case .unreachable:
+            reason = localizedCatalogString("Check your internet connection and try again. Sync is still off.")
+        }
+        let alert = NSAlert()
+        alert.messageText = localizedCatalogString("Couldn't turn on iCloud sync")
+        alert.informativeText = reason + "\n\n" + localizedCatalogString("You can turn it on later in Settings › iCloud Sync.")
+        alert.addButton(withTitle: localizedCatalogString("Open Settings"))
+        alert.addButton(withTitle: localizedCatalogString("OK"))
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
+            appState.selectedSettingsTab = .sync
+            showSettingsWindow()
+        }
     }
 
     /// Every service a normal relaunch starts once setup is already

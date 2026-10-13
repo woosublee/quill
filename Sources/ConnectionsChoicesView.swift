@@ -3,6 +3,24 @@ import SwiftUI
 enum ConnectionsChoices {
     /// Set once setup finishes or an existing user closes "New settings".
     static let seenStorageKey = "connections_choices_seen"
+
+    /// What the user picked. Both apply together when setup finishes or
+    /// the New settings window closes, never while choosing.
+    struct Selection: Equatable {
+        var wantsICloudSync = false
+        var wantsMCP = false
+    }
+}
+
+/// The New settings window's choices, kept outside the view so closing
+/// the window applies them as Done does.
+@MainActor
+final class ConnectionsChoicesModel: ObservableObject {
+    @Published var selection: ConnectionsChoices.Selection
+
+    init(selection: ConnectionsChoices.Selection) {
+        self.selection = selection
+    }
 }
 
 /// iCloud sync and AI tools (MCP), both off until the user turns them on.
@@ -11,22 +29,22 @@ enum ConnectionsChoices {
 /// by the one-time "New settings" window existing users see.
 struct ConnectionsChoicesView: View {
     @EnvironmentObject var appState: AppState
-    /// Sync starts when setup or the window is done, not while choosing.
-    @Binding var wantsICloudSync: Bool
-    /// Existing users are told the MCP switch now starts off.
+    @Binding var selection: ConnectionsChoices.Selection
+    /// Existing users who had AI tools connect are told the switch now
+    /// starts off.
     var showsMCPChangeNote = false
 
     var body: some View {
         VStack(spacing: 14) {
             if let controller = appState.noteSyncController, controller.unavailableReason == nil {
-                ConnectionsSyncCard(controller: controller, wantsICloudSync: $wantsICloudSync)
+                ConnectionsSyncCard(controller: controller, wantsICloudSync: $selection.wantsICloudSync)
             }
             mcpCard
         }
     }
 
     private var mcpCard: some View {
-        ConnectionsCard(icon: "link", title: "AI Tool Connection (MCP)", isOn: $appState.isMCPServerEnabled) {
+        ConnectionsCard(icon: "link", title: "AI Tool Connection (MCP)", isOn: $selection.wantsMCP) {
             Text("A connected AI tool can start and stop recordings, add notes to a recording, and read your notes. It receives their transcripts (original and edited), summaries, recording times, the app context Quill noted while recording, audio file locations, and matched calendar events (title, times, attendee names and emails), and gets each new transcript as soon as it's ready. The tool's own policy decides whether it keeps the data or uses it for AI training; Quill doesn't train on it.")
             if showsMCPChangeNote {
                 Text("Until now AI tools could always connect; from this version the switch starts off. If you used Claude Code with Quill, turn it back on.")
@@ -92,9 +110,9 @@ private struct ConnectionsCard<Details: View>: View {
 /// The one-time window existing users get after updating: only the two
 /// new switches, leaving their other settings and shortcuts as they are.
 struct NewSettingsView: View {
-    var onDone: @MainActor (_ wantsICloudSync: Bool) -> Void
-
-    @State private var wantsICloudSync = false
+    @ObservedObject var model: ConnectionsChoicesModel
+    var showsMCPChangeNote: Bool
+    var onDone: @MainActor () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -114,7 +132,7 @@ struct NewSettingsView: View {
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    ConnectionsChoicesView(wantsICloudSync: $wantsICloudSync, showsMCPChangeNote: true)
+                    ConnectionsChoicesView(selection: $model.selection, showsMCPChangeNote: showsMCPChangeNote)
                 }
                 .frame(maxWidth: 560)
                 .frame(maxWidth: .infinity)
@@ -129,7 +147,7 @@ struct NewSettingsView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 Button("Done") {
-                    onDone(wantsICloudSync)
+                    onDone()
                 }
                 .keyboardShortcut(.defaultAction)
             }
