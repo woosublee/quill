@@ -145,18 +145,18 @@
         }
       }
     },
-    "Calendar events matched to notes (title, times, calendar and event IDs, which can be email addresses, your calendar account's email, and each attendee's name, email, response, and whether they're optional or you) are stored in your private iCloud too.": {
+    "Calendar events matched to notes (title, times, calendar and event IDs (a Google calendar ID can be an email address), your calendar account's email, and each attendee's name, email, response, and whether they're optional or you) are stored in your private iCloud too.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Calendar events matched to notes (title, times, calendar and event IDs, which can be email addresses, your calendar account's email, and each attendee's name, email, response, and whether they're optional or you) are stored in your private iCloud too."
+            "value": "Calendar events matched to notes (title, times, calendar and event IDs (a Google calendar ID can be an email address), your calendar account's email, and each attendee's name, email, response, and whether they're optional or you) are stored in your private iCloud too."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "노트에 연결된 캘린더 일정(제목, 시간, 이메일 주소일 수 있는 캘린더·일정 ID, 캘린더 계정 이메일, 참석자별 이름·이메일·응답, 선택 참석·본인 여부)도 본인의 비공개 iCloud에 함께 저장돼요."
+            "value": "노트에 연결된 캘린더 일정(제목, 시간, 캘린더·일정 ID(Google 캘린더 ID는 이메일 주소일 수 있음), 캘린더 계정 이메일, 참석자별 이름·이메일·응답, 선택 참석·본인 여부)도 본인의 비공개 iCloud에 함께 저장돼요."
           }
         }
       }
@@ -257,18 +257,18 @@
         }
       }
     },
-    "A connected AI tool can start and stop recordings, add notes to a recording, and read your notes and dictations. It receives their titles, transcripts (original and edited), summaries, recording times, a summary of the app and screen context Quill noted while recording, audio file locations, and matched calendar events (title, times, and each attendee's name, email, response, and whether they're optional or you), and gets each new transcript as soon as it's ready. While this is on, any app on this Mac can connect. Quill doesn't train AI on this data; once a tool has it, its provider's terms decide whether it keeps the data or trains on it, so check your AI tool's data settings.": {
+    "A connected AI tool can start and stop recordings, add notes to a recording, and read your notes and dictations. It receives their titles, transcripts (original and edited), summaries, recording times, a summary of the app and screen context Quill noted while recording (it can mention window titles or selected text), audio file locations, and matched calendar events (title, times, and each attendee's name, email, response, and whether they're optional or you), and gets each new transcript as soon as it's ready. While this is on, any app on this Mac can connect. Quill doesn't train AI on this data; once a tool has it, its provider's terms decide whether it keeps the data or trains on it, so check your AI tool's data settings.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A connected AI tool can start and stop recordings, add notes to a recording, and read your notes and dictations. It receives their titles, transcripts (original and edited), summaries, recording times, a summary of the app and screen context Quill noted while recording, audio file locations, and matched calendar events (title, times, and each attendee's name, email, response, and whether they're optional or you), and gets each new transcript as soon as it's ready. While this is on, any app on this Mac can connect. Quill doesn't train AI on this data; once a tool has it, its provider's terms decide whether it keeps the data or trains on it, so check your AI tool's data settings."
+            "value": "A connected AI tool can start and stop recordings, add notes to a recording, and read your notes and dictations. It receives their titles, transcripts (original and edited), summaries, recording times, a summary of the app and screen context Quill noted while recording (it can mention window titles or selected text), audio file locations, and matched calendar events (title, times, and each attendee's name, email, response, and whether they're optional or you), and gets each new transcript as soon as it's ready. While this is on, any app on this Mac can connect. Quill doesn't train AI on this data; once a tool has it, its provider's terms decide whether it keeps the data or trains on it, so check your AI tool's data settings."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "연결한 AI 도구가 녹음을 시작·정지하고, 녹음에 메모를 더하고, 노트와 받아쓰기를 읽을 수 있어요. 제목, 전사문(원문 포함), 요약, 녹음 시각, 녹음할 때 Quill이 기록한 앱·화면 문맥 요약, 오디오 파일 위치, 연결된 캘린더 일정(제목, 시간, 참석자별 이름·이메일·응답, 선택 참석·본인 여부)이 전달되고, 새 전사문은 완성되는 대로 바로 전달돼요. 켜 두는 동안에는 이 Mac의 어떤 앱이든 연결할 수 있어요. Quill은 이 데이터로 AI를 학습시키지 않지만, 도구에 전달된 뒤 보관하거나 학습에 쓰는지는 그 도구 회사의 약관이 정하니 AI 도구의 데이터 설정을 확인해 주세요."
+            "value": "연결한 AI 도구가 녹음을 시작·정지하고, 녹음에 메모를 더하고, 노트와 받아쓰기를 읽을 수 있어요. 제목, 전사문(원문 포함), 요약, 녹음 시각, 녹음할 때 Quill이 기록한 앱·화면 문맥 요약(창 제목이나 선택한 텍스트가 들어갈 수 있음), 오디오 파일 위치, 연결된 캘린더 일정(제목, 시간, 참석자별 이름·이메일·응답, 선택 참석·본인 여부)이 전달되고, 새 전사문은 완성되는 대로 바로 전달돼요. 켜 두는 동안에는 이 Mac의 어떤 앱이든 연결할 수 있어요. Quill은 이 데이터로 AI를 학습시키지 않지만, 도구에 전달된 뒤 보관하거나 학습에 쓰는지는 그 도구 회사의 약관이 정하니 AI 도구의 데이터 설정을 확인해 주세요."
           }
         }
       }

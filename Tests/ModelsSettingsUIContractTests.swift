@@ -621,9 +621,14 @@ struct ModelsSettingsUIContractTests {
         }
         let strings = (try JSONSerialization.jsonObject(with: Data(catalog.utf8)) as! [String: Any])["strings"] as! [String: Any]
         func korean(_ key: String) -> String {
-            let entry = strings[key] as! [String: Any]
-            let ko = (entry["localizations"] as! [String: Any])["ko"] as! [String: Any]
-            return (ko["stringUnit"] as! [String: Any])["value"] as! String
+            guard let entry = strings[key] as? [String: Any],
+                  let ko = (entry["localizations"] as? [String: Any])?["ko"] as? [String: Any],
+                  let unit = ko["stringUnit"] as? [String: Any],
+                  unit["state"] as? String == "translated",
+                  let value = unit["value"] as? String else {
+                preconditionFailure("No translated Korean for consent text: \(key.prefix(60))…")
+            }
+            return value
         }
         let mcp = english("mcpDisclosure")
         let mcpKorean = korean(mcp)
@@ -640,8 +645,13 @@ struct ModelsSettingsUIContractTests {
             precondition(text.contains(expected), "MCP consent is missing: \(expected)")
         }
         let sync = english("iCloudCalendarDisclosure")
-        precondition(sync.contains("calendar and event IDs, which can be email addresses, your calendar account's email"))
-        precondition(korean(sync).contains("이메일 주소일 수 있는 캘린더·일정 ID, 캘린더 계정 이메일"))
+        precondition(sync.contains("calendar and event IDs (a Google calendar ID can be an email address), your calendar account's email"))
+        precondition(korean(sync).contains("캘린더·일정 ID(Google 캘린더 ID는 이메일 주소일 수 있음), 캘린더 계정 이메일"))
+        precondition(mcp.contains("(it can mention window titles or selected text)"))
+        precondition(mcpKorean.contains("(창 제목이나 선택한 텍스트가 들어갈 수 있음)"))
+        // Setup and the New settings window show both texts next to their switches.
+        precondition(connections.contains("Text(ConnectionsChoices.mcpDisclosure)"))
+        precondition(connections.contains("Text(ConnectionsChoices.iCloudCalendarDisclosure)"))
     }
 
     private static func testAIToolsUsesSwitch(_ aiTools: String) {
