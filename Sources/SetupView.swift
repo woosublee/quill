@@ -127,6 +127,7 @@ struct SetupView: View {
             apiKeyInput = appState.apiKey
             appState.refreshNativeWhisperInstallStatus()
             refreshPermissionStatuses()
+            restoreSavedProgress()
         }
         .onDisappear {
             permissionTimer?.invalidate()
@@ -134,6 +135,9 @@ struct SetupView: View {
         }
         .onChange(of: currentStep) { step in
             if step == .permissions {
+                // Screen Recording can be granted here, or straight in
+                // System Settings, and either relaunches Quill (#516).
+                saveProgress()
                 startPermissionPolling()
             } else {
                 permissionTimer?.invalidate()
@@ -762,7 +766,11 @@ struct SetupView: View {
             icon: "camera.viewfinder",
             granted: appState.hasScreenRecordingPermission,
             actionTitle: String(localized: "Grant Access"),
-            action: appState.requestScreenCapturePermission
+            action: {
+                // Granting it makes macOS quit and reopen Quill (#516).
+                saveProgress()
+                appState.requestScreenCapturePermission()
+            }
         )
     }
 
@@ -859,9 +867,17 @@ struct SetupView: View {
     }
 
     private var canContinueFromCurrentStep: Bool {
-        switch currentStep {
-        case .welcome, .ready:
+        canContinue(from: currentStep)
+    }
+
+    private func canContinue(from step: SetupStep) -> Bool {
+        switch step {
+        case .welcome:
             return !isValidatingKey
+        case .ready:
+            // A resume passes Processing on the choice alone, so the
+            // model must be ready before setup finishes.
+            return !isValidatingKey && isSelectedModelReady
         case .shortcut:
             return !isCapturingShortcut
                 && (appState.hasEnabledHoldShortcut || appState.hasEnabledToggleShortcut)
@@ -875,16 +891,26 @@ struct SetupView: View {
                 )
             case .localAppleSpeech:
                 return true
-            case .localNativeWhisper:
-                return appState.nativeWhisperInstallStatus == .ready
-                    && !appState.isInstallingNativeWhisper
-            case .localAIModel(let id):
-                return appState.isLocalAITranscriptionModelReady(id)
+            case .localNativeWhisper, .localAIModel:
+                return isSelectedModelReady
             case .apiStandard:
                 return isAPIKeyValidated && !isValidatingKey
             }
         case .permissions:
             return hasGrantedRequiredPermissions
+        }
+    }
+
+    /// A downloaded model's install state; other presets need no model.
+    private var isSelectedModelReady: Bool {
+        switch selectedPreset {
+        case .localNativeWhisper:
+            return appState.nativeWhisperInstallStatus == .ready
+                && !appState.isInstallingNativeWhisper
+        case .localAIModel(let id):
+            return appState.isLocalAITranscriptionModelReady(id)
+        case .recordOnly, .localAppleSpeech, .apiStandard, nil:
+            return true
         }
     }
 
@@ -956,6 +982,7 @@ struct SetupView: View {
                 }
                 appState.selectAudioSource(recordOnlyAudioSource)
             }
+            SetupFlow.clearSavedProgress(in: .standard)
             onComplete()
             return
         }
@@ -968,6 +995,58 @@ struct SetupView: View {
         withAnimation(.easeInOut(duration: 0.2)) {
             currentStep = nextStep(currentStep)
         }
+    }
+
+    /// Keeps the step and choices so far for the relaunch that granting
+    /// Screen Recording causes (#516). Saved on reaching Permissions, after
+    /// the choices were applied, and again on Grant Access.
+    private func saveProgress() {
+        SetupFlow.saveProgress(
+            SetupFlow.SavedProgress(
+                step: currentStep.rawValue,
+                processingLocation: processingLocation,
+                localModel: localModel,
+                recordOnlyAudioSourceID: recordOnlyAudioSource?.id,
+                savedAt: Date()
+            ),
+            to: .standard
+        )
+    }
+
+    /// Fills in the saved choices once, then reopens at the saved step, or
+    /// at the first step that can't be passed any more, such as a
+    /// permission taken back. The step is chosen on the next turn, once the
+    /// restored choices are in place, and only if the user hasn't moved on.
+    private func restoreSavedProgress() {
+        let saved = SetupFlow.loadSavedProgress(from: .standard)
+        SetupFlow.clearSavedProgress(in: .standard)
+        guard let saved, saved.isRecent(now: Date()) else { return }
+        processingLocation = saved.processingLocation
+        localModel = saved.localModel
+        recordOnlyAudioSource = saved.recordOnlyAudioSource
+        DispatchQueue.main.async {
+            guard currentStep == .welcome else { return }
+            let step = SetupFlow.resumeStep(
+                savedStep: saved.step,
+                lastStep: SetupStep.ready.rawValue
+            ) { rawValue in
+                guard let step = SetupStep(rawValue: rawValue) else { return false }
+                return canResume(past: step)
+            }
+            currentStep = SetupStep(rawValue: step) ?? .welcome
+        }
+    }
+
+    /// Processing was passed and applied just before the relaunch, so only
+    /// a choice is needed; model readiness and the API key check may still
+    /// be loading. Later steps check live permissions and shortcuts.
+    private func canResume(past step: SetupStep) -> Bool {
+        guard step == .processing else { return canContinue(from: step) }
+        guard let selectedPreset else { return false }
+        return SetupFlow.hasRequiredAudioSource(
+            for: selectedPreset,
+            recordOnlySource: recordOnlyAudioSource
+        )
     }
 
     private func previousStep(_ step: SetupStep) -> SetupStep {

@@ -24,6 +24,9 @@ struct SetupFlowTests {
         try testLocalAIModelCardIsKeyboardAndVoiceOverSelectable()
         try testStepChangesMoveVoiceOverToHeading()
         try testPermissionGrantsAreAnnounced()
+        testSavedProgressRoundTrips()
+        testResumeStopsAtTheFirstBlockedStep()
+        try testSetupSavesAndRestoresProgress()
         print("SetupFlowTests passed")
     }
 
@@ -488,6 +491,95 @@ struct SetupFlowTests {
         )
         assert(announce.contains("guard granted, currentStep == .permissions, !appState.isPermissionGuidePresented"))
         assert(announce.contains("notification: .announcementRequested"))
+    }
+
+    /// #516: Screen Recording relaunches Quill mid-setup; the choices
+    /// survive in defaults until setup finishes.
+    private static func testSavedProgressRoundTrips() {
+        let suite = "SetupFlowTests.savedProgress"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        assert(SetupFlow.loadSavedProgress(from: defaults) == nil)
+
+        let progress = SetupFlow.SavedProgress(
+            step: 2,
+            processingLocation: .recordOnly,
+            localModel: .localAIModel(id: "synthetic-model"),
+            recordOnlyAudioSourceID: AudioRecordingSource.systemAudio.id,
+            savedAt: Date(timeIntervalSince1970: 1_000_000)
+        )
+        SetupFlow.saveProgress(progress, to: defaults)
+        let loaded = SetupFlow.loadSavedProgress(from: defaults)
+        assert(loaded == progress)
+        assert(loaded?.recordOnlyAudioSource == .systemAudio)
+
+        SetupFlow.clearSavedProgress(in: defaults)
+        assert(SetupFlow.loadSavedProgress(from: defaults) == nil)
+
+        defaults.set(Data("not json".utf8), forKey: SetupFlow.savedProgressKey)
+        assert(SetupFlow.loadSavedProgress(from: defaults) == nil)
+
+        let unknownSource = SetupFlow.SavedProgress(
+            step: 1,
+            processingLocation: .onThisMac,
+            localModel: .appleSpeech,
+            recordOnlyAudioSourceID: "unknown",
+            savedAt: Date(timeIntervalSince1970: 1_000_000)
+        )
+        assert(unknownSource.recordOnlyAudioSource == nil)
+
+        // Only a relaunch soon after the grant resumes.
+        let savedAt = progress.savedAt
+        assert(progress.isRecent(now: savedAt.addingTimeInterval(60)))
+        assert(progress.isRecent(now: savedAt.addingTimeInterval(SetupFlow.SavedProgress.maxAge)))
+        assert(!progress.isRecent(now: savedAt.addingTimeInterval(SetupFlow.SavedProgress.maxAge + 1)))
+        assert(!progress.isRecent(now: savedAt.addingTimeInterval(-60)))
+    }
+
+    private static func testResumeStopsAtTheFirstBlockedStep() {
+        assert(SetupFlow.resumeStep(savedStep: 3, lastStep: 4) { _ in true } == 3)
+        assert(SetupFlow.resumeStep(savedStep: 3, lastStep: 4) { $0 != 1 } == 1)
+        assert(SetupFlow.resumeStep(savedStep: 0, lastStep: 4) { _ in false } == 0)
+        assert(SetupFlow.resumeStep(savedStep: 4, lastStep: 4) { _ in false } == 0)
+        // A step past the last one, from another build, stops at the last.
+        assert(SetupFlow.resumeStep(savedStep: 9, lastStep: 4) { _ in true } == 4)
+    }
+
+    private static func testSetupSavesAndRestoresProgress() throws {
+        let view = try String(contentsOfFile: "Sources/SetupView.swift", encoding: .utf8)
+        let onAppear = sourceBlock(in: view, from: ".onAppear {", to: ".onDisappear {")
+        assert(onAppear.contains("restoreSavedProgress()"))
+        // Saved only when granting Screen Recording, which relaunches Quill.
+        let screenRow = sourceBlock(in: view, from: "private var screenRecordingPermissionRow: some View", to: "private func permissionRow(")
+        assert(screenRow.contains("saveProgress()"))
+        assert(screenRow.contains("appState.requestScreenCapturePermission()"))
+        let stepChange = sourceBlock(in: view, from: ".onChange(of: currentStep) { step in", to: "focusStepTitleForVoiceOver()")
+        assert(stepChange.contains("if step == .permissions {"))
+        assert(stepChange.contains("saveProgress()"))
+        let finish = sourceBlock(in: view, from: "private func performPrimaryAction()", to: "if currentStep == .processing, let selectedPreset")
+        assert(finish.contains("SetupFlow.clearSavedProgress(in: .standard)"))
+        // A resume skips the model check on Processing, so finishing checks it.
+        let gate = sourceBlock(in: view, from: "private func canContinue(from step: SetupStep) -> Bool", to: "private var processingSummary")
+        assert(gate.contains("return !isValidatingKey && isSelectedModelReady"))
+        let restore = sourceBlock(in: view, from: "private func restoreSavedProgress()", to: "private func previousStep(")
+        assert(restore.contains("guard currentStep == .welcome else { return }"))
+        // Restored once, and only soon after the grant: cleared right
+        // after it is read, even when it is old or unreadable.
+        let clearIndex = restore.range(of: "SetupFlow.clearSavedProgress(in: .standard)")
+        let recentIndex = restore.range(of: "saved.isRecent(now: Date())")
+        assert(clearIndex != nil && recentIndex != nil && clearIndex!.lowerBound < recentIndex!.lowerBound)
+        assert(restore.contains("return canResume(past: step)"))
+        let delegate = try String(contentsOfFile: "Sources/AppDelegate.swift", encoding: .utf8)
+        let setupClose = sourceBlock(in: delegate, from: "private func handleSetupWindowDidClose(", to: "@objc private func handleShowSettings()")
+        assert(setupClose.contains("SetupFlow.clearSavedProgress(in: .standard)"))
+
+        // Only choices are kept; the API key stays in Settings.
+        let flow = try String(contentsOfFile: "Sources/SetupFlow.swift", encoding: .utf8)
+        let saved = sourceBlock(in: flow, from: "struct SavedProgress", to: "static let savedProgressKey")
+        assert(!saved.contains("apiKey"))
+        assert(!saved.contains("APIKey"))
     }
 
     private static func sourceBlock(
