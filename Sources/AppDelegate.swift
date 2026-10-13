@@ -404,6 +404,9 @@ private func showNoteBrowserWindow() {
     /// Closes port 3457 and drops connected AI tools.
     private func stopMCPServer(status: MCPServerStatus = .off) {
         appState.onTranscriptionCompleted = nil
+        // Context a tool added isn't kept for the next tool to read.
+        appState.mcpAdditionalContext = ""
+        appState.mcpLastRecordingFailed = false
         mcpServer?.stop()
         mcpServer = nil
         appState.mcpServerStatus = status

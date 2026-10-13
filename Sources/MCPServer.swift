@@ -37,6 +37,9 @@ final class MCPServer {
     }
 
     func start() throws {
+        openConnectionsLock.lock()
+        isStopped = false
+        openConnectionsLock.unlock()
         let params = MCPLocalAccessPolicy.listenerParameters()
         let nwPort = NWEndpoint.Port(rawValue: Self.port)!
         listener = try NWListener(using: params, on: nwPort)
@@ -53,9 +56,14 @@ final class MCPServer {
                 print("[MCP] Server failed: \(error)")
                 self?.onStatusChange?(.failed)
             case .waiting(let error):
-                // Network retries by itself; keep showing Starting.
                 print("[MCP] Server waiting: \(error)")
-                self?.onStatusChange?(.starting)
+                // A port another app holds won't free itself; anything else
+                // Network retries, so it keeps showing Starting.
+                if case .posix(let code) = error, code == .EADDRINUSE || code == .EACCES {
+                    self?.onStatusChange?(.failed)
+                } else {
+                    self?.onStatusChange?(.starting)
+                }
             case .cancelled:
                 // Quill's own stop() lets go of the server first, so this
                 // only reaches the app when the system ended the listener.
@@ -81,6 +89,12 @@ final class MCPServer {
         openConnections.removeAll()
         openConnectionsLock.unlock()
         connections.forEach { $0.cancel() }
+    }
+
+    private var hasStopped: Bool {
+        openConnectionsLock.lock()
+        defer { openConnectionsLock.unlock() }
+        return isStopped
     }
 
     /// False once stop() ran: a connection accepted meanwhile is refused.
@@ -186,7 +200,11 @@ final class MCPServer {
         let params = json["params"] as? [String: Any] ?? [:]
 
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            // A call read just before the switch went off isn't run.
+            guard let self, !self.hasStopped else {
+                connection.cancel()
+                return
+            }
             let result = self.dispatch(method: method, params: params)
 
             let response: [String: Any]
