@@ -24,6 +24,9 @@ struct SetupFlowTests {
         try testLocalAIModelCardIsKeyboardAndVoiceOverSelectable()
         try testStepChangesMoveVoiceOverToHeading()
         try testPermissionGrantsAreAnnounced()
+        testSavedProgressRoundTrips()
+        testResumeStopsAtTheFirstBlockedStep()
+        try testSetupSavesAndRestoresProgress()
         print("SetupFlowTests passed")
     }
 
@@ -488,6 +491,66 @@ struct SetupFlowTests {
         )
         assert(announce.contains("guard granted, currentStep == .permissions, !appState.isPermissionGuidePresented"))
         assert(announce.contains("notification: .announcementRequested"))
+    }
+
+    /// #516: Screen Recording relaunches Quill mid-setup; the choices
+    /// survive in defaults until setup finishes.
+    private static func testSavedProgressRoundTrips() {
+        let suite = "SetupFlowTests.savedProgress"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        assert(SetupFlow.loadSavedProgress(from: defaults) == nil)
+
+        let progress = SetupFlow.SavedProgress(
+            step: 2,
+            processingLocation: .recordOnly,
+            localModel: .localAIModel(id: "synthetic-model"),
+            recordOnlyAudioSourceID: AudioRecordingSource.systemAudio.id,
+            isAPIKeyValidated: false
+        )
+        SetupFlow.saveProgress(progress, to: defaults)
+        let loaded = SetupFlow.loadSavedProgress(from: defaults)
+        assert(loaded == progress)
+        assert(loaded?.recordOnlyAudioSource == .systemAudio)
+
+        SetupFlow.clearSavedProgress(in: defaults)
+        assert(SetupFlow.loadSavedProgress(from: defaults) == nil)
+
+        defaults.set(Data("not json".utf8), forKey: SetupFlow.savedProgressKey)
+        assert(SetupFlow.loadSavedProgress(from: defaults) == nil)
+
+        let unknownSource = SetupFlow.SavedProgress(
+            step: 1,
+            processingLocation: .onThisMac,
+            localModel: .appleSpeech,
+            recordOnlyAudioSourceID: "unknown",
+            isAPIKeyValidated: true
+        )
+        assert(unknownSource.recordOnlyAudioSource == nil)
+    }
+
+    private static func testResumeStopsAtTheFirstBlockedStep() {
+        assert(SetupFlow.resumeStep(savedStep: 3) { _ in true } == 3)
+        assert(SetupFlow.resumeStep(savedStep: 3) { $0 != 1 } == 1)
+        assert(SetupFlow.resumeStep(savedStep: 0) { _ in false } == 0)
+        assert(SetupFlow.resumeStep(savedStep: 4) { _ in false } == 0)
+    }
+
+    private static func testSetupSavesAndRestoresProgress() throws {
+        let view = try String(contentsOfFile: "Sources/SetupView.swift", encoding: .utf8)
+        let onAppear = sourceBlock(in: view, from: ".onAppear {", to: ".onDisappear {")
+        assert(onAppear.contains("restoreSavedProgress()"))
+        let stepChange = sourceBlock(in: view, from: ".onChange(of: currentStep) { step in", to: "focusStepTitleForVoiceOver()")
+        assert(stepChange.contains("saveProgress()"))
+        let finish = sourceBlock(in: view, from: "private func performPrimaryAction()", to: "if currentStep == .processing, let selectedPreset")
+        assert(finish.contains("SetupFlow.clearSavedProgress(in: .standard)"))
+
+        // Only choices are kept; the API key stays in Settings.
+        let flow = try String(contentsOfFile: "Sources/SetupFlow.swift", encoding: .utf8)
+        let saved = sourceBlock(in: flow, from: "struct SavedProgress", to: "static let savedProgressKey")
+        assert(!saved.contains("var apiKey"))
     }
 
     private static func sourceBlock(

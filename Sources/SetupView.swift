@@ -127,12 +127,14 @@ struct SetupView: View {
             apiKeyInput = appState.apiKey
             appState.refreshNativeWhisperInstallStatus()
             refreshPermissionStatuses()
+            restoreSavedProgress()
         }
         .onDisappear {
             permissionTimer?.invalidate()
             appState.resumeHotkeyMonitoringAfterShortcutCapture()
         }
         .onChange(of: currentStep) { step in
+            saveProgress()
             if step == .permissions {
                 startPermissionPolling()
             } else {
@@ -412,7 +414,11 @@ struct SetupView: View {
                     .font(.system(.body, design: .monospaced))
                     .disabled(isValidatingKey)
                     .onChange(of: apiKeyInput) { _ in
-                        validatedAPIKey = nil
+                        // Restoring setup fills in the key it validated
+                        // before the relaunch; only another key loses it.
+                        if validatedAPIKey != trimmedAPIKey {
+                            validatedAPIKey = nil
+                        }
                         keyValidationError = nil
                     }
 
@@ -859,7 +865,11 @@ struct SetupView: View {
     }
 
     private var canContinueFromCurrentStep: Bool {
-        switch currentStep {
+        canContinue(from: currentStep)
+    }
+
+    private func canContinue(from step: SetupStep) -> Bool {
+        switch step {
         case .welcome, .ready:
             return !isValidatingKey
         case .shortcut:
@@ -956,6 +966,7 @@ struct SetupView: View {
                 }
                 appState.selectAudioSource(recordOnlyAudioSource)
             }
+            SetupFlow.clearSavedProgress(in: .standard)
             onComplete()
             return
         }
@@ -967,6 +978,42 @@ struct SetupView: View {
 
         withAnimation(.easeInOut(duration: 0.2)) {
             currentStep = nextStep(currentStep)
+        }
+    }
+
+    /// Keeps the choices so far; granting Screen Recording relaunches Quill
+    /// in the middle of setup (#516).
+    private func saveProgress() {
+        SetupFlow.saveProgress(
+            SetupFlow.SavedProgress(
+                step: currentStep.rawValue,
+                processingLocation: processingLocation,
+                localModel: localModel,
+                recordOnlyAudioSourceID: recordOnlyAudioSource?.id,
+                isAPIKeyValidated: isAPIKeyValidated
+            ),
+            to: .standard
+        )
+    }
+
+    /// Fills in the saved choices, then reopens at the saved step, or at
+    /// the first step that can't be passed any more. The step is chosen on
+    /// the next turn, once the restored choices are in place.
+    private func restoreSavedProgress() {
+        guard let saved = SetupFlow.loadSavedProgress(from: .standard) else { return }
+        processingLocation = saved.processingLocation
+        localModel = saved.localModel
+        recordOnlyAudioSource = saved.recordOnlyAudioSource
+        let savedKey = appState.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if saved.isAPIKeyValidated, !savedKey.isEmpty {
+            validatedAPIKey = savedKey
+        }
+        DispatchQueue.main.async {
+            let step = SetupFlow.resumeStep(savedStep: saved.step) { rawValue in
+                guard let step = SetupStep(rawValue: rawValue) else { return false }
+                return canContinue(from: step)
+            }
+            currentStep = SetupStep(rawValue: step) ?? .welcome
         }
     }
 
