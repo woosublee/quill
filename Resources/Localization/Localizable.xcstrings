@@ -1,6 +1,230 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "This uploads 1 note from this Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This uploads 1 note from this Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 노트 1개를 올려요."
+          }
+        }
+      }
+    },
+    "This uploads 1 note from this Mac, including %@ of audio.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This uploads 1 note from this Mac, including %@ of audio."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 노트 1개를 올려요. 오디오 %@도 함께 올라가요."
+          }
+        }
+      }
+    },
+    "This uploads %lld notes from this Mac.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This uploads %lld notes from this Mac."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 노트 %lld개를 올려요."
+          }
+        }
+      }
+    },
+    "This uploads %lld notes from this Mac, including %@ of audio.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This uploads %lld notes from this Mac, including %@ of audio."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac의 노트 %lld개를 올려요. 오디오 %@도 함께 올라가요."
+          }
+        }
+      }
+    },
+    "Screenshots, window titles, selected text, and AI instructions aren't uploaded.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshots, window titles, selected text, and AI instructions aren't uploaded."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스크린샷, 창 제목, 선택했던 텍스트, AI 지시문은 올리지 않아요."
+          }
+        }
+      }
+    },
+    "Turn on only what you want to use. You can change these later in Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on only what you want to use. You can change these later in Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "쓰고 싶은 기능만 켜세요. 나중에 설정에서도 바꿀 수 있어요."
+          }
+        }
+      }
+    },
+    "You can turn it on later in Settings › iCloud Sync.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can turn it on later in Settings › iCloud Sync."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나중에 설정 › iCloud 동기화에서 다시 켤 수 있어요."
+          }
+        }
+      }
+    },
+    "Connections and Sync": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connections and Sync"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결과 동기화"
+          }
+        }
+      }
+    },
+    "Keeps your notes the same on your Macs with this iCloud account. Notes and audio are stored only in your private iCloud.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps your notes the same on your Macs with this iCloud account. Notes and audio are stored only in your private iCloud."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "같은 iCloud 계정의 다른 Mac과 노트를 맞춰요. 노트와 오디오는 본인의 비공개 iCloud에만 저장돼요."
+          }
+        }
+      }
+    },
+    "Calendar events matched to notes (title, times, attendee names and emails) are stored in your private iCloud too.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calendar events matched to notes (title, times, attendee names and emails) are stored in your private iCloud too."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노트에 연결된 캘린더 일정(제목, 시간, 참석자 이름·이메일)도 본인의 비공개 iCloud에 함께 저장돼요."
+          }
+        }
+      }
+    },
+    "Until now AI tools could always connect; from this version the switch starts off. If you used Claude Code with Quill, turn it back on.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Until now AI tools could always connect; from this version the switch starts off. If you used Claude Code with Quill, turn it back on."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금까지는 항상 켜져 있었고, 이번 버전부터 꺼진 채로 시작해요. Claude Code에 연결해 썼다면 다시 켜 주세요."
+          }
+        }
+      }
+    },
+    "New settings": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New settings"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로 추가된 설정"
+          }
+        }
+      }
+    },
+    "From this version, these work only after you turn them on. Your other settings stay as they are.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From this version, these work only after you turn them on. Your other settings stay as they are."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이번 버전부터 아래 기능은 직접 켜야 동작해요. 지금 설정은 그대로 두고, 이 화면만 확인하면 돼요."
+          }
+        }
+      }
+    },
+    "You can change these later in Settings.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can change these later in Settings."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나중에 설정에서도 바꿀 수 있어요."
+          }
+        }
+      }
+    },
     "Events from connected calendars fill meeting reminders and note titles and attendees. An event leaves your Mac only with its note: to your own iCloud when iCloud sync is on, or to an AI tool you allow in Settings › AI Tools.": {
       "localizations": {
         "en": {

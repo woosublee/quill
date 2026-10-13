@@ -4,7 +4,8 @@ import SwiftUI
 import UserNotifications
 
 struct SetupView: View {
-    var onComplete: @MainActor () -> Void
+    /// Called with the Connections and Sync choices, applied once setup is done.
+    var onComplete: @MainActor (ConnectionsChoices.Selection) -> Void
 
     @EnvironmentObject private var appState: AppState
 
@@ -12,12 +13,14 @@ struct SetupView: View {
         case welcome = 0
         case processing
         case permissions
+        case connections
         case shortcut
         case ready
     }
 
     @State private var currentStep = SetupStep.welcome
     @State private var processingLocation: SetupFlow.ProcessingLocation?
+    @State private var connectionsSelection = ConnectionsChoices.Selection()
     @State private var recordOnlyAudioSource: AudioRecordingSource?
     @State private var localModel = SetupFlow.LocalModel.default
     @State private var apiKeyInput = ""
@@ -125,6 +128,9 @@ struct SetupView: View {
         .frame(minWidth: 560, minHeight: 600)
         .onAppear {
             apiKeyInput = appState.apiKey
+            // A re-run starts from what's on now.
+            connectionsSelection.wantsMCP = appState.isMCPServerEnabled
+            connectionsSelection.mcpWasOn = appState.isMCPServerEnabled
             appState.refreshNativeWhisperInstallStatus()
             refreshPermissionStatuses()
             restoreSavedProgress()
@@ -188,6 +194,8 @@ struct SetupView: View {
             processingStep
         case .permissions:
             permissionsStep
+        case .connections:
+            connectionsStep
         case .shortcut:
             shortcutStep
         case .ready:
@@ -573,6 +581,17 @@ struct SetupView: View {
         }
     }
 
+    var connectionsStep: some View {
+        VStack(spacing: 24) {
+            stepHeader(
+                icon: "icloud",
+                title: "Connections and Sync",
+                description: "Turn on only what you want to use. You can change these later in Settings."
+            )
+            ConnectionsChoicesView(selection: $connectionsSelection)
+        }
+    }
+
     var shortcutStep: some View {
         VStack(spacing: 24) {
             stepHeader(
@@ -898,6 +917,8 @@ struct SetupView: View {
             }
         case .permissions:
             return hasGrantedRequiredPermissions
+        case .connections:
+            return true
         }
     }
 
@@ -983,7 +1004,8 @@ struct SetupView: View {
                 appState.selectAudioSource(recordOnlyAudioSource)
             }
             SetupFlow.clearSavedProgress(in: .standard)
-            onComplete()
+            // Both choices apply together once setup is done.
+            onComplete(connectionsSelection)
             return
         }
 
@@ -1007,6 +1029,8 @@ struct SetupView: View {
                 processingLocation: processingLocation,
                 localModel: localModel,
                 recordOnlyAudioSourceID: recordOnlyAudioSource?.id,
+                wantsICloudSync: connectionsSelection.wantsICloudSync,
+                wantsMCP: connectionsSelection.wantsMCP,
                 savedAt: Date()
             ),
             to: .standard
@@ -1024,6 +1048,8 @@ struct SetupView: View {
         processingLocation = saved.processingLocation
         localModel = saved.localModel
         recordOnlyAudioSource = saved.recordOnlyAudioSource
+        connectionsSelection.wantsICloudSync = saved.wantsICloudSync ?? false
+        connectionsSelection.wantsMCP = saved.wantsMCP ?? connectionsSelection.wantsMCP
         DispatchQueue.main.async {
             guard currentStep == .welcome else { return }
             let step = SetupFlow.resumeStep(

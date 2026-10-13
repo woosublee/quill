@@ -104,6 +104,9 @@ enum SetupFlow {
         var processingLocation: ProcessingLocation?
         var localModel: LocalModel
         var recordOnlyAudioSourceID: String?
+        /// Connections and Sync choices; nil in progress saved before them.
+        var wantsICloudSync: Bool? = nil
+        var wantsMCP: Bool? = nil
         var savedAt: Date
 
         /// The relaunch follows the grant within minutes. Older progress

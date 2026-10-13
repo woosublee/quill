@@ -27,6 +27,7 @@ struct SetupFlowTests {
         testSavedProgressRoundTrips()
         testResumeStopsAtTheFirstBlockedStep()
         try testSetupSavesAndRestoresProgress()
+        try testConnectionsStartOffAndExistingUsersSeeThemOnce()
         print("SetupFlowTests passed")
     }
 
@@ -243,7 +244,7 @@ struct SetupFlowTests {
             to: "\n\n    @State"
         )
 
-        for expected in ["welcome", "processing", "permissions", "shortcut", "ready"] {
+        for expected in ["welcome", "processing", "permissions", "connections", "shortcut", "ready"] {
             assert(stepBlock.contains("case \(expected)"), "Missing setup step: \(expected)")
         }
         for removed in [
@@ -254,7 +255,9 @@ struct SetupFlowTests {
         ] {
             assert(!stepBlock.contains("case \(removed)"), "Legacy setup step remains: \(removed)")
         }
-        assert(stepBlock.components(separatedBy: "case ").count - 1 == 5)
+        assert(stepBlock.components(separatedBy: "case ").count - 1 == 6)
+        // #530: Connections and Sync sits between Permissions and Shortcut.
+        assert(stepBlock.contains("case permissions\n        case connections\n        case shortcut"))
         assert(source.contains("ScrollView"))
         assert(!source.contains("skipAPIKeyForLocalOnly"))
         assert(!source.contains("SetupProviderSettingsSheet"))
@@ -611,6 +614,50 @@ struct SetupFlowTests {
         let saved = sourceBlock(in: flow, from: "struct SavedProgress", to: "static let savedProgressKey")
         assert(!saved.contains("apiKey"))
         assert(!saved.contains("APIKey"))
+    }
+
+    /// #530: setup offers iCloud sync and AI tools, both off; sync starts
+    /// only when setup finishes; existing users get the two switches once.
+    private static func testConnectionsStartOffAndExistingUsersSeeThemOnce() throws {
+        let view = try String(contentsOfFile: "Sources/SetupView.swift", encoding: .utf8)
+        assert(view.contains("@State private var connectionsSelection = ConnectionsChoices.Selection()"))
+        let finish = sourceBlock(in: view, from: "private func performPrimaryAction()", to: "if currentStep == .processing, let selectedPreset")
+        assert(finish.contains("onComplete(connectionsSelection)"))
+
+        // Neither switch applies while choosing; both apply together.
+        let choices = try String(contentsOfFile: "Sources/ConnectionsChoicesView.swift", encoding: .utf8)
+        assert(choices.contains("isOn: $selection.wantsMCP"))
+        assert(!choices.contains("$appState.isMCPServerEnabled"))
+        assert(choices.contains("controller.unavailableReason == nil"))
+        assert(choices.contains("attendee names and emails"))
+
+        let delegate = try String(contentsOfFile: "Sources/AppDelegate.swift", encoding: .utf8)
+        let launch = sourceBlock(in: delegate, from: "func applicationDidFinishLaunching(", to: "func applicationShouldTerminate(")
+        assert(launch.contains("startPostSetupServices()\n            showNewSettingsIfNeeded()"))
+        assert(delegate.contains("self?.completeSetup()\n            self?.applyConnectionsChoices(selection)"))
+        let newSettings = sourceBlock(in: delegate, from: "private func showNewSettingsIfNeeded()", to: "private func applyConnectionsChoices(")
+        assert(newSettings.contains("guard !UserDefaults.standard.bool(forKey: ConnectionsChoices.seenStorageKey)"))
+        // Closing the window applies the choices, as Done does.
+        assert(newSettings.contains("#selector(handleNewSettingsWindowWillClose)"))
+        let close = sourceBlock(in: delegate, from: "private func handleNewSettingsWindowWillClose(", to: "private func applyConnectionsChoices(")
+        assert(close.contains("applyConnectionsChoices(selection)"))
+        let apply = sourceBlock(in: delegate, from: "private func applyConnectionsChoices(", to: "private func showICloudSyncTurnOnFailure(")
+        assert(apply.contains("UserDefaults.standard.set(true, forKey: ConnectionsChoices.seenStorageKey)"))
+        // Only a change is applied, so Settings changes made meanwhile stay.
+        assert(delegate.contains("if selection.wantsMCP != selection.mcpWasOn {"))
+        assert(apply.contains("applyMCPChoice(selection)"))
+        // Right after launch the note store may still be loading.
+        assert(apply.contains("while failure == .notReady, attempts < 10"))
+        // A setup re-run closes New settings without applying it.
+        let rerun = sourceBlock(in: delegate, from: "@objc func handleShowSetup()", to: "// Single wizard at a time")
+        assert(rerun.contains("newSettingsModel = nil\n        newSettingsWindow?.close()"))
+        let terminate = sourceBlock(in: delegate, from: "func applicationWillTerminate(", to: "appState.finalizePendingNoteDeletion()")
+        assert(terminate.contains("newSettingsModel?.selection"))
+        assert(terminate.contains("UserDefaults.standard.set(selection.wantsMCP, forKey: AppState.mcpServerEnabledStorageKey)"))
+        assert(apply.contains("if let failure, !controller.isEnabled {"))
+        assert(!terminate.contains("seenStorageKey"))
+        // A failed turn-on is said, since the choice isn't offered again.
+        assert(apply.contains("self?.showICloudSyncTurnOnFailure(failure)"))
     }
 
     private static func sourceBlock(
