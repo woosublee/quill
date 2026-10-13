@@ -55,6 +55,36 @@ enum NoteTitleResolver {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    /// Where a note's display title comes from.
+    enum DisplayTitleSource: String {
+        /// A title the person set: typed, or a calendar suggestion they
+        /// applied (Apply saves it as their title).
+        case custom
+        /// The applied calendar event title.
+        case calendar
+        /// A title made from the note's content or state.
+        case automatic
+    }
+
+    static func displayTitleSource(for item: PipelineHistoryItem) -> DisplayTitleSource {
+        explicitTitle(for: item)?.source ?? .automatic
+    }
+
+    /// A typed title, else the applied calendar title; nil when the note
+    /// gets an automatic title.
+    private static func explicitTitle(
+        for item: PipelineHistoryItem
+    ) -> (source: DisplayTitleSource, title: String)? {
+        if let customTitle = item.customTitle {
+            let trimmed = customTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return (.custom, trimmed) }
+        }
+        if let applied = item.calendarMatch?.appliedTitle {
+            return (.calendar, applied)
+        }
+        return nil
+    }
+
     static func displayTitle(
         for item: PipelineHistoryItem,
         isTranscribing: Bool = false,
@@ -62,12 +92,8 @@ enum NoteTitleResolver {
         language: String = preferredLocalizedStringLanguage(),
         bundle: Bundle = .main
     ) -> String {
-        if let customTitle = item.customTitle {
-            let trimmed = customTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { return trimmed }
-        }
-        if let applied = item.calendarMatch?.appliedTitle {
-            return applied
+        if let explicit = explicitTitle(for: item) {
+            return explicit.title
         }
         return automaticTitle(
             for: item,

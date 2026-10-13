@@ -7918,6 +7918,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
         return .available
     }
 
+    /// Whether the note's transcript changed after this summary was made;
+    /// the Summary tab shows such a summary as stale.
+    @MainActor
+    func isMeetingSummaryStale(_ summary: MeetingSummaryEnvelope, for item: PipelineHistoryItem) -> Bool {
+        summary.sourceFingerprint != meetingSummarySource(for: item).fingerprint
+    }
+
     @MainActor
     func meetingSummarySource(
         for item: PipelineHistoryItem
