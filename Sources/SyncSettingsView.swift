@@ -98,6 +98,11 @@ private struct NoteSyncSettingsCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                // Turning the switch on is the consent to this (#530).
+                Text("Calendar events matched to notes (title, times, attendee names and emails) are stored in your private iCloud too.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 if controller.audioLeftOnlyInOtherAccounts {
                     Text("Some audio is still in another iCloud account. Quill deletes it when you sign in to that account again.")
                         .font(.caption)

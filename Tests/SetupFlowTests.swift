@@ -27,6 +27,7 @@ struct SetupFlowTests {
         testSavedProgressRoundTrips()
         testResumeStopsAtTheFirstBlockedStep()
         try testSetupSavesAndRestoresProgress()
+        try testConnectionsStartOffAndExistingUsersSeeThemOnce()
         print("SetupFlowTests passed")
     }
 
@@ -243,7 +244,7 @@ struct SetupFlowTests {
             to: "\n\n    @State"
         )
 
-        for expected in ["welcome", "processing", "permissions", "shortcut", "ready"] {
+        for expected in ["welcome", "processing", "permissions", "connections", "shortcut", "ready"] {
             assert(stepBlock.contains("case \(expected)"), "Missing setup step: \(expected)")
         }
         for removed in [
@@ -254,7 +255,9 @@ struct SetupFlowTests {
         ] {
             assert(!stepBlock.contains("case \(removed)"), "Legacy setup step remains: \(removed)")
         }
-        assert(stepBlock.components(separatedBy: "case ").count - 1 == 5)
+        assert(stepBlock.components(separatedBy: "case ").count - 1 == 6)
+        // #530: Connections and Sync sits between Permissions and Shortcut.
+        assert(stepBlock.contains("case permissions\n        case connections\n        case shortcut"))
         assert(source.contains("ScrollView"))
         assert(!source.contains("skipAPIKeyForLocalOnly"))
         assert(!source.contains("SetupProviderSettingsSheet"))
@@ -611,6 +614,29 @@ struct SetupFlowTests {
         let saved = sourceBlock(in: flow, from: "struct SavedProgress", to: "static let savedProgressKey")
         assert(!saved.contains("apiKey"))
         assert(!saved.contains("APIKey"))
+    }
+
+    /// #530: setup offers iCloud sync and AI tools, both off; sync starts
+    /// only when setup finishes; existing users get the two switches once.
+    private static func testConnectionsStartOffAndExistingUsersSeeThemOnce() throws {
+        let view = try String(contentsOfFile: "Sources/SetupView.swift", encoding: .utf8)
+        assert(view.contains("@State private var wantsICloudSync = false"))
+        let finish = sourceBlock(in: view, from: "private func performPrimaryAction()", to: "if currentStep == .processing, let selectedPreset")
+        assert(finish.contains("if wantsICloudSync, let controller = appState.noteSyncController {"))
+
+        let choices = try String(contentsOfFile: "Sources/ConnectionsChoicesView.swift", encoding: .utf8)
+        assert(choices.contains("isOn: $appState.isMCPServerEnabled"))
+        assert(choices.contains("controller.unavailableReason == nil"))
+        assert(choices.contains("attendee names and emails"))
+
+        let delegate = try String(contentsOfFile: "Sources/AppDelegate.swift", encoding: .utf8)
+        let launch = sourceBlock(in: delegate, from: "func applicationDidFinishLaunching(", to: "func applicationShouldTerminate(")
+        assert(launch.contains("startPostSetupServices()\n            showNewSettingsIfNeeded()"))
+        let complete = sourceBlock(in: delegate, from: "func completeSetup()", to: "private func showNewSettingsIfNeeded()")
+        assert(complete.contains("UserDefaults.standard.set(true, forKey: ConnectionsChoices.seenStorageKey)"))
+        let newSettings = sourceBlock(in: delegate, from: "private func showNewSettingsIfNeeded()", to: "/// Every service a normal relaunch starts")
+        assert(newSettings.contains("guard !UserDefaults.standard.bool(forKey: ConnectionsChoices.seenStorageKey)"))
+        assert(newSettings.contains("NSWindow.willCloseNotification"))
     }
 
     private static func sourceBlock(

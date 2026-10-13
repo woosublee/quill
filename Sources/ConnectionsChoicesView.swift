@@ -1,0 +1,142 @@
+import SwiftUI
+
+enum ConnectionsChoices {
+    /// Set once setup finishes or an existing user closes "New settings".
+    static let seenStorageKey = "connections_choices_seen"
+}
+
+/// iCloud sync and AI tools (MCP), both off until the user turns them on.
+/// What each one shares is shown next to its switch the whole time, so
+/// turning a switch on is the consent (#530). Used by the setup step and
+/// by the one-time "New settings" window existing users see.
+struct ConnectionsChoicesView: View {
+    @EnvironmentObject var appState: AppState
+    /// Sync starts when setup or the window is done, not while choosing.
+    @Binding var wantsICloudSync: Bool
+    /// Existing users are told the MCP switch now starts off.
+    var showsMCPChangeNote = false
+
+    var body: some View {
+        VStack(spacing: 14) {
+            if let controller = appState.noteSyncController, controller.unavailableReason == nil {
+                ConnectionsSyncCard(controller: controller, wantsICloudSync: $wantsICloudSync)
+            }
+            mcpCard
+        }
+    }
+
+    private var mcpCard: some View {
+        ConnectionsCard(icon: "link", title: "AI Tool Connection (MCP)", isOn: $appState.isMCPServerEnabled) {
+            Text("A connected AI tool can start and stop recordings, add notes to a recording, and read your notes. It receives their transcripts (original and edited), summaries, recording times, the app context Quill noted while recording, audio file locations, and matched calendar events (title, times, attendee names and emails), and gets each new transcript as soon as it's ready. The tool's own policy decides whether it keeps the data or uses it for AI training; Quill doesn't train on it.")
+            if showsMCPChangeNote {
+                Text("Until now AI tools could always connect; from this version the switch starts off. If you used Claude Code with Quill, turn it back on.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private struct ConnectionsSyncCard: View {
+    @ObservedObject var controller: NoteSyncController
+    @Binding var wantsICloudSync: Bool
+
+    var body: some View {
+        ConnectionsCard(
+            icon: "icloud",
+            title: "iCloud Sync",
+            isOn: controller.isEnabled ? .constant(true) : $wantsICloudSync,
+            isDisabled: controller.isEnabled
+        ) {
+            Text("Keeps your notes the same on your Macs with this iCloud account. Notes and audio are stored only in your private iCloud.")
+            Text("Calendar events matched to notes (title, times, attendee names and emails) are stored there too. Screenshots, window titles, selected text, and AI instructions aren't uploaded.")
+        }
+    }
+}
+
+private struct ConnectionsCard<Details: View>: View {
+    let icon: String
+    let title: LocalizedStringKey
+    @Binding var isOn: Bool
+    var isDisabled = false
+    @ViewBuilder let details: Details
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.title3)
+                    .foregroundStyle(.tint)
+                    .frame(width: 24)
+                    .accessibilityHidden(true)
+                Toggle(isOn: $isOn) {
+                    Text(title)
+                        .font(.headline)
+                }
+                .toggleStyle(.switch)
+                .disabled(isDisabled)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                details
+            }
+            .font(.caption)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.leading, 36)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .cornerRadius(12)
+    }
+}
+
+/// The one-time window existing users get after updating: only the two
+/// new switches, leaving their other settings and shortcuts as they are.
+struct NewSettingsView: View {
+    var onDone: @MainActor (_ wantsICloudSync: Bool) -> Void
+
+    @State private var wantsICloudSync = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 22) {
+                    VStack(spacing: 10) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 42, weight: .medium))
+                            .foregroundStyle(.tint)
+                            .accessibilityHidden(true)
+                        Text("New settings")
+                            .font(.system(size: 28, weight: .bold, design: .rounded))
+                            .accessibilityAddTraits(.isHeader)
+                        Text("From this version, these work only after you turn them on. Your other settings stay as they are.")
+                            .font(.callout)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    ConnectionsChoicesView(wantsICloudSync: $wantsICloudSync, showsMCPChangeNote: true)
+                }
+                .frame(maxWidth: 560)
+                .frame(maxWidth: .infinity)
+                .padding(32)
+            }
+
+            Divider()
+
+            HStack {
+                Text("You can change these later in Settings.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Done") {
+                    onDone(wantsICloudSync)
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 18)
+            .background(Color(nsColor: .windowBackgroundColor))
+        }
+        .frame(minWidth: 560, minHeight: 520)
+    }
+}

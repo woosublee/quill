@@ -12,12 +12,14 @@ struct SetupView: View {
         case welcome = 0
         case processing
         case permissions
+        case connections
         case shortcut
         case ready
     }
 
     @State private var currentStep = SetupStep.welcome
     @State private var processingLocation: SetupFlow.ProcessingLocation?
+    @State private var wantsICloudSync = false
     @State private var recordOnlyAudioSource: AudioRecordingSource?
     @State private var localModel = SetupFlow.LocalModel.default
     @State private var apiKeyInput = ""
@@ -188,6 +190,8 @@ struct SetupView: View {
             processingStep
         case .permissions:
             permissionsStep
+        case .connections:
+            connectionsStep
         case .shortcut:
             shortcutStep
         case .ready:
@@ -573,6 +577,17 @@ struct SetupView: View {
         }
     }
 
+    var connectionsStep: some View {
+        VStack(spacing: 24) {
+            stepHeader(
+                icon: "icloud",
+                title: "Connections and Sync",
+                description: "Both start off. You can turn them on later in Settings."
+            )
+            ConnectionsChoicesView(wantsICloudSync: $wantsICloudSync)
+        }
+    }
+
     var shortcutStep: some View {
         VStack(spacing: 24) {
             stepHeader(
@@ -898,6 +913,8 @@ struct SetupView: View {
             }
         case .permissions:
             return hasGrantedRequiredPermissions
+        case .connections:
+            return true
         }
     }
 
@@ -983,6 +1000,10 @@ struct SetupView: View {
                 appState.selectAudioSource(recordOnlyAudioSource)
             }
             SetupFlow.clearSavedProgress(in: .standard)
+            // Sync starts once setup is done; turning it on was the consent.
+            if wantsICloudSync, let controller = appState.noteSyncController {
+                Task { await controller.turnOn() }
+            }
             onComplete()
             return
         }

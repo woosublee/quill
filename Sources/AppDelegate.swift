@@ -9,6 +9,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var noteBrowserWindow: NSWindow?
     private var mcpServer: MCPServer?
     private var mcpServerSettingObserver: AnyCancellable?
+    private var newSettingsWindow: NSWindow?
     private var shouldRestoreAfterSetupWindowClose = false
 
     private func patchSettingsMenuItem() {
@@ -93,6 +94,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             showSetupWindow()
         } else {
             startPostSetupServices()
+            showNewSettingsIfNeeded()
         }
 
     }
@@ -342,10 +344,51 @@ private func showNoteBrowserWindow() {
 
     @MainActor
     func completeSetup() {
+        // Setup's own step already offered iCloud sync and AI tools.
+        UserDefaults.standard.set(true, forKey: ConnectionsChoices.seenStorageKey)
         appState.hasCompletedSetup = true
         setupWindow?.close()
         setupWindow = nil
         startPostSetupServices()
+    }
+
+    /// Existing users get the new iCloud sync and AI tools switches once,
+    /// in a small window of their own; nothing else about setup changes.
+    @MainActor
+    private func showNewSettingsIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: ConnectionsChoices.seenStorageKey),
+              newSettingsWindow == nil else { return }
+        let view = NewSettingsView(onDone: { [weak self] wantsICloudSync in
+            if wantsICloudSync, let controller = self?.appState.noteSyncController {
+                Task { await controller.turnOn() }
+            }
+            self?.newSettingsWindow?.close()
+        })
+        .environmentObject(appState)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 640),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = AppName.displayName
+        window.titlebarAppearsTransparent = true
+        window.contentView = NSHostingView(rootView: view)
+        window.minSize = NSSize(width: 560, height: 520)
+        window.isReleasedWhenClosed = false
+        window.center()
+        newSettingsWindow = window
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            // Closing it counts as seen too; it never comes back.
+            UserDefaults.standard.set(true, forKey: ConnectionsChoices.seenStorageKey)
+            self?.newSettingsWindow = nil
+        }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     /// Every service a normal relaunch starts once setup is already

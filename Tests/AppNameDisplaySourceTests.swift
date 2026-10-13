@@ -10,7 +10,7 @@ struct AppNameDisplaySourceTests {
 
         precondition(!appDelegate.contains(#"window.title = "Quill""#), "Note Browser title must follow the bundle name")
         precondition(
-            appDelegate.components(separatedBy: "window.title = AppName.displayName").count - 1 == 3,
+            appDelegate.components(separatedBy: "window.title = AppName.displayName").count - 1 == 4,
             "every app window uses the bundle name as its title"
         )
         precondition(!reminderOverlay.contains(#"Text(verbatim: "Quill")"#), "reminder overlay name must follow the bundle name")
