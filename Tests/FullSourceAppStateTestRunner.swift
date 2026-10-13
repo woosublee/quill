@@ -12,7 +12,6 @@ struct FullSourceAppStateTestRunner {
             return
         }
 
-        defer { AppStateDependencies.livePasteboard.releaseGlobally() }
         try await AppStateTestStorage.withIsolatedStorage { _ in
             try AppStateDependenciesTests.main()
             try await NoteAssetStoreTests.main()

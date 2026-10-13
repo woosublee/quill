@@ -28,10 +28,12 @@ struct AppStateDependenciesTests {
         let appState = try String(contentsOfFile: "Sources/AppState.swift", encoding: .utf8)
         precondition(!appState.contains("NSPasteboard.general"))
         precondition(!appState.contains("NSPasteboard = .general"))
-        precondition(
-            appState.components(separatedBy: ".post(tap: .cgSessionEventTap)").count - 1
-                == 2 * (appState.components(separatedBy: "guard dependencies.postsKeyEvents else { return }").count - 1)
-        )
+        for function in ["private func pasteAtCursor() {", "private func pressEnter() {"] {
+            guard let start = appState.range(of: function) else { preconditionFailure(function) }
+            let firstLine = appState[start.upperBound...].drop(while: \.isNewline).prefix(while: { !$0.isNewline })
+            precondition(firstLine.trimmingCharacters(in: .whitespaces) == "guard dependencies.postsKeyEvents else { return }")
+        }
+        precondition(appState.components(separatedBy: ".post(tap: .cgSessionEventTap)").count - 1 == 4)
     }
 
     private static func verifiesStorageLayoutPreservesCanonicalPaths() throws {
